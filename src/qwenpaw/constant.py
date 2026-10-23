@@ -141,9 +141,6 @@ SYNTHETIC_USER_MESSAGE_TAGS = frozenset(
         RUBRIC_EVALUATION_MESSAGE_TAG,
     },
 )
-# User-role messages that remain part of Agent context but are represented by
-# another durable user event in the Chat timeline.
-TIMELINE_HIDDEN_USER_MESSAGE_TAGS = SYNTHETIC_USER_MESSAGE_TAGS
 AUTO_MEMORY_SEARCH_TEXT = (
     "I'll check memory for relevant context before answering."
 )

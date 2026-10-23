@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Form, Input, InputNumber, Modal, Select } from "antd";
 import { useTranslation } from "react-i18next";
 import type {
@@ -50,10 +50,6 @@ export function RealtimeVoiceModelModal({
   const [modelId, setModelId] = useState(provider.realtime_models[0]?.id || "");
   const [saving, setSaving] = useState(false);
   const capability = provider.realtime_voice;
-  const selectedModel = useMemo(
-    () => provider.realtime_models.find((model) => model.id === modelId),
-    [modelId, provider.realtime_models],
-  );
 
   useEffect(() => {
     const next =
@@ -64,25 +60,25 @@ export function RealtimeVoiceModelModal({
     form.setFieldsValue(valuesFor(next));
   }, [form, modelId, provider.realtime_models]);
 
-  const save = async (values: FormValues) => {
-    if (!selectedModel) return;
+  const save = async ({
+    vad_mode,
+    vad_threshold,
+    vad_silence_duration_ms,
+    ...values
+  }: FormValues) => {
+    if (!provider.realtime_models.some((model) => model.id === modelId)) return;
     setSaving(true);
     try {
       await providerApi.configureRealtimeVoiceModel(provider.id, modelId, {
-        region: values.region,
-        realtime_model: values.realtime_model,
+        ...values,
         endpoint: values.endpoint?.trim() || null,
         voice: values.voice.trim(),
         language: values.language.trim(),
         vad: {
-          mode: values.vad_mode,
-          threshold: values.vad_threshold,
-          silence_duration_ms: values.vad_silence_duration_ms,
+          mode: vad_mode,
+          threshold: vad_threshold,
+          silence_duration_ms: vad_silence_duration_ms,
         },
-        presentation_capacity: values.presentation_capacity,
-        playback_timeout_seconds: values.playback_timeout_seconds,
-        max_history_turns: values.max_history_turns,
-        max_session_seconds: values.max_session_seconds,
       });
       message.success(t("realtimeVoice.saved"));
       await onSaved();

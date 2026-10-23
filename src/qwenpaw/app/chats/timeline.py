@@ -28,28 +28,27 @@ _PENDING_KEY = "pending"
 _NEXT_ORDER_KEY = "next_order"
 
 
-def _message_order(message: Msg) -> int | None:
-    metadata = message.metadata or {}
-    value = metadata.get(TIMELINE_ORDER_METADATA_KEY)
+def _positive_int(value: Any) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
     return None
 
 
+def _message_order(message: Msg) -> int | None:
+    return _positive_int(
+        (message.metadata or {}).get(TIMELINE_ORDER_METADATA_KEY)
+    )
+
+
 def _max_message_order(message: Msg) -> int:
     """Return the highest persisted message or content-block order."""
-    highest = _message_order(message) or 0
-    if isinstance(message.content, list):
-        for block in message.content:
-            metadata = reply_block_metadata(message, block)
-            value = metadata.get(TIMELINE_ORDER_METADATA_KEY)
-            if (
-                isinstance(value, int)
-                and not isinstance(value, bool)
-                and value > highest
-            ):
-                highest = value
-    return highest
+    blocks = message.content if isinstance(message.content, list) else []
+    orders = [
+        reply_block_metadata(message, block).get(TIMELINE_ORDER_METADATA_KEY)
+        for block in blocks
+    ]
+    orders.append(_message_order(message))
+    return max(_positive_int(order) or 0 for order in orders)
 
 
 def _runtime_message_order(message: Message) -> int | None:
@@ -58,9 +57,14 @@ def _runtime_message_order(message: Message) -> int | None:
     nested = metadata.get("metadata")
     if value is None and isinstance(nested, dict):
         value = nested.get(TIMELINE_ORDER_METADATA_KEY)
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return None
+    return _positive_int(value)
+
+
+def _journal(state: dict[str, Any]) -> dict[str, Any]:
+    timeline = state.get(_JOURNAL_KEY)
+    if not isinstance(timeline, dict):
+        timeline = state[_JOURNAL_KEY] = {}
+    return timeline
 
 
 def order_timeline_messages(messages: list[Message]) -> list[Message]:
@@ -169,14 +173,13 @@ def voice_exchange_messages(
             metadata={
                 **metadata,
                 QWENPAW_MESSAGE_TAG_KEY: EXTERNAL_USER_QUERY_MESSAGE_TAG,
-                **(
-                    {"query_target_input_ids": list(query_target_input_ids)}
-                    if query_target_input_ids
-                    else {}
-                ),
             },
         )
     ]
+    if query_target_input_ids:
+        messages[0].metadata["query_target_input_ids"] = list(
+            query_target_input_ids
+        )
     if assistant_text.strip():
         messages.append(
             Msg(
@@ -190,17 +193,11 @@ def voice_exchange_messages(
                         text=assistant_text.strip(),
                     ),
                 ],
-                metadata={
-                    **metadata,
-                    "responds_to_input_ids": [turn_id],
-                    **(
-                        {"voice_generation_status": generation_status}
-                        if generation_status
-                        else {}
-                    ),
-                },
+                metadata={**metadata, "responds_to_input_ids": [turn_id]},
             )
         )
+        if generation_status:
+            messages[1].metadata["voice_generation_status"] = generation_status
     return messages
 
 
@@ -250,10 +247,7 @@ class ChatTimelineJournal:
         """Atomically reserve the next Chat-wide monotonic timeline order."""
 
         def reserve(state: dict[str, Any]) -> int:
-            timeline = state.get(_JOURNAL_KEY)
-            if not isinstance(timeline, dict):
-                timeline = {}
-                state[_JOURNAL_KEY] = timeline
+            timeline = _journal(state)
             highest = 0
             raw_agent = state.get("agent", {}).get("state")
             if isinstance(raw_agent, dict):
@@ -264,28 +258,18 @@ class ChatTimelineJournal:
                         "Ignoring invalid Agent state while seeding timeline",
                     )
                 else:
-                    highest = (
-                        max(
-                            _max_message_order(item)
-                            for item in agent_state.context
-                        )
-                        if agent_state.context
-                        else 0
+                    highest = max(
+                        map(_max_message_order, agent_state.context),
+                        default=0,
                     )
-            pending = pending_timeline_messages(state)
-            if pending:
-                highest = max(
-                    highest,
-                    max((_message_order(item) or 0) for item in pending),
-                )
-            raw_next = timeline.get(_NEXT_ORDER_KEY)
-            next_order = (
-                raw_next
-                if isinstance(raw_next, int)
-                and not isinstance(raw_next, bool)
-                and raw_next > 0
-                else 1
+            highest = max(
+                [highest]
+                + [
+                    _message_order(item) or 0
+                    for item in pending_timeline_messages(state)
+                ]
             )
+            next_order = _positive_int(timeline.get(_NEXT_ORDER_KEY)) or 1
             order = max(next_order, highest + 1)
             timeline[_NEXT_ORDER_KEY] = order + 1
             return order
@@ -367,10 +351,7 @@ class ChatTimelineJournal:
         serialized = [message.model_dump(mode="json") for message in messages]
 
         def append(state: dict[str, Any]) -> None:
-            timeline = state.get(_JOURNAL_KEY)
-            if not isinstance(timeline, dict):
-                timeline = {}
-                state[_JOURNAL_KEY] = timeline
+            timeline = _journal(state)
             pending = timeline.get(_PENDING_KEY)
             if not isinstance(pending, list):
                 pending = []
@@ -399,8 +380,8 @@ class ChatTimelineJournal:
 
             def merge(state: dict[str, Any]) -> int:
                 pending = pending_timeline_messages(state)
+                timeline = state.get(_JOURNAL_KEY)
                 if not pending:
-                    timeline = state.get(_JOURNAL_KEY)
                     if isinstance(timeline, dict):
                         timeline.pop(_PENDING_KEY, None)
                     return 0
@@ -424,7 +405,6 @@ class ChatTimelineJournal:
                     pending,
                 )
                 agent["state"] = agent_state.model_dump(mode="json")
-                timeline = state.get(_JOURNAL_KEY)
                 if isinstance(timeline, dict):
                     timeline.pop(_PENDING_KEY, None)
                 return len(agent_state.context) - before

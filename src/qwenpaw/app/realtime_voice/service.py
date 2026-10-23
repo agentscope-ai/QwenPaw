@@ -14,7 +14,6 @@ from ...config.config import ModelSlotConfig
 from ...providers.realtime_voice import (
     EffectiveRealtimeVoiceConfig,
     MediaConfig,
-    RealtimeProviderSession,
 )
 from ..chats.models import ChatSpec, SessionSource, is_realtime_voice_chat
 from ..chats.timeline import ChatTimelineJournal
@@ -32,6 +31,14 @@ from .task_bridge import VoiceTaskBridge
 _LOCAL_PRINCIPAL = "local-single-user"
 
 
+def _session_closed() -> RealtimeVoiceServiceError:
+    return RealtimeVoiceServiceError(
+        "session_closed",
+        "This Voice session has ended.",
+        409,
+    )
+
+
 @dataclass
 class LiveVoiceSession:
     session_id: str
@@ -45,10 +52,6 @@ class LiveVoiceSession:
     workspace: Any = field(repr=False)
     bootstrap_expires_at: datetime
     connected: bool = False
-    provider_session: RealtimeProviderSession | None = field(
-        default=None,
-        repr=False,
-    )
     coordinator: VoiceCoordinator | None = field(default=None, repr=False)
     start_task: asyncio.Task[None] | None = field(default=None, repr=False)
     close_task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -82,15 +85,15 @@ class RealtimeVoiceService:
         self._bridges: dict[str, VoiceTaskBridge] = {}
         self._lock = asyncio.Lock()
 
-    def resolve_config(
-        self,
-        workspace: Any,
-    ) -> EffectiveRealtimeVoiceConfig:
-        """Resolve the Agent's active native voice model."""
-        slot: ModelSlotConfig | None = (
+    def _active_slot(self, workspace: Any) -> ModelSlotConfig | None:
+        return (
             getattr(workspace.config, "active_realtime_model", None)
             or self._provider_manager.get_active_realtime_model()
         )
+
+    def resolve_config(self, workspace: Any) -> EffectiveRealtimeVoiceConfig:
+        """Resolve the Agent's active native voice model."""
+        slot = self._active_slot(workspace)
         if slot is None:
             raise RealtimeVoiceServiceError(
                 "model_unconfigured",
@@ -98,12 +101,12 @@ class RealtimeVoiceService:
                 409,
             )
         try:
-            resolved = self._provider_manager.resolve_realtime_voice_config(slot)
+            resolved = self._provider_manager.resolve_realtime_voice_config(
+                slot
+            )
         except (ValueError, TypeError, AttributeError) as exc:
             raise RealtimeVoiceServiceError(
-                "model_unavailable",
-                str(exc),
-                409,
+                "model_unavailable", str(exc), 409
             ) from exc
         registration = self._provider_manager.get_realtime_voice_registration(
             resolved.provider_id,
@@ -125,23 +128,23 @@ class RealtimeVoiceService:
         try:
             resolved = self.resolve_config(workspace)
             effective_model = resolved.model_dump()
-            slot = (
-                getattr(workspace.config, "active_realtime_model", None)
-                or self._provider_manager.get_active_realtime_model()
-            )
+            slot = self._active_slot(workspace)
             active_model = slot.model_dump() if slot is not None else None
             provider = self._provider_manager.get_provider(
-                resolved.provider_id,
+                resolved.provider_id
             )
             credential_configured = bool(
-                provider and str(getattr(provider, "api_key", "") or "").strip()
+                provider
+                and str(getattr(provider, "api_key", "") or "").strip()
             )
         except RealtimeVoiceServiceError as exc:
             error = {"code": exc.code, "message": exc.message}
         return {
             "protocol_version": PROTOCOL_VERSION,
             "agent_id": workspace.agent_id,
-            "providers": (self._provider_manager.list_realtime_voice_capabilities()),
+            "providers": (
+                self._provider_manager.list_realtime_voice_capabilities()
+            ),
             "active_model": active_model,
             "effective_model": effective_model,
             "credential_configured": credential_configured,
@@ -152,9 +155,18 @@ class RealtimeVoiceService:
     def _token_digest(token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
+    def _revoke_grants(self, session_id: str) -> None:
+        self._grants = {
+            digest: grant
+            for digest, grant in self._grants.items()
+            if grant.session_id != session_id
+        }
+
     def _drop_expired_bootstraps(self, now: datetime) -> None:
         expired = [
-            digest for digest, grant in self._grants.items() if grant.expires_at <= now
+            digest
+            for digest, grant in self._grants.items()
+            if grant.expires_at <= now
         ]
         for digest in expired:
             grant = self._grants.pop(digest)
@@ -262,7 +274,7 @@ class RealtimeVoiceService:
 
             effective = self.resolve_config(workspace)
             provider = self._provider_manager.get_provider(
-                effective.provider_id,
+                effective.provider_id
             )
             api_key = str(getattr(provider, "api_key", "") or "").strip()
             if not api_key:
@@ -272,15 +284,12 @@ class RealtimeVoiceService:
                     "it in Models settings.",
                     409,
                 )
-            registration = self._provider_manager.get_realtime_voice_registration(
-                effective.provider_id,
-            )
-            if registration is None:
-                raise RealtimeVoiceServiceError(
-                    "provider_unavailable",
-                    "The selected voice provider is unavailable.",
-                    409,
+            # resolve_config() already verified the registration exists.
+            registration = (
+                self._provider_manager.get_realtime_voice_registration(
+                    effective.provider_id,
                 )
+            )
             chat = await self._resolve_chat(
                 workspace,
                 principal,
@@ -290,11 +299,7 @@ class RealtimeVoiceService:
             if existing is not None:
                 displaced = existing
                 self._leases.pop(principal, None)
-                self._grants = {
-                    digest: grant
-                    for digest, grant in self._grants.items()
-                    if grant.session_id != existing.session_id
-                }
+                self._revoke_grants(existing.session_id)
             generation_key = (principal, chat.id)
             generation = self._generations.get(generation_key, 0) + 1
             self._generations[generation_key] = generation
@@ -360,7 +365,7 @@ class RealtimeVoiceService:
                 or grant.chat_id != live.chat.id
                 or grant.generation != live.generation
                 or live.connected
-                or getattr(live, "close_task", None) is not None
+                or live.close_task is not None
             ):
                 raise RealtimeVoiceServiceError(
                     "invalid_token",
@@ -386,8 +391,6 @@ class RealtimeVoiceService:
             )
         provider_session = registration.factory(live.config, live.api_key)
         presentation_session = registration.factory(live.config, live.api_key)
-        timeline = ChatTimelineJournal(live.workspace, live.chat)
-
         bridge = self._bridges.get(live.chat.id)
         if bridge is None:
             bridge = VoiceTaskBridge(live.workspace, live.chat)
@@ -395,7 +398,7 @@ class RealtimeVoiceService:
         coordinator = VoiceCoordinator(
             provider_session,
             bridge,
-            timeline,
+            ChatTimelineJournal(live.workspace, live.chat),
             presentation_provider=presentation_session,
             language=live.config.language,
             presentation_capacity=live.config.presentation_capacity,
@@ -406,32 +409,19 @@ class RealtimeVoiceService:
             async with self._lock:
                 if (
                     self._sessions.get(live.session_id) is not live
-                    or getattr(live, "close_task", None) is not None
+                    or live.close_task is not None
                 ):
-                    raise RealtimeVoiceServiceError(
-                        "session_closed",
-                        "This Voice session has ended.",
-                        409,
-                    )
-                live.provider_session = provider_session
+                    raise _session_closed()
                 live.coordinator = coordinator
                 live.start_task = asyncio.create_task(coordinator.start())
             await live.start_task
-            if getattr(live, "close_task", None) is not None:
-                raise RealtimeVoiceServiceError(
-                    "session_closed",
-                    "This Voice session has ended.",
-                    409,
-                )
+            if live.close_task is not None:
+                raise _session_closed()
         except asyncio.CancelledError:
-            closing = getattr(live, "close_task", None) is not None
+            closing = live.close_task is not None
             await self.end_session(live)
             if closing:
-                raise RealtimeVoiceServiceError(
-                    "session_closed",
-                    "This Voice session has ended.",
-                    409,
-                ) from None
+                raise _session_closed() from None
             raise
         except BaseException:
             if live.coordinator is coordinator:
@@ -461,39 +451,31 @@ class RealtimeVoiceService:
         await self.end_session(live)
 
     async def _close_live(self, live: LiveVoiceSession) -> None:
-        starting = getattr(live, "start_task", None)
+        starting = live.start_task
         if starting is not None and not starting.done():
             starting.cancel()
             await asyncio.gather(starting, return_exceptions=True)
         if live.coordinator is not None:
             await live.coordinator.close()
             live.coordinator = None
-            live.provider_session = None
-        elif live.provider_session is not None:
-            await live.provider_session.close()
-            live.provider_session = None
 
     async def end_session(self, live: LiveVoiceSession) -> None:
-        """All callers await the same durable close of this exact generation."""
+        """All callers await the same durable close of this generation."""
         async with self._lock:
-            if getattr(live, "close_task", None) is None:
-                self._grants = {
-                    digest: grant
-                    for digest, grant in self._grants.items()
-                    if grant.session_id != live.session_id
-                }
-                live.close_task = asyncio.create_task(self._finish_session(live))
+            if live.close_task is None:
+                self._revoke_grants(live.session_id)
+                live.close_task = asyncio.create_task(
+                    self._finish_session(live)
+                )
             closing = live.close_task
         await asyncio.shield(closing)
 
     async def _finish_session(self, live: LiveVoiceSession) -> None:
-        # Retain the record until saving succeeds so concurrent DELETE calls
-        # cannot report success early. A failed close stays observable.
+        # Keep the session record until saving succeeds so a failed close stays
+        # visible to DELETE, but always release the user's single live lease.
         try:
             await self._close_live(live)
         finally:
-            # A failed save remains visible to DELETE, but must not hold the
-            # user's single live-voice lease after its providers are closed.
             async with self._lock:
                 if self._leases.get(live.principal) is live:
                     self._leases.pop(live.principal, None)

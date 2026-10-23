@@ -72,9 +72,10 @@ class Runtime:
         if reply_cycle_context is not None:
             input_metadata = reply_cycle_context.snapshot.metadata()
             for message in ctx.input_msgs:
-                metadata = dict(getattr(message, "metadata", None) or {})
-                metadata.update(input_metadata)
-                message.metadata = metadata
+                message.metadata = {
+                    **(getattr(message, "metadata", None) or {}),
+                    **input_metadata,
+                }
         ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
 
@@ -281,9 +282,8 @@ class Runtime:
         is wrapped in ``asyncio.shield`` so it completes even when the
         outer task's ``_must_cancel`` flag triggers a re-cancellation on
         the next ``await``. The actual write is joined before returning;
-        the ``proxy`` owns an
-        independent copy of the data so ``agent.close()`` in the
-        ``finally`` block cannot corrupt it.
+        the ``proxy`` owns an independent copy of the data so
+        ``agent.close()`` in the ``finally`` block cannot corrupt it.
 
         .. note:: Why hardcoded instead of a hook?
 

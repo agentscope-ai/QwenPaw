@@ -347,10 +347,7 @@ class AgentBuilder:
         request_context.pop("_session_save_result", None)
         request_context.pop("_internal_result", None)
         run_input_mailbox = request_context.pop("_run_input_mailbox", None)
-        reply_cycle_context = request_context.pop(
-            "_reply_cycle_context",
-            None,
-        )
+        reply_cycle_context = request_context.pop("_reply_cycle_context", None)
         agent_config = self._apply_request_project(
             agent_config,
             request_context,

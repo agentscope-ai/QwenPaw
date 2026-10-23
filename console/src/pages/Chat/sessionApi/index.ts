@@ -183,9 +183,7 @@ function stableBackendMessageId(msg: Message, historyIndex: number): string {
   const clientMessageId = extractClientMessageId(msg.metadata);
   if (clientMessageId) return clientMessageId;
   const originalId = metadata.original_id;
-  if (typeof originalId === "string" && originalId) {
-    return originalId;
-  }
+  if (typeof originalId === "string" && originalId) return originalId;
   if (typeof msg.id === "string" && msg.id) return msg.id;
   const callId = msg.call_id;
   if (typeof callId === "string" && callId) {
@@ -473,9 +471,7 @@ export const convertMessages = (
 
   messages.forEach((message, historyIndex) => {
     if (message.role === ROLE_USER) {
-      const aliases = new Set<string>();
-      const stableId = stableBackendMessageId(message, historyIndex);
-      if (stableId) aliases.add(stableId);
+      const aliases = new Set([stableBackendMessageId(message, historyIndex)]);
       if (typeof message.id === "string" && message.id) aliases.add(message.id);
       const metadata = message.metadata as Record<string, unknown> | undefined;
       if (typeof metadata?.original_id === "string" && metadata.original_id) {
@@ -569,9 +565,7 @@ export const convertMessages = (
     }
 
     const semanticKey = effectiveSemanticGroupId(message);
-    if (semanticKey && ownedSemanticKeys.has(semanticKey)) {
-      return;
-    }
+    if (semanticKey && ownedSemanticKeys.has(semanticKey)) return;
 
     const callId = toolCallId(message);
     if (TOOL_RESULT_TYPES.has(String(message.type || "")) && callId) {
@@ -2126,7 +2120,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   async updateSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
     // Strip messages before merging to avoid storing large data in the
-    // session list. Use destructuring instead of mutating the input object
+    // session list. Copy instead of mutating the input object
     // — the library may pass its own internal session reference, and
     // mutating session.messages would corrupt its React state.
     const metadata = { ...session };

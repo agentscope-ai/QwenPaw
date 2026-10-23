@@ -325,33 +325,6 @@ async def test_attach_or_start_existing_run_returns_buffer_replay():
 
 
 @pytest.mark.asyncio
-async def test_attach_live_does_not_replay_prior_output():
-    tracker = TaskTracker()
-    started = asyncio.Event()
-    release = asyncio.Event()
-
-    async def stream(_payload):
-        yield "data: old\n\n"
-        started.set()
-        await release.wait()
-        yield "data: new\n\n"
-
-    original, _ = await tracker.attach_or_start("live", None, stream)
-    await asyncio.wait_for(started.wait(), timeout=1)
-    await asyncio.sleep(0)
-    live = await tracker.attach_live("live")
-    assert live is not None and live.empty()
-
-    release.set()
-    assert await _drain(live, 2) == ["data: new\n\n", None]
-    assert await _drain(original, 3) == [
-        "data: old\n\n",
-        "data: new\n\n",
-        None,
-    ]
-
-
-@pytest.mark.asyncio
 async def test_named_live_subscriber_is_unique_per_run():
     tracker = TaskTracker()
     started = asyncio.Event()
@@ -365,14 +338,18 @@ async def test_named_live_subscriber_is_unique_per_run():
     original, _ = await tracker.attach_or_start("named", None, stream)
     await asyncio.wait_for(started.wait(), timeout=1)
 
-    first = await tracker.attach_live_once("named", "voice-projection")
-    second = await tracker.attach_live_once("named", "voice-projection")
+    first, _ = await tracker.attach_live_once_with_identity(
+        "named", "voice-projection"
+    )
+    second = await tracker.attach_live_once_with_identity(
+        "named", "voice-projection"
+    )
 
     assert first is not None
     assert second is None
 
     await tracker.detach_subscriber("named", first)
-    replacement = await tracker.attach_live_once(
+    replacement, _ = await tracker.attach_live_once_with_identity(
         "named",
         "voice-projection",
     )

@@ -1,6 +1,6 @@
 export const REALTIME_VOICE_PROTOCOL_VERSION = 2;
 export const AUDIO_FRAME_HEADER_BYTES = 18;
-export const MAX_AUDIO_PAYLOAD_BYTES = 256 * 1024;
+const MAX_AUDIO_PAYLOAD_BYTES = 256 * 1024;
 
 const MAGIC_0 = "Q".charCodeAt(0);
 const MAGIC_1 = "V".charCodeAt(0);
@@ -13,7 +13,7 @@ export const AudioFrameKind = {
 export type AudioFrameKind =
   (typeof AudioFrameKind)[keyof typeof AudioFrameKind];
 
-export interface DecodedAudioFrame {
+interface DecodedAudioFrame {
   kind: AudioFrameKind;
   sequence: number;
   sampleRate: number;
@@ -24,19 +24,13 @@ export interface DecodedAudioFrame {
 export interface RealtimeVoiceEvent {
   type: string;
   generation?: number;
-  event_id?: string;
-  input_id?: string;
   run_id?: string;
   status?: string;
-  input_ids?: string[];
-  revision?: number;
   text?: string;
   code?: string;
   message?: string;
   recoverable?: boolean;
   reason?: string;
-  correlation_id?: string;
-  response_origin?: "provider_auto" | "application";
   [key: string]: unknown;
 }
 

@@ -33,37 +33,28 @@ class ChatReply:
         return self.text, self.media_refs, self.reply_error
 
     def public_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "id": self.identity,
             "input_ids": list(self.input_ids),
             "phase": self.phase,
             "text": self.text,
             "persisted": self.persisted,
-            **(
-                {
-                    "error": {
-                        "code": self.reply_error,
-                        "stage": (
-                            "answer_generation"
-                            if self.reply_error == "empty_response"
-                            else "unknown"
-                        ),
-                    }
-                }
-                if self.reply_error
-                else {}
-            ),
-            **(
-                {
-                    "attachments": [
-                        {"media_type": kind, "url": url}
-                        for kind, url in self.media_refs
-                    ]
-                }
-                if self.media_refs
-                else {}
-            ),
         }
+        if self.reply_error:
+            data["error"] = {
+                "code": self.reply_error,
+                "stage": (
+                    "answer_generation"
+                    if self.reply_error == "empty_response"
+                    else "unknown"
+                ),
+            }
+        if self.media_refs:
+            data["attachments"] = [
+                {"media_type": kind, "url": url}
+                for kind, url in self.media_refs
+            ]
+        return data
 
 
 def project_replies(
@@ -101,6 +92,7 @@ def _project_block(
             else ""
         )
         media = ((block.media_type, url),)
+    reply_error = meta.get("reply_error", "")
     return ChatReply(
         message.id,
         block.id,
@@ -113,9 +105,7 @@ def _project_block(
         else "",
         persisted,
         media,
-        meta.get("reply_error", "")
-        if isinstance(meta.get("reply_error", ""), str)
-        else "",
+        reply_error if isinstance(reply_error, str) else "",
     )
 
 

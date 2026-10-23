@@ -132,6 +132,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     if (!control.bannerVisible) return "";
     return `${bannerStyles.show}`;
   }, [control.bannerVisible]);
+
   const hasKillCountdown = control.killRemaining !== null;
   const staticMetadata = useMemo(() => {
     if (!content.params || Object.keys(content.params).length === 0)

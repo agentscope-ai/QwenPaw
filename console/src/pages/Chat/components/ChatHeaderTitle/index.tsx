@@ -47,17 +47,16 @@ const ChatHeaderTitle: React.FC = () => {
   const { codingMode } = useCodingMode();
   // The route is the display source of truth. ChatPage writes the SDK
   // selection from the route in an effect, so it lags by at least one render.
-  const routeChatId = currentSessionId;
-  const currentSession = routeChatId
+  const currentSession = currentSessionId
     ? (sessions as ExtendedSession[]).find(
         (s) =>
-          s.id === routeChatId ||
-          s.realId === routeChatId ||
-          s.sessionId === routeChatId,
+          s.id === currentSessionId ||
+          s.realId === currentSessionId ||
+          s.sessionId === currentSessionId,
       )
     : undefined;
   const chatName =
-    !currentSession && routeChatId
+    !currentSession && currentSessionId
       ? t("common.loading")
       : currentSession?.name || "New Chat";
 

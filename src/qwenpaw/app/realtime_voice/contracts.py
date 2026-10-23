@@ -1,9 +1,6 @@
-"""Application-layer contracts for realtime voice sessions and coordination.
+"""App-layer contracts: renderer protocol, session bootstrap and task state.
 
-These types model the renderer protocol, session bootstrap, admission and
-task-state that the application owns. They build on the provider-layer
-contracts in ``qwenpaw.providers.realtime_voice.contracts`` (same file name,
-different layer) — this module is the one the app code should import.
+Builds on the provider-layer ``qwenpaw.providers.realtime_voice.contracts``.
 """
 
 from __future__ import annotations
@@ -150,6 +147,20 @@ class VoiceTaskReceipt:
     status: VoiceTaskStatus
     message: str = ""
     input_id: str = ""
+
+    @classmethod
+    def rejected(
+        cls,
+        status: VoiceTaskStatus,
+        message: str,
+    ) -> VoiceTaskReceipt:
+        return cls(
+            task_id="",
+            task_ref="",
+            accepted=False,
+            status=status,
+            message=message,
+        )
 
     def public_dict(self) -> dict[str, Any]:
         return {

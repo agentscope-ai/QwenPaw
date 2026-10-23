@@ -475,6 +475,13 @@ async def _stop_cancelled_agent_chat(
         )
 
 
+def _current_result_route() -> Any:
+    from ...tool_calls._ctxvars import get_call_context
+
+    context = get_call_context()
+    return context.result_route if context is not None else None
+
+
 def submit_agent_chat_task(
     base_url: Optional[str],
     request_payload: Dict[str, Any],
@@ -486,10 +493,7 @@ def submit_agent_chat_task(
     payload = dict(request_payload)
     if task_timeout is not None:
         payload["timeout"] = task_timeout
-    from ...tool_calls._ctxvars import get_call_context
-
-    context = get_call_context()
-    route = context.result_route if context is not None else None
+    route = _current_result_route()
     # Explicit remote endpoints retain the existing polling API; an in-process
     # capability must not be sent to another QwenPaw server.
     if route is not None and base_url is None:
@@ -906,14 +910,10 @@ async def check_agent_task(
         timeout=10,
     )
     if isinstance(result, dict) and result.get("status") == "finished":
-        from ...tool_calls._ctxvars import get_call_context
-
-        context = get_call_context()
-        route = context.result_route if context else None
+        route = _current_result_route()
         if route is not None:
             route.record_polled_result(normalized_task_id)
-    # Background fork workers: commit on success, mark failed otherwise.
-    if isinstance(result, dict) and result.get("status") == "finished":
+        # Background fork workers: commit on success, mark failed otherwise.
         task_result = result.get("result")
         if isinstance(task_result, dict):
             try:

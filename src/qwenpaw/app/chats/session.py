@@ -99,6 +99,21 @@ def _read_session_json(path: str) -> dict:
     return _safe_json_loads(content, path)
 
 
+async def _mutate_session_file(
+    path: str,
+    mutator: Callable[[dict[str, Any]], _T],
+) -> _T:
+    """Read, mutate and atomically replace one session file under its lock."""
+    async with get_path_lock(path):
+        try:
+            states = await run_sync_io(_read_session_json, path)
+        except FileNotFoundError:
+            states = {}
+        result = mutator(states)
+        await write_json_atomic_async(path, states, indent=None)
+    return result
+
+
 def migrate_legacy_weixin_session_files(save_dir: str) -> None:
     """Rename legacy ``weixin--`` session files to the ``wechat--`` form.
 
@@ -295,20 +310,10 @@ class SafeJSONSession:
             user_id,
             channel,
         )
-        async with get_path_lock(session_save_path):
-            try:
-                states = await run_sync_io(
-                    _read_session_json,
-                    session_save_path,
-                )
-            except FileNotFoundError:
-                states = {}
-            states.update(state_dicts)
-            await write_json_atomic_async(
-                session_save_path,
-                states,
-                indent=None,
-            )
+        await _mutate_session_file(
+            session_save_path,
+            lambda states: states.update(state_dicts),
+        )
 
         logger.info(
             "Saved session state to %s successfully.",
@@ -436,21 +441,7 @@ class SafeJSONSession:
             user_id,
             channel,
         )
-        async with get_path_lock(session_save_path):
-            try:
-                states = await run_sync_io(
-                    _read_session_json,
-                    session_save_path,
-                )
-            except FileNotFoundError:
-                states = {}
-            result = mutator(states)
-            await write_json_atomic_async(
-                session_save_path,
-                states,
-                indent=None,
-            )
-        return result
+        return await _mutate_session_file(session_save_path, mutator)
 
     async def get_session_state_dict(
         self,

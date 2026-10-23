@@ -47,8 +47,6 @@ function voiceState(status: RealtimeVoiceStatus): RealtimeVoiceController {
     capabilities,
     readyToStart: true,
     status,
-    connectionState:
-      status === "idle" ? "idle" : status === "error" ? "error" : "ready",
     inputState: status === "user_speaking" ? "speaking" : "listening",
     agentState: status === "agent_working" ? "working" : "idle",
     outputState: status === "assistant_speaking" ? "speaking" : "idle",

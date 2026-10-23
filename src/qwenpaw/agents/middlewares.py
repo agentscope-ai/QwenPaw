@@ -184,12 +184,13 @@ class ReasoningBoundaryMiddleware(MiddlewareBase):
                 self._normalize_complete(response)
             else:
                 self._normalize_response(response, state)
+                self._drop_empty_text(response)
             yield response
 
     @classmethod
     def _normalize_complete(cls, response: ChatResponse) -> None:
         state = _ReasoningBoundaryState()
-        cls._normalize_response(response, state, drop_empty=False)
+        cls._normalize_response(response, state)
         pending, block_id = state.finish()
         if pending:
             for block in reversed(response.content):
@@ -198,30 +199,26 @@ class ReasoningBoundaryMiddleware(MiddlewareBase):
                 ):
                     block.text += pending
                     break
-        response.content = [
-            block
-            for block in response.content
-            if not isinstance(block, TextBlock) or block.text
-        ]
+        cls._drop_empty_text(response)
 
     @staticmethod
     def _normalize_response(
         response: ChatResponse,
         state: _ReasoningBoundaryState,
-        *,
-        drop_empty: bool = True,
     ) -> None:
         for block in response.content:
             if isinstance(block, ThinkingBlock):
                 state.observe_thinking()
             elif isinstance(block, TextBlock):
                 block.text = state.feed(block.text, block.id)
-        if drop_empty:
-            response.content = [
-                block
-                for block in response.content
-                if not isinstance(block, TextBlock) or block.text
-            ]
+
+    @staticmethod
+    def _drop_empty_text(response: ChatResponse) -> None:
+        response.content = [
+            block
+            for block in response.content
+            if not isinstance(block, TextBlock) or block.text
+        ]
 
 
 class MemoryMiddleware(MiddlewareBase):

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 _tickets: dict[str, tuple["BackgroundWork", str]] = {}
 _MAX_PENDING = 128
 _MAX_FINISHED = 256
+_SETTLED = frozenset({"delivered", "cancelled"})
 
 
 @dataclass
@@ -42,6 +43,10 @@ class BackgroundWork:
     consumer_run: str = ""
     cancel: Callable[[], Any] | None = None
     submit_task: asyncio.Task | None = None
+
+    @property
+    def settled(self) -> bool:
+        return self.delivery in _SETTLED
 
     def complete(self, status: str, message: Msg) -> None:
         if self.status != "running" or self.delivery == "cancelled":
@@ -79,10 +84,7 @@ class CallResultRoute:
     def record_polled_result(self, task_id: str) -> None:
         """The current tool returned this work's actual terminal result."""
         for work in self.owner.works.values():
-            if work.task_id == task_id and work.delivery not in {
-                "cancelled",
-                "delivered",
-            }:
+            if work.task_id == task_id and not work.settled:
                 self.reported_results.add(work.work_id)
 
     def register(self) -> BackgroundWork:
@@ -156,13 +158,7 @@ class ChatBackgroundResults:
         if self.closed:
             raise RuntimeError("The originating Chat was closed")
         self._prune()
-        if (
-            sum(
-                w.delivery not in {"delivered", "cancelled"}
-                for w in self.works.values()
-            )
-            >= _MAX_PENDING
-        ):
+        if sum(not w.settled for w in self.works.values()) >= _MAX_PENDING:
             raise OverflowError("Too many outstanding background results")
         ids = snapshot.responds_to_input_ids
         if self.cancelled_inputs.intersection(ids):
@@ -173,8 +169,7 @@ class ChatBackgroundResults:
 
     def pending(self, input_id: str) -> bool:
         return any(
-            input_id in w.input_ids
-            and w.delivery not in {"delivered", "cancelled"}
+            input_id in w.input_ids and not w.settled
             for w in self.works.values()
         )
 
@@ -196,23 +191,22 @@ class ChatBackgroundResults:
     async def _deliver(self, work: BackgroundWork) -> None:
         try:
             await self.tracker.submit_result(self.chat_id, work)
-        except asyncio.CancelledError:
-            raise
         except Exception as exc:
             work.delivery, work.error = "failed", str(exc)
             logger.exception(
                 "Background result delivery failed: %s", work.work_id
             )
 
-    def observed(self, work_id: str, run_id: str) -> None:
+    def _mark(self, work_id: str, run_id: str, delivery: str) -> None:
         work = self.works[work_id]
         if work.delivery != "cancelled":
-            work.delivery, work.consumer_run = "observed", run_id
+            work.delivery, work.consumer_run = delivery, run_id
+
+    def observed(self, work_id: str, run_id: str) -> None:
+        self._mark(work_id, run_id, "observed")
 
     def replied(self, work_id: str, run_id: str) -> None:
-        work = self.works[work_id]
-        if work.delivery != "cancelled":
-            work.delivery, work.consumer_run = "replied", run_id
+        self._mark(work_id, run_id, "replied")
 
     def finish_run(self, run_id: str, persistence: str, error: str) -> None:
         self.source_saves[run_id] = persistence
@@ -245,9 +239,9 @@ class ChatBackgroundResults:
     def cancel_inputs(self, input_ids: tuple[str, ...]) -> None:
         self.cancelled_inputs.update(input_ids)
         for work in self.works.values():
-            if set(work.input_ids).intersection(
+            if not work.settled and set(work.input_ids).intersection(
                 input_ids
-            ) and work.delivery not in {"delivered", "cancelled"}:
+            ):
                 work.delivery = "cancelled"
                 if work.cancel is not None:
                     work.cancel()
@@ -268,11 +262,7 @@ class ChatBackgroundResults:
         )
 
     def _prune(self) -> None:
-        finished = [
-            key
-            for key, w in self.works.items()
-            if w.delivery in {"delivered", "cancelled"}
-        ]
+        finished = [key for key, w in self.works.items() if w.settled]
         for key in finished[:-_MAX_FINISHED]:
             self.works.pop(key, None)
 

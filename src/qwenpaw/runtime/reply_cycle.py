@@ -74,9 +74,13 @@ def reply_item_id(block_type: str, block_id: str, run_id: str = "") -> str:
     return f"msg_{run_id}:{kind}:{block_id}"
 
 
+def _block_id(block: Any) -> str:
+    return block if isinstance(block, str) else getattr(block, "id", "")
+
+
 def reply_block_metadata(message: Any, block: Any) -> dict[str, Any]:
     """Return reply ownership for one content block on its owning message."""
-    block_id = block if isinstance(block, str) else getattr(block, "id", "")
+    block_id = _block_id(block)
     metadata = getattr(message, "metadata", None)
     if not block_id or not isinstance(metadata, dict):
         return {}
@@ -93,7 +97,7 @@ def set_reply_block_metadata(
     metadata: dict[str, Any],
 ) -> None:
     """Persist one block's reply ownership inside official Msg metadata."""
-    block_id = block if isinstance(block, str) else getattr(block, "id", "")
+    block_id = _block_id(block)
     if not block_id:
         raise ValueError("reply content block id is required")
     message_metadata = getattr(message, "metadata", None)
@@ -206,6 +210,11 @@ class ReplyCycleContext:
             ReplyCycleSnapshot | ReplyOccurrenceSnapshot,
         ] = {}
 
+    def _is_pending(self, input_id: str) -> bool:
+        return self._has_pending_work is not None and self._has_pending_work(
+            input_id
+        )
+
     @property
     def snapshot(self) -> ReplyCycleSnapshot:
         """Return the active immutable snapshot."""
@@ -258,9 +267,7 @@ class ReplyCycleContext:
         pending = tuple(
             i
             for i in self._active_inputs
-            if status in {"completed", "failed"}
-            and self._has_pending_work is not None
-            and self._has_pending_work(i)
+            if status in {"completed", "failed"} and self._is_pending(i)
         )
         self._set_input_state(pending, "waiting")
         self._set_input_state(
@@ -281,35 +288,21 @@ class ReplyCycleContext:
             input_id, run_id = item.get("input_id"), item.get("run_id")
             if not input_id or not run_id or input_id in self._input_states:
                 continue
+            status: InputStatus
             if (
                 self._is_input_cancelled is not None
                 and self._is_input_cancelled(input_id)
             ):
-                self._input_states[input_id] = "cancelled"
-                if self._on_input_state is not None:
-                    self._on_input_state(
-                        InputStateEvent(
-                            self.run_id, (input_id,), "cancelled", run_id
-                        )
-                    )
-                continue
-            pending = (
-                self._has_pending_work is not None
-                and self._has_pending_work(input_id)
-            )
-            self._input_states[input_id] = (
-                "waiting" if pending else "processing"
-            )
-            if not pending:
+                status = "cancelled"
+            elif self._is_pending(input_id):
+                status = "waiting"
+            else:
+                status = "processing"
                 self._active_inputs[input_id] = None
+            self._input_states[input_id] = status
             if self._on_input_state is not None:
                 self._on_input_state(
-                    InputStateEvent(
-                        self.run_id,
-                        (input_id,),
-                        self._input_states[input_id],
-                        run_id,
-                    )
+                    InputStateEvent(self.run_id, (input_id,), status, run_id)
                 )
 
     def pending_input_ids(self) -> tuple[str, ...]:
@@ -331,9 +324,9 @@ class ReplyCycleContext:
 
     def finish_run(self, status: str) -> None:
         # EOF is not a successful reply. External-tool waits remain resumable.
-        if status != "cancelled" and self._has_pending_work is not None:
+        if status != "cancelled":
             self._set_input_state(
-                (i for i in self._input_states if self._has_pending_work(i)),
+                (i for i in self._input_states if self._is_pending(i)),
                 "waiting",
             )
         unresolved = tuple(
@@ -343,8 +336,7 @@ class ReplyCycleContext:
             and not (
                 status != "cancelled"
                 and state == "waiting"
-                and self._has_pending_work is not None
-                and self._has_pending_work(value)
+                and self._is_pending(value)
             )
         )
         self._set_input_state(
@@ -386,36 +378,43 @@ class ReplyCycleContext:
         self,
     ) -> ReplyCycleSnapshot | ReplyOccurrenceSnapshot:
         """Return the current occurrence, allocating it when necessary."""
-        if self._occurrence is not None:
-            return self._occurrence
-        return await self.start_occurrence()
+        return self._occurrence or await self.start_occurrence()
 
-    def activate(
-        self,
+    @staticmethod
+    def _normalize_input_ids(
         input_ids: Iterable[str],
-    ) -> ReplyCycleSnapshot:
-        """Activate one response cycle for a consumed, ordered input batch."""
+        kind: str,
+    ) -> tuple[str, ...]:
         normalized = tuple(
             value.strip()
             for value in input_ids
             if isinstance(value, str) and value.strip()
         )
         if not normalized:
-            raise ValueError("at least one consumed input id is required")
-        self.start_inputs(normalized)
+            raise ValueError(f"at least one {kind} input id is required")
+        return normalized
+
+    def _advance(
+        self,
+        group_id: str,
+        responds_to: tuple[str, ...],
+    ) -> ReplyCycleSnapshot:
         self._snapshot = ReplyCycleSnapshot(
             run_id=self._snapshot.run_id,
-            group_id=normalized[-1],
+            group_id=group_id,
             revision=self._snapshot.revision + 1,
-            responds_to_input_ids=normalized,
+            responds_to_input_ids=responds_to,
         )
         self._occurrence = None
         return self._snapshot
 
-    def extend_for_steer(
-        self,
-        input_ids: Iterable[str],
-    ) -> ReplyCycleSnapshot:
+    def activate(self, input_ids: Iterable[str]) -> ReplyCycleSnapshot:
+        """Activate one response cycle for a consumed, ordered input batch."""
+        normalized = self._normalize_input_ids(input_ids, "consumed")
+        self.start_inputs(normalized)
+        return self._advance(normalized[-1], normalized)
+
+    def extend_for_steer(self, input_ids: Iterable[str]) -> ReplyCycleSnapshot:
         """Add steering inputs without dropping the active task's ownership.
 
         A steer changes the current request; it does not replace that request.
@@ -423,28 +422,16 @@ class ReplyCycleContext:
         status question from making the original task look answered without
         an attributable result.
         """
-        normalized = tuple(
-            value.strip()
-            for value in input_ids
-            if isinstance(value, str) and value.strip()
-        )
-        if not normalized:
-            raise ValueError("at least one steering input id is required")
+        normalized = self._normalize_input_ids(input_ids, "steering")
         active = tuple(self._active_inputs)
         self.start_inputs(normalized)
-        responds_to = tuple(dict.fromkeys((*active, *normalized)))
-        self._snapshot = ReplyCycleSnapshot(
-            run_id=self._snapshot.run_id,
-            group_id=normalized[-1],
-            revision=self._snapshot.revision + 1,
-            responds_to_input_ids=responds_to,
+        return self._advance(
+            normalized[-1],
+            tuple(dict.fromkeys((*active, *normalized))),
         )
-        self._occurrence = None
-        return self._snapshot
 
     def bind_call(
-        self,
-        call_id: str,
+        self, call_id: str
     ) -> ReplyCycleSnapshot | ReplyOccurrenceSnapshot:
         """Bind a tool call to the snapshot active at call creation."""
         call_id = call_id.strip()

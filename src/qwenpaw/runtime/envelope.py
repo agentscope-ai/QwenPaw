@@ -167,10 +167,7 @@ class Envelope:
         if reply_cycle is not None:
             metadata.update(reply_cycle.metadata())
         elif self._timeline_group_id:
-            metadata.setdefault(
-                "timeline_group_id",
-                self._timeline_group_id,
-            )
+            metadata.setdefault("timeline_group_id", self._timeline_group_id)
         if metadata:
             obj.metadata = metadata
         obj.sequence_number = self._next_seq()
@@ -239,6 +236,11 @@ class Envelope:
             if owner is not None:
                 return owner
         return context.output_snapshot
+
+    async def _ensure_reply_occurrence(self) -> None:
+        if self._reply_cycle_context is not None:
+            await self._reply_cycle_context.ensure_occurrence()
+            self._event_reply_cycle = self._reply_cycle_context.output_snapshot
 
     async def _switch_reply_cycle(self, snapshot: Any):
         """Rotate assistant accumulation when the Agent activates a cycle."""
@@ -892,9 +894,7 @@ class Envelope:
 
     async def from_msg(self, cmd_msg: Any) -> AsyncGenerator[Any, None]:
         """Translate a completed ``Msg`` from a slash command."""
-        if self._reply_cycle_context is not None:
-            await self._reply_cycle_context.ensure_occurrence()
-            self._event_reply_cycle = self._reply_cycle_context.output_snapshot
+        await self._ensure_reply_occurrence()
         from ..schemas import ContentType, RunStatus, TextContent
 
         command_id = getattr(cmd_msg, "id", None)
@@ -939,9 +939,7 @@ class Envelope:
         error_text: str,
         error_code: str = "error",
     ) -> AsyncGenerator[Any, None]:
-        if self._reply_cycle_context is not None:
-            await self._reply_cycle_context.ensure_occurrence()
-            self._event_reply_cycle = self._reply_cycle_context.output_snapshot
+        await self._ensure_reply_occurrence()
         self._error_text = error_text
         self._error_code = error_code
         async for obj in self._finalize_response():

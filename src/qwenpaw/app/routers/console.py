@@ -1190,15 +1190,14 @@ async def post_console_chat_task(
 
     if parent_work is not None:
         try:
-            parent_work = consume_result_ticket(
-                str(result_token), workspace.agent_id
-            )
+            consume_result_ticket(str(result_token), workspace.agent_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     atask = asyncio.create_task(_run())
     bg.asyncio_task = atask
     if parent_work is not None:
         parent_work.task_id = task_id
+        parent_work.cancel = atask.cancel
 
     async def _timeout_guard() -> None:
         nonlocal timed_out
@@ -1225,25 +1224,25 @@ async def post_console_chat_task(
                 "status": "failed",
                 "error": "Task ended without a result",
             }
-            status = str(result.get("status") or "failed")
             if timed_out:
                 status = "failed"
             elif _task.cancelled():
                 status = "cancelled"
+            else:
+                status = str(result.get("status") or "failed")
             error = result.get("error")
-            text = extract_agent_text_content(result)
+            text = (
+                str(error)
+                if error
+                else extract_agent_text_content(result)
+                or "No textual result was returned."
+            )
             parent_work.complete(
                 status,
                 Msg(
                     name="background",
                     role="assistant",
-                    content=[
-                        TextBlock(
-                            text=str(error)
-                            if error
-                            else text or "No textual result was returned."
-                        )
-                    ],
+                    content=[TextBlock(text=text)],
                     metadata={
                         "background_task_id": task_id,
                         "background_status": status,
@@ -1252,8 +1251,6 @@ async def post_console_chat_task(
             )
 
     atask.add_done_callback(_stop_timeout_guard)
-    if parent_work is not None:
-        parent_work.cancel = atask.cancel
 
     async with _bg_lock:
         _bg_tasks[task_id] = bg

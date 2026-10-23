@@ -10,6 +10,7 @@ from qwenpaw.providers.realtime_voice import (
     RealtimeSessionConfig,
     RealtimeTool,
 )
+from qwenpaw.providers.realtime_voice import dashscope
 from qwenpaw.providers.realtime_voice.dashscope import (
     DASHSCOPE_REGISTRATION,
     DashScopeRealtimeSession,
@@ -72,10 +73,7 @@ async def connect_session(
     async def fake_connect(*_args, **_kwargs):
         return socket
 
-    monkeypatch.setattr(
-        "qwenpaw.providers.realtime_voice.dashscope.connect",
-        fake_connect,
-    )
+    monkeypatch.setattr(dashscope, "connect", fake_connect)
     session = DashScopeRealtimeSession(config(), "secret")
     await session.connect(
         RealtimeSessionConfig(
@@ -107,13 +105,20 @@ async def test_input_identity_survives_a_newer_turn(late_created):
             )
         await session._handle(
             {
-                "type": ("conversation.item.input_audio_transcription.completed"),
+                "type": (
+                    "conversation.item.input_audio_transcription.completed"
+                ),
                 "item_id": "first",
                 "transcript": "first request",
             }
         )
-        assert session._input_item_turns["first"] != session._input_item_turns["second"]
-        assert session._input_turns[session._input_item_turns["first"]].transcript_final
+        assert (
+            session._input_item_turns["first"]
+            != session._input_item_turns["second"]
+        )
+        assert session._input_turns[
+            session._input_item_turns["first"]
+        ].transcript_final
         assert not session._input_turns[
             session._input_item_turns["second"]
         ].transcript_final
@@ -156,7 +161,9 @@ async def test_empty_or_failed_input_has_an_explicit_terminal_event(failed):
             "input_transcript.failed" if failed else "input_transcript.final"
         )
         assert event.correlation_id == "input"
-        assert session._input_turns[session._input_item_turns["input"]].transcript_final
+        assert session._input_turns[
+            session._input_item_turns["input"]
+        ].transcript_final
         await session._handle(terminal)
         assert session._events.empty()
     finally:
@@ -181,7 +188,9 @@ async def test_input_preview_is_a_revisable_snapshot(monkeypatch, suffix):
         ):
             socket.feed(
                 {
-                    "type": (f"conversation.item.input_audio_transcription.{suffix}"),
+                    "type": (
+                        f"conversation.item.input_audio_transcription.{suffix}"
+                    ),
                     "event_id": f"preview-{index}",
                     "item_id": "input-1",
                     "text": text,
@@ -309,7 +318,9 @@ async def test_equal_transcripts_keep_distinct_stable_item_ids(monkeypatch):
     for item_id in ("item-one", "item-two"):
         socket.feed(
             {
-                "type": ("conversation.item.input_audio_transcription.completed"),
+                "type": (
+                    "conversation.item.input_audio_transcription.completed"
+                ),
                 "event_id": f"event-{item_id}",
                 "item_id": item_id,
                 "transcript": "run tests",
@@ -365,7 +376,9 @@ async def test_provider_auto_response_is_cancelled_without_output_leak(
     finished = await anext(events)
     assert started.kind == "response.started"
     assert finished.kind == "response.finished"
-    assert started.response_origin == finished.response_origin == "provider_auto"
+    assert (
+        started.response_origin == finished.response_origin == "provider_auto"
+    )
     await eventually(lambda: socket.sent[-1]["type"] == "response.cancel")
     assert session._events.empty()
     await session.close()
@@ -674,14 +687,20 @@ async def test_item_commands_are_acknowledged_between_responses(
     assert (await anext(events)).kind == "response.started"
     assert (await anext(events)).kind == "response.finished"
     await eventually(
-        lambda: any(item["type"] == "conversation.item.delete" for item in socket.sent)
+        lambda: any(
+            item["type"] == "conversation.item.delete" for item in socket.sent
+        )
     )
 
     second = asyncio.create_task(second_sequence())
     await asyncio.sleep(0)
     assert (
         len(
-            [item for item in socket.sent if item["type"] == "conversation.item.create"]
+            [
+                item
+                for item in socket.sent
+                if item["type"] == "conversation.item.create"
+            ]
         )
         == 1
     )
@@ -690,7 +709,13 @@ async def test_item_commands_are_acknowledged_between_responses(
     await acknowledge_item(socket, 1)
     await eventually(
         lambda: (
-            len([item for item in socket.sent if item["type"] == "response.create"])
+            len(
+                [
+                    item
+                    for item in socket.sent
+                    if item["type"] == "response.create"
+                ]
+            )
             == 2
         )
     )
@@ -746,10 +771,7 @@ async def test_speech_started_interrupts_application_output(monkeypatch):
 async def test_barge_in_uses_explicit_cancel_only_as_timeout_fallback(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "qwenpaw.providers.realtime_voice.dashscope._BARGE_IN_CANCEL_FALLBACK_SECONDS",
-        0,
-    )
+    monkeypatch.setattr(dashscope, "_BARGE_IN_CANCEL_FALLBACK_SECONDS", 0)
     session, socket = await connect_session(monkeypatch)
     events = session.events()
     await anext(events)
@@ -783,10 +805,7 @@ async def test_barge_in_cancels_application_response_started_after_speech(
     monkeypatch,
 ):
     """Cover the server-VAD/application response creation race."""
-    monkeypatch.setattr(
-        "qwenpaw.providers.realtime_voice.dashscope._BARGE_IN_CANCEL_FALLBACK_SECONDS",
-        0.01,
-    )
+    monkeypatch.setattr(dashscope, "_BARGE_IN_CANCEL_FALLBACK_SECONDS", 0.01)
     session, socket = await connect_session(monkeypatch)
     events = session.events()
     await anext(events)
@@ -976,7 +995,9 @@ async def test_busy_server_vad_response_is_not_retried(monkeypatch):
     await finish_presentation(socket, presentation)
     await asyncio.sleep(0)
     assert (
-        len([item for item in socket.sent if item["type"] == "response.create"])
+        len(
+            [item for item in socket.sent if item["type"] == "response.create"]
+        )
         == response_create_count
     )
     await session.close()

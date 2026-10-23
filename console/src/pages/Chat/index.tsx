@@ -176,7 +176,6 @@ import type {
   FilesDrawerEvent,
   FileTarget,
 } from "../../features/files-workspace/types";
-
 import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import {
@@ -249,22 +248,23 @@ const STREAM_HEARTBEAT = {
 } as ParsedRuntimeChunk;
 
 type ChatSurfaceState =
-  | {
-      status: "resolving";
-      agentId: string;
-      chatId: string;
-    }
+  | { status: "resolving" | "error"; agentId: string; chatId: string }
   | {
       status: "ready";
       agentId: string;
       chatId: string | null;
       kind: "ordinary" | "voice";
-    }
-  | {
-      status: "error";
-      agentId: string;
-      chatId: string;
     };
+
+/** Surface to show before the Chat spec decides between ordinary and Voice. */
+function initialChatSurface(
+  agentId: string,
+  chatId?: string,
+): ChatSurfaceState {
+  return chatId
+    ? { status: "resolving", agentId, chatId }
+    : { status: "ready", agentId, chatId: null, kind: "ordinary" };
+}
 
 import WhisperSpeechButton, {
   WhisperSpeechButtonRef,
@@ -1540,36 +1540,14 @@ export default function ChatPage() {
   }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const [chatSourceAttempt, setChatSourceAttempt] = useState(0);
-  const [chatSurface, setChatSurface] = useState<ChatSurfaceState>(() =>
-    backendChatId
-      ? {
-          status: "resolving",
-          agentId: selectedAgent,
-          chatId: backendChatId,
-        }
-      : {
-          status: "ready",
-          agentId: selectedAgent,
-          chatId: null,
-          kind: "ordinary",
-        },
+  const [chatSurface, setChatSurface] = useState(() =>
+    initialChatSurface(selectedAgent, backendChatId),
   );
-  const effectiveChatSurface: ChatSurfaceState =
+  const effectiveChatSurface =
     chatSurface.agentId === selectedAgent &&
     chatSurface.chatId === (backendChatId ?? null)
       ? chatSurface
-      : backendChatId
-      ? {
-          status: "resolving",
-          agentId: selectedAgent,
-          chatId: backendChatId,
-        }
-      : {
-          status: "ready",
-          agentId: selectedAgent,
-          chatId: null,
-          kind: "ordinary",
-        };
+      : initialChatSurface(selectedAgent, backendChatId);
   const chatSurfaceReady = effectiveChatSurface.status === "ready";
   const isVoiceChat =
     effectiveChatSurface.status === "ready" &&
@@ -2444,12 +2422,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!backendChatId) {
-      setChatSurface({
-        status: "ready",
-        agentId: selectedAgent,
-        chatId: null,
-        kind: "ordinary",
-      });
+      setChatSurface(initialChatSurface(selectedAgent));
       return;
     }
     const controller = new AbortController();
@@ -2458,11 +2431,7 @@ export default function ChatPage() {
       current.agentId === selectedAgent &&
       current.chatId === backendChatId
         ? current
-        : {
-            status: "resolving",
-            agentId: selectedAgent,
-            chatId: backendChatId,
-          },
+        : initialChatSurface(selectedAgent, backendChatId),
     );
     // History can be large, so warm it independently while the lightweight
     // Chat spec decides which surface to mount. AgentScope reuses the existing
@@ -2500,11 +2469,7 @@ export default function ChatPage() {
 
   const retryChatSource = useCallback(() => {
     if (!backendChatId) return;
-    setChatSurface({
-      status: "resolving",
-      agentId: selectedAgent,
-      chatId: backendChatId,
-    });
+    setChatSurface(initialChatSurface(selectedAgent, backendChatId));
     setChatSourceAttempt((current) => current + 1);
   }, [backendChatId, selectedAgent]);
 
@@ -2636,6 +2601,7 @@ export default function ChatPage() {
   const staleAutoSelectedIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
+
   useEffect(() => {
     const handler = () => {
       void fetchMultimodalCaps();
@@ -3373,12 +3339,7 @@ export default function ChatPage() {
       const agentId = selectedAgentRef.current;
       migratePendingSessionSettings(agentId, "new", sessionId);
       migrateTerminalGroup(agentId, "new", sessionId);
-      setChatSurface({
-        status: "ready",
-        agentId,
-        chatId: null,
-        kind: "ordinary",
-      });
+      setChatSurface(initialChatSurface(agentId));
       migrateChatSessionPreferences(
         getQueueKey(agentId),
         sessionId,
@@ -4709,10 +4670,6 @@ export default function ChatPage() {
             return STREAM_HEARTBEAT;
           }
 
-          if (payload.type === "replay_end") {
-            return STREAM_HEARTBEAT;
-          }
-
           if (payload.type === "rate_limited") {
             const alts =
               (payload.alternatives as typeof rateLimitAlternatives) || [];
@@ -4733,13 +4690,7 @@ export default function ChatPage() {
             return STREAM_HEARTBEAT;
           }
 
-          return payload as unknown as ReturnType<
-            NonNullable<
-              NonNullable<
-                IAgentScopeRuntimeWebUIOptions["api"]
-              >["responseParser"]
-            >
-          >;
+          return payload as unknown as ParsedRuntimeChunk;
         },
         replaceMediaURL: (url: string) => {
           return toDisplayUrl(url);

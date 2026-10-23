@@ -601,14 +601,11 @@ class ScrollContextManager:
             tail = self._restore_full_tail_messages(agent, tail)
             # A split boundary Msg appears in both halves under the same id.
             # Never index it while its complete live copy remains in the tail.
-            tail_ids = {message_key(m) for m in tail}
             active_tail = self._active_turn_tail(agent)
             active_ids = {message_key(m) for m in active_tail}
+            kept_ids = active_ids | {message_key(m) for m in tail}
             middle = [
-                m
-                for m in real(to_compress)
-                if message_key(m) not in tail_ids
-                and message_key(m) not in active_ids
+                m for m in real(to_compress) if message_key(m) not in kept_ids
             ]
             if active_tail:
                 # Keep the whole active turn at the end in original order.

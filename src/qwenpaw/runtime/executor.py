@@ -48,9 +48,8 @@ class AgentExecutor:
         """
         if not isinstance(result_input, InternalResultInput):
             result_input = None
-        if result_input is not None:
-            if not await self._agent.observe_background_result(result_input):
-                return
+        elif not await self._agent.observe_background_result(result_input):
+            return
         agent_iter = self._agent.reply_stream(
             inputs=None if result_input is not None else msgs,
         ).__aiter__()

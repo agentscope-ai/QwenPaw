@@ -179,8 +179,7 @@ class ChatSpec(BaseModel):
 
 def is_realtime_voice_chat(chat: ChatSpec) -> bool:
     """Return whether a regular Chat carries realtime voice capability."""
-    voice = chat.meta.get("realtime_voice")
-    return isinstance(voice, dict)
+    return isinstance(chat.meta.get("realtime_voice"), dict)
 
 
 class ChatUpdate(BaseModel):

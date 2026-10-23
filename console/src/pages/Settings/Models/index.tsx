@@ -152,10 +152,6 @@ function ModelsPage() {
     setModelsOpen(true);
   }, []);
 
-  const handleOpenRealtimeVoice = useCallback((provider: ProviderInfo) => {
-    setRealtimeModalProvider(provider);
-  }, []);
-
   // P1: Defer search filtering to avoid blocking input responsiveness
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
@@ -337,7 +333,7 @@ function ModelsPage() {
           onSaved={refreshProvidersSilently}
           onOpenConfig={handleOpenConfig}
           onOpenModels={handleOpenModels}
-          onOpenRealtimeVoice={handleOpenRealtimeVoice}
+          onOpenRealtimeVoice={setRealtimeModalProvider}
         />
       </Cascade>
     ));
@@ -496,7 +492,7 @@ function ModelsPage() {
                             onSaved={refreshProvidersSilently}
                             onOpenConfig={handleOpenConfig}
                             onOpenModels={handleOpenModels}
-                            onOpenRealtimeVoice={handleOpenRealtimeVoice}
+                            onOpenRealtimeVoice={setRealtimeModalProvider}
                           />
                         ))}
                         {renderProviderCards(cloudConfiguredUngrouped)}
@@ -683,7 +679,7 @@ function ModelsPage() {
             {realtimeModalProvider && (
               <RealtimeVoiceModelModal
                 provider={realtimeModalProvider}
-                open={!!realtimeModalProvider}
+                open
                 onClose={() => setRealtimeModalProvider(null)}
                 onSaved={refreshProvidersSilently}
               />

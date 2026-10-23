@@ -16,16 +16,6 @@ import styles from "./realtimeVoice.module.less";
 
 export type RealtimeVoiceController = ReturnType<typeof useRealtimeVoice>;
 
-function configurationMessage(
-  voice: RealtimeVoiceController,
-  t: ReturnType<typeof useTranslation>["t"],
-): string {
-  return (
-    voice.capabilities?.configuration_error?.message ||
-    t("realtimeVoice.credentialMissing")
-  );
-}
-
 export function RealtimeVoiceConflictModal({
   voice,
 }: {
@@ -89,6 +79,9 @@ export function RealtimeVoiceControls({
   const liveRole = assistantTurn
     ? t("realtimeVoice.assistant")
     : t("realtimeVoice.you");
+  const muteLabel = voice.muted
+    ? t("realtimeVoice.unmute")
+    : t("realtimeVoice.mute");
 
   return (
     <div className={styles.controlArea}>
@@ -179,16 +172,10 @@ export function RealtimeVoiceControls({
               <Button
                 className={styles.secondaryAction}
                 icon={voice.muted ? <AudioMutedOutlined /> : <AudioOutlined />}
-                aria-label={
-                  voice.muted
-                    ? t("realtimeVoice.unmute")
-                    : t("realtimeVoice.mute")
-                }
+                aria-label={muteLabel}
                 onClick={() => voice.setMuted(!voice.muted)}
               >
-                {voice.muted
-                  ? t("realtimeVoice.unmute")
-                  : t("realtimeVoice.mute")}
+                {muteLabel}
               </Button>
               <Button
                 className={styles.secondaryAction}
@@ -238,7 +225,10 @@ export function RealtimeVoiceControls({
           className={styles.alert}
           type="warning"
           showIcon
-          message={configurationMessage(voice, t)}
+          message={
+            voice.capabilities.configuration_error?.message ||
+            t("realtimeVoice.credentialMissing")
+          }
           action={
             <Button
               size="small"

@@ -79,11 +79,18 @@ class PresentationQueue:
                 intent = replace(
                     intent,
                     changed_ids=tuple(
-                        dict.fromkeys((*previous.changed_ids, *intent.changed_ids))
+                        dict.fromkeys(
+                            (*previous.changed_ids, *intent.changed_ids)
+                        )
                     ),
                 )
-        occupied = sum(i.cost for i in (*self._direct, *self._coalesced.values()))
-        if occupied - (previous.cost if previous else 0) + intent.cost > self.capacity:
+        occupied = sum(
+            i.cost for i in (*self._direct, *self._coalesced.values())
+        )
+        if (
+            occupied - (previous.cost if previous else 0) + intent.cost
+            > self.capacity
+        ):
             intent.cancel()
             return False
         if previous is not None:

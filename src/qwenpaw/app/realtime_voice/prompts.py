@@ -1,9 +1,7 @@
-"""Speech instruction and fact-serialization text for one Voice session.
+"""Pure speech-instruction and fact-serialization text for Voice sessions.
 
-Pure prompt construction extracted from ``VoiceCoordinator``. Nothing here
-performs I/O or holds session state; callers pass already-fetched snapshots so
-these functions stay directly testable. The bridge owns facts; these helpers
-only decide how the model is asked to express them.
+The bridge owns facts; these helpers only decide how the model is asked to
+express them.
 """
 
 from __future__ import annotations
@@ -65,11 +63,11 @@ _VOICE_SESSION = RealtimeSessionConfig(
         RealtimeTool(
             name="handoff_to_chat",
             description=(
-                "Pass the current new actionable request, follow-up, correction "
-                "or status question to the ordinary Chat Agent. The application "
-                "starts or steers the current Chat run. Do not rewrite a "
-                "follow-up as a replay of prior commands. Never use for a label or "
-                "preface alone."
+                "Pass the current new actionable request, follow-up, "
+                "correction or status question to the ordinary Chat Agent. "
+                "The application starts or steers the current Chat run. Do "
+                "not rewrite a follow-up as a replay of prior commands. Never "
+                "use for a label or preface alone."
             ),
             parameters=_REQUEST_SCHEMA,
         ),
@@ -99,15 +97,11 @@ def build_session_config(language: str) -> RealtimeSessionConfig:
 
 
 def static_presentation_instruction(intent: PresentationIntent) -> str | None:
-    """Return the instruction for intents that need no live snapshots.
-
-    Returns ``None`` for the ``update`` kind, which requires bridge snapshots
-    and must be built with :func:`build_update_instruction`.
-    """
+    """Return the instruction for intents that need no live snapshots, or
+    ``None`` for ``update`` (see :func:`build_update_instruction`)."""
     if intent.kind == "rejected":
         return "本轮请求未被接收。请简短说明未能提交，不能声称已开始或完成。"
     if intent.kind == "admission":
-        accepted_count = max(1, len(intent.admission_turn_ids))
         return (
             "本轮是接收确认，只播报应用提供的接收事实。"
             "请自然、简短地确认新请求已收到；多条时可以合并成一句。"
@@ -116,7 +110,7 @@ def static_presentation_instruction(intent: PresentationIntent) -> str | None:
             + json.dumps(
                 {
                     "accepted": True,
-                    "accepted_count": accepted_count,
+                    "accepted_count": max(1, len(intent.admission_turn_ids)),
                 },
                 ensure_ascii=False,
             )
@@ -133,7 +127,9 @@ def build_update_instruction(
     focused = snapshots
     if intent.task_ref:
         focused = [
-            snapshot for snapshot in snapshots if snapshot.task_ref == intent.task_ref
+            snapshot
+            for snapshot in snapshots
+            if snapshot.task_ref == intent.task_ref
         ]
     elif intent.changed_ids:
         wanted = set(intent.changed_ids)
@@ -144,10 +140,7 @@ def build_update_instruction(
             or any(r.identity in wanted for r in s.replies)
         ]
     if not focused:
-        return (
-            "权威事实：当前没有匹配的可查询任务。"
-            "请自然、简短地告诉用户，不要猜测任务状态。"
-        )
+        return "权威事实：当前没有匹配的可查询任务。" "请自然、简短地告诉用户，不要猜测任务状态。"
     changed_ids = _latest_reply_ids(focused, intent.changed_ids)
     has_result = any(
         reply.phase == "final"
@@ -158,15 +151,14 @@ def build_update_instruction(
         for reply in snapshot.replies
     )
     has_error = any(
-        reply.reply_error and (not changed_ids or reply.identity in changed_ids)
+        reply.reply_error
+        and (not changed_ids or reply.identity in changed_ids)
         for snapshot in focused
         for reply in snapshot.replies
     )
     if has_result:
         purpose = (
-            "本轮是结果反馈：请优先说出已返回的关键结果或答案，"
-            "让用户听完就知道结果。"
-            "不要仅说已完成、已回传或让用户去看页面。"
+            "本轮是结果反馈：请优先说出已返回的关键结果或答案，" "让用户听完就知道结果。" "不要仅说已完成、已回传或让用户去看页面。"
         )
     elif has_error:
         purpose = (
@@ -186,16 +178,12 @@ def build_update_instruction(
         "关键失败原因和确需用户处理的问题；步骤或参数本身是答案时也须保留。"
         "不要逐字念范围编号，不加重复确认或客套收尾。"
     )
-    facts = snapshot_facts(
-        snapshots,
-        focused=focused,
-        changed_ids=changed_ids,
-    )
+    facts = snapshot_facts(snapshots, focused=focused, changed_ids=changed_ids)
     return (
         purpose
         + "以下为本轮事实与回复材料："
+        + facts
         + (
-            f"{facts}"
             "请只根据这些事实自然、简短地表达。"
             "若事实包含已返回的实际答案，简短说出答案本身，不要只说已完成或已回传。"
             "原请求中的目标、参数和预期输出不是实际执行结果。"
@@ -224,23 +212,25 @@ def _latest_reply_ids(
     snapshots: Iterable[VoiceTaskSnapshot],
     changed_ids: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Resolve queued reply changes to the latest reply for their inputs.
+    """Resolve queued reply changes to the newest reply for their inputs.
 
-    Speech may still be rendering when the ordinary Agent replaces a progress
-    reply with a final answer.  The queued notification identifies the scope,
-    not immutable wording, so presentation must use the newest reply in that
-    scope instead of narrating stale progress.
+    A queued notification identifies a scope, not wording: the Agent may have
+    replaced a progress reply with a final answer since it was queued.
     """
     if not changed_ids:
         return ()
     wanted = set(changed_ids)
-    resolved = {identity for identity in wanted if identity.startswith("task:")}
+    resolved = {
+        identity for identity in wanted if identity.startswith("task:")
+    }
     for snapshot in snapshots:
         changed_replies = [
             reply for reply in snapshot.replies if reply.identity in wanted
         ]
         affected_inputs = {
-            input_id for reply in changed_replies for input_id in reply.input_ids
+            input_id
+            for reply in changed_replies
+            for input_id in reply.input_ids
         }
         resolved.update(
             reply.identity for reply in changed_replies if not reply.input_ids
@@ -300,10 +290,14 @@ def snapshot_facts(
         for reply in task.replies:
             if changed_ids and reply.identity not in changed_ids:
                 continue
-            if task.status in {"failed", "cancelled"} and reply.phase == "progress":
+            if (
+                task.status in {"failed", "cancelled"}
+                and reply.phase == "progress"
+            ):
                 continue
             content = reply.public_dict()
-            content.pop("input_ids")
+            for key in ("id", "input_ids", "persisted"):
+                content.pop(key)
             content["responds_to"] = [
                 input_refs.get(
                     input_id,
@@ -314,8 +308,6 @@ def snapshot_facts(
                 )
                 for input_id in reply.input_ids
             ]
-            content.pop("id")
-            content.pop("persisted")
             covered_inputs.update(reply.input_ids)
             replies.append(content)
         # A notification is not a query for the whole runtime. Keep
@@ -355,8 +347,7 @@ def snapshot_facts(
             )
         if replies:
             sections.append(
-                "对应请求的Agent原文按phase和error区分进度、"
-                "答复与诊断，不代表同一任务其他要求的状态："
+                "对应请求的Agent原文按phase和error区分进度、" "答复与诊断，不代表同一任务其他要求的状态："
             )
             for reply in replies:
                 sections.append(
@@ -376,7 +367,7 @@ def snapshot_facts(
         "没有待处理事项时直接结束，不补充无其他进展或无待处理任务。"
         "原文说完成只适用于其请求范围，不是整个任务完成。"
         "待处理补充是尚未答复的用户要求，不证明原操作尚未完成或正在重做。"
-        + "final可能是答案、提问或阻塞，progress是进度，incomplete不可宣称完整；"
+        "final可能是答案、提问或阻塞，progress是进度，incomplete不可宣称完整；"
         "error.stage=answer_generation仅表示答复生成失败，不证明此前操作失败。"
         "failed只表示本轮处理失败，缺少具体原因时如实说明，不能推断工具未执行。"
         "错误仅属于对应请求；诊断不代表业务成功，也不要建议重新执行已做过的操作。"

@@ -106,7 +106,6 @@ async def test_model_event_conversion_keeps_saved_block_identity(streaming):
 async def test_model_boundary_reads_updates_without_releasing_queue(
     monkeypatch, formatter_name
 ):
-    import json
     import agentscope.formatter as formatters
     from qwenpaw.app.chats.utils import agentscope_msg_to_message
     from qwenpaw.runtime.input_context import ChatInputContext
@@ -269,8 +268,6 @@ def context_agent():
 
 @pytest.mark.asyncio
 async def test_request_filters_dynamic_blocks_and_reads_current_revision():
-    import json
-
     agent = context_agent()
     old = HintBlock(source="chat_input_context", hint="OLD_DYNAMIC_FACTS")
     other = HintBlock(source="other_hint", hint="KEEP_OTHER_HINT")
@@ -386,10 +383,6 @@ async def test_public_expression_hint_preserves_keyboard_detail_requests(
 async def test_real_scroll_counts_view_without_persisting_or_truncating(
     tmp_path,
 ):
-    import json
-    from agentscope.formatter import OpenAIChatFormatter
-    from qwenpaw.agents.context.scroll.history import HistoryStore
-    from qwenpaw.agents.context.scroll.manager import ScrollContextManager
     from qwenpaw.agents.context.types import ContextWindowUnfitError
 
     history = HistoryStore(tmp_path / "history.db")
@@ -442,7 +435,6 @@ async def test_real_scroll_counts_view_without_persisting_or_truncating(
 
 
 def test_busy_agent_consumes_frozen_snapshots_without_extra_input_identity():
-    from qwenpaw.constant import CHAT_CONVERSATION_CONTEXT_KEY
     from qwenpaw.app.chats.utils import agentscope_msg_to_message
 
     mailbox = RunInputMailbox()
@@ -477,11 +469,6 @@ def test_busy_agent_consumes_frozen_snapshots_without_extra_input_identity():
 
 @pytest.mark.parametrize("mode", ["queue", "steer"])
 async def test_busy_agent_preserves_each_target_in_actual_formatter(mode):
-    import json
-    from agentscope.formatter import (
-        DashScopeChatFormatter,
-        OpenAIChatFormatter,
-    )
     from qwenpaw.constant import CHAT_INPUT_TARGET_KEY
     from qwenpaw.app.chats.utils import agentscope_msg_to_message
 
@@ -798,9 +785,7 @@ async def test_reasoning_preserves_cycle_until_exit_boundary(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "raw", ["", "   ", '⟦ 任务完成｜echo 输出测试口令"蓝色小猫"｜无后续']
-)
+@pytest.mark.parametrize("raw", ["", "   ", '⟦ 任务完成｜echo 输出测试口令"蓝色小猫"｜无后续'])
 @pytest.mark.parametrize("pending_work", [False, True])
 async def test_empty_public_reply_is_diagnosed_without_retry_or_queue_loss(
     monkeypatch,
@@ -1196,11 +1181,7 @@ class HistoryReadingModel:
         assert len(self.requests) == 2, "Unexpected extra model attempt"
         assert "HTTP 403: expired permission" in json.dumps(wire)
         return ChatResponse(
-            content=[
-                TextBlock(
-                    text="旧资料记录的是权限过期导致 HTTP 403；未重新执行任务。"
-                )
-            ],
+            content=[TextBlock(text="旧资料记录的是权限过期导致 HTTP 403；未重新执行任务。")],
             is_last=True,
         )
 

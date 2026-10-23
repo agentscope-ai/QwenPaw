@@ -47,9 +47,7 @@ class RealtimeVoiceModelConfig(BaseModel):
     @field_validator("endpoint")
     @classmethod
     def _require_secure_websocket(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
+        value = (value or "").strip()
         if not value:
             return None
         if not value.startswith("wss://"):
@@ -182,14 +180,13 @@ class ProviderEvent:
     speech.stopped and input_transcript events, and the response for output
     events. An input terminates with input_transcript.final (including empty
     text) or input_transcript.failed; neither may silently disappear.
-    ``response_origin`` is mandatory for response
-    lifecycle and output events so the application can reject unsolicited
-    Provider output independently of any one vendor's wire protocol.
+    ``response_origin`` is mandatory for response lifecycle and output
+    events so the application can reject unsolicited Provider output
+    independently of any one vendor's wire protocol.
 
     ``input_transcript.partial`` carries the current input item's complete
     preview in ``data["text"]``, not an append-only delta. It may shrink,
-    change,
-    or become empty as recognition revises tentative text.
+    change, or become empty as recognition revises tentative text.
     """
 
     kind: str
@@ -203,17 +200,21 @@ class ProviderEvent:
 class RealtimeProviderSession(Protocol):
     """Native realtime session commands required by the application."""
 
-    async def connect(self, session: RealtimeSessionConfig) -> None: ...
+    async def connect(self, session: RealtimeSessionConfig) -> None:
+        ...
 
-    async def send_audio(self, pcm16: bytes) -> None: ...
+    async def send_audio(self, pcm16: bytes) -> None:
+        ...
 
     async def create_message(
         self,
         role: ConversationRole,
         text: str,
-    ) -> str: ...
+    ) -> str:
+        ...
 
-    async def request_response(self) -> ProviderResponseResult: ...
+    async def request_response(self) -> ProviderResponseResult:
+        ...
 
     async def complete_tool_call(
         self,
@@ -223,13 +224,17 @@ class RealtimeProviderSession(Protocol):
         """Acknowledge application custody of one native tool call."""
         ...
 
-    async def delete_items(self, item_ids: Iterable[str]) -> None: ...
+    async def delete_items(self, item_ids: Iterable[str]) -> None:
+        ...
 
-    async def interrupt_output(self) -> None: ...
+    async def interrupt_output(self) -> None:
+        ...
 
-    def events(self) -> AsyncIterator[ProviderEvent]: ...
+    def events(self) -> AsyncIterator[ProviderEvent]:
+        ...
 
-    async def close(self) -> None: ...
+    async def close(self) -> None:
+        ...
 
 
 ProviderFactory = Callable[

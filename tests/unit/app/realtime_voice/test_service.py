@@ -25,8 +25,9 @@ def live_session(session_id="old", principal="owner"):
         session_id=session_id,
         principal=principal,
         agent_id="default",
-        provider_session=None,
         coordinator=None,
+        start_task=None,
+        close_task=None,
         api_key="test-key",
         config=SimpleNamespace(
             provider_id="provider",
@@ -149,7 +150,9 @@ def test_capabilities_advertise_the_media_protocol_version():
     manager.list_realtime_voice_capabilities = list
     current_workspace = workspace()
     current_workspace.agent_id = "default"
-    capabilities = RealtimeVoiceService(manager).capabilities(current_workspace)
+    capabilities = RealtimeVoiceService(manager).capabilities(
+        current_workspace
+    )
     assert capabilities["protocol_version"] == PROTOCOL_VERSION
 
 

@@ -165,29 +165,26 @@ export class RuntimeTimelineAccumulator {
     const content = Array.isArray(message.content)
       ? (message.content as Array<Record<string, unknown>>)
       : [];
-    const incoming = payload as Record<string, unknown>;
     const last = content[content.length - 1];
     if (payload.delta) {
-      if (last?.delta && last.type === incoming.type) {
-        if (incoming.type === "text") {
-          last.text = `${String(last.text ?? "")}${String(
-            incoming.text ?? "",
-          )}`;
-        } else if (incoming.type === "image") {
-          last.image_url = incoming.image_url;
-        } else if (incoming.type === "data") {
+      if (last?.delta && last.type === payload.type) {
+        if (payload.type === "text") {
+          last.text = `${String(last.text ?? "")}${String(payload.text ?? "")}`;
+        } else if (payload.type === "image") {
+          last.image_url = payload.image_url;
+        } else if (payload.type === "data") {
           last.data = mergeDeltaData(
             last.data as Record<string, unknown> | undefined,
-            incoming.data as Record<string, unknown> | undefined,
+            payload.data as Record<string, unknown> | undefined,
           );
         }
       } else {
-        content.push({ ...incoming });
+        content.push({ ...payload });
       }
     } else if (last) {
-      Object.assign(last, incoming);
+      Object.assign(last, payload);
     } else {
-      content.push({ ...incoming });
+      content.push({ ...payload });
     }
     message.content = content;
     this.markChanged([message], this.liveVersions);

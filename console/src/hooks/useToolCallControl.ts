@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toolCallsApi } from "../api/modules/toolCalls";
-import { isHttpRequestError } from "../api/request";
+import { HttpRequestError } from "../api/request";
 import { resolveBackendSessionId } from "../utils/resolveBackendSessionId";
 import { registerBackgroundTask } from "./useBackgroundTaskWatcher";
 import { useBackgroundTasksStore } from "../stores/backgroundTasksStore";
@@ -258,7 +258,7 @@ export function useToolCallControl(
         schedule(OFFLOAD_POLL_MS);
       } catch (reason) {
         if (cancelled) return;
-        if (isHttpRequestError(reason) && reason.status === 404) {
+        if (reason instanceof HttpRequestError && reason.status === 404) {
           notFoundAttempts += 1;
           if (notFoundAttempts >= MAX_NOT_FOUND_ATTEMPTS) {
             setState((s) => ({
@@ -292,9 +292,7 @@ export function useToolCallControl(
 
     return () => {
       cancelled = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
+      clearTimeout(retryTimer);
     };
   }, [
     isCalling,

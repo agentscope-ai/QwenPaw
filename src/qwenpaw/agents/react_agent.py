@@ -12,6 +12,7 @@ as constructor parameters and does not build them internally.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -37,7 +38,14 @@ from agentscope.event import (
     ToolCallEndEvent,
     ToolCallStartEvent,
 )
-from agentscope.message import DataBlock, HintBlock, Msg, TextBlock
+from agentscope.message import (
+    DataBlock,
+    HintBlock,
+    Msg,
+    TextBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+)
 from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
@@ -48,6 +56,8 @@ from .utils.text_block_utils import (
     sanitize_empty_text_blocks,
 )
 from ..constant import (
+    CHAT_CONVERSATION_CONTEXT_KEY,
+    CHAT_INPUT_TARGET_KEY,
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     QWENPAW_MESSAGE_TAG_KEY,
@@ -59,6 +69,9 @@ from ..providers.error_utils import extract_status_code
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
 from ..providers.adapters.request_context import model_session
+from ..runtime.conversation_context import project_conversation_context
+from ..runtime.input_context import INPUT_CONTEXT_INSTRUCTION
+from ..runtime.message_convert import _request_input_to_msgs
 from ..runtime.reply_cycle import (
     InternalResultInput,
     TIMELINE_ORDER_METADATA_KEY,
@@ -66,6 +79,7 @@ from ..runtime.reply_cycle import (
     set_reply_block_metadata,
     update_reply_block_metadata,
 )
+from ..runtime.tool_execution_context import project_tool_execution_context
 from ..utils.io_utils import run_sync_io
 from ..utils.tool_call_extra import (
     collect_transient_tool_call_extras,
@@ -84,6 +98,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_TEXT_BLOCK_EVENTS = (
+    TextBlockStartEvent,
+    TextBlockDeltaEvent,
+    TextBlockEndEvent,
+)
+# Any streamed block marks the start of a visible reply occurrence.
+_BLOCK_EVENTS = (
+    *_TEXT_BLOCK_EVENTS,
+    ThinkingBlockStartEvent,
+    ThinkingBlockDeltaEvent,
+    ThinkingBlockEndEvent,
+    DataBlockStartEvent,
+    DataBlockDeltaEvent,
+    DataBlockEndEvent,
+    ToolCallStartEvent,
+    ToolCallDeltaEvent,
+    ToolCallEndEvent,
+)
 
 _GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
     re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
@@ -336,18 +368,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """Append one mailbox batch and optionally activate its reply cycle."""
         mailbox = self._run_input_mailbox
         if mailbox is None:
-            pending = []
-        elif steer_only:
+            return ()
+        if steer_only:
             pending = mailbox.drain_steer()
         else:
             pending = mailbox.drain_after_reply()
         if not pending:
             return ()
-        from ..runtime.message_convert import _request_input_to_msgs
-        from ..constant import (
-            CHAT_CONVERSATION_CONTEXT_KEY,
-            CHAT_INPUT_TARGET_KEY,
-        )
         from ..schemas import Message, Role
 
         input_ids: list[str] = []
@@ -372,24 +399,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if item.timeline_order > 0:
                 metadata[TIMELINE_ORDER_METADATA_KEY] = item.timeline_order
             if reply_cycle is not None:
-                metadata.update(
-                    {
-                        "run_id": reply_cycle.run_id,
-                        "timeline_group_id": item.idempotency_key,
-                    },
-                )
-            if item.request_context:
-                public_context = {
-                    key: value
-                    for key, value in item.request_context.items()
-                    if key
-                    not in {
-                        CHAT_CONVERSATION_CONTEXT_KEY,
-                        CHAT_INPUT_TARGET_KEY,
-                    }
-                }
-                if public_context:
-                    metadata["request_context"] = public_context
+                metadata["run_id"] = reply_cycle.run_id
+                metadata["timeline_group_id"] = item.idempotency_key
+            request_context = item.request_context or {}
+            public_context = {
+                key: value
+                for key, value in request_context.items()
+                if key
+                not in (CHAT_CONVERSATION_CONTEXT_KEY, CHAT_INPUT_TARGET_KEY)
+            }
+            if public_context:
+                metadata["request_context"] = public_context
             if item.model_slot_override is not None:
                 metadata["model_slot_override"] = item.model_slot_override
             messages = _request_input_to_msgs(
@@ -400,13 +420,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         metadata=metadata,
                     ),
                 ],
-                conversation_context=(item.request_context or {}).get(
-                    CHAT_CONVERSATION_CONTEXT_KEY, ""
-                ),
-                input_target=(item.request_context or {}).get(
-                    CHAT_INPUT_TARGET_KEY,
+                conversation_context=request_context.get(
+                    CHAT_CONVERSATION_CONTEXT_KEY,
                     "",
                 ),
+                input_target=request_context.get(CHAT_INPUT_TARGET_KEY, ""),
             )
             for message in messages:
                 self.state.context.append(message)
@@ -469,8 +487,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             }
             # Execution instructions are a separate typed runtime hint, not
             # part of the business result subsequently shown or spoken.
-            from agentscope.message import HintBlock
-
             message.content = [
                 HintBlock(
                     hint=(
@@ -489,10 +505,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._active_result_ids.add(item.work_id)
         return True
 
-    def _activate_reply_cycle(
-        self,
-        input_ids: tuple[str, ...],
-    ) -> None:
+    def _activate_reply_cycle(self, input_ids: tuple[str, ...]) -> None:
         """Start one user reply cycle and reset reply-local loop state."""
         reply_cycle = getattr(self, "_reply_cycle_context", None)
         if reply_cycle is None:
@@ -504,12 +517,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     def _consume_pending_run_inputs(self, *, steer_only: bool = False) -> bool:
         """Append and activate the next eligible mailbox batch."""
-        return bool(
-            self._append_pending_run_inputs(
-                activate=True,
-                steer_only=steer_only,
-            ),
+        consumed = self._append_pending_run_inputs(
+            activate=True,
+            steer_only=steer_only,
         )
+        return bool(consumed)
 
     def _next_action(self, final_msg: Msg | None = None) -> Any:
         """Advance queued input only after the current reply can exit."""
@@ -522,25 +534,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 for event in next_action.exit_events or []
                 if isinstance(event, ReplyEndEvent)
             ]
-            reason = (
-                getattr(
-                    ends[-1].finished_reason, "value", ends[-1].finished_reason
-                )
-                if ends
-                else None
-            )
-            completed = reason == "completed"
-            reply_failed = bool(
+            reason = ends[-1].finished_reason if ends else None
+            completed = getattr(reason, "value", reason) == "completed"
+            succeeded = completed and not (
                 final_msg is not None
                 and (final_msg.metadata or {}).get("reply_error")
             )
             cycle = getattr(self, "_reply_cycle_context", None)
-            if (
-                completed
-                and not reply_failed
-                and final_msg is not None
-                and cycle is not None
-            ):
+            if succeeded and final_msg is not None and cycle is not None:
                 final_ids = {
                     block.id
                     for block in final_msg.content
@@ -560,22 +561,19 @@ class QwenPawAgent(CodingModeMixin, Agent):
                                 {"reply_phase": "final"},
                             )
                     cycle.reply_content_changed(last_message)
-            if completed and not reply_failed:
+            if succeeded:
                 results = (getattr(self, "_request_context", None) or {}).get(
                     "_background_results"
                 )
                 if results is not None:
                     for work_id in self._active_result_ids:
-                        results.replied(
-                            work_id, self._reply_cycle_context.run_id
-                        )
+                        results.replied(work_id, cycle.run_id)
                     self._feedback_result_ids.update(self._active_result_ids)
                     self._active_result_ids.clear()
-            reply_cycle = getattr(self, "_reply_cycle_context", None)
-            if reply_cycle is not None:
-                reply_cycle.finish_reply(
+            if cycle is not None:
+                cycle.finish_reply(
                     "completed"
-                    if completed and not reply_failed
+                    if succeeded
                     else "failed"
                     if ends
                     else "waiting"
@@ -659,8 +657,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then let the context manager write them through."""
-        from agentscope.message import ToolCallBlock, ToolResultBlock
-
         # A reasoning-only turn arrives as an empty text block.  Persisting
         # it replays ``{"type": "output_text", "text": ""}`` on every later
         # request, which providers such as Volcengine Ark reject with
@@ -688,12 +684,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         last_msg = self._get_last_msg()
         if last_msg is not None and last_msg.role == "assistant":
             if reply_cycle is not None:
-                metadata = dict(getattr(last_msg, "metadata", None) or {})
                 # A single AgentScope assistant Msg may accumulate several
                 # model/tool iterations. Keep only semantic reply ownership on
                 # the Msg; visible occurrence order belongs to each block.
-                metadata.update(reply_cycle.snapshot.metadata())
-                last_msg.metadata = metadata
+                last_msg.metadata = {
+                    **(last_msg.metadata or {}),
+                    **reply_cycle.snapshot.metadata(),
+                }
                 persisted_ids = {
                     block.id
                     for block in last_msg.content
@@ -702,9 +699,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 for block_id, block_metadata in ownership_by_id.items():
                     if block_id in persisted_ids:
                         set_reply_block_metadata(
-                            last_msg,
-                            block_id,
-                            block_metadata,
+                            last_msg, block_id, block_metadata
                         )
             if tool_call_extras:
                 persist_tool_call_extras(last_msg, tool_call_extras)
@@ -1077,14 +1072,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Prepare one current view; dynamic input facts are not history."""
-        import json
-
-        from ..runtime.input_context import INPUT_CONTEXT_INSTRUCTION
-        from ..runtime.conversation_context import project_conversation_context
-        from ..runtime.tool_execution_context import (
-            project_tool_execution_context,
-        )
-
         await freeze_local_images_async(self.state.context)
         prepared = await super()._prepare_model_input()
         messages = []
@@ -1107,13 +1094,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
         owner = mailbox.input_context if mailbox is not None else None
         cycle = getattr(self, "_reply_cycle_context", None)
         if owner is not None and cycle is not None:
-            snapshot = owner.capture(cycle.snapshot.responds_to_input_ids)
+            input_ids = cycle.snapshot.responds_to_input_ids
+            snapshot = owner.capture(input_ids)
             if snapshot:
                 facts = json.loads(snapshot)
                 facts.update(
-                    project_tool_execution_context(
-                        messages, cycle.snapshot.responds_to_input_ids
-                    )
+                    project_tool_execution_context(messages, input_ids),
                 )
                 messages.append(
                     Msg(
@@ -1430,23 +1416,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         async def start_occurrence_for(evt: Any) -> None:
             nonlocal occurrence_started
-            if occurrence_started or not isinstance(
-                evt,
-                (
-                    TextBlockStartEvent,
-                    TextBlockDeltaEvent,
-                    TextBlockEndEvent,
-                    ThinkingBlockStartEvent,
-                    ThinkingBlockDeltaEvent,
-                    ThinkingBlockEndEvent,
-                    DataBlockStartEvent,
-                    DataBlockDeltaEvent,
-                    DataBlockEndEvent,
-                    ToolCallStartEvent,
-                    ToolCallDeltaEvent,
-                    ToolCallEndEvent,
-                ),
-            ):
+            if occurrence_started or not isinstance(evt, _BLOCK_EVENTS):
                 return
             reply_cycle = getattr(self, "_reply_cycle_context", None)
             if reply_cycle is not None:
@@ -1470,17 +1440,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         def acknowledge_seen_inputs(evt: Any) -> None:
             """Acknowledge inputs only after a completed model request."""
-            if isinstance(evt, ModelCallEndEvent):
-                self._model_reply_phase = (
-                    "progress"
-                    if evt.finished_reason == FinishedReason.COMPLETED
-                    else "incomplete"
-                )
-            if (
-                isinstance(evt, ModelCallEndEvent)
-                and evt.finished_reason == FinishedReason.COMPLETED
-                and context_manager is not None
-            ):
+            if not isinstance(evt, ModelCallEndEvent):
+                return
+            completed = evt.finished_reason == FinishedReason.COMPLETED
+            self._model_reply_phase = "progress" if completed else "incomplete"
+            if completed and context_manager is not None:
                 if hasattr(
                     context_manager,
                     "acknowledge_model_input_tool_results",
@@ -1504,14 +1468,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 acknowledge_seen_inputs(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
-                elif isinstance(
-                    evt,
-                    (
-                        TextBlockStartEvent,
-                        TextBlockDeltaEvent,
-                        TextBlockEndEvent,
-                    ),
-                ):
+                elif isinstance(evt, _TEXT_BLOCK_EVENTS):
                     deferred_text_events.append(evt)
                 else:
                     self._attach_fallback_notices(evt, fallback_sink)
@@ -1583,14 +1540,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     acknowledge_seen_inputs(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
-                    elif isinstance(
-                        evt,
-                        (
-                            TextBlockStartEvent,
-                            TextBlockDeltaEvent,
-                            TextBlockEndEvent,
-                        ),
-                    ):
+                    elif isinstance(evt, _TEXT_BLOCK_EVENTS):
                         deferred_text_events.append(evt)
                     else:
                         self._attach_fallback_notices(evt, fallback_sink)

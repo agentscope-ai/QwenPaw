@@ -281,7 +281,6 @@ async def test_cancelled_wait_is_not_saved_as_resumable_work():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", ["cancelled", "failed"])
 async def test_request_termination_is_persisted_once_and_scoped(outcome):
-    from agentscope.message import Msg, TextBlock
     from qwenpaw.runtime.reply_cycle import ReplyCycleContext
     from qwenpaw.runtime.runtime import Runtime
 

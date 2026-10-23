@@ -88,7 +88,9 @@ class VoiceTaskBridge:
         self._subscribers: set[asyncio.Queue[VoiceBridgeEvent]] = set()
         self._observer_task: asyncio.Task[None] | None = None
         self._observer_run_id = ""
-        self._admission_queue: asyncio.Queue[_PendingAdmission] = asyncio.Queue()
+        self._admission_queue: asyncio.Queue[
+            _PendingAdmission
+        ] = asyncio.Queue()
         self._admission_results: dict[
             str,
             asyncio.Future[VoiceTaskReceipt],
@@ -96,26 +98,33 @@ class VoiceTaskBridge:
         self._pending_admission_keys: set[str] = set()
         self._admission_task: asyncio.Task[None] | None = None
         self._closed = False
-        self._observer_tasks: set[asyncio.Task] = set()
+        self._observer_tasks: set[asyncio.Task[None]] = set()
         if hasattr(workspace.task_tracker, "subscribe_starts"):
             workspace.task_tracker.subscribe_starts(
                 chat.id, _BRIDGE_OBSERVER, self._on_run_started
             )
 
     def _on_run_started(self, events: asyncio.Queue, run_id: str) -> None:
-        self._observer_run_id = run_id
-        self._observer_task = asyncio.create_task(self._observe(events, run_id))
-        self._observer_tasks.add(self._observer_task)
-        self._observer_task.add_done_callback(self._observer_tasks.discard)
+        self._start_observer(events, run_id)
         self._publish(VoiceRunEvent(run_id, "started"))
 
+    def _start_observer(self, events: asyncio.Queue, run_id: str) -> None:
+        self._observer_run_id = run_id
+        task = asyncio.create_task(self._observe(events, run_id))
+        self._observer_task = task
+        self._observer_tasks.add(task)
+        task.add_done_callback(self._observer_tasks.discard)
+
+    def _input_ids(self, task_id: str) -> tuple[str, ...]:
+        return tuple(
+            i for i, task in self._input_task_ids.items() if task == task_id
+        )
+
     def _snapshot(self, record: _TaskRecord) -> VoiceTaskSnapshot:
-        results = getattr(self._workspace.task_tracker, "background_results", {}).get(
-            self._chat.id
-        )
-        ids = tuple(
-            i for i, task in self._input_task_ids.items() if task == record.task_id
-        )
+        results = getattr(
+            self._workspace.task_tracker, "background_results", {}
+        ).get(self._chat.id)
+        ids = self._input_ids(record.task_id)
         facts = results.facts(set(ids)) if results is not None else ()
         states = tuple(
             (i, state.status)
@@ -163,9 +172,7 @@ class VoiceTaskBridge:
             return
         replies = await view.read(session, self._chat)
         for record in self._records.values():
-            ids = {
-                i for i, task in self._input_task_ids.items() if task == record.task_id
-            }
+            ids = set(self._input_ids(record.task_id))
             owned = tuple(r for r in replies if ids.intersection(r.input_ids))
             if owned != record.replies:
                 record.replies = owned
@@ -231,15 +238,13 @@ class VoiceTaskBridge:
 
             self._input_context.set_admission(idempotency_key, "preparing")
             completion = asyncio.get_running_loop().create_future()
-            pending = _PendingAdmission(
-                text=text,
-                idempotency_key=idempotency_key,
-                admission_mode=admission_mode,
-                completion=completion,
-            )
             self._admission_results[idempotency_key] = completion
             self._pending_admission_keys.add(idempotency_key)
-            self._admission_queue.put_nowait(pending)
+            self._admission_queue.put_nowait(
+                _PendingAdmission(
+                    text, idempotency_key, admission_mode, completion
+                )
+            )
             if self._admission_task is None or self._admission_task.done():
                 self._admission_task = asyncio.create_task(
                     self._drain_admissions(),
@@ -258,51 +263,40 @@ class VoiceTaskBridge:
                     return
 
             try:
-                receipt = await self._execute_admission(pending)
+                receipt = await self.submit(
+                    pending.text,
+                    idempotency_key=pending.idempotency_key,
+                    admission_mode=pending.admission_mode,
+                )
             except asyncio.CancelledError:
-                self._input_context.set_admission(pending.idempotency_key, "cancelled")
-                if not pending.completion.done():
-                    pending.completion.set_result(
-                        VoiceTaskReceipt(
-                            task_id="",
-                            task_ref="",
-                            accepted=False,
-                            status="cancelled",
-                            message="The application is shutting down.",
-                        ),
-                    )
+                self._cancel_pending(pending)
                 raise
             except Exception as exc:  # noqa: BLE001
-                receipt = VoiceTaskReceipt(
-                    task_id="",
-                    task_ref="",
-                    accepted=False,
-                    status="failed",
-                    message=str(exc)[:500],
-                )
+                receipt = VoiceTaskReceipt.rejected("failed", str(exc)[:500])
 
             if not pending.completion.done():
                 pending.completion.set_result(receipt)
             if (
                 not receipt.accepted
-                and self._input_context.admission_status(pending.idempotency_key)
+                and self._input_context.admission_status(
+                    pending.idempotency_key
+                )
                 == "preparing"
             ):
-                self._input_context.set_admission(pending.idempotency_key, "failed")
-            async with self._lock:
-                self._pending_admission_keys.discard(
-                    pending.idempotency_key,
+                self._input_context.set_admission(
+                    pending.idempotency_key, "failed"
                 )
+            async with self._lock:
+                self._pending_admission_keys.discard(pending.idempotency_key)
 
-    async def _execute_admission(
-        self,
-        pending: _PendingAdmission,
-    ) -> VoiceTaskReceipt:
-        return await self.submit(
-            pending.text,
-            idempotency_key=pending.idempotency_key,
-            admission_mode=pending.admission_mode,
-        )
+    def _cancel_pending(self, pending: _PendingAdmission) -> None:
+        self._input_context.set_admission(pending.idempotency_key, "cancelled")
+        if not pending.completion.done():
+            pending.completion.set_result(
+                VoiceTaskReceipt.rejected(
+                    "cancelled", "The application is shutting down."
+                )
+            )
 
     async def submit(
         self,
@@ -315,12 +309,8 @@ class VoiceTaskBridge:
         request = request.strip()
         idempotency_key = idempotency_key.strip()
         if not request or len(request) > 8000 or not idempotency_key:
-            return VoiceTaskReceipt(
-                task_id="",
-                task_ref="",
-                accepted=False,
-                status="failed",
-                message="The task request is empty or too long.",
+            return VoiceTaskReceipt.rejected(
+                "failed", "The task request is empty or too long."
             )
 
         async with self._lock:
@@ -330,19 +320,15 @@ class VoiceTaskBridge:
                 return VoiceTaskReceipt(
                     task_id=existing.task_id,
                     task_ref=existing.task_ref,
-                    accepted=self._input_context.admission_status(idempotency_key)
+                    accepted=self._input_context.admission_status(
+                        idempotency_key
+                    )
                     == "admitted",
                     status=existing.status,
                     message="This speech turn was already submitted.",
                 )
             input_id = uuid4().hex
-            record = self._create_record_locked(
-                input_id,
-                request,
-                "accepted",
-            )
-            self._records[input_id] = record
-            self._input_task_ids[input_id] = input_id
+            record = self._add_record_locked(input_id, request, "accepted")
             self._idempotency[idempotency_key] = input_id
             self._input_context.register(idempotency_key, request)
             self._input_context.bind(input_id, idempotency_key)
@@ -369,16 +355,6 @@ class VoiceTaskBridge:
                     mode=admission_mode,
                 ),
             )
-        except OverflowError as exc:
-            await self._transition(input_id, "failed")
-            return VoiceTaskReceipt(
-                task_id=input_id,
-                task_ref=record.task_ref,
-                accepted=False,
-                status="failed",
-                message=str(exc),
-                input_id=input_id,
-            )
         except Exception as exc:  # noqa: BLE001
             await self._transition(input_id, "failed")
             return VoiceTaskReceipt(
@@ -391,21 +367,21 @@ class VoiceTaskBridge:
             )
 
         async with self._lock:
-            task_id = input_id
-            if self._current_run_task_id:
-                target = self._records.get(self._current_run_task_id)
-                target_run_id = self._snapshot(target).run_id if target else ""
-                if target is not None and target_run_id == submission.run_id:
-                    self._records.pop(input_id)
-                    target.requests[input_id] = request
-                    target.version += 1
-                    target.run_id = submission.run_id
-                    self._input_task_ids[input_id] = target.task_id
-                    self._idempotency[idempotency_key] = target.task_id
-                    task_id = target.task_id
-                    record = target
-                    self._publish(VoiceTaskEvent(self._snapshot(target)))
-            if task_id == input_id:
+            # A steer into the current run joins that run's task record.
+            target = self._records.get(self._current_run_task_id)
+            if (
+                target is not None
+                and self._snapshot(target).run_id == submission.run_id
+            ):
+                self._records.pop(input_id)
+                target.requests[input_id] = request
+                target.version += 1
+                target.run_id = submission.run_id
+                self._input_task_ids[input_id] = target.task_id
+                self._idempotency[idempotency_key] = target.task_id
+                record = target
+                self._publish(VoiceTaskEvent(self._snapshot(target)))
+            else:
                 record.run_id = submission.run_id
                 self._current_run_task_id = input_id
 
@@ -413,10 +389,7 @@ class VoiceTaskBridge:
             InputStateEvent(submission.run_id, (input_id,), "queued")
         )
         status = self._snapshot(record).status
-        await self._attach_observer(
-            submission.events,
-            submission.run_id,
-        )
+        await self._attach_observer(submission.events, submission.run_id)
         if self._chat.name == VOICE_CHAT_PLACEHOLDER_NAME:
             asyncio.create_task(
                 generate_and_update_title(
@@ -427,14 +400,14 @@ class VoiceTaskBridge:
                 )
             )
         return VoiceTaskReceipt(
-            task_id=task_id,
+            task_id=record.task_id,
             task_ref=record.task_ref,
             accepted=True,
             status=status,
             input_id=input_id,
         )
 
-    def _create_record_locked(
+    def _add_record_locked(
         self,
         task_id: str,
         request: str,
@@ -442,45 +415,39 @@ class VoiceTaskBridge:
         *,
         run_id: str = "",
     ) -> _TaskRecord:
-        ordinal = self._next_task_ref
-        self._next_task_ref += 1
-        task_ref = task_ref_label(ordinal)
         record = _TaskRecord(
             task_id=task_id,
-            task_ref=task_ref,
+            task_ref=task_ref_label(self._next_task_ref),
             requests={task_id: request},
             status=status,
             run_id=run_id,
         )
+        self._next_task_ref += 1
+        self._records[task_id] = record
+        self._input_task_ids[task_id] = task_id
         return record
 
     async def status(self, task_id: str) -> VoiceTaskSnapshot:
+        task_id = task_id.strip()
         async with self._lock:
-            record = self._records.get(task_id.strip())
+            record = self._records.get(task_id)
             if record is not None:
                 return record.snapshot()
         return VoiceTaskSnapshot(
-            task_id=task_id.strip(),
+            task_id=task_id,
             task_ref="",
             request="",
             status="not_found",
             version=0,
         )
 
-    async def active_snapshots(self) -> tuple[VoiceTaskSnapshot, ...]:
-        """Return only live task state; terminal history stays in Chat."""
-        async with self._lock:
-            return tuple(
-                record.snapshot()
-                for record in self._records.values()
-                if record.status not in _TERMINAL
-            )
-
     async def presentation_snapshots(self) -> tuple[VoiceTaskSnapshot, ...]:
         """Read all records so speech totals are not a context window."""
         async with self._lock:
             await self._refresh_replies_locked()
-            return tuple(self._snapshot(record) for record in self._records.values())
+            return tuple(
+                self._snapshot(record) for record in self._records.values()
+            )
 
     def subscribe(self) -> asyncio.Queue[VoiceBridgeEvent]:
         queue: asyncio.Queue[VoiceBridgeEvent] = asyncio.Queue()
@@ -501,43 +468,29 @@ class VoiceTaskBridge:
         if subscription is None:
             return None
         events, run_id = subscription
-        self._observer_run_id = run_id
-        self._observer_task = asyncio.create_task(self._observe(events, run_id))
+        self._start_observer(events, run_id)
         return run_id
 
     async def _attach_observer(
-        self,
-        events: asyncio.Queue,
-        run_id: str,
+        self, events: asyncio.Queue, run_id: str
     ) -> None:
         tracker = self._workspace.task_tracker
         claimed = await tracker.claim_live_subscriber(
-            self._chat.id,
-            _BRIDGE_OBSERVER,
-            events,
+            self._chat.id, _BRIDGE_OBSERVER, events
         )
-        if not claimed:
-            await tracker.detach_subscriber(self._chat.id, events)
-            return
-        if (
+        if not claimed or (
             self._observer_task is not None
             and not self._observer_task.done()
             and self._observer_run_id == run_id
         ):
             await tracker.detach_subscriber(self._chat.id, events)
             return
-        self._observer_run_id = run_id
-        self._observer_task = asyncio.create_task(self._observe(events, run_id))
+        self._start_observer(events, run_id)
 
-    async def _observe(
-        self,
-        events: asyncio.Queue,
-        run_id: str,
-    ) -> None:
+    async def _observe(self, events: asyncio.Queue, run_id: str) -> None:
         outcome: RunOutcome | None = None
         stream = self._workspace.task_tracker.stream_events_from_queue(
-            events,
-            self._chat.id,
+            events, self._chat.id
         )
         try:
             async for raw_event in stream:
@@ -561,19 +514,12 @@ class VoiceTaskBridge:
                     await self._refresh_input_state(raw_event)
         finally:
             await stream.aclose()
-            # Observer teardown is not evidence that the Agent stopped or
-            # succeeded.
-            # The Chat-owned producer alone publishes its terminal outcome.
+        # Observer teardown is not evidence that the Agent stopped; only the
+        # Chat-owned producer publishes a terminal outcome.
         if outcome is not None:
             async with self._lock:
                 await self._refresh_replies_locked()
-            self._publish(
-                VoiceRunEvent(
-                    run_id=run_id,
-                    status=outcome.status,
-                    error=outcome.error,
-                )
-            )
+            self._publish(VoiceRunEvent(run_id, outcome.status, outcome.error))
 
     async def _refresh_input_state(self, event: InputStateEvent) -> None:
         """Render the producer's latest state; observers never rewrite it."""
@@ -595,22 +541,13 @@ class VoiceTaskBridge:
                 allow_reopen=True,
             )
 
-    async def _ensure_observed_task(
-        self,
-        task_id: str,
-        run_id: str,
-    ) -> None:
+    async def _ensure_observed_task(self, task_id: str, run_id: str) -> None:
         async with self._lock:
             if task_id in self._records:
                 return
-            record = self._create_record_locked(
-                task_id,
-                "",
-                "queued",
-                run_id=run_id,
+            record = self._add_record_locked(
+                task_id, "", "queued", run_id=run_id
             )
-            self._records[task_id] = record
-            self._input_task_ids[task_id] = task_id
             event = VoiceTaskEvent(self._snapshot(record))
         self._publish(event)
 
@@ -628,10 +565,13 @@ class VoiceTaskBridge:
     ) -> None:
         async with self._lock:
             record = self._records.get(task_id)
-            if record is None or (record.status in _TERMINAL and not allow_reopen):
+            if record is None or (
+                record.status in _TERMINAL and not allow_reopen
+            ):
                 return
-            changed = record.status != status or (run_id and record.run_id != run_id)
-            if not changed:
+            if record.status == status and (
+                not run_id or record.run_id == run_id
+            ):
                 return
             record.status = status
             if run_id:
@@ -663,18 +603,7 @@ class VoiceTaskBridge:
                 except asyncio.QueueEmpty:
                     break
                 if not pending.completion.done():
-                    self._input_context.set_admission(
-                        pending.idempotency_key, "cancelled"
-                    )
-                    pending.completion.set_result(
-                        VoiceTaskReceipt(
-                            task_id="",
-                            task_ref="",
-                            accepted=False,
-                            status="cancelled",
-                            message="The application is shutting down.",
-                        ),
-                    )
+                    self._cancel_pending(pending)
             self._pending_admission_keys.clear()
             self._admission_results.clear()
         task = self._observer_task

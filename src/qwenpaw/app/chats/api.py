@@ -40,11 +40,6 @@ from .resolver import (
 )
 from ...config.utils import load_config
 from ...utils.io_utils import run_sync_io
-from ...services.project_directory import (
-    agent_project_dirs_from_config,
-    resolve_effective_project_dirs,
-    session_project_dirs_raw_from_meta,
-)
 from .session import SafeJSONSession
 from .timeline import (
     merge_timeline_messages,

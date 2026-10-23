@@ -47,14 +47,14 @@ _EXPECTED_CLOSE_REASONS = {
 }
 
 
-def _event_id(payload: dict[str, Any]) -> str:
-    return str(payload.get("event_id") or uuid4().hex)
+def _field(data: Any, key: str) -> str:
+    return str(data.get(key) or "") if isinstance(data, dict) else ""
 
 
 def _is_response_busy_error(error: dict[str, Any]) -> bool:
-    return str(error.get("code") or "") == "invalid_value" and (
-        str(error.get("param") or "") == "response.create"
-        or "response" in str(error.get("message") or "").lower()
+    return _field(error, "code") == "invalid_value" and (
+        _field(error, "param") == "response.create"
+        or "response" in _field(error, "message").lower()
     )
 
 
@@ -63,22 +63,24 @@ def _missing_deleted_item(
     pending_item_ids: Iterable[str],
 ) -> str | None:
     """Return a pending deletion that the Provider already removed."""
-    if str(error.get("code") or "") != "invalid_value":
+    if _field(error, "code") != "invalid_value":
         return None
-    message = str(error.get("message") or "")
+    message = _field(error, "message")
     if "cannot find item" not in message.lower():
         return None
-    return next((item_id for item_id in pending_item_ids if item_id in message), None)
+    return next(
+        (item_id for item_id in pending_item_ids if item_id in message), None
+    )
 
 
 def _endpoint(override: str | None, region: str, model: str) -> str:
+    if override and "model=" in override:
+        return override
+    query = f"model={quote(model, safe='')}"
     if override:
         separator = "&" if "?" in override else "?"
-        if "model=" in override:
-            return override
-        return f"{override}{separator}model={quote(model, safe='')}"
-    domain = _REGION_DOMAINS[region]
-    return f"wss://{domain}/api-ws/v1/realtime?model={quote(model, safe='')}"
+        return f"{override}{separator}{query}"
+    return f"wss://{_REGION_DOMAINS[region]}/api-ws/v1/realtime?{query}"
 
 
 @dataclass
@@ -152,13 +154,11 @@ class DashScopeRealtimeSession:
         )
 
     @property
-    def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._api_key}"}
+    def _has_tools(self) -> bool:
+        return bool(self._session_config and self._session_config.tools)
 
     def _should_emit_active_output(self) -> bool:
-        return self._active_response_origin == "application" or bool(
-            self._session_config and self._session_config.tools
-        )
+        return self._active_response_origin == "application" or self._has_tools
 
     async def connect(self, session: RealtimeSessionConfig) -> None:
         if self._closed:
@@ -166,7 +166,7 @@ class DashScopeRealtimeSession:
         self._session_config = session
         self._socket = await connect(
             self.endpoint,
-            additional_headers=self._headers,
+            additional_headers={"Authorization": f"Bearer {self._api_key}"},
             open_timeout=_READY_TIMEOUT_SECONDS,
             close_timeout=5,
             ping_interval=20,
@@ -183,22 +183,27 @@ class DashScopeRealtimeSession:
             await self.close()
             raise
 
-    async def _send(self, payload: dict[str, Any]) -> None:
+    async def _send(self, event_type: str, **fields: Any) -> None:
         if self._socket is None or self._closed:
             raise RuntimeError("DashScope realtime session is not connected")
+        payload = {"event_id": uuid4().hex, "type": event_type, **fields}
         async with self._send_lock:
             await self._socket.send(json.dumps(payload, ensure_ascii=False))
 
     async def _configure(self) -> None:
         session = self._session_config
         if session is None:
-            raise RuntimeError("Realtime Voice session configuration is missing")
+            raise RuntimeError(
+                "Realtime Voice session configuration is missing"
+            )
         turn_detection: dict[str, Any] = {"type": self._config.vad_mode}
         if self._config.vad_mode == "server_vad":
             turn_detection.update(
                 {
                     "threshold": self._config.vad_threshold,
-                    "silence_duration_ms": (self._config.vad_silence_duration_ms),
+                    "silence_duration_ms": (
+                        self._config.vad_silence_duration_ms
+                    ),
                 }
             )
         tools = [
@@ -223,23 +228,14 @@ class DashScopeRealtimeSession:
         }
         if tools:
             settings["tools"] = tools
-        await self._send(
-            {
-                "event_id": uuid4().hex,
-                "type": "session.update",
-                "session": settings,
-            }
-        )
+        await self._send("session.update", session=settings)
 
     async def send_audio(self, pcm16: bytes) -> None:
         if not pcm16:
             return
         await self._send(
-            {
-                "event_id": uuid4().hex,
-                "type": "input_audio_buffer.append",
-                "audio": base64.b64encode(pcm16).decode("ascii"),
-            }
+            "input_audio_buffer.append",
+            audio=base64.b64encode(pcm16).decode("ascii"),
         )
 
     async def create_message(self, role: str, text: str) -> str:
@@ -318,16 +314,12 @@ class DashScopeRealtimeSession:
 
     async def _create_item(self, item: dict[str, Any]) -> str:
         item_id = f"item_{uuid4().hex}"
-        item = {"id": item_id, **item}
         acknowledged = asyncio.get_running_loop().create_future()
         self._pending_items[item_id] = acknowledged
         try:
             await self._send(
-                {
-                    "event_id": uuid4().hex,
-                    "type": "conversation.item.create",
-                    "item": item,
-                }
+                "conversation.item.create",
+                item={"id": item_id, **item},
             )
             await asyncio.wait_for(
                 acknowledged,
@@ -342,13 +334,7 @@ class DashScopeRealtimeSession:
             acknowledged = asyncio.get_running_loop().create_future()
             self._pending_deletions[item_id] = acknowledged
             try:
-                await self._send(
-                    {
-                        "event_id": uuid4().hex,
-                        "type": "conversation.item.delete",
-                        "item_id": item_id,
-                    }
-                )
+                await self._send("conversation.item.delete", item_id=item_id)
                 await asyncio.wait_for(
                     acknowledged,
                     timeout=_COMMAND_TIMEOUT_SECONDS,
@@ -374,11 +360,8 @@ class DashScopeRealtimeSession:
             self._idle.clear()
             try:
                 await self._send(
-                    {
-                        "event_id": uuid4().hex,
-                        "type": "response.create",
-                        "response": {"modalities": ["audio", "text"]},
-                    }
+                    "response.create",
+                    response={"modalities": ["audio", "text"]},
                 )
             except BaseException:
                 self._response_requested = False
@@ -396,12 +379,7 @@ class DashScopeRealtimeSession:
                 return
             self._drop_audio = True
             with suppress(ConnectionClosed):
-                await self._send(
-                    {
-                        "event_id": uuid4().hex,
-                        "type": "response.cancel",
-                    }
-                )
+                await self._send("response.cancel")
 
     async def _receive(self) -> None:
         try:
@@ -424,25 +402,21 @@ class DashScopeRealtimeSession:
         finally:
             self._idle.set()
             self._presentation_ready.set()
-            pending = tuple(self._pending_items.values()) + tuple(
-                self._pending_deletions.values()
-            )
-            for future in pending:
-                if not future.done():
+            for future in (
+                *self._pending_items.values(),
+                *self._pending_deletions.values(),
+                self._application_response_done,
+            ):
+                if future is not None and not future.done():
                     future.set_exception(
                         ConnectionError("DashScope realtime session closed")
                     )
-            response_done = self._application_response_done
-            if response_done is not None and not response_done.done():
-                response_done.set_exception(
-                    ConnectionError("DashScope realtime session closed")
-                )
             if not self._closed:
                 await self._events.put(_EVENTS_CLOSED)
 
     async def _handle(self, payload: dict[str, Any]) -> None:
-        kind = str(payload.get("type") or "")
-        event_id = _event_id(payload)
+        kind = _field(payload, "type")
+        event_id = _field(payload, "event_id") or uuid4().hex
 
         if kind == "session.created":
             await self._configure()
@@ -453,25 +427,25 @@ class DashScopeRealtimeSession:
             return
         if kind == "conversation.item.created":
             item = payload.get("item")
-            item_id = str(item.get("id") or "") if isinstance(item, dict) else ""
+            item_id = _field(item, "id")
             future = self._pending_items.get(item_id)
             if future is not None and not future.done():
                 future.set_result(None)
             elif isinstance(item, dict):
-                role = str(item.get("role") or "")
+                role = _field(item, "role")
                 if role == "user" and item_id:
                     self._input_turn_for_item(item_id)
                 elif role == "assistant" and item_id:
                     self._active_response_items.add(item_id)
             return
         if kind == "conversation.item.deleted":
-            item_id = str(payload.get("item_id") or "")
+            item_id = _field(payload, "item_id")
             future = self._pending_deletions.get(item_id)
             if future is not None and not future.done():
                 future.set_result(None)
             return
         if kind == "input_audio_buffer.speech_started":
-            item_id = str(payload.get("item_id") or "")
+            item_id = _field(payload, "item_id")
             turn_id, turn = self._input_turn_for_item(item_id)
             if turn is None or turn.speech_started or turn.transcript_final:
                 return
@@ -498,7 +472,7 @@ class DashScopeRealtimeSession:
                 ProviderEvent(
                     "speech.stopped",
                     event_id,
-                    correlation_id=str(payload.get("item_id") or "") or None,
+                    correlation_id=_field(payload, "item_id") or None,
                 )
             )
             return
@@ -508,15 +482,13 @@ class DashScopeRealtimeSession:
         }:
             # Both wire events carry a confirmed prefix plus a revisable
             # suffix.
-            text = str(payload.get("text") or "") + str(
-                payload.get("stash") or "",
-            )
+            text = _field(payload, "text") + _field(payload, "stash")
             await self._events.put(
                 ProviderEvent(
                     "input_transcript.partial",
                     event_id,
                     {"text": text},
-                    correlation_id=(str(payload.get("item_id") or "") or None),
+                    correlation_id=_field(payload, "item_id") or None,
                 )
             )
             return
@@ -524,8 +496,10 @@ class DashScopeRealtimeSession:
             "conversation.item.input_audio_transcription.completed",
             "conversation.item.input_audio_transcription.failed",
         }:
-            text = str(payload.get("transcript") or payload.get("text") or "").strip()
-            item_id = str(payload.get("item_id") or "")
+            text = (
+                _field(payload, "transcript") or _field(payload, "text")
+            ).strip()
+            item_id = _field(payload, "item_id")
             turn_id, turn = self._input_turn_for_item(item_id)
             if turn is None or turn.transcript_final:
                 return
@@ -533,7 +507,9 @@ class DashScopeRealtimeSession:
             failed = kind.endswith(".failed")
             await self._events.put(
                 ProviderEvent(
-                    "input_transcript.failed" if failed else "input_transcript.final",
+                    "input_transcript.failed"
+                    if failed
+                    else "input_transcript.final",
                     event_id,
                     {"code": "voice_transcription_failed"}
                     if failed
@@ -545,17 +521,16 @@ class DashScopeRealtimeSession:
             self._schedule_input_cleanup_fallback(turn_id)
             return
         if kind == "response.created":
-            response = payload.get("response")
-            response_id = (
-                str(response.get("id") or "") if isinstance(response, dict) else ""
-            )
+            response_id = _field(payload.get("response"), "id")
             origin = self._pending_response_origin or "provider_auto"
             self._response_requested = False
             self._pending_response_origin = None
             self._active_response_id = response_id or event_id
             self._active_response_origin = origin
             self._active_response_input_turn = (
-                self._current_input_turn()[0] if origin == "provider_auto" else None
+                self._current_input_turn()[0]
+                if origin == "provider_auto"
+                else None
             )
             response_turn = self._input_turns.get(
                 self._active_response_input_turn or -1
@@ -575,65 +550,43 @@ class DashScopeRealtimeSession:
                     "response.started",
                     event_id,
                     correlation_id=self._active_response_id,
-                    data={"input_item_id": (self._active_response_input_item_id or "")},
+                    data={
+                        "input_item_id": (
+                            self._active_response_input_item_id or ""
+                        )
+                    },
                     response_origin=origin,
                 )
             )
-            if origin == "provider_auto" and not (
-                self._session_config and self._session_config.tools
-            ):
+            if origin == "provider_auto" and not self._has_tools:
                 await self.interrupt_output()
             return
         if kind in {"response.output_item.added", "response.output_item.done"}:
             item = payload.get("item")
-            item_id = str(item.get("id") or "") if isinstance(item, dict) else ""
+            item_id = _field(item, "id")
             if item_id:
                 self._active_response_items.add(item_id)
             return
         if kind == "response.function_call_arguments.done":
-            call_id = str(payload.get("call_id") or "").strip()
-            name = str(payload.get("name") or "").strip()
-            supported = {
-                tool.name
-                for tool in (
-                    self._session_config.tools
-                    if self._session_config is not None
-                    else ()
-                )
-            }
-            if not call_id or name not in supported:
-                await self._events.put(
-                    ProviderEvent(
-                        "error",
-                        event_id,
-                        {
-                            "code": "unsupported_realtime_tool_call",
-                            "message": (
-                                "The realtime provider requested an unsupported tool."
-                            ),
-                            "recoverable": True,
-                            "source": "provider",
-                        },
-                    )
+            call_id = _field(payload, "call_id").strip()
+            name = _field(payload, "name").strip()
+            tools = self._session_config.tools if self._session_config else ()
+            if not call_id or name not in {tool.name for tool in tools}:
+                await self._emit_error(
+                    event_id,
+                    "unsupported_realtime_tool_call",
+                    "The realtime provider requested an unsupported tool.",
                 )
                 return
             turn_id = self._active_response_input_turn
             turn = self._input_turns.get(turn_id or -1)
             source_item_id = turn.source_item_id if turn else ""
             if turn is None or not source_item_id:
-                await self._events.put(
-                    ProviderEvent(
-                        "error",
-                        event_id,
-                        {
-                            "code": "missing_realtime_tool_input",
-                            "message": (
-                                "The realtime tool call could not be matched to its input."
-                            ),
-                            "recoverable": True,
-                            "source": "provider",
-                        },
-                    )
+                await self._emit_error(
+                    event_id,
+                    "missing_realtime_tool_input",
+                    "The realtime tool call could not be matched to its "
+                    "input.",
                 )
                 return
             self._active_response_had_tool_call = True
@@ -646,8 +599,8 @@ class DashScopeRealtimeSession:
                     {
                         "call_id": call_id,
                         "name": name,
-                        "arguments": str(payload.get("arguments") or ""),
-                        "item_id": str(payload.get("item_id") or ""),
+                        "arguments": _field(payload, "arguments"),
+                        "item_id": _field(payload, "item_id"),
                         "input_item_id": source_item_id,
                     },
                     correlation_id=call_id,
@@ -660,7 +613,7 @@ class DashScopeRealtimeSession:
             "response.text.delta",
             "response.output_text.delta",
         }:
-            text = str(payload.get("delta") or "")
+            text = _field(payload, "delta")
             if text and self._should_emit_active_output():
                 self._active_output_text += text
                 await self._start_output(event_id)
@@ -679,7 +632,9 @@ class DashScopeRealtimeSession:
             "response.text.done",
             "response.output_text.done",
         }:
-            text = str(payload.get("transcript") or payload.get("text") or "").strip()
+            text = (
+                _field(payload, "transcript") or _field(payload, "text")
+            ).strip()
             if (
                 text
                 and not self._output_final_emitted
@@ -722,11 +677,7 @@ class DashScopeRealtimeSession:
             return
         if kind == "response.done":
             response = payload.get("response")
-            status = (
-                str(response.get("status") or "completed")
-                if isinstance(response, dict)
-                else "completed"
-            )
+            status = _field(response, "status") or "completed"
             correlation_id = self._active_response_id
             response_origin = self._active_response_origin or "provider_auto"
             had_output = self._output_started
@@ -738,8 +689,7 @@ class DashScopeRealtimeSession:
                     for item in output:
                         if not isinstance(item, dict):
                             continue
-                        item_id = str(item.get("id") or "")
-                        if item_id:
+                        if item_id := _field(item, "id"):
                             response_items.add(item_id)
             response_done = self._application_response_done
             response_input_turn = self._active_response_input_turn
@@ -823,8 +773,8 @@ class DashScopeRealtimeSession:
                 # application response is active. Retrying it would create
                 # duplicate speech, so this expected automatic response dies.
                 return
-            message = str(error.get("message") or "DashScope realtime error")
-            code = str(error.get("code") or "provider_error")
+            message = _field(error, "message") or "DashScope realtime error"
+            code = _field(error, "code") or "provider_error"
             close_reason = _EXPECTED_CLOSE_REASONS.get(code)
             if close_reason is not None:
                 self._expected_close_reason = close_reason
@@ -839,18 +789,7 @@ class DashScopeRealtimeSession:
                     )
                 )
                 return
-            await self._events.put(
-                ProviderEvent(
-                    "error",
-                    event_id,
-                    {
-                        "code": code,
-                        "message": message[:500],
-                        "recoverable": True,
-                        "source": "provider",
-                    },
-                )
-            )
+            await self._emit_error(event_id, code, message[:500])
 
     def _schedule_barge_cancel(self, response_id: str | None) -> None:
         task = self._barge_cancel_task
@@ -866,11 +805,16 @@ class DashScopeRealtimeSession:
     ) -> None:
         try:
             await asyncio.sleep(_BARGE_IN_CANCEL_FALLBACK_SECONDS)
-            if self._response_requested or (
-                response_id is not None and self._active_response_id == response_id
-            ) or (
-                response_id is None
-                and self._active_response_origin == "application"
+            if (
+                self._response_requested
+                or (
+                    response_id is not None
+                    and self._active_response_id == response_id
+                )
+                or (
+                    response_id is None
+                    and self._active_response_origin == "application"
+                )
             ):
                 await self.interrupt_output()
         except asyncio.CancelledError:
@@ -881,12 +825,15 @@ class DashScopeRealtimeSession:
         turn = self._input_turns.get(turn_id)
         if turn is not None:
             return turn_id, turn
+        turn_id, turn = self._new_input_turn()
+        self._active_input_turn = turn_id
+        self._presentation_ready.clear()
+        return turn_id, turn
+
+    def _new_input_turn(self) -> tuple[int, _InputTurnState]:
         self._input_turn_sequence += 1
         turn_id = self._input_turn_sequence
-        self._active_input_turn = turn_id
-        turn = _InputTurnState()
-        self._input_turns[turn_id] = turn
-        self._presentation_ready.clear()
+        turn = self._input_turns[turn_id] = _InputTurnState()
         return turn_id, turn
 
     def _input_turn_for_item(
@@ -896,10 +843,7 @@ class DashScopeRealtimeSession:
         if item_id in self._input_item_turns:
             turn_id = self._input_item_turns[item_id]
             return turn_id, self._input_turns.get(turn_id)
-        self._input_turn_sequence += 1
-        turn_id = self._input_turn_sequence
-        turn = _InputTurnState()
-        self._input_turns[turn_id] = turn
+        turn_id, turn = self._new_input_turn()
         if item_id:
             turn.source_item_id = item_id
             self._input_item_turns[item_id] = turn_id
@@ -920,7 +864,7 @@ class DashScopeRealtimeSession:
         ):
             return
         turn.cleanup_scheduled = True
-        if self._session_config and self._session_config.tools:
+        if self._has_tools:
             self._input_turns.pop(turn_id, None)
             if not self._input_turns:
                 self._presentation_ready.set()
@@ -932,7 +876,9 @@ class DashScopeRealtimeSession:
         task.add_done_callback(self._input_cleanup_tasks.discard)
 
     def _schedule_input_cleanup_fallback(self, turn_id: int) -> None:
-        task = asyncio.create_task(self._finish_input_without_auto_response(turn_id))
+        task = asyncio.create_task(
+            self._finish_input_without_auto_response(turn_id)
+        )
         self._input_cleanup_fallback_tasks.add(task)
         task.add_done_callback(self._input_cleanup_fallback_tasks.discard)
 
@@ -992,13 +938,30 @@ class DashScopeRealtimeSession:
     ) -> None:
         if self._closed:
             return
+        await self._emit_error(
+            uuid4().hex,
+            f"{source}_error",
+            str(exc)[:500],
+            recoverable=recoverable,
+            source=source,
+        )
+
+    async def _emit_error(
+        self,
+        event_id: str,
+        code: str,
+        message: str,
+        *,
+        recoverable: bool = True,
+        source: str = "provider",
+    ) -> None:
         await self._events.put(
             ProviderEvent(
                 "error",
-                uuid4().hex,
+                event_id,
                 {
-                    "code": f"{source}_error",
-                    "message": str(exc)[:500],
+                    "code": code,
+                    "message": message,
                     "recoverable": recoverable,
                     "source": source,
                 },
@@ -1050,13 +1013,6 @@ class DashScopeRealtimeSession:
         await self._events.put(_EVENTS_CLOSED)
 
 
-def create_dashscope_session(
-    config: EffectiveRealtimeVoiceConfig,
-    api_key: str,
-) -> DashScopeRealtimeSession:
-    return DashScopeRealtimeSession(config, api_key)
-
-
 DASHSCOPE_REGISTRATION = RealtimeProviderRegistration(
     provider_id="dashscope",
     supports_native_tools=True,
@@ -1097,7 +1053,7 @@ DASHSCOPE_REGISTRATION = RealtimeProviderRegistration(
         output_sample_rate=24000,
         channels=1,
     ),
-    factory=create_dashscope_session,
+    factory=DashScopeRealtimeSession,
 )
 
 __all__ = ["DASHSCOPE_REGISTRATION", "DashScopeRealtimeSession"]

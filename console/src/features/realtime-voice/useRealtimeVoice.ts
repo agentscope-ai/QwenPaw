@@ -22,24 +22,11 @@ export type RealtimeVoiceStatus =
   | "reconnecting"
   | "error";
 
-export type RealtimeVoiceConnectionState =
-  | "idle"
-  | "connecting"
-  | "ready"
-  | "reconnecting"
-  | "error";
-export type RealtimeVoiceInputState = "idle" | "listening" | "speaking";
-export type RealtimeVoiceAgentState = "idle" | "working";
-export type RealtimeVoiceOutputState =
-  | "idle"
-  | "speaking"
-  | "interrupted"
-  | "failed";
-export interface RealtimeVoiceState {
-  connection: RealtimeVoiceConnectionState;
-  input: RealtimeVoiceInputState;
-  agent: RealtimeVoiceAgentState;
-  output: RealtimeVoiceOutputState;
+interface RealtimeVoiceState {
+  connection: "idle" | "connecting" | "ready" | "reconnecting" | "error";
+  input: "idle" | "listening" | "speaking";
+  agent: "idle" | "working";
+  output: "idle" | "speaking" | "interrupted" | "failed";
 }
 
 const INITIAL_VOICE_STATE: RealtimeVoiceState = {
@@ -211,20 +198,25 @@ export function useRealtimeVoice({
     reconnectTimerRef.current = null;
   }, []);
 
+  /** Invalidate the current generation and drop its connection and lease. */
+  const abandonConnection = useCallback(() => {
+    startGenerationRef.current += 1;
+    manualStopRef.current = true;
+    clearReconnectTimer();
+    clientRef.current?.close();
+    clientRef.current = null;
+    releaseBootstrap(bootstrapRef.current);
+    bootstrapRef.current = null;
+  }, [clearReconnectTimer]);
+
   const fail = useCallback(
     async (message: string) => {
-      startGenerationRef.current += 1;
-      manualStopRef.current = true;
-      clearReconnectTimer();
-      clientRef.current?.close();
-      clientRef.current = null;
-      releaseBootstrap(bootstrapRef.current);
-      bootstrapRef.current = null;
+      abandonConnection();
       setVoiceState({ ...INITIAL_VOICE_STATE, connection: "error" });
       setError(message);
       await cleanupMedia();
     },
-    [cleanupMedia, clearReconnectTimer],
+    [abandonConnection, cleanupMedia],
   );
 
   const forwardAudio = useCallback((pcm16: ArrayBuffer) => {
@@ -259,14 +251,14 @@ export function useRealtimeVoice({
       );
       capture.setMuted(mutedRef.current);
       captureRef.current = capture;
+      const ownsCapture = () =>
+        isCurrentGeneration(generation) && captureRef.current === capture;
       await capture.start(
         (pcm) => {
-          if (isCurrentGeneration(generation) && captureRef.current === capture)
-            forwardAudio(pcm);
+          if (ownsCapture()) forwardAudio(pcm);
         },
         () => {
-          if (isCurrentGeneration(generation) && captureRef.current === capture)
-            void restartCapture();
+          if (ownsCapture()) void restartCapture();
         },
       );
       if (!isCurrentGeneration(generation)) await capture.stop();
@@ -404,10 +396,6 @@ export function useRealtimeVoice({
               setAssistantTranscript("");
               updateVoiceState({ output: "speaking" });
               break;
-            case "output.stopped":
-              if (isStaleRun) break;
-              // Provider generation ending is not browser playback completion.
-              break;
             case "output.cancelled":
               if (
                 typeof event.output_id === "string" &&
@@ -436,17 +424,14 @@ export function useRealtimeVoice({
             case "input_transcript.partial":
               setInputTranscript(String(event.text || ""));
               break;
-            case "input_transcript.final": {
-              const text = String(event.text || "").trim();
-              setInputTranscript(text);
+            case "input_transcript.final":
+              setInputTranscript(String(event.text || "").trim());
               setPendingInputError(null);
               break;
-            }
-            case "input_transcript.failed": {
+            case "input_transcript.failed":
               setInputTranscript("");
               setPendingInputError(t("realtimeVoice.transcriptionUnavailable"));
               break;
-            }
             case "input_turn.committed":
               setInputTranscript("");
               setPendingInputError(null);
@@ -466,24 +451,18 @@ export function useRealtimeVoice({
             case "output_transcript.final":
               setAssistantTranscript(String(event.text || "").trim());
               break;
-            case "agent.input.accepted": {
+            case "agent.input.accepted":
               if (eventRunId) currentRunIdRef.current = eventRunId;
               updateVoiceState({ agent: "working" });
               break;
-            }
-            case "agent.input.consumed": {
-              if (isStaleRun) break;
-              updateVoiceState({ agent: "working" });
+            case "agent.input.consumed":
+              if (!isStaleRun) updateVoiceState({ agent: "working" });
               break;
-            }
-            case "agent.run.started": {
+            case "agent.run.started":
               if (eventRunId) currentRunIdRef.current = eventRunId;
               updateVoiceState({ agent: "working" });
-              if (event.status === "started") {
-                agentRunStartedRef.current();
-              }
+              if (event.status === "started") agentRunStartedRef.current();
               break;
-            }
             case "agent.run.completed":
               if (isStaleRun) break;
               updateVoiceState({ agent: "idle" });
@@ -543,9 +522,7 @@ export function useRealtimeVoice({
           if (!opened) return;
           const current = bootstrapRef.current;
           if (!current) return;
-          if (!reconnectStartedRef.current) {
-            reconnectStartedRef.current = Date.now();
-          }
+          reconnectStartedRef.current ||= Date.now();
           scheduleReconnectRef.current?.(current);
         },
       });
@@ -612,14 +589,10 @@ export function useRealtimeVoice({
   const begin = useCallback(
     async (replaceSessionId?: string) => {
       if (!enabled) return;
-      const startGeneration = startGenerationRef.current + 1;
-      startGenerationRef.current = startGeneration;
+      abandonConnection();
+      const startGeneration = startGenerationRef.current;
       manualStopRef.current = false;
-      clearReconnectTimer();
-      clientRef.current?.close();
-      clientRef.current = null;
-      releaseBootstrap(bootstrapRef.current);
-      bootstrapRef.current = null;
+      // Also resets provider readiness, output gating and pre-ready audio.
       void cleanupMedia();
       setError(null);
       setConflict(null);
@@ -628,15 +601,11 @@ export function useRealtimeVoice({
       setPendingInputError(null);
       reconnectStartedRef.current = 0;
       reconnectAttemptsRef.current = 0;
-      providerReadyRef.current = false;
-      acceptOutputAudioRef.current = false;
-      preReadyAudioRef.current = [];
 
       let playback: RealtimeAudioPlayback | null = null;
       let capture: RealtimeAudioCapture | null = null;
       try {
-        const loaded =
-          capabilitiesRef.current ?? capabilities ?? (await loadCapabilities());
+        const loaded = capabilitiesRef.current ?? (await loadCapabilities());
         if (!isCurrentGeneration(startGeneration)) return;
         const providerId = loaded.effective_model?.provider_id;
         const provider = loaded.providers.find(
@@ -653,31 +622,24 @@ export function useRealtimeVoice({
         playbackRef.current = playback;
         captureRef.current = capture;
 
+        const ownsCapture = () =>
+          isCurrentGeneration(startGeneration) &&
+          captureRef.current === capture;
         // Both calls begin directly inside the click handler before bootstrap.
-        const playbackReady = playback.unlock();
-        const captureReady = capture.start(
-          (pcm) => {
-            if (
-              isCurrentGeneration(startGeneration) &&
-              captureRef.current === capture
-            )
-              forwardAudio(pcm);
-          },
-          () => {
-            if (
-              isCurrentGeneration(startGeneration) &&
-              captureRef.current === capture
-            )
-              void restartCapture();
-          },
-        );
-        await Promise.all([playbackReady, captureReady]);
+        await Promise.all([
+          playback.unlock(),
+          capture.start(
+            (pcm) => {
+              if (ownsCapture()) forwardAudio(pcm);
+            },
+            () => {
+              if (ownsCapture()) void restartCapture();
+            },
+          ),
+        ]);
         // A new connection must see the tail committed by the preceding stop.
         await stopPromiseRef.current;
-        if (
-          startGeneration !== startGenerationRef.current ||
-          manualStopRef.current
-        ) {
+        if (!isCurrentGeneration(startGeneration)) {
           await Promise.all([capture.stop(), playback.close()]);
           return;
         }
@@ -686,10 +648,7 @@ export function useRealtimeVoice({
           ...(chatId ? { chat_id: chatId } : {}),
           ...(replaceSessionId ? { replace_session_id: replaceSessionId } : {}),
         });
-        if (
-          startGeneration !== startGenerationRef.current ||
-          manualStopRef.current
-        ) {
+        if (!isCurrentGeneration(startGeneration)) {
           releaseBootstrap(bootstrap);
           await Promise.all([capture.stop(), playback.close()]);
           return;
@@ -719,10 +678,9 @@ export function useRealtimeVoice({
       }
     },
     [
-      capabilities,
+      abandonConnection,
       chatId,
       cleanupMedia,
-      clearReconnectTimer,
       connectBootstrap,
       enabled,
       forwardAudio,
@@ -783,31 +741,21 @@ export function useRealtimeVoice({
 
   useEffect(() => {
     if (enabled) return;
-    startGenerationRef.current += 1;
-    manualStopRef.current = true;
-    clearReconnectTimer();
-    clientRef.current?.close();
-    clientRef.current = null;
-    releaseBootstrap(bootstrapRef.current);
-    bootstrapRef.current = null;
+    abandonConnection();
     currentRunIdRef.current = null;
     setVoiceState(INITIAL_VOICE_STATE);
     setInputTranscript("");
     setPendingInputError(null);
     void cleanupMedia();
-  }, [cleanupMedia, clearReconnectTimer, enabled]);
+  }, [abandonConnection, cleanupMedia, enabled]);
 
-  useEffect(() => {
-    return () => {
-      startGenerationRef.current += 1;
-      manualStopRef.current = true;
-      clearReconnectTimer();
-      clientRef.current?.close();
-      releaseBootstrap(bootstrapRef.current);
-      bootstrapRef.current = null;
+  useEffect(
+    () => () => {
+      abandonConnection();
       void cleanupMedia();
-    };
-  }, [cleanupMedia, clearReconnectTimer]);
+    },
+    [abandonConnection, cleanupMedia],
+  );
 
   const setMuted = useCallback(
     (next: boolean) => {
@@ -835,18 +783,15 @@ export function useRealtimeVoice({
     updateVoiceState({ output: "interrupted" });
   }, [updateVoiceState]);
 
-  const observeAgentRun = useCallback((): boolean => {
-    return clientRef.current?.observeAgentRun() ?? false;
-  }, []);
-
-  const readyToStart = isRealtimeVoiceReady(capabilities);
-  const status = deriveRealtimeVoiceStatus(voiceState);
+  const observeAgentRun = useCallback(
+    () => clientRef.current?.observeAgentRun() ?? false,
+    [],
+  );
 
   return {
     capabilities,
-    readyToStart,
-    status,
-    connectionState: voiceState.connection,
+    readyToStart: isRealtimeVoiceReady(capabilities),
+    status: deriveRealtimeVoiceStatus(voiceState),
     inputState: voiceState.input,
     agentState: voiceState.agent,
     outputState: voiceState.output,

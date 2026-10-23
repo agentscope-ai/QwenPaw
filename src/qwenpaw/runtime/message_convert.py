@@ -181,35 +181,22 @@ def _request_input_to_msgs(
         if role == "user" and (conversation_context or input_target):
             # HintBlock is a supported model-only assistant block in the SDK.
             # Keep the actual user Msg and its public identity/text untouched.
+            hint = CONVERSATION_CONTEXT_INSTRUCTION + conversation_context
+            if input_target:
+                hint = (
+                    "Optional reference for the following input only:\n"
+                    + input_target
+                    + "\nThe following input is a distinct request; this "
+                    "reference only helps resolve prior context. It does not "
+                    "merge inputs or change reply ownership. This association "
+                    "is not another request, permission, or an instruction to "
+                    "repeat earlier work.\n" + hint
+                )
             out.append(
                 Msg(
                     name="chat_context",
                     role="assistant",
-                    content=[
-                        HintBlock(
-                            source="chat_context",
-                            hint=(
-                                (
-                                    "Optional reference for the following "
-                                    "input only:\n"
-                                    + input_target
-                                    + "\nThe following input is a distinct "
-                                    "request; this reference only helps "
-                                    "resolve prior context. It does not "
-                                    "merge inputs or change reply ownership. "
-                                    "This association is not another request, "
-                                    "permission, or an instruction to repeat "
-                                    "earlier work.\n"
-                                )
-                                if input_target
-                                else ""
-                            )
-                            + (
-                                CONVERSATION_CONTEXT_INSTRUCTION
-                                + conversation_context
-                            ),
-                        ),
-                    ],
+                    content=[HintBlock(source="chat_context", hint=hint)],
                 ),
             )
             conversation_context = ""  # One snapshot per admitted input batch.

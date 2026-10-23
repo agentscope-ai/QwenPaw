@@ -1,10 +1,6 @@
-"""Authenticated relay for native realtime voice sessions.
+"""Authenticated HTTP/WebSocket relay for native realtime voice sessions.
 
-HTTP/WebSocket boundary only: it authorizes requests, encodes/decodes the
-renderer frame protocol and wires the socket lifecycle to
-``RealtimeVoiceService``. All session business logic (coordination, admission,
-presentation, provider I/O) lives in ``qwenpaw.app.realtime_voice``; keep this
-module free of it.
+Session business logic lives in ``qwenpaw.app.realtime_voice``.
 """
 
 from __future__ import annotations
@@ -42,9 +38,7 @@ router = APIRouter(prefix="/realtime-voice", tags=["realtime-voice"])
 
 def _service(request_or_websocket) -> RealtimeVoiceService:
     service = getattr(
-        request_or_websocket.app.state,
-        "realtime_voice_service",
-        None,
+        request_or_websocket.app.state, "realtime_voice_service", None
     )
     if service is None:
         raise RealtimeVoiceServiceError(
@@ -126,8 +120,12 @@ async def _client_to_coordinator(
                 frame.sample_rate != live.media.input_sample_rate
                 or frame.channels != live.media.channels
             ):
-                raise ValueError("renderer audio format does not match session")
-            expected = 0 if last_sequence is None else (last_sequence + 1) % (2**32)
+                raise ValueError(
+                    "renderer audio format does not match session"
+                )
+            expected = (
+                0 if last_sequence is None else (last_sequence + 1) % (2**32)
+            )
             if frame.sequence != expected:
                 raise ValueError("renderer audio sequence is not contiguous")
             last_sequence = frame.sequence
@@ -141,7 +139,9 @@ async def _client_to_coordinator(
             control = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise ValueError("invalid realtime voice control JSON") from exc
-        control_type = control.get("type") if isinstance(control, dict) else None
+        control_type = (
+            control.get("type") if isinstance(control, dict) else None
+        )
         if control_type == "interrupt":
             await coordinator.interrupt()
         elif control_type == "output.playback":
@@ -266,32 +266,19 @@ async def realtime_voice_stream(
                 coordinator,
             )
         )
-        tasks = {client_task, coordinator_task, timeout_task}
         done, pending = await asyncio.wait(
-            tasks,
+            {client_task, coordinator_task, timeout_task},
             return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:
             task.cancel()
-        done_results = dict(
-            zip(
-                done,
-                await asyncio.gather(*done, return_exceptions=True),
-                strict=True,
-            )
-        )
-        await asyncio.gather(*pending, return_exceptions=True)
+        await asyncio.gather(*done, *pending, return_exceptions=True)
 
         terminal: dict[str, Any] | None
         if coordinator_task in done:
-            result = done_results[coordinator_task]
-            if isinstance(result, BaseException):
-                raise result
-            terminal = result
+            terminal = coordinator_task.result()
         elif client_task in done:
-            result = done_results[client_task]
-            if isinstance(result, BaseException):
-                raise result
+            client_task.result()
             terminal = {"reason": "stopped"}
         else:
             terminal = {"reason": "max_duration"}
@@ -310,44 +297,32 @@ async def realtime_voice_stream(
                     )
     except WebSocketDisconnect:
         pass
-    except RealtimeVoiceServiceError as exc:
-        close_code = 1011
-        with suppress(Exception):
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "generation": live.generation,
-                    "code": exc.code,
-                    "message": exc.message,
-                    "recoverable": False,
-                },
+    except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, RealtimeVoiceServiceError):
+            close_code = 1011
+            error = (exc.code, exc.message, False)
+        elif isinstance(exc, ValueError):
+            close_code = 1003
+            logger.info("Realtime Voice protocol error: %s", exc)
+            error = ("protocol_error", str(exc), False)
+        else:
+            close_code = 1011
+            logger.warning("Realtime Voice stream failed", exc_info=True)
+            error = (
+                "upstream_unavailable",
+                "Realtime voice connection failed.",
+                True,
             )
-    except ValueError as exc:
-        close_code = 1003
-        logger.info("Realtime Voice protocol error: %s", exc)
+        code, message, recoverable = error
         with suppress(Exception):
             async with send_lock:
                 await websocket.send_json(
                     {
                         "type": "error",
                         "generation": live.generation,
-                        "code": "protocol_error",
-                        "message": str(exc),
-                        "recoverable": False,
-                    }
-                )
-    except Exception:
-        close_code = 1011
-        logger.warning("Realtime Voice stream failed", exc_info=True)
-        with suppress(Exception):
-            async with send_lock:
-                await websocket.send_json(
-                    {
-                        "type": "error",
-                        "generation": live.generation,
-                        "code": "upstream_unavailable",
-                        "message": "Realtime voice connection failed.",
-                        "recoverable": True,
+                        "code": code,
+                        "message": message,
+                        "recoverable": recoverable,
                     }
                 )
     finally:

@@ -20,6 +20,8 @@ from ...services.project_directory import (
     session_project_dir,
 )
 from ..task_tracker import RunInput
+from .background_results import ChatBackgroundResults
+from .conversation_view import ConversationItem
 from .models import ChatSpec, is_realtime_voice_chat
 from .runtime_events import user_message_sse
 from .timeline import ChatTimelineJournal
@@ -154,11 +156,8 @@ class ChatRunCoordinator:
         request: ChatInputRequest,
     ) -> ChatInputSubmission:
         """Atomically start or steer the Chat's current Agent run."""
-        workspace.task_tracker.input_context(chat.id).register_execution(
-            request.client_message_id,
-            request.text(),
-        )
         context = workspace.task_tracker.input_context(chat.id)
+        context.register_execution(request.client_message_id, request.text())
         context.set_admission(request.client_message_id, "preparing")
         try:
             submission = await cls._submit_registered(workspace, chat, request)
@@ -195,12 +194,10 @@ class ChatRunCoordinator:
         metadata[TIMELINE_ORDER_METADATA_KEY] = timeline_order
         request = replace(request, message_metadata=metadata)
         if request.origin == "speech":
-            # Native delegation contains the new request, not a reconstruction
-            # of earlier conversation. The live view includes speech not yet
-            # folded into Agent state; never wait for an active run to finish
-            # or for playback/durable-history reconciliation to supply it.
-            # The input's order excludes later arrivals. Both start and steer
-            # already consume this model-only context, without extra user turns.
+            # Attach model-only prior context from the live view (which
+            # includes speech not yet folded into Agent state) without
+            # waiting for the active run or history reconciliation. The
+            # input's order excludes later arrivals.
             prior = await timeline.read_context(
                 turn_id=request.client_message_id,
                 order=timeline_order,
@@ -217,8 +214,6 @@ class ChatRunCoordinator:
         payload = await cls._console_payload(workspace, chat, request)
         # Do not recreate a background owner after deletion during preparation.
         workspace.task_tracker.input_context(chat.id)
-        from .background_results import ChatBackgroundResults
-
         results = workspace.task_tracker.background_results.get(chat.id)
         if results is None:
             results = ChatBackgroundResults(workspace.task_tracker, chat.id)
@@ -256,14 +251,12 @@ class ChatRunCoordinator:
             accepted_sse=accepted_event,
             reserve_timeline_order=timeline.reserve_order,
         )
-        if status == "full" or queue is None:
+        if queue is None:
             raise OverflowError(
                 "The current task has too many pending inputs."
             )
         conversation = workspace.task_tracker.conversation_views.get(chat.id)
         if conversation is not None and status != "duplicate":
-            from .conversation_view import ConversationItem
-
             conversation.observe(
                 (
                     ConversationItem(

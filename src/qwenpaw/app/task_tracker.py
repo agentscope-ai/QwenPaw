@@ -20,7 +20,7 @@ from collections.abc import (
     Callable,
     Coroutine,
 )
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
@@ -114,18 +114,10 @@ class RunInput:
             )
         object.__setattr__(self, "content_parts", content_parts)
         object.__setattr__(self, "idempotency_key", idempotency_key)
-        if self.message_metadata is not None:
-            object.__setattr__(
-                self,
-                "message_metadata",
-                dict(self.message_metadata),
-            )
-        if self.request_context is not None:
-            object.__setattr__(
-                self,
-                "request_context",
-                dict(self.request_context),
-            )
+        for name in ("message_metadata", "request_context"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, dict(value))
 
 
 class RunInputMailbox:
@@ -199,6 +191,31 @@ class _RunState:
     persistence: SessionSaveResult = field(default_factory=SessionSaveResult)
     on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None
 
+    def publish(self, event: Any) -> None:
+        """Buffer *event* and fan it out; caller holds the tracker lock."""
+        self.buffer.append(event)
+        for queue in self.queues:
+            queue.put_nowait(event)
+
+    def replay_queue(self, prefix: Any = ()) -> asyncio.Queue:
+        """Subscribe a new queue pre-filled with this run's replay."""
+        queue: asyncio.Queue = asyncio.Queue()
+        for event in prefix:
+            queue.put_nowait(event)
+        queue.put_nowait(RunStarted(self.run_id, replay=True))
+        for event in self.buffer:
+            if not isinstance(event, RunStarted):
+                queue.put_nowait(event)
+        queue.put_nowait(REPLAY_END_SSE)
+        self.queues.append(queue)
+        return queue
+
+
+async def _await_finishing(task: asyncio.Future) -> None:
+    """Wait for a closing run; its failures are already rendered as SSE."""
+    with suppress(Exception):
+        await asyncio.shield(task)
+
 
 class TaskTracker:
     """Per-agent tracker: run_key -> RunState.
@@ -268,7 +285,6 @@ class TaskTracker:
     async def idle_guard(self, run_key: str) -> AsyncIterator[None]:
         """Wait for one run key to be idle and prevent a concurrent start."""
         while True:
-            active_task: asyncio.Future | None = None
             await self._lock.acquire()
             state = self._runs.get(run_key)
             if state is None or state.task.done():
@@ -405,47 +421,19 @@ class TaskTracker:
         """
         async with self._lock:
             state = self._runs.get(run_key)
-            if state is None or state.task.done():
-                if include_finished:
-                    queue: asyncio.Queue = asyncio.Queue()
-                    for outcome in self._outcomes.get(run_key, ()):
-                        queue.put_nowait(outcome)
-                    queue.put_nowait(_SENTINEL)
-                    return queue
-                return None
-            q: asyncio.Queue = asyncio.Queue()
-            if include_finished:
-                for outcome in self._outcomes.get(run_key, ()):
-                    q.put_nowait(outcome)
-            q.put_nowait(RunStarted(state.run_id, replay=True))
-            for sse in state.buffer:
-                if not isinstance(sse, RunStarted):
-                    q.put_nowait(sse)
-            q.put_nowait(REPLAY_END_SSE)
-            state.queues.append(q)
-            return q
-
-    async def attach_live(self, run_key: str) -> asyncio.Queue | None:
-        """Subscribe to future events only, for an accepted same-run input."""
-        async with self._lock:
-            state = self._runs.get(run_key)
-            if state is None or state.task.done():
+            outcomes = (
+                tuple(self._outcomes.get(run_key, ()))
+                if include_finished
+                else ()
+            )
+            if state is not None and not state.task.done():
+                return state.replay_queue(outcomes)
+            if not include_finished:
                 return None
             queue: asyncio.Queue = asyncio.Queue()
-            state.queues.append(queue)
+            for outcome in (*outcomes, _SENTINEL):
+                queue.put_nowait(outcome)
             return queue
-
-    async def attach_live_once(
-        self,
-        run_key: str,
-        subscriber_id: str,
-    ) -> asyncio.Queue | None:
-        """Attach one named live subscriber at most once per active run."""
-        subscription = await self.attach_live_once_with_identity(
-            run_key,
-            subscriber_id,
-        )
-        return subscription[0] if subscription is not None else None
 
     async def attach_live_once_with_identity(
         self,
@@ -499,15 +487,13 @@ class TaskTracker:
             state = self._runs.get(run_key)
             if state is None:
                 return
-            try:
+            with suppress(ValueError):
                 state.queues.remove(queue)
-            except ValueError:
-                pass
             for subscriber_id, subscriber in list(
                 state.named_subscribers.items(),
             ):
                 if subscriber is queue:
-                    state.named_subscribers.pop(subscriber_id, None)
+                    del state.named_subscribers[subscriber_id]
 
     async def request_stop(
         self,
@@ -528,7 +514,7 @@ class TaskTracker:
                         {
                             i
                             for w in results.works.values()
-                            if w.delivery not in {"delivered", "cancelled"}
+                            if not w.settled
                             for i in w.input_ids
                         }
                     )
@@ -578,7 +564,6 @@ class TaskTracker:
         complete replay subscriber; a new run receives its initial events.
         """
         while True:
-            finishing_task: asyncio.Future | None = None
             async with self._lock:
                 # Preparation can outlive Chat deletion, including while
                 # waiting for the preceding run to finish.
@@ -589,27 +574,16 @@ class TaskTracker:
                         finishing_task = state.task
                     else:
                         status = state.mailbox.submit(run_input)
-                        if (
-                            status == "accepted"
-                            and state.reply_cycle is not None
-                        ):
-                            state.reply_cycle.accept_input(
-                                run_input.idempotency_key
-                            )
-                        if status == "accepted" and accepted_sse:
-                            state.buffer.append(accepted_sse)
-                            for subscriber in state.queues:
-                                subscriber.put_nowait(accepted_sse)
                         if status == "full":
                             return None, status, state.run_id
-                        queue: asyncio.Queue = asyncio.Queue()
-                        queue.put_nowait(RunStarted(state.run_id, replay=True))
-                        for event in state.buffer:
-                            if not isinstance(event, RunStarted):
-                                queue.put_nowait(event)
-                        queue.put_nowait(REPLAY_END_SSE)
-                        state.queues.append(queue)
-                        return queue, status, state.run_id
+                        if status == "accepted":
+                            if state.reply_cycle is not None:
+                                state.reply_cycle.accept_input(
+                                    run_input.idempotency_key
+                                )
+                            if accepted_sse:
+                                state.publish(accepted_sse)
+                        return state.replay_queue(), status, state.run_id
                 else:
                     queue, _ = self._start_locked(
                         run_key,
@@ -620,25 +594,16 @@ class TaskTracker:
                         initial_input_id=run_input.idempotency_key,
                         reserve_timeline_order=reserve_timeline_order,
                     )
-                    state = self._runs[run_key]
-                    return queue, "started", state.run_id
+                    return queue, "started", self._runs[run_key].run_id
 
-            if finishing_task is not None:
-                try:
-                    await asyncio.shield(finishing_task)
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    # Producer failures are already converted to SSE. Retry
-                    # after cleanup so this input starts the next run.
-                    pass
+            # Retry after cleanup so this input starts the next run.
+            await _await_finishing(finishing_task)
 
     async def submit_result(self, run_key: str, work: Any) -> str:
         """Admit an assistant result under the Chat single-writer lock."""
         owner = work.owner
         while True:
             await owner.refresh_runtime()
-            finishing_task = None
             async with self._lock:
                 if work.delivery in {
                     "cancelled",
@@ -665,16 +630,13 @@ class TaskTracker:
                                 f"Result mailbox {status}",
                             )
                             return status
+                    elif owner.source_saves.get(work.source_run_id) != "saved":
+                        work.delivery = "failed"
+                        work.error = (
+                            "The originating tool receipt was not saved"
+                        )
+                        return "failed"
                     else:
-                        if (
-                            owner.source_saves.get(work.source_run_id)
-                            != "saved"
-                        ):
-                            work.delivery = "failed"
-                            work.error = (
-                                "The originating tool receipt was not saved"
-                            )
-                            return "failed"
                         payload = dict(owner.payload)
                         payload.pop("content_parts", None)
                         payload.pop("message_metadata", None)
@@ -696,14 +658,13 @@ class TaskTracker:
                         state.queues.remove(queue)
                     work.delivery, work.consumer_run = "queued", state.run_id
                     return "accepted"
-            if finishing_task is not None:
-                try:
-                    await asyncio.shield(finishing_task)
-                except asyncio.CancelledError:
-                    if asyncio.current_task().cancelling():
-                        raise
-                except Exception:
-                    pass
+            try:
+                await asyncio.shield(finishing_task)
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+            except Exception:
+                pass
 
     async def attach_or_start(
         self,
@@ -720,19 +681,11 @@ class TaskTracker:
         Returns ``(queue, is_new_run)``.
         """
         while True:
-            finishing_task: asyncio.Future | None = None
             async with self._lock:
                 state = self._runs.get(run_key)
                 if state is not None and not state.task.done():
                     if state.mailbox.accepting:
-                        q: asyncio.Queue = asyncio.Queue()
-                        q.put_nowait(RunStarted(state.run_id, replay=True))
-                        for sse in state.buffer:
-                            if not isinstance(sse, RunStarted):
-                                q.put_nowait(sse)
-                        q.put_nowait(REPLAY_END_SSE)
-                        state.queues.append(q)
-                        return q, False
+                        return state.replay_queue(), False
                     # The Agent has committed its final result and closed the
                     # mailbox, but the producer still needs to flush the last
                     # SSE events. Wait outside the tracker lock, then create a
@@ -749,15 +702,7 @@ class TaskTracker:
                         on_finished=on_finished,
                     )
 
-            if finishing_task is not None:
-                try:
-                    await asyncio.shield(finishing_task)
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    # Producer errors are already converted to SSE and the
-                    # finished run is removed in its ``finally`` block.
-                    pass
+            await _await_finishing(finishing_task)
 
     def _start_locked(
         self,
@@ -811,9 +756,7 @@ class TaskTracker:
                     if event.status == "cancelled":
                         results.cancel_inputs((input_id,))
                 run.mailbox.input_context.observe_state(owned_event)
-                run.buffer.append(owned_event)
-                for subscriber in run.queues:
-                    subscriber.put_nowait(owned_event)
+                run.publish(owned_event)
 
         if initial_input_id:
             from .chats.replies import ChatReplyView
@@ -827,9 +770,7 @@ class TaskTracker:
                 conversation = self.conversation_views.get(run_key)
                 if conversation is not None:
                     conversation.observe_message(message)
-                run.buffer.append(event)
-                for subscriber in run.queues:
-                    subscriber.put_nowait(event)
+                run.publish(event)
 
             run.reply_cycle = ReplyCycleContext(
                 run_id,
@@ -889,9 +830,7 @@ class TaskTracker:
                     if tracker is None:
                         return
                     async with tracker.lock:
-                        run.buffer.append(sse)
-                        for q in run.queues:
-                            q.put_nowait(sse)
+                        run.publish(sse)
             except asyncio.CancelledError:
                 outcome = RunOutcome(run_id, "cancelled")
                 logger.debug("run cancelled run_key=%s", run_key)
@@ -901,13 +840,10 @@ class TaskTracker:
                 )
                 logger.exception("run error run_key=%s", run_key)
                 error = json.dumps({"error": "internal server error"})
-                err_sse = f"data: {error}\n\n"
                 tracker = tracker_ref()
                 if tracker is not None:
                     async with tracker.lock:
-                        run.buffer.append(err_sse)
-                        for q in run.queues:
-                            q.put_nowait(err_sse)
+                        run.publish(f"data: {error}\n\n")
             finally:
                 tracker = tracker_ref()
                 if tracker is not None:
@@ -981,8 +917,6 @@ class TaskTracker:
                     run_key,
                     exc_info=True,
                 )
-        finish_time: datetime | None = None
-        final_outcome: RunOutcome | None = None
         async with self.lock:
             if run.finish_time is not None:
                 return
@@ -999,26 +933,21 @@ class TaskTracker:
             if run.reply_cycle is not None:
                 run.reply_cycle.finish_run(outcome.status)
             run.finish_time = datetime.now(timezone.utc)
-            finish_time = run.finish_time
             self._global_last_finish_at = run.finish_time
-            final_outcome = RunOutcome(
-                outcome.run_id,
-                outcome.status,
-                outcome.error,
-                run.persistence.status,
+            final_outcome = replace(
+                outcome,
+                persistence=run.persistence.status,
             )
 
-        if run.on_finished is not None and finish_time is not None:
+        if run.on_finished is not None:
             try:
-                await run.on_finished(run_key, finish_time)
+                await run.on_finished(run_key, run.finish_time)
             except Exception:  # pylint: disable=broad-except
                 logger.exception(
                     "run completion callback failed run_key=%s",
                     run_key,
                 )
 
-        if final_outcome is None:
-            return
         async with self.lock:
             outcomes = self._outcomes.setdefault(run_key, deque(maxlen=64))
             outcomes.append(final_outcome)
@@ -1044,30 +973,24 @@ class TaskTracker:
             async for event in stream:
                 if isinstance(event, str):
                     yield event
-                elif lifecycle and isinstance(event, RunStarted):
-                    yield (
-                        "data: "
-                        + json.dumps(
-                            {
-                                "type": "run_started",
-                                "run_id": event.run_id,
-                                "replay": event.replay,
-                            }
-                        )
-                        + "\n\n"
-                    )
-                elif lifecycle and isinstance(event, RunOutcome):
-                    yield (
-                        "data: "
-                        + json.dumps(
-                            {
-                                "type": "run_sealed",
-                                "run_id": event.run_id,
-                                "persistence": event.persistence,
-                            }
-                        )
-                        + "\n\n"
-                    )
+                    continue
+                if not lifecycle:
+                    continue
+                if isinstance(event, RunStarted):
+                    data = {
+                        "type": "run_started",
+                        "run_id": event.run_id,
+                        "replay": event.replay,
+                    }
+                elif isinstance(event, RunOutcome):
+                    data = {
+                        "type": "run_sealed",
+                        "run_id": event.run_id,
+                        "persistence": event.persistence,
+                    }
+                else:
+                    continue
+                yield f"data: {json.dumps(data)}\n\n"
         finally:
             await stream.aclose()
 

@@ -749,13 +749,10 @@
     }
   },
   "realtimeVoice": {
-    "title": "Voice Chat",
     "settings": "Realtime Voice",
     "saved": "Realtime Voice settings saved",
-    "start": "Start Voice Chat",
     "newChat": "New Voice Chat",
     "resume": "Resume Voice Chat",
-    "startHint": "Start a dedicated realtime Voice Chat",
     "resumeHint": "Resume this Voice Chat to speak or type",
     "connectingHint": "Preparing microphone and connection; check microphone permission if prompted",
     "liveHint": "Speak or interrupt at any time, or keep using the keyboard",
@@ -774,8 +771,6 @@
     "switchDescription": "Another Voice Chat is active. Switching will stop that live session and start this one.",
     "activeSessionSummary": "Active Agent: {{agentId}} · Chat: {{chatId}}",
     "openActiveChat": "Open active Voice Chat",
-    "unableToSendText": "Resume this Voice Chat and keep the message under 8,000 characters.",
-    "inputAddedToTask": "Added to the current task.",
     "transcriptionUnavailable": "This speech segment could not be transcribed. Please say it again.",
     "idleTimeout": "The voice session paused after being idle. Resume it when you are ready. Accepted tasks will continue.",
     "typePlaceholder": "Type into the live Voice Chat...",
@@ -4165,9 +4160,7 @@
     "modelSelectTooltip": "Select model",
     "newTask": "New task",
     "newChat": "New chat",
-    "newChatTooltip": "New chat",
     "newChatMenu": "Choose new chat type",
-    "searchTooltip": "Search all chats",
     "chatHistoryTooltip": "Chat history",
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",

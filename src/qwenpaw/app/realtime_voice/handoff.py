@@ -13,12 +13,8 @@ from .contracts import VoiceAdmissionMode, VoiceTaskReceipt
 from .task_bridge import VoiceTaskBridge
 
 VoiceHandoffAction = Literal["handoff"]
-_TOOL_ACTIONS: dict[str, tuple[VoiceHandoffAction, VoiceAdmissionMode]] = {
-    # Match ordinary Chat and Codex-style handoff semantics: the same action
-    # starts an idle Chat run or steers its active run.  The realtime model
-    # must not choose the scheduler mode.
-    "handoff_to_chat": ("handoff", "steer"),
-}
+_HANDOFF_TOOL = "handoff_to_chat"
+_MAX_REQUEST_CHARS = 8000
 
 
 @dataclass(frozen=True)
@@ -29,8 +25,10 @@ class VoiceWorkInput:
     call_id: str
     source_id: str
     request_text: str
-    action: VoiceHandoffAction
-    admission_mode: VoiceAdmissionMode
+    action: VoiceHandoffAction = "handoff"
+    # The same action starts an idle Chat run or steers its active run; the
+    # realtime model never chooses the scheduler mode.
+    admission_mode: VoiceAdmissionMode = "steer"
 
 
 @dataclass(frozen=True)
@@ -62,69 +60,69 @@ class VoiceHandoffController:
         self._provider = provider
         self._bridge = bridge
         self._results: dict[str, asyncio.Future[VoiceHandoffResult]] = {}
-        self._lock = asyncio.Lock()
 
     @staticmethod
     def parse(event: ProviderEvent) -> VoiceWorkInput:
         if event.kind != "tool.call":
             raise VoiceHandoffError("not a realtime tool call")
-        call_id = str(event.data.get("call_id") or event.correlation_id or "").strip()
+        call_id = str(
+            event.data.get("call_id") or event.correlation_id or ""
+        ).strip()
         name = str(event.data.get("name") or "").strip()
-        action = _TOOL_ACTIONS.get(name)
-        if not call_id or action is None:
-            raise VoiceHandoffError("unknown or unidentified realtime tool call")
+        if not call_id or name != _HANDOFF_TOOL:
+            raise VoiceHandoffError(
+                "unknown or unidentified realtime tool call"
+            )
         try:
             arguments = json.loads(str(event.data.get("arguments") or ""))
         except json.JSONDecodeError as exc:
             raise VoiceHandoffError("invalid realtime tool arguments") from exc
-        if not isinstance(arguments, dict) or set(arguments) != {"request_text"}:
+        if not isinstance(arguments, dict) or set(arguments) != {
+            "request_text"
+        }:
             raise VoiceHandoffError("invalid realtime tool argument schema")
         request_text = str(arguments.get("request_text") or "").strip()
-        if not request_text or len(request_text) > 8000:
-            raise VoiceHandoffError("realtime work request is empty or too long")
+        if not request_text or len(request_text) > _MAX_REQUEST_CHARS:
+            raise VoiceHandoffError(
+                "realtime work request is empty or too long"
+            )
         digest = hashlib.sha256(call_id.encode()).hexdigest()
         return VoiceWorkInput(
             input_id=f"voice_{digest[:32]}",
             call_id=call_id,
             source_id=str(event.data.get("input_item_id") or "").strip(),
             request_text=request_text,
-            action=action[0],
-            admission_mode=action[1],
         )
+
+    async def _admit(self, work: VoiceWorkInput) -> VoiceTaskReceipt:
+        admission = await self._bridge.enqueue_input(
+            work.request_text,
+            idempotency_key=work.input_id,
+            admission_mode=work.admission_mode,
+            transcript_source_id=work.source_id,
+        )
+        return await admission.wait()
 
     async def handle(self, event: ProviderEvent) -> VoiceHandoffResult:
         work = self.parse(event)
-        async with self._lock:
-            existing = self._results.get(work.call_id)
-            if existing is None:
-                existing = asyncio.get_running_loop().create_future()
-                self._results[work.call_id] = existing
-                owner = True
-            else:
-                owner = False
-        if not owner:
+        existing = self._results.get(work.call_id)
+        if existing is not None:
             result = await asyncio.shield(existing)
-            return VoiceHandoffResult(result.work, result.receipt, replayed=True)
-
-        try:
-            admission = await self._bridge.enqueue_input(
-                work.request_text,
-                idempotency_key=work.input_id,
-                admission_mode=work.admission_mode,
-                transcript_source_id=work.source_id,
+            return VoiceHandoffResult(
+                result.work, result.receipt, replayed=True
             )
-            receipt = await admission.wait()
+        future = self._results[
+            work.call_id
+        ] = asyncio.get_running_loop().create_future()
+        try:
+            receipt = await self._admit(work)
         except asyncio.CancelledError:
-            if not existing.done():
-                existing.cancel()
+            future.cancel()
             raise
         except Exception as exc:  # noqa: BLE001
-            receipt = VoiceTaskReceipt(
-                task_id="",
-                task_ref="",
-                accepted=False,
-                status="failed",
-                message=str(exc)[:500] or "The task could not be accepted.",
+            receipt = VoiceTaskReceipt.rejected(
+                "failed",
+                str(exc)[:500] or "The task could not be accepted.",
             )
         result = VoiceHandoffResult(work, receipt)
         try:
@@ -135,16 +133,16 @@ class VoiceHandoffController:
                     "action": work.action,
                     "task_ref": receipt.task_ref,
                     "status": receipt.status,
-                    **({"message": receipt.message} if receipt.message else {}),
+                    **(
+                        {"message": receipt.message} if receipt.message else {}
+                    ),
                 },
             )
         except BaseException as exc:
-            if not existing.done():
-                existing.set_exception(exc)
-                existing.exception()
+            future.set_exception(exc)
+            future.exception()
             raise
-        if not existing.done():
-            existing.set_result(result)
+        future.set_result(result)
         return result
 
     async def handle_transcript(
@@ -152,15 +150,15 @@ class VoiceHandoffController:
         source_id: str,
         request_text: str,
     ) -> VoiceHandoffResult:
-        """Steer a task-owned speech turn when the provider skipped its tool.
-
-        Once ordinary Chat owns the conversation, its context is authoritative.
-        This fallback uses the provider's final transcript only after the native
-        response has proved that it did not call a handoff tool.
-        """
+        """Steer a Chat-owned speech turn whose native response skipped the
+        handoff tool, using the provider's final transcript."""
         source_id = source_id.strip()
         request_text = request_text.strip()
-        if not source_id or not request_text or len(request_text) > 8000:
+        if (
+            not source_id
+            or not request_text
+            or len(request_text) > _MAX_REQUEST_CHARS
+        ):
             raise VoiceHandoffError("invalid task-owned speech transcript")
         digest = hashlib.sha256(source_id.encode()).hexdigest()
         work = VoiceWorkInput(
@@ -168,16 +166,8 @@ class VoiceHandoffController:
             call_id="",
             source_id=source_id,
             request_text=request_text,
-            action="handoff",
-            admission_mode="steer",
         )
-        admission = await self._bridge.enqueue_input(
-            work.request_text,
-            idempotency_key=work.input_id,
-            admission_mode=work.admission_mode,
-            transcript_source_id=work.source_id,
-        )
-        return VoiceHandoffResult(work, await admission.wait())
+        return VoiceHandoffResult(work, await self._admit(work))
 
 
 __all__ = [

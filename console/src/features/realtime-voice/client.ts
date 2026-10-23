@@ -81,33 +81,25 @@ export class RealtimeVoiceClient {
     };
     return new Promise((resolve, reject) => {
       let settled = false;
-      const timer = window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        socket.close();
-        reject(new Error("Realtime Voice WebSocket connection timed out"));
-      }, CONNECT_TIMEOUT_MS);
-      socket.onopen = () => {
+      const settle = (failure?: string) => {
         if (settled) return;
         settled = true;
         window.clearTimeout(timer);
-        resolve();
+        if (failure) reject(new Error(failure));
+        else resolve();
       };
+      const timer = window.setTimeout(() => {
+        settle("Realtime Voice WebSocket connection timed out");
+        socket.close();
+      }, CONNECT_TIMEOUT_MS);
+      socket.onopen = () => settle();
       socket.onclose = (event) => {
         this.callbacks.onClose(event);
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        reject(new Error("Realtime Voice WebSocket closed before connecting"));
+        settle("Realtime Voice WebSocket closed before connecting");
       };
       socket.addEventListener(
         "error",
-        () => {
-          if (settled) return;
-          settled = true;
-          window.clearTimeout(timer);
-          reject(new Error("Realtime Voice WebSocket failed to connect"));
-        },
+        () => settle("Realtime Voice WebSocket failed to connect"),
         { once: true },
       );
     });

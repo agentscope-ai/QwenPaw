@@ -8,6 +8,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
+from typing import Callable
 
 from .base import BaseChatRepository
 from ..models import ChatsFile
@@ -73,89 +74,15 @@ class JsonChatRepository(BaseChatRepository):
         await run_sync_io(self._save_sync, chats_file)
 
 
-def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
-    """Rewrite legacy ``weixin:`` session_id prefixes to ``wechat:``.
-
-    Idempotent; backs up the original file before rewrite.
-    """
-    path = (
-        Path(chats_path).expanduser()
-        if isinstance(
-            chats_path,
-            str,
-        )
-        else chats_path
-    )
-    if not path.is_file():
-        return
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    if not isinstance(data, dict):
-        return
-
-    chats = data.get("chats")
-    if not isinstance(chats, list):
-        return
-
-    mutated = False
-    for chat in chats:
-        if not isinstance(chat, dict):
-            continue
-        sid = chat.get("session_id")
-        if isinstance(sid, str) and sid.startswith("weixin:"):
-            chat["session_id"] = "wechat:" + sid[len("weixin:") :]
-            mutated = True
-
-    if not mutated:
-        return
-
-    try:
-        backup_path = path.with_suffix(
-            path.suffix + f".{uuid.uuid4().hex[:8]}.weixin-migrate.bak",
-        )
-        shutil.copy2(path, backup_path)
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
-        # newline="\n" prevents Windows from translating LF -> CRLF and
-        # polluting the file's line endings on rewrite.
-        tmp_path.write_text(
-            json.dumps(
-                data,
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
-            newline="\n",
-        )
-        # os.replace is the documented atomic-overwrite primitive on all
-        # supported platforms (POSIX rename + Windows ReplaceFile).
-        os.replace(tmp_path, path)
-        logger.warning(
-            "Migrated legacy 'weixin' chat entries -> 'wechat' in %s "
-            "(backup: %s)",
-            path,
-            backup_path,
-        )
-    except OSError as exc:
-        logger.error(
-            "Failed to migrate legacy 'weixin' chat entries in %s: %s",
-            path,
-            exc,
-        )
-
-
-def migrate_legacy_realtime_voice_sources_file(
+def _migrate_chats_file(
     chats_path: Path | str,
+    migrate_chat: Callable[[dict], bool],
+    backup_tag: str,
+    description: str,
 ) -> None:
-    """Move legacy Voice Chat identity from ``source`` into metadata.
+    """Apply *migrate_chat* to each chat record, backing up before rewrite.
 
-    Early development builds persisted ``source=realtime_voice``.  That value
-    makes the whole registry unreadable after downgrading to a build whose
-    closed ``SessionSource`` enum predates Voice Chat.  Only records carrying
-    the matching capability metadata are rewritten, with a backup and atomic
-    replacement before Chat models are loaded.
+    Idempotent: the file is only rewritten when some record changed.
     """
     path = (
         Path(chats_path).expanduser()
@@ -177,29 +104,20 @@ def migrate_legacy_realtime_voice_sources_file(
 
     mutated = False
     for chat in chats:
-        if (
-            not isinstance(chat, dict)
-            or chat.get("source") != "realtime_voice"
-        ):
-            continue
-        meta = chat.get("meta")
-        if not isinstance(meta, dict) or not isinstance(
-            meta.get("realtime_voice"),
-            dict,
-        ):
-            continue
-        chat["source"] = "chat"
-        mutated = True
+        if isinstance(chat, dict) and migrate_chat(chat):
+            mutated = True
 
     if not mutated:
         return
 
     try:
         backup_path = path.with_suffix(
-            path.suffix + f".{uuid.uuid4().hex[:8]}.voice-source-migrate.bak",
+            path.suffix + f".{uuid.uuid4().hex[:8]}.{backup_tag}.bak",
         )
         shutil.copy2(path, backup_path)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
+        # newline="\n" prevents Windows from translating LF -> CRLF and
+        # polluting the file's line endings on rewrite.
         tmp_path.write_text(
             json.dumps(
                 data,
@@ -210,15 +128,65 @@ def migrate_legacy_realtime_voice_sources_file(
             encoding="utf-8",
             newline="\n",
         )
+        # os.replace is the documented atomic-overwrite primitive on all
+        # supported platforms (POSIX rename + Windows ReplaceFile).
         os.replace(tmp_path, path)
         logger.warning(
-            "Migrated legacy Voice Chat source entries in %s (backup: %s)",
+            "Migrated %s in %s (backup: %s)",
+            description,
             path,
             backup_path,
         )
     except OSError as exc:
         logger.error(
-            "Failed to migrate legacy Voice Chat source entries in %s: %s",
+            "Failed to migrate %s in %s: %s",
+            description,
             path,
             exc,
         )
+
+
+def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
+    """Rewrite legacy ``weixin:`` session_id prefixes to ``wechat:``."""
+
+    def migrate(chat: dict) -> bool:
+        sid = chat.get("session_id")
+        if isinstance(sid, str) and sid.startswith("weixin:"):
+            chat["session_id"] = "wechat:" + sid[len("weixin:") :]
+            return True
+        return False
+
+    _migrate_chats_file(
+        chats_path,
+        migrate,
+        "weixin-migrate",
+        "legacy 'weixin' chat entries -> 'wechat'",
+    )
+
+
+def migrate_legacy_realtime_voice_sources_file(
+    chats_path: Path | str,
+) -> None:
+    """Move legacy Voice Chat identity from ``source`` into metadata.
+
+    Early development builds persisted ``source=realtime_voice``, which an
+    older closed ``SessionSource`` enum cannot load. Only records carrying the
+    matching capability metadata are rewritten.
+    """
+
+    def migrate(chat: dict) -> bool:
+        meta = chat.get("meta")
+        if chat.get("source") != "realtime_voice" or not isinstance(
+            meta.get("realtime_voice") if isinstance(meta, dict) else None,
+            dict,
+        ):
+            return False
+        chat["source"] = "chat"
+        return True
+
+    _migrate_chats_file(
+        chats_path,
+        migrate,
+        "voice-source-migrate",
+        "legacy Voice Chat source entries",
+    )

@@ -114,12 +114,6 @@ export class HttpRequestError extends ApiError {
   }
 }
 
-export function isHttpRequestError(
-  reason: unknown,
-): reason is HttpRequestError {
-  return reason instanceof HttpRequestError;
-}
-
 export async function request<T = unknown>(
   path: string,
   options: RequestOptions = {},

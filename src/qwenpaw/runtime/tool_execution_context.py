@@ -17,6 +17,13 @@ from .reply_cycle import reply_block_metadata
 _DETAIL_LIMIT = 2048
 _STEPS_LIMIT = 32
 _TOTAL_LIMIT = 16384
+# Running/unknown states are neither success nor failure.
+_SUCCEEDED_BY_STATE = {
+    "success": True,
+    "error": False,
+    "denied": False,
+    "interrupted": False,
+}
 
 
 def _owner(message: Msg, block: Any) -> tuple[str, tuple[str, ...]] | None:
@@ -111,15 +118,7 @@ def project_tool_execution_context(
             "tool_call_id": call.id,
             "tool_name": call.name,
             "execution_status": state,
-            "succeeded": (
-                True
-                if state == "success"
-                else (
-                    False
-                    if state in {"error", "denied", "interrupted"}
-                    else None
-                )
-            ),
+            "succeeded": _SUCCEEDED_BY_STATE.get(state),
         }
         _details(step, call, result)
         observations.append((position, step))
