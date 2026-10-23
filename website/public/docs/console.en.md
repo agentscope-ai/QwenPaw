@@ -153,7 +153,7 @@ After new-mail automation is enabled for an agent, each message not blocked by
 mail access control creates an event here. When processing finishes, Inbox also
 shows the final summary and tool execution trace. The first monitor start only establishes the current UID
 baseline; it does not process historical messages. See
-[Mailbox Management](./mailbox#Automate-New-Mail) for the full pipeline.
+[Mailbox Management](./mailbox#automate-new-mail) for the full pipeline.
 
 **Mail access control:**
 When mailbox access control is enabled, Inbox shows a **Mail access control**
