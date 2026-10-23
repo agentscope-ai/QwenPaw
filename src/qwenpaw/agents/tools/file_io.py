@@ -9,9 +9,11 @@ from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from .utils import (
+    apply_newline_style,
     build_truncation_metadata,
     truncate_text_output,
     read_file_safe,
+    read_file_safe_with_newline,
     DEFAULT_MAX_BYTES,
     TRUNCATION_METADATA_KEY,
 )
@@ -400,7 +402,9 @@ async def edit_file(
     encoding = _get_encoding_for_file(resolved_path)
     async with get_path_lock(resolved_path):
         try:
-            content = await read_file_safe(resolved_path)
+            content, newline = await read_file_safe_with_newline(
+                resolved_path,
+            )
         except FileNotFoundError:
             return ToolChunk(
                 is_last=True,
@@ -454,7 +458,10 @@ async def edit_file(
             )
 
         try:
-            new_content = content.replace(old_text, new_text)
+            new_content = apply_newline_style(
+                content.replace(old_text, new_text),
+                newline,
+            )
             await write_text_atomic_async(
                 resolved_path,
                 new_content,
