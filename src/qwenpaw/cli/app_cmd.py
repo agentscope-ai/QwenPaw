@@ -60,6 +60,9 @@ def configure_server_process(
     reload: bool = False,
 ) -> None:
     """Configure shared process state for an HTTP server command."""
+    os.environ["QWENPAW_RUNTIME_MODE"] = (
+        "hub" if os.environ.get("QWENPAW_RUNTIME_ID") else "standalone"
+    )
     write_last_api(probe_host_for_bind_host(host), port)
     os.environ[LOG_LEVEL_ENV] = log_level
     if reload:

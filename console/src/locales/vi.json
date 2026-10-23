@@ -62,13 +62,26 @@
     "cliAuthenticated": "{{type}} CLI đã xác thực"
   },
   "desktop": {
+    "update": {
+      "title": "Cập nhật QwenPaw?",
+      "otherWindows": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_one": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_other": "Còn {{count}} cửa sổ khác đang mở.",
+      "description": "Cập nhật sẽ đóng tất cả cửa sổ QwenPaw và ngắt các tác vụ đang chạy.",
+      "confirm": "Đóng và cập nhật",
+      "preparing": "Đang đóng cửa sổ…"
+    },
     "closeWindow": {
-      "title": "Đóng cửa sổ",
-      "description": "Bạn muốn thực hiện thao tác nào khi đóng cửa sổ? Thoát ứng dụng sẽ dừng tất cả tác vụ đang chạy và tác vụ đã lên lịch.",
+      "title": "Đóng QwenPaw?",
+      "description": "Tiếp tục chạy nền để duy trì tác vụ. Thoát hoàn toàn sẽ kết thúc các tác vụ đang chạy.",
       "remember": "Ghi nhớ lựa chọn của tôi",
       "showWindow": "Hiển thị cửa sổ",
       "minimizeToTray": "Thu nhỏ xuống khay hệ thống",
       "quitApp": "Thoát ứng dụng",
+      "keepRunning": "Tiếp tục chạy nền",
+      "quitting": "Đang thoát…",
+      "stopService": "Thoát hoàn toàn",
+      "stopBlocked": "QwenPaw vẫn đang được sử dụng trong cửa sổ hoặc ứng dụng khác. Hãy đóng chúng trước khi thoát hoàn toàn.",
       "preference": "Đóng cửa sổ",
       "askEveryTime": "Hỏi mỗi lần"
     }

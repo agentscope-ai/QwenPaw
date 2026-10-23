@@ -72,15 +72,36 @@
     "increase": "增加"
   },
   "desktop": {
+    "update": {
+      "title": "更新 QwenPaw？",
+      "otherWindows": "还有 {{count}} 个窗口正在使用。",
+      "otherWindows_one": "还有 {{count}} 个窗口正在使用。",
+      "otherWindows_other": "还有 {{count}} 个窗口正在使用。",
+      "description": "更新将关闭所有 QwenPaw 窗口，并中断正在运行的任务。",
+      "confirm": "关闭并更新",
+      "preparing": "正在关闭窗口…"
+    },
     "closeWindow": {
-      "title": "关闭窗口",
-      "description": "关闭窗口时您希望执行什么操作？退出应用将停止所有正在运行的任务和定时任务。",
+      "title": "退出 QwenPaw？",
+      "description": "后台继续运行会保留任务；完全退出会结束正在运行的任务。",
       "remember": "记住我的选择",
       "showWindow": "显示窗口",
       "minimizeToTray": "最小化到托盘",
       "quitApp": "退出应用",
+      "keepRunning": "后台运行",
+      "quitting": "正在退出…",
+      "stopService": "完全退出",
+      "stopBlocked": "QwenPaw 仍在其他窗口或应用中使用，请先关闭它们，再完全退出。",
       "preference": "关闭窗口",
       "askEveryTime": "每次询问"
+    },
+    "host": {
+      "connecting": "正在准备…",
+      "failed": "暂时无法打开，请重试",
+      "details": "查看详情",
+      "retry": "重试",
+      "theme": "切换外观",
+      "controls": "桌面控制"
     }
   },
   "chunkError": {

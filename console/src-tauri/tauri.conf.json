@@ -26,10 +26,14 @@
       "csp": {
         "default-src": "'self'",
         "connect-src": "'self' http://127.0.0.1:* ws://127.0.0.1:* ipc: http://ipc.localhost",
-        "script-src": "'self'",
-        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "script-src": "'self' blob: http://127.0.0.1:*",
+        "style-src": "'self' 'unsafe-inline' http://127.0.0.1:* https://fonts.googleapis.com",
         "font-src": "'self' https://fonts.gstatic.com",
-        "img-src": "'self' asset: http://asset.localhost blob: data: https:"
+        "img-src": "'self' asset: http://asset.localhost blob: data: https: http://127.0.0.1:*",
+        "media-src": "'self' blob: data: http://127.0.0.1:* https:",
+        "frame-src": "'self' blob: http://127.0.0.1:* https:",
+        "worker-src": "'self' blob:",
+        "object-src": "'self' blob: http://127.0.0.1:*"
       }
     }
   },

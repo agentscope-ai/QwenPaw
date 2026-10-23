@@ -72,15 +72,36 @@
     "increase": "Increase"
   },
   "desktop": {
+    "update": {
+      "title": "Update QwenPaw?",
+      "otherWindows": "{{count}} other windows are open.",
+      "otherWindows_one": "{{count}} other window is open.",
+      "otherWindows_other": "{{count}} other windows are open.",
+      "description": "Updating will close all QwenPaw windows and interrupt running tasks.",
+      "confirm": "Close and update",
+      "preparing": "Closing windows…"
+    },
     "closeWindow": {
-      "title": "Close Window",
-      "description": "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
+      "title": "Close QwenPaw?",
+      "description": "Keep running in the background to continue your tasks. Quitting completely ends running tasks.",
       "remember": "Remember my choice",
       "showWindow": "Show Window",
       "minimizeToTray": "Minimize to Tray",
       "quitApp": "Quit App",
+      "keepRunning": "Run in background",
+      "quitting": "Quitting…",
+      "stopService": "Quit completely",
+      "stopBlocked": "QwenPaw is still in use in other windows or apps. Close them before quitting completely.",
       "preference": "Close Window",
       "askEveryTime": "Ask every time"
+    },
+    "host": {
+      "connecting": "Getting ready…",
+      "failed": "Something went wrong. Please try again.",
+      "details": "View details",
+      "retry": "Try again",
+      "theme": "Switch appearance",
+      "controls": "Desktop controls"
     }
   },
   "chunkError": {

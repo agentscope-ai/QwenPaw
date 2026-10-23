@@ -4,6 +4,9 @@ description = "Allows the frontend to handle desktop close-window actions and lo
 commands.allow = [
   "minimize_to_tray",
   "quit_app",
+  "stop_service",
   "set_tray_labels",
   "ack_close",
+  "set_close_action",
+  "get_close_action",
 ]
