@@ -595,12 +595,6 @@
     grid-template-columns: 1fr;
   }
 
-  .sidebar {
-    max-height: 48vh;
-    border-right: 0;
-    border-bottom: 1px solid var(--app-border-subtle);
-  }
-
   .content {
     padding: 18px 20px;
   }
@@ -716,12 +710,25 @@
 .mobileNavigation {
   display: none;
 }
+
+/* The narrow-screen navigation drawer: it reuses the same .sidebar markup as
+ * the desktop column, so it only needs to fill the drawer and drop the border. */
+.navDrawer {
+  .sidebar {
+    height: 100%;
+    border-right: 0;
+  }
+
+  :global {
+    .qwenpaw-drawer-content {
+      background: var(--app-shell-bg);
+    }
+  }
+}
+
 @media (max-width: 768px) {
   .body {
     grid-template-rows: auto minmax(0, 1fr);
-  }
-  .sidebar {
-    display: none;
   }
   .mobileNavigation {
     display: flex;
@@ -730,13 +737,10 @@
     padding: 12px 16px;
     gap: 8px;
     border-bottom: 1px solid var(--app-border-subtle);
-    > :global(.ant-select) {
-      flex: 1;
-      min-width: 160px;
-    }
+
     .settingsAgentSelector {
       flex-basis: 100%;
-      margin: 4px 0 0 40px;
+      margin: 4px 0 0;
     }
   }
   .content {

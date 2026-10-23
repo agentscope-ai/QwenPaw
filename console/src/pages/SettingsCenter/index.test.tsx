@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
 import { themeApi } from "@/api/modules/theme";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
+import { OsWindowSizeContext } from "@/os/osWindowSizeContext";
 import type { MenuItem } from "@/plugins/registry/types";
 import { DEFAULT_FOCUS_ITEM_IDS, useSidebarStore } from "@/stores/sidebarStore";
 import { useAgentStore } from "@/stores/agentStore";
@@ -823,6 +824,38 @@ describe("SettingsCenter", () => {
     expect(useSidebarStore.getState().focusItemIds).toContain("core.security");
     expect(useSidebarStore.getState().hiddenPluginItemIds).toContain(
       "example.settings.menu",
+    );
+  });
+
+  it("opens the section navigation from the top bar on narrow screens", async () => {
+    renderWithProviders(
+      <OsWindowSizeContext.Provider value={500}>
+        <SettingsCenter />
+      </OsWindowSizeContext.Provider>,
+      { initialEntries: ["/settings/general"] },
+    );
+
+    // Below the breakpoint the inline column is not rendered at all, and the
+    // drawer only mounts its content while open — so nothing is on screen yet.
+    expect(screen.queryByPlaceholderText("Search settings")).toBeNull();
+
+    // jsdom never evaluates `@media (max-width: 768px)`, so the top bar keeps
+    // its base `display: none` here; reach the hamburger as a hidden element.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open settings menu",
+        hidden: true,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Search settings")).toBeVisible(),
+    );
+
+    // Picking a section must dismiss the drawer.
+    await userEvent.click(screen.getByRole("button", { name: "General" }));
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText("Search settings")).toBeNull(),
     );
   });
 });
