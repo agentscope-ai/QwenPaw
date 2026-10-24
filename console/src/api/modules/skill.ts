@@ -561,6 +561,7 @@ export const skillApi = {
     const response = await fetch(`${apiUrl}/skills/ai/optimize/stream`, {
       method: "POST",
       headers: {
+        ...buildAuthHeaders(),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ content, language }),
@@ -591,17 +592,19 @@ export const skillApi = {
           const line = lines[i].trim();
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
+            let parsed;
             try {
-              const parsed = JSON.parse(data);
-              if (parsed.text) {
-                onChunk(parsed.text);
-              } else if (parsed.error) {
-                throw new Error(parsed.error);
-              } else if (parsed.done) {
-                return;
-              }
+              parsed = JSON.parse(data);
             } catch {
               // Ignore malformed chunks.
+              continue;
+            }
+            if (parsed?.text) {
+              onChunk(parsed.text);
+            } else if (parsed?.error) {
+              throw new Error(parsed.error);
+            } else if (parsed?.done) {
+              return;
             }
           }
         }

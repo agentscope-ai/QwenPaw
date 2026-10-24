@@ -3,6 +3,7 @@
 """
 Streaming AI skill optimization API
 """
+
 import json
 import logging
 
@@ -15,7 +16,6 @@ from qwenpaw.exceptions import (
 )
 
 from ...agents.model_factory import create_model_and_formatter_async
-
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +144,18 @@ def _extract_text_from_chunk(chunk) -> str:
         return chunk.content
 
     if isinstance(chunk.content, list):
+        texts = []
         for item in chunk.content:
-            if isinstance(item, dict) and "text" in item:
-                return item["text"]
+            if isinstance(item, dict):
+                if item.get("type", "text") == "text" and isinstance(
+                    item.get("text"), str
+                ):
+                    texts.append(item["text"])
+            elif getattr(item, "type", None) == "text" and isinstance(
+                getattr(item, "text", None), str
+            ):
+                texts.append(item.text)
+        return "".join(texts)
 
     return ""
 
@@ -164,7 +173,7 @@ def _extract_text_from_response(response) -> str:
         return response.text
     if isinstance(response, str):
         return response
-    return ""
+    return _extract_text_from_chunk(response)
 
 
 @router.post("/skills/ai/optimize/stream")
@@ -215,27 +224,50 @@ async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
 
             response = await model(messages)
             accumulated = ""
+            started = False
 
             if hasattr(response, "__aiter__"):
                 async for chunk in response:
                     text = _extract_text_from_chunk(chunk)
-
-                    if text and len(text) > len(accumulated):
+                    if not text:
+                        continue
+                    # AgentScope 2 emits deltas, followed by one full snapshot.
+                    # Legacy wrappers without is_last still emit snapshots.
+                    if getattr(chunk, "is_last", None) is False:
+                        delta = text
+                        accumulated += text
+                    elif text.startswith(accumulated):
                         delta = text[len(accumulated) :]
                         accumulated = text
+                    else:
+                        raise ValueError(
+                            "Inconsistent skill optimization stream"
+                        )
+                    # A skill's YAML header must start on its first line.
+                    # Keep raw accumulation for snapshot matching and strip
+                    # only the leading whitespace of the emitted document.
+                    if not started:
+                        delta = delta.lstrip()
+                    if delta:
+                        started = True
                         data = json.dumps(
                             {"text": delta},
                             ensure_ascii=False,
                         )
                         yield f"data: {data}\n\n"
             else:
-                text = _extract_text_from_response(response)
+                text = _extract_text_from_response(response).lstrip()
                 if text:
+                    accumulated = text
                     data = json.dumps(
                         {"text": text},
                         ensure_ascii=False,
                     )
                     yield f"data: {data}\n\n"
+
+            if not accumulated.strip():
+                yield f"data: {json.dumps({'error': 'Model returned no skill text.'})}\n\n"
+                return
 
             yield f"data: {json.dumps({'done': True})}\n\n"
 
