@@ -146,6 +146,7 @@ def test_daily_paper_replaces_auto_resource_without_removing_resource_dir():
             "backend": "daily_paper_digest_step",
             "job_tools": ["search", "read"],
         },
+        {"backend": "auto_tag_step"},
     ]
     assert cfg["jobs"]["daily_paper_cron"] == {
         "backend": "base",

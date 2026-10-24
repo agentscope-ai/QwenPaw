@@ -582,6 +582,7 @@ def _base_config() -> dict[str, Any]:
                         "backend": "daily_paper_digest_step",
                         "job_tools": ["search", "read"],
                     },
+                    {"backend": "auto_tag_step"},
                 ],
             },
             # QwenPaw schedules Daily Paper through ServiceCronJob using the
