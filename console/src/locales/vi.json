@@ -3006,6 +3006,11 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "removeModel": "Xóa",
+    "removeModelConfirm": "Xóa mô hình \"{{name}}\" khỏi {{provider}}?",
+    "removeModelHint": "Mô hình đã xóa sẽ không được thêm lại khi tự động tìm kiếm. Để khôi phục, hãy thêm thủ công.",
+    "modelRemoved": "Đã xóa mô hình \"{{name}}\"",
+    "modelRemoveFailed": "Không thể xóa mô hình",
     "disableBtn": "Vô hiệu hóa",
     "llmConfiguration": "Cấu hình LLM",
     "providersTitle": "Nhà cung cấp",

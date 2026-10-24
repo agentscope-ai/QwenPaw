@@ -2771,6 +2771,7 @@
     "discoveredModelsAddFailed": "Failed to add {{count}} models",
     "removeModel": "Remove",
     "removeModelConfirm": "Remove model \"{{name}}\" from {{provider}}?",
+    "removeModelHint": "Removed models stay excluded from future discovery. To restore one, add it manually.",
     "modelRemoved": "Model \"{{name}}\" removed",
     "modelRemoveFailed": "Failed to remove model",
     "loadMore": "Load more ({{count}})",

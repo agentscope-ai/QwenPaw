@@ -3859,6 +3859,7 @@
     "autoDiscoverModelsFailed": "Could not update models. The previous list is preserved.",
     "removeModel": "Hapus",
     "removeModelConfirm": "Hapus model \"{{name}}\" dari {{provider}}?",
+    "removeModelHint": "Model yang dihapus tidak akan ditambahkan kembali oleh penemuan berikutnya. Untuk memulihkannya, tambahkan secara manual.",
     "modelRemoved": "Model \"{{name}}\" dihapus",
     "modelRemoveFailed": "Gagal menghapus model",
     "loadMore": "Muat lebih banyak ({{count}})",

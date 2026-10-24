@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -61,6 +62,7 @@ export function RemoteModelManageModal({
   const [busy, setBusy] = useState<string | null>(null);
   const [configId, setConfigId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<ModelInfo | null>(null);
   const [confirmEnableAll, setConfirmEnableAll] = useState(false);
   const [templateId, setTemplateId] = useState<string>();
   const [form] = Form.useForm();
@@ -177,6 +179,43 @@ export function RemoteModelManageModal({
       setSeenIds(new Set(seen.current));
     } catch (error) {
       failure(error);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const remove = async () => {
+    if (!removing || busy !== null) return;
+    const model = removing;
+    setBusy(model.id);
+    try {
+      const updated = await api.removeModel(provider.id, model.id);
+      setRemoving(null);
+      // Keep a deleted entry out of the list while its next page is loading.
+      setPage((value) =>
+        value
+          ? {
+              ...value,
+              models: value.models.filter((item) => item.id !== model.id),
+              total: Math.max(0, value.total - 1),
+              selected_count: Math.max(
+                0,
+                value.selected_count - Number(selectedIds.has(model.id)),
+              ),
+              candidate_count: Math.max(
+                0,
+                value.candidate_count - Number(!selectedIds.has(model.id)),
+              ),
+            }
+          : value,
+      );
+      setOffset(0);
+      await apply(updated);
+      window.dispatchEvent(new Event("session-model-changed"));
+      message.success(t("models.modelRemoved", { name: model.name }));
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : t("models.modelRemoveFailed"),
+      );
     } finally {
       setBusy(null);
     }
@@ -306,6 +345,26 @@ export function RemoteModelManageModal({
         confirmLoading={busy === "bulk"}
         okText={t("models.pool.enableAll")}
       />
+      <Modal
+        className={styles.subModal}
+        title={t("models.removeModelConfirm", {
+          name: removing?.name,
+          provider: current.name,
+        })}
+        open={removing !== null}
+        onCancel={() => {
+          if (busy === null) setRemoving(null);
+        }}
+        onOk={remove}
+        confirmLoading={removing !== null && busy === removing.id}
+        okText={t("models.removeModel")}
+        okButtonProps={{ danger: true }}
+        cancelButtonProps={{ disabled: busy !== null }}
+        closable={busy === null}
+        maskClosable={busy === null}
+      >
+        {t("models.removeModelHint")}
+      </Modal>
       <div style={{ display: configId ? "none" : "contents" }}>
         {!current.support_model_discovery &&
           current.discovery_support_reason && (
@@ -383,6 +442,7 @@ export function RemoteModelManageModal({
                       aria-label={t("models.autoDiscoverModels")}
                       icon={<RefreshCw size={16} />}
                       loading={syncing || current.models_syncing}
+                      disabled={busy !== null}
                       onClick={discover}
                     />
                   </Tooltip>
@@ -491,6 +551,24 @@ export function RemoteModelManageModal({
                               aria-label={t("models.testConnection")}
                               disabled={loading || busy !== null}
                               onClick={() => test(model)}
+                            />
+                          </Tooltip>
+                          <Tooltip title={t("models.removeModel")}>
+                            <Button
+                              type="text"
+                              danger
+                              icon={<Trash2 size={17} />}
+                              aria-label={t("models.removeModel")}
+                              disabled={
+                                loading ||
+                                syncing ||
+                                current.models_syncing ||
+                                busy !== null
+                              }
+                              onClick={() => {
+                                endHover(model.id);
+                                setRemoving(model);
+                              }}
                             />
                           </Tooltip>
                           <Tooltip title={t("models.modelConfigLabel")}>

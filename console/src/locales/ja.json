@@ -2067,6 +2067,7 @@
     "autoDiscoverModelsFailed": "Could not update models. The previous list is preserved.",
     "removeModel": "削除",
     "removeModelConfirm": "{{provider}} からモデル \"{{name}}\" を削除しますか？",
+    "removeModelHint": "削除したモデルは今後の自動検出でも追加されません。復元するには手動で追加してください。",
     "modelRemoved": "モデル \"{{name}}\" を削除しました",
     "modelRemoveFailed": "モデルの削除に失敗しました",
     "loadMore": "もっと読み込む ({{count}})",

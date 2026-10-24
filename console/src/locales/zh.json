@@ -2630,6 +2630,7 @@
     "discoveredModelsAddFailed": "{{count}} 个模型添加失败",
     "removeModel": "移除",
     "removeModelConfirm": "确定从 {{provider}} 中移除模型 \"{{name}}\"？",
+    "removeModelHint": "移除的模型不会被后续自动发现重新加入。如需恢复，请手动添加。",
     "modelRemoved": "模型 \"{{name}}\" 已移除",
     "modelRemoveFailed": "移除模型失败",
     "loadMore": "加载更多 ({{count}})",

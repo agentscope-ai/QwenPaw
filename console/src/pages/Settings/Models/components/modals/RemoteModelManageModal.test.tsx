@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import type { ProviderInfo, ModelInfo } from "../../../../../api/types";
 import { RemoteModelManageModal } from "./RemoteModelManageModal";
@@ -11,6 +17,7 @@ const api = vi.hoisted(() => ({
   selectAllModels: vi.fn(),
   discoverModels: vi.fn(),
   addModel: vi.fn(),
+  removeModel: vi.fn(),
   testModelConnection: vi.fn(),
   probeMultimodal: vi.fn(),
   listModelTemplates: vi.fn(),
@@ -52,17 +59,32 @@ vi.mock("@agentscope-ai/design", async (original) => {
       children,
       title,
       onOk,
+      onCancel,
+      confirmLoading,
+      cancelButtonProps,
     }: {
       open: boolean;
       children: ReactNode;
       title: ReactNode;
       onOk?: () => void;
+      onCancel?: () => void;
+      confirmLoading?: boolean;
+      cancelButtonProps?: { disabled?: boolean };
     }) =>
       open ? (
         <div role="dialog">
           <h2>{title}</h2>
           {children}
-          {onOk && <button onClick={onOk}>confirm</button>}
+          {onOk && (
+            <button disabled={confirmLoading} onClick={onOk}>
+              confirm
+            </button>
+          )}
+          {onCancel && (
+            <button disabled={cancelButtonProps?.disabled} onClick={onCancel}>
+              cancel
+            </button>
+          )}
         </div>
       ) : null,
   };
@@ -92,19 +114,21 @@ const provider = {
 } as unknown as ProviderInfo;
 async function render(providerOverride: Partial<ProviderInfo> = {}) {
   const onSaved = vi.fn();
+  const onProviderUpdated = vi.fn();
   renderWithProviders(
     <RemoteModelManageModal
       provider={{ ...provider, ...providerOverride }}
       open
       onClose={vi.fn()}
       onSaved={onSaved}
+      onProviderUpdated={onProviderUpdated}
     />,
   );
   await waitFor(() => expect(api.getModelPool).toHaveBeenCalled());
   await waitFor(() =>
     expect(screen.queryByText("common.loading")).not.toBeInTheDocument(),
   );
-  return { onSaved };
+  return { onSaved, onProviderUpdated };
 }
 let serverProvider = provider;
 beforeEach(() => {
@@ -142,6 +166,19 @@ beforeEach(() => {
       offset: query.offset,
       limit: query.limit,
     });
+  });
+  api.removeModel.mockImplementation((_id, modelId) => {
+    serverProvider = {
+      ...serverProvider,
+      models: serverProvider.models.filter((model) => model.id !== modelId),
+      extra_models: serverProvider.extra_models.filter(
+        (model) => model.id !== modelId,
+      ),
+      discovered_models: serverProvider.discovered_models?.filter(
+        (model) => model.id !== modelId,
+      ),
+    };
+    return Promise.resolve(serverProvider);
   });
   api.updateModelPool.mockResolvedValue(provider);
   api.discoverModels.mockResolvedValue({
@@ -229,6 +266,7 @@ describe("model pool switches", () => {
       ).not.toBeChecked(),
     );
     expect(screen.getByText("Chosen model")).toBeInTheDocument();
+    expect(api.removeModel).not.toHaveBeenCalled();
   });
   it("can enable all after disabling all and refreshing the pool", async () => {
     // Disabled models remain discoverable and can be enabled again.
@@ -490,5 +528,111 @@ describe("model pool switches", () => {
     await render();
     fireEvent.click(screen.getByText("models.addModel"));
     expect(screen.getAllByRole("dialog")).toHaveLength(2);
+  });
+});
+
+describe("model pool removal", () => {
+  const clickRemove = (name: string) => {
+    const row = screen.getByText(name).closest("[data-model-id]")!;
+    fireEvent.click(
+      within(row as HTMLElement).getByRole("button", {
+        name: "models.removeModel",
+      }),
+    );
+  };
+
+  it.each([chosen, candidate])(
+    "removes $name only after confirmation",
+    async (model) => {
+      const { onSaved, onProviderUpdated } = await render();
+      clickRemove(model.name);
+      expect(screen.getByText("models.removeModelConfirm")).toBeInTheDocument();
+      expect(api.removeModel).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+      await waitFor(() =>
+        expect(api.removeModel).toHaveBeenCalledExactlyOnceWith(
+          provider.id,
+          model.id,
+        ),
+      );
+      await waitFor(() =>
+        expect(screen.queryByText(model.name)).not.toBeInTheDocument(),
+      );
+      expect(onProviderUpdated).toHaveBeenCalledWith(serverProvider);
+      expect(onSaved).toHaveBeenCalledOnce();
+      expect(message.success).toHaveBeenCalledWith("models.modelRemoved");
+      expect(
+        api.updateModelPool.mock.calls.every(
+          (call) => call[2].selected === undefined,
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it("keeps the model when removal is cancelled", async () => {
+    await render();
+    clickRemove(chosen.name);
+    fireEvent.click(screen.getByRole("button", { name: "cancel" }));
+    expect(
+      screen.queryByText("models.removeModelConfirm"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(chosen.name)).toBeInTheDocument();
+    expect(api.removeModel).not.toHaveBeenCalled();
+  });
+
+  it("retains the model and allows retry after a removal error", async () => {
+    api.removeModel.mockRejectedValueOnce(new Error("Removal failed"));
+    const { onSaved } = await render();
+    clickRemove(chosen.name);
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    await waitFor(() =>
+      expect(message.error).toHaveBeenCalledWith("Removal failed"),
+    );
+    expect(screen.getByText(chosen.name)).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    await waitFor(() =>
+      expect(screen.queryByText(chosen.name)).not.toBeInTheDocument(),
+    );
+    expect(api.removeModel).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks duplicate removal and discovery while deletion is pending", async () => {
+    let finish!: (value: ProviderInfo) => void;
+    api.removeModel.mockReturnValue(
+      new Promise<ProviderInfo>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    await render();
+    clickRemove(chosen.name);
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    expect(screen.getByRole("button", { name: "confirm" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "cancel" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "models.autoDiscoverModels" }),
+    ).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    expect(api.removeModel).toHaveBeenCalledOnce();
+    await act(async () => finish({ ...provider, extra_models: [] }));
+  });
+
+  it("removes the stale row immediately while the refreshed pool is pending", async () => {
+    await render();
+    api.getModelPool.mockReturnValue(new Promise(() => {}));
+    clickRemove(chosen.name);
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    await waitFor(() =>
+      expect(screen.queryByText(chosen.name)).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText(candidate.name)).toBeInTheDocument();
+    await waitFor(() => expect(api.getModelPool).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not expose removal for organization-managed models", async () => {
+    await render({ id: "hub-managed" });
+    expect(
+      screen.queryByRole("button", { name: "models.removeModel" }),
+    ).not.toBeInTheDocument();
   });
 });
