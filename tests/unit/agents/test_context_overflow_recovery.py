@@ -232,6 +232,11 @@ async def test_context_overflow_with_other_manager_does_not_retry(monkeypatch):
         ("Error code: 400 - maximum context length is 128000", True),
         ("<400> input length should be between 1 and 983616", False),
         ("Error code: 400 - image_url is unsupported", False),
+        (
+            "Error code: 400 - max_tokens must be less than or equal to "
+            "8192",
+            False,
+        ),
         ("Error code: 500 - context length exceeded", False),
     ],
 )
@@ -266,6 +271,23 @@ def test_context_overflow_classifier_supports_gemini_client_error(message):
             },
         },
     )
+    assert QwenPawAgent._is_context_overflow_error(exc) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "max_tokens does not fit in the remaining context window",
+        (
+            "prompt (207155 tokens) + max tokens (65536) exceeds the "
+            "context (262144)"
+        ),
+    ],
+)
+def test_context_overflow_classifier_supports_grouped_provider_error(
+    message,
+):
+    exc = _ContextOverflowError(f"Error code: 400 - {message}")
     assert QwenPawAgent._is_context_overflow_error(exc) is True
 
 
