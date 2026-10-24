@@ -2,7 +2,7 @@
 """Task tracker for background runs: streaming, reconnect, multi-subscriber.
 
 ``run_key`` is typically ``ChatSpec.id`` (chat_id). Per run: task, queues,
-event buffer. Reconnects get buffer replay + new events. Cleanup when task
+folded replay store. Reconnects get replay + new events. Cleanup when task
 completes.
 """
 from __future__ import annotations
@@ -22,6 +22,8 @@ from typing import (
     Optional,
 )
 
+from .replay_store import ReplayStore
+
 logger = logging.getLogger(__name__)
 
 _SENTINEL = None
@@ -30,7 +32,7 @@ _SENTINEL = None
 # patching the process-wide ``asyncio`` module.
 _create_task = asyncio.create_task
 
-# Emitted to reconnect subscribers right after the buffered events, so
+# Emitted to reconnect subscribers right after the replayed events, so
 # the client can render the replayed part instantly (no token-by-token
 # re-animation) and switch to live streaming afterwards.
 REPLAY_END_SSE = f"data: {json.dumps({'type': 'replay_end'})}\n\n"
@@ -38,11 +40,11 @@ REPLAY_END_SSE = f"data: {json.dumps({'type': 'replay_end'})}\n\n"
 
 @dataclass
 class _RunState:
-    """Per-run state (task, queues, buffer), guarded by tracker lock."""
+    """Per-run state (task, queues, replay), guarded by tracker lock."""
 
     task: asyncio.Future
     queues: list[asyncio.Queue] = field(default_factory=list)
-    buffer: list[str] = field(default_factory=list)
+    replay: ReplayStore = field(default_factory=ReplayStore)
     start_time: Optional[datetime] = None
     finish_time: Optional[datetime] = None
     owner: object | None = None
@@ -191,7 +193,7 @@ class TaskTracker:
     async def attach(self, run_key: str) -> asyncio.Queue | None:
         """Attach to an existing run.
 
-        Returns a new queue pre-filled with the event buffer plus a
+        Returns a new queue pre-filled with the folded replay plus a
         ``replay_end`` marker, or ``None`` if no run is active for
         *run_key*.
         """
@@ -200,7 +202,7 @@ class TaskTracker:
             if state is None or state.task.done():
                 return None
             q: asyncio.Queue = asyncio.Queue()
-            for sse in state.buffer:
+            for sse in state.replay.replay():
                 q.put_nowait(sse)
             q.put_nowait(REPLAY_END_SSE)
             state.queues.append(q)
@@ -275,7 +277,7 @@ class TaskTracker:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
                 q: asyncio.Queue = asyncio.Queue()
-                for sse in state.buffer:
+                for sse in state.replay.replay():
                     q.put_nowait(sse)
                 state.queues.append(q)
                 return q, False
@@ -284,7 +286,6 @@ class TaskTracker:
             run = _RunState(
                 task=asyncio.Future(),  # placeholder, replaced below
                 queues=[my_queue],
-                buffer=[],
                 owner=owner,
             )
 
@@ -306,7 +307,7 @@ class TaskTracker:
                         if tracker is None:
                             return
                         async with tracker.lock:
-                            run.buffer.append(sse)
+                            run.replay.append(sse)
                             for q in run.queues:
                                 q.put_nowait(sse)
                 except asyncio.CancelledError:
@@ -320,7 +321,7 @@ class TaskTracker:
                     tracker = tracker_ref()
                     if tracker is not None:
                         async with tracker.lock:
-                            run.buffer.append(err_sse)
+                            run.replay.append(err_sse)
                             for q in run.queues:
                                 q.put_nowait(err_sse)
                 finally:
