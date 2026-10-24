@@ -2,6 +2,7 @@ import React, {
   createContext,
   useContext,
   useDeferredValue,
+  useMemo,
   useRef,
 } from "react";
 import { Markdown } from "@agentscope-ai/chat";
@@ -16,6 +17,7 @@ import {
 } from "../../plugins/hostSdk/hooks";
 import type { ChatListSnapshot } from "../../plugins/registry/chatExtensions";
 import { resolveLanguage } from "../../components/RenderableCodeBlock/language";
+import { normalizeCjkEmphasis } from "../../utils/markdownCjk";
 import { CodeBlockSlot, StableCodeBlocks } from "./StableCodeBlocks";
 
 import type { ComponentProps } from "@ant-design/x-markdown";
@@ -134,6 +136,14 @@ export function AssistantMarkdown({
   messageId: string;
 }) {
   const deferredContent = useDeferredValue(content);
+
+  // Repair CJK emphasis boundaries (e.g. ``**中文。**后``) so a closing ``**``
+  // that sits after CJK punctuation and before CJK text still renders instead
+  // of leaking the raw markers.
+  const displayContent = useMemo(
+    () => normalizeCjkEmphasis(deferredContent),
+    [deferredContent],
+  );
   const baseFontSize = useEffectiveFontSize();
   const entries = useChatListSnapshot()["response.codeBlocks"];
   const agent = useHostSelectedAgent();
@@ -153,7 +163,7 @@ export function AssistantMarkdown({
       <Markdown
         baseFontSize={baseFontSize}
         components={renderableCodeComponents}
-        content={deferredContent}
+        content={displayContent}
         cursor={cursor}
       />
     );
@@ -173,7 +183,7 @@ export function AssistantMarkdown({
         <Markdown
           baseFontSize={baseFontSize}
           components={assistantCodeComponents}
-          content={deferredContent}
+          content={displayContent}
           // The vendor cursor appends a literal token, which corrupts unfinished DSL.
           cursor={false}
         />
