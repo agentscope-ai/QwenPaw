@@ -56,6 +56,7 @@ beforeEach(() => {
       clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
     }),
   );
+  vi.stubGlobal("isSecureContext", true);
 });
 
 afterEach(() => {
@@ -198,6 +199,31 @@ describe("useTraceViewer", () => {
       await result.current.copyTraceBlock("");
     });
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  it("copies trace text on insecure origins via the execCommand fallback", async () => {
+    // Plain-HTTP LAN access: no navigator.clipboard, isSecureContext=false.
+    // Copy must still succeed instead of failing with a TypeError.
+    vi.stubGlobal("isSecureContext", false);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    const originalExecCommand = document.execCommand;
+    const execCommand = vi.fn().mockReturnValue(true);
+    document.execCommand = execCommand;
+    try {
+      const { result } = renderHook(() =>
+        useTraceViewer(mocks.markMessageAsRead),
+      );
+      await act(async () => {
+        await result.current.copyTraceBlock("copy me");
+      });
+      expect(execCommand).toHaveBeenCalledWith("copy");
+      expect(antdMessage.success).toHaveBeenCalledWith("common.copied");
+    } finally {
+      document.execCommand = originalExecCommand;
+    }
   });
 
   it("records per-message scroll positions", async () => {
