@@ -36,7 +36,11 @@ import { useTranslation } from "react-i18next";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import { ChunkRecoverySuspense } from "@/components/ChunkRecoverySuspense";
 import { useTheme } from "@/contexts/ThemeContext";
-import { useMenuItems, useRoutes } from "@/plugins/registry/hooks";
+import {
+  useAllMenuItems,
+  useMenuItems,
+  useRoutes,
+} from "@/plugins/registry/hooks";
 import { usePlugins } from "@/plugins/PluginContext";
 import {
   findMenuItem,
@@ -304,6 +308,7 @@ export default function SettingsCenter() {
   const navigate = useNavigate();
   const routes = useRoutes();
   const { loading: pluginsLoading } = usePlugins();
+  const allMenuItems = useAllMenuItems();
   const rawAgentMenu = useMenuItems("primary.agentScoped");
   const rawSettingsMenu = useMenuItems("primary.settings");
   const canImport = useAgentStore(({ selectedAgent, agents }) =>
@@ -320,11 +325,35 @@ export default function SettingsCenter() {
   }, [routes]);
 
   const availableGroups = useMemo(() => {
+    const visibleMenuIds = new Set(
+      [
+        ...flattenMenu(rawAgentMenu, routes, 16),
+        ...flattenMenu(rawSettingsMenu, routes, 16),
+      ].map((entry) => entry.key),
+    );
+    const menuRouteVisibility = new Map<string, boolean>();
+    for (const item of allMenuItems) {
+      if (
+        !item.route ||
+        !["primary.agentScoped", "primary.settings"].includes(item.location)
+      )
+        continue;
+      menuRouteVisibility.set(
+        item.route,
+        menuRouteVisibility.get(item.route) === true ||
+          visibleMenuIds.has(item.id),
+      );
+    }
     const registeredMenu = [...rawAgentMenu, ...rawSettingsMenu];
     const coreGroups = SETTINGS_GROUPS.map((group) => ({
       ...group,
       pages: group.pages
-        .filter((page) => !page.routeId || componentByRouteId.has(page.routeId))
+        .filter(
+          (page) =>
+            !page.routeId ||
+            (componentByRouteId.has(page.routeId) &&
+              menuRouteVisibility.get(page.routeId) !== false),
+        )
         .map((page) => {
           const menuIcon = page.routeId
             ? findMenuItem(registeredMenu, page.routeId)?.icon
@@ -367,7 +396,7 @@ export default function SettingsCenter() {
           },
         ]
       : coreGroups;
-  }, [componentByRouteId, rawAgentMenu, rawSettingsMenu, routes]);
+  }, [componentByRouteId, allMenuItems, rawAgentMenu, rawSettingsMenu, routes]);
 
   const activeKey = pageKeyFromPath(location.pathname);
   const allPages = availableGroups.flatMap((group) => group.pages);
