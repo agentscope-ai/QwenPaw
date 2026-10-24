@@ -21,6 +21,14 @@ pub(super) use window::{
     active_window, close_window, is_forbidden, list_apps, list_windows, resolve_window,
 };
 
-pub(super) fn ensure_permissions(_method: &str) -> Result<(), (&'static str, String)> {
+pub(super) fn ensure_permissions(
+    _permissions: &[super::permission_broker::Permission],
+) -> Result<(), (&'static str, String)> {
     Ok(())
 }
+
+pub(super) fn permission_granted(_permission: super::permission_broker::Permission) -> bool {
+    true
+}
+
+pub(super) fn request_permission(_permission: super::permission_broker::Permission) {}

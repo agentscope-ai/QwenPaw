@@ -7,6 +7,10 @@
 
 set -e
 
+# Keep the Rust desktop executable, Computer Use helper, Swift NativeShim and
+# both bundle metadata files on the same supported macOS baseline.
+export MACOSX_DEPLOYMENT_TARGET="14.0"
+
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -126,12 +130,57 @@ if [ ! -x "${HELPER_PATH}" ]; then
     echo "ERROR: Computer Use helper was not bundled at ${HELPER_PATH}"
     exit 1
 fi
+DESKTOP_EXECUTABLE=$(
+    /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" \
+        "${APP_PATH}/Contents/Info.plist"
+)
+DESKTOP_PATH="${APP_PATH}/Contents/MacOS/${DESKTOP_EXECUTABLE}"
+NATIVE_SHIM_PATH="${APP_PATH}/Contents/Frameworks/libqwenpaw_record_replay.dylib"
 
-echo "== Step 3b: Signing Final macOS App =="
+verify_macos_14_binary() {
+    local label="$1"
+    local path="$2"
+    if [ ! -f "${path}" ]; then
+        echo "ERROR: ${label} was not bundled at ${path}"
+        exit 1
+    fi
+    local versions
+    versions=$(/usr/bin/otool -l "${path}" | awk '$1 == "minos" { print $2 }')
+    if [ -z "${versions}" ]; then
+        echo "ERROR: ${label} has no LC_BUILD_VERSION minimum OS at ${path}"
+        exit 1
+    fi
+    while IFS= read -r version; do
+        if [ "${version}" != "14.0" ]; then
+            echo "ERROR: ${label} targets macOS ${version}; expected 14.0"
+            exit 1
+        fi
+    done <<< "${versions}"
+    echo "  [OK] ${label} targets macOS 14.0"
+}
+
+DESKTOP_MINIMUM=$(
+    /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" \
+        "${APP_PATH}/Contents/Info.plist"
+)
+if [ "${DESKTOP_MINIMUM}" != "14.0" ]; then
+    echo "ERROR: Desktop Info.plist targets macOS ${DESKTOP_MINIMUM}; expected 14.0"
+    exit 1
+fi
+verify_macos_14_binary "Desktop executable" "${DESKTOP_PATH}"
+verify_macos_14_binary "Computer Use helper" "${HELPER_PATH}"
+verify_macos_14_binary "Record NativeShim" "${NATIVE_SHIM_PATH}"
+
+echo "== Step 3b: Assembling Pre-signed Helper Seed =="
+"${REPO_ROOT}/.venv/bin/python" scripts/pack-tauri/stage_macos_helper.py --app "${APP_PATH}"
+
+echo "== Step 3c: Signing Final macOS App =="
 bash "${SIGN_MACOS_BUNDLE}" \
     "${APP_PATH}" \
     "${APPLE_SIGNING_IDENTITY}"
 echo "Final macOS app signed and verified"
+codesign --verify --deep --strict \
+    "${APP_PATH}/Contents/Helpers/QwenPaw Computer Use.app"
 echo ""
 
 # Step 4: Collect distribution artifacts
