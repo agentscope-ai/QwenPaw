@@ -193,19 +193,28 @@ class TestRunSkillTest:
         finally:
             sc_mod.scan_skill_directory = original
 
-    def test_unsafe_scan_raises(self, tmp_path):
+    def test_unsafe_scan_warns_without_overriding_policy(
+        self,
+        tmp_path,
+        capsys,
+    ):
         skill_dir = tmp_path / "bad"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(_skill_md("bad"), encoding="utf-8")
 
         from types import SimpleNamespace
 
-        result = SimpleNamespace(is_safe=False, findings=[object()])
+        result = SimpleNamespace(
+            is_safe=False,
+            findings=[
+                SimpleNamespace(to_dict=lambda: {"title": "Test issue"}),
+            ],
+        )
         original = sc.scan_skill_directory
         sc.scan_skill_directory = lambda *a, **kw: result
         try:
-            with pytest.raises(click.ClickException, match="issue\\(s\\)"):
-                sc._run_skill_test(skill_dir)
+            assert sc._run_skill_test(skill_dir) == "bad"
+            assert "1 issue(s)" in capsys.readouterr().out
         finally:
             sc.scan_skill_directory = original
 
