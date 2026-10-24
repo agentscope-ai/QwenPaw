@@ -4297,6 +4297,25 @@
       "deleteTitle": "Delete this group?",
       "deleteHint": "Conversations will return to their built-in group."
     },
+    "historySearch": {
+      "mode": "Search mode",
+      "keyword": "Keyword",
+      "agent": "AI search",
+      "label": "Search conversation history",
+      "keywordPlaceholder": "Search titles and messages…",
+      "agentPlaceholder": "Describe the conversation…",
+      "submit": "Search",
+      "results": "Conversation search results",
+      "agentHint": "Describe what you remember, then press Enter to search with the current agent's model.",
+      "searching": "Searching conversations…",
+      "count": "{{count}} conversations",
+      "count_one": "{{count}} conversation",
+      "count_other": "{{count}} conversations",
+      "partial": "Showing partial results. Try a more specific search.",
+      "agentError": "AI search failed. Check the current agent's model configuration or try keyword search.",
+      "error": "Could not search conversations. Try again.",
+      "loadMore": "Load more"
+    },
     "sessionPanel": {
       "searchConversations": "Search conversations…",
       "noConversations": "No conversations yet",
