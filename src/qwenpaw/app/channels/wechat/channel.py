@@ -1325,6 +1325,12 @@ class WeChatChannel(BaseChannel):
         if not self.enabled:
             return
 
+        # Time-sensitive sends (approval notices) bypass the merge window;
+        # otherwise they can flush after the approval already timed out.
+        if (meta or {}).get("no_merge"):
+            await self._send_content_parts_immediate(to_handle, parts, meta)
+            return
+
         if self._message_merge_enabled:
             # Separate text/refusal parts (mergeable) from media (immediate)
             text_parts: List[OutgoingContentPart] = []
