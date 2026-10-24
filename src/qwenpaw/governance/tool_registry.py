@@ -452,6 +452,7 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
     # identity when a query leaves the process.
     for python_name, policy_name, tool_type in (
         ("memory_search", "MemorySearch", "internal"),
+        ("memory_list_tags", "MemoryListTags", "internal"),
         ("memory_remember", "MemoryRemember", "network"),
     ):
         register_tool_governance(

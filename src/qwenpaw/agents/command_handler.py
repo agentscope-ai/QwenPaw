@@ -83,6 +83,7 @@ _REME_CHAT_SAFE_ACTIONS = frozenset(
     {
         "status",
         "search",
+        "list_tags",
         "proactive",
         "auto_memory",
         "auto_dream",
@@ -1131,6 +1132,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "",
                 "Arguments marked with `*` are required. Add "
                 "`show_metadata=true` to display action metadata.",
+                "For arrays and objects, use JSON inside single quotes: "
+                '`tags=\'["Alice","Project_A"]\'` or '
+                '`filter=\'{"kind":"decision"}\'`.',
             ],
         )
         return "\n".join(lines)

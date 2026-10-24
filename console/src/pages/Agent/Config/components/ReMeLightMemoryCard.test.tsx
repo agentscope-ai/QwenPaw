@@ -197,9 +197,13 @@ function RerankerVisibilityForm({
 function MemoryForm({
   withRuntimeStatus = false,
   autoFinEnabled = false,
+  includeImages = false,
+  onValuesChange,
 }: {
   withRuntimeStatus?: boolean;
   autoFinEnabled?: boolean;
+  includeImages?: boolean;
+  onValuesChange?: (changedValues: unknown) => void;
 }) {
   const [form] = Form.useForm();
   const Provider = withRuntimeStatus ? RuntimeProvider : StaticMemoryProvider;
@@ -207,9 +211,11 @@ function MemoryForm({
     <Provider>
       <Form
         form={form}
+        onValuesChange={onValuesChange}
         initialValues={{
           reme_light_memory_config: {
             auto_memory_interval: 0,
+            auto_memory_include_images: includeImages,
             dream_cron_enabled: false,
             auto_fin_cron_enabled: autoFinEnabled,
             auto_fin_cron: "0 18 * * *",
@@ -707,6 +713,62 @@ describe("ReMe runtime status", () => {
 });
 
 describe("long-term memory defaults", () => {
+  it("keeps tag generation off by default and persists enabling it", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(<MemoryForm onValuesChange={onValuesChange} />);
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryTagsTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-checked", "true");
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_generate_tags: true },
+    });
+    fireEvent.click(control);
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_generate_tags: false },
+    });
+  });
+
+  it("persists the optional image setting through the memory form", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(<MemoryForm onValuesChange={onValuesChange} />);
+
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryImagesTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(control);
+
+    expect(control).toHaveAttribute("aria-checked", "true");
+    expect(onValuesChange).toHaveBeenLastCalledWith(
+      { reme_light_memory_config: { auto_memory_include_images: true } },
+      expect.objectContaining({
+        reme_light_memory_config: expect.objectContaining({
+          auto_memory_include_images: true,
+        }),
+      }),
+    );
+  });
+
+  it("loads an enabled image setting and allows disabling it", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(
+      <MemoryForm includeImages onValuesChange={onValuesChange} />,
+    );
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryImagesTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-checked", "false");
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_include_images: false },
+    });
+  });
+
   it("schedules autosave when auto memory is toggled programmatically", () => {
     const onEdit = vi.fn();
     renderWithProviders(
@@ -1839,5 +1901,102 @@ describe("getEmbeddingServiceFingerprint", () => {
         use_dimensions: false,
       }),
     );
+  });
+});
+
+describe("memory configuration count fields", () => {
+  function CountFieldsForm({
+    formRef,
+    interval = 5,
+  }: {
+    formRef: React.MutableRefObject<ReturnType<typeof Form.useForm>[0] | null>;
+    interval?: number | null;
+  }) {
+    const [form] = Form.useForm();
+    formRef.current = form;
+    return (
+      <StaticMemoryProvider>
+        <Form
+          form={form}
+          initialValues={{
+            reme_light_memory_config: {
+              auto_memory_interval: interval,
+              dream_cron_enabled: false,
+              auto_memory_search_config: { enabled: true, max_results: 2 },
+              embedding_model_config: persistedDashScopeEmbeddingConfig,
+              reranker_config: {
+                enabled: false,
+                candidate_multiplier: 3,
+                timeout: 10,
+              },
+            },
+          }}
+        >
+          <ReMeLightMemoryCard />
+          <EmbeddingModelCard />
+        </Form>
+      </StaticMemoryProvider>
+    );
+  }
+
+  it.each([
+    ["auto_memory_interval"],
+    ["auto_memory_search_config", "max_results"],
+    ["embedding_model_config", "dimensions"],
+    ["embedding_model_config", "max_cache_size"],
+    ["embedding_model_config", "max_input_length"],
+    ["embedding_model_config", "max_batch_size"],
+  ])("rejects a fractional count for %s before autosave", async (...fields) => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(<CountFieldsForm formRef={formRef} />);
+    const form = formRef.current!;
+    const path = ["reme_light_memory_config", ...fields];
+    await act(async () => form.setFieldValue(path, 1.5));
+    await expect(form.validateFields([path])).rejects.toMatchObject({
+      errorFields: expect.arrayContaining([
+        expect.objectContaining({
+          name: path,
+          errors: ["agentConfig.memoryPositiveIntegerRequired"],
+        }),
+      ]),
+    });
+    await act(async () => form.setFieldValue(path, 5));
+    await expect(form.validateFields([path])).resolves.toBeDefined();
+  });
+
+  it.each([null, -1])(
+    "accepts legacy disabled cadence %s",
+    async (interval) => {
+      const formRef = {
+        current: null as ReturnType<typeof Form.useForm>[0] | null,
+      };
+      renderWithProviders(
+        <CountFieldsForm formRef={formRef} interval={interval} />,
+      );
+      expect(
+        screen.getByRole("switch", {
+          name: "agentConfig.memoryAutoRecordTitle",
+        }),
+      ).not.toBeChecked();
+      await expect(
+        formRef.current!.validateFields([
+          ["reme_light_memory_config", "auto_memory_interval"],
+        ]),
+      ).resolves.toBeDefined();
+    },
+  );
+
+  it("names every memory switch including expanded external sources", () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(<CountFieldsForm formRef={formRef} />);
+    fireEvent.click(screen.getByText("agentConfig.memoryDailyPaperTitle"));
+    fireEvent.click(screen.getByText("agentConfig.memoryAutoFinTitle"));
+    for (const toggle of screen.getAllByRole("switch")) {
+      expect(toggle).toHaveAccessibleName();
+    }
   });
 });

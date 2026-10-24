@@ -3,7 +3,7 @@
 """Tests for optional memory actions exposed by ReMe."""
 
 from contextlib import asynccontextmanager
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -143,6 +143,57 @@ async def test_run_action_marks_llm_jobs_and_rejects_hidden_jobs() -> None:
     )
     with pytest.raises(ValueError, match="Unknown or unavailable"):
         await manager.run_action("hidden")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["write", "daily_write"])
+async def test_run_action_forwards_note_name_without_job_name_collision(
+    action,
+) -> None:
+    manager = _manager_with_jobs(
+        {
+            action: _job(
+                parameters={
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            ),
+        },
+    )
+    manager._run_reme_job = MethodType(
+        ReMeLightMemoryManager._run_reme_job,
+        manager,
+    )
+    response = SimpleNamespace(success=True, answer="saved", metadata={})
+    manager._reme.run_job = AsyncMock(return_value=response)
+    manager._append_reme_job_result_to_inbox = AsyncMock(return_value=False)
+
+    result = await manager.run_action(action, name="Project facts")
+
+    assert result is response
+    manager._reme.run_job.assert_awaited_once_with(
+        action,
+        name="Project facts",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [None, SimpleNamespace(success=True), SimpleNamespace(success=False)],
+)
+async def test_auto_dream_preserves_single_job_result(response):
+    """Digest results return directly without running a follow-up job."""
+    manager = _manager_with_jobs({"auto_dream": _job()})
+    manager._run_reme_job.return_value = response
+    assert await manager.run_action("auto_dream") is response
+    manager._run_reme_job.assert_awaited_once_with(
+        "auto_dream",
+        needs_llm=True,
+        raise_on_error=True,
+        lifecycle_locked=True,
+    )
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,20 @@ vi.mock("../../utils/openHtmlFile", () => ({
 }));
 
 describe("FilePreview", () => {
+  it("shows memory tags written as a YAML block list", () => {
+    render(
+      <FilePreview
+        filePath="memory.md"
+        content={
+          "---\nmemory_tags:\n- 赵六\n- 上海示例科技有限公司\n---\n# Memory"
+        }
+      />,
+    );
+    const frontmatter = screen.getByLabelText("Front matter");
+    expect(frontmatter).toHaveTextContent("赵六");
+    expect(frontmatter).toHaveTextContent("上海示例科技有限公司");
+  });
+
   it("keeps math code blocks in the renderable code block controls", () => {
     render(
       <FilePreview
