@@ -257,6 +257,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         agent_id = self.agent_id
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
+        self._llm_job_lock = asyncio.Lock()
         self._lifecycle_writer_lock = asyncio.Lock()
         self._lifecycle_condition = asyncio.Condition()
         self._active_reme_jobs = 0
@@ -525,18 +526,20 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             ),
         )
 
-    async def _update_qwenpaw_model(self) -> "ChatModelBase | None":
+    async def _update_qwenpaw_model(
+        self,
+        *,
+        require_image_support: bool = False,
+    ) -> "ChatModelBase | None":
         """Reuse QwenPaw's active model in ReMe's default LLM component."""
         if self._reme is None:
             return None
 
-        model, formatter = await create_model_and_formatter_async(
+        model, _formatter = await create_model_and_formatter_async(
             self.agent_id,
+            require_image_support=require_image_support,
+            resize_images_to_max_bytes=True,
         )
-        from ...providers.capping_formatter import CappingFormatterMixin
-
-        if isinstance(formatter, CappingFormatterMixin):
-            formatter.resize_images_to_max_bytes = True
         await self._reme.update_component(
             "as_llm",
             "default",
@@ -546,7 +549,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
 
     async def _auto_memory_options(
         self,
-        model: "ChatModelBase | None",
         kwargs: dict[str, Any],
     ) -> bool:
         """Apply the live image gate and return the tag-generation opt-in."""
@@ -554,15 +556,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
 
         config = await run_sync_io(self._load_memory_config)
         enabled = bool(config.auto_memory_include_images)
-        # The chat request may have a session-local model override. ReMe uses
-        # the model created for this memory job, so inspect that exact model.
-        supports_images = bool(
-            model is not None
-            and await run_sync_io(get_model_supports_image, model),
-        )
         requested = kwargs.get("include_images", True) is not False
-        kwargs["include_images"] = enabled and supports_images and requested
-
         has_images = any(
             isinstance(block, dict)
             and isinstance(block.get("source"), dict)
@@ -571,6 +565,15 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             if isinstance(message, dict)
             for block in message.get("content") or []
         )
+        model = await self._update_qwenpaw_model(
+            require_image_support=enabled and requested and has_images,
+        )
+        # Inspect the exact job model, including its image-safe fallbacks.
+        supports_images = bool(
+            model is not None
+            and await run_sync_io(get_model_supports_image, model),
+        )
+        kwargs["include_images"] = enabled and supports_images and requested
         if has_images:
             logger.info(
                 "ReMe auto-memory images: include_images=%s enabled=%s "
@@ -683,13 +686,20 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             logger.debug("ReMe job skipped; app not started: %s", name)
             return None
         try:
-            job_name = name
             if needs_llm or name == "auto_memory":
-                model = await self._update_qwenpaw_model()
-                if name == "auto_memory":
-                    if await self._auto_memory_options(model, kwargs):
-                        job_name = "auto_memory_with_tags"
-            response = await self._reme.run_job(job_name, **kwargs)
+                # The injected LLM is shared by all ReMe jobs. Keep it stable
+                # through option selection and the complete job, including
+                # Auto-Tag's follow-up calls. Searches need no model lease.
+                async with self._llm_job_lock:
+                    job_name = name
+                    if name == "auto_memory":
+                        if await self._auto_memory_options(kwargs):
+                            job_name = "auto_memory_with_tags"
+                    else:
+                        await self._update_qwenpaw_model()
+                    response = await self._reme.run_job(job_name, **kwargs)
+            else:
+                response = await self._reme.run_job(name, **kwargs)
             await self._append_reme_job_result_to_inbox(
                 name,
                 response=response,

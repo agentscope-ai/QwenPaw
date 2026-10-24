@@ -117,6 +117,7 @@ async def test_daily_paper_reports_the_real_execution_failure() -> None:
         ),
     )
     manager._lifecycle_condition = asyncio.Condition()
+    manager._llm_job_lock = asyncio.Lock()
     manager._lifecycle_operation = None
     manager._active_reme_jobs = 0
     manager._update_qwenpaw_model = AsyncMock()

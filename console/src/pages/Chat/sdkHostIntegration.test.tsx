@@ -22,6 +22,8 @@ import type { ChatSpec } from "@/api";
 // ---------------------------------------------------------------------------
 const {
   mockListProviders,
+  mockPreviewModelInfo,
+  mockMessageWarning,
   mockGetActiveModels,
   mockUploadFile,
   mockGetChatStatus,
@@ -41,6 +43,8 @@ const {
   mockResolvedRoutes,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
+  mockPreviewModelInfo: vi.fn(),
+  mockMessageWarning: vi.fn(),
   mockGetActiveModels: vi.fn(),
   mockUploadFile: vi.fn(),
   mockGetChatStatus: vi.fn(),
@@ -73,7 +77,7 @@ let observedSdkSessions: Array<{ agent: string; sessionId?: string }> = [];
 // ---------------------------------------------------------------------------
 vi.mock("../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({
-    message: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+    message: { success: vi.fn(), error: vi.fn(), warning: mockMessageWarning },
   }),
 }));
 
@@ -151,6 +155,7 @@ vi.mock("../../features/session-settings/sessionModel", () => ({
 vi.mock("@/api/modules/provider", () => ({
   providerApi: {
     listProviders: mockListProviders,
+    previewModelInfo: mockPreviewModelInfo,
     getActiveModels: mockGetActiveModels,
   },
 }));
@@ -637,6 +642,13 @@ describe("ChatPage coverage", () => {
         extra_models: [],
       },
     ]);
+    mockPreviewModelInfo.mockResolvedValue({
+      id: "gpt-4",
+      supports_multimodal: true,
+      supports_image: true,
+      supports_video: false,
+    });
+    mockMessageWarning.mockClear();
     mockGetActiveModels.mockResolvedValue({
       active_llm: { provider_id: "openai", model: "gpt-4" },
     });
@@ -1924,6 +1936,33 @@ describe("ChatPage coverage", () => {
     const element = attachments.trigger({ disabled: false });
     renderWithProviders(element);
     expect(screen.getByRole("button", { name: "Attach files" })).toBeTruthy();
+  });
+
+  it("loads image capabilities when provider summaries omit models", async () => {
+    mockListProviders.mockResolvedValue([
+      { id: "openai", models: [], extra_models: [] },
+    ]);
+    mockPreviewModelInfo.mockResolvedValue({
+      id: "gpt-4",
+      supports_image: true,
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await waitFor(() =>
+      expect(mockPreviewModelInfo).toHaveBeenCalledWith("openai", "gpt-4"),
+    );
+    const onSuccess = vi.fn();
+    await act(async () => {
+      await capturedOptions.sender.attachments.customRequest({
+        file: new File(["image"], "test.png", { type: "image/png" }),
+        onSuccess,
+        onError: vi.fn(),
+      });
+    });
+    expect(onSuccess).toHaveBeenCalled();
+    expect(mockMessageWarning).not.toHaveBeenCalled();
   });
 
   // ── file upload: multimodal warning path ───────────────────────────────

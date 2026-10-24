@@ -54,7 +54,10 @@ from ..providers.hub_managed import (
     managed_provider,
     managed_slot,
 )
-from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ..providers.capping_formatter import (
+    CappingFormatterMixin,
+    MAX_INLINE_MEDIA_BYTES,
+)
 from ..providers.typesafe_provider import (
     TypeSafeEvaluationError,
     resolve_decision_model,
@@ -2246,6 +2249,8 @@ def _apply_model_fallbacks(
     retry_config: RetryConfig | None,
     rate_limit_config: RateLimitConfig | None,
     has_model_override: bool,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> ChatModelBase:
     """Build an ordered fallback chain around the primary model."""
     if not fallback_enabled or has_model_override or not fallback_slots:
@@ -2271,6 +2276,8 @@ def _apply_model_fallbacks(
         fallback_info = fallback_provider.get_model_info(fallback_slot.model)
         if fallback_info is None:
             continue
+        if require_image_support and fallback_info.supports_image is not True:
+            continue
         if fallback_free_only and not fallback_info.is_free:
             continue
         # A broken fallback slot (stale provider config, deleted chat
@@ -2292,13 +2299,18 @@ def _apply_model_fallbacks(
                 fallback_provider,
                 fallback_slot.model,
             )
-            _install_model_formatter(
+            fallback_formatter = _install_model_formatter(
                 fallback_model,
                 provider_id=fallback_provider_id,
                 model_info=fallback_provider.resolve_model_info(
                     fallback_slot.model,
                 ),
             )
+            if resize_images_to_max_bytes and isinstance(
+                fallback_formatter,
+                CappingFormatterMixin,
+            ):
+                fallback_formatter.resize_images_to_max_bytes = True
         except Exception:
             logger.warning(
                 "Skipping fallback model slot %s:%s "
@@ -2362,6 +2374,9 @@ def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
     agent_config: Any = None,
+    *,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
@@ -2379,6 +2394,9 @@ def create_model_and_formatter(
             only the first ``:`` is treated as the separator.
         agent_config: Optional config already loaded by an async caller.
             Synchronous callers may omit it to preserve legacy loading.
+        require_image_support: Keep only confirmed image-capable fallbacks
+            when the primary supports images, for image-memory jobs.
+        resize_images_to_max_bytes: Fit images to each candidate's inline cap.
     Returns:
         Tuple of (model_instance, formatter_instance)
 
@@ -2403,11 +2421,17 @@ def create_model_and_formatter(
     if hub_mode() and model_slot is None:
         model_slot = ProviderManager.get_instance().active_model
     if hub_mode() and model_slot and model_slot.provider_id == PROVIDER_ID:
-        return _create_hub_model_and_formatter(
+        model, formatter = _create_hub_model_and_formatter(
             settings,
             model_slot,
             explicit=slot is not None,
         )
+        if resize_images_to_max_bytes and isinstance(
+            formatter,
+            CappingFormatterMixin,
+        ):
+            formatter.resize_images_to_max_bytes = True
+        return model, formatter
 
     manager = ProviderManager.get_instance()
     model_slot = model_slot or manager.get_active_model()
@@ -2436,11 +2460,17 @@ def create_model_and_formatter(
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its
     # ``__init__``), so we just wrap that one with file-block support
     # instead of class-resolving via a brittle map.
+    model_info = provider.resolve_model_info(selected_model_id)
     formatter = _install_model_formatter(
         model,
         provider_id=provider_id,
-        model_info=provider.resolve_model_info(selected_model_id),
+        model_info=model_info,
     )
+    if resize_images_to_max_bytes and isinstance(
+        formatter,
+        CappingFormatterMixin,
+    ):
+        formatter.resize_images_to_max_bytes = True
 
     # agentscope 2.0 ChatModelBase has its own retry loop
     # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
@@ -2475,6 +2505,12 @@ def create_model_and_formatter(
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
         has_model_override=slot is not None,
+        require_image_support=(
+            require_image_support
+            and model_info is not None
+            and model_info.supports_image is True
+        ),
+        resize_images_to_max_bytes=resize_images_to_max_bytes,
     )
 
     info = provider.get_model_info(selected_model_id)
@@ -2502,6 +2538,9 @@ async def create_model_and_formatter_async(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
     agent_config: Any = None,
+    *,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Build a model and formatter without blocking the event loop."""
     return await run_sync_io(
@@ -2509,6 +2548,8 @@ async def create_model_and_formatter_async(
         agent_id=agent_id,
         model_slot_override=model_slot_override,
         agent_config=agent_config,
+        require_image_support=require_image_support,
+        resize_images_to_max_bytes=resize_images_to_max_bytes,
     )
 
 

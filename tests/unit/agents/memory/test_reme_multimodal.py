@@ -3,6 +3,7 @@
 """Image opt-in applies to every host entry point and the actual memory LLM."""
 
 from contextlib import asynccontextmanager
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -65,6 +66,7 @@ def memory_job(monkeypatch):
     )["jobs"]["auto_memory"]["parameters"]
     manager = object.__new__(memory_module.ReMeLightMemoryManager)
     manager.agent_id = "memory-agent"
+    manager._llm_job_lock = asyncio.Lock()
     manager._load_memory_config = Mock(return_value=config)
     manager._append_reme_job_result_to_inbox = AsyncMock(return_value=False)
     manager._reme = SimpleNamespace(
@@ -99,12 +101,12 @@ def memory_job(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_memory_formatter_resizes_request_images_only(memory_job):
-    from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
-
-    formatter = _CappingOpenAIFormatter()
-    memory_job.factory.return_value = (memory_job.model, formatter)
     await memory_job.manager._update_qwenpaw_model()
-    assert formatter.resize_images_to_max_bytes is True
+    memory_job.factory.assert_awaited_once_with(
+        "memory-agent",
+        require_image_support=False,
+        resize_images_to_max_bytes=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -144,7 +146,11 @@ async def test_images_require_setting_and_actual_memory_model_support(
         enabled and supports_image is True
     )
     assert call.kwargs["messages"][0]["content"][0]["type"] == "data"
-    memory_job.factory.assert_awaited_once_with("memory-agent")
+    memory_job.factory.assert_awaited_once_with(
+        "memory-agent",
+        require_image_support=enabled,
+        resize_images_to_max_bytes=True,
+    )
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",
@@ -259,3 +265,35 @@ async def test_action_image_control_rejects_non_boolean_values(memory_job):
         )
     memory_job.factory.assert_not_awaited()
     memory_job.manager._reme.run_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_llm_jobs_keep_injected_model_until_completion(memory_job):
+    manager = memory_job.manager
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def run_job(name, **_kwargs):
+        if name == "auto_memory":
+            entered.set()
+            await release.wait()
+        return SimpleNamespace(success=True, answer="done")
+
+    manager._reme.run_job.side_effect = run_job
+    first = asyncio.create_task(
+        manager._run_reme_job("auto_memory", messages=[]),
+    )
+    await entered.wait()
+    second = asyncio.create_task(
+        manager._run_reme_job("auto_dream", needs_llm=True),
+    )
+    try:
+        await asyncio.sleep(0)
+        assert not second.done()
+        assert manager._reme.update_component.await_count == 1
+        # Searches still run while the LLM-backed job holds its model lease.
+        found = await manager._run_reme_job("search", query="Orion")
+        assert found.success
+    finally:
+        release.set()
+        await asyncio.gather(first, second)
+    assert manager._reme.update_component.await_count == 2

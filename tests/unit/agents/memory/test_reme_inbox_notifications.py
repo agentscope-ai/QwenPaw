@@ -28,6 +28,7 @@ def _manager() -> ReMeLightMemoryManager:
 
 def _action_manager() -> ReMeLightMemoryManager:
     manager = _manager()
+    manager._llm_job_lock = asyncio.Lock()
     manager._reme = SimpleNamespace(
         is_started=True,
         context=SimpleNamespace(

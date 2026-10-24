@@ -304,6 +304,11 @@ up to 50 MB are retained in message snapshots. Static images sent to the memory
 model are resized as needed to fit its inline byte limit; the saved originals
 remain unchanged. A large image that cannot be resized produces an explicit
 memory-task error instead of being silently omitted from that request.
+Image-enabled jobs use only fallback models with confirmed image support and
+resize images for each model's limit. Text-only jobs keep the usual fallback
+policy. Memory jobs that use a language model run in sequence so one job cannot
+replace another's model while it is running; memory searches can run alongside
+them.
 
 ### 4. Auto-Dream Turns Daily Notes into Durable Knowledge
 
