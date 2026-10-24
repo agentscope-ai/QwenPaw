@@ -3381,6 +3381,27 @@ class ThemeConfig(BaseModel):
         return value
 
 
+class ChatDisplayConfig(BaseModel):
+    """Server-provided defaults for Console chat display preferences.
+
+    Per-browser choices in the Console always win; these values only
+    apply when a browser has no explicit choice stored.
+    """
+
+    assistant_message_display_mode: Optional[str] = None
+
+    @field_validator("assistant_message_display_mode")
+    @classmethod
+    def _validate_assistant_mode(cls, value: Optional[str]) -> Optional[str]:
+        allowed = {"expanded", "process-collapsed", "result-collapsed"}
+        if value is not None and value not in allowed:
+            raise ValueError(
+                "must be one of: expanded, process-collapsed, "
+                "result-collapsed"
+            )
+        return value
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -3394,6 +3415,7 @@ class Config(BaseModel):
     acp: ACPConfig = Field(default_factory=ACPConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     theme: Optional[ThemeConfig] = None
+    chat_display: Optional[ChatDisplayConfig] = None
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,

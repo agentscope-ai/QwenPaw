@@ -32,6 +32,7 @@ from ...config import (
 from ...config.utils import mutate_config
 from ...config.config import (
     AgentsLLMRoutingConfig,
+    ChatDisplayConfig,
     HeartbeatConfig,
     SkillScannerConfig,
     SkillScannerWhitelistEntry,
@@ -101,6 +102,54 @@ async def delete_theme() -> None:
         config.theme = None
 
     await run_sync_io(mutate_config, clear_theme)
+
+
+@router.get(
+    "/chat-display",
+    response_model=dict,
+    summary="Get Console chat display defaults",
+)
+async def get_chat_display() -> dict:
+    """Return the sparse chat display defaults, or {} for built-ins."""
+    config = await run_sync_io(load_config)
+    if config.chat_display is None:
+        return {}
+    return config.chat_display.model_dump(exclude_none=True)
+
+
+@router.put(
+    "/chat-display",
+    response_model=ChatDisplayConfig,
+    response_model_exclude_none=True,
+    summary="Update Console chat display defaults",
+)
+async def put_chat_display(
+    chat_display: ChatDisplayConfig = Body(...),
+) -> ChatDisplayConfig:
+    """Replace the sparse chat display defaults without reloading agents."""
+
+    def apply_chat_display(config: Any) -> None:
+        if chat_display.model_dump(exclude_none=True):
+            config.chat_display = chat_display
+        else:
+            config.chat_display = None
+
+    result = await run_sync_io(mutate_config, apply_chat_display)
+    return result.chat_display or ChatDisplayConfig()
+
+
+@router.delete(
+    "/chat-display",
+    status_code=204,
+    summary="Reset Console chat display defaults",
+)
+async def delete_chat_display() -> None:
+    """Remove the chat display defaults and restore built-in behavior."""
+
+    def clear_chat_display(config: Any) -> None:
+        config.chat_display = None
+
+    await run_sync_io(mutate_config, clear_chat_display)
 
 
 def _channel_config_class(name: str) -> Optional[type[BaseModel]]:

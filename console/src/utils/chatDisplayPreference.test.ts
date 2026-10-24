@@ -5,10 +5,12 @@ import {
   getShowThinkingPreference,
   getToolDisplayPreference,
   setAssistantMessageDisplayPreference,
+  setAssistantMessageDisplayServerDefault,
   setShowThinkingPreference,
   setToolDisplayPreference,
   subscribeChatDisplayPreference,
 } from "./chatDisplayPreference";
+import type { AssistantMessageDisplayPreference } from "./chatDisplayPreference";
 
 describe("chatDisplayPreference", () => {
   beforeEach(() => {
@@ -16,6 +18,7 @@ describe("chatDisplayPreference", () => {
     localStorage.removeItem("qwenpaw_tool_display_mode");
     localStorage.removeItem("qwenpaw_assistant_message_display_mode");
     localStorage.removeItem("qwenpaw_show_thinking");
+    setAssistantMessageDisplayServerDefault(null);
     vi.restoreAllMocks();
   });
 
@@ -72,18 +75,45 @@ describe("chatDisplayPreference", () => {
     expect(getAssistantMessageDisplayPreference()).toBe("process-collapsed");
   });
 
-  it("clears storage when result collapse is restored", () => {
+  it("stores result collapse explicitly as the per-browser choice", () => {
     setAssistantMessageDisplayPreference("expanded");
     setAssistantMessageDisplayPreference("result-collapsed");
 
     expect(getAssistantMessageDisplayPreference()).toBe("result-collapsed");
-    expect(
-      localStorage.getItem("qwenpaw_assistant_message_display_mode"),
-    ).toBeNull();
+    expect(localStorage.getItem("qwenpaw_assistant_message_display_mode")).toBe(
+      "result-collapsed",
+    );
   });
 
   it("ignores an invalid stored assistant display mode", () => {
     localStorage.setItem("qwenpaw_assistant_message_display_mode", "invalid");
+
+    expect(getAssistantMessageDisplayPreference()).toBe("result-collapsed");
+  });
+
+  it("falls back to the server default when no choice is stored", () => {
+    setAssistantMessageDisplayServerDefault("process-collapsed");
+
+    expect(getAssistantMessageDisplayPreference()).toBe("process-collapsed");
+  });
+
+  it("lets an explicit per-browser choice win over the server default", () => {
+    setAssistantMessageDisplayServerDefault("process-collapsed");
+    setAssistantMessageDisplayPreference("expanded");
+
+    expect(getAssistantMessageDisplayPreference()).toBe("expanded");
+  });
+
+  it("keeps result collapse as the fallback without a server default", () => {
+    setAssistantMessageDisplayServerDefault(null);
+
+    expect(getAssistantMessageDisplayPreference()).toBe("result-collapsed");
+  });
+
+  it("ignores an invalid server default", () => {
+    setAssistantMessageDisplayServerDefault(
+      "not-a-mode" as AssistantMessageDisplayPreference,
+    );
 
     expect(getAssistantMessageDisplayPreference()).toBe("result-collapsed");
   });
