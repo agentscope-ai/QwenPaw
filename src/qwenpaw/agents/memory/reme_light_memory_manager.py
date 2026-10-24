@@ -46,6 +46,7 @@ from .reme_inbox import (
     RESULT_JOB_NAMES,
     empty_result_body,
     emit_job_result,
+    report_tag_failures,
     result_title,
 )
 from .reme_reranker import (
@@ -702,6 +703,8 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     response = await self._reme.run_job(job_name, **kwargs)
             else:
                 response = await self._reme.run_job(name, **kwargs)
+            if name in RESULT_JOB_NAMES:
+                report_tag_failures(response)
             await self._append_reme_job_result_to_inbox(
                 name,
                 response=response,

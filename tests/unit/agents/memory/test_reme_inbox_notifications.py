@@ -365,3 +365,109 @@ def test_auto_fin_payload_preserves_an_explicit_request_date() -> None:
     )
 
     assert payload["date"] == "2026-08-30"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "job_name",
+    ["auto_memory", "daily_paper", "auto_fin"],
+)
+@pytest.mark.parametrize("success", [True, False])
+async def test_tag_failures_are_reported_without_losing_job_outcome(
+    job_name,
+    success,
+):
+    """Warnings retain the main outcome and expose counts for every tag job."""
+    manager = _action_manager()
+    manager._load_memory_config = lambda: SimpleNamespace(
+        auto_memory_inbox_push_enabled=True,
+        daily_paper_inbox_push_enabled=True,
+        auto_fin_inbox_push_enabled=True,
+    )
+    counts = {"processed": 2, "succeeded": 1, "failed": 1}
+    response = SimpleNamespace(
+        success=success,
+        answer="Saved memory" if success else "Job failed",
+        metadata={
+            "modified": False,
+            "auto_tag": {
+                **counts,
+                "results": [{"path": "memory/note.md", "error": "no tags"}],
+            },
+        },
+    )
+    manager._reme.run_job.return_value = response
+    manager._auto_memory_options = AsyncMock(return_value=True)
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager.append_inbox_event",
+        new_callable=AsyncMock,
+        return_value={"id": "tag-warning"},
+    ) as append_event:
+        result = await manager._run_reme_job_unlocked(
+            job_name,
+            needs_llm=True,
+        )
+        event = append_event.await_args.kwargs
+        # Emitting again must not duplicate the notification or its warning.
+        assert not await manager._append_reme_job_result_to_inbox(
+            job_name,
+            response=response,
+            kwargs={},
+        )
+
+    assert result is response
+    assert response.success is success
+    assert response.answer.count("auto-tagging failed for 1 file(s)") == 1
+    assert event["body"] == response.answer
+    assert event["status"] == ("success" if success else "error")
+    assert event["severity"] == ("warning" if success else "error")
+    assert event["payload"]["auto_tag"] == counts
+    append_event.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_tag_warning_remains_in_result_when_notifications_are_disabled():
+    """Returned results show tag failure even with notifications disabled."""
+    manager = _action_manager()
+    manager._load_memory_config = lambda: SimpleNamespace(
+        auto_dream_inbox_push_enabled=False,
+    )
+    response = SimpleNamespace(
+        success=True,
+        answer="Saved memory",
+        metadata={"auto_tag": {"failed": 2}},
+    )
+    manager._reme.run_job.return_value = response
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager.append_inbox_event",
+        new_callable=AsyncMock,
+    ) as append_event:
+        assert await manager.run_action("auto_dream") is response
+
+    assert response.success is True
+    assert "auto-tagging failed for 2 file(s)" in response.answer
+    assert "Saved memory" in response.answer
+    append_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tag_warning_survives_inbox_body_truncation():
+    """Long model output must not hide the partial-failure warning."""
+    response = SimpleNamespace(
+        success=True,
+        answer="x" * 5000,
+        metadata={"auto_tag": {"failed": 1}},
+    )
+    append_event = AsyncMock(return_value={"id": "tag-warning"})
+    assert await emit_job_result(
+        agent_id="agent-1",
+        memory_config=SimpleNamespace(auto_fin_inbox_push_enabled=True),
+        name="auto_fin",
+        response=response,
+        kwargs={},
+        append_event=append_event,
+    )
+    assert (
+        "auto-tagging failed for 1 file(s)"
+        in append_event.await_args.kwargs["body"]
+    )
