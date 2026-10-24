@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "id": "example",
+  "date": "2026-10-16T19:40:02Z",
+  "kind": "official",
+  "experiment": "example",
+  "candidate_hash": "46ed18cc42725bea8018bddc3dde0351624c23451ab0e89e60c7ebb872dcc4d2",
+  "profile_hash": "9e267df58361eee278fbc3755203a9057edde062a73898c044c157f9466c0e89",
+  "sdk_version": "2.2.2",
+  "source_sha": "5c56644a6e130762a236f8c946103e95a0a1eec8",
+  "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+  "artifact_sha256": "fcc442bd4ca1b426104f16d3aff4e6c1da90a057a58f2b509d9497d2938afd4d",
+  "provider": "dashscope",
+  "model": "glm-5.2",
+  "harness": "qwenpaw",
+  "parameters": {
+    "max_context_length": 1048576,
+    "max_response_length": 131072
+  },
+  "exchange_rate": {
+    "cny_per_usd": 7.0,
+    "basis": "fixed"
+  },
+  "board": {
+    "id": "acp-agents",
+    "name": "ACP Agents",
+    "group_by": "model_harness"
+  },
+  "benchmarks": [
+    {
+      "id": "gaia",
+      "name": "GAIA",
+      "revision": "1.0:004eaeda9ac5017a1d51e09bc19914d994f878b6",
+      "expected": 165,
+      "judge": {
+        "kind": "programmatic",
+        "model": null,
+        "scorer": "harbor-gaia@1.0",
+        "official_model": null,
+        "prompt_revision": null,
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-glm-5.2-gaia-20261016",
+      "protocol_hash": "098ff9180cc8b94d72cddd91792cb20d5eed56811156b9e24caaef967c6249b2",
+      "date": "2026-10-16T19:40:02Z",
+      "summary": {
+        "score_sum": 112.0,
+        "failures": {
+          "execution_error": 5
+        },
+        "model_cost": {
+          "amount": 452.692648,
+          "currency": "CNY"
+        },
+        "model_cost_count": 165,
+        "judge_cost": {
+          "amount": 0.0,
+          "currency": "USD"
+        },
+        "judge_cost_count": 165,
+        "runtime_seconds_sum": 84120.269616,
+        "runtime_count": 165
+      }
+    }
+  ]
+}
