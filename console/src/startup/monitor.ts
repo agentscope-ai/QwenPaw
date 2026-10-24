@@ -241,5 +241,10 @@ export function installStartupMonitor(
   });
   window.addEventListener("error", onError, true);
   window.addEventListener("unhandledrejection", onRejection);
+  // Let the external watchdog remain a fallback if this inline monitor fails
+  // to install (for example, when inline scripts are blocked by CSP).
+  (
+    window as Window & { __qwenpawStartupMonitorInstalled?: boolean }
+  ).__qwenpawStartupMonitorInstalled = true;
   return stop;
 }

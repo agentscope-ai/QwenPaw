@@ -65,4 +65,8 @@ const i18nSettled = Promise.race([
 
 void i18nSettled.then(() => {
   createRoot(document.getElementById("root")!).render(<App />);
+  // Boot completed: stand down the bootWatchdog script loaded from index.html.
+  (
+    window as unknown as { __qwenpawBootWatchdog?: { disarm(): void } }
+  ).__qwenpawBootWatchdog?.disarm();
 });
