@@ -133,10 +133,10 @@ def test_aliyun_codingplan_catalog_alignment() -> None:
     that are not actually offered on the coding plan, which surfaced as
     ``Model 'unknown' execution failed ... model `glm-5.2` is not supported``
     when a user picked one. Lock the set so future catalog refreshes cannot
-    silently re-introduce unsupported models into this catalog key.
+    silently re-introduce unsupported models into this provider.
     """
-    catalog = model_catalog.load_model_catalog()
-    ids = [model.id for model in catalog["ALIYUN_CODINGPLAN_MODELS"]]
+    models = model_catalog.load_model_catalog()["aliyun-codingplan"]
+    ids = [model.id for model in models]
     id_set = set(ids)
 
     # Models the official Aliyun Coding Plan site exposes must remain present.
@@ -155,11 +155,11 @@ def test_aliyun_codingplan_catalog_alignment() -> None:
     assert expected.issubset(id_set)
 
     # These were reported as unsupported on the coding plan (issue #6551) and
-    # must never be re-added to this catalog key.
+    # must never be re-added to this provider.
     assert "glm-5.2" not in id_set
     assert "glm-5.1" not in id_set
 
-    # No duplicate model ids within the catalog key.
+    # No duplicate model ids within the provider.
     assert len(ids) == len(id_set)
 
 
