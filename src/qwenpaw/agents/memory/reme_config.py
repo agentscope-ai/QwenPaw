@@ -81,6 +81,7 @@ def _base_config() -> dict[str, Any]:
                     {
                         "backend": "watch_changes_step",
                         "watch_mode": "watch",
+                        "monitor_type": "file_store",
                         "dispatch_steps": [
                             {"backend": "update_index_step", "persist": False},
                         ],

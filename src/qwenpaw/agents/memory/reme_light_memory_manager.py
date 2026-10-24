@@ -638,6 +638,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     async def _run_reme_job(
         self,
         name: str,
+        /,
         *,
         needs_llm: bool = False,
         raise_on_error: bool = False,
@@ -676,6 +677,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     async def _run_reme_job_unlocked(
         self,
         name: str,
+        /,
         *,
         needs_llm: bool = False,
         raise_on_error: bool = False,

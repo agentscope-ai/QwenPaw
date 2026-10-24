@@ -65,6 +65,7 @@ def test_reme_watchers_use_private_threads() -> None:
     watcher = cfg["jobs"]["index_update_loop"]["steps"][1]
     assert watcher["backend"] == "watch_changes_step"
     assert watcher["watch_mode"] == "watch"
+    assert watcher["monitor_type"] == "file_store"
 
 
 def test_auto_dream_only_consolidates_digest() -> None:
