@@ -66,6 +66,19 @@ async def _capability_unavailable_message(
     )
 
 
+def _provider_settings(
+    backend: str,
+    settings: dict[str, Any],
+    provider_id: str,
+) -> dict[str, Any]:
+    """Preserve a configured Qoder binary before its backend is selected."""
+    if backend == provider_id or (
+        provider_id == "qoder" and settings.get("binary")
+    ):
+        return dict(settings)
+    return {}
+
+
 @router.get("/{provider_id}/models")
 async def get_harness_models(
     provider_id: str,
@@ -75,8 +88,10 @@ async def get_harness_models(
     _supported_provider(provider_id)
     workspace = await get_agent_for_request(request)
     config = workspace.config
-    settings = (
-        dict(config.backend_settings) if config.backend == provider_id else {}
+    settings = _provider_settings(
+        config.backend,
+        config.backend_settings,
+        provider_id,
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
     unavailable_message = await _capability_unavailable_message(adapter)
@@ -100,8 +115,10 @@ async def get_harness_mcp(
         return {"servers": []}
     workspace = await get_agent_for_request(request)
     config = workspace.config
-    settings = (
-        dict(config.backend_settings) if config.backend == provider_id else {}
+    settings = _provider_settings(
+        config.backend,
+        config.backend_settings,
+        provider_id,
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
     unavailable_message = await _capability_unavailable_message(adapter)
@@ -125,8 +142,10 @@ async def get_harness_skills(
         return {"skills": []}
     workspace = await get_agent_for_request(request)
     config = workspace.config
-    settings = (
-        dict(config.backend_settings) if config.backend == provider_id else {}
+    settings = _provider_settings(
+        config.backend,
+        config.backend_settings,
+        provider_id,
     )
     adapter = await workspace.harness_runtime.adapter(provider_id, settings)
     unavailable_message = await _capability_unavailable_message(adapter)

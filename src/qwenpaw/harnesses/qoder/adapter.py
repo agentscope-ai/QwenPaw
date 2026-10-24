@@ -156,6 +156,7 @@ class QoderAdapter(HarnessAdapter):
             QoderAgentOptions(
                 auth=self._auth(),
                 cli_path=self._require_resolution().path,
+                env={"QODER_SDK_CUSTOM_BASE_URL_BYOK": "1"},
             ),
         )
         try:
@@ -506,6 +507,7 @@ class QoderAdapter(HarnessAdapter):
             ),
             mcp_servers=projected_mcp,
             allowed_mcp_server_names=sorted(projected_mcp),
+            env={"QODER_SDK_CUSTOM_BASE_URL_BYOK": "1"},
             strict_mcp_config=True,
             setting_sources=["user", "project", "local"],
             plugins=(
