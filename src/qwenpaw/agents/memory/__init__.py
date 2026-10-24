@@ -21,13 +21,15 @@ from .dummy import (
 # The TYPE_CHECKING block below satisfies static analysis tools (pylint, mypy).
 if TYPE_CHECKING:  # pragma: no cover
     from .proactive import (
+        AgendaItem,
+        AgendaRound,
         ProactiveConfig,
-        ProactiveQueryResult,
-        ProactiveTask,
-        enable_proactive_for_session,
+        ProactiveSettings,
+        build_agenda_receipt,
+        deliver_proactive_round,
         disable_proactive_for_session,
-        extract_content,
-        generate_proactive_response,
+        enable_proactive_for_session,
+        load_proactive_settings,
         proactive_configs,
         proactive_tasks,
         proactive_trigger_loop,
@@ -44,29 +46,33 @@ __all__ = [
     "ReMeLightMemoryManager",
     "NoopMemoryManager",
     # proactive symbols resolved lazily at runtime via __getattr__
+    "AgendaItem",
+    "AgendaRound",
     "ProactiveConfig",
-    "ProactiveTask",
-    "ProactiveQueryResult",
+    "ProactiveSettings",
+    "build_agenda_receipt",
+    "deliver_proactive_round",
     "enable_proactive_for_session",
     "disable_proactive_for_session",
     "proactive_trigger_loop",
     "proactive_tasks",
     "proactive_configs",
-    "generate_proactive_response",
-    "extract_content",
+    "load_proactive_settings",
 ]
 
 _PROACTIVE_EXPORTS = {
+    "AgendaItem",
+    "AgendaRound",
     "ProactiveConfig",
-    "ProactiveTask",
-    "ProactiveQueryResult",
+    "ProactiveSettings",
+    "build_agenda_receipt",
+    "deliver_proactive_round",
     "enable_proactive_for_session",
     "disable_proactive_for_session",
     "proactive_trigger_loop",
     "proactive_tasks",
     "proactive_configs",
-    "generate_proactive_response",
-    "extract_content",
+    "load_proactive_settings",
 }
 
 

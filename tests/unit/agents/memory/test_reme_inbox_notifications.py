@@ -266,3 +266,189 @@ def test_auto_fin_payload_preserves_an_explicit_request_date() -> None:
     )
 
     assert payload["date"] == "2026-08-30"
+
+
+# ---------------------------------------------------------------------------
+# proactive agenda push
+# ---------------------------------------------------------------------------
+
+
+def _agenda_item(topic_id: str, kind: str = "follow_up"):
+    from qwenpaw.agents.memory.proactive.proactive_agenda import AgendaItem
+
+    return AgendaItem(
+        topic_id=topic_id,
+        title=f"title-{topic_id}",
+        kind=kind,
+        opener=f"opener-{topic_id}",
+        next_action=f"next-{topic_id}",
+        due_at="2026-10-12" if kind == "reminder" else "",
+    )
+
+
+def _proactive_config(enabled: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(proactive_inbox_push_enabled=enabled)
+
+
+@pytest.mark.asyncio
+async def test_proactive_is_not_a_generic_result_job() -> None:
+    """A manual ``/reme proactive`` read must never advance the inbox."""
+    from qwenpaw.agents.memory.reme_inbox import RESULT_JOB_NAMES
+
+    assert "proactive" not in RESULT_JOB_NAMES
+    assert "proactive_refresh" not in RESULT_JOB_NAMES
+    assert "proactive_feedback" not in RESULT_JOB_NAMES
+
+
+@pytest.mark.asyncio
+async def test_proactive_push_honours_the_inbox_switch() -> None:
+    from qwenpaw.agents.memory.reme_inbox import emit_proactive_agenda
+
+    append_event = AsyncMock()
+
+    event = await emit_proactive_agenda(
+        agent_id="agent-1",
+        memory_config=_proactive_config(enabled=False),
+        date="2026-10-11",
+        items=[_agenda_item("t-1")],
+        append_event=append_event,
+    )
+
+    assert event is None
+    append_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_proactive_push_skips_an_empty_agenda() -> None:
+    from qwenpaw.agents.memory.reme_inbox import emit_proactive_agenda
+
+    append_event = AsyncMock()
+
+    event = await emit_proactive_agenda(
+        agent_id="agent-1",
+        memory_config=_proactive_config(),
+        date="2026-10-11",
+        items=[],
+        append_event=append_event,
+    )
+
+    assert event is None
+    append_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel", "language", "expected_title"),
+    [
+        ("cron", "en", "Today's proactive agenda (2)"),
+        ("idle", "en", "Proactive agenda suggestions (2)"),
+        ("cron", "zh", "今日主动议程 (2)"),
+        ("idle", "zh", "主动议程建议 (2)"),
+    ],
+)
+async def test_proactive_push_shapes_the_inbox_event(
+    channel: str,
+    language: str,
+    expected_title: str,
+) -> None:
+    from qwenpaw.agents.memory.reme_inbox import emit_proactive_agenda
+
+    append_event = AsyncMock(return_value={"id": "event-7"})
+    items = [_agenda_item("t-1", kind="reminder"), _agenda_item("t-2")]
+
+    event = await emit_proactive_agenda(
+        agent_id="agent-1",
+        memory_config=_proactive_config(),
+        date="2026-10-11",
+        items=items,
+        append_event=append_event,
+        channel=channel,
+        language=language,
+    )
+
+    assert event == {"id": "event-7"}
+    kwargs = append_event.await_args.kwargs
+    assert kwargs["source_type"] == "memory"
+    assert kwargs["source_id"] == "proactive"
+    assert kwargs["event_type"] == "proactive_agenda_result"
+    assert kwargs["status"] == "success"
+    assert kwargs["severity"] == "info"
+    assert kwargs["title"] == expected_title
+    assert kwargs["payload"]["date"] == "2026-10-11"
+    assert kwargs["payload"]["channel"] == channel
+    assert kwargs["payload"]["count"] == 2
+    assert [item["topic_id"] for item in kwargs["payload"]["agenda"]] == [
+        "t-1",
+        "t-2",
+    ]
+    # Reading-only body: the opener and the suggested next action, no
+    # affordance that would imply the inbox can execute anything.
+    assert "opener-t-1" in kwargs["body"]
+    assert "next-t-2" in kwargs["body"]
+
+
+@pytest.mark.asyncio
+async def test_proactive_push_caps_a_huge_body() -> None:
+    from qwenpaw.agents.memory import reme_inbox
+
+    append_event = AsyncMock(return_value={"id": "event-8"})
+    items = [_agenda_item(f"t-{index}") for index in range(400)]
+
+    await reme_inbox.emit_proactive_agenda(
+        agent_id="agent-1",
+        memory_config=_proactive_config(),
+        date="2026-10-11",
+        items=items,
+        append_event=append_event,
+    )
+
+    body = append_event.await_args.kwargs["body"]
+    assert len(body) <= reme_inbox.MAX_BODY_CHARS + 8
+    assert body.endswith("...")
+
+
+@pytest.mark.asyncio
+async def test_proactive_push_swallows_inbox_failures() -> None:
+    from qwenpaw.agents.memory.reme_inbox import emit_proactive_agenda
+
+    append_event = AsyncMock(side_effect=RuntimeError("inbox down"))
+
+    event = await emit_proactive_agenda(
+        agent_id="agent-1",
+        memory_config=_proactive_config(),
+        date="2026-10-11",
+        items=[_agenda_item("t-1")],
+        append_event=append_event,
+    )
+
+    assert event is None
+
+
+@pytest.mark.asyncio
+async def test_proactive_daily_job_raises_only_when_unavailable() -> None:
+    """A silent empty agenda is a success; no answer from ReMe is not."""
+    from qwenpaw.agents.memory.proactive.proactive_responder import (
+        AgendaRound,
+    )
+
+    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
+    manager.agent_id = "agent-1"
+    manager.working_dir = "/ws/agent-1"
+    rounds = [
+        AgendaRound(available=True, skip_reason="empty"),
+        AgendaRound(available=False, skip_reason="unavailable"),
+    ]
+
+    async def fake_round(**kwargs):
+        assert kwargs["channel"] == "cron"
+        assert kwargs["force_refresh"] is True
+        return rounds.pop(0)
+
+    with patch(
+        "qwenpaw.agents.memory.proactive.proactive_responder"
+        ".deliver_proactive_round",
+        side_effect=fake_round,
+    ):
+        await manager._run_proactive_daily()
+        with pytest.raises(RuntimeError, match="unavailable"):
+            await manager._run_proactive_daily()

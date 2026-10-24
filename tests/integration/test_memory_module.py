@@ -1,20 +1,18 @@
 # -*- coding: utf-8 -*-
 """Integration tests for Memory & ReMe module internals.
 
-Covers src/qwenpaw/agents/memory/* (proactive_utils, base manager)
-— 956 uncovered lines.
+Covers src/qwenpaw/agents/memory/* (proactive helpers, base manager).
 """
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 
 import pytest
 
 
 # ------------------------------------------------------------------ #
-# proactive_utils
+# proactive helpers
 # ------------------------------------------------------------------ #
 
 
@@ -45,35 +43,31 @@ def test_ensure_tz_aware_already() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_load_json_safely_dict() -> None:
-    """load_json_safely parses a JSON string."""
-    from qwenpaw.agents.memory.proactive.proactive_utils import (
-        load_json_safely,
-    )
+def test_proactive_agenda_item_label_fallbacks() -> None:
+    """An agenda item always renders a usable heading."""
+    from qwenpaw.agents.memory.proactive.proactive_agenda import AgendaItem
 
-    assert load_json_safely(json.dumps({"a": 1})) == {"a": 1}
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_load_json_safely_garbage() -> None:
-    """load_json_safely returns None for garbage input."""
-    from qwenpaw.agents.memory.proactive.proactive_utils import (
-        load_json_safely,
-    )
-
-    assert load_json_safely("not json") is None
+    assert AgendaItem(title="Title", opener="Opener").label == "Title"
+    assert AgendaItem(opener="Opener").label == "Opener"
+    assert AgendaItem(topic_id="t-1").label == "t-1"
+    assert AgendaItem(kind="reminder").is_reminder is True
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_extract_content_string() -> None:
-    """extract_content returns plain string content."""
-    from qwenpaw.agents.memory.proactive.proactive_utils import (
-        extract_content,
+def test_proactive_ledger_lives_in_the_memory_metadata_dir() -> None:
+    """The delivery ledger is per-agent state, next to ReMe's metadata."""
+    from qwenpaw.agents.memory.proactive.proactive_delivery import (
+        ledger_path,
     )
 
-    assert extract_content("hello") == "hello"
+    relative = ledger_path("/ws/agent-1", "mem_metadata")
+    absolute = ledger_path("/ws/agent-1", "/var/lib/reme")
+
+    assert str(relative) == (
+        "/ws/agent-1/mem_metadata/proactive_delivered.json"
+    )
+    assert str(absolute) == "/var/lib/reme/proactive_delivered.json"
 
 
 # ------------------------------------------------------------------ #

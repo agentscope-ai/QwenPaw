@@ -1,70 +1,57 @@
 # -*- coding: utf-8 -*-
-"""Regression test for the proactive background-task ContextVar propagation
-fix (websearch-console-config-plan.md, section 2.7).
+"""Regression test for proactive ContextVar propagation.
 
-``generate_proactive_response`` runs inside an ``asyncio.create_task``
-spawned from ``proactive_trigger.py``, bypassing ``ContextVarsSetupHook``
-entirely. Both ``current_agent_id`` (used by ``get_search_provider``) and
-``current_workspace_dir`` (used by ``_current_agent_anysearch_key``) must
-be set explicitly from ``workspace`` at the top of the function, or
-downstream tool calls silently fall back to the wrong agent / no
-workspace at all.
+``deliver_proactive_round`` runs inside an ``asyncio.create_task`` spawned
+from ``proactive_trigger.py``, bypassing ``ContextVarsSetupHook`` entirely.
+Both ``current_agent_id`` and ``current_workspace_dir`` must be set from
+the caller's arguments at the top of the function, or downstream lookups
+(the inbox store, the cached agent config) silently fall back to the
+default agent and the wrong workspace.
 """
 # pylint: disable=protected-access
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from qwenpaw.agents.memory.proactive.proactive_responder import (
-    generate_proactive_response,
+    AgendaRound,
+    ProactiveSettings,
+    deliver_proactive_round,
 )
 from qwenpaw.app.agent_context import get_current_agent_id
 from qwenpaw.config.context import get_current_workspace_dir
 
 
-def _workspace(agent_id: str, workspace_dir: Path) -> SimpleNamespace:
-    return SimpleNamespace(agent_id=agent_id, workspace_dir=workspace_dir)
-
-
 @pytest.mark.asyncio
-async def test_generate_proactive_response_sets_agent_id_and_workspace_dir(
+async def test_deliver_proactive_round_sets_agent_id_and_workspace_dir(
     tmp_path: Path,
 ) -> None:
-    workspace = _workspace("proactive-agent-1", tmp_path)
-
     observed: dict[str, object] = {}
 
-    async def fake_build_context(*, workspace, agent):  # noqa: ANN001
-        del workspace, agent
-        # Captured mid-flight: this is where a real tool call (e.g.
-        # web_search) would run and need both ContextVars already set.
+    async def fake_collect(_memory_manager, **kwargs):  # noqa: ANN001
+        del kwargs
+        # Captured mid-flight: this is where the inbox append and the
+        # delivery ledger resolve the current agent and workspace.
         observed["agent_id"] = get_current_agent_id()
         observed["workspace_dir"] = get_current_workspace_dir()
-        return ""
+        return AgendaRound(available=True, skip_reason="empty")
 
-    with (
-        patch(
-            "qwenpaw.agents.memory.proactive.proactive_responder"
-            "._initialize_single_proactive_agent",
-            AsyncMock(return_value=SimpleNamespace()),
-        ),
-        patch(
-            "qwenpaw.agents.memory.proactive.proactive_responder"
-            ".build_proactive_memory_context",
-            fake_build_context,
-        ),
-        patch(
-            "qwenpaw.agents.memory.proactive.proactive_responder"
-            "._was_interrupted",
-            AsyncMock(return_value=True),
-        ),
+    with patch(
+        "qwenpaw.agents.memory.proactive.proactive_responder.collect_agenda",
+        fake_collect,
     ):
-        result = await generate_proactive_response(workspace)
+        outcome = await deliver_proactive_round(
+            agent_id="proactive-agent-1",
+            workspace_dir=str(tmp_path),
+            memory_manager=SimpleNamespace(),
+            settings=ProactiveSettings(enabled=True, inbox_enabled=True),
+        )
 
-    assert result is None  # short-circuited via _was_interrupted=True
+    assert outcome.skip_reason == "empty"
+    assert outcome.pushed is False
     assert observed["agent_id"] == "proactive-agent-1"
     assert observed["workspace_dir"] == tmp_path

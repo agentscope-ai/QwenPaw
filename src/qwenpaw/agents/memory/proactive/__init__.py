@@ -1,30 +1,65 @@
 # -*- coding: utf-8 -*-
-"""Proactive memory submodule for CoPaw agents."""
+"""Proactive agenda delivery for QwenPaw agents.
 
-from .proactive_types import (
-    ProactiveConfig,
-    ProactiveTask,
-    ProactiveQueryResult,
+Topics are produced by ReMe's proactive chain; this package only reads the
+ranked agenda and presents it (in-chat receipt, idle/cron inbox push) and
+reports back what was already delivered.
+"""
+
+from .proactive_agenda import (
+    AgendaBundle,
+    AgendaItem,
+    AgendaRead,
+    ensure_agenda,
+    fetch_agenda,
+    refresh_agenda,
+    select_presentation_items,
+)
+from .proactive_delivery import (
+    DeliveryLedger,
+    get_delivery_ledger,
+    ledger_path,
+    mark_delivered,
+)
+from .proactive_responder import (
+    AgendaRound,
+    ProactiveSettings,
+    build_agenda_receipt,
+    collect_agenda,
+    deliver_proactive_round,
+    load_proactive_settings,
 )
 from .proactive_trigger import (
-    enable_proactive_for_session,
     disable_proactive_for_session,
-    proactive_trigger_loop,
-    proactive_tasks,
+    enable_proactive_for_session,
     proactive_configs,
+    proactive_tasks,
+    proactive_trigger_loop,
 )
-from .proactive_responder import generate_proactive_response
-from .proactive_utils import extract_content
+from .proactive_types import ProactiveConfig
 
 __all__ = [
+    "AgendaBundle",
+    "AgendaItem",
+    "AgendaRead",
+    "AgendaRound",
+    "DeliveryLedger",
     "ProactiveConfig",
-    "ProactiveTask",
-    "ProactiveQueryResult",
-    "enable_proactive_for_session",
+    "ProactiveSettings",
+    "build_agenda_receipt",
+    "collect_agenda",
+    "deliver_proactive_round",
     "disable_proactive_for_session",
-    "proactive_trigger_loop",
-    "proactive_tasks",
+    "enable_proactive_for_session",
+    "ensure_agenda",
+    "fetch_agenda",
+    "get_delivery_ledger",
+    "ledger_path",
+    "load_proactive_settings",
+    "mark_delivered",
     "proactive_configs",
-    "generate_proactive_response",
-    "extract_content",
+    "proactive_tasks",
+    "proactive_trigger_loop",
+    "refresh_agenda",
+    "select_presentation_items",
 ]

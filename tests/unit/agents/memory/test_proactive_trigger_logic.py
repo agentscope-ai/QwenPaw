@@ -240,3 +240,165 @@ class TestHandleProactiveTriggerGuards:
             SimpleNamespace(),
         )
         assert result == old_attempt
+
+
+# ---------------------------------------------------------------------------
+# proactive gate + inbox delivery
+# ---------------------------------------------------------------------------
+
+
+def _workspace(tmp_path):
+    return SimpleNamespace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+        memory_manager=SimpleNamespace(),
+    )
+
+
+def _armed_config(**overrides):
+    base = {
+        "enabled": True,
+        "idle_minutes": 1,
+        "last_user_interaction": _utc(10),
+        "mode_enabled_time": _utc(20),
+    }
+    base.update(overrides)
+    return ProactiveConfig(**base)
+
+
+class TestProactiveGate:
+    async def test_disabled_switch_skips_the_round(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        delivered = []
+
+        async def _settings(_agent_id):
+            return SimpleNamespace(
+                enabled=False,
+                refresh_min_interval_minutes=0,
+            )
+
+        async def _deliver(**kwargs):
+            delivered.append(kwargs)
+            return SimpleNamespace(shown=[], pushed=False, skip_reason="")
+
+        monkeypatch.setattr(pt, "load_proactive_settings", _settings)
+        monkeypatch.setattr(pt, "deliver_proactive_round", _deliver)
+
+        result = await pt._handle_proactive_trigger(
+            "s1",
+            _armed_config(),
+            None,
+            _workspace(tmp_path),
+        )
+
+        assert result is None  # unchanged: nothing was attempted
+        assert not delivered
+        assert "s1" not in pt.proactive_configs or (
+            pt.proactive_configs["s1"].running_task_id is None
+        )
+
+    async def test_enabled_switch_delivers_an_inbox_round(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        delivered = []
+
+        async def _settings(_agent_id):
+            return SimpleNamespace(
+                enabled=True,
+                refresh_min_interval_minutes=0,
+            )
+
+        async def _deliver(**kwargs):
+            delivered.append(kwargs)
+            return SimpleNamespace(shown=["a"], pushed=True, skip_reason="")
+
+        monkeypatch.setattr(pt, "load_proactive_settings", _settings)
+        monkeypatch.setattr(pt, "deliver_proactive_round", _deliver)
+        config = _armed_config()
+        pt.proactive_configs["s1"] = config
+
+        before = datetime.now(timezone.utc)
+        result = await pt._handle_proactive_trigger(
+            "s1",
+            config,
+            None,
+            _workspace(tmp_path),
+        )
+
+        assert result is not None and result >= before
+        assert delivered[0]["channel"] == "idle"
+        assert delivered[0]["agent_id"] == "agent-1"
+        assert delivered[0]["workspace_dir"] == str(tmp_path)
+        assert config.running_task_id is None  # released in finally
+
+    async def test_respond_errors_do_not_escape(self, monkeypatch, tmp_path):
+        async def _settings(_agent_id):
+            return SimpleNamespace(
+                enabled=True,
+                refresh_min_interval_minutes=0,
+            )
+
+        async def _deliver(**_kwargs):
+            raise RuntimeError("reme down")
+
+        monkeypatch.setattr(pt, "load_proactive_settings", _settings)
+        monkeypatch.setattr(pt, "deliver_proactive_round", _deliver)
+        config = _armed_config()
+        pt.proactive_configs["s1"] = config
+
+        result = await pt._handle_proactive_trigger(
+            "s1",
+            config,
+            None,
+            _workspace(tmp_path),
+        )
+
+        assert result is not None
+        assert config.running_task_id is None
+
+
+class TestDeliveredRecently:
+    async def test_no_window_never_skips(self):
+        settings = SimpleNamespace(refresh_min_interval_minutes=0)
+
+        assert await pt._delivered_recently(SimpleNamespace(), settings) is (
+            False
+        )
+
+    async def test_recent_push_skips(self, monkeypatch, tmp_path):
+        settings = SimpleNamespace(refresh_min_interval_minutes=120)
+
+        async def _recent(_workspace_dir, _settings):
+            return datetime.now(timezone.utc) - timedelta(minutes=10)
+
+        monkeypatch.setattr(pt, "last_inbox_push_at", _recent)
+
+        workspace = SimpleNamespace(workspace_dir=str(tmp_path))
+        assert await pt._delivered_recently(workspace, settings) is True
+
+    async def test_aged_push_allows_a_new_round(self, monkeypatch, tmp_path):
+        settings = SimpleNamespace(refresh_min_interval_minutes=120)
+
+        async def _aged(_workspace_dir, _settings):
+            return datetime.now(timezone.utc) - timedelta(minutes=200)
+
+        monkeypatch.setattr(pt, "last_inbox_push_at", _aged)
+
+        workspace = SimpleNamespace(workspace_dir=str(tmp_path))
+        assert await pt._delivered_recently(workspace, settings) is False
+
+    async def test_first_round_is_never_skipped(self, monkeypatch, tmp_path):
+        settings = SimpleNamespace(refresh_min_interval_minutes=120)
+
+        async def _never(_workspace_dir, _settings):
+            return None
+
+        monkeypatch.setattr(pt, "last_inbox_push_at", _never)
+
+        workspace = SimpleNamespace(workspace_dir=str(tmp_path))
+        assert await pt._delivered_recently(workspace, settings) is False

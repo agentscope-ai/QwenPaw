@@ -9,7 +9,11 @@ so it passes an equivalent configuration dict directly to
 
 from typing import Any
 
-from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
+from qwenpaw.config.config import (
+    AgentProfileConfig,
+    EmbeddingModelConfig,
+    ReMeLightMemoryConfig,
+)
 
 # Keep in sync with ReMeLightMemoryCard.tsx OPENAI_COMPAT_EMBEDDING_BACKENDS.
 _OPENAI_COMPAT_EMBEDDING_BACKENDS = {
@@ -19,6 +23,71 @@ _OPENAI_COMPAT_EMBEDDING_BACKENDS = {
 }
 
 _MAX_FILE_BYTES = 10 * 1024 * 1024
+
+# Delivery feedback window shared by the proactive reader (withhold items the
+# host already surfaced) and the agenda writer (drop them before selection).
+# Mirrors ReMe's ``delivery_cooldown_days`` / ``redelivery_cooldown_days``.
+_PROACTIVE_DELIVERY_COOLDOWN_DAYS = 3
+
+
+def _proactive_refresh_steps() -> list[dict[str, Any]]:
+    """Return ReMe's full proactive write chain (extract -> finish).
+
+    Kept in sync with ``reme/config/default.yaml``'s ``proactive_refresh``
+    job.  ReMe declares that job with ``enable_serve: false`` because it does
+    not want it exposed over HTTP/MCP; QwenPaw calls jobs in-process through
+    ``run_action()``, which *rejects* ``enable_serve=False`` jobs, so the
+    embedded declaration must stay servable.
+    """
+    return [
+        {
+            "backend": "proactive_extract_step",
+            "file_catalog": "proactive",
+            "scan_days": 2,
+            "carry_forward_days": 14,
+            "max_carry_forward_topics": 20,
+            "llm_timeout_seconds": 300,
+            "max_chars_per_file": 60000,
+            "max_total_chars": 300000,
+            "profile_max_chars": 1500,
+            "capability_max_chars": 1200,
+            "extends_enabled": True,
+            "reminders_enabled": True,
+            "new_ideas_enabled": True,
+            "max_follow_ups": 5,
+            "max_extends": 5,
+            "max_new_ideas": 3,
+            "reminder_lead_days": 3,
+            "resources_enabled": True,
+            "resource_max_chars": 40000,
+            "max_notice_reminders": 3,
+            "refine_enabled": True,
+            "refine_timeout_seconds": 90,
+        },
+        {
+            "backend": "proactive_topics_step",
+            "known_threshold": 0.85,
+            "known_threshold_calibrated_for": "text-embedding-v4@1024",
+            "min_push_confidence": 0.5,
+            "min_reminder_confidence": 0.3,
+            "max_topics": 10,
+            "schedule_retention_days": 180,
+            "max_schedules": 80,
+            "max_schedule_history": 8,
+        },
+        {
+            "backend": "proactive_plan_step",
+            "max_reminder_cards": 8,
+        },
+        {
+            "backend": "proactive_agenda_step",
+            "redelivery_cooldown_days": _PROACTIVE_DELIVERY_COOLDOWN_DAYS,
+        },
+        {
+            "backend": "proactive_finish_step",
+            "file_catalog": "proactive",
+        },
+    ]
 
 
 def build_reme_app_config(
@@ -35,6 +104,7 @@ def build_reme_app_config(
         reme_config.embedding_model_config,
         embedding_rebuild_required=reme_config.needs_reindex,
     )
+    _apply_proactive_config(cfg, reme_config)
     cfg.update(
         {
             "workspace_dir": working_dir,
@@ -420,9 +490,8 @@ def _base_config() -> dict[str, Any]:
                 "backend": "base",
                 "description": (
                     "Auto-dream: scan today's day-index and daily notes, "
-                    "globally extract merged units/topics, integrate digest "
-                    "units, write interests.yaml, and persist the dream "
-                    "catalog."
+                    "globally extract merged units, integrate digest units, "
+                    "and persist the dream catalog."
                 ),
                 "parameters": {
                     "type": "object",
@@ -431,33 +500,29 @@ def _base_config() -> dict[str, Any]:
                         "hint": {"type": "string", "default": ""},
                         "scan_days": {"type": "integer", "default": 2},
                         "max_units": {"type": "integer", "default": 5},
-                        "topic_count": {"type": "integer", "default": 3},
-                        "topic_diversity_days": {
-                            "type": "integer",
-                            "default": 7,
-                        },
                     },
                 },
                 "steps": [
                     {
                         "backend": "dream_extract_step",
                         "file_catalog": "dream",
-                        "topic_session_id": "interests",
                         "scan_days": 2,
                         "max_units": 5,
                     },
                     {"backend": "dream_integrate_step"},
                     {
-                        "backend": "dream_topics_step",
-                        "topic_count": 3,
-                        "topic_diversity_days": 7,
+                        "backend": "dream_finish_step",
+                        "file_catalog": "dream",
                     },
-                    {"backend": "dream_finish_step", "file_catalog": "dream"},
                 ],
             },
             "proactive": {
                 "backend": "base",
-                "description": "Expose latest user-interest topics.",
+                "description": (
+                    "Proactive: read the agenda ReMe distilled from "
+                    "long-term memory (topics + ranked daily agenda), "
+                    "withholding items already reported as delivered."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -466,9 +531,83 @@ def _base_config() -> dict[str, Any]:
                             "type": "boolean",
                             "default": True,
                         },
+                        "horizon_days": {
+                            "type": "integer",
+                            "default": 1,
+                        },
+                        "min_confidence": {
+                            "type": "number",
+                            "default": 0.4,
+                        },
+                        "include_delivered": {
+                            "type": "boolean",
+                            "default": False,
+                        },
+                        "delivery_cooldown_days": {
+                            "type": "integer",
+                            "default": _PROACTIVE_DELIVERY_COOLDOWN_DAYS,
+                        },
                     },
                 },
-                "steps": [{"backend": "proactive_step"}],
+                "steps": [
+                    {
+                        "backend": "proactive_step",
+                        "min_confidence": 0.4,
+                        "delivery_cooldown_days": (
+                            _PROACTIVE_DELIVERY_COOLDOWN_DAYS
+                        ),
+                    },
+                ],
+            },
+            "proactive_refresh": {
+                "backend": "base",
+                "description": (
+                    "Rebuild today's proactive agenda from long-term "
+                    "memory: extract proposals, dedupe into topics, plan "
+                    "scenario cards, select the ranked agenda, then "
+                    "advance the proactive catalog watermark."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date": {"type": "string", "default": ""},
+                    },
+                },
+                "steps": _proactive_refresh_steps(),
+            },
+            "proactive_feedback": {
+                "backend": "base",
+                "description": (
+                    "Report which proactive agenda items the host already "
+                    "delivered, so ReMe does not propose them again."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date": {"type": "string", "default": ""},
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                        },
+                    },
+                    "required": ["items"],
+                },
+                "steps": [
+                    {
+                        "backend": "proactive_feedback_step",
+                        "retention_days": 180,
+                        "max_deliveries": 500,
+                    },
+                ],
+            },
+            # ReMe ships its own 18:00 cron for the proactive chain. QwenPaw
+            # schedules it through ServiceCronJob using the per-agent cron
+            # configuration, so neutralize the built-in one (same pattern as
+            # daily_paper_cron / auto_fin_cron) to avoid running it twice.
+            "proactive_refresh_cron": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [],
             },
             "auto_memory": {
                 "backend": "base",
@@ -611,6 +750,9 @@ def _base_components() -> dict[str, Any]:
             "default": {"backend": "local"},
             "digest": {"backend": "local"},
             "dream": {"backend": "local"},
+            # The proactive chain persists its own catalog watermark
+            # (proactive_extract_step / proactive_finish_step require it).
+            "proactive": {"backend": "local"},
         },
         "file_chunker": {
             "markdown": {
@@ -655,6 +797,33 @@ def _base_components() -> dict[str, Any]:
             },
         },
     }
+
+
+def _apply_proactive_config(
+    cfg: dict[str, Any],
+    reme_config: ReMeLightMemoryConfig,
+) -> None:
+    """Map the host's proactive delivery window into the embedded jobs.
+
+    One number has to reach three places so an agenda item disappears at
+    the same moment everywhere: the reader filter
+    (``delivery_cooldown_days``), the agenda writer's deterministic
+    suppression (``redelivery_cooldown_days``) and the host-side ledger.
+    """
+    cooldown = max(int(reme_config.proactive_delivery_cooldown_days), 0)
+    jobs = cfg["jobs"]
+
+    reader = jobs["proactive"]
+    reader["parameters"]["properties"]["delivery_cooldown_days"][
+        "default"
+    ] = cooldown
+    for step in reader["steps"]:
+        if step.get("backend") == "proactive_step":
+            step["delivery_cooldown_days"] = cooldown
+
+    for step in jobs["proactive_refresh"]["steps"]:
+        if step.get("backend") == "proactive_agenda_step":
+            step["redelivery_cooldown_days"] = cooldown
 
 
 def _apply_embedding_config(

@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, Optional, Any
 
 from .proactive_types import ProactiveConfig
-from .proactive_responder import generate_proactive_response
+from .proactive_responder import (
+    deliver_proactive_round,
+    last_inbox_push_at,
+    load_proactive_settings,
+)
 from .proactive_utils import (
     get_last_message_ts,
     ensure_tz_aware,
@@ -105,70 +109,6 @@ async def _run_trigger_loop(
         logger.error(f"Error in proactive trigger: {e}")
 
 
-async def is_last_message_proactive(workspace: Any) -> bool:
-    """Check if the last message in session was a proactive message."""
-    from agentscope.state import AgentState
-    from ....app.chats.utils import (
-        agentscope_msg_to_message,
-        parse_legacy_memory_state,
-    )
-
-    try:
-        chats = await workspace.chat_manager.list_chats()
-
-        # Find the most recently updated session
-        sessions_with_ts = [(ensure_tz_aware(s.updated_at), s) for s in chats]
-        _, latest_session = max(sessions_with_ts)
-
-        session_id = latest_session.session_id
-        user_id = latest_session.user_id
-        channel = latest_session.channel
-
-        state = await workspace.session.get_session_state_dict(
-            session_id,
-            user_id,
-            channel,
-        )
-
-        agent_raw = state.get("agent", {})
-        messages = []
-
-        state_raw = agent_raw.get("state")
-        if isinstance(state_raw, dict):
-            try:
-                agent_state = AgentState.model_validate(state_raw)
-                messages = list(agent_state.context)
-            except Exception:
-                pass
-
-        if not messages:
-            memories_data = agent_raw.get("memory", [])
-            if memories_data:
-                messages, _summary = parse_legacy_memory_state(memories_data)
-
-        serializable_messages = agentscope_msg_to_message(messages)
-
-        latest_msg = serializable_messages[-1]
-        contents = getattr(latest_msg, "contents", [])
-
-        if not contents or not isinstance(contents, list):
-            return "[PROACTIVE]" in str(latest_msg)
-
-        for content_item in contents:
-            text_content = ""
-            if hasattr(content_item, "text"):
-                text_content = content_item.text
-
-            if "[PROACTIVE]" in text_content:
-                return True
-
-        return False
-
-    except Exception as e:
-        logger.warning(f"Could not check if last message was proactive: {e}")
-        return False
-
-
 def _should_trigger_proactive(
     config: ProactiveConfig,
     last_interaction_tz_aware: datetime,
@@ -192,6 +132,23 @@ def _should_trigger_proactive(
     return time_since_mode_enabled >= config.idle_minutes
 
 
+async def _delivered_recently(workspace: Any, settings: Any) -> bool:
+    """Whether an inbox push already happened inside the refresh window.
+
+    Replaces the old "last chat message was ``[PROACTIVE]``" guard: the
+    agenda is no longer written into a chat, so the delivery ledger is the
+    only honest record of what the user already saw.
+    """
+    window = int(settings.refresh_min_interval_minutes)
+    if window <= 0:
+        return False
+    last = await last_inbox_push_at(str(workspace.workspace_dir), settings)
+    if last is None:
+        return False
+    elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+    return elapsed < window * 60
+
+
 async def _handle_proactive_trigger(
     session_id: str,
     config: ProactiveConfig,
@@ -212,47 +169,48 @@ async def _handle_proactive_trigger(
         if time_since_last_attempt <= 60:
             return last_trigger_attempt
 
-    # Check if last message is already proactive
-    # Added None checks to satisfy MyPy and ensure logic correctness
-    if config.last_user_interaction is None:
+    # Defensive None checks: both stamps are set by
+    # ``enable_proactive_for_session`` and refreshed by the loop, so a
+    # missing value means the session state was reset underneath us.
+    if (
+        config.last_user_interaction is None
+        or config.mode_enabled_time is None
+    ):
         return last_trigger_attempt
 
-    last_interaction_tz_aware = ensure_tz_aware(config.last_user_interaction)
-
-    if config.mode_enabled_time is None:
+    settings = await load_proactive_settings(workspace.agent_id)
+    if not settings.enabled:
+        logger.info(
+            "Proactive agenda disabled in config; skipping idle round",
+        )
         return last_trigger_attempt
 
-    mode_enabled_time_tz_aware = ensure_tz_aware(config.mode_enabled_time)
+    if await _delivered_recently(workspace, settings):
+        logger.info("Recent proactive inbox push; skipping idle round")
+        return now_utc
 
-    last_interaction_was_before_mode_enabled = (
-        last_interaction_tz_aware <= mode_enabled_time_tz_aware
-    )
-
-    if not last_interaction_was_before_mode_enabled:
-        if await is_last_message_proactive(workspace):
-            logger.info("Last Proactive Message Unresponded, skipping")
-            return now_utc
-
-    logger.info("Triggering proactive response now")
+    logger.info("Triggering proactive agenda delivery now")
 
     # Update attempt time
     new_attempt_time = now_utc
     config.running_task_id = f"proactive_{now_utc.timestamp()}"
 
     try:
-        responder_task = asyncio.create_task(
-            generate_proactive_response(workspace),
+        outcome = await deliver_proactive_round(
+            agent_id=workspace.agent_id,
+            workspace_dir=str(workspace.workspace_dir),
+            memory_manager=workspace.memory_manager,
+            channel="idle",
+            settings=settings,
         )
-
-        proactive_msg = await responder_task
-
-        if proactive_msg:
-            msg_preview = str(proactive_msg)[:100]
-            logger.info(
-                f"Proactive message generated for session {session_id}: "
-                f"{msg_preview}...",
-            )
-
+        logger.info(
+            "Proactive idle round done for %s: shown=%d pushed=%s "
+            "reason=%s",
+            session_id,
+            len(outcome.shown),
+            outcome.pushed,
+            outcome.skip_reason or "-",
+        )
     except Exception as e:
         logger.error(f"Error in proactive responder: {e}")
     finally:

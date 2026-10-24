@@ -214,6 +214,8 @@ export function ReMeLightMemoryCard() {
   const dreamCronEnabled = remeConfig?.dream_cron_enabled ?? true;
   const dailyPaperCronEnabled = remeConfig?.daily_paper_cron_enabled ?? false;
   const autoFinCronEnabled = remeConfig?.auto_fin_cron_enabled ?? false;
+  const proactiveEnabled = remeConfig?.proactive_enabled ?? false;
+  const proactiveCronEnabled = remeConfig?.proactive_cron_enabled ?? false;
   const autoSearchEnabled =
     remeConfig?.auto_memory_search_config?.enabled ?? false;
 
@@ -750,6 +752,208 @@ export function ReMeLightMemoryCard() {
                 noStyle
               >
                 <Switch />
+              </SettingsField>
+            </div>
+          </section>
+
+          <section className={styles.memoryConfigPanel}>
+            <div className={styles.memorySectionHeader}>
+              <div>
+                <h3>{t("agentConfig.proactiveSectionTitle")}</h3>
+                <p>{t("agentConfig.proactiveSectionDescription")}</p>
+              </div>
+              <SettingsField
+                name={["reme_light_memory_config", "proactive_enabled"]}
+                initialValue={false}
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch aria-label={t("agentConfig.proactiveEnableTitle")} />
+              </SettingsField>
+            </div>
+            <div className={styles.memorySettingRow}>
+              <div>
+                <strong>{t("agentConfig.proactiveMaxItems")}</strong>
+                <span>{t("agentConfig.proactiveMaxItemsTooltip")}</span>
+              </div>
+              <SettingsField
+                className={styles.memoryInlineField}
+                name={["reme_light_memory_config", "proactive_max_items"]}
+                initialValue={3}
+                rules={[
+                  {
+                    type: "number",
+                    min: 1,
+                    message: t("agentConfig.proactiveMaxItemsMin"),
+                  },
+                  {
+                    type: "number",
+                    max: 10,
+                    message: t("agentConfig.proactiveMaxItemsMax"),
+                  },
+                ]}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={1}
+                  max={10}
+                  step={1}
+                  disabled={!proactiveEnabled}
+                />
+              </SettingsField>
+            </div>
+            <div className={styles.memorySettingRow}>
+              <div>
+                <strong>{t("agentConfig.proactiveRefreshInterval")}</strong>
+                <span>{t("agentConfig.proactiveRefreshIntervalTooltip")}</span>
+              </div>
+              <SettingsField
+                className={styles.memoryInlineField}
+                name={[
+                  "reme_light_memory_config",
+                  "proactive_refresh_min_interval_minutes",
+                ]}
+                initialValue={120}
+                rules={[
+                  {
+                    type: "number",
+                    min: 0,
+                    message: t("agentConfig.proactiveRefreshIntervalMin"),
+                  },
+                ]}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  step={15}
+                  disabled={!proactiveEnabled}
+                />
+              </SettingsField>
+            </div>
+            <div className={styles.memoryToggleRow}>
+              <div>
+                <strong>{t("agentConfig.proactiveNotifyTitle")}</strong>
+                <span>{t("agentConfig.proactiveNotifyDescription")}</span>
+              </div>
+              <SettingsField
+                name={[
+                  "reme_light_memory_config",
+                  "proactive_inbox_push_enabled",
+                ]}
+                initialValue
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch disabled={!proactiveEnabled} />
+              </SettingsField>
+            </div>
+            <div className={styles.memorySettingRow}>
+              <div>
+                <strong>{t("agentConfig.proactiveCooldownDays")}</strong>
+                <span>{t("agentConfig.proactiveCooldownDaysTooltip")}</span>
+              </div>
+              <SettingsField
+                className={styles.memoryInlineField}
+                name={[
+                  "reme_light_memory_config",
+                  "proactive_delivery_cooldown_days",
+                ]}
+                initialValue={3}
+                rules={[
+                  {
+                    type: "number",
+                    min: 0,
+                    message: t("agentConfig.proactiveCooldownDaysMin"),
+                  },
+                  {
+                    type: "number",
+                    max: 90,
+                    message: t("agentConfig.proactiveCooldownDaysMax"),
+                  },
+                ]}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  max={90}
+                  step={1}
+                  disabled={!proactiveEnabled}
+                />
+              </SettingsField>
+            </div>
+            <div className={styles.memoryToggleRow}>
+              <div>
+                <strong>{t("agentConfig.proactiveCronTitle")}</strong>
+                <span>{t("agentConfig.proactiveCronTooltip")}</span>
+              </div>
+              <SettingsField
+                name={["reme_light_memory_config", "proactive_cron_enabled"]}
+                initialValue={false}
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch disabled={!proactiveEnabled} />
+              </SettingsField>
+            </div>
+            <SettingsField
+              label={t("agentConfig.proactiveCron")}
+              name={["reme_light_memory_config", "proactive_cron"]}
+              tooltip={t("agentConfig.proactiveCronTooltip")}
+              rules={
+                proactiveEnabled && proactiveCronEnabled
+                  ? [
+                      {
+                        required: true,
+                        whitespace: true,
+                        message: t("agentConfig.proactiveCronRequired"),
+                      },
+                      {
+                        validator: (_, value?: string) => {
+                          if (!value?.trim() || isValidDreamCronShape(value)) {
+                            return Promise.resolve();
+                          }
+                          return Promise.reject(
+                            new Error(t("agentConfig.proactiveCronInvalid")),
+                          );
+                        },
+                      },
+                    ]
+                  : []
+              }
+            >
+              <SchedulePicker
+                disabled={!proactiveEnabled || !proactiveCronEnabled}
+              />
+            </SettingsField>
+            <div className={styles.memorySettingRow}>
+              <div>
+                <strong>{t("agentConfig.proactiveCronMaxItems")}</strong>
+                <span>{t("agentConfig.proactiveCronMaxItemsTooltip")}</span>
+              </div>
+              <SettingsField
+                className={styles.memoryInlineField}
+                name={["reme_light_memory_config", "proactive_cron_max_items"]}
+                initialValue={0}
+                rules={[
+                  {
+                    type: "number",
+                    min: 0,
+                    message: t("agentConfig.proactiveCronMaxItemsMin"),
+                  },
+                  {
+                    type: "number",
+                    max: 20,
+                    message: t("agentConfig.proactiveCronMaxItemsMax"),
+                  },
+                ]}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  max={20}
+                  step={1}
+                  disabled={!proactiveEnabled || !proactiveCronEnabled}
+                />
               </SettingsField>
             </div>
           </section>

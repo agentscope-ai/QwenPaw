@@ -336,7 +336,7 @@ Each durable node also uses contextual Wikilinks in `## Sources` to point back t
   <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream run summary delivered to Inbox" />
 </p>
 
-Auto-Dream also writes `interests.yaml`. This is separate from QwenPaw's current `/proactive` mode; `/proactive` does not currently read that file.
+Auto-Dream does not produce the proactive agenda: ReMe runs a separate proactive chain that writes `memory/<date>/interests.yaml` (topics plus today's agenda) and `memory/_proactive.yaml` (the schedule registry and the delivery log), and Auto-Dream neither reads nor writes them. `/proactive` reads that agenda; see [Memory Evolution and Proactive Interaction](./memory-evolving-and-proactive).
 
 ### 5. Memory Search Recalls the Right Evidence
 
@@ -433,6 +433,14 @@ The default `remelight` backend runs inside the QwenPaw process and reuses the c
       "auto_fin_topics": "gold,robotics,semiconductors",
       "auto_fin_window_hours": 24,
       "auto_fin_inbox_push_enabled": true,
+      "proactive_enabled": false,
+      "proactive_max_items": 3,
+      "proactive_inbox_push_enabled": true,
+      "proactive_cron_enabled": false,
+      "proactive_cron": "0 18 * * *",
+      "proactive_cron_max_items": 0,
+      "proactive_delivery_cooldown_days": 3,
+      "proactive_refresh_min_interval_minutes": 120,
       "memory_search_enabled": true,
       "auto_memory_search_config": {
         "enabled": false,
@@ -460,6 +468,14 @@ The default `remelight` backend runs inside the QwenPaw process and reuses the c
 | `auto_fin_topics`                       | `"gold,robotics,semiconductors"` | Comma-separated topics used to filter CLS news                                    |
 | `auto_fin_window_hours`                 | `24`                             | Rolling number of hours of CLS telegraph news to fetch; must be between 1 and 168 |
 | `auto_fin_inbox_push_enabled`           | `true`                           | Push generated Auto Fin reports or failures to Inbox                              |
+| `proactive_enabled`                  | `false`          | Master switch; while off `/proactive` only explains how to enable it |
+| `proactive_max_items`                | `3`              | Agenda items per `/proactive` receipt or idle round (1–10) |
+| `proactive_inbox_push_enabled`       | `true`           | Push idle rounds and the daily job to Inbox               |
+| `proactive_cron_enabled`             | `false`          | Enable the daily agenda push                              |
+| `proactive_cron`                     | `"0 18 * * *"`   | Five-field cron for the daily push (required when enabled) |
+| `proactive_cron_max_items`           | `0`              | Items in the daily push; `0` sends the whole agenda (ReMe caps at 6/day) |
+| `proactive_delivery_cooldown_days`   | `3`              | Days a delivered item stays hidden, in ReMe and locally (0–90) |
+| `proactive_refresh_min_interval_minutes` | `120`        | Minimum gap between on-demand refreshes; also spaces idle pushes; `0` lifts it |
 | `memory_search_enabled`                 | `true`                           | Expose the manual `memory_search` tool to the Agent                               |
 | `auto_memory_search_config.enabled`     | `false`                          | Search memory before every normal user request                                    |
 | `auto_memory_search_config.max_results` | `2`                              | Maximum results injected by automatic search                                      |
@@ -490,8 +506,9 @@ capture, `/reme auto_memory`, context compaction, and `/new` all submit work to
 this same queue; each status record identifies its `periodic`, `manual`,
 `compact`, or `new` trigger. Use `/auto_memory_status` to inspect these tasks
 from a conversation. Run `/reme help` to inspect the live, chat-safe ReMe
-action catalog. QwenPaw explicitly allows `status`, `search`, `proactive`,
-`auto_memory`, `auto_dream`, `daily_paper`, and `auto_fin`; raw vault and index
+action catalog. QwenPaw explicitly allows `status`, `search`,
+`proactive`, `proactive_refresh`, `auto_memory`, `auto_dream`,
+`daily_paper`, and `auto_fin`; raw vault and index
 maintenance actions are not callable from chat.
 Shutdown uses one five-second deadline to stop this worker,
 quiesce active ReMe jobs, and close ReMe; it reports failure instead of waiting

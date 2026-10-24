@@ -300,3 +300,145 @@ def test_ollama_embedding_without_host_still_enables_with_model() -> None:
         == "default"
     )
     assert not cfg["components"]["as_embedding"]["default"]["credential"]
+
+
+def test_every_embedded_backend_is_registered_in_reme() -> None:
+    """Guard the embedded job/step mapping against ReMe upgrades.
+
+    QwenPaw hands ReMe a full replacement config, and jobs resolve their
+    steps when the application starts (``BaseJob._start`` ->
+    ``_resolve_step``). A single stale backend name therefore keeps the
+    whole long-term memory module from starting, not just one job.
+    """
+    from reme.enumeration import ComponentEnum
+    from reme.plugin import resolve_plugin_runtime
+
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    registry = resolve_plugin_runtime(cfg).registry
+
+    missing: list[str] = []
+    for job_name, job_cfg in cfg["jobs"].items():
+        for step in job_cfg.get("steps") or []:
+            backends = [step.get("backend")]
+            for dispatch in step.get("dispatch_steps") or []:
+                if isinstance(dispatch, dict):
+                    backends.append(dispatch.get("backend"))
+                else:
+                    backends.append(dispatch)
+            for backend in backends:
+                if not backend:
+                    continue
+                if registry.get(ComponentEnum.STEP, backend) is None:
+                    missing.append(f"{job_name} -> {backend}")
+
+    for ctype, group in cfg["components"].items():
+        try:
+            enum = ComponentEnum(ctype)
+        except ValueError:
+            continue
+        for name, comp in group.items():
+            backend = (comp or {}).get("backend")
+            if backend and registry.get(enum, backend) is None:
+                missing.append(f"{ctype}.{name} -> {backend}")
+
+    assert not missing, missing
+
+
+def test_dream_job_no_longer_renders_topics() -> None:
+    """Dream and proactive topics are separate chains since ReMe 0.4.1.13."""
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    dream = cfg["jobs"]["auto_dream"]
+    assert [s["backend"] for s in dream["steps"]] == [
+        "dream_extract_step",
+        "dream_integrate_step",
+        "dream_finish_step",
+    ]
+    props = dream["parameters"]["properties"]
+    assert "topic_count" not in props
+    assert "topic_diversity_days" not in props
+    assert "topic_session_id" not in dream["steps"][0]
+    # interests.yaml belongs to the proactive chain now.
+    assert "interests.yaml" not in dream["description"]
+
+
+def test_proactive_jobs_match_the_reme_chain() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    jobs = cfg["jobs"]
+
+    assert [s["backend"] for s in jobs["proactive_refresh"]["steps"]] == [
+        "proactive_extract_step",
+        "proactive_topics_step",
+        "proactive_plan_step",
+        "proactive_agenda_step",
+        "proactive_finish_step",
+    ]
+    # run_action() rejects enable_serve=False jobs, and QwenPaw drives the
+    # refresh itself, so both new jobs must stay servable.
+    assert jobs["proactive_refresh"].get("enable_serve", True) is True
+    assert jobs["proactive_feedback"].get("enable_serve", True) is True
+    assert jobs["proactive_feedback"]["parameters"]["required"] == ["items"]
+
+    read_step = jobs["proactive"]["steps"][0]
+    assert read_step["backend"] == "proactive_step"
+    assert read_step["delivery_cooldown_days"] == 3
+    props = jobs["proactive"]["parameters"]["properties"]
+    assert "include_delivered" in props
+    assert "horizon_days" in props
+
+    # The proactive chain persists its own catalog watermark.
+    assert "proactive" in cfg["components"]["file_catalog"]
+
+
+def test_builtin_proactive_cron_is_neutralized() -> None:
+    """QwenPaw schedules proactive itself; ReMe's 18:00 cron must not run."""
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    cron = cfg["jobs"]["proactive_refresh_cron"]
+    assert cron["enable_serve"] is False
+    assert not cron["steps"]
+
+
+def _config_for_proactive(**overrides) -> dict:
+    agent_config = AgentProfileConfig(
+        id="agent-1",
+        name="Agent One",
+        running=AgentsRunningConfig(
+            reme_light_memory_config=ReMeLightMemoryConfig(**overrides),
+        ),
+    )
+    return get_reme_app_config(
+        working_dir="/tmp/qwenpaw-agent",
+        agent_config=agent_config,
+    )
+
+
+def test_delivery_cooldown_reaches_every_dedupe_layer() -> None:
+    """One window has to drive the reader, the writer and the ledger."""
+    cfg = _config_for_proactive(proactive_delivery_cooldown_days=9)
+    jobs = cfg["jobs"]
+
+    assert jobs["proactive"]["steps"][0]["delivery_cooldown_days"] == 9
+    props = jobs["proactive"]["parameters"]["properties"]
+    assert props["delivery_cooldown_days"]["default"] == 9
+    agenda_step = next(
+        step
+        for step in jobs["proactive_refresh"]["steps"]
+        if step["backend"] == "proactive_agenda_step"
+    )
+    assert agenda_step["redelivery_cooldown_days"] == 9
+
+
+def test_host_only_proactive_switches_stay_out_of_the_reme_config() -> None:
+    cfg = _config_for_proactive(
+        proactive_enabled=True,
+        proactive_cron_enabled=True,
+        proactive_cron="30 8 * * *",
+        proactive_max_items=5,
+    )
+
+    # QwenPaw schedules the chain itself, so ReMe's own cron stays inert
+    # even when the host-side switch is on.
+    cron = cfg["jobs"]["proactive_refresh_cron"]
+    assert cron["enable_serve"] is False
+    assert not cron["steps"]

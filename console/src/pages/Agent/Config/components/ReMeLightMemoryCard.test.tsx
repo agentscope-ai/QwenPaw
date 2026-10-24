@@ -197,9 +197,13 @@ function RerankerVisibilityForm({
 function MemoryForm({
   withRuntimeStatus = false,
   autoFinEnabled = false,
+  proactiveEnabled = false,
+  proactiveCronEnabled = false,
 }: {
   withRuntimeStatus?: boolean;
   autoFinEnabled?: boolean;
+  proactiveEnabled?: boolean;
+  proactiveCronEnabled?: boolean;
 }) {
   const [form] = Form.useForm();
   const Provider = withRuntimeStatus ? RuntimeProvider : StaticMemoryProvider;
@@ -215,6 +219,14 @@ function MemoryForm({
             auto_fin_cron: "0 18 * * *",
             auto_fin_topics: "黄金,机器人,半导体",
             auto_fin_window_hours: 24,
+            proactive_enabled: proactiveEnabled,
+            proactive_cron_enabled: proactiveCronEnabled,
+            proactive_cron: "30 8 * * *",
+            proactive_inbox_push_enabled: true,
+            proactive_max_items: 3,
+            proactive_cron_max_items: 0,
+            proactive_delivery_cooldown_days: 3,
+            proactive_refresh_min_interval_minutes: 120,
             auto_memory_search_config: { enabled: false, max_results: 5 },
             embedding_model_config: {},
           },
@@ -823,6 +835,87 @@ describe("long-term memory defaults", () => {
     expect(windowInput).toBeEnabled();
     expect(windowInput).toHaveAttribute("aria-valuemin", "1");
     expect(windowInput).toHaveAttribute("aria-valuemax", "168");
+  });
+});
+
+describe("proactive agenda", () => {
+  const rowControl = (element: HTMLElement, selector: string) =>
+    element.parentElement?.parentElement?.querySelector(
+      selector,
+    ) as HTMLElement;
+  const proactiveSwitch = (label: string) =>
+    rowControl(screen.getByText(label), '[role="switch"]');
+  const proactiveNumber = (label: string) =>
+    rowControl(screen.getByText(label), '[role="spinbutton"]');
+
+  it("keeps every proactive control off and disabled by default", () => {
+    renderWithProviders(<MemoryForm />);
+
+    expect(
+      screen.getByText("agentConfig.proactiveSectionTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", {
+        name: "agentConfig.proactiveEnableTitle",
+      }),
+    ).toHaveAttribute("aria-checked", "false");
+
+    expect(proactiveNumber("agentConfig.proactiveMaxItems")).toBeDisabled();
+    expect(
+      proactiveNumber("agentConfig.proactiveRefreshInterval"),
+    ).toBeDisabled();
+    expect(proactiveNumber("agentConfig.proactiveCooldownDays")).toBeDisabled();
+    expect(proactiveNumber("agentConfig.proactiveCronMaxItems")).toBeDisabled();
+    expect(proactiveSwitch("agentConfig.proactiveNotifyTitle")).toBeDisabled();
+    expect(proactiveSwitch("agentConfig.proactiveCronTitle")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "cronJobs.cronTime: 08:30" }),
+    ).toBeDisabled();
+  });
+
+  it("enables the round controls but not the daily push by default", () => {
+    renderWithProviders(<MemoryForm proactiveEnabled />);
+
+    expect(
+      screen.getByRole("switch", {
+        name: "agentConfig.proactiveEnableTitle",
+      }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    const maxItems = proactiveNumber("agentConfig.proactiveMaxItems");
+    expect(maxItems).toBeEnabled();
+    expect(maxItems).toHaveDisplayValue("3");
+    expect(
+      proactiveNumber("agentConfig.proactiveCooldownDays"),
+    ).toHaveDisplayValue("3");
+    expect(
+      proactiveNumber("agentConfig.proactiveRefreshInterval"),
+    ).toHaveDisplayValue("120");
+    expect(proactiveSwitch("agentConfig.proactiveNotifyTitle")).toBeEnabled();
+    expect(proactiveSwitch("agentConfig.proactiveNotifyTitle")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    // The daily push stays gated behind its own switch.
+    expect(proactiveSwitch("agentConfig.proactiveCronTitle")).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(
+      screen.getByRole("button", { name: "cronJobs.cronTime: 08:30" }),
+    ).toBeDisabled();
+    expect(proactiveNumber("agentConfig.proactiveCronMaxItems")).toBeDisabled();
+  });
+
+  it("enables the daily push schedule with its own switch", () => {
+    renderWithProviders(<MemoryForm proactiveEnabled proactiveCronEnabled />);
+
+    expect(
+      screen.getByRole("button", { name: "cronJobs.cronTime: 08:30" }),
+    ).toBeEnabled();
+    const cronItems = proactiveNumber("agentConfig.proactiveCronMaxItems");
+    expect(cronItems).toBeEnabled();
+    expect(cronItems).toHaveDisplayValue("0");
   });
 });
 
