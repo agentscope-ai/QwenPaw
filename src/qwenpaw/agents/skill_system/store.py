@@ -841,6 +841,9 @@ def _create_files_from_tree(base_dir: Path, tree: dict[str, Any]) -> None:
         if isinstance(value, dict):
             path.mkdir(parents=True, exist_ok=True)
             _create_files_from_tree(path, value)
+        elif isinstance(value, bytes):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(value)
         elif value is None or isinstance(value, str):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(value or "", encoding="utf-8")
