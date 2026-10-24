@@ -134,15 +134,92 @@ async def test_run_action_marks_llm_jobs_and_rejects_hidden_jobs() -> None:
 
     await manager.run_action("auto_dream", hint="recent topics")
 
-    manager._run_reme_job.assert_awaited_once_with(
-        "auto_dream",
+    assert manager._run_reme_job.await_count == 2
+    assert manager._run_reme_job.await_args_list[0].args == ("auto_dream",)
+    assert manager._run_reme_job.await_args_list[0].kwargs == {
+        "needs_llm": True,
+        "raise_on_error": True,
+        "lifecycle_locked": True,
+        "hint": "recent topics",
+    }
+    manager._run_reme_job.assert_awaited_with(
+        "proactive_refresh",
         needs_llm=True,
         raise_on_error=True,
         lifecycle_locked=True,
-        hint="recent topics",
+        date="",
     )
     with pytest.raises(ValueError, match="Unknown or unavailable"):
         await manager.run_action("hidden")
+
+
+@pytest.mark.asyncio
+async def test_auto_dream_refresh_preserves_result_and_separate_job_inputs():
+    """Refresh uses a fresh context without replacing the digest response."""
+    manager = _manager_with_jobs(
+        {
+            "auto_dream": _job(
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "date": {"type": "string"},
+                        "scan_days": {"type": "integer"},
+                        "max_units": {"type": "integer"},
+                    },
+                },
+            ),
+            "proactive_refresh": _job(enable_serve=False),
+        },
+    )
+    dream_result = SimpleNamespace(success=True, answer="dream result")
+    manager._run_reme_job.side_effect = [
+        dream_result,
+        SimpleNamespace(success=True, answer="refresh result"),
+    ]
+    result = await manager.run_action(
+        "auto_dream",
+        date="2026-10-17",
+        scan_days=3,
+        max_units=2,
+    )
+    assert result is dream_result
+    manager._run_reme_job.assert_awaited_with(
+        "proactive_refresh",
+        needs_llm=True,
+        raise_on_error=True,
+        lifecycle_locked=True,
+        date="2026-10-17",
+    )
+    with pytest.raises(ValueError, match="Unknown or unavailable"):
+        await manager.run_action("proactive_refresh")
+
+
+@pytest.mark.asyncio
+async def test_failed_auto_dream_does_not_refresh_topics():
+    """A failed or unavailable dream must not start the follow-up pipeline."""
+    manager = _manager_with_jobs({"auto_dream": _job()})
+    for response in (None, SimpleNamespace(success=False, answer="failed")):
+        manager._run_reme_job.reset_mock()
+        manager._run_reme_job.return_value = response
+        assert await manager.run_action("auto_dream") is response
+        manager._run_reme_job.assert_awaited_once_with(
+            "auto_dream",
+            needs_llm=True,
+            raise_on_error=True,
+            lifecycle_locked=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_auto_dream_reports_failed_proactive_refresh():
+    """A failed follow-up must not be reported as a successful action."""
+    manager = _manager_with_jobs({"auto_dream": _job()})
+    manager._run_reme_job.side_effect = [
+        SimpleNamespace(success=True, answer="digest saved"),
+        SimpleNamespace(success=False, answer="unusable topic reply"),
+    ]
+    with pytest.raises(RuntimeError, match="Proactive refresh failed"):
+        await manager.run_action("auto_dream")
 
 
 @pytest.mark.asyncio
