@@ -3454,11 +3454,48 @@ def build_fallback_agent_profile_config(
 
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+
+    # Carry the user's global model selection over into the rebuilt profile.
+    # Dropping it here is how a momentarily missing agent.json used to wipe
+    # the model a user had picked: the rebuilt config had no active_model, so
+    # every consumer fell back to whatever the provider manager held. Mirrors
+    # the #4937 fix already present in migrate_legacy_config_to_multi_agent.
+    active_model: Optional[ModelSlotConfig] = None
+    try:
+        from ..providers import ProviderManager
+
+        active_model = ProviderManager.get_instance().get_active_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Agent '%s': could not resolve the global active model while "
+            "rebuilding a missing agent.json; the rebuilt profile will have "
+            "no active_model (%s)",
+            sanitize_log_value(agent_id),
+            sanitize_log_value(exc),
+        )
+
+    # ``agents.defaults.heartbeat`` is where the root config keeps the
+    # heartbeat defaults; the fallback profile used to drop them entirely.
+    heartbeat: Optional[HeartbeatConfig] = None
+    try:
+        defaults = getattr(config.agents, "defaults", None)
+        if defaults is not None:
+            heartbeat = getattr(defaults, "heartbeat", None)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Agent '%s': could not read agents.defaults.heartbeat while "
+            "rebuilding a missing agent.json (%s)",
+            sanitize_log_value(agent_id),
+            sanitize_log_value(exc),
+        )
+
     return AgentProfileConfig(
         id=agent_id,
         name=agent_id.title(),
         description=f"{agent_id} agent",
         workspace_dir=str(workspace_dir),
+        heartbeat=heartbeat,
+        active_model=active_model,
         channels=(
             config.channels
             if hasattr(config, "channels") and config.channels
@@ -3700,6 +3737,14 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_config_path = workspace_dir / "agent.json"
 
     if not agent_config_path.exists():
+        logger.warning(
+            "Agent '%s' has no agent.json at %s; rebuilding it from the root "
+            "defaults. Agent-scoped settings that are not part of those "
+            "defaults (for example a previously selected model) cannot be "
+            "restored here.",
+            sanitize_log_value(agent_id),
+            sanitize_log_value(str(agent_config_path)),
+        )
         fallback_config = build_fallback_agent_profile_config(agent_id, config)
         # Save for future use
         save_agent_config(agent_id, fallback_config)

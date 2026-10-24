@@ -744,6 +744,68 @@ def test_fallback_profile_rejects_an_unknown_agent_id() -> None:
         cfg_mod.build_fallback_agent_profile_config("ghost", config)
 
 
+def test_fallback_profile_inherits_the_global_active_model(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A missing agent.json must not silently drop the user's model choice.
+
+    Regression guard for the fallback profile omitting ``active_model``:
+    the rebuilt config then had no model pointer, so the agent fell back to
+    whatever the provider manager held. Same class of bug as #4937, which
+    was only fixed on the migration path.
+    """
+    workspace = str(tmp_path / "ws-helper")
+    config = _config_with_profile("helper", workspace)
+    sentinel = cfg_mod.ModelSlotConfig(
+        provider_id="demo-provider",
+        model="demo-model",
+    )
+
+    class _StubManager:
+        @staticmethod
+        def get_active_model():
+            return sentinel
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.ProviderManager.get_instance",
+        staticmethod(_StubManager),
+        raising=False,
+    )
+
+    profile = cfg_mod.build_fallback_agent_profile_config("helper", config)
+    assert profile.active_model == sentinel
+
+
+def test_fallback_profile_inherits_heartbeat_defaults(tmp_path) -> None:
+    """agents.defaults.heartbeat used to be dropped by the fallback profile."""
+    workspace = str(tmp_path / "ws-helper")
+    config = _config_with_profile("helper", workspace)
+    config.agents.defaults = cfg_mod.AgentsDefaultsConfig(
+        heartbeat=cfg_mod.HeartbeatConfig(
+            enabled=True,
+            every="6h",
+            target="main",
+            timeout_seconds=300,
+        ),
+    )
+
+    profile = cfg_mod.build_fallback_agent_profile_config("helper", config)
+    assert profile.heartbeat is not None
+    assert profile.heartbeat.enabled is True
+    assert profile.heartbeat.every == "6h"
+
+
+def test_fallback_profile_without_heartbeat_defaults_stays_none(
+    tmp_path,
+) -> None:
+    """No root-level heartbeat defaults must stay absent, not be invented."""
+    workspace = str(tmp_path / "ws-helper")
+    config = _config_with_profile("helper", workspace)
+    profile = cfg_mod.build_fallback_agent_profile_config("helper", config)
+    assert profile.heartbeat is None
+
+
 # ---------------------------------------------------------------------------
 # get_model_max_input_length
 # ---------------------------------------------------------------------------
