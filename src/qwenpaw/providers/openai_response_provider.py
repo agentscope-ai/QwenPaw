@@ -9,13 +9,21 @@ from typing import Any
 
 from agentscope.model import ChatModelBase, OpenAIResponseModel
 
-from .adapters.usage import UsageStream, cache_usage
+from .adapters.usage import UsageStream, cache_usage, value
 from .capping_formatter import _CappingOpenAIResponseFormatter
 from .openai_provider import OpenAIProvider
 from .provider import ModelConnectionResult
 from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+_CONTENT_DELTA_EVENT_TYPES = frozenset(
+    {
+        "response.reasoning_summary_text.delta",
+        "response.output_text.delta",
+        "response.function_call_arguments.delta",
+    },
+)
 
 _NONE_REASONING_EFFORT_MODELS = frozenset(
     {
@@ -74,6 +82,69 @@ def _extract_reasoning_text(response: Any) -> str:
     return " ".join(parts)
 
 
+def _has_terminal_output(response: Any) -> bool:
+    """Whether a terminal response carries text or tool calls to recover."""
+    for item in value(response, "output") or []:
+        item_type = value(item, "type")
+        if item_type == "function_call":
+            return True
+        if item_type != "message":
+            continue
+        for part in value(item, "content") or []:
+            if value(part, "type") == "output_text" and value(part, "text"):
+                return True
+    return False
+
+
+class _TerminalOutputFallback:
+    """Recover output that a provider only sends on the terminal event.
+
+    Some Responses API providers stream no content deltas at all and put
+    the whole ``response.output`` in the final ``response.completed``
+    event.  AgentScope's stream parser reads text and tool calls from
+    deltas only, so those turns used to come back as an empty assistant
+    message (issue #8162).
+
+    When the stream produced no content delta, this wrapper holds the
+    terminal event back and exposes its response object, so the caller
+    can rebuild the reply with the non-streaming parser instead of
+    yielding nothing.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self.stream = stream
+        self.active: Any = None
+        self.saw_content_delta = False
+        self.terminal_response: Any = None
+
+    async def __aenter__(self) -> "_TerminalOutputFallback":
+        self.active = await self.stream.__aenter__()
+        return self
+
+    async def __aexit__(self, *args: Any) -> Any:
+        return await self.stream.__aexit__(*args)
+
+    def __aiter__(self) -> "_TerminalOutputFallback":
+        return self
+
+    async def __anext__(self) -> Any:
+        while True:
+            item = await self.active.__anext__()
+            event_type = value(item, "type")
+            if event_type in _CONTENT_DELTA_EVENT_TYPES:
+                if value(item, "delta"):
+                    self.saw_content_delta = True
+            elif (
+                event_type == "response.completed"
+                and not self.saw_content_delta
+            ):
+                response = value(item, "response")
+                if _has_terminal_output(response):
+                    self.terminal_response = response
+                    continue
+            return item
+
+
 class OpenAIResponseModelCompat(OpenAIResponseModel):
     """OpenAIResponseModel with extra-kwargs injection and tool schema
     sanitization.
@@ -102,14 +173,27 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         return parsed
 
     async def _parse_stream_response(self, start_datetime, response):
-        """Read counters from the completed response exactly once."""
+        """Read counters from the completed response exactly once, and
+        rebuild the reply when a provider sends only the terminal event."""
         captured = UsageStream(response)
+        fallback = _TerminalOutputFallback(captured)
         async for parsed in super()._parse_stream_response(
             start_datetime,
-            captured,
+            fallback,
         ):
             cache_usage(parsed.usage, captured.usage, captured.headers)
             yield parsed
+        if fallback.terminal_response is not None:
+            logger.info(
+                "Responses stream sent no content deltas; rebuilding the "
+                "reply from the terminal response event",
+            )
+            recovered = self._parse_completion_response(
+                start_datetime,
+                fallback.terminal_response,
+            )
+            cache_usage(recovered.usage, captured.usage, captured.headers)
+            yield recovered
 
     async def _call_api(
         self,
