@@ -1,0 +1,24 @@
+This directory contains a prebuilt copy of OpenSSL.
+
+  Component: OpenSSL
+  Version:   3.5.9 29 Sep 2026
+  License:   Apache License 2.0 (full text: https://www.apache.org/licenses/LICENSE-2.0)
+  Copyright 1998-2026 The OpenSSL Project Authors. All Rights Reserved.
+
+Build provenance:
+  - Source: openssl-3.5.9 (upstream release tarball, unmodified)
+  - Target: aarch64-unknown-linux-ohos (HarmonyOS arm64-v8a, musl)
+  - Toolchain: HarmonyOS command-line-tools 26.0.0.851, NDK clang 15.0.4
+  - Configure: ./Configure aarch64-unknown-linux-ohos no-shared no-tests
+      no-legacy no-quic no-dtls no-ocsp no-ct no-ts no-srp no-psk
+      no-sm2 no-sm3 no-sm4 no-rc2 no-md4 no-tls1 no-tls1_1
+      no-engine no-async no-sock no-deprecated --prefix=<install>
+    （2026-10-16 起为缩减构建：保留 TLS1.2/1.3 客户端所需全部能力，
+    移除 atls 未使用的 legacy 提供者/QUIC/DTLS/OCSP/SM 族等，
+    静态库 14.3MB → 10.1MB）
+  - Artifacts: lib/libcrypto.a, lib/libssl.a (static, no shared libraries)
+  - Headers: include/openssl/ (verbatim from the install tree)
+
+OpenSSL 3.x and later is licensed under the Apache License, Version 2.0.
+This product includes software developed by the OpenSSL Project for use in
+the OpenSSL Toolkit (https://www.openssl.org/).

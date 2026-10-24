@@ -1,0 +1,5108 @@
+{
+  "string": [
+    {
+      "name": "chat_files_section",
+      "value": "文件清单（%d）"
+    },
+    {
+      "name": "module_desc",
+      "value": "QwenPaw 鸿蒙版入口模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "QwenPaw 鸿蒙版"
+    },
+    {
+      "name": "tab_chats",
+      "value": "会话"
+    },
+    {
+      "name": "tab_agents",
+      "value": "智能体"
+    },
+    {
+      "name": "tab_community",
+      "value": "社区"
+    },
+    {
+      "name": "tab_workbench",
+      "value": "工作台"
+    },
+    {
+      "name": "menu_settings",
+      "value": "设置"
+    },
+    {
+      "name": "about_title",
+      "value": "关于 QwenPaw"
+    },
+    {
+      "name": "about_message",
+      "value": "QwenPaw HarmonyOS 版 · 一期\n版本 1.0.0\nBundle io.agentscope.qwenpaw.mobile\nRelay 契约 v0.1.0\nLAN 直连 · 会话 / 智能体 / 社区 / 工作台"
+    },
+    {
+      "name": "settings_title",
+      "value": "设置"
+    },
+    {
+      "name": "settings_theme",
+      "value": "主题色"
+    },
+    {
+      "name": "settings_theme_hint",
+      "value": "对齐 QwenPaw 控制台主题预设；选中后底部页签高亮与沉浸光感手指光同步生效"
+    },
+    {
+      "name": "settings_theme_sync",
+      "value": "主题色同步"
+    },
+    {
+      "name": "settings_sync_title",
+      "value": "与控制台同步"
+    },
+    {
+      "name": "settings_sync_hint",
+      "value": "配色跟随 QwenPaw 控制台 Accent；每次启动自动刷新"
+    },
+    {
+      "name": "settings_sync_refresh",
+      "value": "立即刷新"
+    },
+    {
+      "name": "settings_theme_synced",
+      "value": "跟随控制台"
+    },
+    {
+      "name": "settings_sync_failed",
+      "value": "同步失败，请检查连接"
+    },
+    {
+      "name": "settings_account",
+      "value": "当前账户"
+    },
+    {
+      "name": "settings_paired",
+      "value": "已配对的 QwenPaw"
+    },
+    {
+      "name": "settings_current",
+      "value": "当前"
+    },
+    {
+      "name": "settings_switch",
+      "value": "切换"
+    },
+    {
+      "name": "settings_remove",
+      "value": "移除"
+    },
+    {
+      "name": "settings_remove_title",
+      "value": "移除这只 QwenPaw？"
+    },
+    {
+      "name": "settings_remove_msg",
+      "value": "只会移除这只连接，当前其他连接不受影响。"
+    },
+    {
+      "name": "settings_disconnect",
+      "value": "断开全部连接"
+    },
+    {
+      "name": "settings_disconnect_title",
+      "value": "断开连接？"
+    },
+    {
+      "name": "settings_disconnect_msg",
+      "value": "将清空本机全部已配对的 QwenPaw，需要重新扫码或登录。"
+    },
+    {
+      "name": "settings_security_group",
+      "value": "安全与提醒"
+    },
+    {
+      "name": "settings_security",
+      "value": "安全"
+    },
+    {
+      "name": "settings_security_hint",
+      "value": "Sandbox、Tool Guard、File Guard 与扫描"
+    },
+    {
+      "name": "agents_loading",
+      "value": "正在读取智能体列表…"
+    },
+    {
+      "name": "agents_empty",
+      "value": "未连接 QwenPaw 服务。\n请先在「会话」页连接，再回来查看智能体。"
+    },
+    {
+      "name": "agents_none",
+      "value": "服务在线，但当前没有已配置的智能体。"
+    },
+    {
+      "name": "agents_current_eyebrow",
+      "value": "当前使用"
+    },
+    {
+      "name": "agents_current_follow",
+      "value": " · 新会话与工作台跟随此智能体"
+    },
+    {
+      "name": "agents_connected",
+      "value": "已连接"
+    },
+    {
+      "name": "agents_search_placeholder",
+      "value": "搜索智能体"
+    },
+    {
+      "name": "agents_all",
+      "value": "全部智能体"
+    },
+    {
+      "name": "agents_active_badge",
+      "value": "当前"
+    },
+    {
+      "name": "agents_switch_failed",
+      "value": "暂时无法切换智能体"
+    },
+    {
+      "name": "agents_search_empty",
+      "value": "没有找到相关智能体"
+    },
+    {
+      "name": "agents_search_empty_copy",
+      "value": "换个关键词，或创建一只新的 QwenPaw。"
+    },
+    {
+      "name": "agents_fallback_desc",
+      "value": "QwenPaw Agent"
+    },
+    {
+      "name": "community_title",
+      "value": "社区"
+    },
+    {
+      "name": "community_desc",
+      "value": "节点社区内容将在二期接入：\n节点发现 / 共享工作区 / 跨机协作。"
+    },
+    {
+      "name": "workbench_title",
+      "value": "工作台"
+    },
+    {
+      "name": "workbench_search",
+      "value": "搜索全部功能与设置"
+    },
+    {
+      "name": "workbench_quick",
+      "value": "快捷操作"
+    },
+    {
+      "name": "workbench_all",
+      "value": "全部功能"
+    },
+    {
+      "name": "workbench_items_unit",
+      "value": "项"
+    },
+    {
+      "name": "workbench_qa_sessions",
+      "value": "会话"
+    },
+    {
+      "name": "workbench_qa_automation",
+      "value": "定时任务"
+    },
+    {
+      "name": "workbench_qa_files",
+      "value": "文件"
+    },
+    {
+      "name": "workbench_qa_tools",
+      "value": "工具"
+    },
+    {
+      "name": "workbench_scope",
+      "value": "能力范围"
+    },
+    {
+      "name": "workbench_endpoint",
+      "value": "接口："
+    },
+    {
+      "name": "workbench_endpoint_note",
+      "value": "该设置项数据由后端接口提供；移动端详情页在后续版本补充。"
+    },
+    {
+      "name": "module_not_connected",
+      "value": "尚未连接 QwenPaw"
+    },
+    {
+      "name": "module_selected",
+      "value": "已选择"
+    },
+    {
+      "name": "module_loading",
+      "value": "正在读取 QwenPaw…"
+    },
+    {
+      "name": "module_error_title",
+      "value": "无法读取当前设置"
+    },
+    {
+      "name": "module_field_required",
+      "value": "必填"
+    },
+    {
+      "name": "module_field_on",
+      "value": "已开启"
+    },
+    {
+      "name": "module_field_off",
+      "value": "已关闭"
+    },
+    {
+      "name": "module_field_select",
+      "value": "请选择"
+    },
+    {
+      "name": "module_edit",
+      "value": "编辑"
+    },
+    {
+      "name": "module_delete",
+      "value": "删除"
+    },
+    {
+      "name": "module_acp_runtime",
+      "value": "Node Runtime"
+    },
+    {
+      "name": "module_acp_node_path",
+      "value": "Node.js Path"
+    },
+    {
+      "name": "module_acp_runtimes",
+      "value": "个可用 Runtime"
+    },
+    {
+      "name": "module_acp_not_detected",
+      "value": "未检测到"
+    },
+    {
+      "name": "module_acp_add",
+      "value": "添加 ACP Agent"
+    },
+    {
+      "name": "module_acp_add_hint",
+      "value": "配置外部 Agent 命令和信任策略"
+    },
+    {
+      "name": "module_acp_agent_title",
+      "value": "ACP Agent"
+    },
+    {
+      "name": "module_acp_trusted",
+      "value": "受信任"
+    },
+    {
+      "name": "module_acp_need_approval",
+      "value": "需审批"
+    },
+    {
+      "name": "module_acp_empty_title",
+      "value": "还没有 ACP Agent"
+    },
+    {
+      "name": "module_acp_empty_copy",
+      "value": "添加后即可从会话中委派给外部 Agent。"
+    },
+    {
+      "name": "module_acp_footer",
+      "value": "ACP 修改会触发当前 Agent 热重载。"
+    },
+    {
+      "name": "module_acp_agent_id",
+      "value": "Agent 标识"
+    },
+    {
+      "name": "module_acp_command",
+      "value": "Command"
+    },
+    {
+      "name": "module_acp_args",
+      "value": "参数"
+    },
+    {
+      "name": "module_acp_args_help",
+      "value": "每行一个参数。"
+    },
+    {
+      "name": "module_acp_env",
+      "value": "环境变量"
+    },
+    {
+      "name": "module_acp_env_help",
+      "value": "填写 JSON 对象。"
+    },
+    {
+      "name": "module_acp_trust",
+      "value": "信任此 ACP Agent"
+    },
+    {
+      "name": "module_acp_parse",
+      "value": "工具解析方式"
+    },
+    {
+      "name": "module_acp_buffer",
+      "value": "Stdio 缓冲上限"
+    },
+    {
+      "name": "module_acp_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "module_acp_delete_failed",
+      "value": "删除失败"
+    },
+    {
+      "name": "module_acp_env_invalid",
+      "value": "环境变量必须是有效的 JSON 对象。"
+    },
+    {
+      "name": "module_acp_command_required",
+      "value": "Command 不能为空。"
+    },
+    {
+      "name": "module_agent_identity",
+      "value": "身份"
+    },
+    {
+      "name": "module_agent_defaults",
+      "value": "默认行为"
+    },
+    {
+      "name": "module_agent_memory",
+      "value": "Memory"
+    },
+    {
+      "name": "module_agent_g_runtime",
+      "value": "运行与限流"
+    },
+    {
+      "name": "module_agent_g_memory_view",
+      "value": "Memory 与呈现"
+    },
+    {
+      "name": "module_agent_g_locale",
+      "value": "语言与地区"
+    },
+    {
+      "name": "module_agent_edit",
+      "value": "编辑名称与描述"
+    },
+    {
+      "name": "module_agent_edit_title",
+      "value": "编辑 Agent"
+    },
+    {
+      "name": "module_agent_no_desc",
+      "value": "未设置描述"
+    },
+    {
+      "name": "module_agent_approval",
+      "value": "审批等级"
+    },
+    {
+      "name": "module_agent_approval_hint",
+      "value": "会话可单独覆盖"
+    },
+    {
+      "name": "module_agent_approval_strict",
+      "value": "严格"
+    },
+    {
+      "name": "module_agent_approval_smart",
+      "value": "智能"
+    },
+    {
+      "name": "module_agent_approval_auto",
+      "value": "自动"
+    },
+    {
+      "name": "module_agent_approval_off",
+      "value": "关闭"
+    },
+    {
+      "name": "module_agent_thinking",
+      "value": "思考等级"
+    },
+    {
+      "name": "module_agent_thinking_hint",
+      "value": "模型推理强度"
+    },
+    {
+      "name": "module_agent_think_inherit",
+      "value": "跟随模型"
+    },
+    {
+      "name": "module_agent_think_off",
+      "value": "关闭"
+    },
+    {
+      "name": "module_agent_think_low",
+      "value": "低"
+    },
+    {
+      "name": "module_agent_think_medium",
+      "value": "中"
+    },
+    {
+      "name": "module_agent_think_high",
+      "value": "高"
+    },
+    {
+      "name": "module_agent_reindex",
+      "value": "重建记忆索引"
+    },
+    {
+      "name": "module_agent_reindex_hint",
+      "value": "不会删除原始记忆文件"
+    },
+    {
+      "name": "module_agent_reindex_confirm_title",
+      "value": "重建记忆索引？"
+    },
+    {
+      "name": "module_agent_reindex_confirm_msg",
+      "value": "会在后台重新索引当前 Agent 的 Memory。"
+    },
+    {
+      "name": "module_agent_reindex_start",
+      "value": "开始重建"
+    },
+    {
+      "name": "module_agent_reindex_started_title",
+      "value": "已开始"
+    },
+    {
+      "name": "module_agent_reindex_started_msg",
+      "value": "重建任务正在后台运行。"
+    },
+    {
+      "name": "module_agent_reindex_failed",
+      "value": "启动失败"
+    },
+    {
+      "name": "module_agent_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "module_agent_loop",
+      "value": "Agent Loop 与 LLM"
+    },
+    {
+      "name": "module_agent_loop_hint",
+      "value": "最多 %d 轮 · %m 次重试"
+    },
+    {
+      "name": "module_agent_shell",
+      "value": "Shell 与上下文"
+    },
+    {
+      "name": "module_agent_shell_hint",
+      "value": "%d 秒 · %m tokens"
+    },
+    {
+      "name": "module_agent_mem_row",
+      "value": "记忆与压缩"
+    },
+    {
+      "name": "module_agent_mem_hint",
+      "value": "%b · 每 %d 轮"
+    },
+    {
+      "name": "module_agent_lang_hint",
+      "value": "Agent 默认语言"
+    },
+    {
+      "name": "module_agent_workspace",
+      "value": "当前 Agent workspace"
+    },
+    {
+      "name": "module_agent_form_name",
+      "value": "名称"
+    },
+    {
+      "name": "module_agent_form_desc",
+      "value": "描述"
+    },
+    {
+      "name": "module_agent_form_desc_ph",
+      "value": "这个 Agent 负责什么"
+    },
+    {
+      "name": "module_agent_f_iter_enabled",
+      "value": "启用轮数限制"
+    },
+    {
+      "name": "module_agent_f_max_iterations",
+      "value": "最大迭代轮数"
+    },
+    {
+      "name": "module_agent_f_retry_enabled",
+      "value": "LLM 自动重试"
+    },
+    {
+      "name": "module_agent_f_max_retries",
+      "value": "最大重试次数"
+    },
+    {
+      "name": "module_agent_f_backoff_base",
+      "value": "重试基础等待秒数"
+    },
+    {
+      "name": "module_agent_f_backoff_cap",
+      "value": "重试最大等待秒数"
+    },
+    {
+      "name": "module_agent_f_max_concurrent",
+      "value": "最大并发请求"
+    },
+    {
+      "name": "module_agent_f_max_qpm",
+      "value": "每分钟最大请求"
+    },
+    {
+      "name": "module_agent_f_acquire_timeout",
+      "value": "限流等待超时秒数"
+    },
+    {
+      "name": "module_agent_f_shell_timeout",
+      "value": "Shell 命令超时秒数"
+    },
+    {
+      "name": "module_agent_f_shell_exec",
+      "value": "Shell 可执行程序"
+    },
+    {
+      "name": "module_agent_f_max_input",
+      "value": "最大输入 Tokens"
+    },
+    {
+      "name": "module_agent_f_history_max",
+      "value": "最大历史消息数"
+    },
+    {
+      "name": "module_agent_f_compact_enabled",
+      "value": "自动压缩上下文"
+    },
+    {
+      "name": "module_agent_f_compact_ratio",
+      "value": "压缩触发比例"
+    },
+    {
+      "name": "module_agent_f_pruning_enabled",
+      "value": "裁剪旧工具结果"
+    },
+    {
+      "name": "module_agent_f_pruning_n",
+      "value": "保留最近工具结果数"
+    },
+    {
+      "name": "module_agent_f_visual_enabled",
+      "value": "压缩视觉输入"
+    },
+    {
+      "name": "module_agent_f_visual_effort",
+      "value": "视觉压缩强度"
+    },
+    {
+      "name": "module_agent_f_mem_backend",
+      "value": "Memory Backend"
+    },
+    {
+      "name": "module_agent_f_mem_interval",
+      "value": "自动记忆间隔轮数"
+    },
+    {
+      "name": "module_agent_f_mem_search",
+      "value": "启用记忆搜索"
+    },
+    {
+      "name": "module_agent_f_auto_search",
+      "value": "对话前自动搜索"
+    },
+    {
+      "name": "module_agent_f_auto_search_max",
+      "value": "自动搜索结果数"
+    },
+    {
+      "name": "module_agent_f_dream_enabled",
+      "value": "启用 Dream Cron"
+    },
+    {
+      "name": "module_agent_f_dream_cron",
+      "value": "Dream Cron 表达式"
+    },
+    {
+      "name": "module_agent_f_paper_enabled",
+      "value": "启用 Daily Paper"
+    },
+    {
+      "name": "module_agent_f_paper_cron",
+      "value": "Daily Paper Cron"
+    },
+    {
+      "name": "module_agent_f_paper_topics",
+      "value": "Daily Paper 主题"
+    },
+    {
+      "name": "module_agent_f_language",
+      "value": "Agent 语言"
+    },
+    {
+      "name": "module_agent_f_timezone",
+      "value": "时区"
+    },
+    {
+      "name": "module_auto_g_heartbeat",
+      "value": "Heartbeat"
+    },
+    {
+      "name": "module_auto_wake",
+      "value": "主动唤醒"
+    },
+    {
+      "name": "module_auto_default_every",
+      "value": "按配置"
+    },
+    {
+      "name": "module_auto_current_agent",
+      "value": "当前 Agent"
+    },
+    {
+      "name": "module_auto_unsupported",
+      "value": "当前 QwenPaw 不支持 Heartbeat"
+    },
+    {
+      "name": "module_auto_enabled",
+      "value": "已启用"
+    },
+    {
+      "name": "module_auto_disabled",
+      "value": "未启用"
+    },
+    {
+      "name": "module_auto_config",
+      "value": "配置 Heartbeat"
+    },
+    {
+      "name": "module_auto_config_hint",
+      "value": "周期、目标、超时与活跃时段"
+    },
+    {
+      "name": "module_auto_hb_config",
+      "value": "Heartbeat 配置"
+    },
+    {
+      "name": "module_auto_create",
+      "value": "创建 Cron Job"
+    },
+    {
+      "name": "module_auto_create_hint",
+      "value": "周期任务或一次性任务"
+    },
+    {
+      "name": "module_auto_job_edit",
+      "value": "编辑 Cron Job"
+    },
+    {
+      "name": "module_auto_running",
+      "value": "运行中"
+    },
+    {
+      "name": "module_auto_paused",
+      "value": "已暂停"
+    },
+    {
+      "name": "module_auto_empty_title",
+      "value": "暂无定时任务"
+    },
+    {
+      "name": "module_auto_empty_copy",
+      "value": "当前 Agent 还没有创建 Cron Job。"
+    },
+    {
+      "name": "module_auto_footer",
+      "value": "点按任务可立即运行、暂停或恢复；操作直接写入当前 QwenPaw。"
+    },
+    {
+      "name": "module_auto_no_schedule",
+      "value": "未设置计划"
+    },
+    {
+      "name": "module_auto_server_schedule",
+      "value": "按服务端计划运行"
+    },
+    {
+      "name": "module_auto_run_now",
+      "value": "立即运行"
+    },
+    {
+      "name": "module_auto_pause",
+      "value": "暂停任务"
+    },
+    {
+      "name": "module_auto_resume",
+      "value": "恢复任务"
+    },
+    {
+      "name": "module_auto_history",
+      "value": "历史记录"
+    },
+    {
+      "name": "module_auto_history_empty",
+      "value": "暂无运行记录"
+    },
+    {
+      "name": "module_auto_read_failed",
+      "value": "读取失败"
+    },
+    {
+      "name": "module_auto_delete_title",
+      "value": "删除定时任务？"
+    },
+    {
+      "name": "module_auto_delete_failed",
+      "value": "删除失败"
+    },
+    {
+      "name": "module_auto_op_failed",
+      "value": "任务操作失败"
+    },
+    {
+      "name": "module_auto_hb_started_title",
+      "value": "Heartbeat 已启动"
+    },
+    {
+      "name": "module_auto_hb_started_msg",
+      "value": "任务已交给当前 QwenPaw 执行。"
+    },
+    {
+      "name": "module_auto_start_failed",
+      "value": "启动失败"
+    },
+    {
+      "name": "module_auto_need_cron",
+      "value": "周期任务必须填写 Cron 表达式。"
+    },
+    {
+      "name": "module_auto_need_run_at",
+      "value": "一次性任务必须填写执行时间。"
+    },
+    {
+      "name": "module_auto_f_hb_enabled",
+      "value": "启用 Heartbeat"
+    },
+    {
+      "name": "module_auto_f_hb_every",
+      "value": "执行周期"
+    },
+    {
+      "name": "module_auto_f_hb_target",
+      "value": "目标"
+    },
+    {
+      "name": "module_auto_f_hb_timeout",
+      "value": "超时秒数"
+    },
+    {
+      "name": "module_auto_f_hb_start",
+      "value": "活跃时段开始"
+    },
+    {
+      "name": "module_auto_f_hb_end",
+      "value": "活跃时段结束"
+    },
+    {
+      "name": "module_auto_f_job_name",
+      "value": "任务名称"
+    },
+    {
+      "name": "module_auto_f_job_enabled",
+      "value": "启用任务"
+    },
+    {
+      "name": "module_auto_f_job_schedule",
+      "value": "执行计划"
+    },
+    {
+      "name": "module_auto_f_job_cron",
+      "value": "Cron 表达式"
+    },
+    {
+      "name": "module_auto_f_job_run_at",
+      "value": "一次执行时间"
+    },
+    {
+      "name": "module_auto_f_job_timezone",
+      "value": "时区"
+    },
+    {
+      "name": "module_auto_f_job_repeat",
+      "value": "每隔几天重复"
+    },
+    {
+      "name": "module_auto_f_job_repeat_help",
+      "value": "一次性任务可选；0 表示不重复。"
+    },
+    {
+      "name": "module_auto_f_job_type",
+      "value": "任务类型"
+    },
+    {
+      "name": "module_auto_f_job_content",
+      "value": "任务内容"
+    },
+    {
+      "name": "module_auto_f_job_content_help",
+      "value": "Agent 任务填写用户指令；文本任务填写直接投递的文本。"
+    },
+    {
+      "name": "module_auto_f_job_dispatch",
+      "value": "投递目标"
+    },
+    {
+      "name": "module_auto_f_job_inbox",
+      "value": "结果保存到 Inbox"
+    },
+    {
+      "name": "module_auto_f_job_timeout",
+      "value": "超时秒数"
+    },
+    {
+      "name": "module_ch_access_group",
+      "value": "访问控制"
+    },
+    {
+      "name": "module_ch_add_rule",
+      "value": "添加访问规则"
+    },
+    {
+      "name": "module_ch_add_rule_hint",
+      "value": "手动加入白名单或黑名单"
+    },
+    {
+      "name": "module_ch_pending",
+      "value": "待处理请求"
+    },
+    {
+      "name": "module_ch_pending_hint",
+      "value": "消息渠道与邮件接入申请"
+    },
+    {
+      "name": "module_ch_pending_channel",
+      "value": "渠道待审批"
+    },
+    {
+      "name": "module_ch_pending_mail",
+      "value": "邮件待审批"
+    },
+    {
+      "name": "module_ch_handle",
+      "value": "处理"
+    },
+    {
+      "name": "module_ch_allow",
+      "value": "允许"
+    },
+    {
+      "name": "module_ch_deny",
+      "value": "拒绝"
+    },
+    {
+      "name": "module_ch_dismiss",
+      "value": "忽略"
+    },
+    {
+      "name": "module_ch_remove_rule",
+      "value": "移除规则"
+    },
+    {
+      "name": "module_ch_list_suffix",
+      "value": "访问名单"
+    },
+    {
+      "name": "module_ch_channels_group",
+      "value": "消息渠道"
+    },
+    {
+      "name": "module_ch_connected",
+      "value": "已连接并接收消息"
+    },
+    {
+      "name": "module_ch_disabled",
+      "value": "未启用"
+    },
+    {
+      "name": "module_ch_empty_title",
+      "value": "暂无渠道"
+    },
+    {
+      "name": "module_ch_empty_copy",
+      "value": "当前 QwenPaw 没有返回可配置消息渠道。"
+    },
+    {
+      "name": "module_ch_footer",
+      "value": "点击渠道编辑账号、凭据、消息呈现与访问策略；开关立即保存。"
+    },
+    {
+      "name": "module_ch_save_failed",
+      "value": "渠道设置保存失败"
+    },
+    {
+      "name": "module_ch_acl_failed",
+      "value": "访问控制操作失败"
+    },
+    {
+      "name": "module_ch_f_channel",
+      "value": "渠道"
+    },
+    {
+      "name": "module_ch_f_user_id",
+      "value": "用户 ID"
+    },
+    {
+      "name": "module_ch_f_remark",
+      "value": "备注"
+    },
+    {
+      "name": "module_ch_f_effect",
+      "value": "规则"
+    },
+    {
+      "name": "module_ch_f_prefix",
+      "value": "机器人前缀"
+    },
+    {
+      "name": "module_ch_f_show_tool_calls",
+      "value": "显示工具调用"
+    },
+    {
+      "name": "module_ch_f_show_tool_results",
+      "value": "显示工具结果"
+    },
+    {
+      "name": "module_ch_f_show_thinking",
+      "value": "显示思考过程"
+    },
+    {
+      "name": "module_ch_f_allow_dm",
+      "value": "允许私聊"
+    },
+    {
+      "name": "module_ch_f_allow_group",
+      "value": "允许群聊"
+    },
+    {
+      "name": "module_ch_f_require_mention",
+      "value": "群聊需要 @"
+    },
+    {
+      "name": "module_cp_group",
+      "value": "版本保护"
+    },
+    {
+      "name": "module_cp_auto",
+      "value": "自动建立 Checkpoint"
+    },
+    {
+      "name": "module_cp_auto_hint",
+      "value": "Agent 工作前后自动保存版本"
+    },
+    {
+      "name": "module_cp_snap",
+      "value": "立即创建快照"
+    },
+    {
+      "name": "module_cp_snap_hint",
+      "value": "保存当前 Agent workspace"
+    },
+    {
+      "name": "module_cp_gc_policy",
+      "value": "历史保留策略"
+    },
+    {
+      "name": "module_cp_safe_days",
+      "value": "安全版本"
+    },
+    {
+      "name": "module_cp_clean",
+      "value": "按保留策略清理"
+    },
+    {
+      "name": "module_cp_clean_hint",
+      "value": "先预检，再确认删除"
+    },
+    {
+      "name": "module_cp_history",
+      "value": "历史版本"
+    },
+    {
+      "name": "module_cp_empty_title",
+      "value": "还没有历史版本"
+    },
+    {
+      "name": "module_cp_empty_copy",
+      "value": "开启自动版本或创建一次手动快照。"
+    },
+    {
+      "name": "module_cp_kind_auto",
+      "value": "自动版本"
+    },
+    {
+      "name": "module_cp_kind_pre",
+      "value": "恢复前安全版本"
+    },
+    {
+      "name": "module_cp_kind_snap",
+      "value": "手动快照"
+    },
+    {
+      "name": "module_cp_kind_other",
+      "value": "工作区版本"
+    },
+    {
+      "name": "module_cp_no_session_title",
+      "value": "暂无会话"
+    },
+    {
+      "name": "module_cp_no_session_msg",
+      "value": "创建至少一个会话后才能建立手动快照。"
+    },
+    {
+      "name": "module_cp_snap_confirm_title",
+      "value": "创建当前工作区快照？"
+    },
+    {
+      "name": "module_cp_snap_link",
+      "value": "快照会关联到"
+    },
+    {
+      "name": "module_cp_create",
+      "value": "创建"
+    },
+    {
+      "name": "module_cp_snap_done",
+      "value": "快照已创建"
+    },
+    {
+      "name": "module_cp_restore_title",
+      "value": "恢复到这个版本？"
+    },
+    {
+      "name": "module_cp_restore_msg",
+      "value": "预检已通过。恢复前会自动创建安全快照。"
+    },
+    {
+      "name": "module_cp_restore",
+      "value": "恢复"
+    },
+    {
+      "name": "module_cp_restored",
+      "value": "工作区已恢复"
+    },
+    {
+      "name": "module_cp_cannot_restore",
+      "value": "无法恢复"
+    },
+    {
+      "name": "module_cp_no_clean_title",
+      "value": "无需清理"
+    },
+    {
+      "name": "module_cp_no_clean_msg",
+      "value": "当前没有超过保留策略的历史版本。"
+    },
+    {
+      "name": "module_cp_clean_title",
+      "value": "清理历史版本？"
+    },
+    {
+      "name": "module_cp_clean_prefix",
+      "value": "将删除 "
+    },
+    {
+      "name": "module_cp_clean_suffix",
+      "value": " 个过期版本。"
+    },
+    {
+      "name": "module_cp_clean_btn",
+      "value": "清理"
+    },
+    {
+      "name": "module_cp_cleaned",
+      "value": "历史版本已清理"
+    },
+    {
+      "name": "module_cp_precheck_failed",
+      "value": "预检失败"
+    },
+    {
+      "name": "module_cp_op_failed",
+      "value": "操作失败"
+    },
+    {
+      "name": "module_cp_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "module_cp_f_count",
+      "value": "每个会话保留数量"
+    },
+    {
+      "name": "module_cp_f_days",
+      "value": "自动版本保留天数"
+    },
+    {
+      "name": "module_cp_f_pre",
+      "value": "恢复前安全版本保留天数"
+    },
+    {
+      "name": "module_cp_l_count",
+      "value": "保留数量"
+    },
+    {
+      "name": "module_cp_l_days",
+      "value": "保留天数"
+    },
+    {
+      "name": "module_cp_l_pre",
+      "value": "安全版本保留天数"
+    },
+    {
+      "name": "module_cp_int_invalid",
+      "value": "必须是大于 0 的整数。"
+    },
+    {
+      "name": "module_snap_group",
+      "value": "当前配置"
+    },
+    {
+      "name": "module_snap_status",
+      "value": "连接状态"
+    },
+    {
+      "name": "module_snap_synced",
+      "value": "已从当前 QwenPaw 同步"
+    },
+    {
+      "name": "module_snap_empty_title",
+      "value": "暂无数据"
+    },
+    {
+      "name": "module_snap_empty_copy",
+      "value": "当前 QwenPaw 已成功响应，但这里还没有配置。"
+    },
+    {
+      "name": "module_snap_footer",
+      "value": "页面数据来自当前 QwenPaw，不使用预览或示例内容。"
+    },
+    {
+      "name": "module_snap_enabled",
+      "value": "已启用"
+    },
+    {
+      "name": "module_snap_disabled",
+      "value": "已停用"
+    },
+    {
+      "name": "module_snap_items",
+      "value": "项"
+    },
+    {
+      "name": "module_snap_fields",
+      "value": "个配置字段"
+    },
+    {
+      "name": "module_snap_unset",
+      "value": "未设置"
+    },
+    {
+      "name": "module_snap_item",
+      "value": "项目"
+    },
+    {
+      "name": "module_offload_group",
+      "value": "长任务默认行为"
+    },
+    {
+      "name": "module_offload_keep",
+      "value": "保持在前台"
+    },
+    {
+      "name": "module_offload_keep_hint",
+      "value": "等待工具完成后继续当前回复"
+    },
+    {
+      "name": "module_offload_bg",
+      "value": "转入后台"
+    },
+    {
+      "name": "module_offload_bg_hint",
+      "value": "到达时限后转为后台任务"
+    },
+    {
+      "name": "module_offload_footer",
+      "value": "只控制默认策略；会话中的单次工具任务仍可单独调整。"
+    },
+    {
+      "name": "workbench_conn",
+      "value": "连接与设置"
+    },
+    {
+      "name": "workbench_conn_hint",
+      "value": "连接配置 · 主题色 · 协议自检"
+    },
+    {
+      "name": "workbench_about",
+      "value": "关于 QwenPaw"
+    },
+    {
+      "name": "workbench_approvals",
+      "value": "审批"
+    },
+    {
+      "name": "workbench_approvals_hint",
+      "value": "一期：Approval Inbox 即将接入"
+    },
+    {
+      "name": "wb_connected",
+      "value": "已连接"
+    },
+    {
+      "name": "wb_not_connected",
+      "value": "未连接"
+    },
+    {
+      "name": "mine_title",
+      "value": "关于与自检"
+    },
+    {
+      "name": "mine_protocol",
+      "value": "中继协议版本"
+    },
+    {
+      "name": "mine_contract",
+      "value": "契约版本"
+    },
+    {
+      "name": "mine_operations",
+      "value": "中继操作"
+    },
+    {
+      "name": "mine_frame",
+      "value": "帧格式"
+    },
+    {
+      "name": "mine_run",
+      "value": "运行自检（12 项）"
+    },
+    {
+      "name": "mine_frame_value",
+      "value": "4B 大端长度 + 稳定 JSON 头 + payload"
+    },
+    {
+      "name": "mine_footer",
+      "value": "连接配置：「会话」页 · 智能体列表：「智能体」页签 · 审批：「工作台」"
+    },
+    {
+      "name": "cp_title",
+      "value": "连接 QwenPaw"
+    },
+    {
+      "name": "cp_status_disconnected",
+      "value": "未连接"
+    },
+    {
+      "name": "cp_status_connecting",
+      "value": "连接中…"
+    },
+    {
+      "name": "cp_status_connected",
+      "value": "已连接"
+    },
+    {
+      "name": "cp_status_failed",
+      "value": "连接失败"
+    },
+    {
+      "name": "cp_agents_unit",
+      "value": "个智能体"
+    },
+    {
+      "name": "cp_service_url",
+      "value": "服务地址"
+    },
+    {
+      "name": "cp_url_placeholder",
+      "value": "http://192.0.2.10:8088，或直接粘贴 qwenpaw://pair 配对码"
+    },
+    {
+      "name": "cp_ticket",
+      "value": "配对码（可选）"
+    },
+    {
+      "name": "cp_ticket_placeholder",
+      "value": "服务未开账号体系可留空直连"
+    },
+    {
+      "name": "cp_connect",
+      "value": "连接"
+    },
+    {
+      "name": "cp_scan",
+      "value": "扫码配对"
+    },
+    {
+      "name": "cp_hint",
+      "value": "提示：QwenPaw 服务需与手机同网段，且以 --host 0.0.0.0 启动。"
+    },
+    {
+      "name": "cp_ext_hint",
+      "value": "未连接时仅可浏览本地插件，连接后可上传设备上的插件包安装"
+    },
+    {
+      "name": "cp_mode_open",
+      "value": "开放模式"
+    },
+    {
+      "name": "cp_mode_paired",
+      "value": "已配对"
+    },
+    {
+      "name": "cp_user",
+      "value": "用户"
+    },
+    {
+      "name": "cp_agents",
+      "value": "智能体"
+    },
+    {
+      "name": "cp_sse_next",
+      "value": "会话列表将在下一块接入（SSE 流式）"
+    },
+    {
+      "name": "cp_reconnect",
+      "value": "重新连接"
+    },
+    {
+      "name": "cp_disconnect",
+      "value": "断开"
+    },
+    {
+      "name": "scan_title",
+      "value": "扫描 QwenPaw 控制台"
+    },
+    {
+      "name": "scan_copy",
+      "value": "配对码两分钟后失效。"
+    },
+    {
+      "name": "scan_secure",
+      "value": "安全配对"
+    },
+    {
+      "name": "scan_linking",
+      "value": "正在配对…"
+    },
+    {
+      "name": "scan_start",
+      "value": "开始扫码"
+    },
+    {
+      "name": "scan_retry",
+      "value": "重新扫码"
+    },
+    {
+      "name": "scan_cancelled",
+      "value": "已取消扫码。"
+    },
+    {
+      "name": "scan_failed",
+      "value": "扫码失败"
+    },
+    {
+      "name": "scan_paired",
+      "value": "配对成功"
+    },
+    {
+      "name": "settings_pair_new",
+      "value": "配对一台新设备"
+    },
+    {
+      "name": "settings_pair_new_copy",
+      "value": "扫描 QwenPaw 工作区里的配对二维码"
+    },
+    {
+      "name": "settings_reconnect",
+      "value": "重新连接当前工作区"
+    },
+    {
+      "name": "settings_reconnect_copy",
+      "value": "用已保存的凭据复核连接状态"
+    },
+    {
+      "name": "settings_reconnect_ok",
+      "value": "已重新连接"
+    },
+    {
+      "name": "settings_reconnect_failed",
+      "value": "重新连接失败"
+    },
+    {
+      "name": "settings_current_agent",
+      "value": "当前 Agent"
+    },
+    {
+      "name": "settings_current_agent_hint",
+      "value": "头像、昵称与 Agent 切换"
+    },
+    {
+      "name": "settings_platform_group",
+      "value": "Platform 账号"
+    },
+    {
+      "name": "settings_platform_account",
+      "value": "Platform 账号"
+    },
+    {
+      "name": "settings_platform_logged",
+      "value": "已登录"
+    },
+    {
+      "name": "settings_platform_logged_out",
+      "value": "未登录"
+    },
+    {
+      "name": "settings_platform_logged_hint",
+      "value": "已安全登录"
+    },
+    {
+      "name": "settings_platform_login_hint",
+      "value": "社区浏览无需登录，互动时再登录"
+    },
+    {
+      "name": "settings_platform_login",
+      "value": "登录 Platform"
+    },
+    {
+      "name": "settings_platform_login_sub",
+      "value": "启用点赞、评论和发布"
+    },
+    {
+      "name": "settings_platform_logout",
+      "value": "退出 Platform"
+    },
+    {
+      "name": "settings_platform_logout_title",
+      "value": "退出 Platform？"
+    },
+    {
+      "name": "settings_platform_logout_msg",
+      "value": "将退出账号并取消所有 Platform 云端 QwenPaw 配对；本机和私人部署不受影响。"
+    },
+    {
+      "name": "settings_platform_logout_ok",
+      "value": "已退出 Platform"
+    },
+    {
+      "name": "settings_device_group",
+      "value": "设备"
+    },
+    {
+      "name": "settings_device_paired",
+      "value": "配对状态"
+    },
+    {
+      "name": "settings_device_paired_hint",
+      "value": "除非主动移除，否则此设备保持配对"
+    },
+    {
+      "name": "settings_device_paired_value",
+      "value": "已配对"
+    },
+    {
+      "name": "pd_title",
+      "value": "云端 QwenPaw"
+    },
+    {
+      "name": "pd_hero_has",
+      "value": "正在打开你的 QwenPaw"
+    },
+    {
+      "name": "pd_hero_has_sub",
+      "value": "登录态已经保留。服务就绪后即可在控制台或 App 内继续使用。"
+    },
+    {
+      "name": "pd_hero_new",
+      "value": "创建你的云端 QwenPaw"
+    },
+    {
+      "name": "pd_hero_new_sub",
+      "value": "一键创建隔离的云端实例。对话、Skills 与配置会持久保存，重新部署时自动恢复。"
+    },
+    {
+      "name": "pd_checking",
+      "value": "正在检查 Platform 部署…"
+    },
+    {
+      "name": "pd_step_create",
+      "value": "创建实例"
+    },
+    {
+      "name": "pd_step_start",
+      "value": "启动服务"
+    },
+    {
+      "name": "pd_step_pair",
+      "value": "安全配对"
+    },
+    {
+      "name": "pd_instance",
+      "value": "部署信息"
+    },
+    {
+      "name": "pd_app_id",
+      "value": "实例 ID"
+    },
+    {
+      "name": "pd_access",
+      "value": "访问地址"
+    },
+    {
+      "name": "pd_access_pending",
+      "value": "就绪后由 Platform 下发"
+    },
+    {
+      "name": "pd_mirror",
+      "value": "运行镜像"
+    },
+    {
+      "name": "pd_mirror_unknown",
+      "value": "Platform 默认镜像"
+    },
+    {
+      "name": "pd_mirror_unsupported_title",
+      "value": "当前镜像暂不支持 Mobile"
+    },
+    {
+      "name": "pd_mirror_detected",
+      "value": "已检测到 "
+    },
+    {
+      "name": "pd_log_title",
+      "value": "部署日志"
+    },
+    {
+      "name": "pd_live",
+      "value": "LIVE"
+    },
+    {
+      "name": "pd_log_empty",
+      "value": "等待 Platform 返回部署日志…"
+    },
+    {
+      "name": "pd_deploy_now",
+      "value": "部署我的 QwenPaw"
+    },
+    {
+      "name": "pd_restart",
+      "value": "重新启动 QwenPaw"
+    },
+    {
+      "name": "pd_restarting",
+      "value": "正在重新启动 QwenPaw"
+    },
+    {
+      "name": "pd_reset_pair",
+      "value": "重置配对（重启一次）"
+    },
+    {
+      "name": "pd_recheck",
+      "value": "重新检查状态"
+    },
+    {
+      "name": "pd_open_console",
+      "value": "打开 Platform 控制台"
+    },
+    {
+      "name": "pd_switch_account",
+      "value": "切换 Platform 账号"
+    },
+    {
+      "name": "pd_switch_stable",
+      "value": "切换到稳定版（推荐）"
+    },
+    {
+      "name": "pd_switch_beta",
+      "value": "切换到 Beta"
+    },
+    {
+      "name": "pd_switching_stable",
+      "value": "正在切换到 QwenPaw 稳定版"
+    },
+    {
+      "name": "pd_switching_beta",
+      "value": "正在切换到 QwenPaw Beta"
+    },
+    {
+      "name": "pd_login_required",
+      "value": "需要先登录 AgentScope Platform，才能创建和管理云端 QwenPaw。"
+    },
+    {
+      "name": "pd_login_action",
+      "value": "登录 Platform"
+    },
+    {
+      "name": "pd_footer",
+      "value": "Platform 账号与 QwenPaw 配对相互独立；离开此页不会退出 Platform。"
+    },
+    {
+      "name": "pd_confirm_restart_title",
+      "value": "重新启动 QwenPaw？"
+    },
+    {
+      "name": "pd_confirm_restart_msg",
+      "value": "Platform 会重建运行服务，但保留这只 QwenPaw 的会话、配置和 Agent workspace。"
+    },
+    {
+      "name": "pd_confirm_restart_action",
+      "value": "重新启动"
+    },
+    {
+      "name": "pd_confirm_reset_title",
+      "value": "完成安全配对？"
+    },
+    {
+      "name": "pd_confirm_reset_msg",
+      "value": "QwenPaw 将重启一次以完成安全配对。会话、配置和 Agent workspace 都会保留。"
+    },
+    {
+      "name": "pd_confirm_reset_action",
+      "value": "继续并重启"
+    },
+    {
+      "name": "pd_confirm_switch_stable_title",
+      "value": "切换到 QwenPaw 稳定版？"
+    },
+    {
+      "name": "pd_confirm_switch_beta_title",
+      "value": "切换到 QwenPaw Beta？"
+    },
+    {
+      "name": "pd_confirm_switch_msg",
+      "value": "Platform 会替换当前运行镜像，服务将短暂中断。不同版本可能使用独立数据目录。"
+    },
+    {
+      "name": "pd_settings_copy",
+      "value": "创建与管理 Platform 上的云端实例"
+    },
+    {
+      "name": "chats_search_placeholder",
+      "value": "搜索会话"
+    },
+    {
+      "name": "chats_new",
+      "value": "新建会话"
+    },
+    {
+      "name": "chats_create_failed",
+      "value": "新建会话失败"
+    },
+    {
+      "name": "notify_reason",
+      "value": "用于审批等待处理时的系统通知提醒"
+    },
+    {
+      "name": "notify_approval_title",
+      "value": "QwenPaw 审批提醒"
+    },
+    {
+      "name": "notify_approval_body",
+      "value": "有 %d 条审批待处理"
+    },
+    {
+      "name": "wb_approvals_has",
+      "value": "%d 条待审批"
+    },
+    {
+      "name": "wb_approvals_none",
+      "value": "暂无待审批"
+    },
+    {
+      "name": "wb_approvals_more",
+      "value": "另有 %d 条"
+    },
+    {
+      "name": "cp_chats_title",
+      "value": "会话"
+    },
+    {
+      "name": "cp_chats_loading",
+      "value": "会话加载中…"
+    },
+    {
+      "name": "cp_chats_empty",
+      "value": "暂无会话"
+    },
+    {
+      "name": "cp_chat_pinned",
+      "value": "置顶"
+    },
+    {
+      "name": "chat_title",
+      "value": "会话"
+    },
+    {
+      "name": "chat_input_placeholder",
+      "value": "输入消息…"
+    },
+    {
+      "name": "chat_send",
+      "value": "发送"
+    },
+    {
+      "name": "chat_stop",
+      "value": "停止"
+    },
+    {
+      "name": "chat_loading",
+      "value": "正在加载会话…"
+    },
+    {
+      "name": "chat_no_conn",
+      "value": "未连接，请先回到「会话」页连接 QwenPaw。"
+    },
+    {
+      "name": "chat_kind_reasoning",
+      "value": "思考"
+    },
+    {
+      "name": "chat_kind_tool",
+      "value": "工具"
+    },
+    {
+      "name": "agents_menu_more",
+      "value": "更多操作"
+    },
+    {
+      "name": "agents_menu_copy",
+      "value": "复制"
+    },
+    {
+      "name": "agents_menu_pin",
+      "value": "置顶"
+    },
+    {
+      "name": "agents_menu_unpin",
+      "value": "取消置顶"
+    },
+    {
+      "name": "agents_menu_enable",
+      "value": "启用"
+    },
+    {
+      "name": "agents_menu_disable",
+      "value": "停用"
+    },
+    {
+      "name": "agents_menu_delete",
+      "value": "删除"
+    },
+    {
+      "name": "agents_delete_title",
+      "value": "删除智能体"
+    },
+    {
+      "name": "agents_delete_msg",
+      "value": "将删除该智能体及其工作空间，无法撤销。"
+    },
+    {
+      "name": "common_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "common_confirm_delete",
+      "value": "确认删除"
+    },
+    {
+      "name": "common_save",
+      "value": "保存"
+    },
+    {
+      "name": "common_saving",
+      "value": "保存中"
+    },
+    {
+      "name": "agents_create_title",
+      "value": "创建 Agent"
+    },
+    {
+      "name": "agents_copy_title",
+      "value": "复制智能体"
+    },
+    {
+      "name": "agents_form_name",
+      "value": "名称"
+    },
+    {
+      "name": "agents_form_id",
+      "value": "Agent ID（可选，留空自动生成）"
+    },
+    {
+      "name": "agents_form_desc",
+      "value": "说明（可选）"
+    },
+    {
+      "name": "agents_form_workspace",
+      "value": "Workspace 路径（可选）"
+    },
+    {
+      "name": "agents_form_copy_md",
+      "value": "复制提示与记忆文件"
+    },
+    {
+      "name": "agents_form_copy_skills",
+      "value": "复制 Skills"
+    },
+    {
+      "name": "agents_form_copy_jobs",
+      "value": "复制 Cron Jobs"
+    },
+    {
+      "name": "agents_profile_title",
+      "value": "头像与昵称"
+    },
+    {
+      "name": "agents_profile_name",
+      "value": "昵称（留空用服务端名称）"
+    },
+    {
+      "name": "agents_profile_color",
+      "value": "头像底色"
+    },
+    {
+      "name": "agents_profile_reset",
+      "value": "恢复默认"
+    },
+    {
+      "name": "chat_attach",
+      "value": "附件"
+    },
+    {
+      "name": "chat_attach_failed",
+      "value": "附件上传失败，请稍后重试"
+    },
+    {
+      "name": "approval_need",
+      "value": "需要你的审批"
+    },
+    {
+      "name": "approval_checks",
+      "value": "项安全检查"
+    },
+    {
+      "name": "approval_details",
+      "value": "详情"
+    },
+    {
+      "name": "approval_deny",
+      "value": "拒绝"
+    },
+    {
+      "name": "approval_once",
+      "value": "仅本次"
+    },
+    {
+      "name": "approval_always",
+      "value": "始终允许"
+    },
+    {
+      "name": "approval_failed",
+      "value": "审批操作失败，请稍后重试"
+    },
+    {
+      "name": "chat_process_think",
+      "value": "思考"
+    },
+    {
+      "name": "chat_process_tool",
+      "value": "执行过程"
+    },
+    {
+      "name": "chat_process_thinking_label",
+      "value": "思考与规划"
+    },
+    {
+      "name": "chat_process_mid",
+      "value": "中间结果"
+    },
+    {
+      "name": "chat_process_call",
+      "value": "调用"
+    },
+    {
+      "name": "chat_process_done",
+      "value": "完成"
+    },
+    {
+      "name": "chat_process_failed",
+      "value": "失败"
+    },
+    {
+      "name": "chat_process_running",
+      "value": "进行中"
+    },
+    {
+      "name": "chat_tool_input_label",
+      "value": "参数"
+    },
+    {
+      "name": "chat_tool_output_label",
+      "value": "结果"
+    },
+    {
+      "name": "chat_tool_view_full",
+      "value": "查看完整结果"
+    },
+    {
+      "name": "chat_tool_collapse",
+      "value": "收起详情"
+    },
+    {
+      "name": "chat_tool_default",
+      "value": "工具调用"
+    },
+    {
+      "name": "chat_tool_loading",
+      "value": "处理中..."
+    },
+    {
+      "name": "chat_answer_label",
+      "value": "最终回复"
+    },
+    {
+      "name": "chat_answer_pending",
+      "value": "正在组织回复…"
+    },
+    {
+      "name": "chat_answer_expand",
+      "value": "展开全文"
+    },
+    {
+      "name": "chat_answer_collapse",
+      "value": "收起"
+    },
+    {
+      "name": "chat_answer_failed",
+      "value": "发送失败"
+    },
+    {
+      "name": "chat_process_summary_think",
+      "value": "已完成思考"
+    },
+    {
+      "name": "chat_process_summary_tools",
+      "value": "%d 个工具步骤"
+    },
+    {
+      "name": "chat_process_summary_mid",
+      "value": "%d 条中间结果"
+    },
+    {
+      "name": "chats_inbox_title",
+      "value": "审批 Inbox"
+    },
+    {
+      "name": "chats_inbox_pending",
+      "value": "项工具操作等待确认"
+    },
+    {
+      "name": "chats_inbox_empty",
+      "value": "暂无待审批"
+    },
+    {
+      "name": "chat_menu_pin",
+      "value": "置顶"
+    },
+    {
+      "name": "chat_menu_unpin",
+      "value": "取消置顶"
+    },
+    {
+      "name": "chat_menu_archive",
+      "value": "归档"
+    },
+    {
+      "name": "chat_menu_delete",
+      "value": "删除"
+    },
+    {
+      "name": "chat_menu_delete_title",
+      "value": "删除会话？"
+    },
+    {
+      "name": "chat_menu_delete_msg",
+      "value": "删除后不可恢复。"
+    },
+    {
+      "name": "chat_menu_rename",
+      "value": "重命名"
+    },
+    {
+      "name": "chat_menu_restore",
+      "value": "恢复"
+    },
+    {
+      "name": "chat_menu_delete_forever",
+      "value": "永久删除"
+    },
+    {
+      "name": "chat_rename_title",
+      "value": "重命名会话"
+    },
+    {
+      "name": "chat_rename_placeholder",
+      "value": "输入会话名称"
+    },
+    {
+      "name": "chat_menu_move",
+      "value": "移动"
+    },
+    {
+      "name": "chat_move_title",
+      "value": "移动到分组"
+    },
+    {
+      "name": "chat_group_new",
+      "value": "新建会话分组"
+    },
+    {
+      "name": "chat_group_rename",
+      "value": "重命名分组"
+    },
+    {
+      "name": "chat_group_delete",
+      "value": "删除分组"
+    },
+    {
+      "name": "chat_group_placeholder",
+      "value": "例如：产品研发"
+    },
+    {
+      "name": "chats_group_new",
+      "value": "＋ 新建分组"
+    },
+    {
+      "name": "chats_group_empty",
+      "value": "空分组"
+    },
+    {
+      "name": "chats_group_pinned",
+      "value": "置顶"
+    },
+    {
+      "name": "chats_group_ungrouped",
+      "value": "未分组"
+    },
+    {
+      "name": "chats_group_cron",
+      "value": "定时任务"
+    },
+    {
+      "name": "chats_group_subagents",
+      "value": "子智能体"
+    },
+    {
+      "name": "common_confirm",
+      "value": "确定"
+    },
+    {
+      "name": "chat_op_failed",
+      "value": "会话操作失败，请稍后重试"
+    },
+    {
+      "name": "chat_approvals_count",
+      "value": "当前会话有 %d 项待审批"
+    },
+    {
+      "name": "chats_tab_active",
+      "value": "会话"
+    },
+    {
+      "name": "chats_tab_archived",
+      "value": "已归档"
+    },
+    {
+      "name": "chats_archived_empty",
+      "value": "暂无已归档会话"
+    },
+    {
+      "name": "chats_search_empty_title",
+      "value": "没有匹配的会话"
+    },
+    {
+      "name": "chats_search_empty_hint",
+      "value": "换个关键词再试试。"
+    },
+    {
+      "name": "module_dbg_group",
+      "value": "Backend"
+    },
+    {
+      "name": "module_dbg_recent",
+      "value": "最近日志"
+    },
+    {
+      "name": "module_dbg_lines",
+      "value": "行"
+    },
+    {
+      "name": "module_dbg_view",
+      "value": "查看"
+    },
+    {
+      "name": "module_dbg_not_created",
+      "value": "未生成"
+    },
+    {
+      "name": "module_dbg_refresh",
+      "value": "刷新日志"
+    },
+    {
+      "name": "module_dbg_refresh_hint",
+      "value": "重新读取当前 QwenPaw"
+    },
+    {
+      "name": "module_dbg_path",
+      "value": "日志位置"
+    },
+    {
+      "name": "module_dbg_no_path",
+      "value": "当前 QwenPaw 未返回路径"
+    },
+    {
+      "name": "module_dbg_footer",
+      "value": "日志只在当前设备显示，不上传到 QwenPaw Mobile。"
+    },
+    {
+      "name": "module_dbg_sheet_title",
+      "value": "Backend Logs"
+    },
+    {
+      "name": "module_dbg_empty_content",
+      "value": "暂无日志内容"
+    },
+    {
+      "name": "module_files_root",
+      "value": "工作空间根目录"
+    },
+    {
+      "name": "module_files_up",
+      "value": "返回上一级"
+    },
+    {
+      "name": "module_files_upload",
+      "value": "上传文件"
+    },
+    {
+      "name": "module_files_uploading",
+      "value": "正在上传…"
+    },
+    {
+      "name": "module_files_upload_hint",
+      "value": "同名文件会自动安全重命名"
+    },
+    {
+      "name": "module_files_new",
+      "value": "新建文本文件"
+    },
+    {
+      "name": "module_files_new_hint",
+      "value": "保存时可指定相对路径"
+    },
+    {
+      "name": "module_files_folder",
+      "value": "文件夹"
+    },
+    {
+      "name": "module_files_file",
+      "value": "文件"
+    },
+    {
+      "name": "module_files_loading",
+      "value": "正在读取工作空间…"
+    },
+    {
+      "name": "module_files_empty_title",
+      "value": "空文件夹"
+    },
+    {
+      "name": "module_files_empty_subtitle",
+      "value": "这里暂时没有文件。"
+    },
+    {
+      "name": "module_files_footer",
+      "value": "文件内容直接从当前 Agent workspace 读取，不经过 Platform 社区。"
+    },
+    {
+      "name": "module_files_preview_title",
+      "value": "文件预览"
+    },
+    {
+      "name": "module_files_truncated",
+      "value": "文件过大，仅显示前 256 KB，已禁用编辑"
+    },
+    {
+      "name": "module_files_edit_title",
+      "value": "编辑文件"
+    },
+    {
+      "name": "module_files_saving",
+      "value": "保存中"
+    },
+    {
+      "name": "module_files_downloading",
+      "value": "正在下载…"
+    },
+    {
+      "name": "module_files_downloaded",
+      "value": "已保存到所选位置"
+    },
+    {
+      "name": "module_files_opening",
+      "value": "正在打开…"
+    },
+    {
+      "name": "module_files_no_preview",
+      "value": "该格式暂不支持系统预览，已改为保存到本地"
+    },
+    {
+      "name": "module_files_save_as",
+      "value": "保存到…"
+    },
+    {
+      "name": "module_files_saved",
+      "value": "已保存"
+    },
+    {
+      "name": "module_files_path_label",
+      "value": "相对路径"
+    },
+    {
+      "name": "module_files_content_label",
+      "value": "文件内容"
+    },
+    {
+      "name": "module_git_group",
+      "value": "Coding 工作区"
+    },
+    {
+      "name": "module_git_coding",
+      "value": "Coding Mode"
+    },
+    {
+      "name": "module_git_coding_hint",
+      "value": "启用项目目录和代码工具"
+    },
+    {
+      "name": "module_git_workspace",
+      "value": "Agent workspace"
+    },
+    {
+      "name": "module_git_default",
+      "value": "默认"
+    },
+    {
+      "name": "module_git_current",
+      "value": "当前"
+    },
+    {
+      "name": "module_git_new",
+      "value": "新建项目"
+    },
+    {
+      "name": "module_git_new_hint",
+      "value": "创建空目录并初始化 Git"
+    },
+    {
+      "name": "module_git_import",
+      "value": "导入项目 ZIP"
+    },
+    {
+      "name": "module_git_restore",
+      "value": "恢复默认 workspace"
+    },
+    {
+      "name": "module_git_projects",
+      "value": "项目"
+    },
+    {
+      "name": "module_git_is_git",
+      "value": "Git 项目"
+    },
+    {
+      "name": "module_git_git",
+      "value": "Git"
+    },
+    {
+      "name": "module_git_branch_unnamed",
+      "value": "未命名分支"
+    },
+    {
+      "name": "module_git_changes",
+      "value": "项变更"
+    },
+    {
+      "name": "module_git_commit_staged",
+      "value": "提交已暂存变更"
+    },
+    {
+      "name": "module_git_commit_hint",
+      "value": "填写提交说明后创建 Commit"
+    },
+    {
+      "name": "module_git_staged",
+      "value": "已暂存"
+    },
+    {
+      "name": "module_git_unstaged",
+      "value": "未暂存"
+    },
+    {
+      "name": "module_git_recent",
+      "value": "最近提交"
+    },
+    {
+      "name": "module_git_not_repo_title",
+      "value": "当前目录不是 Git 项目"
+    },
+    {
+      "name": "module_git_not_repo_subtitle",
+      "value": "新建或导入一个项目后即可管理分支与提交。"
+    },
+    {
+      "name": "module_git_footer",
+      "value": "项目目录与 Git 操作直接作用于当前 Agent workspace，请确认变更后再提交或丢弃。"
+    },
+    {
+      "name": "module_git_field_name",
+      "value": "项目名称"
+    },
+    {
+      "name": "module_git_field_branch",
+      "value": "分支名称"
+    },
+    {
+      "name": "module_git_field_create",
+      "value": "创建新分支"
+    },
+    {
+      "name": "module_git_field_message",
+      "value": "提交说明"
+    },
+    {
+      "name": "module_git_title_project",
+      "value": "新建项目"
+    },
+    {
+      "name": "module_git_title_import",
+      "value": "导入项目 ZIP"
+    },
+    {
+      "name": "module_git_title_branch",
+      "value": "切换分支"
+    },
+    {
+      "name": "module_git_title_commit",
+      "value": "创建 Commit"
+    },
+    {
+      "name": "module_git_act_stage",
+      "value": "暂存"
+    },
+    {
+      "name": "module_git_act_unstage",
+      "value": "取消暂存"
+    },
+    {
+      "name": "module_git_act_discard",
+      "value": "丢弃更改"
+    },
+    {
+      "name": "module_git_act_revert",
+      "value": "Revert 此提交"
+    },
+    {
+      "name": "module_git_reverted",
+      "value": "已创建 Revert 提交"
+    },
+    {
+      "name": "module_git_zip_missing",
+      "value": "请重新选择项目 ZIP。"
+    },
+    {
+      "name": "module_git_failed",
+      "value": "操作失败"
+    },
+    {
+      "name": "module_tools_group",
+      "value": "内置 Tools"
+    },
+    {
+      "name": "module_tools_enabled",
+      "value": "已启用"
+    },
+    {
+      "name": "module_tools_async",
+      "value": "后台异步执行"
+    },
+    {
+      "name": "module_tools_async_help",
+      "value": "允许耗时工具在后台执行，不阻塞当前轮次。"
+    },
+    {
+      "name": "module_tools_empty_title",
+      "value": "暂无配置"
+    },
+    {
+      "name": "module_tools_empty_subtitle",
+      "value": "当前 QwenPaw 没有返回可配置工具。"
+    },
+    {
+      "name": "module_tools_footer",
+      "value": "关闭工具会立即阻止 Agent 在后续轮次中调用它。"
+    },
+    {
+      "name": "module_tools_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "module_voice_group_audio",
+      "value": "音频消息"
+    },
+    {
+      "name": "module_voice_audio_label",
+      "value": "处理方式"
+    },
+    {
+      "name": "module_voice_audio_hint",
+      "value": "自动转写或直接交给多模态模型"
+    },
+    {
+      "name": "module_voice_audio_auto",
+      "value": "自动转写"
+    },
+    {
+      "name": "module_voice_audio_native",
+      "value": "原生多模态"
+    },
+    {
+      "name": "module_voice_group_text",
+      "value": "语音转写"
+    },
+    {
+      "name": "module_voice_type_label",
+      "value": "转写引擎"
+    },
+    {
+      "name": "module_voice_type_off",
+      "value": "关闭"
+    },
+    {
+      "name": "module_voice_type_api",
+      "value": "Whisper API"
+    },
+    {
+      "name": "module_voice_type_local",
+      "value": "本地 Whisper"
+    },
+    {
+      "name": "module_voice_provider_label",
+      "value": "Whisper Provider"
+    },
+    {
+      "name": "module_voice_provider_available",
+      "value": "个可用 Provider"
+    },
+    {
+      "name": "module_voice_local_label",
+      "value": "本地 Whisper"
+    },
+    {
+      "name": "module_voice_installed",
+      "value": "已安装"
+    },
+    {
+      "name": "module_voice_not_installed",
+      "value": "未安装"
+    },
+    {
+      "name": "module_voice_clear",
+      "value": "清除选择"
+    },
+    {
+      "name": "module_voice_footer",
+      "value": "这些设置属于当前 QwenPaw，切换本地或云端会读取各自配置。"
+    },
+    {
+      "name": "module_voice_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "module_skill_group",
+      "value": "已安装 Skills"
+    },
+    {
+      "name": "module_skill_new",
+      "value": "新建 Skill"
+    },
+    {
+      "name": "module_skill_new_hint",
+      "value": "创建并安全扫描 SKILL.md"
+    },
+    {
+      "name": "module_skill_import",
+      "value": "导入 Skill ZIP"
+    },
+    {
+      "name": "module_skill_import_hint",
+      "value": "导入并启用到当前 Agent"
+    },
+    {
+      "name": "module_skill_refresh",
+      "value": "刷新 Skills"
+    },
+    {
+      "name": "module_skill_no_desc",
+      "value": "未提供说明"
+    },
+    {
+      "name": "module_skill_empty_title",
+      "value": "还没有 Skill"
+    },
+    {
+      "name": "module_skill_empty_subtitle",
+      "value": "可以直接创建一个新的 SKILL.md。"
+    },
+    {
+      "name": "module_skill_footer",
+      "value": "所有操作只影响当前 Agent workspace。"
+    },
+    {
+      "name": "module_skill_field_name",
+      "value": "Skill 名称"
+    },
+    {
+      "name": "module_skill_field_content",
+      "value": "内容（SKILL.md）"
+    },
+    {
+      "name": "module_skill_field_config",
+      "value": "Config"
+    },
+    {
+      "name": "module_skill_field_config_help",
+      "value": "可选 JSON 对象。"
+    },
+    {
+      "name": "module_skill_delete",
+      "value": "删除"
+    },
+    {
+      "name": "module_skill_delete_failed",
+      "value": "删除失败"
+    },
+    {
+      "name": "module_skill_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "module_skill_import_failed",
+      "value": "导入失败"
+    },
+    {
+      "name": "module_pool_field_name",
+      "value": "Pool Skill 名称"
+    },
+    {
+      "name": "module_pool_field_content",
+      "value": "内容（SKILL.md）"
+    },
+    {
+      "name": "module_pool_field_tags",
+      "value": "标签"
+    },
+    {
+      "name": "module_pool_field_tags_help",
+      "value": "逗号分隔，保存后走独立标签接口。"
+    },
+    {
+      "name": "module_pool_field_config",
+      "value": "Config"
+    },
+    {
+      "name": "module_pool_field_config_help",
+      "value": "可选 JSON 对象。"
+    },
+    {
+      "name": "module_pool_new",
+      "value": "新建 Pool Skill"
+    },
+    {
+      "name": "module_pool_import",
+      "value": "导入 ZIP"
+    },
+    {
+      "name": "module_pool_import_hint",
+      "value": "导入前执行安全扫描"
+    },
+    {
+      "name": "module_pool_refresh",
+      "value": "刷新 Skill Pool"
+    },
+    {
+      "name": "module_pool_refresh_failed",
+      "value": "刷新失败"
+    },
+    {
+      "name": "module_pool_import_failed",
+      "value": "导入失败"
+    },
+    {
+      "name": "module_pool_shared",
+      "value": "共享 Skill"
+    },
+    {
+      "name": "module_pool_empty_title",
+      "value": "Skill Pool 为空"
+    },
+    {
+      "name": "module_pool_empty_subtitle",
+      "value": "当前 QwenPaw 尚未添加可跨 Agent 复用的 Skill。"
+    },
+    {
+      "name": "module_pool_edit",
+      "value": "编辑"
+    },
+    {
+      "name": "module_pool_footer",
+      "value": "Skill Pool 中的 Skill 可被所有 Agent 复用。"
+    },
+    {
+      "name": "module_mcp_group",
+      "value": "MCP 服务"
+    },
+    {
+      "name": "module_mcp_add",
+      "value": "添加 MCP 服务"
+    },
+    {
+      "name": "module_mcp_add_hint",
+      "value": "Streamable HTTP、SSE 或 Stdio"
+    },
+    {
+      "name": "module_mcp_field_name",
+      "value": "名称"
+    },
+    {
+      "name": "module_mcp_field_transport",
+      "value": "传输方式"
+    },
+    {
+      "name": "module_mcp_field_url",
+      "value": "服务地址"
+    },
+    {
+      "name": "module_mcp_field_url_help",
+      "value": "HTTP/SSE 方式必填。"
+    },
+    {
+      "name": "module_mcp_field_command",
+      "value": "启动命令"
+    },
+    {
+      "name": "module_mcp_field_command_help",
+      "value": "stdio 方式必填（如 npx）。"
+    },
+    {
+      "name": "module_mcp_field_args",
+      "value": "启动参数"
+    },
+    {
+      "name": "module_mcp_field_args_help",
+      "value": "逗号分隔。"
+    },
+    {
+      "name": "module_mcp_field_desc",
+      "value": "说明"
+    },
+    {
+      "name": "module_mcp_oauth_ok",
+      "value": "OAuth 已授权"
+    },
+    {
+      "name": "module_mcp_delete",
+      "value": "删除"
+    },
+    {
+      "name": "module_mcp_delete_failed",
+      "value": "删除失败"
+    },
+    {
+      "name": "module_mcp_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "module_mcp_empty_title",
+      "value": "还没有 MCP 服务"
+    },
+    {
+      "name": "module_mcp_empty_subtitle",
+      "value": "添加后可直接启用，并由当前 Agent 调用。"
+    },
+    {
+      "name": "module_mcp_footer",
+      "value": "关闭服务后当前 Agent 不再调用其工具。"
+    },
+    {
+      "name": "module_env_group",
+      "value": "环境变量"
+    },
+    {
+      "name": "module_env_add",
+      "value": "添加环境变量"
+    },
+    {
+      "name": "module_env_add_hint",
+      "value": "保存到当前 QwenPaw 的 Agent 环境"
+    },
+    {
+      "name": "module_env_hidden",
+      "value": "值已隐藏"
+    },
+    {
+      "name": "module_env_field_key",
+      "value": "变量名"
+    },
+    {
+      "name": "module_env_field_value",
+      "value": "变量值"
+    },
+    {
+      "name": "module_env_field_value_help",
+      "value": "支持多行（如证书内容）。"
+    },
+    {
+      "name": "module_env_delete",
+      "value": "删除"
+    },
+    {
+      "name": "module_env_delete_failed",
+      "value": "删除失败"
+    },
+    {
+      "name": "module_env_empty_title",
+      "value": "暂无环境变量"
+    },
+    {
+      "name": "module_env_empty_subtitle",
+      "value": "添加的值会安全保存到当前 QwenPaw。"
+    },
+    {
+      "name": "module_env_footer",
+      "value": "环境变量只作用于当前 Agent 的进程环境，列表不回显取值。"
+    },
+    {
+      "name": "module_sec_group_run",
+      "value": "执行隔离"
+    },
+    {
+      "name": "module_sec_group_chain",
+      "value": "供应链安全"
+    },
+    {
+      "name": "module_sec_group_net",
+      "value": "网络访问"
+    },
+    {
+      "name": "module_sec_hosts",
+      "value": "免认证 Host"
+    },
+    {
+      "name": "module_sec_hosts_empty",
+      "value": "未配置"
+    },
+    {
+      "name": "module_sec_hosts_field",
+      "value": "可信 Host 列表"
+    },
+    {
+      "name": "module_sec_hosts_help",
+      "value": "逗号分隔，如 127.0.0.1, ::1。"
+    },
+    {
+      "name": "module_sec_scan_block",
+      "value": "阻止风险 Skill"
+    },
+    {
+      "name": "module_sec_scan_warn",
+      "value": "仅警告"
+    },
+    {
+      "name": "module_sec_scan_off",
+      "value": "关闭扫描"
+    },
+    {
+      "name": "module_sec_unsupported",
+      "value": "当前 QwenPaw 不支持"
+    },
+    {
+      "name": "module_sec_unsupported_all",
+      "value": "当前 QwenPaw 不支持安全设置 API"
+    },
+    {
+      "name": "module_sec_save_failed",
+      "value": "安全设置保存失败"
+    },
+    {
+      "name": "module_sec_footer",
+      "value": "免认证 Host 仅为明确可信的内部服务绕过认证，请谨慎添加。"
+    },
+    {
+      "name": "module_ops_unsupported",
+      "value": "当前 QwenPaw 不支持此模块"
+    },
+    {
+      "name": "module_ops_unsupported_short",
+      "value": "不支持"
+    },
+    {
+      "name": "module_ops_group_token",
+      "value": "Token 用量"
+    },
+    {
+      "name": "module_ops_prompt",
+      "value": "输入 tokens"
+    },
+    {
+      "name": "module_ops_completion",
+      "value": "输出 tokens"
+    },
+    {
+      "name": "module_ops_cache",
+      "value": "缓存读取 tokens"
+    },
+    {
+      "name": "module_ops_group_stats",
+      "value": "Agent 统计"
+    },
+    {
+      "name": "module_ops_active_sessions",
+      "value": "活跃会话"
+    },
+    {
+      "name": "module_ops_messages",
+      "value": "消息总数"
+    },
+    {
+      "name": "module_ops_user_messages",
+      "value": "用户消息"
+    },
+    {
+      "name": "module_ops_assistant_messages",
+      "value": "助手消息"
+    },
+    {
+      "name": "module_ops_group_backups",
+      "value": "备份"
+    },
+    {
+      "name": "module_ops_restore",
+      "value": "恢复此备份"
+    },
+    {
+      "name": "module_ops_delete",
+      "value": "删除备份"
+    },
+    {
+      "name": "module_ops_restored",
+      "value": "备份已恢复"
+    },
+    {
+      "name": "module_ops_deleted",
+      "value": "备份已删除"
+    },
+    {
+      "name": "module_ops_failed",
+      "value": "操作失败"
+    },
+    {
+      "name": "module_ops_empty_title",
+      "value": "暂无备份"
+    },
+    {
+      "name": "module_ops_empty_subtitle",
+      "value": "在该 QwenPaw 上创建备份后会显示在这里"
+    },
+    {
+      "name": "module_ops_footer",
+      "value": "恢复会重载受影响的 Agent 并可能覆盖当前数据；删除不可撤销。"
+    },
+    {
+      "name": "module_models_unsupported",
+      "value": "当前 QwenPaw 不支持模型设置 API"
+    },
+    {
+      "name": "module_models_na",
+      "value": "不支持"
+    },
+    {
+      "name": "module_models_yes",
+      "value": "是"
+    },
+    {
+      "name": "module_models_no",
+      "value": "否"
+    },
+    {
+      "name": "module_models_group_active",
+      "value": "当前默认模型"
+    },
+    {
+      "name": "module_models_active_provider",
+      "value": "默认 Provider"
+    },
+    {
+      "name": "module_models_active_model",
+      "value": "默认模型"
+    },
+    {
+      "name": "module_models_max_input",
+      "value": "最大输入长度"
+    },
+    {
+      "name": "module_models_group_providers",
+      "value": "模型服务"
+    },
+    {
+      "name": "module_models_group_local",
+      "value": "本地模型"
+    },
+    {
+      "name": "module_models_local_server",
+      "value": "本地推理服务"
+    },
+    {
+      "name": "module_models_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "module_models_empty_title",
+      "value": "暂无模型服务"
+    },
+    {
+      "name": "module_models_empty_subtitle",
+      "value": "在该 QwenPaw 上添加 Provider 后会显示在这里"
+    },
+    {
+      "name": "module_models_footer",
+      "value": "开关按 GET 原文整表回写，不会覆盖未展示的字段。"
+    },
+    {
+      "name": "module_ext_unsupported",
+      "value": "当前 QwenPaw 不支持扩展 API"
+    },
+    {
+      "name": "module_ext_market",
+      "value": "Skill 市场"
+    },
+    {
+      "name": "module_ext_search",
+      "value": "搜索"
+    },
+    {
+      "name": "module_ext_searching",
+      "value": "搜索中"
+    },
+    {
+      "name": "module_ext_search_placeholder",
+      "value": "搜索 Skill"
+    },
+    {
+      "name": "module_ext_search_failed",
+      "value": "搜索失败"
+    },
+    {
+      "name": "module_ext_search_incomplete",
+      "value": "搜索未完成"
+    },
+    {
+      "name": "module_ext_search_empty",
+      "value": "没有找到可安装的 Skill"
+    },
+    {
+      "name": "module_ext_search_empty_hint",
+      "value": "换个关键词再试，或通过扩展 ZIP 地址安装。"
+    },
+    {
+      "name": "module_ext_install_action",
+      "value": "安装"
+    },
+    {
+      "name": "module_ext_install_running",
+      "value": "安装中"
+    },
+    {
+      "name": "module_ext_install_confirm",
+      "value": "安装到当前 Agent？"
+    },
+    {
+      "name": "module_ext_skill_installed",
+      "value": "Skill 已安装"
+    },
+    {
+      "name": "module_ext_install_timeout",
+      "value": "Skill 安装超时，请稍后到 Skills 查看"
+    },
+    {
+      "name": "module_ext_running",
+      "value": "运行中"
+    },
+    {
+      "name": "module_ext_unloaded",
+      "value": "未加载"
+    },
+    {
+      "name": "module_ext_open",
+      "value": "打开"
+    },
+    {
+      "name": "module_ext_apps_empty_title",
+      "value": "还没有 PawApp"
+    },
+    {
+      "name": "module_ext_apps_empty_subtitle",
+      "value": "安装 App 类型扩展后会出现在这里"
+    },
+    {
+      "name": "module_ext_uninstall_confirm",
+      "value": "卸载扩展？"
+    },
+    {
+      "name": "module_ext_uninstall_action",
+      "value": "卸载"
+    },
+    {
+      "name": "module_ext_install_url",
+      "value": "通过 URL 安装"
+    },
+    {
+      "name": "module_ext_unknown_author",
+      "value": "未知作者"
+    },
+    {
+      "name": "module_ext_group_plugins",
+      "value": "插件"
+    },
+    {
+      "name": "module_ext_group_apps",
+      "value": "PawApp"
+    },
+    {
+      "name": "module_ext_install",
+      "value": "安装扩展"
+    },
+    {
+      "name": "module_ext_install_hint",
+      "value": "填写扩展 ZIP 地址，由已连接的 QwenPaw 服务端下载安装（装在服务端，不是本机）"
+    },
+    {
+      "name": "module_ext_source",
+      "value": "扩展 ZIP URL"
+    },
+    {
+      "name": "module_ext_source_help",
+      "value": "例如 https://…/archive.zip"
+    },
+    {
+      "name": "module_ext_uninstall",
+      "value": "卸载插件"
+    },
+    {
+      "name": "module_ext_uninstalled",
+      "value": "已卸载"
+    },
+    {
+      "name": "module_ext_installed",
+      "value": "安装已提交"
+    },
+    {
+      "name": "module_ext_failed",
+      "value": "操作失败"
+    },
+    {
+      "name": "module_ext_empty_title",
+      "value": "暂无插件"
+    },
+    {
+      "name": "module_ext_empty_subtitle",
+      "value": "在该 QwenPaw 上安装插件后会显示在这里"
+    },
+    {
+      "name": "module_ext_footer",
+      "value": "搜索、安装和卸载均由当前 QwenPaw 执行；未知第三方 App 使用受控页面容器打开。"
+    },
+    {
+      "name": "module_ext_local_note_title",
+      "value": "本地模式"
+    },
+    {
+      "name": "module_ext_local_note",
+      "value": "未连接远端 QwenPaw。下方「远端 PawApp」组列出 QwenPaw 提供的前端扩展应用，需要 QwenPaw 后端运行；连接 QwenPaw 后可在「App Center」中打开使用。"
+    },
+    {
+      "name": "module_ext_local_group",
+      "value": "远端插件（服务端）"
+    },
+    {
+      "name": "module_ext_remote_app_group",
+      "value": "远端 PawApp"
+    },
+    {
+      "name": "module_ext_local_frontend",
+      "value": "前端扩展"
+    },
+    {
+      "name": "module_ext_local_detail",
+      "value": "详情"
+    },
+    {
+      "name": "module_ext_local_view_source",
+      "value": "查看源码与安装包"
+    },
+    {
+      "name": "module_ext_local_remote_hint",
+      "value": "使用该应用的完整功能，请先连接 QwenPaw，然后在「App Center」中打开使用。"
+    },
+    {
+      "name": "module_ext_local_install",
+      "value": "上传安装"
+    },
+    {
+      "name": "module_ext_local_installed",
+      "value": "安装成功"
+    },
+    {
+      "name": "module_ext_local_zip_filter",
+      "value": "插件 ZIP 包 (.zip)|.zip"
+    },
+    {
+      "name": "module_ext_local_zip_only",
+      "value": "请选择插件 ZIP 包（.zip）"
+    },
+    {
+      "name": "module_ext_local_zip",
+      "value": "从 ZIP 上传安装"
+    },
+    {
+      "name": "module_ext_local_zip_hint",
+      "value": "选择设备上的插件包（.zip）并上传，由已连接的 QwenPaw 服务端安装并热加载（装在服务端，不是本机）"
+    },
+    {
+      "name": "module_ext_local_footer",
+      "value": "「远端 PawApp」组的应用需要 QwenPaw 后端运行；连接后在工作台「扩展与 App Center」安装管理插件。"
+    },
+    {
+      "name": "module_ext_notify_group",
+      "value": "通知"
+    },
+    {
+      "name": "module_ext_notify_title",
+      "value": "应用内系统通知"
+    },
+    {
+      "name": "module_ext_notify_subtitle",
+      "value": "开启后，扩展审批请求等事件将送达系统通知中心"
+    },
+    {
+      "name": "module_ext_open_link_failed",
+      "value": "打开链接失败"
+    },
+    {
+      "name": "local_plugin_agentteams_name",
+      "value": "AgentTeams QwenPaw Workbench"
+    },
+    {
+      "name": "local_plugin_agentteams_desc",
+      "value": "AgentTeams 团队工作台：团队、工作流、项目、产物交付、Worker 管理与 3D 知识图谱，一站式接入 QwenPaw。"
+    },
+    {
+      "name": "local_plugin_agentteams_notes",
+      "value": "纯前端扩展插件（React 单页）：页面由 QwenPaw 控制台运行时渲染，数据来自插件自带后端；设备没有 QwenPaw 后端，无法在手机上独立运行。请在远端 QwenPaw 安装并启用后，从 App Center 打开使用。"
+    },
+    {
+      "name": "module_hub_unsupported",
+      "value": "当前 QwenPaw 未启用 Hub"
+    },
+    {
+      "name": "module_hub_group_health",
+      "value": "Hub 健康"
+    },
+    {
+      "name": "module_hub_status",
+      "value": "状态"
+    },
+    {
+      "name": "module_hub_group_me",
+      "value": "Hub 身份"
+    },
+    {
+      "name": "module_hub_name",
+      "value": "名称"
+    },
+    {
+      "name": "module_hub_id",
+      "value": "标识"
+    },
+    {
+      "name": "module_hub_role",
+      "value": "角色"
+    },
+    {
+      "name": "module_hub_group_runtimes",
+      "value": "Runtime"
+    },
+    {
+      "name": "module_hub_group_actions",
+      "value": "个人 Runtime"
+    },
+    {
+      "name": "module_hub_restart",
+      "value": "重启我的 Runtime"
+    },
+    {
+      "name": "module_hub_restart_hint",
+      "value": "由当前 QwenPaw 的 Hub 执行"
+    },
+    {
+      "name": "module_hub_restarted",
+      "value": "已提交重启"
+    },
+    {
+      "name": "module_hub_footer",
+      "value": "数据来自当前 QwenPaw 的 Hub；未启用 Hub 时显示「不支持」，不使用示例内容。"
+    },
+    {
+      "name": "chat_runtime_model",
+      "value": "模型"
+    },
+    {
+      "name": "chat_runtime_loop",
+      "value": "循环"
+    },
+    {
+      "name": "chat_runtime_approval",
+      "value": "审批"
+    },
+    {
+      "name": "chat_runtime_pick_model",
+      "value": "选择模型"
+    },
+    {
+      "name": "chat_runtime_switch_failed",
+      "value": "切换失败"
+    },
+    {
+      "name": "chat_thinking_title",
+      "value": "思考强度"
+    },
+    {
+      "name": "chat_thinking_default",
+      "value": "默认"
+    },
+    {
+      "name": "chat_thinking_off",
+      "value": "关闭思考"
+    },
+    {
+      "name": "chat_thinking_minimal",
+      "value": "极低"
+    },
+    {
+      "name": "chat_thinking_low",
+      "value": "低"
+    },
+    {
+      "name": "chat_thinking_medium",
+      "value": "中"
+    },
+    {
+      "name": "chat_thinking_high",
+      "value": "高"
+    },
+    {
+      "name": "chat_thinking_xhigh",
+      "value": "极高"
+    },
+    {
+      "name": "chat_thinking_max",
+      "value": "最高"
+    },
+    {
+      "name": "chat_thinking_unsupported",
+      "value": "当前模型未声明可配置的思考能力。"
+    },
+    {
+      "name": "chat_thinking_unknown",
+      "value": "无法确定当前模型的思考能力。"
+    },
+    {
+      "name": "chat_thinking_apply_failed",
+      "value": "思考强度设置未生效"
+    },
+    {
+      "name": "chat_msg_copy",
+      "value": "复制"
+    },
+    {
+      "name": "chat_msg_select",
+      "value": "选择文本"
+    },
+    {
+      "name": "chat_select_hint",
+      "value": "长按文字拖动选择"
+    },
+    {
+      "name": "chat_msg_copied",
+      "value": "已复制"
+    },
+    {
+      "name": "chat_msg_copy_failed",
+      "value": "复制失败"
+    },
+    {
+      "name": "ws_platform",
+      "value": "Platform 云端"
+    },
+    {
+      "name": "ws_local",
+      "value": "本地 / 私人"
+    },
+    {
+      "name": "ws_switch_title",
+      "value": "切换 QwenPaw"
+    },
+    {
+      "name": "ws_switch_copy",
+      "value": "切换不会退出另一个连接"
+    },
+    {
+      "name": "ws_add",
+      "value": "再配对一只 QwenPaw"
+    },
+    {
+      "name": "ws_add_copy",
+      "value": "私人部署或 Platform 云端 QwenPaw"
+    },
+    {
+      "name": "ws_unpair",
+      "value": "取消配对"
+    },
+    {
+      "name": "ws_unpaired",
+      "value": "已取消配对"
+    },
+    {
+      "name": "ws_switch_failed",
+      "value": "切换失败，当前 QwenPaw 仍保持连接"
+    },
+    {
+      "name": "ws_unpair_failed",
+      "value": "取消配对失败，请重试"
+    },
+    {
+      "name": "pawapp_fullscreen",
+      "value": "全屏"
+    },
+    {
+      "name": "pawapp_hint",
+      "value": "此页面由当前 QwenPaw 安装的扩展提供。"
+    },
+    {
+      "name": "pawapp_loading",
+      "value": "正在打开 App…"
+    },
+    {
+      "name": "pawapp_no_connection",
+      "value": "当前没有可用连接。"
+    },
+    {
+      "name": "notify_title",
+      "value": "通知"
+    },
+    {
+      "name": "notify_hero_title",
+      "value": "离开 App 也不错过任务"
+    },
+    {
+      "name": "notify_hero_sub",
+      "value": "开启后，任务完成、需要输入、需要审批、任务失败都会通知你。"
+    },
+    {
+      "name": "notify_master",
+      "value": "启用通知"
+    },
+    {
+      "name": "notify_run_completed",
+      "value": "任务完成"
+    },
+    {
+      "name": "notify_input_required",
+      "value": "需要输入"
+    },
+    {
+      "name": "notify_approval_required",
+      "value": "需要审批"
+    },
+    {
+      "name": "notify_run_failed",
+      "value": "任务失败"
+    },
+    {
+      "name": "notify_preview",
+      "value": "通知预览"
+    },
+    {
+      "name": "notify_preview_full",
+      "value": "完整内容"
+    },
+    {
+      "name": "notify_preview_title",
+      "value": "仅标题"
+    },
+    {
+      "name": "notify_preview_hidden",
+      "value": "不显示内容"
+    },
+    {
+      "name": "notify_scope",
+      "value": "通知偏好按「当前连接 + 智能体」分别保存。"
+    },
+    {
+      "name": "notify_privacy",
+      "value": "偏好只保存在本机；推送通道需在宿主侧开通。"
+    },
+    {
+      "name": "community_sort_recommended",
+      "value": "推荐"
+    },
+    {
+      "name": "community_sort_latest",
+      "value": "最新"
+    },
+    {
+      "name": "community_all",
+      "value": "全部"
+    },
+    {
+      "name": "community_publish",
+      "value": "发布"
+    },
+    {
+      "name": "community_loading",
+      "value": "正在读取 Platform 社区"
+    },
+    {
+      "name": "community_unavailable",
+      "value": "暂时无法加载社区"
+    },
+    {
+      "name": "community_reload",
+      "value": "重新加载"
+    },
+    {
+      "name": "community_empty_title",
+      "value": "这个分类还没有内容"
+    },
+    {
+      "name": "community_empty_copy",
+      "value": "换个分类看看，或者发布第一篇内容。"
+    },
+    {
+      "name": "community_share",
+      "value": "分享"
+    },
+    {
+      "name": "community_featured",
+      "value": "精选"
+    },
+    {
+      "name": "community_user",
+      "value": "社区用户"
+    },
+    {
+      "name": "community_qa_solved",
+      "value": "已解决"
+    },
+    {
+      "name": "community_qa_open",
+      "value": "待回答"
+    },
+    {
+      "name": "community_login_needed_title",
+      "value": "登录后点赞"
+    },
+    {
+      "name": "community_login_needed_copy",
+      "value": "登录 AgentScope Platform 后，操作会实时同步到社区。"
+    },
+    {
+      "name": "community_login_action",
+      "value": "登录"
+    },
+    {
+      "name": "community_like_failed",
+      "value": "点赞失败，请稍后重试"
+    },
+    {
+      "name": "community_like_failed_title",
+      "value": "点赞失败"
+    },
+    {
+      "name": "community_detail_title",
+      "value": "帖子详情"
+    },
+    {
+      "name": "community_loading_article",
+      "value": "正在加载文章与评论"
+    },
+    {
+      "name": "community_article_error_title",
+      "value": "文章暂时无法打开"
+    },
+    {
+      "name": "community_article_error_copy",
+      "value": "文章不存在或已下架"
+    },
+    {
+      "name": "community_all_comments",
+      "value": "全部评论"
+    },
+    {
+      "name": "community_no_comments",
+      "value": "暂时还没有评论"
+    },
+    {
+      "name": "community_comment_placeholder",
+      "value": "平等交流，友好表达"
+    },
+    {
+      "name": "community_write_comment",
+      "value": "写评论"
+    },
+    {
+      "name": "community_accepted",
+      "value": "已采纳"
+    },
+    {
+      "name": "community_views_suffix",
+      "value": " 浏览"
+    },
+    {
+      "name": "community_likes_suffix",
+      "value": " 点赞"
+    },
+    {
+      "name": "community_comments_suffix",
+      "value": " 评论"
+    },
+    {
+      "name": "community_likes_unit",
+      "value": " 赞"
+    },
+    {
+      "name": "community_login_required_title",
+      "value": "需要登录 AgentScope Platform"
+    },
+    {
+      "name": "community_login_required_copy",
+      "value": "点赞和评论会同步到线上社区，请先完成 Platform 登录。"
+    },
+    {
+      "name": "community_comment_failed",
+      "value": "评论失败"
+    },
+    {
+      "name": "community_compose_title",
+      "value": "发布文章"
+    },
+    {
+      "name": "community_publishing",
+      "value": "发布中"
+    },
+    {
+      "name": "community_published",
+      "value": "已发布"
+    },
+    {
+      "name": "community_field_type",
+      "value": "文章类型"
+    },
+    {
+      "name": "community_title_placeholder",
+      "value": "输入文章标题"
+    },
+    {
+      "name": "community_body_placeholder",
+      "value": "分享你的 QwenPaw 实践、教程、案例或想法…"
+    },
+    {
+      "name": "community_field_tags",
+      "value": "标签"
+    },
+    {
+      "name": "community_tags_placeholder",
+      "value": "用空格或逗号分隔，最多 5 个"
+    },
+    {
+      "name": "community_privacy_note",
+      "value": "只会发布当前填写的标题、正文和标签，不会读取或附带会话、记忆、密钥、环境变量及本地路径。"
+    },
+    {
+      "name": "community_publish_confirm_title",
+      "value": "发布到公开社区？"
+    },
+    {
+      "name": "community_publish_confirm_copy",
+      "value": "这篇文章会立即同步到 AgentScope Platform，所有社区用户均可查看。"
+    },
+    {
+      "name": "community_publish_confirm_action",
+      "value": "确认发布"
+    },
+    {
+      "name": "community_need_title",
+      "value": "请输入标题"
+    },
+    {
+      "name": "community_need_body",
+      "value": "请输入正文"
+    },
+    {
+      "name": "community_publish_failed",
+      "value": "发布失败"
+    },
+    {
+      "name": "community_type_work_share",
+      "value": "开发分享"
+    },
+    {
+      "name": "community_type_app_case",
+      "value": "应用案例"
+    },
+    {
+      "name": "community_type_tutorial",
+      "value": "新手教程"
+    },
+    {
+      "name": "community_type_discussion",
+      "value": "交流讨论"
+    },
+    {
+      "name": "community_skill_count",
+      "value": "%d 个 Skill"
+    },
+    {
+      "name": "community_plugin_count",
+      "value": "%d 个 Plugin"
+    },
+    {
+      "name": "module_models_count",
+      "value": "%d 个模型"
+    },
+    {
+      "name": "relay_quota_used",
+      "value": "%d 个"
+    },
+    {
+      "name": "relay_client_name",
+      "value": "%s 的 QwenPaw"
+    },
+    {
+      "name": "module_files_upload_failed",
+      "value": "上传失败（HTTP %d）。"
+    },
+    {
+      "name": "module_files_download_failed",
+      "value": "下载失败（HTTP %d）。"
+    },
+    {
+      "name": "module_files_save_failed",
+      "value": "保存失败（HTTP %d）。"
+    },
+    {
+      "name": "platform_oauth_title",
+      "value": "Platform 安全登录"
+    },
+    {
+      "name": "platform_oauth_copy",
+      "value": "使用 GitHub 账号登录 AgentScope Platform。授权在 App 内的安全视图中完成，无需跳转浏览器。"
+    },
+    {
+      "name": "platform_oauth_loading",
+      "value": "正在打开 Platform 授权页…"
+    },
+    {
+      "name": "platform_oauth_returning",
+      "value": "正在完成登录…"
+    },
+    {
+      "name": "platform_oauth_failed",
+      "value": "授权未完成"
+    },
+    {
+      "name": "platform_oauth_retry",
+      "value": "重新授权"
+    },
+    {
+      "name": "platform_login_github",
+      "value": "使用 GitHub 登录"
+    },
+    {
+      "name": "platform_login_github_hint",
+      "value": "将在 App 内完成安全授权，成功后自动继续。"
+    },
+    {
+      "name": "platform_login_title",
+      "value": "Platform 登录"
+    },
+    {
+      "name": "platform_login_heading",
+      "value": "连接 AgentScope 社区"
+    },
+    {
+      "name": "platform_login_copy",
+      "value": "登录后可在 App 内同步点赞、评论和发布。社区登录状态与 QwenPaw 配对彼此独立。"
+    },
+    {
+      "name": "platform_login_segment_login",
+      "value": "登录"
+    },
+    {
+      "name": "platform_login_segment_register",
+      "value": "注册"
+    },
+    {
+      "name": "platform_login_account",
+      "value": "账号"
+    },
+    {
+      "name": "platform_login_account_hint",
+      "value": "邮箱或账号"
+    },
+    {
+      "name": "platform_login_account_hint_register",
+      "value": "用于接收验证码"
+    },
+    {
+      "name": "platform_login_code",
+      "value": "验证码"
+    },
+    {
+      "name": "platform_login_code_placeholder",
+      "value": "邮箱验证码"
+    },
+    {
+      "name": "platform_login_send_code",
+      "value": "获取验证码"
+    },
+    {
+      "name": "platform_login_code_sent",
+      "value": "验证码已发送"
+    },
+    {
+      "name": "platform_login_password",
+      "value": "密码"
+    },
+    {
+      "name": "platform_login_password_hint",
+      "value": "请输入密码"
+    },
+    {
+      "name": "platform_login_confirm_password",
+      "value": "确认密码"
+    },
+    {
+      "name": "platform_login_confirm_hint",
+      "value": "再次输入密码"
+    },
+    {
+      "name": "platform_login_submit",
+      "value": "登录社区"
+    },
+    {
+      "name": "platform_login_submit_register",
+      "value": "注册并继续"
+    },
+    {
+      "name": "platform_login_submitting",
+      "value": "处理中…"
+    },
+    {
+      "name": "platform_login_security_note",
+      "value": "登录令牌仅保存在本机，过期后使用 Platform 刷新令牌续期。"
+    },
+    {
+      "name": "platform_login_password_mismatch",
+      "value": "两次输入的密码不一致"
+    },
+    {
+      "name": "platform_login_registered",
+      "value": "注册成功，请登录"
+    },
+    {
+      "name": "platform_login_need_account",
+      "value": "请输入账号"
+    },
+    {
+      "name": "platform_login_need_password",
+      "value": "请输入密码"
+    },
+    {
+      "name": "platform_login_need_code",
+      "value": "请输入验证码"
+    },
+    {
+      "name": "platform_login_ok",
+      "value": "已登录"
+    },
+    {
+      "name": "relay_group_title",
+      "value": "Platform 远程访问"
+    },
+    {
+      "name": "relay_row_connected",
+      "value": "已连接 Platform"
+    },
+    {
+      "name": "relay_row_disconnected",
+      "value": "连接 Platform"
+    },
+    {
+      "name": "relay_row_sub_on",
+      "value": "可通过 Platform 安全访问这只 QwenPaw"
+    },
+    {
+      "name": "relay_row_sub_off",
+      "value": "使用当前 Platform 账号开启远程访问"
+    },
+    {
+      "name": "relay_row_sub_login",
+      "value": "登录 Platform 后开启远程访问"
+    },
+    {
+      "name": "relay_trailing_on",
+      "value": "已开启"
+    },
+    {
+      "name": "relay_trailing_off",
+      "value": "未开启"
+    },
+    {
+      "name": "relay_need_hub",
+      "value": "这只 QwenPaw 不支持 Platform 远程访问"
+    },
+    {
+      "name": "relay_login_required",
+      "value": "请先登录 AgentScope Platform"
+    },
+    {
+      "name": "relay_auth_ok_title",
+      "value": "Platform 远程访问已开启"
+    },
+    {
+      "name": "relay_auth_ok_copy",
+      "value": "这只 QwenPaw 已绑定当前 Platform 账号，可以生成安全中转配对码。"
+    },
+    {
+      "name": "relay_auth_fail_title",
+      "value": "连接 Platform 失败"
+    },
+    {
+      "name": "relay_nodes_row",
+      "value": "自部署连接"
+    },
+    {
+      "name": "relay_nodes_row_sub",
+      "value": "查看额度、解除绑定和清理离线连接"
+    },
+    {
+      "name": "relay_nodes_title",
+      "value": "自部署连接"
+    },
+    {
+      "name": "relay_quota_prefix",
+      "value": "已用额度 "
+    },
+    {
+      "name": "relay_quota_suffix",
+      "value": "，云端 QwenPaw 不计入这里"
+    },
+    {
+      "name": "relay_loading",
+      "value": "正在读取连接…"
+    },
+    {
+      "name": "relay_loading_copy",
+      "value": "正在向 Platform 查询已绑定的自部署连接。"
+    },
+    {
+      "name": "relay_error_title",
+      "value": "暂时无法读取连接"
+    },
+    {
+      "name": "relay_empty_title",
+      "value": "暂无自部署连接"
+    },
+    {
+      "name": "relay_empty_copy",
+      "value": "在 QwenPaw 中登录同一个 Platform 账号即可绑定。"
+    },
+    {
+      "name": "relay_online",
+      "value": "在线"
+    },
+    {
+      "name": "relay_offline",
+      "value": "离线"
+    },
+    {
+      "name": "relay_never_seen",
+      "value": "尚未连接"
+    },
+    {
+      "name": "relay_current",
+      "value": "当前"
+    },
+    {
+      "name": "relay_revoke_title",
+      "value": "解除绑定"
+    },
+    {
+      "name": "relay_revoke_copy",
+      "value": "将停止 Platform 中转访问，本地会话和配置不会被删除。"
+    },
+    {
+      "name": "relay_revoke_action",
+      "value": "解除绑定"
+    },
+    {
+      "name": "relay_reauthorize_copy",
+      "value": "这只 QwenPaw 已绑定 Platform。重新授权会更新为当前登录的 Platform 账号。"
+    },
+    {
+      "name": "relay_reauthorize_action",
+      "value": "重新授权"
+    },
+    {
+      "name": "chat_media_saved",
+      "value": "已保存到相册"
+    },
+    {
+      "name": "chat_media_save_failed",
+      "value": "保存失败"
+    },
+    {
+      "name": "chat_media_share",
+      "value": "分享"
+    },
+    {
+      "name": "chat_media_share_failed",
+      "value": "分享失败"
+    },
+    {
+      "name": "common_edit",
+      "value": "编辑"
+    },
+    {
+      "name": "scan_manual_enter",
+      "value": "手动输入地址"
+    },
+    {
+      "name": "scan_manual_back",
+      "value": "返回扫码"
+    },
+    {
+      "name": "scan_manual_title",
+      "value": "手动添加连接"
+    },
+    {
+      "name": "scan_manual_copy",
+      "value": "地址支持 IPv4 / IPv6 / 域名，可带端口与 http(s)；配对码可留空直连"
+    },
+    {
+      "name": "scan_manual_addr_ph",
+      "value": "如 192.0.2.10:8088 或 https://example.com"
+    },
+    {
+      "name": "scan_manual_ticket_ph",
+      "value": "配对码（可留空）"
+    },
+    {
+      "name": "scan_manual_connect",
+      "value": "连接"
+    },
+    {
+      "name": "module_files_open_external",
+      "value": "其他应用打开"
+    },
+    {
+      "name": "module_files_open_external_failed",
+      "value": "没有可打开该文件的应用"
+    },
+    {
+      "name": "scan_choose_title",
+      "value": "添加连接"
+    },
+    {
+      "name": "scan_choose_copy",
+      "value": "扫码配对，或手动输入地址（支持 IPv4 / IPv6 / 域名，可带端口与 http(s)）"
+    },
+    {
+      "name": "scan_choose_scan",
+      "value": "扫码配对"
+    },
+    {
+      "name": "chat_approval_strict",
+      "value": "严格"
+    },
+    {
+      "name": "chat_approval_smart",
+      "value": "智能"
+    },
+    {
+      "name": "chat_approval_auto",
+      "value": "自动"
+    },
+    {
+      "name": "chat_approval_off",
+      "value": "关闭"
+    },
+    {
+      "name": "chat_approval_strict_desc",
+      "value": "每次工具调用都需要确认。"
+    },
+    {
+      "name": "chat_approval_smart_desc",
+      "value": "低风险自动放行，中高风险需要确认。"
+    },
+    {
+      "name": "chat_approval_auto_desc",
+      "value": "仅确认工具明确标记的敏感操作。"
+    },
+    {
+      "name": "chat_approval_off_desc",
+      "value": "所有工具自动执行，不再请求审批。"
+    },
+    {
+      "name": "chat_loop_running",
+      "value": "运行中"
+    },
+    {
+      "name": "chat_loop_name_default",
+      "value": "默认"
+    },
+    {
+      "name": "chat_loop_name_goal",
+      "value": "目标"
+    },
+    {
+      "name": "chat_loop_name_mission",
+      "value": "任务"
+    },
+    {
+      "name": "chat_loop_desc_default",
+      "value": "标准的受控智能体 Loop。"
+    },
+    {
+      "name": "chat_loop_desc_goal",
+      "value": "持续推进一个具体且可验证的目标。"
+    },
+    {
+      "name": "chat_loop_desc_mission",
+      "value": "运行结构化、可持续的多步骤任务。"
+    },
+    {
+      "name": "chat_slash_clear_desc",
+      "value": "清空对话上下文"
+    },
+    {
+      "name": "chat_slash_compact_desc",
+      "value": "压缩对话上下文并生成摘要，支持附带说明"
+    },
+    {
+      "name": "chat_slash_skills_desc",
+      "value": "列出当前对话可用的技能，并显示可显式调用的技能命令"
+    },
+    {
+      "name": "chat_loop_subtitle",
+      "value": "选择下一轮如何推进任务"
+    },
+    {
+      "name": "chat_loop_starting",
+      "value": "正在启动"
+    },
+    {
+      "name": "chat_loop_awaiting",
+      "value": "等待你的回复"
+    },
+    {
+      "name": "chat_loop_locked",
+      "value": "本轮完成后才能切换。"
+    },
+    {
+      "name": "chat_runtime_loop_title",
+      "value": "运行方式"
+    },
+    {
+      "name": "chat_runtime_approval_title",
+      "value": "审批等级"
+    },
+    {
+      "name": "chat_runtime_agent_default",
+      "value": "Agent 默认"
+    },
+    {
+      "name": "chat_runtime_model_subtitle",
+      "value": "只影响当前会话，不修改 Agent"
+    },
+    {
+      "name": "chat_runtime_approval_subtitle",
+      "value": "控制当前会话的工具授权"
+    },
+    {
+      "name": "err_token_expired_chats",
+      "value": "票据已失效（HTTP %d），请回到「会话」页重新连接。"
+    },
+    {
+      "name": "err_token_expired",
+      "value": "票据已失效（HTTP %d），请重新连接。"
+    },
+    {
+      "name": "err_action_failed",
+      "value": "%s失败（HTTP %d）。"
+    },
+    {
+      "name": "err_load_agents",
+      "value": "读取智能体列表失败（HTTP %d）。"
+    },
+    {
+      "name": "err_load_chats",
+      "value": "读取会话列表失败（HTTP %d）。"
+    },
+    {
+      "name": "err_load_chat",
+      "value": "读取会话失败（HTTP %d）。"
+    },
+    {
+      "name": "err_stop_failed",
+      "value": "停止失败（HTTP %d）。"
+    },
+    {
+      "name": "err_upload_failed",
+      "value": "附件上传失败（HTTP %d）。"
+    },
+    {
+      "name": "err_upload_no_url",
+      "value": "附件上传失败：服务端未返回文件地址。"
+    },
+    {
+      "name": "err_load_approvals",
+      "value": "读取审批列表失败（HTTP %d）。"
+    },
+    {
+      "name": "err_approve_failed",
+      "value": "批准失败（HTTP %d）。"
+    },
+    {
+      "name": "err_deny_failed",
+      "value": "拒绝失败（HTTP %d）。"
+    },
+    {
+      "name": "common_file",
+      "value": "文件"
+    },
+    {
+      "name": "approvals_tool_call",
+      "value": "工具调用"
+    },
+    {
+      "name": "sse_model_call_failed",
+      "value": "模型调用失败"
+    },
+    {
+      "name": "time_just_now",
+      "value": "刚刚"
+    },
+    {
+      "name": "time_minutes_ago",
+      "value": "%d 分钟前"
+    },
+    {
+      "name": "time_hours_ago",
+      "value": "%d 小时前"
+    },
+    {
+      "name": "date_month_day",
+      "value": "%d月%d日"
+    },
+    {
+      "name": "agent_action_delete",
+      "value": "删除智能体"
+    },
+    {
+      "name": "agent_action_pin",
+      "value": "置顶智能体"
+    },
+    {
+      "name": "agent_action_toggle",
+      "value": "启停智能体"
+    },
+    {
+      "name": "agent_action_create",
+      "value": "创建智能体"
+    },
+    {
+      "name": "agent_action_duplicate",
+      "value": "复制智能体"
+    },
+    {
+      "name": "chat_group_create",
+      "value": "新建分组"
+    },
+    {
+      "name": "chat_create",
+      "value": "新建会话"
+    },
+    {
+      "name": "chat_rename",
+      "value": "重命名会话"
+    },
+    {
+      "name": "chat_move",
+      "value": "移动会话"
+    },
+    {
+      "name": "chat_pin",
+      "value": "置顶会话"
+    },
+    {
+      "name": "chat_archive",
+      "value": "归档会话"
+    },
+    {
+      "name": "chat_unarchive",
+      "value": "取消归档"
+    },
+    {
+      "name": "chat_delete",
+      "value": "删除会话"
+    },
+    {
+      "name": "pairing_err_no_address",
+      "value": "请输入 QwenPaw 地址。"
+    },
+    {
+      "name": "pairing_err_bad_format",
+      "value": "QwenPaw 地址格式无效。"
+    },
+    {
+      "name": "pairing_err_scheme",
+      "value": "QwenPaw 地址必须使用 HTTP 或 HTTPS。"
+    },
+    {
+      "name": "pairing_err_credentials",
+      "value": "QwenPaw 地址不能带账号凭据。"
+    },
+    {
+      "name": "pairing_err_query",
+      "value": "QwenPaw 地址不能带查询参数。"
+    },
+    {
+      "name": "pairing_err_no_host",
+      "value": "QwenPaw 地址缺少主机名。"
+    },
+    {
+      "name": "pairing_err_relay_unsupported",
+      "value": "远程中转配对一期暂不支持（仅 LAN 直连）。"
+    },
+    {
+      "name": "pairing_err_not_code",
+      "value": "这不是一个 QwenPaw 配对码。"
+    },
+    {
+      "name": "pairing_err_code_invalid",
+      "value": "这个 QwenPaw 配对码无效或已过期。"
+    },
+    {
+      "name": "pairing_err_code_short",
+      "value": "配对码太短（至少 32 字符）。若服务未开账号体系，可留空直连。"
+    },
+    {
+      "name": "conn_err_non_json",
+      "value": "服务端返回了非 JSON 内容。"
+    },
+    {
+      "name": "conn_err_timeout_localhost",
+      "value": "连接超时。手机上的 127.0.0.1 指向手机自身；真机请填写电脑的局域网 IP。"
+    },
+    {
+      "name": "conn_err_timeout",
+      "value": "连接超时。请确认手机与 QwenPaw 在同一网络、地址和端口正确，并使用 --host 0.0.0.0 启动服务。"
+    },
+    {
+      "name": "conn_err_network",
+      "value": "网络错误（code %s）。请确认手机与 QwenPaw 在同一网络、地址和端口正确，并使用 --host 0.0.0.0 启动服务。"
+    },
+    {
+      "name": "conn_err_unreachable",
+      "value": "无法连接 %s。请确认服务正在运行、地址和端口正确。"
+    },
+    {
+      "name": "conn_err_failed",
+      "value": "连接失败：%s"
+    },
+    {
+      "name": "conn_err_http",
+      "value": "无法访问服务（HTTP %d）。"
+    },
+    {
+      "name": "conn_err_verify",
+      "value": "票据校验失败（HTTP %d）。%s"
+    },
+    {
+      "name": "conn_err_redeem",
+      "value": "配对码兑换失败（HTTP %d）。请确认配对码未过期且属于该地址。"
+    },
+    {
+      "name": "conn_err_no_ticket",
+      "value": "服务端未返回有效会话票据。"
+    },
+    {
+      "name": "conn_hint_code_invalid",
+      "value": "配对码可能无效或已过期。"
+    },
+    {
+      "name": "conn_err_account_required",
+      "value": "该 QwenPaw 已开启账号登录，请输入配对码（QwenPaw 工作区配对页）。"
+    },
+    {
+      "name": "conn_hint_maybe_expired",
+      "value": "连接可能已失效，请重新扫码配对。"
+    },
+    {
+      "name": "conn_err_account_required_again",
+      "value": "该 QwenPaw 已开启账号登录，请重新扫码配对。"
+    },
+    {
+      "name": "relay_err_unexpected",
+      "value": "远程访问状态返回了非预期内容。"
+    },
+    {
+      "name": "relay_err_unsupported",
+      "value": "这只 QwenPaw 不支持 Platform 远程访问。"
+    },
+    {
+      "name": "relay_err_load",
+      "value": "读取远程访问状态失败（HTTP %d）。"
+    },
+    {
+      "name": "relay_err_connect",
+      "value": "连接 Platform 失败（HTTP %d）。"
+    },
+    {
+      "name": "platform_err_request",
+      "value": "Platform 请求失败（%s）"
+    },
+    {
+      "name": "platform_err_login_no_cred",
+      "value": "Platform 登录未返回有效凭据"
+    },
+    {
+      "name": "platform_err_refresh",
+      "value": "Platform 登录续期失败"
+    },
+    {
+      "name": "platform_err_login_first",
+      "value": "请先登录 AgentScope Platform"
+    },
+    {
+      "name": "platform_err_community",
+      "value": "Platform 社区暂时不可用（%s）"
+    },
+    {
+      "name": "platform_err_state_check",
+      "value": "Platform 登录状态校验失败，请重新登录"
+    },
+    {
+      "name": "platform_err_no_code",
+      "value": "Platform 登录没有返回授权码"
+    },
+    {
+      "name": "deploy_err_no_appid",
+      "value": "Platform 创建部署后没有返回 appId"
+    },
+    {
+      "name": "deploy_status_idle",
+      "value": "尚未部署"
+    },
+    {
+      "name": "deploy_status_idle_desc",
+      "value": "登录已经完成，可以直接创建你的云端 QwenPaw。"
+    },
+    {
+      "name": "deploy_status_creating",
+      "value": "正在创建"
+    },
+    {
+      "name": "deploy_status_creating_desc",
+      "value": "正在为你准备云端 QwenPaw。"
+    },
+    {
+      "name": "deploy_status_deploying",
+      "value": "正在部署"
+    },
+    {
+      "name": "deploy_status_deploying_desc",
+      "value": "正在装载服务与持久化配置。"
+    },
+    {
+      "name": "deploy_status_in_progress",
+      "value": "部署进行中"
+    },
+    {
+      "name": "deploy_status_in_progress_desc",
+      "value": "Platform 正在处理请求，App 会自动重试，无需操作。"
+    },
+    {
+      "name": "deploy_status_starting",
+      "value": "正在启动"
+    },
+    {
+      "name": "deploy_status_starting_desc",
+      "value": "QwenPaw 服务即将就绪。"
+    },
+    {
+      "name": "deploy_status_restarting",
+      "value": "正在重新启动"
+    },
+    {
+      "name": "deploy_status_restarting_desc",
+      "value": "正在恢复这只 QwenPaw，工作数据会保留。"
+    },
+    {
+      "name": "deploy_status_switching",
+      "value": "正在切换版本"
+    },
+    {
+      "name": "deploy_status_switching_desc",
+      "value": "Platform 正在替换 QwenPaw 运行镜像。"
+    },
+    {
+      "name": "deploy_status_waking",
+      "value": "正在唤醒"
+    },
+    {
+      "name": "deploy_status_waking_desc",
+      "value": "正在恢复你的云端 QwenPaw。"
+    },
+    {
+      "name": "deploy_status_recovering",
+      "value": "正在恢复"
+    },
+    {
+      "name": "deploy_status_recovering_desc",
+      "value": "已提交 QwenPaw 启动请求。"
+    },
+    {
+      "name": "deploy_status_ready",
+      "value": "QwenPaw 已就绪"
+    },
+    {
+      "name": "deploy_status_ready_desc",
+      "value": "正在完成安全配对。"
+    },
+    {
+      "name": "deploy_status_not_ready",
+      "value": "云端服务未就绪"
+    },
+    {
+      "name": "deploy_status_not_ready_desc",
+      "value": "App 已停止自动操作，不会重复部署或重启。"
+    },
+    {
+      "name": "deploy_status_removed",
+      "value": "部署已移除"
+    },
+    {
+      "name": "deploy_status_removed_desc",
+      "value": "可以重新创建你的 QwenPaw。"
+    },
+    {
+      "name": "deploy_status_preparing",
+      "value": "正在准备"
+    },
+    {
+      "name": "deploy_status_preparing_desc",
+      "value": "正在读取 Platform 部署状态。"
+    },
+    {
+      "name": "deploy_version_stable",
+      "value": "QwenPaw 稳定版"
+    },
+    {
+      "name": "deploy_version_unknown",
+      "value": "未知镜像"
+    },
+    {
+      "name": "deploy_msg_rate_limited",
+      "value": "Platform 请求较多，登录态已保留；App 会暂停请求并自动重试。"
+    },
+    {
+      "name": "deploy_msg_github_required",
+      "value": "部署前需要先为 Platform 账号绑定 GitHub。绑定后返回这里重试即可。"
+    },
+    {
+      "name": "deploy_msg_not_eligible",
+      "value": "当前 Platform 账号暂不具备 QwenPaw 部署资格，请先在 Platform 完成资格申请。"
+    },
+    {
+      "name": "deploy_msg_forbidden",
+      "value": "当前 Platform 账号的部署权限受限，请前往 Platform 查看或提交申诉。"
+    },
+    {
+      "name": "deploy_msg_pending_review",
+      "value": "Platform 正在审核你的申请，审核完成后可直接在这里继续部署。"
+    },
+    {
+      "name": "deploy_msg_unavailable",
+      "value": "Platform 暂时未能打开这只 QwenPaw。登录态已保留，App 不会重复部署；可稍后重新检查。"
+    },
+    {
+      "name": "deploy_msg_failed",
+      "value": "Platform 部署请求失败，请稍后重试。"
+    },
+    {
+      "name": "wb_mod_files_title",
+      "value": "Files"
+    },
+    {
+      "name": "wb_mod_projects_git_title",
+      "value": "Coding 项目与 Git"
+    },
+    {
+      "name": "wb_mod_agent_config_title",
+      "value": "Agent 配置"
+    },
+    {
+      "name": "wb_mod_skills_title",
+      "value": "Skills"
+    },
+    {
+      "name": "wb_mod_skill_pool_title",
+      "value": "Skill Pool"
+    },
+    {
+      "name": "wb_mod_tools_title",
+      "value": "Tools"
+    },
+    {
+      "name": "wb_mod_mcp_acp_title",
+      "value": "MCP"
+    },
+    {
+      "name": "wb_mod_acp_title",
+      "value": "ACP"
+    },
+    {
+      "name": "wb_mod_checkpoints_title",
+      "value": "Checkpoints"
+    },
+    {
+      "name": "wb_mod_extensions_title",
+      "value": "扩展与 App Center"
+    },
+    {
+      "name": "wb_mod_channels_title",
+      "value": "Channels"
+    },
+    {
+      "name": "wb_mod_sessions_title",
+      "value": "Sessions"
+    },
+    {
+      "name": "wb_mod_automation_title",
+      "value": "Cron 与 Heartbeat"
+    },
+    {
+      "name": "wb_mod_hub_title",
+      "value": "QwenPaw Hub"
+    },
+    {
+      "name": "wb_mod_models_title",
+      "value": "Models 与 Providers"
+    },
+    {
+      "name": "wb_mod_environments_title",
+      "value": "Environment 与凭据"
+    },
+    {
+      "name": "wb_mod_security_title",
+      "value": "Security"
+    },
+    {
+      "name": "wb_mod_offload_title",
+      "value": "Tool Offload"
+    },
+    {
+      "name": "wb_mod_voice_title",
+      "value": "语音与转写"
+    },
+    {
+      "name": "wb_mod_debug_title",
+      "value": "Debug"
+    },
+    {
+      "name": "wb_mod_operations_title",
+      "value": "备份与运行统计"
+    },
+    {
+      "name": "wb_mod_files_subtitle",
+      "value": "工作区文件与产物"
+    },
+    {
+      "name": "wb_mod_projects_git_subtitle",
+      "value": "项目目录、分支与版本提交"
+    },
+    {
+      "name": "wb_mod_agent_config_subtitle",
+      "value": "当前 Agent 的模型与行为"
+    },
+    {
+      "name": "wb_mod_skills_subtitle",
+      "value": "安装、启用与配置技能"
+    },
+    {
+      "name": "wb_mod_skill_pool_subtitle",
+      "value": "跨 Agent 复用技能"
+    },
+    {
+      "name": "wb_mod_tools_subtitle",
+      "value": "内置工具与权限"
+    },
+    {
+      "name": "wb_mod_mcp_acp_subtitle",
+      "value": "外部工具与服务"
+    },
+    {
+      "name": "wb_mod_acp_subtitle",
+      "value": "外部 Agent 运行协议"
+    },
+    {
+      "name": "wb_mod_checkpoints_subtitle",
+      "value": "Agent 工作区版本"
+    },
+    {
+      "name": "wb_mod_extensions_subtitle",
+      "value": "Marketplace、Plugins 与 PawApps"
+    },
+    {
+      "name": "wb_mod_channels_subtitle",
+      "value": "消息渠道与访问控制"
+    },
+    {
+      "name": "wb_mod_sessions_subtitle",
+      "value": "全部会话与运行状态"
+    },
+    {
+      "name": "wb_mod_automation_subtitle",
+      "value": "定时任务和主动唤醒"
+    },
+    {
+      "name": "wb_mod_hub_subtitle",
+      "value": "身份、Runtime 与多用户运行"
+    },
+    {
+      "name": "wb_mod_models_subtitle",
+      "value": "模型服务与默认模型"
+    },
+    {
+      "name": "wb_mod_environments_subtitle",
+      "value": "环境变量和密钥"
+    },
+    {
+      "name": "wb_mod_security_subtitle",
+      "value": "沙箱、守卫与扫描"
+    },
+    {
+      "name": "wb_mod_offload_subtitle",
+      "value": "长任务前后台策略"
+    },
+    {
+      "name": "wb_mod_voice_subtitle",
+      "value": "音频处理和 Whisper"
+    },
+    {
+      "name": "wb_mod_debug_subtitle",
+      "value": "后端日志与诊断"
+    },
+    {
+      "name": "wb_mod_operations_subtitle",
+      "value": "Backups、Token Usage 与状态"
+    },
+    {
+      "name": "wb_cat_agent_workspace_title",
+      "value": "Agent 与工作空间"
+    },
+    {
+      "name": "wb_cat_conn_automation_title",
+      "value": "连接与自动化"
+    },
+    {
+      "name": "wb_cat_run_security_title",
+      "value": "运行与安全"
+    },
+    {
+      "name": "wb_cat_data_diagnostics_title",
+      "value": "数据与诊断"
+    },
+    {
+      "name": "wb_cat_agent_workspace_subtitle",
+      "value": "Agent、会话、文件与项目"
+    },
+    {
+      "name": "wb_cat_conn_automation_subtitle",
+      "value": "模型、渠道、工具与计划任务"
+    },
+    {
+      "name": "wb_cat_run_security_subtitle",
+      "value": "技能、权限、运行与扩展"
+    },
+    {
+      "name": "wb_cat_data_diagnostics_subtitle",
+      "value": "版本、日志、用量与恢复"
+    },
+    {
+      "name": "module_auto_hb_every_hint",
+      "value": "6h 或 30m"
+    },
+    {
+      "name": "channel_dingtalk",
+      "value": "钉钉"
+    },
+    {
+      "name": "channel_feishu",
+      "value": "飞书"
+    },
+    {
+      "name": "channel_wechat",
+      "value": "微信"
+    },
+    {
+      "name": "channel_wecom",
+      "value": "企业微信"
+    },
+    {
+      "name": "self_test_01",
+      "value": "1. data 帧 roundtrip（PR 向量）"
+    },
+    {
+      "name": "self_test_02",
+      "value": "2. session_event 缺 event_id 被拒（PR 向量）"
+    },
+    {
+      "name": "self_test_03",
+      "value": "3. open operation 白名单（PR 向量）"
+    },
+    {
+      "name": "self_test_04",
+      "value": "4. 截断输入被拒（PR 向量）"
+    },
+    {
+      "name": "self_test_05",
+      "value": "5. canonical hello 逐字节"
+    },
+    {
+      "name": "self_test_06",
+      "value": "6. canonical pong 逐字节"
+    },
+    {
+      "name": "self_test_07",
+      "value": "7. canonical data 逐字节"
+    },
+    {
+      "name": "self_test_08",
+      "value": "8. 地址：裸 host:port 补 http"
+    },
+    {
+      "name": "self_test_09",
+      "value": "9. 地址：域名 + https + 端口"
+    },
+    {
+      "name": "self_test_10",
+      "value": "10. 地址：IPv6 保留方括号"
+    },
+    {
+      "name": "self_test_11",
+      "value": "11. 地址：hostOf 提取主机（IPv6 含端口）"
+    },
+    {
+      "name": "self_test_12",
+      "value": "12. 地址：带凭据被拒"
+    },
+    {
+      "name": "split_placeholder_hint",
+      "value": "从左侧选择开始"
+    },
+    {
+      "name": "chat_file_no_preview",
+      "value": "预览不可用，可长按文件改用分享取走"
+    },
+    {
+      "name": "chat_file_gone",
+      "value": "源文件已不在服务端，无法预览"
+    },
+    {
+      "name": "chat_file_created",
+      "value": "新建"
+    },
+    {
+      "name": "chat_file_modified",
+      "value": "修改"
+    },
+    {
+      "name": "chat_file_sent",
+      "value": "已发送"
+    },
+    {
+      "name": "err_load_agent_approval",
+      "value": "读取审批等级失败（HTTP %d）。"
+    },
+    {
+      "name": "err_save_agent_approval",
+      "value": "保存审批等级失败（HTTP %d）。"
+    },
+    {
+      "name": "chat_runtime_follow_agent",
+      "value": "跟随 Agent"
+    },
+    {
+      "name": "community_open_link_failed",
+      "value": "打开链接失败"
+    },
+    {
+      "name": "agent_detail_title",
+      "value": "智能体详情"
+    },
+    {
+      "name": "agent_detail_id",
+      "value": "Agent ID"
+    },
+    {
+      "name": "agent_detail_desc",
+      "value": "说明"
+    },
+    {
+      "name": "agent_detail_status",
+      "value": "状态"
+    },
+    {
+      "name": "agent_detail_disabled",
+      "value": "已停用"
+    },
+    {
+      "name": "agent_detail_model",
+      "value": "当前模型"
+    },
+    {
+      "name": "agent_detail_backend",
+      "value": "后端"
+    },
+    {
+      "name": "agent_detail_workspace",
+      "value": "连接"
+    },
+    {
+      "name": "agent_detail_missing",
+      "value": "找不到这个智能体"
+    },
+    {
+      "name": "agent_detail_load_failed",
+      "value": "加载智能体失败"
+    },
+    {
+      "name": "agent_detail_switch_failed",
+      "value": "切换智能体失败"
+    },
+    {
+      "name": "agent_detail_make_current",
+      "value": "切换为当前智能体"
+    },
+    {
+      "name": "agent_detail_switching",
+      "value": "切换中…"
+    },
+    {
+      "name": "agents_current",
+      "value": "当前"
+    },
+    {
+      "name": "markdown_copy_ok",
+      "value": "复制成功"
+    },
+    {
+      "name": "markdown_copy_failed",
+      "value": "复制失败"
+    },
+    {
+      "name": "gateway_err_no_access_path",
+      "value": "Platform 配对信息不完整，请重新配对这只 QwenPaw。"
+    },
+    {
+      "name": "gateway_err_cannot_resume",
+      "value": "Platform 暂时无法恢复 QwenPaw 访问，请稍后重试。"
+    },
+    {
+      "name": "gateway_err_no_entry",
+      "value": "Platform 没有返回有效的 QwenPaw 配对入口，请稍后重试。"
+    },
+    {
+      "name": "gateway_err_no_base_url",
+      "value": "Platform 没有返回可用的 QwenPaw 地址，请稍后重试。"
+    },
+    {
+      "name": "gateway_err_resume_failed",
+      "value": "Platform 实例访问态恢复失败，请返回后重新进入。"
+    },
+    {
+      "name": "pd_pair_now",
+      "value": "连接此实例"
+    },
+    {
+      "name": "pd_pairing",
+      "value": "正在安全配对…"
+    },
+    {
+      "name": "pd_paired",
+      "value": "已配对并切换为当前连接"
+    },
+    {
+      "name": "pd_pair_failed",
+      "value": "安全配对失败，请重试。"
+    },
+    {
+      "name": "module_ext_app_group",
+      "value": "本地应用（本机离线）"
+    },
+    {
+      "name": "module_ext_app_empty_title",
+      "value": "还没有本地应用"
+    },
+    {
+      "name": "module_ext_app_empty_subtitle",
+      "value": "从设备安装应用 ZIP 后，无需服务端即可在本机运行"
+    },
+    {
+      "name": "module_ext_app_install",
+      "value": "从设备安装应用"
+    },
+    {
+      "name": "module_ext_app_install_hint",
+      "value": "选择应用 ZIP 包（.zip），安装到本机离线运行"
+    },
+    {
+      "name": "module_ext_app_run",
+      "value": "运行"
+    },
+    {
+      "name": "module_ext_app_uninstall",
+      "value": "卸载"
+    },
+    {
+      "name": "module_ext_app_uninstall_confirm",
+      "value": "卸载本地应用？"
+    },
+    {
+      "name": "module_ext_app_uninstall_msg",
+      "value": "应用文件将移入回收区（保留最近 5 份），可随时重装。"
+    },
+    {
+      "name": "module_ext_app_installed",
+      "value": "本地应用已安装"
+    },
+    {
+      "name": "module_ext_app_uninstalled",
+      "value": "本地应用已卸载"
+    },
+    {
+      "name": "module_ext_app_err_zip",
+      "value": "解压失败：请确认是有效的 ZIP 包"
+    },
+    {
+      "name": "module_ext_app_err_root",
+      "value": "未找到 plugin.json（ZIP 根目录或一级子目录须包含插件目录）"
+    },
+    {
+      "name": "module_ext_app_err_id",
+      "value": "插件 id 不合法（须为小写字母/数字开头，可含 - 或 _）"
+    },
+    {
+      "name": "module_ext_app_err_entry",
+      "value": "插件缺少前端入口（entry.frontend）"
+    },
+    {
+      "name": "module_ext_app_err_entry_missing",
+      "value": "插件入口文件不存在"
+    },
+    {
+      "name": "module_ext_app_err_exists",
+      "value": "该应用已安装在本机"
+    },
+    {
+      "name": "localpawapp_loading",
+      "value": "正在启动应用…"
+    },
+    {
+      "name": "localpawapp_hint",
+      "value": "本地运行模式：界面可离线使用，数据接口不可用。"
+    },
+    {
+      "name": "localpawapp_failed_params",
+      "value": "应用参数缺失，无法启动。"
+    },
+    {
+      "name": "localpawapp_failed_missing",
+      "value": "本地应用不存在或已损坏，请重新安装。"
+    },
+    {
+      "name": "localpawapp_failed_shell",
+      "value": "本地运行环境初始化失败，请重试。"
+    }
+  ]
+}
