@@ -11,6 +11,7 @@ injects all dependencies into the agent constructor.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -329,6 +330,15 @@ class AgentBuilder:
         middlewares.  The agent receives all dependencies externally —
         it does not build any of them internally.
         """
+        timing_started = timing_last = time.perf_counter()
+        timings: dict[str, float] = {}
+
+        def mark_timing(name: str) -> None:
+            nonlocal timing_last
+            now = time.perf_counter()
+            timings[name] = (now - timing_last) * 1000
+            timing_last = now
+
         from agentscope.agent import ReActConfig
 
         from ..agents.react_agent import QwenPawAgent
@@ -339,6 +349,8 @@ class AgentBuilder:
         from ..config.config import load_agent_config
         from ..constant import WORKING_DIR
         from ..providers.provider_manager import ProviderManager
+
+        mark_timing("imports")
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
         agent_config = await run_sync_io(load_agent_config, agent_id)
@@ -366,10 +378,12 @@ class AgentBuilder:
             )
 
         workspace_dir = getattr(ctx, "workspace_dir", None)
+        mark_timing("load_config")
 
         # Resolve skills.
         skills_workspace = workspace_dir or WORKING_DIR
         await run_sync_io(ensure_skills_initialized, skills_workspace)
+        mark_timing("reconcile_skills")
         channel_name = request_context.get("channel", "console")
         try:
             effective_skills = await run_sync_io(
@@ -384,6 +398,7 @@ class AgentBuilder:
         if isinstance(subagent_skills, list):
             parent_set = set(effective_skills)
             effective_skills = [s for s in subagent_skills if s in parent_set]
+        mark_timing("resolve_skills")
 
         # Compute active modes.
         active_modes: set[str] = set()
@@ -392,6 +407,7 @@ class AgentBuilder:
             plugins = getattr(workspace, "plugins", None)
             if plugins is not None:
                 active_modes = plugins.active_mode_names(ctx)
+        mark_timing("resolve_modes")
 
         # Governor (governance policy layer). Built per request against
         # the dirs the tools will actually use, so a session-level
@@ -422,6 +438,7 @@ class AgentBuilder:
         local_ws = self._get_local_workspace(ctx) if ctx else None
         if local_ws is not None:
             local_ws.set_governor(governor)
+        mark_timing("init_governor")
 
         # Toolkit.
         extra_tools = self._collect_coding_mode_tools(
@@ -439,6 +456,7 @@ class AgentBuilder:
                 governor,
             ),
         )
+        mark_timing("collect_coding_tools")
         (
             driver_tools,
             driver_prompt_hints,
@@ -450,6 +468,7 @@ class AgentBuilder:
         if not hasattr(ctx, "extras") or ctx.extras is None:
             ctx.extras = {}
         ctx.extras["driver_prompt_hints"] = driver_prompt_hints
+        mark_timing("collect_driver_capabilities")
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
@@ -461,6 +480,7 @@ class AgentBuilder:
             agent_config,
             model_slot_override=model_slot_override,
         )
+        mark_timing("build_model")
 
         ctx.extras[f"active_model_display_name"] = getattr(
             model,
@@ -504,6 +524,7 @@ class AgentBuilder:
                 request_context,
                 governor,
             )
+        mark_timing("build_scroll")
 
         memory_manager = self._get_memory_manager(ctx)
         toolkit = await self.build_toolkit(
@@ -522,6 +543,7 @@ class AgentBuilder:
             ctx=ctx,
             workspace_dir=workspace_dir,
         )
+        mark_timing("build_toolkit")
 
         # System prompt.
         sys_prompt = await run_sync_io(
@@ -531,11 +553,13 @@ class AgentBuilder:
         )
         if request_context.get("source") == "portability_adaptation":
             sys_prompt += _PORTABILITY_ADAPTATION_SYSTEM_RULES
+        mark_timing("build_prompt")
 
         middlewares = self._build_middlewares(
             ctx,
             agent_config,
         )
+        mark_timing("build_middlewares")
 
         running_config = agent_config.running
 
@@ -566,19 +590,47 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+        mark_timing("agent_init")
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
             agent.load_state_dict(ctx.session_state)
+        mark_timing("load_state")
+        total_ms = (time.perf_counter() - timing_started) * 1000
 
         _logger.info(
             "builder: built agent for session=%s agent=%s"
-            " model=%s/%s tools=%d",
+            " model=%s/%s tools=%d timing total=%.1fms"
+            " imports=%.1fms load_config=%.1fms"
+            " reconcile_skills=%.1fms resolve_skills=%.1fms"
+            " resolve_modes=%.1fms init_governor=%.1fms"
+            " collect_coding_tools=%.1fms"
+            " collect_driver_capabilities=%.1fms"
+            " build_model=%.1fms build_scroll=%.1fms"
+            " build_toolkit=%.1fms build_prompt=%.1fms"
+            " build_middlewares=%.1fms agent_init=%.1fms"
+            " load_state=%.1fms",
             sanitize_log_value(getattr(ctx, "session_id", "")),
             agent_id,
             active.provider_id,
             active.model,
             len(agent.toolkit.tool_groups[0].tools),
+            total_ms,
+            timings["imports"],
+            timings["load_config"],
+            timings["reconcile_skills"],
+            timings["resolve_skills"],
+            timings["resolve_modes"],
+            timings["init_governor"],
+            timings["collect_coding_tools"],
+            timings["collect_driver_capabilities"],
+            timings["build_model"],
+            timings["build_scroll"],
+            timings["build_toolkit"],
+            timings["build_prompt"],
+            timings["build_middlewares"],
+            timings["agent_init"],
+            timings["load_state"],
         )
         return agent
 
