@@ -44,3 +44,12 @@
     animation: none;
   }
 }
+
+/* Off tier: stop the status-pulse loop. The static dot keeps carrying the
+ * pending/starting state cue. */
+:global(:root[data-fx-tier="off"]) {
+  .pending,
+  .starting {
+    animation: none;
+  }
+}

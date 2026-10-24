@@ -317,3 +317,11 @@
   min-width: 0;
   font-size: var(--app-font-secondary);
 }
+
+/* Off tier: stop the sidebar status-dot breathing. The static dot keeps
+ * carrying the running state cue. */
+:global(:root[data-fx-tier="off"]) {
+  .runningDot {
+    animation: none;
+  }
+}

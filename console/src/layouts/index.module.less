@@ -49,7 +49,7 @@
   align-items: center;
   justify-content: space-between;
   background: var(--app-glass);
-  backdrop-filter: blur(16px);
+  backdrop-filter: var(--fx-glass-off, blur(min(16px, var(--fx-glass-blur))));
   border-bottom-color: var(--app-border-subtle);
   color: var(--app-text);
 
@@ -1664,5 +1664,12 @@
 @media (prefers-contrast: more) {
   .ambientLight {
     display: none;
+  }
+}
+
+/* Off tier: stop the inbox badge wobble. */
+:global(:root[data-fx-tier="off"]) {
+  .inboxShake {
+    animation: none;
   }
 }

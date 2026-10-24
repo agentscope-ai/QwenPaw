@@ -3,6 +3,7 @@ import { Brain } from "lucide-react";
 import { motion, useInView, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import type { ThinkingControlSpec, ThinkingPreference } from "./types";
+import { useFxTier } from "../../contexts/FxTierContext";
 import styles from "./thinking.module.less";
 
 const wave = "M-24 0Q-18-.8-12 0T0 0T12 0T24 0T36 0T48 0V30H-24Z";
@@ -19,6 +20,7 @@ export function ThinkingIndicator({
   const ref = useRef<HTMLSpanElement>(null);
   const inView = useInView(ref);
   const reduced = useReducedMotion();
+  const { fxTier } = useFxTier();
   const [visible, setVisible] = useState(!document.hidden);
   useEffect(() => {
     const update = () => setVisible(!document.hidden);
@@ -63,7 +65,9 @@ export function ThinkingIndicator({
       ? band
       : value.level;
   const label = t(`thinkingControl.${state}`);
-  const animate = active && inView && visible && !reduced;
+  // Off tier stops the infinite decorative waves; the static liquid fill
+  // keeps carrying the "thinking at level N" state cue.
+  const animate = active && inView && visible && !reduced && fxTier !== "off";
   if (control.kind === "unknown" || control.kind === "unsupported") return null;
   return (
     <span

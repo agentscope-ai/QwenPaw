@@ -695,3 +695,10 @@
     flex-shrink: 0;
   }
 }
+
+/* Off tier: stop the mail ACL wobble. */
+:global(:root[data-fx-tier="off"]) {
+  .mailAclShake {
+    animation: none;
+  }
+}

@@ -422,3 +422,13 @@
     box-shadow: 0 0 0 0 transparent;
   }
 }
+
+/* Off tier: stop the offload progress-dot pulses. The static dots keep
+ * carrying the offloading state cue. */
+:global(:root[data-fx-tier="off"]) {
+  .bgPulse,
+  .gearDot,
+  .gearDot.bgDot {
+    animation: none;
+  }
+}

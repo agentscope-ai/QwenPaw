@@ -47,6 +47,15 @@
     animation-play-state: running;
   }
 }
+:global(:root[data-fx-tier="off"]) {
+  .edge > span,
+  .ambient {
+    animation: none;
+  }
+  .ambient {
+    display: none;
+  }
+}
 @keyframes orbit {
   to {
     transform: rotate(360deg);
