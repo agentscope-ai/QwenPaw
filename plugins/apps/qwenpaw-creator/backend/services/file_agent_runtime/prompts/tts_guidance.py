@@ -22,10 +22,13 @@ from __future__ import annotations
 from domain.enums import SpecialistRole
 from models import config as model_config
 from models.tts_capabilities import require_capability
+from models.video_capabilities import video_reference_voice_support
 
 _SCENARIO_USES = {
     "short_drama": (
-        "本项目是短剧：角色台词用该角色的专属音色合成，与画面在 Timeline 上" "合成；旁白仅在需要解说时使用。"
+        "本项目是短剧：已安排视频原生对白时保留角色台词、口型与原声，"
+        "不再叠加一份 TTS 台词。只有明确采用后期配音或需要画外解说的"
+        "区间才单独合成音频，并按说话者和对应画面分段。"
     ),
     "video_edit": ("本项目是剪辑：以旁白/解说为主，按镜头分段合成后混入成片。"),
     "general": "按项目需要选择旁白解说或角色台词配音。",
@@ -49,19 +52,42 @@ def delegator_guidance() -> str:
         "系统自动重新合成。旁白/配音需求直接委派它到 timeline:<timelineId>，"
         "在任务中写明旁白文案要求，并要求按镜头/语义分段生成、每段 span 对齐"
         "对应画面；自带人声的区间（creation.type=s2v 的数字人口播、"
-        "shots.dialogue 非空的 R2V Element）不安排旁白；不需要用户提供音频文件。",
+        "已经安排视频原生人声的 R2V 区间）不安排旁白；不需要用户提供音频文件。",
     ]
     if capability.has_system_voices:
         lines.append(
-            "- visual_development_agent 可为 character 实体创建专属音色"
-            "（可选增强）：既能按角色设定直接设计音色，也能从音频样本复刻。"
-            "需要角色专属声线时先委派它完成音色绑定，再委派台词或旁白生成。",
+            "- 你可以用 `create_character_voice` 为 character 实体创建专属"
+            "音色（可选增强）：targetRef 传目标角色的 exact asset:<entityId>。"
+            "两条路径——传 voicePrompt 按角色设定直接设计音色（无需样本，"
+            "优先用它），或传 sampleSourceVersionId / sampleText 从音频样本"
+            "复刻。",
         )
     else:
         lines.append(
-            f"- 当前语音模型 {capability.model} 没有系统音色：任何配音都必须"
-            "先有角色专属音色。先委派 visual_development_agent 按角色设定设计"
-            "音色并绑定到 character 实体，再委派台词或旁白生成，否则合成会失败。",
+            f"- 当前语音模型 {capability.model} 没有系统音色：通过 TTS 合成配音必须"
+            "先有角色专属音色。先用 `create_character_voice` 按角色设定设计"
+            "音色并绑定到 character 实体（该模型不支持系统音色试音，"
+            "sampleText 不可用；只能用 voicePrompt 设计，或用已有音频 "
+            "version 复刻），再委派台词或旁白生成，否则合成会失败。",
+        )
+    lines.append(
+        "- voicePrompt 要从该角色已有的设定推导（年龄、性别、性格、语速、"
+        "音质等），例如「低沉沙哑的中年男声，语速缓慢，带疲惫感」；同一角色"
+        "重新创建会替换旧绑定。创建后用 read_project 确认 voice 已绑定到"
+        "目标实体；该角色的 tts_generation 传 characterRef 即自动沿用此音色。",
+    )
+    if video_reference_voice_support(
+        model_config.get_video_model_name(),
+        model_config.get_video_backend(),
+    ):
+        lines.append(
+            "- 当前视频模型支持参考音色。需要跨镜头、跨集保持角色声音时，"
+            "先为说话角色创建并确认专属音色，确认 voice.sample_source_version_id "
+            "指向真实可用的音频样本；已有符合要求的音色直接复用。R2V 同时引用"
+            "该 character 和其形象参考图时，会自动携带绑定的音频样本。"
+            "在 narrative/video_prompt 中写清逐字台词、说话者和轮流开口的表演；"
+            "参考样本提供声音身份，不替代本段台词，也不需要把同一句台词再作为"
+            "独立 TTS 叠到原生对白上。演唱与说话分别说明，普通 TTS 不冒充演唱。",
         )
     return "\n".join(lines) + "\n"
 
@@ -75,40 +101,9 @@ def specialist_guidance(
     if not model_config.is_tts_configured():
         return ""
     capability = require_capability(model_config.get_tts_model_name())
-    if role is SpecialistRole.VISUAL_DEVELOPMENT:
-        return _visual_guidance(capability, scenario)
     if role is SpecialistRole.AI_EDITING_DIRECTOR:
         return _editing_guidance(capability, scenario)
     return ""
-
-
-def _visual_guidance(capability, scenario: str) -> str:
-    lines = ["\n# 角色音色\n", f"- {_scenario_line(scenario)}"]
-    if capability.has_system_voices:
-        lines.append(
-            "- `create_character_voice` 为 character 实体创建专属音色，属可选"
-            "增强：characterRef 传目标角色的 exact asset:<entityId>。两条路径——"
-            "传 voicePrompt 按角色设定直接设计音色（无需样本，优先用它），或传"
-            " sampleSourceVersionId / sampleText 从音频样本复刻。",
-        )
-    else:
-        lines.append(
-            f"- 当前语音模型 {capability.model} 没有系统音色：需要配音的角色"
-            "必须先创建专属音色，否则任何合成都会失败。用 "
-            "`create_character_voice` 传 characterRef 与 voicePrompt 按角色"
-            "设定设计音色（该模型不支持系统音色试音，sampleText 不可用；只能"
-            "用 voicePrompt 设计，或用已有音频 version 复刻）。",
-        )
-    lines.append(
-        "- voicePrompt 要从该角色已有的设定推导（年龄、性别、性格、语速、"
-        "音质等），例如「低沉沙哑的中年男声，语速缓慢，带疲惫感」；同一角色"
-        "重新创建会替换旧绑定。",
-    )
-    lines.append(
-        "- 创建后用 read_project 确认 voice 已绑定到目标实体；该角色的 "
-        "tts_generation 传 characterRef 即自动沿用此音色。",
-    )
-    return "\n".join(lines) + "\n"
 
 
 def _editing_guidance(capability, scenario: str) -> str:
@@ -131,7 +126,8 @@ def _editing_guidance(capability, scenario: str) -> str:
         lines.append(
             f"- 当前语音模型 {capability.model} 没有系统音色：`tts_generation` "
             "必须传已绑定音色的 characterRef，否则合成失败。若目标角色还没有"
-            "音色，先让 Creator 委派 visual_development_agent 设计音色。",
+            "音色，先汇报阻塞，由 Creator 主 Agent 用 create_character_voice "
+            "设计音色。",
         )
     lines.append(
         "- 旁白必须按镜头或语义段落拆分：每段单独调一次 tts_generation，对应"
@@ -141,7 +137,7 @@ def _editing_guidance(capability, scenario: str) -> str:
     )
     lines.append(
         "- 自带人声的区间不安排旁白：数字人口播（creation.type=s2v）的"
-        " span 内视频自身就是人声，任何 shots.dialogue 非空的 R2V Element "
+        " span 内视频自身就是人声，任何 已经安排视频原生人声的 R2V 区间 "
         "同理（生成视频会原生说出台词）；旁白 Element 的 span 不得与这些"
         "区间重叠，系统会直接拒绝这类写入。",
     )

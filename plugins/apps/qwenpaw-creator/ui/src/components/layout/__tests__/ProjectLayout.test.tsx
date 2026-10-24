@@ -86,6 +86,19 @@ function commonRoutes(review?: FileProjectReviewRecord) {
       match: "/projects/p1/session",
       response: { json: { session: sessionState, agentStatusBar: status } },
     },
+    {
+      match: "/projects/p1/work-graph",
+      response: {
+        json: {
+          projectId: "p1",
+          counts: {},
+          nodes: [],
+          generation: 0,
+          mediaCalls: 0,
+          mediaCallBudget: 0,
+        },
+      },
+    },
     { match: "/models/config", response: { json: configuredModelConfig } },
   ];
 }
@@ -149,7 +162,7 @@ describe("ProjectLayout visible shell", () => {
     seedProject();
   });
 
-  it("preserves the 58px shell and default-open 440px AgentDock beside the Element Plan", async () => {
+  it("preserves the 58px shell and default-open 340px left AgentDock beside the Element Plan", async () => {
     const { calls } = installMockFetch(commonRoutes());
     const router = createMemoryRouter(CREATOR_ROUTE_OBJECTS, {
       initialEntries: ["/project/p1/plan"],
@@ -169,7 +182,7 @@ describe("ProjectLayout visible shell", () => {
     expect(shell).not.toHaveAttribute("data-agent-status-bar-height");
     const dock = document.querySelector("[data-agent-dock]")!;
     expect(useAgentDockUiStore.getState().open).toBe(true);
-    expect(dock).toHaveAttribute("data-agent-dock-width", "440");
+    expect(dock).toHaveAttribute("data-agent-dock-width", "340");
 
     rendered.unmount();
     expect(useFileProjectReviewStore.getState().projectId).toBeNull();

@@ -10,6 +10,7 @@ from agentscope.model._model_usage import ChatUsage
 
 from ..utils.model_response import safe_attr
 from .buffer import _UsageEvent
+from .counter import record_session_tokens
 from .manager import _usage_agent_id, get_token_usage_manager
 
 # AgentScope does not expose provider cache semantics through a public
@@ -128,6 +129,13 @@ class TokenRecordingModelWrapper(ChatModelBase):
             cache_read,
             cache_write,
         )
+        metadata = getattr(usage, f"metadata", None)
+        if (
+            isinstance(metadata, dict)
+            and metadata.get(f"cache_usage_observed") is False
+        ):
+            cache_observed = False
+            cache_eligible = 0
         if not cache_observed:
             cache_read = 0
             cache_write = 0
@@ -154,6 +162,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
             "provider_id": self._provider_id,
             "model_name": self.model,
             "prompt_tokens": pt,
+            "last_prompt_tokens": pt,
             "completion_tokens": ct,
             "total_tokens": pt + ct,
             "cache_read_tokens": cache_read,
@@ -176,6 +185,11 @@ class TokenRecordingModelWrapper(ChatModelBase):
         self._store_usage(usage_data)
 
     @classmethod
+    def peek_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
+        """Read the latest cumulative snapshot without consuming it."""
+        return cls._usage_by_session.get(session_id)
+
+    @classmethod
     def pop_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
         return cls._usage_by_session.pop(session_id, None)
 
@@ -184,6 +198,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
 
         session_id = get_current_session_id()
         if session_id and usage:
+            record_session_tokens(session_id, int(usage[f"total_tokens"]))
             previous = TokenRecordingModelWrapper._usage_by_session.get(
                 session_id,
             )

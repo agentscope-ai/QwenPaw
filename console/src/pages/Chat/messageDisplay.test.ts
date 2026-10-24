@@ -5,6 +5,7 @@ import {
 } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
 import {
   countCollapsedSteps,
+  filterThinkingMessages,
   findActiveStepBlockIndex,
   findLastStepBlockIndex,
   getCollapsedGroupStatus,
@@ -18,17 +19,33 @@ function message(
   id: string,
   type: AgentScopeRuntimeMessageType,
   status: AgentScopeRuntimeRunStatus = AgentScopeRuntimeRunStatus.Completed,
+  content: unknown[] = type === AgentScopeRuntimeMessageType.MESSAGE
+    ? [{ type: "text", text: id }]
+    : [],
 ) {
   return {
     id,
     type,
-    content: [],
+    content,
     role: "assistant",
     status,
   } as never;
 }
 
 describe("message display mode", () => {
+  it("filters only reasoning messages when thinking is hidden", () => {
+    const messages = [
+      message("reasoning", AgentScopeRuntimeMessageType.REASONING),
+      message("text", AgentScopeRuntimeMessageType.MESSAGE),
+      message("tool", AgentScopeRuntimeMessageType.TOOL_CALL),
+    ];
+
+    const filtered = filterThinkingMessages(messages, false);
+    expect(filtered.map((item) => item.id)).toEqual(["text", "tool"]);
+    expect(countCollapsedSteps(filtered)).toBe(1);
+    expect(filterThinkingMessages(messages, true)).toBe(messages);
+  });
+
   it("keeps text, approvals, and errors in text-only mode", () => {
     const messages = [
       message("reasoning", AgentScopeRuntimeMessageType.REASONING),
@@ -62,6 +79,72 @@ describe("message display mode", () => {
     ).toEqual(["approval", "last", "error"]);
   });
 
+  it("skips an empty final text message when selecting the result", () => {
+    const messages = [
+      message("answer", AgentScopeRuntimeMessageType.MESSAGE, undefined, [
+        { type: "text", text: "The answer" },
+      ]),
+      message("call", AgentScopeRuntimeMessageType.PLUGIN_CALL),
+      message("call-output", AgentScopeRuntimeMessageType.PLUGIN_CALL_OUTPUT),
+      message("empty-final", AgentScopeRuntimeMessageType.MESSAGE, undefined, [
+        { type: "text", text: "" },
+      ]),
+      message(
+        "whitespace-final",
+        AgentScopeRuntimeMessageType.MESSAGE,
+        undefined,
+        [{ type: "text", text: " \n\t " }],
+      ),
+    ];
+
+    const blocks = groupResponseMessages(messages, "result-only");
+    expect(
+      blocks.map((block) =>
+        block.kind === "message"
+          ? `message:${block.message.id}`
+          : `steps:${block.messages.map((item) => item.id).join(",")}`,
+      ),
+    ).toEqual(["message:answer", "steps:call,call-output"]);
+    expect(
+      groupResponseMessages(messages, "all").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["answer", "call", "call-output"]);
+    expect(
+      groupResponseMessages(messages, "text-only").flatMap((block) =>
+        block.kind === "message" ? [block.message.id] : [],
+      ),
+    ).toEqual(["answer"]);
+  });
+
+  it("keeps visible media when filtering empty text messages", () => {
+    const messages = [
+      message("media", AgentScopeRuntimeMessageType.MESSAGE, undefined, [
+        { type: "image", image_url: "image.png" },
+      ]),
+      message("mixed-media", AgentScopeRuntimeMessageType.MESSAGE, undefined, [
+        { type: "text", text: "" },
+        { type: "image", image_url: "image.png" },
+      ]),
+    ];
+
+    expect(
+      groupResponseMessages(messages, "all").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["media", "mixed-media"]);
+    expect(
+      groupResponseMessages([messages[0]], "result-only").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["media"]);
+    expect(
+      groupResponseMessages([messages[1]], "result-only").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["mixed-media"]);
+  });
+
   it("derives the display mode only from the response SSE status", () => {
     expect(
       getResponseMessageDisplayMode(AgentScopeRuntimeRunStatus.Created),
@@ -78,6 +161,43 @@ describe("message display mode", () => {
     expect(
       getResponseMessageDisplayMode(AgentScopeRuntimeRunStatus.Failed),
     ).toBe("result-only");
+  });
+
+  it("keeps the selected expanded and process modes across statuses", () => {
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.Completed,
+        "expanded",
+      ),
+    ).toBe("all");
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.Completed,
+        "process-collapsed",
+      ),
+    ).toBe("text-only");
+    expect(
+      getResponseMessageDisplayMode(
+        AgentScopeRuntimeRunStatus.InProgress,
+        "result-collapsed",
+      ),
+    ).toBe("text-only");
+  });
+
+  it("shows every non-heartbeat message in expanded mode", () => {
+    const messages = [
+      message("reasoning", AgentScopeRuntimeMessageType.REASONING),
+      message("first", AgentScopeRuntimeMessageType.MESSAGE),
+      message("tool", AgentScopeRuntimeMessageType.TOOL_CALL),
+      message("heartbeat", AgentScopeRuntimeMessageType.HEARTBEAT),
+      message("last", AgentScopeRuntimeMessageType.MESSAGE),
+    ];
+
+    expect(
+      groupResponseMessages(messages, "all").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["reasoning", "first", "tool", "last"]);
   });
 
   it("remounts collapsed steps when streaming enters the result phase", () => {

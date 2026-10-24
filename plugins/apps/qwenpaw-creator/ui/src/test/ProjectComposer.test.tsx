@@ -1,7 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectComposer } from "@/components/creator/ProjectComposer";
+import HeroComposerCard from "@/components/creator/HeroComposerCard";
 import { configuredModelConfig } from "@/test/agentFixtures";
 import { installMockFetch } from "@/test/mockFetch";
 import { useModelConfigStore } from "@/store/modelConfigStore";
@@ -68,6 +75,108 @@ const attachFile = () => {
 };
 
 describe("ProjectComposer ingest boundary", () => {
+  describe.each(["modal", "home"])("%s launch permission mode", (surface) => {
+    it.each([
+      ["full-confirmation", "required", "required", "required"],
+      ["cost-confirmation", "required", "skip", "required"],
+      ["automatic", "allow_all", "skip", "required"],
+      ["yolo", "allow_all", "skip", "auto_approve"],
+    ] as const)(
+      "uses the saved %s mode without a separate script checkbox",
+      async (_name, execution, checkpoints, review) => {
+        const config = structuredClone(configuredModelConfig);
+        config.executionAuthorization.mode = execution;
+        config.creationCheckpoints.mode = checkpoints;
+        config.mediaReview.mode = review;
+        config.image.enabled = false;
+        config.video.enabled = false;
+        config.vlm.enabled = false;
+        const { calls } = installMockFetch([
+          {
+            match: "/models/config",
+            response: {
+              get json() {
+                return structuredClone(config);
+              },
+            },
+          },
+          {
+            match: "/projects",
+            response: { json: created("p-script", "s-script", "c-script") },
+          },
+        ]);
+        if (surface === "home") {
+          render(
+            <MemoryRouter>
+              <HeroComposerCard />
+            </MemoryRouter>,
+          );
+        } else {
+          renderComposer();
+        }
+        fill(/^例：霸道总裁短剧/, "制作小猫看雪的视频");
+        await waitFor(() =>
+          expect(useModelConfigStore.getState().config).not.toBeNull(),
+        );
+        expect(
+          screen.queryByRole("checkbox", { name: /先写剧本/ }),
+        ).not.toBeInTheDocument();
+        const launch = screen.getByRole("button", { name: /启动 Agent/ });
+        if (execution === "required") {
+          // Script confirmation modes can start with only the text model.
+          expect(launch).toBeEnabled();
+        } else {
+          // Automatic modes require the media models before starting.
+          expect(launch).toBeDisabled();
+          config.image.enabled = true;
+          config.video.enabled = true;
+          config.vlm.enabled = true;
+          await act(() => useModelConfigStore.getState().refresh());
+          expect(launch).toBeEnabled();
+        }
+        fireEvent.click(launch);
+        await waitFor(() =>
+          expect(
+            calls.find((call) => call.url.endsWith("/projects"))?.body,
+          ).toMatchObject({ scenario: "short_drama" }),
+        );
+        expect(
+          calls.find((call) => call.url.endsWith("/projects"))?.body,
+        ).not.toHaveProperty("productionStage");
+      },
+    );
+  });
+
+  it("updates launch requirements when the saved permission mode changes", async () => {
+    const config = structuredClone(configuredModelConfig);
+    config.image.enabled = false;
+    config.video.enabled = false;
+    config.executionAuthorization.mode = "required";
+    installMockFetch([
+      {
+        match: "/models/config",
+        response: {
+          get json() {
+            return structuredClone(config);
+          },
+        },
+      },
+    ]);
+    renderComposer();
+    fill(/^例：霸道总裁短剧/, "制作小猫看雪的视频");
+    await waitFor(() =>
+      expect(useModelConfigStore.getState().config).not.toBeNull(),
+    );
+    const launch = screen.getByRole("button", { name: /启动 Agent/ });
+    expect(launch).toBeEnabled();
+    config.executionAuthorization.mode = "allow_all";
+    config.mediaReview.mode = "auto_approve";
+    await act(() => useModelConfigStore.getState().refresh());
+    expect(launch).toBeDisabled();
+    config.executionAuthorization.mode = "required";
+    await act(() => useModelConfigStore.getState().refresh());
+    expect(launch).toBeEnabled();
+  });
   // The model-config snapshot is a module-level singleton; a previous test's
   // fetch must not leak into the next render's synchronous assertions.
   beforeEach(() => {

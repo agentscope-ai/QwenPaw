@@ -10,7 +10,6 @@ import pytest
 
 import qwenpaw.providers.openai_provider as openai_provider_module
 from qwenpaw.providers.openai_provider import (
-    GitHubModelsProvider,
     KiloProvider,
     OpenCodeProvider,
     OpenAIProvider,
@@ -154,7 +153,9 @@ async def test_kilo_uses_gateway_free_flag_for_non_suffix_routes(
     close.assert_awaited_once()
 
 
-async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
+async def test_opencode_accepts_current_inventory_without_stale_blocklist(
+    monkeypatch,
+) -> None:
     provider = OpenCodeProvider(
         id="opencode",
         name="OpenCode",
@@ -179,16 +180,13 @@ async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
 
     models = await provider.fetch_models()
 
-    assert [model.id for model in models] == [
-        "mimo-v2.5-free",
-        "nemotron-3-ultra-free",
-    ]
+    assert [model.id for model in models] == [row.id for row in rows]
     assert all(model.is_free for model in models)
     close.assert_awaited_once()
 
 
-async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
-    provider = _make_provider()
+async def test_custom_list_model_error_propagates(monkeypatch) -> None:
+    provider = _make_provider(is_custom=True)
 
     class FakeModels:
         async def list(self, timeout=None):
@@ -197,11 +195,10 @@ async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
     close = AsyncMock()
     fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
 
-    models = await provider.fetch_models(timeout=3)
+    with pytest.raises(RuntimeError, match="failed"):
+        await provider.fetch_models(timeout=3)
 
-    assert models == []
     close.assert_awaited_once()
 
 
@@ -334,51 +331,18 @@ async def test_multimodal_probes_close_clients_on_success_and_error(
     )
 
     assert image_result[0] is True
-    assert video_result == (False, "Probe failed: video probe failed")
+    assert video_result == (None, "Probe failed: video probe failed")
     image_close.assert_awaited_once()
     video_close.assert_awaited_once()
 
 
-async def test_github_models_connection_closes_client(monkeypatch) -> None:
-    provider = GitHubModelsProvider(
-        id="github-models",
-        name="GitHub Models",
-        base_url="https://models.github.ai/inference",
-        api_key="gh-test",
-        chat_model="OpenAIChatModel",
-    )
-    response_close = AsyncMock()
-    client_close = AsyncMock()
-
-    class FakeStream:
-        response = SimpleNamespace(aclose=response_close)
-
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            raise StopAsyncIteration
-
-    class FakeCompletions:
-        async def create(self, **kwargs):
-            _ = kwargs
-            return FakeStream()
-
-    fake_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=FakeCompletions()),
-        close=client_close,
-    )
-    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-
-    result = await provider.check_connection(timeout=2)
-
-    assert result == (True, "")
-    response_close.assert_awaited_once()
-    client_close.assert_awaited_once()
-
-
-async def test_check_gpt5_model_uses_max_completion_tokens(
+@pytest.mark.parametrize(
+    "model_id",
+    ["gpt-5.2", "gpt-6.1-sol", "openai/gpt-6.1-sol", "gpt-10-mini"],
+)
+async def test_check_modern_gpt_model_uses_max_completion_tokens(
     monkeypatch,
+    model_id,
 ) -> None:
     provider = _make_provider()
     captured: list[dict] = []
@@ -412,7 +376,7 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    ok, msg = await provider.check_model_connection("gpt-5.2", timeout=4)
+    ok, msg = await provider.check_model_connection(model_id, timeout=4)
 
     assert ok is True
     assert msg == ""
@@ -422,20 +386,41 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     assert stream.closed is True
 
 
+@pytest.mark.parametrize(
+    ("model_id", "expected_param"),
+    [
+        ("gpt-6.1-sol", "max_completion_tokens"),
+        (" OpenAI/GPT-6.1-SOL ", "max_completion_tokens"),
+        ("gpt-10-mini", "max_completion_tokens"),
+        ("gpt-4.1", "max_tokens"),
+        ("gpt-3.5-turbo", "max_tokens"),
+        ("gpt-custom", "max_tokens"),
+    ],
+)
+def test_token_limit_kwargs_handles_gpt_versions(
+    model_id,
+    expected_param,
+) -> None:
+    assert openai_provider_module.token_limit_kwargs(
+        model_id,
+        200,
+    ) == {expected_param: 200}
+
+
 def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/gpt-5-mini",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "o3",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/o4-mini",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/gpt-4o-mini",
         200,
     ) == {"max_tokens": 200}

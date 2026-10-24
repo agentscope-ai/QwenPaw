@@ -29,7 +29,7 @@ import {
   type InstallPluginResult,
   type PluginInfo,
 } from "../api/modules/plugin";
-import { loadPawApp } from "../plugins/usePluginLoader";
+import { reloadPawApp } from "../plugins/usePluginLoader";
 import { OS_APPS } from "./osApps";
 import { useOsPlugins } from "./osPluginStore";
 import { purgeAppState, removePluginAppState } from "./osCleanup";
@@ -37,6 +37,7 @@ import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
 import { useOsAppMarket } from "./useOsAppMarket";
 import { getMarketAppState } from "../utils/marketAppState";
+import { marketPluginMatches } from "../utils/marketPluginIdentity";
 
 /** Pick the description for the active language, with graceful fallbacks. */
 function localizedDescription(
@@ -69,23 +70,21 @@ export default function AppStore() {
   const [installedApps, setInstalledApps] = useState<PluginInfo[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
 
-  const refreshInstalledApps = () => {
+  const refreshInstalledApps = async () => {
     setAppsLoading(true);
-    fetchPlugins()
-      .then((list) =>
-        setInstalledApps(list.filter((p) => p.plugin_type === "app")),
-      )
-      .catch(() => setInstalledApps([]))
-      .finally(() => setAppsLoading(false));
+    try {
+      const list = await fetchPlugins();
+      setInstalledApps(list.filter((p) => p.plugin_type === "app"));
+    } catch {
+      setInstalledApps([]);
+    } finally {
+      setAppsLoading(false);
+    }
   };
 
   const syncInstalledApp = async (result: InstallPluginResult) => {
-    if (installedApps.some((app) => app.id === result.id)) {
-      window.location.reload();
-      return;
-    }
-    await loadPawApp(result.id);
-    refreshInstalledApps();
+    await reloadPawApp(result.id);
+    await refreshInstalledApps();
   };
 
   const {
@@ -114,7 +113,7 @@ export default function AppStore() {
 
   /** Matching market entry (same id) — enables the update affordance. */
   const marketEntryForApp = (p: PluginInfo) =>
-    plugins.find((e) => e.id === p.id);
+    plugins.find((entry) => marketPluginMatches(p, entry));
 
   const uninstallApp = (p: PluginInfo) => {
     osModal.confirm({
@@ -127,7 +126,7 @@ export default function AppStore() {
         try {
           await uninstallPlugin(p.id);
           removePluginAppState(p.id);
-          refreshInstalledApps();
+          await refreshInstalledApps();
           message.success(
             t("os.uninstalledApp", {
               name: p.name,
@@ -388,6 +387,8 @@ export default function AppStore() {
               const marketState = getMarketAppState(
                 entry,
                 installedAppVersions,
+                "app",
+                installedApps,
               );
               const isInstalled = marketState === "installed";
               const canUpdate = marketState === "update";

@@ -196,3 +196,120 @@ def test_invoke_translates_schema_failures(tmp_path):
             },
         )
     assert caught.value.code == "PATCH_PROJECT_SCHEMA_INVALID"
+
+
+def _r2v_element(element_id: str, narrative: str = "叙事") -> dict:
+    return {
+        "element_id": element_id,
+        "label": element_id,
+        "span": {"start_tick": 0, "duration_tick": 4000},
+        "location": {},
+        "creation": {
+            "type": "r2v",
+            "narrative": narrative,
+            "storyboard_prompt": "分镜 prompt",
+            "video_prompt": "视频 prompt",
+        },
+    }
+
+
+@pytest.mark.parametrize("tool_name", ["patch_project", "jq_project"])
+def test_misplaced_video_prompt_reports_repair_without_committing(
+    tmp_path,
+    tool_name,
+):
+    tools = _tools(tmp_path)
+    base = tools.store.read("project-1")
+    path = "/timelines/items/timeline:main/elements_by_id/elem:1"
+    element = _r2v_element("elem:1")
+    element["video_prompt"] = element["creation"].pop("video_prompt")
+
+    def write():
+        arguments = (
+            {"ops": [{"op": "add", "path": path, "value": element}]}
+            if tool_name == "patch_project"
+            else {
+                "program": '.timelines.items["timeline:main"]'
+                '.elements_by_id["elem:1"] = $element',
+                "jsonArgs": {"element": element},
+            }
+        )
+        return tools.invoke(tool_name, {"projectId": "project-1", **arguments})
+
+    with pytest.raises(AgentProjectToolError) as caught:
+        write()
+    message = str(caught.value)
+    assert path + "/creation/video_prompt" in message
+    assert tool_name in message
+    if tool_name == "patch_project":
+        assert "请修正 ops" in message
+        assert "program/jsonArgs" not in message
+    assert tools.store.read("project-1").etag == base.etag
+
+    element["creation"]["video_prompt"] = element.pop("video_prompt")
+    saved = write()["project"]["timelines"]["items"]["timeline:main"]
+    assert (
+        saved["elements_by_id"]["elem:1"]["creation"]["video_prompt"]
+        == "视频 prompt"
+    )
+
+
+def test_frozen_snapshot_edits_fail_closed(tmp_path):
+    """Element writes into an existing snapshot are rejected, not stranded.
+
+    Snapshots never enter the work graph, so silently accepting such a
+    commit leaves content that can never be produced — the incident shape
+    behind agents spinning on "my edit had no effect"."""
+    tools = _tools(tmp_path)
+    main = "/timelines/items/timeline:main/elements_by_id/elem:1"
+    tools.invoke(
+        "patch_project",
+        {
+            "projectId": "project-1",
+            "ops": [
+                {"op": "add", "path": main, "value": _r2v_element("elem:1")},
+            ],
+        },
+    )
+    edited = tools.invoke(
+        "patch_project",
+        {
+            "projectId": "project-1",
+            "ops": [
+                {
+                    "op": "replace",
+                    "path": f"{main}/creation/narrative",
+                    "value": "第二版",
+                },
+            ],
+        },
+    )
+    sid = "snapshot:timeline:main:1"
+    assert sid in edited["project"]["timelines"]["items"]
+
+    with pytest.raises(AgentProjectToolError) as caught:
+        tools.invoke(
+            "patch_project",
+            {
+                "projectId": "project-1",
+                "ops": [
+                    {
+                        "op": "replace",
+                        "path": (
+                            f"/timelines/items/{sid}/elements_by_id"
+                            f"/{sid}:elem:1/creation/narrative"
+                        ),
+                        "value": "误写进快照",
+                    },
+                ],
+            },
+        )
+    assert caught.value.code == "SNAPSHOT_TIMELINE_FROZEN"
+    assert sid in str(caught.value)
+
+    unchanged = tools.invoke("read_project", {"projectId": "project-1"})
+    frozen = unchanged["project"]["timelines"]["items"][sid]
+    assert (
+        frozen["elements_by_id"][f"{sid}:elem:1"]["creation"]["narrative"]
+        == "叙事"
+    )

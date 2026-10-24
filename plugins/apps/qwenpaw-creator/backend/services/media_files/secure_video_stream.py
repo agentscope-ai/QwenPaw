@@ -38,6 +38,7 @@ import httpx
 
 from domain.errors import StorageIntegrityError, ValidationError
 from services.runtime_files.atomic_store import fsync_directory
+from services.runtime_files.path_safety import is_link_stat
 
 logger = logging.getLogger("qwenpaw.creator.media_files.secure_video_stream")
 
@@ -58,6 +59,10 @@ _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 VideoContainer = Literal["mp4", "quicktime", "webm", "matroska", "mpeg", "avi"]
 
 
+class PeerAddressMismatchError(ValidationError):
+    """The connected CDN peer differs from this hop's pinned DNS result."""
+
+
 @dataclass(frozen=True, slots=True)
 class MaterializedVideo:
     """A verified Task-local file ready for immutable Asset publication."""
@@ -74,6 +79,7 @@ class MaterializedVideo:
 class _ResolvedRemote:
     url: str
     addresses: frozenset[str]
+    allow_private: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +165,7 @@ def _file_read_flags() -> int:
         raise RuntimeError("安全视频物化要求平台支持 O_NOFOLLOW")
     return (
         os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
         | getattr(os, "O_CLOEXEC", 0)
         | getattr(os, "O_NONBLOCK", 0)
         | os.O_NOFOLLOW
@@ -170,6 +177,7 @@ def _file_create_flags() -> int:
         raise RuntimeError("安全视频物化要求平台支持 O_NOFOLLOW")
     return (
         os.O_WRONLY
+        | getattr(os, "O_BINARY", 0)
         | os.O_CREAT
         | os.O_EXCL
         | getattr(os, "O_CLOEXEC", 0)
@@ -192,7 +200,7 @@ def _require_real_directory(path: Path, *, label: str) -> None:
         details = path.lstat()
     except OSError as error:
         raise ValidationError(f"{label} 不存在、不是目录或包含符号链接") from error
-    if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+    if is_link_stat(details) or not stat.S_ISDIR(details.st_mode):
         raise ValidationError(f"{label} 不存在、不是目录或包含符号链接")
 
 
@@ -207,7 +215,7 @@ def _require_regular_private_file(
         raise ValidationError(
             f"{label} 不存在、不是 regular file 或包含符号链接",
         ) from error
-    if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+    if is_link_stat(details) or not stat.S_ISREG(details.st_mode):
         raise ValidationError(f"{label} 不存在、不是 regular file 或包含符号链接")
     if details.st_nlink != 1:
         raise ValidationError(f"{label} 不允许使用硬链接")
@@ -320,7 +328,7 @@ class _TaskScratch:
             raise ValidationError(
                 "Project root 缺少 regular project.json",
             ) from error
-        if stat.S_ISLNK(project_details.st_mode) or not stat.S_ISREG(
+        if is_link_stat(project_details) or not stat.S_ISREG(
             project_details.st_mode,
         ):
             raise ValidationError("Project root 缺少 regular project.json")
@@ -396,7 +404,9 @@ class _TaskScratch:
         try:
             descriptor = os.open(
                 target,
-                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0),
+                os.O_RDONLY
+                | getattr(os, "O_BINARY", 0)
+                | getattr(os, "O_CLOEXEC", 0),
             )
         except OSError as error:
             raise ValidationError(
@@ -416,6 +426,7 @@ class _TaskScratch:
         if not self._descriptor_rooted:
             flags = (
                 os.O_WRONLY
+                | getattr(os, "O_BINARY", 0)
                 | os.O_CREAT
                 | os.O_EXCL
                 | getattr(
@@ -509,12 +520,12 @@ class _StreamingSink:
         return self.digest.hexdigest(), self.size, bytes(self.prefix)
 
 
-def _normalized_ip(value: str) -> str:
+def _normalized_ip(value: str, *, allow_private: bool = False) -> str:
     try:
         address = ipaddress.ip_address(str(value).split("%", 1)[0])
     except ValueError as error:
         raise ValidationError("远程视频解析到了非法 IP") from error
-    if not address.is_global:
+    if not allow_private and not address.is_global:
         raise ValidationError("远程视频不允许访问本机、私有或保留网络")
     return address.compressed
 
@@ -540,6 +551,8 @@ def _resolver_addresses(
     host: str,
     port: int,
     resolver: Callable[..., Any],
+    *,
+    allow_private: bool = False,
 ) -> frozenset[str]:
     try:
         literal = ipaddress.ip_address(host.split("%", 1)[0])
@@ -549,25 +562,31 @@ def _resolver_addresses(
         except (OSError, socket.gaierror) as error:
             raise ValidationError("远程视频主机无法解析") from error
         addresses = {
-            _normalized_ip(str(record[4][0]))
+            _normalized_ip(str(record[4][0]), allow_private=allow_private)
             for record in records
             if len(record) >= 5 and record[4]
         }
     else:
-        addresses = {_normalized_ip(str(literal))}
+        addresses = {
+            _normalized_ip(str(literal), allow_private=allow_private),
+        }
     if not addresses:
         raise ValidationError("远程视频主机无法解析")
     return frozenset(addresses)
 
 
-def _response_peer(response: httpx.Response) -> str:
+def _response_peer(
+    response: httpx.Response,
+    *,
+    allow_private: bool = False,
+) -> str:
     stream = response.extensions.get("network_stream")
     if stream is None or not hasattr(stream, "get_extra_info"):
         raise ValidationError("远程视频连接缺少可验证的 peer address")
     peer = stream.get_extra_info("server_addr")
     if not isinstance(peer, tuple) or not peer:
         raise ValidationError("远程视频连接缺少可验证的 peer address")
-    return _normalized_ip(str(peer[0]))
+    return _normalized_ip(str(peer[0]), allow_private=allow_private)
 
 
 def _detect_video(prefix: bytes) -> _DetectedVideo:
@@ -743,6 +762,9 @@ class SecureR2VVideoMaterializer:
         transport: httpx.AsyncBaseTransport | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         semaphore: threading.BoundedSemaphore | None = None,
+        trusted_private_origins: frozenset[tuple[str, str, int]] = (
+            frozenset()
+        ),
     ) -> None:
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
@@ -757,6 +779,11 @@ class SecureR2VVideoMaterializer:
         self.transport = transport
         self.monotonic = monotonic
         self.semaphore = semaphore or _PROCESS_R2V_MATERIALIZE_SEMAPHORE
+        # Operator-configured self-hosted endpoints (e.g. an SGLang H3
+        # server on localhost). Exact-origin matches may resolve to
+        # non-global addresses; every other hop — including redirects off
+        # the trusted origin — keeps the public-network requirement.
+        self.trusted_private_origins = frozenset(trusted_private_origins)
 
     def _remaining(self, deadline: float) -> float:
         remaining = deadline - self.monotonic()
@@ -775,6 +802,7 @@ class SecureR2VVideoMaterializer:
 
     async def _resolve(self, value: str, deadline: float) -> _ResolvedRemote:
         url, host, port = _parse_remote_url(value)
+        allow_private = _url_origin(url) in self.trusted_private_origins
         remaining = self._remaining(deadline)
         try:
             addresses = await asyncio.wait_for(
@@ -783,13 +811,18 @@ class SecureR2VVideoMaterializer:
                     host,
                     port,
                     self.resolver,
+                    allow_private=allow_private,
                 ),
                 timeout=remaining,
             )
         except TimeoutError as error:
             raise ValidationError("provider 视频 DNS 解析超过总 deadline") from error
         self._remaining(deadline)
-        return _ResolvedRemote(url=url, addresses=addresses)
+        return _ResolvedRemote(
+            url=url,
+            addresses=addresses,
+            allow_private=allow_private,
+        )
 
     async def _stream_remote(
         self,
@@ -824,9 +857,12 @@ class SecureR2VVideoMaterializer:
                                 else None
                             ),
                         ) as response:
-                            peer = _response_peer(response)
+                            peer = _response_peer(
+                                response,
+                                allow_private=current.allow_private,
+                            )
                             if peer not in current.addresses:
-                                raise ValidationError(
+                                raise PeerAddressMismatchError(
                                     "远程视频连接 peer 不属于当前跳 DNS 预解析集合",
                                 )
                             if response.status_code in _REDIRECT_STATUSES:
@@ -1041,12 +1077,14 @@ async def materialize_r2v_video(
     max_bytes: int = DEFAULT_MAX_VIDEO_BYTES,
     total_timeout_seconds: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
     request_headers: Mapping[str, str] | None = None,
+    trusted_private_origins: frozenset[tuple[str, str, int]] = frozenset(),
 ) -> MaterializedVideo:
     """Convenience API using the process-global materialization semaphore."""
 
     return await SecureR2VVideoMaterializer(
         max_bytes=max_bytes,
         total_timeout_seconds=total_timeout_seconds,
+        trusted_private_origins=trusted_private_origins,
     ).materialize(
         output,
         project_root=project_root,
@@ -1060,6 +1098,7 @@ __all__ = [
     "DEFAULT_MAX_VIDEO_BYTES",
     "DEFAULT_TOTAL_TIMEOUT_SECONDS",
     "MaterializedVideo",
+    "PeerAddressMismatchError",
     "SecureR2VVideoMaterializer",
     "materialize_r2v_video",
 ]

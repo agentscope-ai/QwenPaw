@@ -17,6 +17,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   useLoopStore,
   DEFAULT_LOOP_MODE,
+  beginLoopModeSubmission,
+  prepareLoopModeMessage,
   type LoopModeInfo,
 } from "./loopStore";
 
@@ -36,11 +38,19 @@ const customMode: LoopModeInfo = {
   source: "custom",
 };
 
+const missionMode: LoopModeInfo = {
+  id: "mission",
+  name: "Mission Mode",
+  slash_command: "mission",
+  description: "Run a structured mission",
+  source: "builtin",
+};
+
 describe("loopStore state transitions (A#85096690)", () => {
   beforeEach(() => {
     useLoopStore.setState({
       selectedModeId: "default",
-      availableModes: [DEFAULT_LOOP_MODE, goalMode, customMode],
+      availableModes: [DEFAULT_LOOP_MODE, goalMode, missionMode, customMode],
       sessionState: "idle",
       activeMode: null,
       catalogLoading: false,
@@ -130,5 +140,39 @@ describe("loopStore state transitions (A#85096690)", () => {
     const state = useLoopStore.getState();
     expect(state.sessionState).toBe("running");
     expect(state.activeMode).toEqual(customMode);
+  });
+
+  it.each([
+    ["goal", goalMode, "do the task", "/goal do the task"],
+    ["mission", missionMode, "build it", "/mission build it"],
+    ["custom", customMode, "review it", "/review review it"],
+  ])("prepares a selected %s mode command", (_label, mode, text, expected) => {
+    useLoopStore.getState().setSelectedMode(mode.id);
+
+    expect(prepareLoopModeMessage(text)).toBe(expected);
+  });
+
+  it("leaves default mode messages unchanged", () => {
+    expect(prepareLoopModeMessage("hello")).toBe("hello");
+  });
+
+  it("does not duplicate a manually entered loop command", () => {
+    useLoopStore.getState().setSelectedMode(goalMode.id);
+
+    expect(beginLoopModeSubmission("/goal do the task")).toBe(
+      "/goal do the task",
+    );
+  });
+
+  it("leaves unrelated slash commands unchanged", () => {
+    useLoopStore.getState().setSelectedMode(goalMode.id);
+
+    expect(beginLoopModeSubmission("/clear")).toBe("/clear");
+  });
+
+  it("leaves follow-up text unchanged while a loop is active", () => {
+    useLoopStore.getState().setSessionMode(goalMode, "running");
+
+    expect(beginLoopModeSubmission("continue")).toBe("continue");
   });
 });

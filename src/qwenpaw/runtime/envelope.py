@@ -128,6 +128,7 @@ class Envelope:
         self._error_text: str | None = None
         self._error_code: str = "error"
         self._finalized = False
+        self._cancelled = False
 
     # ------------------------------------------------------------------
     # Sequence number helper
@@ -795,26 +796,34 @@ class Envelope:
         """
         from ..schemas import ContentType, RunStatus, TextContent
 
-        cmd_text = cmd_msg.get_text_content() or ""
+        from ..plugins._replies import _SDKReply
+
+        if isinstance(cmd_msg, _SDKReply):
+            contents, metadata, identity = cmd_msg.runtime_content()
+            self._completed_message.sdk_message = identity
+            self._completed_message.name = identity["name"]
+        else:
+            cmd_text = cmd_msg.get_text_content() or ""
+            contents = [
+                TextContent(
+                    type=ContentType.TEXT,
+                    text=cmd_text,
+                    delta=False,
+                    index=0,
+                ),
+            ]
+            metadata = getattr(cmd_msg, "metadata", None) or {}
 
         if not self._message_started:
             yield self._tag_seq(self._completed_message)
             self._message_started = True
 
-        tc = TextContent(
-            type=ContentType.TEXT,
-            text=cmd_text,
-            delta=False,
-            index=0,
-        )
-        tc.msg_id = self._message_id
-        yield self._tag_seq(tc)
-
-        self._completed_message.content.append(tc)
+        for content in contents:
+            content.msg_id = self._message_id
+            yield self._tag_seq(content)
+            self._completed_message.content.append(content)
         self._completed_message.status = RunStatus.Completed
-        self._completed_message.metadata = (
-            getattr(cmd_msg, "metadata", None) or {}
-        )
+        self._completed_message.metadata = metadata
         self._response.output.append(self._completed_message)
         yield self._tag_seq(self._completed_message)
 
@@ -840,6 +849,7 @@ class Envelope:
             yield obj
 
     async def cancel_envelope(self) -> AsyncGenerator[Any, None]:
+        self._cancelled = True
         async for obj in self._finalize_response():
             yield obj
 
@@ -876,7 +886,11 @@ class Envelope:
                         )
 
             if self._completed_message.content:
-                self._completed_message.status = RunStatus.Completed
+                self._completed_message.status = (
+                    RunStatus.Cancelled
+                    if self._cancelled
+                    else RunStatus.Completed
+                )
                 self._response.output.append(self._completed_message)
                 yield self._tag_seq(self._completed_message)
 
@@ -886,6 +900,8 @@ class Envelope:
                 "code": self._error_code,
                 "message": self._error_text,
             }
+        elif self._cancelled:
+            self._response.status = RunStatus.Cancelled
         else:
             self._response.status = RunStatus.Completed
         self._response.completed_at = datetime.now(timezone.utc).isoformat(

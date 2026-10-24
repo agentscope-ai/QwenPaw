@@ -27,7 +27,7 @@ from agentscope.formatter import (
     FormatterBase,
     OpenAIChatFormatter,
 )
-from agentscope.message import Base64Source, TextBlock
+from agentscope.message import Base64Source, Msg, TextBlock
 from agentscope.model import ChatModelBase
 
 try:
@@ -47,6 +47,13 @@ from .utils.message_request_normalizer import (
 )
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
+from ..providers.provider import ModelInfo, agent_thinking_level
+from ..providers.hub_managed import (
+    PROVIDER_ID,
+    hub_mode,
+    managed_provider,
+    managed_slot,
+)
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from ..utils.tool_call_extra import tool_call_extras_for_provider
 from ..providers.retry_chat_model import (
@@ -62,9 +69,25 @@ from ..utils.image_resize import (
 )
 from ..utils.logging import sanitize_log_value
 from ..utils.media_paths import (
+    media_basename,
     file_url_to_path as _file_url_to_path,
     local_media_path as _local_media_path,
 )
+
+# Only SDK single-request consumers opt into construction-time ownership.
+# Normal agent construction retains its existing provider lifecycle.
+_model_creation_observer = ContextVar("model_creation_observer", default=None)
+
+
+def _create_provider_model(provider, model_id):
+    observer = _model_creation_observer.get()
+    if observer is not None:
+        observer.before_create(provider)
+    model = provider.get_chat_model_instance(model_id)
+    if observer is not None:
+        observer.capture(model)
+    return model
+
 
 # TODO(AgentScope compatibility): This is a temporary workaround for
 # AgentScope releases that emit random promoted-media identifiers. Remove it
@@ -566,25 +589,12 @@ def _prepared_task_result(
     return task.result()
 
 
-def _supports_multimodal_for_current_model() -> bool:
-    """Best-effort lookup of current model multimodal support."""
-    try:
-        from .prompt import get_active_model_supports_multimodal
-
-        return get_active_model_supports_multimodal()
-    except Exception:  # pragma: no cover - config lookup safety
-        logger.debug(
-            "Falling back to multimodal=True during request-time "
-            "message normalization",
-            exc_info=True,
-        )
-        return True
-
-
 def _normalize_messages_for_formatter(
     msgs: list,
     base_formatter_class: Type[FormatterBase],
     formatter_instance: FormatterBase | None = None,
+    *,
+    supports_multimodal: bool = True,
 ) -> tuple[list, bool, bool, bool]:
     """Return normalized messages and formatter-family flags.
 
@@ -604,11 +614,13 @@ def _normalize_messages_for_formatter(
         base_formatter_class,
         OpenAIResponseFormatter,
     )
-    supports_multimodal = _supports_multimodal_for_current_model()
     if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
         supports_multimodal = False
     strip_audio = bool(
         getattr(formatter_instance, "_qwenpaw_force_strip_audio", False),
+    )
+    strip_video = bool(
+        getattr(formatter_instance, "_qwenpaw_force_strip_video", False),
     )
 
     if is_anthropic_formatter:
@@ -623,6 +635,7 @@ def _normalize_messages_for_formatter(
         supports_multimodal=supports_multimodal,
         target_family=target_family,
         strip_audio=strip_audio,
+        strip_video=strip_video,
     )
 
     return (
@@ -702,6 +715,21 @@ def _count_wire_audio_blocks(value: Any) -> int:
     if isinstance(media_type, str) and media_type.startswith("audio/"):
         return 1
     return sum(_count_wire_audio_blocks(item) for item in value.values())
+
+
+def _count_wire_video_blocks(value: Any) -> int:
+    """Count video parts actually emitted by any supported formatter."""
+    if isinstance(value, list):
+        return sum(_count_wire_video_blocks(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+
+    if value.get("type") in ("video", "video_url", "input_video"):
+        return 1
+    media_type = value.get("mime_type") or value.get("media_type")
+    if isinstance(media_type, str) and media_type.startswith("video/"):
+        return 1
+    return sum(_count_wire_video_blocks(item) for item in value.values())
 
 
 def _video_oversize_placeholder(
@@ -1275,6 +1303,18 @@ def _is_block_dropped_by_formatter(
     return True
 
 
+def _effective_thinking_omit_ids(formatter: "FormatterBase") -> set[str]:
+    """Share active reasoning omissions between wire relay and counting."""
+    if getattr(formatter, "_qwenpaw_require_reasoning_content", False) or not (
+        getattr(formatter, "relay_reasoning_content", True)
+    ):
+        return set()
+    return {
+        str(item)
+        for item in getattr(formatter, "_qwenpaw_omit_thinking_ids", set())
+    }
+
+
 def _reasoning_by_assistant_segment(
     blocks: list[Any],
     formatter: "FormatterBase",
@@ -1295,10 +1335,14 @@ def _reasoning_by_assistant_segment(
     aligned: list[str | None] = []
     reasoning_parts: list[str] = []
     segment_survives = False
+    omitted_ids = _effective_thinking_omit_ids(formatter)
 
     for block in blocks:
         block_type = _get(block, "type")
         if block_type == "thinking":
+            block_id = _get(block, "id")
+            if block_id is not None and str(block_id) in omitted_ids:
+                continue
             thinking = _get(block, "thinking", "")
             if thinking:
                 reasoning_parts.append(thinking)
@@ -1425,7 +1469,9 @@ def _fixup_media_list(items: list) -> None:
             )
             filename = (
                 fname_hint
-                or (readable_path.rsplit("/", 1)[-1] if readable_path else "")
+                # Accept both separators, including Windows session paths
+                # processed on a different host platform.
+                or (media_basename(readable_path) if readable_path else "")
                 or "file"
             )
             items[i] = TextBlock(
@@ -1446,10 +1492,35 @@ def _fixup_media_list(items: list) -> None:
                 _fixup_media_list(output)
 
 
+_EXACT_REASONING_REPLAY_PROVIDER_IDS = frozenset({"deepseek"})
+
+
+def _requires_exact_reasoning_replay(
+    provider_id: str | None,
+    model_id: str | None,
+) -> bool:
+    """Return the provider/model-level reasoning replay capability.
+
+    Formatter inheritance is insufficient here because many providers share
+    the OpenAI chat formatter while enforcing different tool-call protocols.
+    The model-name check also covers routed DeepSeek models served through an
+    aggregator such as OpenRouter.
+    """
+    normalized_provider_id = (provider_id or "").strip().lower()
+    normalized_model_id = (model_id or "").strip().lower()
+    return (
+        normalized_provider_id in _EXACT_REASONING_REPLAY_PROVIDER_IDS
+        or "deepseek" in normalized_model_id
+    )
+
+
 # pylint: disable-next=too-many-statements
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
     provider_id: str | None = None,
+    model_id: str | None = None,
+    *,
+    supports_multimodal: bool = True,
 ) -> Type[FormatterBase]:
     """Create a formatter class with file block support.
 
@@ -1461,10 +1532,39 @@ def _create_file_block_support_formatter(
         provider_id: Provider owning the formatter. Provider-specific
             tool-call metadata is relayed only when this matches the
             provider that originally emitted it.
+        model_id: Model served by the provider. This is used together with
+            ``provider_id`` for request-protocol capabilities that cannot be
+            inferred from the shared formatter base class.
+        supports_multimodal: Resolved capability of the selected model.
+            Unknown capability preserves media for provider-side handling.
 
     Returns:
         Enhanced formatter class with file block support
     """
+
+    supports_reasoning_content_relay = not (
+        (
+            AnthropicChatFormatter is not None
+            and issubclass(base_formatter_class, AnthropicChatFormatter)
+        )
+        or issubclass(base_formatter_class, OpenAIResponseFormatter)
+    )
+    requires_exact_reasoning_replay = _requires_exact_reasoning_replay(
+        provider_id,
+        model_id,
+    )
+    supports_thinking_omission = (
+        supports_reasoning_content_relay
+        # Only this relay owns OpenAI-chat reasoning end to end. Native
+        # formatters (e.g. Gemini and DashScope) can emit thinking themselves,
+        # so omitting relay text would not remove their original wire blocks.
+        # TODO: Custom OpenAI formatter subclasses may emit thinking outside
+        # this relay, letting counting omit content still sent on the wire.
+        # Revisit this inheritance check when supporting custom formatters;
+        # their omission behavior is not validated here.
+        and issubclass(base_formatter_class, OpenAIChatFormatter)
+        and not requires_exact_reasoning_replay
+    )
 
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
@@ -1488,6 +1588,57 @@ def _create_file_block_support_formatter(
                     "video/*",
                 ]
             super().__init__(**kwargs)
+
+        def set_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+            """Set request-time reasoning omissions when wire-compatible.
+
+            Anthropic thinking blocks are signed and must remain intact during
+            tool use. Responses formatters own their reasoning representation
+            as well. DeepSeek requires the exact reasoning content to be
+            replayed throughout a tool-call chain. A formatter that learned
+            the same requirement from a provider error must also reject this
+            extension. Unsupported formatters clear stale omission state.
+            """
+            can_omit = supports_thinking_omission and not getattr(
+                self,
+                "_qwenpaw_require_reasoning_content",
+                False,
+            )
+            accepted_ids = (
+                {str(item) for item in block_ids} if can_omit else set()
+            )
+            setattr(self, "_qwenpaw_omit_thinking_ids", accepted_ids)
+            return can_omit
+
+        def _prepare_messages_for_token_counting(
+            self,
+            messages: list[Msg],
+        ) -> list[Msg]:
+            """Project accepted omissions without changing replayable input.
+
+            The default counter reads Msg blocks rather than formatter output.
+            Give it a shallow view; provider fallbacks must still receive the
+            original reasoning if their protocol requires exact replay.
+            """
+            if not supports_thinking_omission:
+                return messages
+            omitted_ids = _effective_thinking_omit_ids(self)
+            if not omitted_ids:
+                return messages
+            projected = list(messages)
+            for index, msg in enumerate(messages):
+                content = [
+                    block
+                    for block in msg.content
+                    if not (
+                        block.type == "thinking" and block.id in omitted_ids
+                    )
+                ]
+                if len(content) != len(msg.content):
+                    projected[index] = msg.model_copy(
+                        update={"content": content},
+                    )
+            return projected
 
         def _format_anthropic_data_block(self, block):
             """Route video ``DataBlock``s to our local helper; defer
@@ -1539,6 +1690,7 @@ def _create_file_block_support_formatter(
             # previous request behind for the capability fallback layer.
             self._qwenpaw_last_wire_media_count = 0
             self._qwenpaw_last_wire_audio_count = 0
+            self._qwenpaw_last_wire_video_count = 0
 
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""
@@ -1555,6 +1707,7 @@ def _create_file_block_support_formatter(
                 msgs,
                 base_formatter_class,
                 self,
+                supports_multimodal=supports_multimodal,
             )
 
             has_reasoning = False
@@ -1693,9 +1846,7 @@ def _create_file_block_support_formatter(
                 False,
             )
             should_inject_reasoning = has_reasoning or require_reasoning
-            formatter_supports_reasoning = (
-                not is_anthropic_formatter and not _is_response_formatter
-            )
+            formatter_supports_reasoning = supports_reasoning_content_relay
             should_relay_reasoning = relay_reasoning or require_reasoning
             if (
                 should_inject_reasoning
@@ -1759,7 +1910,9 @@ def _create_file_block_support_formatter(
                             out_msg.setdefault("reasoning_content", " ")
                 else:
                     for i, out_msg in enumerate(out_assistant):
-                        if relay_reasoning and aligned_reasoning[i]:
+                        if aligned_reasoning[i] and (
+                            relay_reasoning or require_reasoning
+                        ):
                             out_msg["reasoning_content"] = aligned_reasoning[i]
                         elif require_reasoning:
                             out_msg.setdefault("reasoning_content", " ")
@@ -1769,6 +1922,9 @@ def _create_file_block_support_formatter(
                 wire_messages,
             )
             self._qwenpaw_last_wire_audio_count = _count_wire_audio_blocks(
+                wire_messages,
+            )
+            self._qwenpaw_last_wire_video_count = _count_wire_video_blocks(
                 wire_messages,
             )
             return wire_messages
@@ -1912,6 +2068,42 @@ def _resolved_provider_id(provider: Any, configured_provider_id: str) -> str:
     return str(getattr(provider, "id", "") or configured_provider_id)
 
 
+def _ensure_model_context_size(
+    model: Any,
+    provider: Any,
+    model_id: str,
+) -> None:
+    """Restore missing or defaulted windows from provider resolution."""
+    current = getattr(model, "context_size", None)
+    if isinstance(current, (int, float)) and current > 0 and current != 32768:
+        return
+    try:
+        resolved = provider.get_context_size(model_id)
+        needs_restore = not (isinstance(current, (int, float)) and current > 0)
+        defaulted_context = current == 32768 and resolved != 32768
+        if (
+            isinstance(resolved, int)
+            and resolved > 0
+            and (needs_restore or defaulted_context)
+        ):
+            setattr(model, "context_size", resolved)
+            logger.warning(
+                "Model %s:%s context_size=%r; restored %s "
+                "from Provider configuration",
+                getattr(provider, "id", "unknown"),
+                model_id,
+                current,
+                resolved,
+            )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(
+            "Unable to restore context_size for model %s:%s: %s",
+            getattr(provider, "id", "unknown"),
+            model_id,
+            exc,
+        )
+
+
 @dataclass
 class _AgentModelSettings:
     """Model routing settings loaded for one agent."""
@@ -1923,6 +2115,7 @@ class _AgentModelSettings:
     fallback_enabled: bool = False
     fallback_free_only: bool = False
     thinking_level: Any = "inherit"
+    thinking_budget: int | None = None
     compact_threshold: Optional[float] = None
 
 
@@ -1945,6 +2138,11 @@ def _load_agent_model_settings(
             agent_config,
             "thinking_level",
             "inherit",
+        )
+        settings.thinking_budget = getattr(
+            agent_config,
+            f"thinking_budget",
+            None,
         )
         settings.fallback_slots = list(
             getattr(agent_config, "fallback_models", []),
@@ -1985,6 +2183,7 @@ def _apply_model_fallbacks(
     fallback_enabled: bool,
     fallback_free_only: bool,
     thinking_level: str,
+    thinking_budget: int | None = None,
     compact_threshold: Optional[float],
     retry_config: RetryConfig | None,
     rate_limit_config: RateLimitConfig | None,
@@ -1995,7 +2194,6 @@ def _apply_model_fallbacks(
         return wrapped_model
 
     from ..providers.fallback_chat_model import FallbackChatModel
-    from ..providers.provider import agent_thinking_level
 
     fallback_models: list[ChatModelBase] = [wrapped_model]
     primary_model_name = getattr(wrapped_model, "model", "")
@@ -2003,7 +2201,7 @@ def _apply_model_fallbacks(
     manager = ProviderManager.get_instance()
     for fallback_slot in fallback_slots:
         fallback_provider = manager.get_provider(fallback_slot.provider_id)
-        if fallback_provider is None:
+        if fallback_provider is None or not fallback_provider.enabled:
             continue
         fallback_provider_id = _resolved_provider_id(
             fallback_provider,
@@ -2021,17 +2219,27 @@ def _apply_model_fallbacks(
         # model class, ...) must never keep a healthy primary model
         # from being built: skip the slot instead of propagating.
         try:
-            with agent_thinking_level(thinking_level):
-                fallback_model = fallback_provider.get_chat_model_instance(
+            with agent_thinking_level(thinking_level, thinking_budget):
+                fallback_provider.validate_chat_model(fallback_slot.model)
+                fallback_model = _create_provider_model(
+                    fallback_provider,
                     fallback_slot.model,
                 )
             fallback_provider_id = _bind_provider_id_to_model(
                 fallback_model,
                 fallback_provider_id,
             )
+            _ensure_model_context_size(
+                fallback_model,
+                fallback_provider,
+                fallback_slot.model,
+            )
             _install_model_formatter(
                 fallback_model,
                 provider_id=fallback_provider_id,
+                model_info=fallback_provider.resolve_model_info(
+                    fallback_slot.model,
+                ),
             )
         except Exception:
             logger.warning(
@@ -2061,6 +2269,35 @@ def _apply_model_fallbacks(
     if len(fallback_models) > 1:
         return FallbackChatModel(fallback_models)
     return wrapped_model
+
+
+def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
+    """Share agent settings without adding retries or personal fallbacks."""
+    selected, catalog = managed_slot(model_slot, explicit=explicit)
+    if selected is None:
+        raise ProviderError(message="No organization model available")
+    provider = managed_provider(catalog)
+
+    with agent_thinking_level(
+        settings.thinking_level,
+        settings.thinking_budget,
+    ):
+        provider.validate_chat_model(selected.model)
+        model = _create_provider_model(provider, selected.model)
+    _ensure_model_context_size(model, provider, selected.model)
+    formatter = _install_model_formatter(
+        model,
+        provider_id=PROVIDER_ID,
+        model_info=provider.resolve_model_info(selected.model),
+    )
+    wrapped = TokenRecordingModelWrapper(
+        PROVIDER_ID,
+        model,
+        compact_threshold=settings.compact_threshold,
+    )
+    info = provider.get_model_info(selected.model)
+    wrapped.display_name = info.name if info else None
+    return wrapped, formatter
 
 
 def create_model_and_formatter(
@@ -2105,47 +2342,47 @@ def create_model_and_formatter(
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
 
-    # Create chat model from agent-specific or global config
-    if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=f"Provider '{model_slot.provider_id}' not found.",
-            )
-
-        from ..providers.provider import agent_thinking_level
-
-        with agent_thinking_level(settings.thinking_level):
-            model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = _resolved_provider_id(provider, model_slot.provider_id)
-    else:
-        # Fallback to global active model
-        model = ProviderManager.get_active_chat_model()
-        global_model = ProviderManager.get_instance().get_active_model()
-        if not global_model:
-            raise ProviderError(
-                message=(
-                    "No active model configured. "
-                    "Please configure a model using 'qwenpaw models config' "
-                    "or set an agent-specific model."
-                ),
-            )
-        provider_id = _resolved_provider_id(
-            ProviderManager.get_instance().get_provider(
-                global_model.provider_id,
-            ),
-            global_model.provider_id,
+    if hub_mode() and model_slot is None:
+        model_slot = ProviderManager.get_instance().active_model
+    if hub_mode() and model_slot and model_slot.provider_id == PROVIDER_ID:
+        return _create_hub_model_and_formatter(
+            settings,
+            model_slot,
+            explicit=slot is not None,
         )
 
+    manager = ProviderManager.get_instance()
+    model_slot = model_slot or manager.get_active_model()
+    if not model_slot or not model_slot.provider_id or not model_slot.model:
+        raise ProviderError(message=f"No active model configured")
+    provider = manager.get_provider(model_slot.provider_id)
+    if provider is None:
+        raise ProviderError(
+            message=f"Provider '{model_slot.provider_id}' not found.",
+        )
+    if not provider.enabled:
+        raise ProviderError(message=f"Provider is disabled")
+    with agent_thinking_level(
+        settings.thinking_level,
+        settings.thinking_budget,
+    ):
+        provider.validate_chat_model(model_slot.model)
+        model = _create_provider_model(provider, model_slot.model)
+    provider_id = _resolved_provider_id(provider, model_slot.provider_id)
+    selected_model_id = model_slot.model
+
     provider_id = _bind_provider_id_to_model(model, provider_id)
+    _ensure_model_context_size(model, provider, selected_model_id)
 
     # Create the formatter based on the model's native one.  In 2.0 every
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its
     # ``__init__``), so we just wrap that one with file-block support
     # instead of class-resolving via a brittle map.
-    formatter = _install_model_formatter(model, provider_id=provider_id)
+    formatter = _install_model_formatter(
+        model,
+        provider_id=provider_id,
+        model_info=provider.resolve_model_info(selected_model_id),
+    )
 
     # agentscope 2.0 ChatModelBase has its own retry loop
     # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
@@ -2175,12 +2412,15 @@ def create_model_and_formatter(
         fallback_enabled=settings.fallback_enabled,
         fallback_free_only=settings.fallback_free_only,
         thinking_level=settings.thinking_level,
+        thinking_budget=settings.thinking_budget,
         compact_threshold=settings.compact_threshold,
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
         has_model_override=slot is not None,
     )
 
+    info = provider.get_model_info(selected_model_id)
+    wrapped_model.display_name = info.name if info else None
     return wrapped_model, formatter
 
 
@@ -2201,6 +2441,8 @@ async def create_model_and_formatter_async(
 def _create_formatter_instance(
     model: ChatModelBase,
     provider_id: str | None = None,
+    *,
+    supports_multimodal: bool = True,
 ) -> FormatterBase:
     """Wrap the model's native formatter with file-block support.
 
@@ -2235,6 +2477,8 @@ def _create_formatter_instance(
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
         provider_id=provider_id,
+        model_id=str(getattr(model, "model", "") or ""),
+        supports_multimodal=supports_multimodal,
     )
     # Carry over all Pydantic field values (max_bytes,
     # relay_reasoning_content, etc.) from the provider-constructed
@@ -2266,11 +2510,18 @@ def _create_formatter_instance(
 def _install_model_formatter(
     model: ChatModelBase,
     provider_id: str | None = None,
+    *,
+    model_info: ModelInfo | None = None,
 ) -> FormatterBase:
     """Install and return the QwenPaw formatter for one model."""
     formatter = _create_formatter_instance(
         model,
         provider_id=provider_id,
+        supports_multimodal=(
+            model_info is None
+            or bool(model_info.supports_image or model_info.supports_video)
+            or model_info.supports_multimodal is not False
+        ),
     )
     model.formatter = formatter
     return formatter

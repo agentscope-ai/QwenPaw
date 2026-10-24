@@ -14,6 +14,7 @@ from ...config import load_config
 from ...config.config import AgentProfileConfig, update_agent_config_async
 from ...config.utils import mutate_config
 from ...drivers.credentials.types import CredentialRecord
+from ...governance.tool_registry import DEFAULT_REGISTRY
 from ...security.secret_store import (
     mask_secret_value,
     restore_masked_secret_value,
@@ -65,6 +66,9 @@ class ToolInfo(BaseModel):
 
     name: str = Field(..., description="Tool function name")
     enabled: bool = Field(..., description="Whether the tool is enabled")
+    source_plugin_id: Optional[str] = None
+    source_plugin_name: Optional[str] = None
+    category: Optional[str] = None
     description: str = Field(default="", description="Tool description")
     async_execution: bool = Field(
         default=False,
@@ -100,7 +104,7 @@ _BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
             "name": "provider",
             "label": "Provider",
             "type": "select",
-            "options": ["tavily", "anysearch"],
+            "options": ["tavily", "anysearch", "firecrawl"],
             "default": "tavily",
         },
         {
@@ -114,12 +118,14 @@ _BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
 
 def _builtin_credential_ref(tool_name: str, config: dict) -> str:
     """Return the credential-store ref for a builtin tool's password field,
-    or "" when provider is missing/blank or keyless (caller must skip
-    credential I/O)."""
+    or "" when provider is missing/blank (caller must skip credential I/O).
+
+    Tavily is included: a key is optional (keyless remains the default),
+    but when present it lives under ``tool/web_search/tavily`` like any
+    other provider slot.
+    """
     provider = str(config.get("provider") or "").strip()
     if not provider:
-        return ""
-    if tool_name == "web_search" and provider == "tavily":
         return ""
     return f"tool/{tool_name}/{provider}"
 
@@ -160,8 +166,19 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
     )
 
     registry = PluginRegistry()
-    plugin_id = registry.get_plugin_id_for_tool(tool_name)
+    owner = DEFAULT_REGISTRY.get_owner(tool_name)
+    plugin_id = (
+        owner
+        if owner and owner != "builtin"
+        else registry.get_plugin_id_for_tool(tool_name)
+    )
+    tool_info.source_plugin_id = plugin_id
     manifest = registry.get_plugin_manifest(plugin_id) if plugin_id else None
+
+    if plugin_id:
+        tool_info.source_plugin_name = (
+            manifest.get("name", plugin_id) if manifest else plugin_id
+        )
 
     if manifest and "meta" in manifest:
         meta = manifest["meta"]
@@ -171,6 +188,9 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
 
         for t in meta.get("tools", []):
             if isinstance(t, dict) and t.get("name") == tool_name:
+                category = t.get("category")
+                if isinstance(category, str):
+                    tool_info.category = category
                 requires_config = t.get("requires_config", False)
                 config_fields_data = t.get("config_fields", [])
                 break
@@ -459,7 +479,8 @@ async def update_tool_config(
         Success response
 
     Raises:
-        HTTPException: If update fails
+        HTTPException: 404 if the tool is not found, 500 if the
+            update fails for an unexpected reason
     """
     from ...plugins.registry import PluginRegistry
     from ..agent_context import get_agent_for_request
@@ -541,7 +562,10 @@ async def update_tool_config(
             not agent_config.tools
             or tool_name not in agent_config.tools.builtin_tools
         ):
-            raise ValueError(f"Tool '{tool_name}' not found in agent")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tool '{tool_name}' not found",
+            )
 
         tool_config = agent_config.tools.builtin_tools[tool_name]
         existing_config = tool_config.config or {}
@@ -565,6 +589,8 @@ async def update_tool_config(
         persisted_config = dict(
             agent_config.tools.builtin_tools[tool_name].config,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -607,6 +633,7 @@ async def update_tool_config(
             _persist_browser_experimental,
             persisted_config,
         )
+        # Prefetch after an explicit settings save, not during app startup.
         if persisted_config.get("experimental") is True:
             from ...browser.runtime.managed_playwright import (
                 start_managed_chromium_download,

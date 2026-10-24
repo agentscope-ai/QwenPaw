@@ -171,6 +171,161 @@ def test_created_voice_uses_its_own_models_transport(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# WebSocket abnormal-close hardening (websocket-client 1.8.x and 1.9.x)
+# ---------------------------------------------------------------------------
+
+
+def _run_real_websocket_synthesis(monkeypatch, synthesizer_cls):
+    """Drive the real _synthesize_over_websocket with a fake SDK surface."""
+
+    from dashscope.audio import tts_v2
+
+    monkeypatch.setattr(tts_v2, "SpeechSynthesizer", synthesizer_cls)
+    monkeypatch.setattr(
+        tts_model.config,
+        "get_tts_timeout_seconds",
+        lambda: 1,
+    )
+    return tts_model._synthesize_over_websocket(
+        model="cosyvoice-v3.5-plus",
+        voice="cosyvoice-v3.5-plus-vd-x",
+        text="你好",
+        api_key="sk-test",
+    )
+
+
+class _FakeSynthesizerBase:
+    def __init__(self, *, callback, **_kwargs) -> None:
+        self.callback = callback
+
+    def streaming_call(self, text) -> None:
+        pass
+
+    def streaming_complete(self) -> None:
+        pass
+
+
+@pytest.mark.parametrize(
+    ("failure", "partial_audio"),
+    [
+        ("close_frame_race", False),
+        ("connection_closed", False),
+        ("close_frame_race", True),
+    ],
+)
+def test_abnormal_close_normalizes_to_provider_error(
+    monkeypatch,
+    failure,
+    partial_audio,
+) -> None:
+    """Both websocket-client generations must surface a provider disconnect
+    as a clear ModelError: 1.9.x races WebSocketApp.close() and raises
+    AttributeError on sock.close_frame; every version raises
+    WebSocketConnectionClosedException when sending into a dropped
+    connection. Chunks that arrived before the abnormal close are a
+    truncated narration, not a deliverable — without on_complete the
+    synthesis must still fail."""
+
+    import websocket
+
+    from utils.exceptions import ModelError
+
+    def make_exc():
+        if failure == "close_frame_race":
+            return AttributeError(
+                "'NoneType' object has no attribute 'close_frame'",
+            )
+        return websocket.WebSocketConnectionClosedException(
+            "Connection is already closed.",
+        )
+
+    raise_in_call = failure == "connection_closed"
+
+    class _Synth(_FakeSynthesizerBase):
+        def streaming_call(self, text) -> None:
+            if partial_audio:
+                self.callback.on_data(b"PARTIAL-MP3")
+            if raise_in_call:
+                raise make_exc()
+
+        def streaming_complete(self) -> None:
+            if not raise_in_call:
+                raise make_exc()
+
+    with pytest.raises(ModelError, match="closed the websocket abnormally"):
+        _run_real_websocket_synthesis(monkeypatch, _Synth)
+
+
+@pytest.mark.parametrize(("status", "retryable"), [(401, False), (503, True)])
+def test_handshake_rejection_maps_status_to_retryability(
+    monkeypatch,
+    status,
+    retryable,
+) -> None:
+    """A rejected handshake is not a transient close: 401/403/404 mean a
+    wrong API key, permission or endpoint and must not be retried, while
+    429/5xx stay retryable."""
+
+    import websocket
+
+    from utils.exceptions import ModelError
+
+    class _Synth(_FakeSynthesizerBase):
+        def streaming_call(self, text) -> None:
+            raise websocket.WebSocketBadStatusException(
+                "handshake rejected",
+                status,
+            )
+
+    with pytest.raises(ModelError, match=f"HTTP {status}") as excinfo:
+        _run_real_websocket_synthesis(monkeypatch, _Synth)
+    assert excinfo.value.retryable is retryable
+
+
+def test_close_race_after_complete_still_returns_audio(monkeypatch) -> None:
+    """A close-time race after the audio fully streamed must not discard
+    the synthesis."""
+
+    class _Synth(_FakeSynthesizerBase):
+        def streaming_call(self, text) -> None:
+            self.callback.on_data(b"MP3AUDIO")
+
+        def streaming_complete(self) -> None:
+            self.callback.on_complete()
+            raise AttributeError(
+                "'NoneType' object has no attribute 'close_frame'",
+            )
+
+    audio, media_type = _run_real_websocket_synthesis(monkeypatch, _Synth)
+
+    assert audio == b"MP3AUDIO"
+    assert media_type == "audio/mpeg"
+
+
+@pytest.mark.parametrize("failure", ["timeout", "unrelated_attribute"])
+def test_unrelated_exceptions_propagate_raw(monkeypatch, failure) -> None:
+    """Only the known abnormal-close shapes are normalized. Timeout and
+    protocol errors carry their own diagnosis, and genuine programming
+    errors must stay loud."""
+
+    import websocket
+
+    if failure == "timeout":
+        exc = websocket.WebSocketTimeoutException("ping timed out")
+        match = "ping timed out"
+    else:
+        exc = AttributeError("'_Synth' object has no attribute 'wrong_name'")
+        match = "wrong_name"
+
+    class _Synth(_FakeSynthesizerBase):
+        def streaming_call(self, text) -> None:
+            raise exc
+
+    with pytest.raises(type(exc), match=match):
+        _run_real_websocket_synthesis(monkeypatch, _Synth)
+
+
+# ---------------------------------------------------------------------------
 # TTS capabilities matrix
 # ---------------------------------------------------------------------------
 

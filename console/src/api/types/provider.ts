@@ -1,3 +1,5 @@
+import type { ThinkingControlSpec } from "@/features/thinking/types";
+export type ModelType = "chat" | "decision";
 export type ModelAvailabilityStatus =
   | "available"
   | "permission_denied"
@@ -8,6 +10,21 @@ export type ModelAvailabilityStatus =
   | "unverified";
 
 export interface ModelInfo {
+  model_type?: ModelType;
+  thinking_control?: ThinkingControlSpec | null;
+  released_at?: string | null;
+  config_overrides?: string[];
+  supports_audio?: boolean | null;
+  supports_tool_calling?: boolean | null;
+  recommendation_reason?: string;
+  ranking_id?: string | null;
+  ranking?: {
+    metric: string;
+    version: string;
+    score: number;
+    estimated: boolean;
+    source: string;
+  } | null;
   id: string;
   name: string;
   supports_multimodal: boolean | null;
@@ -20,9 +37,24 @@ export interface ModelInfo {
   discovery_origin?: "api" | "catalog" | "both" | null;
   availability_status?: ModelAvailabilityStatus;
   max_output_length?: number | null;
-  max_output_length_source?: "api" | "catalog" | "adapter" | "user" | "unknown";
+  max_output_length_source?:
+    | "api"
+    | "catalog"
+    | "adapter"
+    | "user"
+    | "template"
+    | "unknown";
   max_output_length_updated_at?: string | null;
+  template_id?: string | null;
+  input_token_limit?: number | null;
+  billing?: "free" | "paid" | "unknown";
+  auto_enabled?: boolean;
+  requires_paid_confirmation?: boolean;
+  remote_missing?: boolean;
   max_input_length: number;
+  effective_max_input_length?: number | null;
+  automatic_max_input_length?: number | null;
+  context_length_source?: string | null;
   max_input_length_configured?: boolean;
   max_input_length_auto_detected?: number | null;
   generate_kwargs: Record<string, unknown>;
@@ -41,6 +73,9 @@ export interface ModelInfo {
 }
 
 export interface ProviderInfo {
+  model_count?: number | null;
+  enabled?: boolean;
+  seen_model_ids?: string[];
   id: string;
   name: string;
   api_key_prefix: string;
@@ -59,6 +94,7 @@ export interface ProviderInfo {
   is_local: boolean;
   /** Whether this provider supports fetching available models from the provider's API. */
   support_model_discovery: boolean;
+  discovery_support_reason?: string;
   /** Whether this provider supports checking connection to the API without model configuration. */
   support_connection_check: boolean;
   /** True when the base_url should be frozen (not editable). */
@@ -103,6 +139,7 @@ export interface BaseUrlOption {
 }
 
 export interface ProviderConfigRequest {
+  enabled?: boolean;
   api_key?: string;
   base_url?: string;
   /** New display name. Only applied to custom providers. */
@@ -113,6 +150,11 @@ export interface ProviderConfigRequest {
   auth_mode?: "api_key" | "auth_token";
 }
 
+export type CustomChatModelName =
+  | "OpenAIChatModel"
+  | "OpenAIResponseModel"
+  | "AnthropicChatModel";
+
 export interface ModelSlotConfig {
   provider_id: string;
   model: string;
@@ -120,6 +162,7 @@ export interface ModelSlotConfig {
 
 export interface ActiveModelsInfo {
   active_llm: ModelSlotConfig | null;
+  default_models?: Partial<Record<ModelType, ModelSlotConfig | null>>;
   effective_max_input_length?: number | null;
 }
 
@@ -131,8 +174,9 @@ export interface GetActiveModelsRequest {
 }
 
 export interface ModelSlotRequest {
-  provider_id: string;
-  model: string;
+  provider_id: string | null;
+  model: string | null;
+  model_type?: ModelType;
   scope: Exclude<ActiveModelScope, "effective">;
   agent_id?: string;
 }
@@ -143,12 +187,15 @@ export interface CreateCustomProviderRequest {
   id: string;
   name: string;
   default_base_url?: string;
+  api_key?: string;
   api_key_prefix?: string;
-  chat_model?: string;
+  chat_model?: CustomChatModelName;
   models?: ModelInfo[];
 }
 
 export interface AddModelRequest {
+  model_type?: ModelType;
+  template_id?: string | null;
   id: string;
   name: string;
   is_free?: boolean;
@@ -159,7 +206,15 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
-  max_input_length?: number;
+  model_type?: ModelType;
+  thinking_control?: ThinkingControlSpec | null;
+  supports_image?: boolean | null;
+  supports_video?: boolean | null;
+  supports_audio?: boolean | null;
+  supports_tool_calling?: boolean | null;
+  template_id?: string | null;
+  confirm_paid?: boolean;
+  max_input_length?: number | null;
   generate_kwargs?: Record<string, unknown>;
   relay_reasoning?: boolean;
   thinking_enabled?: boolean | null;
@@ -259,6 +314,7 @@ export interface TestModelRequest {
 }
 
 export interface DiscoverModelsResponse {
+  last_synced_at?: string | null;
   success: boolean;
   message: string;
   models: ModelInfo[];
@@ -267,9 +323,9 @@ export interface DiscoverModelsResponse {
 }
 
 export interface ProbeMultimodalResponse {
-  supports_image: boolean;
-  supports_video: boolean;
-  supports_multimodal: boolean;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
+  supports_multimodal: boolean | null;
   image_message: string;
   video_message: string;
 }
@@ -308,4 +364,14 @@ export interface FilterModelsResponse {
   success: boolean;
   models: ExtendedModelInfo[];
   total_count: number;
+}
+
+export interface ModelPoolPage {
+  models: ModelInfo[];
+  total: number;
+  selected_count: number;
+  candidate_count: number;
+  families: string[];
+  offset: number;
+  limit: number;
 }

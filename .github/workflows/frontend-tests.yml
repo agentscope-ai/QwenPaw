@@ -2,12 +2,19 @@ name: Frontend Tests
 
 on:
   push:
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
     paths:
       - 'console/**'
+      - 'src/qwenpaw/plugins/frontend/**'
+      - 'scripts/check_plugin_sdk_frontend.py'
+      - '.nvmrc'
       - '.github/workflows/frontend-tests.yml'
   pull_request:
-    branches: [main, master, dev, develop]
+    # Default types plus ready_for_review: converting a draft PR to
+    # ready must re-trigger this workflow so vitest really runs right
+    # after the author leaves draft state.
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, master, dev, develop, "release/**"]
 
 jobs:
   spam-gate:
@@ -36,6 +43,9 @@ jobs:
           filters: |
             code:
               - 'console/**'
+              - 'src/qwenpaw/plugins/frontend/**'
+              - 'scripts/check_plugin_sdk_frontend.py'
+              - '.nvmrc'
               - '.github/workflows/frontend-tests.yml'
 
   vitest:
@@ -45,11 +55,15 @@ jobs:
     # cancelled its `code` output is empty and this job would silently skip,
     # which a ruleset cannot distinguish from a bypass. The frontend-summary
     # job below turns that detection failure into a hard red.
+    # Draft PRs defer the real run: the summary reports an explicit green
+    # placeholder (GitHub forbids merging drafts), and the ready_for_review
+    # trigger re-runs everything when the PR is marked ready.
     if: |
       always() &&
       needs.changes.result == 'success' &&
       needs.changes.outputs.code == 'true' &&
-      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -60,7 +74,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: console/package-lock.json
 
@@ -72,6 +86,13 @@ jobs:
       # separate `npm run test:run` pass executed the identical suite twice.
       - name: Run unit tests with coverage (ratchet blocks PR on regression)
         run: npm run test:coverage
+
+      - name: Verify standalone Plugin SDK types and behavior
+        run: >-
+          python3 ../scripts/check_plugin_sdk_frontend.py
+          --package ../src/qwenpaw/plugins/frontend
+          --dependencies node_modules
+          --output "${{ runner.temp }}/sdk-frontend-author"
 
       - name: Upload coverage report
         if: always()
@@ -86,10 +107,13 @@ jobs:
     needs: [changes, spam-gate, vitest]
     # Fail-closed gate. This job ALWAYS runs (no path condition) so the
     # required-check context can never be satisfied by an accidental skip.
-    # Three-state decision, mirroring `Test Summary` in tests.yml:
+    # Four-state decision, mirroring `Test Summary` in tests.yml:
     #   1. change detection did not succeed -> red;
     #   2. detection succeeded, no console changes -> explicit green;
-    #   3. console change -> vitest must be strictly `success`.
+    #   3. draft PR with console changes -> explicit green placeholder
+    #      (the real run resumes automatically once the PR is marked
+    #      ready via the ready_for_review trigger);
+    #   4. console change -> vitest must be strictly `success`.
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -107,6 +131,12 @@ jobs:
 
           if [ "${{ needs.changes.outputs.code }}" != "true" ]; then
             echo "✅ No console changes — vitest not required"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "✅ Draft PR — vitest deferred until the PR is marked ready for review"
             exit 0
           fi
 

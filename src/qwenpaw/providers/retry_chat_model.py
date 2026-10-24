@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any, AsyncGenerator, AsyncIterator
 
 from agentscope.model import ChatModelBase
@@ -37,6 +38,7 @@ from qwenpaw.exceptions import (
 )
 
 from ..constant import (
+    EnvVarLoader,
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
@@ -45,8 +47,6 @@ from ..constant import (
     LLM_MAX_QPM,
     LLM_RATE_LIMIT_JITTER,
     LLM_RATE_LIMIT_PAUSE,
-    LLM_STREAM_FIRST_CONTENT_TIMEOUT,
-    LLM_STREAM_IDLE_TIMEOUT,
 )
 from .error_utils import extract_status_code as _extract_status_code
 from .model_capability_cache import get_capability_cache
@@ -59,6 +59,7 @@ from .stream_progress import has_meaningful_stream_content
 logger = logging.getLogger(__name__)
 
 _STREAM_CLEANUP_TIMEOUT = 1.0
+_STREAM_CLEANUP_QUARANTINE_TIMEOUT = 60.0
 _STREAM_FIRST_CONTENT_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT"
 _STREAM_IDLE_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_IDLE_TIMEOUT"
 _pending_stream_cleanup_tasks: set[asyncio.Future[Any]] = set()
@@ -66,6 +67,7 @@ _pending_provider_cleanup_tasks_by_model: dict[
     str,
     set[asyncio.Future[Any]],
 ] = {}
+_pending_provider_cleanup_deadlines_by_model: dict[str, float] = {}
 
 
 def _track_stream_cleanup(
@@ -289,6 +291,15 @@ def _enable_reasoning_content_fallback(
                 "_qwenpaw_require_reasoning_content",
                 True,
             )
+            # Exact replay and request-time thinking omission are mutually
+            # exclusive. Clear any fold learned before this provider exposed
+            # its stricter tool-call protocol, so the retry is reformatted
+            # from the still-intact AgentScope message content.
+            set_omit_ids = getattr(formatter, "set_thinking_omit_ids", None)
+            if callable(set_omit_ids):
+                set_omit_ids(set())
+            else:
+                setattr(formatter, "_qwenpaw_omit_thinking_ids", set())
             return True
 
         for attr in ("_inner", "_model"):
@@ -378,10 +389,8 @@ class RetryChatModel(ChatModelBase):
         inner: ChatModelBase,
         retry_config: RetryConfig | None = None,
         rate_limit_config: RateLimitConfig | None = None,
-        stream_first_content_timeout: float = (
-            LLM_STREAM_FIRST_CONTENT_TIMEOUT
-        ),
-        stream_idle_timeout: float = LLM_STREAM_IDLE_TIMEOUT,
+        stream_first_content_timeout: float | None = None,
+        stream_idle_timeout: float | None = None,
     ) -> None:
         # agentscope 2.0 ChatModelBase requires credential/model/parameters;
         # forward the inner wrapper's own values so attribute access stays
@@ -405,13 +414,9 @@ class RetryChatModel(ChatModelBase):
         self._rate_limit_config = _normalize_rate_limit_config(
             rate_limit_config,
         )
-        self._stream_idle_timeout = max(
-            0.0,
-            float(stream_idle_timeout),
-        )
-        self._stream_first_content_timeout = max(
-            0.0,
-            float(stream_first_content_timeout),
+        self._stream_idle_timeout_override = stream_idle_timeout
+        self._stream_first_content_timeout_override = (
+            stream_first_content_timeout
         )
         self._pending_provider_cleanup_tasks: set[asyncio.Future[Any]] = set()
 
@@ -450,21 +455,63 @@ class RetryChatModel(ChatModelBase):
             model_key,
             set(),
         )
+        if model_key not in _pending_provider_cleanup_deadlines_by_model:
+            _pending_provider_cleanup_deadlines_by_model[model_key] = (
+                monotonic() + _STREAM_CLEANUP_QUARANTINE_TIMEOUT
+            )
         model_tasks.add(task)
 
         def _clear_quarantine(completed: asyncio.Future[Any]) -> None:
             self._pending_provider_cleanup_tasks.discard(completed)
             model_tasks.discard(completed)
             if not model_tasks:
-                _pending_provider_cleanup_tasks_by_model.pop(model_key, None)
+                if (
+                    _pending_provider_cleanup_tasks_by_model.get(model_key)
+                    is model_tasks
+                ):
+                    _pending_provider_cleanup_tasks_by_model.pop(
+                        model_key,
+                        None,
+                    )
+                    _pending_provider_cleanup_deadlines_by_model.pop(
+                        model_key,
+                        None,
+                    )
 
         task.add_done_callback(_clear_quarantine)
         _track_stream_cleanup(task, description)
 
     def _ensure_provider_available(self) -> None:
-        """Reject upstream calls while old cleanup is still active."""
-        if _pending_provider_cleanup_tasks_by_model.get(self.model_key):
-            raise StreamCleanupPendingError(self.model_key)
+        """Reject calls briefly while deferred cleanup can finish."""
+        model_tasks = _pending_provider_cleanup_tasks_by_model.get(
+            self.model_key,
+        )
+        if not model_tasks:
+            return
+
+        deadline = _pending_provider_cleanup_deadlines_by_model.get(
+            self.model_key,
+        )
+        if deadline is None:
+            _pending_provider_cleanup_deadlines_by_model[self.model_key] = (
+                monotonic() + _STREAM_CLEANUP_QUARANTINE_TIMEOUT
+            )
+            deadline = _pending_provider_cleanup_deadlines_by_model[
+                self.model_key
+            ]
+        if monotonic() >= deadline:
+            _pending_provider_cleanup_tasks_by_model.pop(self.model_key, None)
+            _pending_provider_cleanup_deadlines_by_model.pop(
+                self.model_key,
+                None,
+            )
+            logger.warning(
+                f"Deferred stream cleanup for {self.model_key} exceeded "
+                f"{_STREAM_CLEANUP_QUARANTINE_TIMEOUT:g}s; allowing recovery",
+            )
+            return
+
+        raise StreamCleanupPendingError(self.model_key)
 
     @staticmethod
     async def _handle_rate_limit_exc(
@@ -524,7 +571,25 @@ class RetryChatModel(ChatModelBase):
         """
         first_chunk = True
         loop = asyncio.get_running_loop()
-        active_timeout = self._stream_first_content_timeout
+        first_content_timeout = (
+            max(0.0, float(self._stream_first_content_timeout_override))
+            if self._stream_first_content_timeout_override is not None
+            else EnvVarLoader.get_float(
+                _STREAM_FIRST_CONTENT_TIMEOUT_ENV,
+                30.0,
+                min_value=0.0,
+            )
+        )
+        idle_timeout = (
+            max(0.0, float(self._stream_idle_timeout_override))
+            if self._stream_idle_timeout_override is not None
+            else EnvVarLoader.get_float(
+                _STREAM_IDLE_TIMEOUT_ENV,
+                30.0,
+                min_value=0.0,
+            )
+        )
+        active_timeout = first_content_timeout
         timeout_setting = _STREAM_FIRST_CONTENT_TIMEOUT_ENV
         idle_budget = active_timeout
         iterator = stream.__aiter__()
@@ -559,7 +624,7 @@ class RetryChatModel(ChatModelBase):
                     # held back by a pause set by a background task.
                     await limiter.on_success(acquired_at)
                 if has_meaningful_stream_content(chunk.content):
-                    active_timeout = self._stream_idle_timeout
+                    active_timeout = idle_timeout
                     timeout_setting = _STREAM_IDLE_TIMEOUT_ENV
                     idle_budget = active_timeout
                 is_last = bool(getattr(chunk, "is_last", False))
@@ -841,8 +906,9 @@ class RetryChatModel(ChatModelBase):
                     cache.learn(key, "needs_reasoning_content", True)
                     logger.warning(
                         "Thinking-mode model requires reasoning_content "
-                        "on every assistant message. Injecting empty "
-                        "values and retrying (learned for future calls).",
+                        "on every assistant message. Replaying available "
+                        "reasoning and filling missing values before retrying "
+                        "(learned for future calls).",
                     )
                     self._ensure_provider_available()
                     result = await self._inner(*args, **kwargs)
@@ -996,8 +1062,9 @@ class RetryChatModel(ChatModelBase):
                     )
                     logger.warning(
                         "Thinking-mode stream requires reasoning_content "
-                        "on every assistant message. Injecting empty "
-                        "values and retrying (learned for future calls).",
+                        "on every assistant message. Replaying available "
+                        "reasoning and filling missing values before retrying "
+                        "(learned for future calls).",
                     )
                     continue
 

@@ -1,6 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  findCreatorFieldElement,
   flashCreatorReviewField,
   useReviewFieldFocus,
 } from "@/routing/reviewFocus";
@@ -135,5 +136,54 @@ describe("useReviewFieldFocus", () => {
 
     expect(first).not.toHaveClass("review-flash");
     expect(second).toHaveClass("review-flash");
+  });
+});
+
+describe("findCreatorFieldElement", () => {
+  it("深指针没有精确节点时回退到最长 '/' 边界前缀块", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div data-creator-path="/timelines/items/t/elements_by_id/e/creation"></div>
+      <div id="shots" data-creator-path="/timelines/items/t/elements_by_id/e/creation/shots"></div>
+    `;
+    const target = findCreatorFieldElement(
+      "/timelines/items/t/elements_by_id/e/creation/shots/3/description",
+      root,
+    );
+    expect(target?.id).toBe("shots");
+  });
+
+  it("前缀必须落在 '/' 边界，不误配相似字段名", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div data-creator-path="/a/shots_extra"></div>
+    `;
+    expect(findCreatorFieldElement("/a/shots/1", root)).toBeNull();
+  });
+});
+
+describe("flashCreatorReviewField + collapsed details", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = "";
+  });
+
+  it("目标位于折叠的 <details> 内时会自动展开再定位", () => {
+    document.body.innerHTML = `
+      <details id="advanced">
+        <summary>更多设置</summary>
+        <div data-creator-field="element:e/label">原文</div>
+      </details>
+    `;
+    const target = flashCreatorReviewField("element:e/label");
+    expect(target).not.toBeNull();
+    expect(document.querySelector<HTMLDetailsElement>("#advanced")!.open).toBe(
+      true,
+    );
+    expect(target).toHaveClass("review-flash");
   });
 });

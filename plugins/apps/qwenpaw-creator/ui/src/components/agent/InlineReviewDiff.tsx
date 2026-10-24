@@ -20,6 +20,12 @@ import type {
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import DiffView from "./DiffView";
 import RejectionFeedbackModal from "./RejectionFeedbackModal";
+import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import {
+  fileReviewPresentation,
+  isReviewReferenceField,
+} from "@/lib/fileProjectReviewPresentation";
+import ReviewReferenceImages from "./ReviewReferenceImages";
 
 const MISSING = Symbol("missing");
 
@@ -128,6 +134,7 @@ export function matchReviewOperations(
 
 export default function InlineReviewDiff({ pointer }: { pointer: string }) {
   const { t } = useTranslation();
+  const project = useProjectSnapshotStore((state) => state.project);
   const projectId = useFileProjectReviewStore((state) => state.projectId);
   const reviews = useFileProjectReviewStore((state) => state.reviews);
   const decide = useFileProjectReviewStore((state) => state.decide);
@@ -172,8 +179,8 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
           : t("inlineReview.undone"),
       );
       return true;
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
+    } catch {
+      message.error(t("fileReview.public.decisionFailed"));
       return false;
     } finally {
       setLocalBusy(false);
@@ -182,58 +189,111 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
 
   return (
     <div className="mt-1.5 space-y-1.5">
-      {matches.map((match) => (
-        <div
-          key={`${match.operation.operation_id}-${match.subPath ?? ""}`}
-          data-review-inline-diff={match.operation.operation_id}
-          className="rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-bg-card)] p-2"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className="flex min-w-0 items-center gap-1 text-[10px] font-semibold text-[var(--color-accent)]">
-              <FileDiff className="h-3 w-3 shrink-0" />
-              {t("inlineReview.pendingChange")}
-              {match.subPath && (
-                <span
-                  className="truncate font-mono font-normal text-[var(--color-text-tertiary)]"
-                  title={match.subPath}
+      {matches.map((match) => {
+        // Project a sliced field for display; submit still uses the original
+        // matched operation and therefore preserves ancestor decision scope.
+        const presentation = fileReviewPresentation(
+          {
+            ...match.operation,
+            json_pointer:
+              match.relation === "ancestor"
+                ? pointer
+                : match.operation.json_pointer,
+            before: match.before,
+            after: match.after,
+          },
+          project,
+        );
+        return (
+          <div
+            key={`${match.operation.operation_id}-${match.subPath ?? ""}`}
+            data-review-inline-diff={match.operation.operation_id}
+            className="rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-bg-card)] p-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-[var(--color-accent)]">
+                <FileDiff className="h-3 w-3 shrink-0" />
+                {t("inlineReview.pendingChange")}
+                {match.subPath && (
+                  <span
+                    className="truncate font-normal text-[var(--color-text-tertiary)]"
+                    title={presentation.title}
+                  >
+                    {presentation.title}
+                  </span>
+                )}
+              </p>
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  aria-label={t("inlineReview.keepChange")}
+                  disabled={busy}
+                  onClick={() => void submit(match, "ACCEPT")}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] disabled:opacity-50"
                 >
-                  {match.subPath}
-                </span>
-              )}
-            </p>
-            <div className="flex shrink-0 gap-1">
-              <button
-                type="button"
-                aria-label={t("inlineReview.keepChange")}
-                disabled={busy}
-                onClick={() => void submit(match, "ACCEPT")}
-                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] disabled:opacity-50"
-              >
-                <Check className="h-3 w-3" />
-                {t("inlineReview.keep")}
-              </button>
-              <button
-                type="button"
-                aria-label={t("inlineReview.undoChange")}
-                disabled={busy}
-                onClick={() => setPendingRejection(match)}
-                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)] disabled:opacity-50"
-              >
-                <Undo2 className="h-3 w-3" />
-                {t("inlineReview.undo")}
-              </button>
+                  <Check className="h-3 w-3" />
+                  {t("inlineReview.keep")}
+                </button>
+                <button
+                  type="button"
+                  aria-label={t("inlineReview.undoChange")}
+                  disabled={busy}
+                  onClick={() => setPendingRejection(match)}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)] disabled:opacity-50"
+                >
+                  <Undo2 className="h-3 w-3" />
+                  {t("inlineReview.undo")}
+                </button>
+              </div>
             </div>
+            <div className="mt-1.5 [&_[data-review-diff]]:font-sans [&_[data-review-diff]]:text-[12px] [&_[data-review-diff]]:leading-5">
+              {isReviewReferenceField(
+                match.relation === "ancestor"
+                  ? pointer
+                  : match.operation.json_pointer,
+              ) ? (
+                <div
+                  className="grid gap-3 sm:grid-cols-2"
+                  data-review-reference-comparison
+                >
+                  <section data-reference-comparison="before">
+                    <p className="mb-1 text-[11px] font-medium">
+                      {t("fileReview.public.before")}
+                    </p>
+                    <ReviewReferenceImages
+                      value={match.before}
+                      project={project}
+                    />
+                  </section>
+                  <section data-reference-comparison="after">
+                    <p className="mb-1 text-[11px] font-medium">
+                      {t("fileReview.public.after")}
+                    </p>
+                    <ReviewReferenceImages
+                      value={match.after}
+                      project={project}
+                    />
+                  </section>
+                </div>
+              ) : presentation.hasTextDiff ? (
+                <DiffView
+                  before={presentation.beforeText}
+                  after={presentation.afterText}
+                />
+              ) : (
+                <p className="text-[12px] leading-5 text-[var(--color-text-secondary)]">
+                  {presentation.preview}
+                </p>
+              )}
+            </div>
+            {match.relation === "ancestor" && (
+              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
+                {t("inlineReview.decisionScope")}
+              </p>
+            )}
           </div>
-          <div className="mt-1.5">
-            <DiffView before={match.before} after={match.after} />
-          </div>
-          {match.relation === "ancestor" && (
-            <p className="mt-1 text-[9px] text-[var(--color-text-tertiary)]">
-              {t("inlineReview.decisionScope")}
-            </p>
-          )}
-        </div>
-      ))}
+        );
+      })}
       <RejectionFeedbackModal
         open={pendingRejection !== null}
         busy={busy}

@@ -59,6 +59,27 @@ def _read_pool_manifest(pool_dir: Path) -> dict:
     return json.loads((pool_dir / "skill.json").read_text(encoding="utf-8"))
 
 
+def _write_workspace_manifest(workspace_dir: Path, skills: dict) -> None:
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    (workspace_dir / "skill.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "workspace-skill-manifest.v1",
+                "version": 0,
+                "skills": skills,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _read_workspace_manifest(workspace_dir: Path) -> dict:
+    return json.loads(
+        (workspace_dir / "skill.json").read_text(encoding="utf-8"),
+    )
+
+
 @pytest.fixture()
 def pool_env(tmp_path, monkeypatch):
     """Isolated skill pool rooted in tmp_path, built-ins and scans stubbed.
@@ -457,6 +478,76 @@ class TestZipImportValidation:
         assert result["imported"] == ["ok_zip"]
         assert result["count"] == 1
         assert (pool_dir / "ok_zip" / "SKILL.md").exists()
+
+
+class TestDownloadKeepsSettingsAcrossRefresh:
+    """Review on #8055: replacing the skill directory removes it for a moment.
+
+    A ``POST /skills/refresh`` landing in that window reconciles the manifest
+    against a filesystem that no longer lists the skill, which drops the
+    entry. The write that registers the downloaded skill must then fall back
+    to the entry it read before the copy — otherwise the skill comes back
+    enabled, with default channels and without its configuration.
+    """
+
+    def test_settings_survive_an_entry_dropped_mid_copy(
+        self,
+        pool_env,
+        monkeypatch,
+    ):
+        service, pool_dir = pool_env
+        assert service.create_skill("demo", _skill_md("demo")) == "demo"
+        import shutil as _shutil
+
+        workspace_dir = pool_dir.parent / "workspaces" / "agent_x"
+        _write_skill_dir(workspace_dir / "skills" / "demo", "demo")
+        _write_workspace_manifest(
+            workspace_dir,
+            {
+                "demo": {
+                    "enabled": False,
+                    "channels": ["qq"],
+                    "config": {"threshold": 7},
+                },
+            },
+        )
+
+        target_skill_dir = workspace_dir / "skills" / "demo"
+        real_copy = skill_pool_service.copy_skill_dir
+
+        def _copy_with_a_refresh_in_the_middle(
+            source: Path,
+            target: Path,
+        ) -> None:
+            if Path(target) == target_skill_dir:
+                # the directory is replaced, not merged: it is gone for a
+                # moment, so a refresh arriving now sees no skill on disk
+                _shutil.rmtree(target, ignore_errors=True)
+                skill_registry.reconcile_workspace_manifest(workspace_dir)
+                assert (
+                    "demo"
+                    not in _read_workspace_manifest(workspace_dir)["skills"]
+                ), "the reconcile should have dropped the entry"
+            real_copy(source, target)
+
+        monkeypatch.setattr(
+            skill_pool_service,
+            "copy_skill_dir",
+            _copy_with_a_refresh_in_the_middle,
+        )
+
+        result = service.download_to_workspace(
+            "demo",
+            workspace_dir,
+            overwrite=True,
+        )
+
+        assert result["success"] is True
+        entry = _read_workspace_manifest(workspace_dir)["skills"]["demo"]
+        assert entry["enabled"] is False, "a disabled skill must stay disabled"
+        assert entry["channels"] == ["qq"], "channel scope must survive"
+        assert entry["config"] == {"threshold": 7}, "config must survive"
+        assert (target_skill_dir / "SKILL.md").is_file()
 
 
 def test_working_dir_is_isolated(pool_env):

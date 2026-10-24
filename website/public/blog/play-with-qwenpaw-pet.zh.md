@@ -12,7 +12,7 @@ related:
       description: "QwenPaw 官方桌宠插件，用于将后端生命周期事件同步至 QwenPaw Pet Desktop。"
     - label: "内置技能"
       name: "make-skill"
-      href: "https://qwenpaw.agentscope.io/docs/skills#通过-make-skill-从当前会话创建-Beta"
+      href: "https://qwenpaw.agentscope.io/docs/skills#通过-make-skill-从当前会话创建"
       description: "将当前会话中的操作流程与经验沉淀为可复用 Skill。本文使用该能力将桌宠制作流程封装为可复用 Skill。"
 ---
 

@@ -61,6 +61,10 @@ class GovernanceDecision:
     #   "sandbox"               — Phase 3 shell sandbox fallback
     #   "No rule hit"           — Phase 3 fallback (no rule/finding matched)
     source: str = "No rule hit"
+    # Only a SMART/JEV severity threshold from unmodified bundled detection
+    # rules may have ASK replaced by the decision model. Explicit rules and
+    # unknown origins still require approval.
+    approval_origin: str = "unknown"
 
 
 class ToolCallSpec:
@@ -657,7 +661,9 @@ class GovernancePolicy:
     audit_level: str = "all"  # "all" | "write_only" | "none"
 
     # v2.0 fields
-    execution_level: str = "smart"  # "off" | "auto" | "smart" | "strict"
+    execution_level: str = (
+        "smart"  # "off" | "auto" | "smart" | "jev" | "strict"
+    )
     sensitive_paths: List[str] = field(default_factory=list)
     shell_evasion_checks: dict[str, bool] = field(default_factory=dict)
     detection_rules: List[DetectionRuleConfig] = field(default_factory=list)
@@ -702,7 +708,7 @@ class GovernancePolicy:
         Three-phase evaluation (v2.0):
             Phase 0: Type check — unknown → DENY, internal → ALLOW
             Phase 1: Deep security scan (accumulates findings)
-                     CRITICAL findings → immediate DENY
+                     configured auto-deny findings → immediate DENY
             Phase 2: Policy rules first-match-wins
                      (builtin_rules + user_rules)
             Phase 3: Fallback + execution_level threshold
@@ -732,14 +738,27 @@ class GovernancePolicy:
         findings: list[Any] = []
         if not skip_deep_scan:
             findings = self._deep_security_scan(tc_spec, tool_type)
-            # CRITICAL findings → immediate DENY
-            if any(getattr(f, "severity", "") == "CRITICAL" for f in findings):
-                top = _top_finding(findings)
+            # Severity controls the approval threshold; it does not by itself
+            # make a finding impossible to approve.  Only rule IDs explicitly
+            # configured for auto-deny are hard walls.  This keeps governance
+            # aligned with ToolGuardEngine and the Security-page auto-deny
+            # switch while allowing ordinary CRITICAL findings to reach the
+            # normal ASK path below.
+            from ..security.tool_guard.utils import resolve_auto_denied_rules
+
+            auto_denied_rule_ids = resolve_auto_denied_rules()
+            auto_denied_findings = [
+                finding
+                for finding in findings
+                if getattr(finding, "rule_id", "") in auto_denied_rule_ids
+            ]
+            if auto_denied_findings:
+                top = _top_finding(auto_denied_findings)
                 return GovernanceDecision(
                     action=GovernanceAction.DENY,
                     reason=getattr(top, "description", "") or top.title,
                     findings=findings,
-                    source=_findings_source(findings),
+                    source=_findings_source(auto_denied_findings),
                 )
 
         sensitive_path_findings = [
@@ -1025,7 +1044,7 @@ class GovernancePolicy:
                 source=finding_source,
             )
 
-        if level == "smart":
+        if level in ("smart", "jev"):
             if max_sev in ("INFO", "LOW"):
                 return GovernanceDecision(
                     action=GovernanceAction.ALLOW,
@@ -1038,6 +1057,11 @@ class GovernancePolicy:
                 reason=finding_reason,
                 findings=findings,
                 source=finding_source,
+                approval_origin=(
+                    "soft_risk"
+                    if self._is_bundled_risk_only(findings)
+                    else "mandatory"
+                ),
             )
 
         # AUTO / OFF: a finding surfaced, so ask.
@@ -1046,6 +1070,20 @@ class GovernancePolicy:
             reason=finding_reason,
             findings=findings,
             source=finding_source,
+        )
+
+    def _is_bundled_risk_only(self, findings: list[Any]) -> bool:
+        """Preserve custom and modified detection rules over model advice."""
+        if not findings:
+            return False
+        defaults = {rule.id: rule for rule in _get_default_detection_rules()}
+        effective, _ = self._merge_config_rules()
+        effective_by_id = {rule.id: rule for rule in effective}
+        return all(
+            getattr(finding, "detector", None) == "pattern_detector"
+            and (rule_id := getattr(finding, "rule_id", None)) in defaults
+            and effective_by_id.get(rule_id) == defaults[rule_id]
+            for finding in findings
         )
 
     def evaluate_source(self, tc_spec: ToolCallSpec) -> str:
@@ -1294,7 +1332,7 @@ def load_governance_policy(
 
     # ── v2.0 fields ──
     execution_level = data.get("execution_level", "smart")
-    if execution_level not in ("off", "auto", "smart", "strict"):
+    if execution_level not in ("off", "auto", "smart", "jev", "strict"):
         logger.warning(
             "load_governance_policy: invalid execution_level '%s'; "
             "defaulting to 'smart'.",

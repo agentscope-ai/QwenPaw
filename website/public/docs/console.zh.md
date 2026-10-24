@@ -15,6 +15,7 @@
 - 管理MCP客户端
 - 修改运行配置
 - 管理多智能体
+- 从 Codex、Qoder 导入聊天记录和工具设置
 - 连接邮箱并查看新邮件自动处理结果
 - 配置 LLM 提供商并选择使用的模型
 - 管理工具所需的环境变量
@@ -26,6 +27,56 @@
 切换页面。下面按顺序逐一介绍每个功能的操作方法。
 
 > **看不到控制台？** 请确认前端已构建，构建方式见 [CLI](./cli)。
+
+---
+
+## 反向代理子路径部署
+
+如果需要通过 `https://example.com/qwenpaw/` 访问控制台，在
+`console/.env.production.local` 中设置构建变量：
+
+```dotenv
+VITE_CONSOLE_BASENAME=/qwenpaw
+VITE_API_BASE_URL=/qwenpaw
+```
+
+从仓库根目录执行：
+
+```bash
+cd console
+npm install
+npm run build
+```
+
+`VITE_CONSOLE_BASENAME` 同时设置路由前缀和静态资源 URL 前缀，例如
+`/qwenpaw/assets/`。首尾斜杠会统一处理，也支持 `/apps/qwenpaw` 等多级路径。
+未设置或留空时，保留现有根路径和 `/console` 路由，资源仍从 `/assets/` 加载。
+显式设为 `/` 时，路由仅以站点根路径为基准。
+
+`VITE_API_BASE_URL` 独立设置 `/api` 之前的后端地址。如果代理通过
+`/qwenpaw/api/` 提供 API，设为 `/qwenpaw`；如果 API 仍位于 `/api/`，留空即可，
+也可以设置为后端的外部访问地址。这些变量会在构建时写入产物，后续仅修改服务端
+环境变量不会生效，需要重新构建前端。
+
+在运行 `qwenpaw app` 的环境中，将 `QWENPAW_CONSOLE_STATIC_DIR` 设置为生成的
+`console/dist` 目录的绝对路径。pip/uv 安装也可以通过此方式使用自定义构建，无需
+替换安装包内的文件。Docker 部署时，将自定义构建放入镜像或挂载到容器，并将
+`QWENPAW_CONSOLE_STATIC_DIR` 设置为容器内的对应目录。
+
+代理转发所有请求时，需要去除 `/qwenpaw` 前缀，包括 SPA 深层路由、静态资源、
+API 和 WebSocket 请求。例如 Caddy 配置：
+
+```caddyfile
+example.com {
+    redir /qwenpaw /qwenpaw/ 308
+    handle_path /qwenpaw/* {
+        reverse_proxy 127.0.0.1:8088
+    }
+}
+```
+
+随后访问 `https://example.com/qwenpaw/`。如果转发时保留此前缀，资源请求会进入
+后端的 SPA 回退路由，返回 HTML，导致 JavaScript 模块加载失败。
 
 ---
 
@@ -324,10 +375,15 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 - **上下文管理**：最大输入长度等。
 - **上下文压缩配置**：上下文压缩阈值比例等。
 - **工具结果压缩配置**：最新工具结果范围等。
-- **记忆总结配置**：自动搜索最大结果数等。
-- **向量模型配置**：是否启用 Embedding 缓存等。
+- **长期记忆**：选择 ReMeLight、停用记忆或已安装的 memory backend 插件。选择器根据运行时
+  registry 动态生成，当前插件可以添加自己的配置 Tab。ReMeLight 会提供 Auto-Memory 间隔、
+  Auto-Dream、Daily Paper 与 Auto Fin 的定时和 Inbox 通知、自动记忆搜索，以及索引维护。
+- **向量模型配置**：Embedding 服务、维度、缓存、健康检查与待重建状态。
 
-更细的机制说明见 [上下文](./context) 和 [配置与工作目录](./config)。
+保存 backend 选择或插件拥有的记忆配置后会安排 Agent 重载。如果之前选中的插件不可用，
+Console 会保留并标记该选项不可用，而不是静默改成其他记忆存储。
+
+更细的机制说明见 [上下文](./context)、[长期记忆](./memory)、[向量模型](./embedding)和[配置与工作目录](./config)。
 
 ---
 
@@ -413,6 +469,17 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 > **注意：** 环境变量值的有效性需要用户自行保证，QwenPaw 只负责存储和加载。
 >
 > 更多说明见 [配置 — 环境变量](./config#环境变量)。
+
+---
+
+## 导入
+
+在 **导入** 页面，可以把本机 Codex、Qoder 中受支持的聊天记录、Memory、Skill、MCP、
+插件和定时任务迁入当前 QwenPaw 智能体。
+
+先选择使用 QwenPaw 原生后端的目标智能体，再按 **选择应用 → 选择内容 → 开始导入**
+操作。插件默认不勾选；导入后还需检查 Skill/MCP 的启用状态，并单独审核定时任务。
+导入接口仅支持本机访问，完整流程见 [导入](./import)。
 
 ---
 

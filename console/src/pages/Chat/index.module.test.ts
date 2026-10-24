@@ -6,6 +6,10 @@ const stylesSource = readFileSync(
   join(process.cwd(), "src/pages/Chat/index.module.less"),
   "utf8",
 );
+const chatSource = readFileSync(
+  join(process.cwd(), "src/pages/Chat/index.tsx"),
+  "utf8",
+);
 
 describe("Chat message markdown layout styles", () => {
   it("wraps long lines for assistant markdown fallback content", () => {
@@ -82,7 +86,55 @@ describe("Chat attachment preview styles", () => {
   });
 });
 
+describe("Chat composer responsive layout styles", () => {
+  it("wraps controls only when their content no longer fits", () => {
+    const rootStart = stylesSource.indexOf(".chatPageRoot {");
+    const rootRule = stylesSource.slice(
+      rootStart,
+      stylesSource.indexOf(".filesPreviewOpen,", rootStart),
+    );
+
+    expect(rootStart).toBeGreaterThanOrEqual(0);
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-content-bottom"\][\s\S]*?flex-wrap:\s*wrap/,
+    );
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-prefix"\][\s\S]*?flex:\s*1 1 max-content/,
+    );
+    expect(rootRule).toMatch(
+      /\[class\$="-sender-actions-list"\][\s\S]*?flex:\s*0 0 auto/,
+    );
+    expect(stylesSource).not.toContain("flex: 1 1 100%");
+  });
+});
+
 describe("Chat mobile layout styles", () => {
+  it("keeps a fluid wide-mode gutter across desktop and mobile widths", () => {
+    const wideModeStart = stylesSource.indexOf(
+      "/* Wide mode follows the available chat width",
+    );
+    const wideModeRule = stylesSource.slice(
+      wideModeStart,
+      stylesSource.indexOf("/* Custom scrollbar */", wideModeStart),
+    );
+
+    expect(wideModeStart).toBeGreaterThanOrEqual(0);
+    expect(wideModeRule).toContain("--chat-wide-gutter: clamp(20px, 2%, 32px)");
+    expect(wideModeRule).toContain("padding-inline: var(--chat-wide-gutter)");
+    expect(wideModeRule).toContain("max-width: none !important");
+
+    const mobileStart = stylesSource.indexOf(
+      "/* Preserve the wide-mode gutter through the mobile breakpoint",
+    );
+    const mobileRule = stylesSource.slice(
+      mobileStart,
+      stylesSource.indexOf("[class*=", mobileStart),
+    );
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    expect(mobileRule).toContain(".chatMessagesArea.wideMode :global");
+    expect(mobileRule).toContain("padding-inline: var(--chat-wide-gutter)");
+  });
+
   it("releases the vendor chat minimum width on narrow viewports", () => {
     const mobileStart = stylesSource.indexOf(
       "/* The vendor chat layout keeps a 300px minimum width",
@@ -96,15 +148,16 @@ describe("Chat mobile layout styles", () => {
     expect(mobileRule).toContain("safe-area-inset-bottom");
   });
 
-  it("keeps the history panel below the console header", () => {
-    const panelStart = stylesSource.indexOf(".historyPanel {");
-    const panelRule = stylesSource.slice(
-      panelStart,
-      stylesSource.indexOf(".suggestionLabel", panelStart),
-    );
+  it("does not retain the legacy desktop history panel", () => {
+    expect(stylesSource).not.toContain(".historyPanel {");
+    expect(stylesSource).not.toContain(".historyPanelMask {");
+  });
 
-    expect(panelStart).toBeGreaterThanOrEqual(0);
-    expect(panelRule).toMatch(/top:\s*56px/);
+  it("does not retain the right-side history drawer", () => {
+    expect(chatSource).not.toContain("ChatSessionDrawer");
+    expect(chatSource).not.toContain("historyPanelOpen");
+    expect(chatSource).not.toContain("OPEN_SESSION_HISTORY_DRAWER_EVENT");
+    expect(chatSource).not.toContain("SESSION_HISTORY_DRAWER_STORAGE_KEY");
   });
 
   it("keeps the mobile composer toolbar in two stable columns", () => {
@@ -125,6 +178,25 @@ describe("Chat mobile layout styles", () => {
     expect(composerRule).toContain("flex-wrap: nowrap");
     expect(composerRule).toContain("overflow-x: auto");
     expect(composerRule).toContain("overflow: visible");
+  });
+
+  it("sizes only the bridged submit action to a 44px mobile target", () => {
+    const composerStart = stylesSource.indexOf(
+      "/* Mobile composer: keep the input row dominant",
+    );
+    const composerRule = stylesSource.slice(
+      composerStart,
+      stylesSource.indexOf("@media (max-width: 480px)", composerStart),
+    );
+
+    expect(composerRule).toContain('[data-qwenpaw-composer-submit="true"]');
+    expect(composerRule).toMatch(
+      /\[data-qwenpaw-composer-submit="true"\][\s\S]*?width:\s*44px\s*!important/,
+    );
+    expect(composerRule).toMatch(
+      /\[data-qwenpaw-composer-submit="true"\][\s\S]*?height:\s*44px\s*!important/,
+    );
+    expect(composerRule).not.toContain('[class$="-sender-actions-btn"]');
   });
 
   it("removes low-priority composer chrome on narrow phones", () => {
@@ -159,6 +231,6 @@ describe("Chat mobile layout styles", () => {
     expect(toolbarRule).toContain('&[aria-expanded="true"]');
     expect(toolbarRule).toContain("&:focus-visible");
     expect(toolbarRule).toContain('&[data-state="running"]');
-    expect(toolbarRule).toContain("var(--ant-color-success)");
+    expect(toolbarRule).toContain("var(--app-success)");
   });
 });

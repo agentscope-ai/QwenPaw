@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..utils.io_utils import run_sync_io
 from .model_wrapper import TokenRecordingModelWrapper
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,8 @@ async def snapshot_context_usage_for_state(
         if max_input_length <= 0:
             agent_config = load_agent_config(agent_id)
             max_input_length = int(
-                get_model_max_input_length(agent_config) or 0,
+                (await run_sync_io(get_model_max_input_length, agent_config))
+                or 0,
             )
         if max_input_length <= 0:
             return None

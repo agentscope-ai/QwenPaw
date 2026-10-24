@@ -4,11 +4,17 @@ import i18n from "@/i18n";
 export const CREATOR_API_BASE = "/api/qwenpaw-creator";
 
 type HostWindow = Window & {
-  QwenPaw?: { host?: { getApiToken?: () => string } };
+  QwenPaw?: {
+    host?: {
+      getApiToken?: () => string;
+      usesBrowserSession?: (appId: string) => boolean;
+    };
+  };
 };
 
 export class CreatorHttpError extends Error {
   readonly status: number;
+  readonly userMessage: string;
   readonly code: string;
   readonly retryable: boolean;
   readonly details: Record<string, unknown>;
@@ -22,6 +28,7 @@ export class CreatorHttpError extends Error {
       error.errorId ? `${message} （错误编号：${error.errorId}）` : message,
     );
     this.name = "CreatorHttpError";
+    this.userMessage = message;
     this.status = status;
     this.code = error.code || `HTTP_${status}`;
     this.retryable = error.retryable ?? false;
@@ -44,6 +51,8 @@ export function creatorApiUrl(path: string): string {
  */
 export function creatorAuthenticatedUrl(path: string): string {
   const url = creatorApiUrl(path);
+  const host = (window.parent as HostWindow).QwenPaw?.host;
+  if (host?.usesBrowserSession?.("qwenpaw-creator")) return url;
   const token = hostToken();
   if (!token) return url;
   const separator = url.includes("?") ? "&" : "?";

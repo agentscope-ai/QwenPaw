@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
+import logging
 from typing import Any, Callable
 
 import httpx
@@ -30,12 +32,15 @@ from qwenpaw.drivers.handlers.mcp_streamable_http import (
     _PROTOCOL_VERSION_META_KEY,
     _JsonRpcError,
     _LegacyProtocolError,
+    _OAuthRequiredError,
     _build_mcp_param_headers,
     _collect_tool_header_bindings,
     _is_https_upgrade,
     _normalize_call_tool_result,
+    _oauth_required_message,
     _same_origin,
     _supported_versions_from_payload,
+    _unwrap_jsonrpc_result,
 )
 
 
@@ -95,6 +100,48 @@ def _sse(*events: Any, status: int = 200) -> httpx.Response:
         status,
         content="".join(parts).encode(),
         headers={"content-type": "text/event-stream"},
+    )
+
+
+_GATEWAY_401_BODY = json.dumps(
+    {
+        "error": {
+            "code": 401,
+            "message": "MCP Failure",
+            "data": json.dumps(
+                {
+                    "error": {
+                        "code": -32601,
+                        "message": "Method not found",
+                        "data": "Method server/discover not found",
+                    },
+                },
+            ),
+        },
+    },
+)
+
+_GATEWAY_401_CHALLENGE = (
+    'Bearer resource_metadata="https://gw.test/.well-known/'
+    'oauth-protected-resource", error="invalid_token", '
+    'error_description="Access token is missing or invalid"'
+)
+
+
+def _gateway_401(_rid: Any) -> httpx.Response:
+    """A gateway that wraps "unknown method" in an OAuth-style 401.
+
+    Mirrors the pkulaw shape: no ``jsonrpc`` envelope, no ``id``, and the
+    real ``-32601`` double-encoded inside ``data`` as a string. Fallback
+    must not depend on parsing any of it.
+    """
+    return httpx.Response(
+        401,
+        text=_GATEWAY_401_BODY,
+        headers={
+            "content-type": "application/json",
+            "WWW-Authenticate": _GATEWAY_401_CHALLENGE,
+        },
     )
 
 
@@ -239,9 +286,19 @@ def test_normalize_call_tool_result_snake_case_aliases():
         lambda r: httpx.Response(400, text=""),
         lambda r: httpx.Response(404, text=""),
         lambda r: httpx.Response(405, text=""),
+        lambda r: httpx.Response(422, text=""),
+        # DBX-style: 422 with a plain-text "expect initialize" body.
+        lambda r: httpx.Response(
+            422,
+            text="Unexpected message, expect initialize request",
+        ),
         lambda r: _ok(r, {"supportedVersions": ["2025-11-25"]}),
         lambda r: _err(r, -32601, "Method not found: server/discover"),
         lambda r: _err(r, -32022, "bad", {"supported": ["2025-11-25"]}),
+        # A 401 on the discover probe is not proof credentials are missing;
+        # the legacy handshake arbitrates.
+        lambda r: httpx.Response(401, text="u"),
+        _gateway_401,
     ],
 )
 async def test_auto_falls_back_once(monkeypatch, make):
@@ -267,11 +324,106 @@ async def test_auto_falls_back_once(monkeypatch, make):
     assert c._impl is None
 
 
+def test_unwrap_gzip_headers_on_decoded_4xx_body():
+    """Rebuilding a 4xx response must not re-decompress already-decoded bytes.
+
+    ``_rpc`` copies original ``Content-Encoding`` after ``aread()`` has
+    already gunzipped the body. Reconstructing ``httpx.Response`` with
+    those headers used to raise ``DecodingError`` and abort legacy fallback.
+    """
+    body = (
+        b"Bad Request: Unsupported protocol version "
+        b"(supported versions: 2025-11-25,2025-06-18,2025-03-26,2024-11-05)\n"
+    )
+    with pytest.raises(httpx.HTTPStatusError) as caught:
+        _unwrap_jsonrpc_result(
+            method="server/discover",
+            status=400,
+            data=None,
+            request=httpx.Request("POST", "http://mcp.test/mcp"),
+            request_id=1,
+            content=body,
+            headers={
+                "content-type": "text/plain; charset=utf-8",
+                "content-encoding": "gzip",
+                "content-length": str(len(body)),
+            },
+        )
+    assert caught.value.response.status_code == 400
+    assert caught.value.response.content == body
+
+
+async def test_auto_falls_back_on_gzip_plain_400(monkeypatch):
+    """Gzip-compressed HTTP 400 on discover is legacy evidence, not a crash."""
+    connected: list[str] = []
+    _fake_stateful(monkeypatch, connected)
+    compressed = gzip.compress(
+        b"Bad Request: Unsupported protocol version "
+        b"(supported versions: 2025-11-25)\n",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            400,
+            content=compressed,
+            headers={
+                "content-type": "text/plain; charset=utf-8",
+                "content-encoding": "gzip",
+            },
+        )
+
+    c = _cli(HttpAutoClient, "dagu", handler)
+    await c.connect()
+    try:
+        assert c.is_connected
+        assert c.is_stateful
+        assert connected == ["dagu"]
+    finally:
+        await c.close()
+
+
+async def test_auto_falls_back_on_plain_422(monkeypatch):
+    """DBX-style HTTP 422 with a plain-text body is legacy evidence.
+
+    The peer mandates ``initialize`` as the first message and answers the
+    unknown ``server/discover`` probe with 422 and a non-JSON-RPC body, so
+    the AutoClient must fall back to the legacy handshake instead of failing
+    the Driver build.
+    """
+    connected: list[str] = []
+    _fake_stateful(monkeypatch, connected)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            422,
+            text="Unexpected message, expect initialize request",
+            headers={"content-type": "text/plain; charset=utf-8"},
+        )
+
+    c = _cli(HttpAutoClient, "dbx", handler)
+    await c.connect()
+    try:
+        assert c.is_connected
+        assert c.is_stateful
+        assert connected == ["dbx"]
+    finally:
+        await c.close()
+
+
 @pytest.mark.parametrize(
     ("make", "exc_type", "match"),
     [
-        (lambda r: httpx.Response(401, text="u"), RuntimeError, "OAuth"),
         (_transport_error(httpx.ReadTimeout), httpx.ReadTimeout, None),
+        # Only 401 joins 400/404/405/422 as fallback evidence; other 4xx
+        # (e.g. 403) stay hard failures so a real authorization problem is
+        # not masked.
+        (
+            lambda r: httpx.Response(403, text="forbidden"),
+            httpx.HTTPStatusError,
+            None,
+        ),
         (
             lambda r: _err(r, -32020, "header mismatch", status=400),
             RuntimeError,
@@ -310,6 +462,88 @@ async def test_auto_does_not_fallback(monkeypatch, make, exc_type, match):
         await c.connect()
     assert not connected
     assert c._impl is None
+
+
+async def test_auto_still_reports_oauth_when_legacy_also_denies(monkeypatch):
+    """Fallback must not swallow a genuine OAuth requirement."""
+
+    class Fake(HttpStatefulClient):
+        async def connect(self, timeout=30.0):
+            del timeout
+            raise RuntimeError(
+                "MCP client 'auto' requires OAuth authorization "
+                "(HTTP 401). Please authorize via the UI before connecting.",
+            )
+
+        async def close(self, ignore_errors=True):
+            del ignore_errors
+
+    monkeypatch.setattr(mod, "HttpStatefulClient", Fake)
+    c = _cli(HttpAutoClient, "auto", lambda r: _gateway_401(_rid(r)))
+    with pytest.raises(RuntimeError, match="OAuth"):
+        await c.connect()
+    assert c._impl is None
+    assert not c.is_connected
+
+
+async def test_auto_logs_modern_reason_when_legacy_fails(monkeypatch, caplog):
+    """The 401 verdict stays reachable when the legacy attempt fails too."""
+
+    class Fake(HttpStatefulClient):
+        async def connect(self, timeout=30.0):
+            del timeout
+            raise RuntimeError("legacy boom")
+
+        async def close(self, ignore_errors=True):
+            del ignore_errors
+
+    monkeypatch.setattr(mod, "HttpStatefulClient", Fake)
+    c = _cli(HttpAutoClient, "auto", lambda r: _gateway_401(_rid(r)))
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(RuntimeError, match="legacy boom"):
+            await c.connect()
+    assert "HTTP 401" in caplog.text
+
+
+async def test_stateless_401_after_connect_stays_oauth_error():
+    """Only the discover probe is reclassified; tools/list is not."""
+
+    def handler(req):
+        body = json.loads(req.content)
+        if body["method"] == "server/discover":
+            return _disc(body["id"])
+        return _gateway_401(body["id"])
+
+    c = _cli(HttpStatelessClient, "sl", handler)
+    await c.connect()
+    try:
+        with pytest.raises(_OAuthRequiredError, match="OAuth"):
+            await c.list_tools()
+    finally:
+        await c.close()
+
+
+def test_oauth_message_keeps_peer_diagnostics():
+    msg = _oauth_required_message(
+        name="pkulaw",
+        method="server/discover",
+        body=_GATEWAY_401_BODY.encode(),
+        www_authenticate=_GATEWAY_401_CHALLENGE,
+    )
+    assert "-32601" in msg
+    assert "invalid_token" in msg
+    assert "legacy server" in msg
+
+
+def test_oauth_message_notes_missing_challenge():
+    msg = _oauth_required_message(
+        name="x",
+        method="tools/list",
+        body=b"",
+        www_authenticate=None,
+    )
+    assert "no www-authenticate header" in msg
+    assert "Peer body" not in msg
 
 
 async def test_auto_timeout_skips_legacy_fallback(monkeypatch):
@@ -687,6 +921,46 @@ async def test_driver_routes_streamable_http_to_auto_and_sse_to_stateful(
         await handler._setup()
         await handler._teardown()
     assert built == ["auto", "stateful"]
+
+
+async def test_stdio_driver_injects_managed_environment(monkeypatch) -> None:
+    """Managed values bypass the MCP SDK inherited-env allowlist."""
+    from qwenpaw.drivers.contracts import DriverCard
+    from qwenpaw.drivers.credentials.providers import NoneProvider
+    from qwenpaw.drivers.handlers import mcp as mcp_mod
+
+    captured: dict[str, str] = {}
+
+    class Track:
+        def __init__(self, **kwargs):
+            captured.update(kwargs["env"])
+
+        async def connect(self):
+            return None
+
+        async def close(self, ignore_errors=True):
+            del ignore_errors
+
+    monkeypatch.setattr(mcp_mod, "StdIOStatefulClient", Track)
+    monkeypatch.setattr(
+        mcp_mod,
+        "load_envs",
+        lambda: {"MANAGED_TOKEN": "managed", "LOCAL": "global"},
+    )
+    card = DriverCard(
+        name="mcp-stdio-env",
+        protocol="mcp",
+        endpoint={
+            "transport": "stdio",
+            "command": "example",
+            "env": {"LOCAL": "card"},
+        },
+    )
+
+    handler = mcp_mod.MCPDriverHandler(card, NoneProvider())
+    await handler._setup()
+
+    assert captured == {"MANAGED_TOKEN": "managed", "LOCAL": "card"}
 
 
 def _modern_rpc(call_result: Any):

@@ -23,7 +23,6 @@ from services.project_files.models import (
 )
 from services.project_files.store import ProjectSnapshot
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -115,6 +114,34 @@ def test_complete_contract_passes_and_binding_is_required() -> None:
     unbound = _project_with_visual(_hero(variants))
     issues = visual_design_readiness_issues(unbound)
     assert [issue.code for issue in issues] == ["MISSING_VARIANT_BINDING"]
+
+    # A later state can remain planned or unselected while this shot uses
+    # the ready primary image. Changing this shot's binding must close it.
+    ready.visual.entities.items["char:hero"].variants.items.pop(
+        "variant:fallen",
+    )
+    ready.visual.entities.items["char:hero"].variants.order.remove(
+        "variant:fallen",
+    )
+    assert_visual_design_ready_for_storyboards(ready, element_id="element:01")
+    assert visual_design_readiness_issues(ready)
+    creation = (
+        ready.timelines.items["timeline:main"]
+        .elements_by_id["element:01"]
+        .creation
+    )
+    creation.visual_variant_refs["char:hero"] = "variant:fallen"
+    with pytest.raises(ValidationError, match="缺少必需 Variant"):
+        assert_visual_design_ready_for_storyboards(
+            ready,
+            element_id="element:01",
+        )
+    creation.visual_variant_refs.clear()
+    with pytest.raises(ValidationError, match="未绑定"):
+        assert_visual_design_ready_for_storyboards(
+            ready,
+            element_id="element:01",
+        )
 
 
 def test_storyboard_request_enforces_visual_design_gate(tmp_path) -> None:

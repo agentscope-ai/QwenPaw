@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildEligibleProviders, modelKey } from "./modelSelectorModels";
+import {
+  buildEligibleProviders,
+  modelKey,
+  splitProvidersByTier,
+} from "./modelSelectorModels";
 import type { ProviderInfo } from "../../../api/types";
 
 function makeModel(
@@ -169,6 +173,31 @@ describe("modelSelectorModels (#5784 压缩阈值跨 provider 校验)", () => {
       const eligible = buildEligibleProviders(providers);
       expect(eligible).toHaveLength(1);
       expect(eligible[0].id).toBe("free");
+    });
+  });
+
+  describe("splitProvidersByTier", () => {
+    it("keeps free models out of the PRO group", () => {
+      const provider = makeProvider({
+        id: "free-tier",
+        name: "Free Tier Provider",
+        is_free_tier: true,
+        models: [
+          { ...makeModel("free-model", 32768), is_free: true },
+          { ...makeModel("paid-model", 65536), is_free: false },
+        ],
+      });
+
+      const { freeProviders, proProviders } = splitProvidersByTier(
+        buildEligibleProviders([provider]),
+      );
+
+      expect(freeProviders[0].models.map((model) => model.id)).toEqual([
+        "free-model",
+      ]);
+      expect(proProviders[0].models.map((model) => model.id)).toEqual([
+        "paid-model",
+      ]);
     });
   });
 });

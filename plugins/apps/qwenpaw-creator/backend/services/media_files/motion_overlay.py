@@ -452,7 +452,9 @@ def serve():
         BROWSER = playwright.chromium.launch(
             headless=True,
             executable_path=(
-                os.environ.get("QWENPAW_CREATOR_MOTION_BROWSER") or None
+                os.environ.get("QWENPAW_CREATOR_MOTION_BROWSER")
+                or os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+                or None
             ),
         )
         for line in sys.stdin:

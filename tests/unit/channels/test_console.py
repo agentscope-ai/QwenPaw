@@ -12,6 +12,7 @@ Key patterns demonstrated:
 3. Lifecycle testing (start/stop)
 4. Simple mocking (no external dependencies)
 """
+
 # pylint: disable=redefined-outer-name,reimported,protected-access
 # pylint: disable=unused-argument
 from __future__ import annotations
@@ -24,6 +25,7 @@ import pytest
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from qwenpaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
 
 class _FakeDumpEvent:
@@ -456,6 +458,67 @@ class TestConsolePrinting:
         captured = capsys.readouterr()
         assert "Hello World" in captured.out
 
+    def test_safe_print_suppresses_eio_after_one_warning(
+        self,
+        channel_for_print,
+        monkeypatch,
+        caplog,
+    ):
+        """Broken TTY (EIO) should warn once, then suppress prints."""
+        import errno
+        import logging
+
+        def _raise_eio(_text):
+            raise OSError(errno.EIO, "Input/output error")
+
+        monkeypatch.setattr(
+            "builtins.print",
+            _raise_eio,
+        )
+        with caplog.at_level(logging.WARNING):
+            channel_for_print._safe_print("first")
+            channel_for_print._safe_print("second")
+            channel_for_print._safe_print("third")
+
+        assert channel_for_print._stdout_broken is True
+        warnings = [
+            r
+            for r in caplog.records
+            if "Console stdout is unavailable" in r.getMessage()
+        ]
+        errors = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.ERROR and "Print failed" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert errors == []
+
+    def test_safe_print_suppresses_broken_pipe(
+        self,
+        channel_for_print,
+        monkeypatch,
+        caplog,
+    ):
+        """BrokenPipeError should also disable further console prints."""
+        import logging
+
+        def _raise_broken_pipe(_text):
+            raise BrokenPipeError()
+
+        monkeypatch.setattr("builtins.print", _raise_broken_pipe)
+        with caplog.at_level(logging.WARNING):
+            channel_for_print._safe_print("first")
+            channel_for_print._safe_print("second")
+
+        assert channel_for_print._stdout_broken is True
+        warnings = [
+            r
+            for r in caplog.records
+            if "Console stdout is unavailable" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+
     def test_print_parts_formats_text_content(
         self,
         channel_for_print,
@@ -599,6 +662,53 @@ class TestConsoleStreaming:
             enabled=True,
             bot_prefix=">> ",
         )
+
+    async def test_stream_emits_usage_between_calls(self, stream_channel):
+        """Publish each call without consuming the final usage snapshot."""
+
+        async def process(request):
+            for count in (1, 2):
+                TokenRecordingModelWrapper._usage_by_session[
+                    request.session_id
+                ] = {
+                    f"total_tokens": count * 100,
+                    f"last_prompt_tokens": count * 40,
+                    f"context_size": 1000,
+                }
+                yield _FakeDumpEvent(
+                    {
+                        f"object": f"message",
+                        f"status": f"in_progress",
+                        f"type": f"message.delta",
+                    },
+                )
+
+        stream_channel._process = process
+        stream = stream_channel.stream_one(
+            {
+                f"sender_id": f"usage-user",
+                f"content_parts": [],
+                f"meta": {},
+            },
+        )
+        try:
+            for count in (1, 2):
+                event = json.loads((await anext(stream))[6:])
+                assert event[f"type"] == f"turn_usage"
+                assert event[f"usage"][f"total_tokens"] == count * 100
+                assert event[f"context_usage"][f"estimated_tokens"] == (
+                    count * 40
+                )
+                assert (
+                    TokenRecordingModelWrapper.peek_usage_for_session(
+                        event[f"session_id"],
+                    )
+                    is not None
+                )
+                await anext(stream)
+        finally:
+            await stream.aclose()
+            TokenRecordingModelWrapper._usage_by_session.clear()
 
     async def test_stream_one_yields_events(self, stream_channel):
         """stream_one should yield SSE-formatted events."""

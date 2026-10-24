@@ -1,12 +1,7 @@
 import { Progress } from "antd";
-import { type CSSProperties } from "react";
-import { useTheme } from "../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
 import styles from "./BackendLoadingPage.module.less";
 import { type BackendReadyStatus } from "./useBackendReadyPolling";
-
-const BRAND_COLOR = "#ff7f16";
-const ERROR_COLOR = "#ff4d4f";
 
 interface BackendLoadingPageProps {
   status: BackendReadyStatus;
@@ -33,7 +28,6 @@ export default function BackendLoadingPage({
   showRetry = true,
   retryDisabled = false,
 }: BackendLoadingPageProps) {
-  const { isDark } = useTheme();
   const { t } = useTranslation();
   const hasFailed = status === "timeout" || status === "error";
   const statusText =
@@ -50,27 +44,22 @@ export default function BackendLoadingPage({
         }));
 
   const percent = Math.min(Math.round((elapsed / totalSec) * 100), 100);
-  const style = {
-    "--qwenpaw-brand-color": BRAND_COLOR,
-    "--qwenpaw-error-color": ERROR_COLOR,
-  } as CSSProperties;
 
   return (
-    <div
-      className={`${styles.page} ${
-        isDark ? styles.pageDark : styles.pageLight
-      }`}
-      style={style}
-    >
+    <div className={styles.page}>
       <div className={styles.card}>
-        <img src="/qwenpaw.png" alt="QwenPaw" className={styles.logo} />
+        <img
+          src={`${import.meta.env.BASE_URL}qwenpaw.png`}
+          alt="QwenPaw"
+          className={styles.logo}
+        />
 
         <Progress
           type="dashboard"
           percent={percent}
           status={hasFailed ? "exception" : "active"}
-          strokeColor={BRAND_COLOR}
-          trailColor={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}
+          strokeColor="var(--app-accent)"
+          trailColor="var(--app-fill-subtle)"
           gapPosition="bottom"
           format={() => (
             <div className={styles.progressLabel}>{`${elapsed}s`}</div>

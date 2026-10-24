@@ -7,8 +7,9 @@ difference between adjacent frames forms a change curve; a cut needs a
 peak that is both 1.8x its 8-frame local mean (relative criterion, keeps
 high-motion footage from false-firing) and at least 4.0 absolute (keeps
 static footage noise out); peaks within 3 frames merge into one
-transition. Freeze segments are the inverse read: diff < 2.0 sustained
-for >= 5 frames.
+transition. Diff < 2.0 sustained for >= 5 gaps locates low-motion spans,
+not freezes: a speaking mouth can move while most of the frame stays still.
+Only repeated, identical sampled frames are reported as freeze candidates.
 
 Everything here locates and measures — it never judges. A cut count that
 disagrees with the plan or a freeze segment near the tail may be entirely
@@ -29,8 +30,8 @@ _LOCAL_WINDOW = 8
 _REL_PEAK_FACTOR = 1.8
 _ABS_MIN_PEAK = 4.0
 _TRANSITION_MERGE = 3
-# APE build_video_index freeze constants.
-_FREEZE_DIFF_THRESHOLD = 2.0
+# APE build_video_index low-motion candidate constants.
+_LOW_MOTION_DIFF_THRESHOLD = 2.0
 _FREEZE_MIN_FRAMES = 5
 # Dynamic-richness read used by the camera-motion facts.
 _STILL_DIFF_THRESHOLD = 0.8
@@ -66,11 +67,13 @@ def _detect_cut_indexes(diffs: np.ndarray) -> list[int]:
 def _freeze_segments(
     diffs: np.ndarray,
     timestamps_ms: tuple[int, ...],
+    *,
+    threshold: float,
 ) -> list[dict[str, int]]:
     segments: list[dict[str, int]] = []
     run_start: int | None = None
     for index, value in enumerate(diffs):
-        if float(value) < _FREEZE_DIFF_THRESHOLD:
+        if float(value) < threshold:
             if run_start is None:
                 run_start = index
             continue
@@ -125,7 +128,18 @@ def build_video_index(
         "cut_points_ms": cut_points_ms,
         "cut_count": len(cut_points_ms),
         "scenes": scenes,
-        "freeze_segments": _freeze_segments(diffs, timestamps),
+        "freeze_segments": _freeze_segments(
+            diffs,
+            timestamps,
+            threshold=1e-6,
+        ),
+        "freeze_detection": "identical_sampled_frames",
+        "low_motion_segments": _freeze_segments(
+            diffs,
+            timestamps,
+            threshold=_LOW_MOTION_DIFF_THRESHOLD,
+        ),
+        "low_motion_note": "全帧平均变化小，不代表局部静止；不能据此判断嘴型停滞或视频冻结。",
         "diff_mean": round(float(diffs.mean()), 3),
         "diff_max": round(float(diffs.max()), 3),
         "dynamic_frame_ratio": round(dynamic_ratio, 3),

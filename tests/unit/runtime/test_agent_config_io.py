@@ -102,7 +102,7 @@ async def test_build_constructs_model_in_worker_thread(monkeypatch):
     )
     monkeypatch.setattr(
         builder,
-        "_collect_visual_compression_tools",
+        "_collect_context_recall_tools",
         lambda *_args: [],
     )
 
@@ -183,7 +183,7 @@ async def test_build_constructs_prompt_in_worker_thread(monkeypatch):
     )
     monkeypatch.setattr(
         builder,
-        "_collect_visual_compression_tools",
+        "_collect_context_recall_tools",
         lambda *_args: [],
     )
 

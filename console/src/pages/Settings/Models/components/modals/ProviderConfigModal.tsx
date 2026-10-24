@@ -1,29 +1,34 @@
+import { SharedModal } from "@/components/interaction/SharedModal";
+import { Switch } from "antd";
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { KeyboardEvent, ReactNode, UIEvent } from "react";
 import {
+  Modal,
   Form,
   Input,
-  Modal,
   Button,
   Select,
   Radio,
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import {
-  ApiOutlined,
-  CloseOutlined,
-  DownOutlined,
-  RightOutlined,
-} from "@ant-design/icons";
+  Plug as ApiOutlined,
+  X as CloseOutlined,
+  ChevronDown as DownOutlined,
+  ChevronRight as RightOutlined,
+} from "lucide-react";
 import type {
+  ActiveModelsInfo,
   BaseUrlOption,
   ProviderConfigRequest,
 } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
-import { getValidApiKeyPrefixes, validateApiKey } from "../../apiKeyValidation";
+import { getValidApiKeyPrefixes } from "../../apiKeyValidation";
 import styles from "../../index.module.less";
+import { ProviderConnectionFields } from "./ProviderConnectionFields";
+import { ProviderApiKeyLink } from "../ProviderApiKeyLink";
 
 interface ProviderConfigFormValues
   extends Omit<
@@ -48,7 +53,7 @@ interface JsonCodeEditorProps {
 function highlightJson(text: string): ReactNode[] {
   const tokens: ReactNode[] = [];
   const pattern =
-    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -262,10 +267,12 @@ function JsonCodeEditor({
 
 interface ProviderConfigModalProps {
   provider: {
+    enabled?: boolean;
     id: string;
     name: string;
     api_key?: string;
     api_key_prefix?: string;
+    require_api_key?: boolean;
     api_key_prefixes?: string[];
     base_url?: string;
     is_custom: boolean;
@@ -277,7 +284,7 @@ interface ProviderConfigModalProps {
     auth_mode?: "api_key" | "auth_token";
     meta?: Record<string, unknown>;
   };
-  activeModels: any;
+  activeModels: ActiveModelsInfo | null;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -308,6 +315,8 @@ export function ProviderConfigModal({
   );
   const selectedChatModel = Form.useWatch("chat_model", form);
   const canEditBaseUrl = !provider.freeze_url;
+  const defaultChatModel =
+    provider.chat_model || (provider.is_custom ? "OpenAIChatModel" : undefined);
 
   const baseUrlOptions = useMemo<BaseUrlOption[]>(() => {
     const raw = provider.meta?.base_url_options;
@@ -364,7 +373,7 @@ export function ProviderConfigModal({
 
   const validApiKeyPrefixes = useMemo(
     () => getValidApiKeyPrefixes(provider),
-    [provider.api_key_prefix, provider.api_key_prefixes],
+    [provider],
   );
 
   const apiKeyPlaceholder = useMemo(() => {
@@ -376,8 +385,12 @@ export function ProviderConfigModal({
         prefix: validApiKeyPrefixes.join(", "),
       });
     }
-    return t("models.enterApiKeyOptional");
-  }, [provider.api_key, validApiKeyPrefixes, t]);
+    return t(
+      provider.require_api_key
+        ? "models.enterApiKeyRequired"
+        : "models.enterApiKeyOptional",
+    );
+  }, [provider.api_key, provider.require_api_key, validApiKeyPrefixes, t]);
 
   const apiKeyLabel =
     isAnthropicProvider && authMode === "auth_token"
@@ -456,10 +469,11 @@ export function ProviderConfigModal({
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
+        enabled: provider.enabled !== false,
         api_key: undefined,
         name: provider.name,
         base_url: provider.base_url || undefined,
-        chat_model: provider.chat_model || "OpenAIChatModel",
+        chat_model: defaultChatModel,
         generate_kwargs_text:
           provider.generate_kwargs &&
           Object.keys(provider.generate_kwargs).length > 0
@@ -483,13 +497,10 @@ export function ProviderConfigModal({
       const values = await form.validateFields();
       setSaving(true);
       const generateConfig = parseGenerateConfig(values.generate_kwargs_text);
-      const hasGenerateConfigInput = Boolean(
-        values.generate_kwargs_text?.trim(),
-      );
 
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
-      if (provider.support_connection_check) {
+      if (values.enabled !== false && provider.support_connection_check) {
         const testHeaders = customHeaders
           .filter((h) => h.key.trim())
           .reduce<Record<string, string>>((acc, h) => {
@@ -519,11 +530,12 @@ export function ProviderConfigModal({
         }, {});
 
       await api.configureProvider(provider.id, {
+        enabled: values.enabled,
         api_key: values.api_key,
         name: provider.is_custom ? values.name?.trim() : undefined,
         base_url: values.base_url,
         chat_model: values.chat_model,
-        generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
+        generate_kwargs: provider.chat_model ? generateConfig ?? {} : undefined,
         custom_headers: headersObj,
         auth_mode: isAnthropicProvider ? authMode : undefined,
       });
@@ -593,6 +605,7 @@ export function ProviderConfigModal({
       : t("models.revokeConfirmSimple", { name: provider.name });
 
     Modal.confirm({
+      className: styles.modelConfirmModal,
       title: t("models.revokeAuthorization"),
       content: confirmContent,
       okText: t("models.revokeAuthorization"),
@@ -622,7 +635,8 @@ export function ProviderConfigModal({
   };
 
   return (
-    <Modal
+    <SharedModal
+      surfaceId={`provider:${provider.id}`}
       width={800}
       className={styles.modelManageModal}
       title={t("models.configureProvider", { name: provider.name })}
@@ -639,7 +653,7 @@ export function ProviderConfigModal({
             {provider.support_connection_check && (
               <Button
                 size="small"
-                icon={<ApiOutlined />}
+                icon={<ApiOutlined size="1em" />}
                 onClick={handleTest}
                 loading={testing}
               >
@@ -666,9 +680,10 @@ export function ProviderConfigModal({
         form={form}
         layout="vertical"
         initialValues={{
+          enabled: provider.enabled !== false,
           name: provider.name,
           base_url: provider.base_url || undefined,
-          chat_model: provider.chat_model || "OpenAIChatModel",
+          chat_model: defaultChatModel,
           generate_kwargs_text:
             provider.generate_kwargs &&
             Object.keys(provider.generate_kwargs).length > 0
@@ -677,6 +692,13 @@ export function ProviderConfigModal({
         }}
         onValuesChange={() => setFormDirty(true)}
       >
+        <Form.Item
+          name="enabled"
+          label={t("models.providerEnabled")}
+          valuePropName="checked"
+        >
+          <Switch />
+        </Form.Item>
         {provider.is_custom && (
           <Form.Item
             name="name"
@@ -725,88 +747,21 @@ export function ProviderConfigModal({
           </Form.Item>
         )}
 
-        {/* Base URL */}
-        <Form.Item
-          name="base_url"
-          label={t("models.baseURL")}
-          rules={
-            canEditBaseUrl
-              ? [
-                  ...(!provider.freeze_url
-                    ? [
-                        {
-                          required: true,
-                          message: t("models.pleaseEnterBaseURL"),
-                        },
-                      ]
-                    : []),
-                  {
-                    validator: (_: unknown, value: string) => {
-                      if (!value || !value.trim()) return Promise.resolve();
-                      try {
-                        const url = new URL(value.trim());
-                        if (!["http:", "https:"].includes(url.protocol)) {
-                          return Promise.reject(
-                            new Error(t("models.pleaseEnterValidURL")),
-                          );
-                        }
-                        return Promise.resolve();
-                      } catch {
-                        return Promise.reject(
-                          new Error(t("models.pleaseEnterValidURL")),
-                        );
-                      }
-                    },
-                  },
-                ]
-              : []
+        <ProviderConnectionFields
+          canEditBaseUrl={canEditBaseUrl}
+          baseUrlOptions={baseUrlOptions}
+          baseUrlExtra={baseUrlExtra}
+          baseUrlPlaceholder={baseUrlPlaceholder}
+          apiKeyLabel={
+            <span>
+              {apiKeyLabel}
+              <ProviderApiKeyLink url={provider.meta?.api_key_url} />
+            </span>
           }
-          extra={baseUrlExtra}
-        >
-          {useBaseUrlSelect ? (
-            <Select
-              options={baseUrlOptions.map((option) => ({
-                label: `${option.label} — ${option.value}`,
-                value: option.value,
-              }))}
-              placeholder={t("models.selectBaseURL")}
-            />
-          ) : (
-            <Input
-              placeholder={baseUrlPlaceholder}
-              disabled={!canEditBaseUrl}
-            />
-          )}
-        </Form.Item>
-
-        {/* API Key */}
-        <Form.Item
-          name="api_key"
-          label={apiKeyLabel}
-          rules={[
-            {
-              validator: (_, value) => {
-                const result = validateApiKey(
-                  value,
-                  validApiKeyPrefixes,
-                  authMode,
-                );
-                if (!result.valid) {
-                  return Promise.reject(
-                    new Error(
-                      t("models.apiKeyShouldStart", {
-                        prefix: result.prefix,
-                      }),
-                    ),
-                  );
-                }
-                return Promise.resolve();
-              },
-            },
-          ]}
-        >
-          <Input.Password placeholder={apiKeyPlaceholder} />
-        </Form.Item>
+          apiKeyPlaceholder={apiKeyPlaceholder}
+          validApiKeyPrefixes={validApiKeyPrefixes}
+          authMode={authMode}
+        />
 
         <div className={styles.advancedConfigSection}>
           <button
@@ -815,7 +770,11 @@ export function ProviderConfigModal({
             onClick={() => setAdvancedOpen((prev) => !prev)}
           >
             <span className={styles.advancedConfigToggleLabel}>
-              {advancedOpen ? <DownOutlined /> : <RightOutlined />}
+              {advancedOpen ? (
+                <DownOutlined size="1em" />
+              ) : (
+                <RightOutlined size="1em" />
+              )}
               {t("models.advancedConfig")}
             </span>
           </button>
@@ -873,6 +832,7 @@ export function ProviderConfigModal({
                       }}
                     />
                     <CloseOutlined
+                      size="1em"
                       className={styles.customHeaderDelete}
                       onClick={() => {
                         setCustomHeaders(
@@ -901,7 +861,7 @@ export function ProviderConfigModal({
           )}
 
           <Form.Item
-            hidden={!advancedOpen}
+            hidden={!advancedOpen || !provider.chat_model}
             name="generate_kwargs_text"
             label={t("models.generateConfig")}
             extra={t("models.generateConfigHint")}
@@ -929,6 +889,6 @@ export function ProviderConfigModal({
           </Form.Item>
         </div>
       </Form>
-    </Modal>
+    </SharedModal>
   );
 }

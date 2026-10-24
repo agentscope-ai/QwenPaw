@@ -1,14 +1,19 @@
 import {
+  AgentScopeRuntimeContentType,
   AgentScopeRuntimeMessageType,
   AgentScopeRuntimeRunStatus,
   type IAgentScopeRuntimeMessage,
 } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+import type { AssistantMessageDisplayPreference } from "../../utils/chatDisplayPreference";
 
-export type ResponseMessageDisplayMode = "text-only" | "result-only";
+export type ResponseMessageDisplayMode = "all" | "text-only" | "result-only";
 
 export function getResponseMessageDisplayMode(
   responseStatus: AgentScopeRuntimeRunStatus,
+  preference: AssistantMessageDisplayPreference = "result-collapsed",
 ): ResponseMessageDisplayMode {
+  if (preference === "expanded") return "all";
+  if (preference === "process-collapsed") return "text-only";
   if (
     responseStatus === AgentScopeRuntimeRunStatus.Created ||
     responseStatus === AgentScopeRuntimeRunStatus.InProgress
@@ -25,6 +30,17 @@ function isAlwaysVisible(message: IAgentScopeRuntimeMessage): boolean {
   );
 }
 
+function isEmptyTextMessage(message: IAgentScopeRuntimeMessage): boolean {
+  return (
+    message.type === AgentScopeRuntimeMessageType.MESSAGE &&
+    message.content.every(
+      (content) =>
+        content.type === AgentScopeRuntimeContentType.TEXT &&
+        !content.text.trim(),
+    )
+  );
+}
+
 export type ResponseMessageBlock =
   | { kind: "message"; message: IAgentScopeRuntimeMessage }
   | { kind: "steps"; messages: IAgentScopeRuntimeMessage[] };
@@ -33,6 +49,16 @@ export interface CollapsedStepPresentation {
   status: "finished" | "interrupted" | "generating" | "error";
   titleKey: string;
   defaultOpen: boolean;
+}
+
+export function filterThinkingMessages(
+  messages: IAgentScopeRuntimeMessage[],
+  showThinking: boolean,
+): IAgentScopeRuntimeMessage[] {
+  if (showThinking) return messages;
+  return messages.filter(
+    (message) => message.type !== AgentScopeRuntimeMessageType.REASONING,
+  );
 }
 
 export function getCollapsedStepRenderKey(
@@ -123,10 +149,24 @@ export function groupResponseMessages(
   messages: IAgentScopeRuntimeMessage[],
   mode: ResponseMessageDisplayMode,
 ): ResponseMessageBlock[] {
+  const displayMessages = messages.filter(
+    (message) => !isEmptyTextMessage(message),
+  );
+
+  if (mode === "all") {
+    return displayMessages
+      .filter(
+        (message) => message.type !== AgentScopeRuntimeMessageType.HEARTBEAT,
+      )
+      .map((message) => ({ kind: "message", message }));
+  }
+
   let lastMessageIndex = -1;
   if (mode === "result-only") {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index].type === AgentScopeRuntimeMessageType.MESSAGE) {
+    for (let index = displayMessages.length - 1; index >= 0; index -= 1) {
+      if (
+        displayMessages[index].type === AgentScopeRuntimeMessageType.MESSAGE
+      ) {
         lastMessageIndex = index;
         break;
       }
@@ -141,7 +181,7 @@ export function groupResponseMessages(
     collapsedRun = [];
   };
 
-  messages.forEach((message, index) => {
+  displayMessages.forEach((message, index) => {
     if (message.type === AgentScopeRuntimeMessageType.HEARTBEAT) return;
     const visible =
       isAlwaysVisible(message) ||

@@ -18,11 +18,9 @@ from services.project_files.commit import (
 from services.project_files.models import (
     EditCreation,
     ElementLocation,
-    EntityCollection,
     IndexedFile,
     Project,
     R2VCreation,
-    Shot,
     SourceVersionRenderSource,
     TimelineElement,
     TimelineSpan,
@@ -229,13 +227,6 @@ class RecordingLocalRunner:
 
 
 def r2v_element(element_id: str, *, start: int, duration: int = 4_000):
-    shot = Shot(
-        shot_id=f"{element_id}-shot",
-        description="猫追逐老鼠",
-        camera="→ 横摇右",
-        framing="全景",
-        duration_seconds=duration / 1_000,
-    )
     return TimelineElement(
         element_id=element_id,
         label="猫追老鼠",
@@ -245,10 +236,6 @@ def r2v_element(element_id: str, *, start: int, duration: int = 4_000):
             narrative="猫发现老鼠后追逐",
             storyboard_prompt="动画分镜：猫发现并追逐老鼠",
             video_prompt="动画，猫从左向右追逐老鼠，动作连续",
-            shots=EntityCollection(
-                items={shot.shot_id: shot},
-                order=[shot.shot_id],
-            ),
         ),
     )
 

@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { getApiUrl } from "@/api/config";
 import {
   fetchMarketPlugins,
   buildMarketDownloadUrl,
   type MarketPluginEntry,
   type MarketPluginSortBy,
 } from "@/api/modules/pluginMarket";
-import { installPlugin } from "@/api/modules/plugin";
+import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 export { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 interface UseMarketPluginsOptions {
-  onInstalled: () => void;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
 const MARKET_PAGE_SIZE = 20;
@@ -46,7 +47,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/version", { signal: controller.signal })
+    fetch(getApiUrl("/version"), { signal: controller.signal })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -257,8 +258,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         message.success(
           `${tRef.current("pluginManager.installSuccess")}: ${result.name}`,
         );
-        onInstalled();
-        setTimeout(() => window.location.reload(), 800);
+        await onInstalled(result);
       } catch (err) {
         const msg =
           err instanceof Error

@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import tempfile
@@ -49,6 +50,11 @@ logger = logging.getLogger(__name__)
 
 _RegistryResult = TypeVar("_RegistryResult")
 _MAX_ZIP_BYTES = 200 * 1024 * 1024
+# Temp-dir prefixes for staged skill writes. Both are fixed strings: the skill
+# name is never interpolated into a path here, so no user input can influence
+# where the staging directory lands (path-injection hardening).
+_SKILL_STAGE_PREFIX = "qwenpaw_skill_stage_"
+_SKILL_IMPORT_STAGE_PREFIX = ".skill-import-"
 _REQUIREMENTS_METADATA_NAMESPACES = ("openclaw", "qwenpaw", "clawdbot")
 _FRONTMATTER_ENCODINGS = (
     "utf-8-sig",
@@ -72,6 +78,7 @@ _FLAT_POOL_AUTOMATION_KEYS = (
     "auto_sync_targets",
     "auto_sync_synced_hash",
 )
+_PAWPORT_MARKER = ".qwenpaw-pawport.json"
 
 
 # ---------------------------------------------------------------------------
@@ -269,64 +276,47 @@ def _read_bounded_frontmatter_bytes(skill_md: Path) -> bytes | None:
     return raw_frontmatter
 
 
-def read_skill_frontmatter_from_dir(
-    skill_dir: Path,
-    skill_name: str = "",
-) -> dict[str, Any]:
-    """Read only the YAML header of ``SKILL.md`` with encoding fallback."""
-    if not skill_name:
-        skill_name = skill_dir.name
+def load_skill_frontmatter_from_dir(skill_dir: Path) -> dict[str, Any]:
+    """Read the bounded YAML header, preserving read and parse failures."""
     skill_md = skill_dir / "SKILL.md"
-    fallback = {"name": skill_name, "description": ""}
-
-    try:
-        raw_frontmatter = _read_bounded_frontmatter_bytes(skill_md)
-    except OSError as exc:
-        logger.warning(
-            "Failed to read SKILL frontmatter for '%s' at %s: %s. "
-            "Using fallback values.",
-            single_line_log_value(skill_name),
-            single_line_log_value(skill_md),
-            single_line_log_value(exc),
-        )
-        return fallback
-
+    raw_frontmatter = _read_bounded_frontmatter_bytes(skill_md)
     if raw_frontmatter is None:
-        return fallback
+        raise SkillsError(
+            "SKILL.md is missing a bounded YAML frontmatter header",
+        )
 
-    metadata: dict[str, Any] | None = None
-    parse_error: Exception | None = None
     for encoding in _FRONTMATTER_ENCODINGS:
         try:
             text = raw_frontmatter.decode(encoding)
             post = frontmatter.loads(text)
-            metadata = dict(post.metadata)
-            break
+            return dict(post.metadata)
         except UnicodeDecodeError:
             continue
         except (LookupError, yaml.YAMLError, TypeError, ValueError) as exc:
-            parse_error = exc
-            break
+            raise SkillsError(
+                f"SKILL.md frontmatter is invalid: {exc}",
+            ) from exc
+    raise SkillsError("Failed to decode SKILL.md frontmatter")
 
-    if metadata is not None:
-        return metadata
 
-    if parse_error is not None:
+def read_skill_frontmatter_from_dir(
+    skill_dir: Path,
+    skill_name: str = "",
+) -> dict[str, Any]:
+    """Read the YAML header with fallback values for metadata display."""
+    if not skill_name:
+        skill_name = skill_dir.name
+    try:
+        return load_skill_frontmatter_from_dir(skill_dir)
+    except (OSError, SkillsError) as exc:
         logger.warning(
-            "Failed to parse SKILL frontmatter for '%s' at %s: %s. "
+            "Failed to read SKILL frontmatter for '%s' at %s: %s. "
             "Using fallback values.",
             single_line_log_value(skill_name),
-            single_line_log_value(skill_md),
-            single_line_log_value(parse_error),
+            single_line_log_value(skill_dir / "SKILL.md"),
+            single_line_log_value(exc),
         )
-    else:
-        logger.warning(
-            "Failed to decode SKILL frontmatter for '%s' at %s. "
-            "Using fallback values.",
-            single_line_log_value(skill_name),
-            single_line_log_value(skill_md),
-        )
-    return fallback
+        return {"name": skill_name, "description": ""}
 
 
 def get_skill_mtime(skill_dir: Path) -> str:
@@ -758,7 +748,7 @@ def is_ignored_skill_entry(name: str) -> bool:
     skill-dir enumeration (registry scanners, pool / workspace conflict
     checks, zip imports). Add new patterns here when they appear.
     """
-    return name in _IGNORED_SKILL_ARTIFACTS or name.startswith("~")
+    return name in _IGNORED_SKILL_ARTIFACTS or name.startswith((".", "~"))
 
 
 def _extract_and_validate_zip(data: bytes, tmp_dir: Path) -> None:
@@ -880,8 +870,10 @@ def _resolve_skill_name(skill_dir: Path) -> str:
     return skill_dir.name
 
 
-def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
-    """Extract requirements from a parsed frontmatter dict."""
+def parse_skill_requirements(
+    post: dict[str, Any],
+) -> tuple[SkillRequirements, list[str]]:
+    """Return valid requirement fields and all declaration errors."""
     metadata = post.get("metadata")
     if not isinstance(metadata, dict):
         metadata = {}
@@ -899,27 +891,37 @@ def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
             post.get("requires", {}),
         )
 
-    try:
-        if isinstance(requires, list):
-            return SkillRequirements(
-                require_bins=list(requires),
-                require_envs=[],
+    if isinstance(requires, list):
+        requires = {"bins": requires}
+
+    if not isinstance(requires, dict):
+        return SkillRequirements(), [
+            "requires must be a mapping or a list of binaries",
+        ]
+
+    normalized = {}
+    errors = []
+    for key in ("bins", "env", "mcp"):
+        values = requires.get(key, [])
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) or not value.strip() for value in values
+        ):
+            errors.append(
+                f"requires.{key} must be a list of non-empty strings",
             )
-
-        if not isinstance(requires, dict):
-            return SkillRequirements()
-
-        return SkillRequirements(
-            require_bins=list(requires.get("bins", [])),
-            require_envs=list(requires.get("env", [])),
+            values = []
+        normalized[key] = list(
+            dict.fromkeys(value.strip() for value in values),
         )
-    except Exception as e:
-        logger.warning(
-            "Failed to parse skill requirements: %s. "
-            "Falling back to empty requirements.",
-            e,
-        )
-        return SkillRequirements()
+
+    return (
+        SkillRequirements(
+            require_bins=normalized["bins"],
+            require_envs=normalized["env"],
+            require_mcps=normalized["mcp"],
+        ),
+        errors,
+    )
 
 
 def build_skill_metadata(
@@ -953,7 +955,13 @@ def _build_skill_metadata_from_post(
     source: str,
     protected: bool = False,
 ) -> dict[str, Any]:
-    requirements = _extract_requirements(post)
+    requirements, errors = parse_skill_requirements(post)
+    for error in errors:
+        logger.warning(
+            "Ignoring invalid requirements in skill '%s': %s",
+            single_line_log_value(skill_name),
+            error,
+        )
     return {
         "name": skill_name,
         "description": str(post.get("description", "") or ""),
@@ -1211,6 +1219,7 @@ def import_skill_dir(
     src_dir: Path,
     target_root: Path,
     skill_name: str,
+    pawport_owner: dict[str, Any] | None = None,
 ) -> bool:
     """Import a skill directory to target location.
 
@@ -1225,11 +1234,69 @@ def import_skill_dir(
     if not post.get("name") or not post.get("description"):
         return False
 
-    target_dir = target_root / skill_name
+    target_dir = safe_skill_dir(target_root, skill_name)
     if target_dir.exists():
         return False
-    copy_skill_dir(src_dir, target_dir)
+
+    # Do not turn the existence check above into a destructive replacement if
+    # another importer creates the target between the check and the copy.
+    def _ignore(_dir: str, names: list[str]) -> set[str]:
+        return {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
+
+    target_root.mkdir(parents=True, exist_ok=True)
+    stage_root = Path(
+        tempfile.mkdtemp(
+            prefix=_SKILL_IMPORT_STAGE_PREFIX,
+            dir=target_root,
+        ),
+    )
+    try:
+        stage_dir = safe_skill_dir(stage_root, skill_name)
+        shutil.copytree(src_dir, stage_dir, ignore=_ignore)
+        if pawport_owner is not None:
+            (stage_dir / _PAWPORT_MARKER).write_text(
+                json.dumps(
+                    {**pawport_owner, "state": "prepared"},
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+        with _file_write_lock(_lock_path_for(target_root / ".import")):
+            if target_dir.exists():
+                return False
+            os.rename(stage_dir, target_dir)
+        return True
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
+
+
+def discard_prepared_pawport_skill(
+    skill_dir: Path,
+    owner: dict[str, Any],
+) -> bool:
+    """Remove only a matching PawPort skill left before manifest commit."""
+    try:
+        marker = json.loads((skill_dir / _PAWPORT_MARKER).read_text())
+    except (OSError, ValueError, TypeError):
+        return False
+    if marker.get("state") != "prepared" or any(
+        marker.get(key) != value for key, value in owner.items()
+    ):
+        return False
+    shutil.rmtree(skill_dir)
     return True
+
+
+def commit_pawport_skill(skill_dir: Path, owner: dict[str, Any]) -> None:
+    """Drop the prepared marker after the workspace manifest is committed."""
+    try:
+        marker = json.loads((skill_dir / _PAWPORT_MARKER).read_text())
+    except (OSError, ValueError, TypeError):
+        return
+    if marker.get("state") == "prepared" and all(
+        marker.get(key) == value for key, value in owner.items()
+    ):
+        (skill_dir / _PAWPORT_MARKER).unlink(missing_ok=True)
 
 
 def write_skill_to_dir(
@@ -1304,12 +1371,76 @@ def scan_skill_dir_or_raise(skill_dir: Path, skill_name: str) -> None:
 
 @contextmanager
 def staged_skill_dir(skill_name: str) -> Iterator[Path]:
-    """Create a temporary skill directory used for staged writes."""
-    temp_root = Path(
-        tempfile.mkdtemp(prefix=f"qwenpaw_skill_stage_{skill_name}_"),
-    )
-    stage_dir = temp_root / skill_name
+    """Create a temporary skill directory used for staged writes.
+
+    The temp root uses a fixed prefix and the stage directory is resolved via
+    ``safe_skill_dir``, so a caller-supplied ``skill_name`` can never escape
+    the temp root (path-injection hardening).
+    """
+    temp_root = Path(tempfile.mkdtemp(prefix=_SKILL_STAGE_PREFIX))
     try:
-        yield stage_dir
+        yield safe_skill_dir(temp_root, skill_name)
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+# A staged write touches its files continuously while it runs, so a stage dir
+# whose newest entry is older than this has no writer left: the process that
+# created it died mid-copy, or has simply been idle that long. Anything
+# fresher may still be written to — including by another QwenPaw instance
+# sharing the system temp dir — so it is left alone.
+_SKILL_STAGE_ORPHAN_GRACE_SECONDS = 24 * 60 * 60
+
+
+def _newest_entry_mtime(path: Path) -> float | None:
+    """Newest mtime anywhere under ``path`` (the directory included)."""
+    try:
+        newest = path.stat().st_mtime
+    except OSError:
+        return None
+    for root, dirs, files in os.walk(path, onerror=lambda _error: None):
+        for name in [*dirs, *files]:
+            try:
+                mtime = os.stat(os.path.join(root, name)).st_mtime
+            except OSError:
+                continue
+            if mtime > newest:
+                newest = mtime
+    return newest
+
+
+def cleanup_orphan_skill_stages(
+    *,
+    max_age_seconds: float = _SKILL_STAGE_ORPHAN_GRACE_SECONDS,
+) -> int:
+    """Remove staged skill directories left behind by a killed process.
+
+    ``staged_skill_dir`` removes its temp root in ``finally``, so a surviving
+    directory carrying that prefix came from a process that died mid-write —
+    or from an instance that is still writing right now. The two are told
+    apart by age: a directory is only removed once nothing inside it has been
+    touched for ``max_age_seconds``. Checking only the directory's own mtime
+    would be wrong, because copying files *into* the staged skill dir does not
+    bump the parent's mtime; the newest mtime in the whole tree is what
+    reflects a live writer. Returns the number of directories removed.
+    """
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    # Prefix must match the one used by ``staged_skill_dir`` above.
+    for path in Path(tempfile.gettempdir()).glob("qwenpaw_skill_stage_*"):
+        if not path.is_dir():
+            continue
+        newest = _newest_entry_mtime(path)
+        if newest is None or newest > cutoff:
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        if path.exists():
+            logger.warning(
+                "Failed to remove orphan skill staging dir %s",
+                path,
+            )
+            continue
+        removed += 1
+    if removed:
+        logger.info("Removed %d orphan skill staging dir(s)", removed)
+    return removed

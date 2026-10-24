@@ -8,8 +8,7 @@ Method ported from APE-benchmark ``layer_c._judge_faithfulness`` — the
 independently answerable elements (entity form / spatial composition /
 tone & atmosphere / camera motion / narrative sequence) instead of one
 catch-all check — with the comparison target swapped for Creator's own
-plan chain: the committed shot list (descriptions, camera notes,
-dialogue) versus the generated frames.
+plan chain: the generation unit narrative (actions, camera and sound intent) versus the generated frames.
 
 Design points kept from upstream: every element question carries its
 own tolerance note ("direction match is enough, not brand-exact"),
@@ -63,22 +62,6 @@ FAITHFULNESS_ELEMENT_KEYS = (
 )
 
 
-def _shot_texts(plan_context: Mapping[str, Any]) -> list[dict[str, str]]:
-    shots = plan_context.get("planned_shots") or []
-    rows: list[dict[str, str]] = []
-    for shot in shots:
-        if not isinstance(shot, Mapping):
-            continue
-        rows.append(
-            {
-                "shot_id": str(shot.get("shot_id") or ""),
-                "description": str(shot.get("description") or ""),
-                "dialogue": str(shot.get("dialogue") or ""),
-            },
-        )
-    return rows
-
-
 def build_faithfulness_elements(
     plan_context: Mapping[str, Any],
     *,
@@ -90,23 +73,19 @@ def build_faithfulness_elements(
     unmentioned tone or camera move is simply not asked (upstream rule:
     undeclared aspects stay out of the denominator).
     """
-    shots = _shot_texts(plan_context)
-    if not shots:
+    combined = str(plan_context.get("narrative") or "").strip()
+    if not combined:
+        # Old prompt-only projects still have real generation intent.
+        combined = str(plan_context.get("generation_prompt") or "").strip()
+    if not combined:
         return []
-    combined = "。".join(
-        f"{row['description']} {row['dialogue']}" for row in shots
-    )
     elements: list[dict[str, str]] = [
         {
             "key": "faith_entity",
             "title": "实体形态",
             "question": (
                 "计划声明的主体/道具/场景是否真的出现在画面中且形态方向一致？"
-                "容错：不要求品牌/型号/纹样精确匹配，外形与颜色方向一致即 ET。逐镜对照：\n"
-                + "\n".join(
-                    f"  - {row['shot_id']}: {row['description'][:120]}"
-                    for row in shots[:8]
-                )
+                "容错：不要求品牌/型号/纹样精确匹配，外形与颜色方向一致即 ET。片段内容：\n" + combined
             ),
         },
     ]
@@ -171,20 +150,17 @@ def build_faithfulness_elements(
                 ),
             },
         )
-    if len(shots) >= 2:
-        elements.append(
-            {
-                "key": "faith_sequence",
-                "title": "叙事顺序",
-                "question": (
-                    "多镜头的先后顺序是否与计划叙事顺序一致？逐镜顺序：\n"
-                    + "\n".join(
-                        f"  {index + 1}. {row['shot_id']}: {row['description'][:80]}"
-                        for index, row in enumerate(shots[:8])
-                    )
-                ),
-            },
-        )
+    elements.append(
+        {
+            "key": "faith_sequence",
+            "title": "动作与声音内容",
+            "question": (
+                "核对片段叙述中的起始状态、动作先后、中间过程、次数和结束衔接是否得到呈现。"
+                "不要把叙述段落数或分镜面板数当成切镜数量要求；声音要求只在有音频证据时判断，"
+                "仅有画面不能断言对白或旁白缺失。原文：\n" + combined
+            ),
+        },
+    )
     return elements
 
 

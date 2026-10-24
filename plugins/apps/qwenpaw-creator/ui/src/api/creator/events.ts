@@ -16,7 +16,16 @@ const CREATOR_EVENT_TYPES = [
   "message.completed",
   "command.autosave_admitted",
   "command.queued",
+  "creation.checkpoint_required",
+  "creation.checkpoint_decided",
   "agent.message_delta",
+  "agent.model.rate_limit_retry",
+  "agent.model.retry",
+  "agent.model.retry_recovered",
+  "agent.mainline.resumed",
+  "agent.prompt_contract.resumed",
+  "agent.yolo.resumed",
+  "agent.tool_arguments_checked",
   "agent.tool_progress",
   "assistant.output_rejected",
   "agent.plan",
@@ -35,6 +44,7 @@ const CREATOR_EVENT_TYPES = [
   "subagent.accepted",
   "subagent.started",
   "subagent.waiting_runtime",
+  "subagent.resumed",
   "subagent.completed",
   "subagent.blocked",
   "subagent.failed",
@@ -42,8 +52,11 @@ const CREATOR_EVENT_TYPES = [
   "subagent.continuation_started",
   "subagent.continuation_completed",
   "subagent.message_delta",
+  "subagent.model.retry",
+  "subagent.model.retry_recovered",
   "subagent.message_completed",
   "subagent.tool_progress",
+  "subagent.tool_arguments_checked",
   "subagent.tool_started",
   "subagent.tool_completed",
   "task.registered",
@@ -64,6 +77,7 @@ const CREATOR_EVENT_TYPES = [
   "transaction.started",
   "transaction.progress",
   "execution.authorization_required",
+  "execution.authorization_decided",
   "transaction.completion_check_failed",
   "change_request.completed",
   "transaction.review_available",
@@ -85,25 +99,70 @@ export function openCreatorEvents(
   after: number,
   onEvent: (event: CreatorEvent) => void,
   onError?: () => void,
+  onOpen?: () => void,
 ): CreatorEventStream {
-  const path = `/projects/${encodeURIComponent(
-    projectId,
-  )}/events?after=${Math.max(0, after)}`;
-  const source = new EventSource(creatorAuthenticatedUrl(path), {
-    withCredentials: true,
-  });
-  const consume = (message: MessageEvent<string>) => {
-    try {
-      const event = JSON.parse(message.data) as CreatorEvent;
-      if (typeof event.seq === "number" && event.eventId) onEvent(event);
-    } catch {
-      // Malformed event payloads are ignored; the durable cursor is not advanced.
-    }
+  let closed = false;
+  let cursor = Math.max(0, after);
+  let source: EventSource | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryDelay = 1000;
+  const connect = () => {
+    if (closed) return;
+    const path = `/projects/${encodeURIComponent(
+      projectId,
+    )}/events?after=${cursor}`;
+    const current = new EventSource(creatorAuthenticatedUrl(path), {
+      withCredentials: true,
+    });
+    source = current;
+    const consume = (message: MessageEvent<string>) => {
+      if (closed || source !== current) return;
+      try {
+        const event = JSON.parse(message.data) as CreatorEvent;
+        if (
+          Number.isInteger(event.seq) &&
+          event.seq > cursor &&
+          event.eventId
+        ) {
+          onEvent(event);
+          cursor = event.seq;
+        }
+      } catch {
+        // Malformed events do not advance the durable resume cursor.
+      }
+    };
+    current.onmessage = consume;
+    CREATOR_EVENT_TYPES.forEach((type) =>
+      current.addEventListener(type, consume as EventListener),
+    );
+    current.onopen = () => {
+      if (closed || source !== current) return;
+      retryDelay = 1000;
+      onOpen?.();
+    };
+    current.onerror = () => {
+      if (closed || source !== current) return;
+      onError?.();
+      // A temporary 404 while plugin routes are loading permanently closes
+      // native EventSource. Own retries for both CLOSED and CONNECTING states
+      // so a restart recovers without reloading the page or replaying from 0.
+      current.close();
+      source = null;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        connect();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    };
   };
-  source.onmessage = consume;
-  CREATOR_EVENT_TYPES.forEach((type) =>
-    source.addEventListener(type, consume as EventListener),
-  );
-  source.onerror = () => onError?.();
-  return { close: () => source.close() };
+  connect();
+  return {
+    close: () => {
+      closed = true;
+      if (retryTimer != null) clearTimeout(retryTimer);
+      retryTimer = null;
+      source?.close();
+      source = null;
+    },
+  };
 }

@@ -2,6 +2,7 @@ import { Button, Input, Modal, Select, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   EyeOutlined,
+  MessageOutlined,
   PictureOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
@@ -206,7 +207,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
           className={`mt-3 rounded-xl border-2 border-dashed transition-colors ${
             dragOver
               ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
-              : "border-[#B0AEAB]"
+              : "border-[#B0AEAB] dark:border-[var(--color-border-strong)]"
           }`}
           onDragOver={(e) => {
             e.preventDefault();
@@ -231,6 +232,13 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
           <TextArea
             value={projectDescription}
             onChange={(e) => setProjectDescription(e.target.value)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (files.length > 0) {
+                e.preventDefault();
+                addFiles(files, "file");
+              }
+            }}
             autoSize={{ minRows: 5, maxRows: 12 }}
             placeholder={t(SCENARIO_TERMS[scenario].descriptionKey)}
             className="!border-none !bg-transparent !p-4 !text-sm !shadow-none focus:!shadow-none"
@@ -276,6 +284,10 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
               </span>
               {missingRequiredModels!.map((type) => {
                 const meta = {
+                  llm: {
+                    label: "LLM",
+                    icon: <MessageOutlined style={{ fontSize: 10 }} />,
+                  },
                   vlm: {
                     label: "VLM",
                     icon: <EyeOutlined style={{ fontSize: 10 }} />,
@@ -292,7 +304,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                 return (
                   <span
                     key={type}
-                    className="inline-flex items-center gap-1 rounded-full border border-[var(--color-warning)]/40 bg-white/60 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warning)]"
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--color-warning)]/40 bg-white/60 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warning)] dark:bg-white/10"
                   >
                     {meta.icon}
                     {meta.label}

@@ -2,20 +2,15 @@
 // installed-apps view and the app market. Embedded PawApp runtime styles
 // (capsule button, embed frame) are intentionally left untouched.
 
+@import (reference) "../../styles/scaledTypography.less";
+
 .page {
+  .scaled-control-typography();
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-
-  // Local design tokens: prefer theme variables, warm-neutral fallbacks.
-  --app-surface: var(--color-bg-container, #ffffff);
-  --app-surface-subtle: var(--color-bg-layout, #faf9f7);
-  --app-border: var(--color-border-secondary, #eae8e7);
-  --app-border-strong: var(--color-border, #d8d4cf);
-  --app-text: var(--color-text, rgba(20, 20, 19, 0.88));
-  --app-text-secondary: var(--color-text-secondary, rgba(20, 20, 19, 0.58));
-  --app-accent: var(--color-primary, #ff7a00);
+  background: transparent;
 }
 
 .pageBody {
@@ -39,7 +34,7 @@
 
 .subtitle {
   margin: 0 0 16px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.6;
   color: var(--app-text-secondary);
 }
@@ -80,9 +75,9 @@
   min-width: 18px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--color-fill-quaternary, #f2f0ee);
-  font-size: 11px;
-  line-height: 18px;
+  background: var(--app-fill);
+  font-size: calc(11px * var(--app-font-scale));
+  line-height: calc(18px * var(--app-font-scale));
   font-weight: 500;
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
@@ -124,8 +119,8 @@
   background: var(--app-surface);
   color: var(--app-text-secondary);
   font: inherit;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--app-font-secondary);
+  line-height: calc(20px * var(--app-font-scale));
   cursor: pointer;
   transition:
     color 0.16s ease,
@@ -134,7 +129,7 @@
 
   &:hover:not(:disabled) {
     color: var(--app-text);
-    border-color: var(--app-border-strong);
+    border-color: var(--app-border-hover);
   }
 
   &:focus-visible {
@@ -149,9 +144,9 @@
 }
 
 .marketFilterActive {
-  border-color: var(--color-fill-secondary, #e8e6e3);
-  background: var(--color-fill-secondary, #e8e6e3);
-  color: var(--app-text);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
   font-weight: 500;
 }
 
@@ -197,6 +192,19 @@
     max-width: none;
     flex-basis: 100%;
   }
+
+  .marketFilter,
+  .refreshBtn {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+  }
+
+  .emptyActions :global(.ant-btn),
+  .emptyActions :global(.qwenpaw-btn),
+  .cardActions :global(.ant-btn),
+  .cardActions :global(.qwenpaw-btn) {
+    min-height: var(--app-hit-touch);
+  }
 }
 
 .categorySelect {
@@ -236,8 +244,7 @@
 
   &:hover {
     border-color: var(--app-border-strong);
-    box-shadow: 0 2px 8px rgba(20, 20, 19, 0.06);
-    transform: translateY(-2px);
+    box-shadow: var(--app-shadow-sm);
   }
 
   // The app configures antd with prefixCls="qwenpaw"; keep the ant-* alias
@@ -257,18 +264,6 @@
       min-height: 184px;
       padding: 14px;
     }
-  }
-
-  &:hover .cardHoverActions,
-  &:focus-within .cardHoverActions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  &:hover .cardFooter,
-  &:focus-within .cardFooter {
-    opacity: 0;
   }
 }
 
@@ -300,7 +295,7 @@
   flex-shrink: 0;
   border-radius: 8px;
   color: var(--app-accent);
-  background: var(--color-fill-quaternary, #f5f3f1);
+  background: var(--app-fill-subtle);
 }
 
 /* Image icons carry their own artwork; keep the slot neutral. */
@@ -342,7 +337,7 @@
 .cardTitle {
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.4;
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -352,10 +347,10 @@
   flex-shrink: 0;
   padding: 1px 5px;
   border-radius: 4px;
-  background: var(--color-mauve-bg, rgba(239, 240, 243, 0.8));
+  background: var(--app-fill);
   color: var(--app-text-secondary);
-  font-size: 10px;
-  line-height: 16px;
+  font-size: calc(10px * var(--app-font-scale));
+  line-height: calc(16px * var(--app-font-scale));
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -363,7 +358,7 @@
 .cardDesc {
   min-height: 39px;
   margin: 0 !important;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.5;
   color: var(--app-text-secondary);
   overflow-wrap: anywhere;
@@ -374,7 +369,7 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -405,11 +400,11 @@
   flex-shrink: 0;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
+  font-size: calc(11px * var(--app-font-scale));
+  line-height: calc(18px * var(--app-font-scale));
   font-weight: 500;
   color: var(--app-accent);
-  background: var(--color-fill-quaternary, #f5f3f1);
+  background: var(--app-fill-subtle);
 }
 
 .emptyActions {
@@ -420,11 +415,8 @@
 }
 
 .cardActions {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  left: 16px;
-  z-index: 2;
+  position: relative;
+  margin-top: auto;
   display: flex;
   gap: 8px;
 
@@ -432,39 +424,17 @@
   :global(.qwenpaw-btn) {
     flex: 1;
     min-width: 0;
-    border-radius: 6px;
+    border-radius: 10px;
+    &:last-child:not(:first-child) {
+      flex: 0 0 auto;
+    }
   }
 
   @media (max-width: 639px) {
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
-
     :global(.ant-btn),
     :global(.qwenpaw-btn) {
       min-height: 36px;
     }
-  }
-}
-
-.cardHoverActions {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition:
-    opacity 0.16s ease,
-    transform 0.16s ease;
-}
-
-@media (max-width: 639px), (hover: none) {
-  .cardHoverActions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  .appCard .cardFooter {
-    opacity: 0;
   }
 }
 
@@ -479,7 +449,7 @@
 
 .noMoreText {
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .sentinel {
@@ -489,7 +459,7 @@
   width: 100%;
   min-height: 32px;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .stateBlock {
@@ -513,52 +483,23 @@
   }
 }
 
+/* Dark-only exception: tabs need an explicit contrast adjustment for antd. */
 :global(.dark-mode) {
-  .page {
-    background: #141414;
-  }
-
-  .marketFilter {
-    border-color: rgba(255, 255, 255, 0.16);
-    background: #1f1f1f;
-    color: rgba(255, 255, 255, 0.65);
-
-    &:hover:not(:disabled):not(.marketFilterActive) {
-      border-color: rgba(255, 255, 255, 0.3);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
-  .marketFilterActive {
-    border-color: rgba(255, 127, 22, 0.5);
-    background: rgba(255, 127, 22, 0.18);
-    color: #ffad66;
-  }
-
   .viewTabs {
-    :global(.ant-tabs-nav::before),
-    :global(.qwenpaw-tabs-nav::before) {
-      border-bottom-color: rgba(255, 255, 255, 0.12);
-    }
-
     :global(.ant-tabs-tab),
     :global(.qwenpaw-tabs-tab) {
-      color: rgba(255, 255, 255, 0.55);
+      color: var(--app-text-secondary);
     }
 
     :global(.ant-tabs-tab-active .ant-tabs-tab-btn),
     :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
-      color: rgba(255, 255, 255, 0.88);
+      color: var(--app-text);
     }
 
     :global(.ant-tabs-ink-bar),
     :global(.qwenpaw-tabs-ink-bar) {
-      background: #ff7f16;
+      background: var(--app-accent);
     }
-  }
-
-  .appCard:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }
 }
 
@@ -573,7 +514,7 @@
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-container, #fff);
+  background: var(--app-surface);
   animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   // Safe area CSS variables for PawApp developers
@@ -629,7 +570,13 @@
     0 4px 12px rgba(0, 0, 0, 0.15),
     0 2px 4px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   animation: pulse 2s ease-in-out 3;
 
   &:hover {
@@ -645,8 +592,8 @@
   @media (max-width: 768px) {
     top: 16px;
     right: 16px;
-    height: 32px;
-    border-radius: 16px;
+    height: var(--app-hit-touch);
+    border-radius: 22px;
   }
 }
 
@@ -661,7 +608,13 @@
   background: transparent;
   color: #fff;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
 
   &:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -682,16 +635,16 @@
 
   // Mobile responsive
   @media (max-width: 768px) {
-    min-width: 32px;
-    height: 32px;
+    min-width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
     padding: 0 8px;
 
     &:first-child {
-      border-radius: 16px 0 0 16px;
+      border-radius: 22px 0 0 22px;
     }
 
     &:last-child {
-      border-radius: 0 16px 16px 0;
+      border-radius: 0 22px 22px 0;
     }
   }
 }
@@ -745,7 +698,7 @@
   width: 100%;
   height: 100%;
   overflow: auto;
-  background: var(--color-bg-layout, #fafafa);
+  background: var(--app-surface-subtle);
   position: relative;
 
   // ═══ 框架自动处理安全区域 ═══
@@ -759,4 +712,41 @@
   // Smooth scrolling
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+}
+
+.previewTrigger {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  &:hover {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+}
+.previewBody {
+  color: var(--app-text-secondary);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  p {
+    margin: 20px 0 8px;
+    white-space: pre-wrap;
+  }
+}
+.previewActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }

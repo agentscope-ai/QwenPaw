@@ -3,6 +3,7 @@
 """Tests for qwenpaw.security.tool_guard.engine."""
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -394,6 +395,27 @@ class TestToolGuardEngineGuard:
             "some_tool",
             {"path": "/etc/passwd"},
         )
+
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX line continuations do not apply on Windows",
+    )
+    def test_shell_guardians_receive_normalized_posix_command(
+        self,
+        engine_with_defaults,
+    ):
+        params = {"command": "r\\\nm -rf /tmp/test", "timeout": 10}
+
+        result = engine_with_defaults.guard("execute_shell_command", params)
+
+        normalized = {"command": "rm -rf /tmp/test", "timeout": 10}
+        for guardian in engine_with_defaults._guardians:
+            guardian.guard.assert_called_once_with(
+                "execute_shell_command",
+                normalized,
+            )
+        # Audit data retains exactly what the caller submitted.
+        assert result.params == params
 
     def test_guard_skips_non_always_run_guardians_when_only_always_run(
         self,

@@ -4,10 +4,20 @@ import {
   bailianDarkTheme,
   bailianTheme,
 } from "@agentscope-ai/design";
-import { App as AntdApp, theme as antdTheme } from "antd";
-import type { ThemeConfig } from "antd";
+import {
+  App as AntdApp,
+  ConfigProvider as AntdConfigProvider,
+  theme as antdTheme,
+} from "antd";
+import designI18n from "@agentscope-ai/design/lib/i18n";
+import type { ThemeConfig as AntThemeConfig } from "antd";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import zhCN from "antd/locale/zh_CN";
 import enUS from "antd/locale/en_US";
@@ -24,11 +34,13 @@ import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import { FontSizeProvider } from "./contexts/FontSizeContext";
 import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
 import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { UpdateTakeoverGate } from "./components/UpdateTakeoverPage";
-import { Suspense, lazy } from "react";
+import { lazy } from "react";
+import { ChunkRecoverySuspense } from "./components/ChunkRecoverySuspense";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 import {
   addRouterBasename,
@@ -57,8 +69,21 @@ import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
+import { isSafeCssColor } from "./utils/chatThemeColor";
+import {
+  applyUiFontSizeToRoot,
+  getUiFontScale,
+  getUiFontSize,
+  subscribeUiFontSize,
+  UI_FONT_SIZE_DEFAULT,
+} from "./utils/uiFontSizePreference";
+import type { ThemeConfig } from "./api/modules/theme";
+import "./styles/tokens.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
+import "./styles/workspace.css";
+import { PressFeedback } from "./components/interaction/PressFeedback";
+import "katex/dist/katex.min.css";
 
 const antdLocaleMap: Record<string, Locale> = {
   zh: zhCN,
@@ -67,6 +92,56 @@ const antdLocaleMap: Record<string, Locale> = {
   ru: ruRU,
   id: idID,
 };
+
+export function getAppThemeToken(
+  userTheme: ThemeConfig,
+  isDark: boolean,
+  fontSize: number = UI_FONT_SIZE_DEFAULT,
+): NonNullable<AntThemeConfig["token"]> {
+  // Grow control heights with the font size so text never outgrows its
+  // control box. Clamp the multiplier at 1 so smaller sizes keep the shared
+  // semantic control ladder (medium / small / large: 36 / 32 / 44).
+  const controlScale = Math.max(1, fontSize / UI_FONT_SIZE_DEFAULT);
+  return {
+    colorPrimary:
+      userTheme.dark?.accent && isDark
+        ? userTheme.dark.accent
+        : userTheme.accent ?? (isDark ? "#FF9D4D" : "#FF7F16"),
+    borderRadius: 10,
+    borderRadiusLG: 16,
+    fontFamily:
+      "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    fontSize,
+    controlHeight: Math.round(36 * controlScale),
+    controlHeightSM: Math.round(32 * controlScale),
+    controlHeightLG: Math.round(44 * controlScale),
+    ...(userTheme.radius
+      ? { borderRadius: Number.parseFloat(userTheme.radius) }
+      : {}),
+  };
+}
+
+type AppComponentTokens = NonNullable<AntThemeConfig["components"]>;
+
+/**
+ * Spark pins the modal title size outside Ant's font token. Scale it here so
+ * portalled modals and confirm dialogs follow the console font size too; at
+ * the default size Spark's value passes through unchanged.
+ */
+export function getAppComponentTokens(
+  base: AppComponentTokens = {},
+  fontSize: number = UI_FONT_SIZE_DEFAULT,
+): AppComponentTokens {
+  const titleFontSize = base.Modal?.titleFontSize;
+  if (titleFontSize === undefined) return base;
+  return {
+    ...base,
+    Modal: {
+      ...base.Modal,
+      titleFontSize: titleFontSize * getUiFontScale(fontSize),
+    },
+  };
+}
 
 const dayjsLocaleMap: Record<string, string> = {
   zh: "zh-cn",
@@ -144,7 +219,7 @@ function AuthGuard({
   return <>{children}</>;
 }
 
-function RuntimeAvailabilityGuard({
+export function RuntimeAvailabilityGuard({
   children,
   enabled,
 }: {
@@ -180,8 +255,24 @@ function RuntimeAvailabilityGuard({
     };
   }, [enabled, retryKey]);
 
+  useEffect(() => {
+    if (
+      !enabled ||
+      !health?.runtime_available ||
+      !["created", "starting", "stopped"].includes(health.runtime_state || "")
+    ) {
+      return;
+    }
+    const timeoutId = window.setTimeout(
+      () => setRetryKey((current) => current + 1),
+      1000,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [enabled, health]);
+
   const restartRuntime = async () => {
     setRestarting(true);
+    setHealth(null);
     setErrorMessage("");
     try {
       await hubApi.restartOwnRuntime();
@@ -203,7 +294,17 @@ function RuntimeAvailabilityGuard({
   }, [enabled, health]);
 
   if (!enabled) return <>{children}</>;
-  if (!health && !errorMessage) return null;
+  if (!health && !errorMessage) {
+    return (
+      <BackendLoadingPage
+        status="checking"
+        elapsed={0}
+        totalSec={1}
+        statusText={t("startup.starting")}
+        showRetry={false}
+      />
+    );
+  }
   if (health?.runtime_desired_state === "stopped") {
     const ownerCanStart = health.runtime_start_policy === "owner_allowed";
     return (
@@ -233,7 +334,38 @@ function RuntimeAvailabilityGuard({
       />
     );
   }
-  if (health?.runtime_available) return <>{children}</>;
+  if (health?.runtime_available && health.runtime_state === "failed") {
+    return (
+      <BackendLoadingPage
+        status="error"
+        elapsed={0}
+        totalSec={1}
+        errorMessage={health.runtime_last_error || errorMessage}
+        onRetry={restartRuntime}
+        retryLabel={
+          restarting
+            ? t("account.runtimeRestarting")
+            : t("account.runtimeRestart")
+        }
+        retryDisabled={restarting}
+      />
+    );
+  }
+  if (health?.runtime_available && health.runtime_state === "running") {
+    return <>{children}</>;
+  }
+
+  if (health?.runtime_available) {
+    return (
+      <BackendLoadingPage
+        status="checking"
+        elapsed={0}
+        totalSec={1}
+        statusText={t("startup.starting")}
+        showRetry={false}
+      />
+    );
+  }
 
   if (health) return null;
 
@@ -252,12 +384,27 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   const hubMode = backendInfo.mode === "hub";
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
-  const { isDark } = useTheme();
+  const { isDark, previewTheme: userTheme } = useTheme();
+  const uiFontSize = useSyncExternalStore(subscribeUiFontSize, getUiFontSize);
+  const osActive = isOsPath(window.location.pathname);
+  // The console font-size setting is intentionally scoped to the classic
+  // web console and login page; inside the desktop OS shell we fall back to
+  // the default so its fixed-px chrome stays visually consistent.
+  const effectiveFontSize = osActive ? UI_FONT_SIZE_DEFAULT : uiFontSize;
+  // Apply before paint (not in useEffect) so the very first frame already
+  // uses the persisted size and there is no visible reflow/flicker.
+  useLayoutEffect(() => {
+    applyUiFontSizeToRoot(effectiveFontSize);
+  }, [effectiveFontSize]);
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
+  const sparkTheme = (selectedTheme as { theme?: AntThemeConfig }).theme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
     antdLocaleMap[lang] ?? enUS,
   );
+  useEffect(() => {
+    designI18n.updateLocale(antdLocale.locale);
+  }, [antdLocale]);
 
   useEffect(() => {
     if (!localStorage.getItem("language")) {
@@ -275,6 +422,32 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
     }
     useUploadLimitStore.getState().fetch();
   }, []);
+
+  useEffect(() => {
+    const darkTheme = isDark ? userTheme.dark : undefined;
+    const accent = darkTheme?.accent ?? userTheme.accent;
+    const accentHover = userTheme.accent_hover;
+    const accentBg = darkTheme?.accent_bg ?? userTheme.accent_bg;
+    const root = document.documentElement;
+    const setOrRemove = (
+      name: string,
+      value: string | undefined,
+      validateColor = false,
+    ) => {
+      if (value === undefined) {
+        root.style.removeProperty(name);
+      } else if (!validateColor || isSafeCssColor(value)) {
+        root.style.setProperty(name, value);
+      }
+    };
+
+    setOrRemove("--app-accent", accent);
+    setOrRemove("--app-accent-hover", accentHover);
+    setOrRemove("--app-accent-soft", accentBg, true);
+    setOrRemove("--app-surface", darkTheme?.surface, true);
+    setOrRemove("--app-radius", userTheme.radius);
+    setOrRemove("--border-radius", userTheme.radius);
+  }, [isDark, userTheme]);
 
   useEffect(() => {
     const handleLanguageChanged = (lng: string) => {
@@ -310,17 +483,15 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
     return interceptBlankLinkClicks();
   }, []);
 
-  const osActive = isOsPath(window.location.pathname);
-
   // The Desktop OS shell renders OUTSIDE any Router: each window supplies its
   // own MemoryRouter (WindowRouter.tsx) and React Router forbids nesting a
   // <Router> inside another. The classic browser layout keeps its BrowserRouter.
   const routedContent = osActive ? (
     <AuthGuard authStatus={backendInfo.authStatus} useHardRedirect>
       <RuntimeAvailabilityGuard enabled={hubMode}>
-        <Suspense fallback={null}>
+        <ChunkRecoverySuspense fallback={null}>
           <DesktopOSPage />
-        </Suspense>
+        </ChunkRecoverySuspense>
       </RuntimeAvailabilityGuard>
     </AuthGuard>
   ) : (
@@ -329,9 +500,9 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
         <Route
           path="/login"
           element={
-            <Suspense fallback={null}>
+            <ChunkRecoverySuspense fallback={null}>
               <LoginPage />
-            </Suspense>
+            </ChunkRecoverySuspense>
           }
         />
         <Route
@@ -339,9 +510,9 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
           element={
             hubMode ? (
               <AuthGuard authStatus={backendInfo.authStatus}>
-                <Suspense fallback={null}>
+                <ChunkRecoverySuspense fallback={null}>
                   <HubPage />
-                </Suspense>
+                </ChunkRecoverySuspense>
               </AuthGuard>
             ) : (
               <Navigate to="/" replace />
@@ -365,29 +536,40 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   return (
     <>
       <GlobalStyle />
+      <PressFeedback />
       <ConfigProvider
         {...selectedTheme}
         prefix="qwenpaw"
         prefixCls="qwenpaw"
-        locale={antdLocale}
+        // Spark keys its App by locale. Keep that boundary stable and update
+        // Ant Design's context below it so unsent attachments survive.
+        locale={enUS}
         theme={{
-          ...(selectedTheme as { theme?: ThemeConfig }).theme,
+          ...sparkTheme,
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
-          token: {
-            colorPrimary: "#FF7F16",
-          },
+          token: getAppThemeToken(userTheme, isDark, effectiveFontSize),
+          components: getAppComponentTokens(
+            sparkTheme?.components,
+            effectiveFontSize,
+          ),
         }}
       >
-        <AntdApp>
-          <CloseWindowPrompt />
-          <DesktopUpdateProvider>
-            <UpdateTakeoverGate>
-              <ApprovalProvider>{routedContent}</ApprovalProvider>
-            </UpdateTakeoverGate>
-          </DesktopUpdateProvider>
-        </AntdApp>
+        <AntdConfigProvider locale={antdLocale}>
+          <AntdApp>
+            <CloseWindowPrompt />
+            <DesktopUpdateProvider>
+              <UpdateTakeoverGate>
+                <ApprovalProvider>
+                  <FontSizeProvider value={effectiveFontSize}>
+                    {routedContent}
+                  </FontSizeProvider>
+                </ApprovalProvider>
+              </UpdateTakeoverGate>
+            </DesktopUpdateProvider>
+          </AntdApp>
+        </AntdConfigProvider>
       </ConfigProvider>
     </>
   );

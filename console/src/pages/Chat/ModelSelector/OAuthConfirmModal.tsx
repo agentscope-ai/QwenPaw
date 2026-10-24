@@ -11,6 +11,7 @@ interface OAuthConfirmModalProps {
   open: boolean;
   providerId: string;
   providerName: string;
+  className?: string;
   onSuccess: () => void;
   onCancel: () => void;
 }
@@ -19,6 +20,7 @@ export function OAuthConfirmModal({
   open,
   providerId,
   providerName,
+  className,
   onSuccess,
   onCancel,
 }: OAuthConfirmModalProps) {
@@ -117,6 +119,7 @@ export function OAuthConfirmModal({
   return (
     <Modal
       open={open}
+      className={className}
       onCancel={onCancel}
       footer={null}
       closable={phase === "confirm"}

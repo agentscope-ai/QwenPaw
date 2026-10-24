@@ -15,7 +15,11 @@ from services.runtime_files.atomic_store import AtomicJsonRecordStore
 from services.runtime_files.errors import RuntimeFileError
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.models import utc_now
-from services.runtime_files.path_safety import require_safe_runtime_segment
+from services.runtime_files.path_safety import (
+    is_link_path,
+    is_link_stat,
+    require_safe_runtime_segment,
+)
 
 from .models import (
     AgentRunStatus,
@@ -89,27 +93,29 @@ class CreatorAgentRunStore:
         return record
 
     def list(self, project_id: str) -> list[CreatorAgentRunRecord]:
+        # Lock-free read: records are atomically replaced, so each read sees
+        # a complete old or new run record.
         project_id = self._safe(project_id, "project_id")
-        with self._project_lock(project_id):
-            root = self._runtime_root(project_id) / "agent-runs"
-            if not root.exists():
-                return []
-            if root.is_symlink() or not root.is_dir():
-                raise AgentRunStoreError("agent-runs must be a real directory")
-            records: list[CreatorAgentRunRecord] = []
-            for path in root.glob("*.json"):
-                if path.is_symlink() or not path.is_file():
-                    raise AgentRunStoreError(
-                        "Agent run must be a regular file",
-                    )
-                run_id = self._safe(path.stem, "run_id")
-                record = self._store(project_id, run_id).read()
-                if record.project_id != project_id or record.run_id != run_id:
-                    raise AgentRunStoreError(
-                        "Agent run path and identity disagree",
-                    )
-                records.append(record)
-            return sorted(records, key=lambda item: item.created_at)
+        self._require_project(project_id)
+        root = self._runtime_root(project_id) / "agent-runs"
+        if not root.exists():
+            return []
+        if is_link_path(root) or not root.is_dir():
+            raise AgentRunStoreError("agent-runs must be a real directory")
+        records: list[CreatorAgentRunRecord] = []
+        for path in root.glob("*.json"):
+            if is_link_path(path) or not path.is_file():
+                raise AgentRunStoreError(
+                    "Agent run must be a regular file",
+                )
+            run_id = self._safe(path.stem, "run_id")
+            record = self._store(project_id, run_id).read()
+            if record.project_id != project_id or record.run_id != run_id:
+                raise AgentRunStoreError(
+                    "Agent run path and identity disagree",
+                )
+            records.append(record)
+        return sorted(records, key=lambda item: item.created_at)
 
     def transition(
         self,
@@ -184,9 +190,12 @@ class CreatorAgentRunStore:
         project_id: str,
         run_id: str,
     ) -> AtomicJsonRecordStore[CreatorAgentRunRecord]:
+        # Writers all hold the exclusive agent-run-runtime domain lock, so
+        # the per-record lock would only add file opens and a second timeout.
         return AtomicJsonRecordStore(
             self._runtime_root(project_id) / "agent-runs" / f"{run_id}.json",
             CreatorAgentRunRecord,
+            locked=False,
         )
 
     def _runtime_root(self, project_id: str) -> Path:
@@ -201,11 +210,11 @@ class CreatorAgentRunStore:
             raise AgentRunStoreError(
                 f"Project does not exist: {project_id}",
             ) from exc
-        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(root_stat) or not stat.S_ISDIR(
             root_stat.st_mode,
         ):
             raise AgentRunStoreError("Project root must be a real directory")
-        if stat.S_ISLNK(project_stat.st_mode) or not stat.S_ISREG(
+        if is_link_stat(project_stat) or not stat.S_ISREG(
             project_stat.st_mode,
         ):
             raise AgentRunStoreError("project.json must be a regular file")

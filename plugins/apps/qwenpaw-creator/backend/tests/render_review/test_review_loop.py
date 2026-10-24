@@ -76,6 +76,14 @@ def services(tmp_path: Path, monkeypatch) -> CreatorFileServices:
 
 @pytest.fixture()
 def stubbed_evidence(tmp_path: Path, monkeypatch):
+    # These tests stub the primary VLM and use an invalid four-byte video.
+    # Do not let the optional challenge pass make a real text-model request
+    # (its 120s timeout also exhausts the Windows CI test budget). The overlap
+    # test below explicitly enables and stubs that pass itself.
+    monkeypatch.setattr(
+        "models.config.is_render_challenge_enabled",
+        lambda: False,
+    )
     frame_path = tmp_path / "stub-frame.jpg"
     frame_path.write_bytes(b"\xff\xd8\xff\xd9")
 
@@ -240,6 +248,8 @@ def test_revise_verdict_sends_feedback_and_caps_rounds(
     first_text = feedback[0].content_parts[0].text or ""
     assert "render_review_feedback" in first_text
     assert "ai_editing_director" in first_text
+    assert "不是新的用户要求" in first_text
+    assert "不得据此重新生成媒体" in first_text
     assert TARGET_REF in first_text
     assert feedback[0].metadata["renderReview"]["round"] == 1
 
@@ -454,6 +464,7 @@ def test_schedule_gate_and_dedup(services, monkeypatch) -> None:
 
     result = {
         "commandType": "COMPOSE_FINAL_VIDEO",
+        "selfReviewEnabled": True,
         "targetRef": TARGET_REF,
         "indexedFile": {"relative_uri": "assets/artifacts/f.mp4"},
         "artifactVersion": {"version_id": "video-gate-1", "slot_id": SLOT_ID},
@@ -463,6 +474,11 @@ def test_schedule_gate_and_dedup(services, monkeypatch) -> None:
         monkeypatch.delenv("CREATOR_SELF_REVIEW_ENABLED", raising=False)
         schedule(result)
         monkeypatch.setenv("CREATOR_SELF_REVIEW_ENABLED", "1")
+        # A settings toggle cannot add review to a completed render on replay.
+        legacy = dict(result)
+        legacy.pop("selfReviewEnabled")
+        schedule(legacy)
+        schedule({**result, "selfReviewEnabled": False})
         schedule({**result, "commandType": "EXECUTE_EDIT"})
         # Missing fields must be ignored without raising.
         schedule({"commandType": "COMPOSE_FINAL_VIDEO"})

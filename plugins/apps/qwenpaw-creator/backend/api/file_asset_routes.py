@@ -38,6 +38,8 @@ from domain.enums import TaskKind, TaskStatus
 from schemas.assets import TextOrUrlAssetRequest
 from schemas.common import StrictModel
 from services.document_reader import is_supported_document
+from services.file_agent_runtime.notifications import RuntimeEventKind
+from services.file_agent_runtime.registry import get_creator_agent_runtime
 from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileError,
@@ -854,6 +856,60 @@ def _publish_remote_task_event(
     )
 
 
+async def _notify_assets_uploaded(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    request_id: str,
+    items: list[dict[str, Any]],
+) -> None:
+    """Steer the Agent when the user adds source assets mid-conversation.
+
+    Called only after the ingest lifecycle lock is released: steer appends a
+    session message, which takes the same Project lock on its shared side.
+    Uploads that precede the first session message stay silent — the launch
+    composer sends its refs with the first user message, and waking the
+    dispatcher before any instruction exists would start a run with no goal.
+    """
+
+    runtime = get_creator_agent_runtime()
+    if runtime is None or not items:
+        return
+    try:
+        sessions = ProjectRuntimeSessionStore(services.root)
+        session = await asyncio.to_thread(
+            sessions.get_project_session_snapshot,
+            project_id,
+        )
+        if session.last_message_seq <= 0:
+            return
+        names = "、".join(str(item["name"]) for item in items)
+        refs = [
+            f"asset-version:{item['assetVersionId']}"
+            for item in items
+            if item.get("assetVersionId")
+        ]
+        await runtime.notifications.notify(
+            project_id,
+            kind=RuntimeEventKind.SOURCE_ASSETS_UPLOADED,
+            request_id=request_id,
+            text=(
+                f"用户刚上传了 {len(items)} 个素材：{names}。"
+                "素材已入库并可直接引用；如果你此前在等待用户提供素材，"
+                "现在可以基于它们继续当前工作。"
+                "这是状态同步，不是新的用户修改意见。"
+            ),
+            payload={"assetVersionRefs": refs},
+        )
+    except RuntimeSessionNotFound:
+        return
+    except Exception:  # noqa: BLE001 - the ingest already succeeded
+        logger.exception(
+            "asset upload notification failed for %s",
+            _log_safe(project_id),
+        )
+
+
 def _remote_task_fingerprint(
     *,
     project_id: str,
@@ -1169,8 +1225,9 @@ def _start_remote_task(
     running = _REMOTE_INGEST_TASKS.get(identity)
     if running is not None and not running.done():
         return
-    background = asyncio.create_task(
-        asyncio.to_thread(
+
+    async def run_and_notify() -> None:
+        await asyncio.to_thread(
             _run_remote_task_sync,
             services,
             project_id=project_id,
@@ -1179,7 +1236,27 @@ def _start_remote_task(
             requested_name=requested_name,
             attach_source=attach_source,
             scope=scope,
-        ),
+        )
+        try:
+            task = await asyncio.to_thread(
+                ProjectExecutionStore(services.root).get_task,
+                project_id,
+                task_id,
+            )
+        except (ExecutionStoreError, RecordNotFoundError):
+            return
+        if task.status is not TaskStatus.SUCCEEDED:
+            return
+        items = list((task.result or {}).get("items") or [])
+        await _notify_assets_uploaded(
+            services,
+            project_id=project_id,
+            request_id=f"assets-uploaded-{task_id}",
+            items=items,
+        )
+
+    background = asyncio.create_task(
+        run_and_notify(),
         name=f"creator-remote-asset:{project_id}:{task_id}",
     )
     _REMOTE_INGEST_TASKS[identity] = background
@@ -1571,6 +1648,12 @@ async def ingest_asset(
             stable_client_id=str(form.get("clientRequestId") or ""),
         )
         post_action = str(form.get("postIngestAction") or "NONE")
+        # Composer-staged uploads ride the user's outgoing message (its
+        # assetVersionRefs trigger understanding); a steer here would
+        # double-notify the same fact.
+        notify_agent = (
+            str(form.get("notifyAgent") or "true").casefold() != "false"
+        )
         name = Path(upload.filename or "upload.bin").name
         media_type = (
             upload.content_type
@@ -1601,6 +1684,7 @@ async def ingest_asset(
             stable_client_id=body.client_request_id,
         )
         post_action = body.post_ingest_action
+        notify_agent = True
         name = body.name.strip() or "asset"
         if body.kind == "text":
             payload = body.value.encode("utf-8")
@@ -1678,6 +1762,13 @@ async def ingest_asset(
         item["assetId"],
         result["status"],
     )
+    if not replayed and notify_agent:
+        await _notify_assets_uploaded(
+            services,
+            project_id=project_id,
+            request_id=f"assets-uploaded-{result['taskId']}",
+            items=result["items"],
+        )
     return {
         "assetId": item["assetId"],
         "taskId": result["taskId"],
@@ -1758,7 +1849,7 @@ async def import_assets(
                     f"文件夹导入总量超过 " f"{_format_byte_limit(max_total_bytes)} 限制",
                 )
             inputs.append(item)
-        result, _replayed = await asyncio.to_thread(
+        result, replayed = await asyncio.to_thread(
             _ingest_many_sync,
             services,
             project_id=project_id,
@@ -1804,6 +1895,13 @@ async def import_assets(
         import_id,
         len(uploads),
     )
+    if not replayed:
+        await _notify_assets_uploaded(
+            services,
+            project_id=project_id,
+            request_id=f"assets-uploaded-{result['taskId']}",
+            items=result["items"],
+        )
     return {"importId": import_id, "taskId": result["taskId"], "eventSeq": 0}
 
 

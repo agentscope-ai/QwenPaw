@@ -103,7 +103,7 @@ def build_submit_request(
     # Keep that contract visible in one adapter instead of hiding it in
     # generic helpers that would blur provider rules.
     # pylint: disable=too-many-branches,too-many-statements
-    model = model_name.strip()
+    model = model_name.strip().casefold()
     try:
         normalized_mode = validate_video_mode("vidu", model, mode)
     except ValueError as exc:

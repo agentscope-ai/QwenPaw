@@ -15,12 +15,16 @@ from __future__ import annotations
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-variable  # noqa: E501
 
 import asyncio
+from dataclasses import replace
 import time
 
 import pytest
 
 from qwenpaw.app.approvals.models import ApprovalRequestSummary
 from qwenpaw.app.approvals.service import (
+    ApprovalActor,
+    ApprovalIdentityMismatchError,
+    ApprovalIdentityPolicy,
     ApprovalService,
     PendingApproval,
     _GC_MAX_PENDING,
@@ -240,6 +244,106 @@ async def test_resolve_request_pops_record_and_sets_status():
     assert await svc.get_request("req-p") is None
     # Future was resolved with the decision.
     assert pending.future.result() is ApprovalDecision.DENIED
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("user_id", "other-user"),
+        ("channel", "other-channel"),
+        ("session_id", "other-session"),
+        ("root_session_id", "other-root"),
+        ("agent_id", "other-agent"),
+    ],
+)
+@pytest.mark.parametrize(
+    "decision",
+    [ApprovalDecision.APPROVED, ApprovalDecision.DENIED],
+)
+async def test_exact_requester_approval_rejects_identity_mismatch(
+    field: str,
+    value: str,
+    decision: ApprovalDecision,
+):
+    svc = ApprovalService()
+    pending = _make_pending(
+        "req-exact",
+        session_id="session-a",
+        root_session_id="root-a",
+        agent_id="agent-a",
+    )
+    pending.channel = "channel-a"
+    pending.user_id = "user-a"
+    pending.identity_policy = ApprovalIdentityPolicy.EXACT_REQUESTER
+    _seed_pending(svc, pending)
+    actor = ApprovalActor(
+        session_id="session-a",
+        root_session_id="root-a",
+        user_id="user-a",
+        channel="channel-a",
+        agent_id="agent-a",
+    )
+
+    with pytest.raises(ApprovalIdentityMismatchError):
+        await svc.resolve_request(
+            pending.request_id,
+            decision,
+            actor=replace(actor, **{field: value}),
+        )
+
+    assert await svc.get_request(pending.request_id) is pending
+    assert not pending.future.done()
+
+
+async def test_exact_requester_approval_accepts_matching_identity():
+    svc = ApprovalService()
+    pending = _make_pending(
+        "req-exact",
+        session_id="session-a",
+        root_session_id="root-a",
+        agent_id="agent-a",
+    )
+    pending.channel = "channel-a"
+    pending.user_id = "user-a"
+    pending.identity_policy = ApprovalIdentityPolicy.EXACT_REQUESTER
+    _seed_pending(svc, pending)
+
+    resolved = await svc.resolve_request(
+        pending.request_id,
+        ApprovalDecision.APPROVED,
+        actor=ApprovalActor(
+            session_id="session-a",
+            root_session_id="root-a",
+            user_id="user-a",
+            channel="channel-a",
+            agent_id="agent-a",
+        ),
+    )
+
+    assert resolved is pending
+    assert pending.future.result() is ApprovalDecision.APPROVED
+
+
+async def test_exact_requester_approval_accepts_explicit_admin():
+    svc = ApprovalService()
+    pending = _make_pending("req-admin")
+    pending.identity_policy = ApprovalIdentityPolicy.EXACT_REQUESTER
+    _seed_pending(svc, pending)
+
+    resolved = await svc.resolve_request(
+        pending.request_id,
+        ApprovalDecision.APPROVED,
+        actor=ApprovalActor(
+            session_id="admin-session",
+            root_session_id="admin-session",
+            user_id="admin",
+            channel="console",
+            agent_id="other-agent",
+            is_admin=True,
+        ),
+    )
+
+    assert resolved is pending
 
 
 async def test_resolve_request_already_resolved_future_is_safe():

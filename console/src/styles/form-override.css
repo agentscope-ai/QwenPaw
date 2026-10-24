@@ -4,6 +4,7 @@
  */
 
 /* Protect red asterisk for Ant Design form required marks */
+.qwenpaw-form-item-required::before,
 .ant-form-item-required::before {
   color: #ff4d4f !important;
 }

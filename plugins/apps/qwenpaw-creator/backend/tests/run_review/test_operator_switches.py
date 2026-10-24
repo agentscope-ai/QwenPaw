@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import pytest
 
+from models.config import forced_review_env_overrides
+
 from services.run_review import operator_registry
 from services.run_review.operator_registry import (
     REVIEW_OPERATORS,
@@ -157,3 +159,23 @@ def test_render_challenge_switch_resolution(
     # An explicitly set environment variable keeps full control.
     monkeypatch.setenv("CREATOR_RENDER_CHALLENGE_ENABLED", "0")
     assert model_config.is_render_challenge_enabled() is False
+
+
+def test_explicit_values_are_reported_even_when_falsy(monkeypatch) -> None:
+    """``0`` is still an override: it shadows a UI-enabled tier."""
+    for name in (
+        "CREATOR_SYNC_REVIEW_ENABLED",
+        "CREATOR_MEDIA_REVIEW_ENABLED",
+        "CREATOR_SELF_REVIEW_ENABLED",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert forced_review_env_overrides() == {}
+    # Blank values never count as overrides.
+    monkeypatch.setenv("CREATOR_SYNC_REVIEW_ENABLED", "  ")
+    assert forced_review_env_overrides() == {}
+    monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", "0")
+    monkeypatch.setenv("CREATOR_SELF_REVIEW_ENABLED", "1")
+    assert forced_review_env_overrides() == {
+        "CREATOR_MEDIA_REVIEW_ENABLED": "0",
+        "CREATOR_SELF_REVIEW_ENABLED": "1",
+    }

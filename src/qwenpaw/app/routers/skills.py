@@ -12,6 +12,8 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import ExitStack
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,7 @@ from ...agents.skill_system.registry import (
     reconcile_workspace_manifest,
     update_single_builtin,
 )
+from ...agents.skill_system.models import SkillRequirements
 from ...agents.skill_system.store import (
     build_skill_metadata,
     default_workspace_manifest,
@@ -249,10 +252,12 @@ class SkillSpec(BaseModel):
 
     name: str
     description: str = ""
+    version_text: str = ""
     source: str
     emoji: str = ""
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
+    preload: bool = False
     tags: list[str] = Field(default_factory=list)
     last_updated: str = ""
 
@@ -263,6 +268,7 @@ class SkillDetail(SkillSpec):
     content: str
     config: dict[str, Any] = Field(default_factory=dict)
     installed_from: str = ""
+    requirements: SkillRequirements = Field(default_factory=SkillRequirements)
 
 
 class PoolSkillSpec(BaseModel):
@@ -270,6 +276,7 @@ class PoolSkillSpec(BaseModel):
 
     name: str
     description: str = ""
+    version_text: str = ""
     source: str
     emoji: str = ""
     external: bool = False
@@ -287,6 +294,7 @@ class PoolSkillDetail(PoolSkillSpec):
     content: str
     config: dict[str, Any] = Field(default_factory=dict)
     installed_from: str = ""
+    requirements: SkillRequirements = Field(default_factory=SkillRequirements)
     builtin_language: str = ""
     available_builtin_languages: list[str] = Field(default_factory=list)
     auto_sync_targets: list[str] | None = None
@@ -414,6 +422,10 @@ class SaveSkillRequest(BaseModel):
 
 
 class HubInstallRequest(BaseModel):
+    provider_key: str | None = Field(
+        default=None,
+        description="Market source key",
+    )
     bundle_url: str = Field(..., description="Skill URL")
     version: str = Field(default="", description="Optional version tag")
     enable: bool = Field(default=True, description="Enable after import")
@@ -460,6 +472,79 @@ _ALLOWED_ZIP_TYPES = {
     "application/x-zip-compressed",
     "application/octet-stream",
 }
+
+# ``POST /pool/download`` runs its blocking body in a worker thread. Before
+# that change a copy held the event loop for its whole run, so two downloads
+# could never overlap; offloading the copy opens that door. Preflight +
+# install is a check-then-write over a workspace, so two overlapping requests
+# could both pass preflight and then one request's rollback would restore a
+# snapshot taken before the other had installed. Serialize the whole
+# check-and-install per workspace, so the second request re-preflights against
+# whatever the first one left behind.
+_pool_download_locks_guard = threading.Lock()
+_pool_download_locks: dict[str, threading.Lock] = {}
+
+
+def _pool_download_lock(workspace_id: str) -> threading.Lock:
+    with _pool_download_locks_guard:
+        lock = _pool_download_locks.get(workspace_id)
+        if lock is None:
+            lock = threading.Lock()
+            _pool_download_locks[workspace_id] = lock
+        return lock
+
+
+@dataclass(frozen=True)
+class _ResolvedDownloadTarget:
+    """One workspace a download will write to, with its directory pinned.
+
+    Resolved once per request and then reused for locking, preflight and
+    execution. Resolving ``all_workspaces`` a second time would let a
+    workspace appear in between and enter the execution plan without its
+    lock held.
+    """
+
+    workspace_id: str
+    workspace_dir: Path
+
+
+def _resolve_download_targets(
+    body: DownloadFromPoolRequest,
+) -> list[_ResolvedDownloadTarget]:
+    """Resolve every workspace a download request writes to — exactly once.
+
+    An explicit target set is taken as-is; ``all_workspaces`` is expanded
+    here so the expansion and the locks below cannot disagree.
+    """
+    if body.all_workspaces:
+        return [
+            _ResolvedDownloadTarget(
+                str(workspace["agent_id"]),
+                Path(workspace["workspace_dir"]),
+            )
+            for workspace in list_workspaces()
+        ]
+    return [
+        _ResolvedDownloadTarget(
+            target.workspace_id,
+            _workspace_dir_for_agent(target.workspace_id),
+        )
+        for target in body.targets
+    ]
+
+
+def _pool_download_lock_keys(
+    targets: list[_ResolvedDownloadTarget],
+) -> list[str]:
+    """Workspace ids to lock, in a stable order.
+
+    Sorted so two requests that touch the same set of workspaces always take
+    their locks in the same order and cannot deadlock. Derived from the
+    resolved targets rather than from the request: preflight has to run
+    inside the locks, so it cannot be what picks the keys, and resolving the
+    list again here would lock a different set than the one executed.
+    """
+    return sorted({target.workspace_id for target in targets})
 
 
 def _workspace_dir_for_agent(agent_id: str) -> Path:
@@ -636,6 +721,7 @@ async def _run_hub_install_task(
         result = await install_skill_from_hub(
             workspace_dir=workspace_dir,
             bundle_url=body.bundle_url,
+            provider_key=body.provider_key,
             version=body.version,
             enable=body.enable,
             target_name=body.target_name,
@@ -736,10 +822,12 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                 SkillSpec(
                     name=skill_name,
                     description=str(metadata.get("description", "") or ""),
+                    version_text=metadata["version_text"],
                     source=source,
                     emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
                     channels=entry.get("channels") or ["all"],
+                    preload=entry.get("preload") is True,
                     tags=entry.get("tags") or [],
                     last_updated=str(metadata.get("updated_at", "") or ""),
                 ),
@@ -782,6 +870,7 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                 PoolSkillSpec(
                     name=skill_name,
                     description=str(metadata.get("description", "") or ""),
+                    version_text=metadata["version_text"],
                     source=source,
                     emoji=str(metadata.get("emoji", "") or ""),
                     external=is_external,
@@ -832,10 +921,13 @@ def _build_workspace_skill_detail(
     return SkillDetail(
         name=skill_name,
         description=str(metadata.get("description", "") or ""),
+        version_text=metadata["version_text"],
+        requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
         emoji=str(metadata.get("emoji", "") or ""),
         enabled=bool(entry.get("enabled", False)),
         channels=entry.get("channels") or ["all"],
+        preload=entry.get("preload") is True,
         tags=entry.get("tags") or [],
         last_updated=str(metadata.get("updated_at", "") or ""),
         content=content,
@@ -872,6 +964,8 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
     return PoolSkillDetail(
         name=skill_name,
         description=str(metadata.get("description", "") or ""),
+        version_text=metadata["version_text"],
+        requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
         emoji=str(metadata.get("emoji", "") or ""),
         external=is_external,
@@ -1247,6 +1341,7 @@ async def import_skill_pool_from_hub(
     try:
         result = await import_pool_skill_from_hub(
             bundle_url=body.bundle_url,
+            provider_key=body.provider_key,
             version=body.version,
             target_name=body.target_name,
         )
@@ -1294,17 +1389,16 @@ async def upload_workspace_skill_to_pool(
 
 def _preflight_download_conflicts(
     hub_service: SkillPoolService,
-    targets: list[PoolDownloadTarget],
+    targets: list[_ResolvedDownloadTarget],
     skill_name: str,
     overwrite: bool,
 ) -> list[dict[str, Any]]:
     """Check all targets for conflicts before downloading."""
     conflicts: list[dict[str, Any]] = []
     for target in targets:
-        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
         result = hub_service.preflight_download_to_workspace(
             skill_name=skill_name,
-            workspace_dir=workspace_dir,
+            workspace_dir=target.workspace_dir,
             overwrite=overwrite,
         )
         if not result.get("success"):
@@ -1314,21 +1408,11 @@ def _preflight_download_conflicts(
     return conflicts
 
 
-def _resolve_and_preflight(
+def _preflight_download(
     body: DownloadFromPoolRequest,
-) -> tuple[list[PoolDownloadTarget], SkillPoolService]:
-    """Resolve targets and reject if any conflicts exist."""
-    targets = list(body.targets)
-    if body.all_workspaces:
-        targets = [
-            PoolDownloadTarget(workspace_id=workspace["agent_id"])
-            for workspace in list_workspaces()
-        ]
-    if not targets:
-        raise HTTPException(
-            status_code=400,
-            detail="No workspace targets provided",
-        )
+    targets: list[_ResolvedDownloadTarget],
+) -> SkillPoolService:
+    """Reject the request if any already-resolved target conflicts."""
     hub_service = SkillPoolService()
     try:
         conflicts = _preflight_download_conflicts(
@@ -1350,25 +1434,24 @@ def _resolve_and_preflight(
                 "conflicts": conflicts,
             },
         )
-    return targets, hub_service
+    return hub_service
 
 
 def _build_download_plan(
-    targets: list[PoolDownloadTarget],
+    targets: list[_ResolvedDownloadTarget],
     skill_name: str,
 ) -> list[dict[str, Any]]:
     """Build execution plan with rollback snapshots."""
     plan: list[dict[str, Any]] = []
     for target in targets:
-        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
         snapshot = _snapshot_workspace_skill(
-            workspace_dir,
+            target.workspace_dir,
             str(skill_name),
         )
         plan.append(
             {
                 "workspace_id": target.workspace_id,
-                "workspace_dir": workspace_dir,
+                "workspace_dir": target.workspace_dir,
                 "snapshot": snapshot,
             },
         )
@@ -1416,8 +1499,46 @@ async def download_pool_skill_to_workspaces(
     """Download one pool skill into one or more workspaces.
 
     All-or-nothing: if any target conflicts, reject everything.
+
+    A large skill means thousands of file operations, so the blocking work runs
+    in a worker thread: doing it inline would freeze the event loop and every
+    other API for the whole copy.
+
+    Concurrent downloads into the same workspace are serialized end to end
+    (preflight included), so a second request cannot slip in behind a first
+    request's successful install and then undo it on rollback.
     """
-    targets, hub_service = _resolve_and_preflight(body)
+    return await asyncio.to_thread(_download_pool_skill, body)
+
+
+def _download_pool_skill(body: DownloadFromPoolRequest) -> dict[str, Any]:
+    """Blocking body of ``POST /pool/download``; see the route docstring.
+
+    The target list is resolved once and then drives everything: the lock
+    keys, preflight and the execution plan. The whole check-then-install runs
+    under those locks — preflight has to be inside them, or two overlapping
+    requests would both pass against the same untouched workspace and then
+    fight over it.
+    """
+    targets = _resolve_download_targets(body)
+    if not targets:
+        raise HTTPException(
+            status_code=400,
+            detail="No workspace targets provided",
+        )
+    with ExitStack() as stack:
+        for key in _pool_download_lock_keys(targets):
+            stack.enter_context(_pool_download_lock(key))
+        result = _download_pool_skill_locked(body, targets)
+    return result
+
+
+def _download_pool_skill_locked(
+    body: DownloadFromPoolRequest,
+    targets: list[_ResolvedDownloadTarget],
+) -> dict[str, Any]:
+    """Install a pool skill; caller holds the per-workspace lock(s)."""
+    hub_service = _preflight_download(body, targets)
     if body.preview_only:
         return {"downloaded": []}
 
@@ -1903,6 +2024,26 @@ async def update_skill_channels_endpoint(
         raise HTTPException(status_code=404, detail="Skill not found")
     schedule_agent_reload(request, workspace.agent_id)
     return {"updated": True, "channels": channels}
+
+
+@router.put("/{skill_name}/preload")
+async def update_skill_preload_endpoint(
+    request: Request,
+    skill_name: str,
+    preload: bool = Body(..., embed=True),
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    updated = SkillService(workspace_dir).set_skill_preload(
+        skill_name,
+        preload,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    schedule_agent_reload(request, workspace.agent_id)
+    return {"updated": True, "preload": preload}
 
 
 @router.put("/{skill_name}/tags")

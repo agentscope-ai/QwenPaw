@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "tasks": [
+    {
+      "id": "daily-review",
+      "title": "Daily review",
+      "prompt": "Review the current project",
+      "lifecycle": "active",
+      "enabled": true,
+      "schedule": {
+        "startAt": "2026-08-20T00:00:00Z",
+        "timezone": "Asia/Shanghai",
+        "repeat": {"frequency": "daily", "time": "09:30"}
+      },
+      "source": "slash",
+      "createdAt": "2026-08-18T00:00:00Z",
+      "updatedAt": "2026-08-18T00:00:00Z"
+    }
+  ],
+  "runs": []
+}

@@ -29,7 +29,14 @@ from services.runtime_files.models import (
     ReviewStatus,
 )
 
-from .conftest import make_pending_review, read_state
+from .conftest import (
+    make_pending_review,
+    make_store,
+    read_round,
+    read_state,
+    review_boundary,
+    review_commit_kwargs,
+)
 
 
 def _operation(review, pointer):
@@ -103,6 +110,25 @@ def test_accept_does_not_rewrite_project_and_reject_is_compensating_cas(
     assert current.generation == committed.snapshot.generation + 1
     assert read_state(store).accepted_generation == current.generation
 
+    # A later edit in the same running round starts from the value the user
+    # already kept, not from the original pre-round value.
+    candidate = current.project.model_dump(mode="json")
+    candidate["name"] = "Further revision"
+    revised = ProjectCommitBoundary(store).commit(
+        base=current,
+        candidate=candidate,
+        round_id=review.round_id,
+        **review_commit_kwargs(
+            read_round(store, review.round_id).review_boundary,
+        ),
+    )
+    _decide(
+        service,
+        revised.review,
+        [_item(_operation(revised.review, "/name"))],
+    )
+    assert store.read("project-1").project.name == "After"
+
 
 def test_rejection_feedback_is_durable_and_idempotent(tmp_path) -> None:
     store, _base, committed = make_pending_review(tmp_path)
@@ -132,6 +158,7 @@ def test_rejection_feedback_is_durable_and_idempotent(tmp_path) -> None:
     assert journal.state is ReviewDecisionJournalState.FINALIZED
     assert journal.rejection_feedback is not None
     assert journal.rejection_feedback.feedback_note == "人物状态不对；保持身份一致后重做"
+    assert "/name" in journal.runtime_feedback_message
     assert [target.json_pointers for target in journal.rejection_targets] == [
         ["/name"],
     ]
@@ -158,6 +185,166 @@ def test_rejection_feedback_is_durable_and_idempotent(tmp_path) -> None:
             ),
             decision_id="decision-with-feedback",
         )
+
+
+@pytest.mark.parametrize("accepted_parent", [False, True])
+def test_same_round_nested_edits_remain_reviewable(tmp_path, accepted_parent):
+    store, base = make_store(tmp_path)
+    commits = ProjectCommitBoundary(store)
+    service = ProjectReviewService(store)
+    candidate = base.project.model_dump(mode="json")
+    candidate["visual"]["entities"] = {
+        "order": ["char:lulu"],
+        "items": {
+            "char:lulu": {
+                "entity_id": "char:lulu",
+                "kind": "character",
+                "name": "Lulu",
+                "required_variant_ids": [],
+            },
+        },
+    }
+    metadata = review_commit_kwargs(review_boundary(base))
+    created = commits.commit(
+        base=base,
+        candidate=candidate,
+        round_id="draft-round",
+        **metadata,
+    )
+    parent_pointer = "/visual/entities/items/char:lulu"
+    parent = _operation(created.review, parent_pointer)
+    if accepted_parent:
+        _decide(service, created.review, [_item(parent, "ACCEPT")])
+    candidate = created.snapshot.project.model_dump(mode="json")
+    candidate["visual"]["entities"]["items"]["char:lulu"][
+        "description"
+    ] = "Smooth, no fur"
+    updated = commits.commit(
+        base=created.snapshot,
+        candidate=candidate,
+        round_id="draft-round",
+        **metadata,
+    )
+    pointer = (
+        parent_pointer + "/description" if accepted_parent else parent_pointer
+    )
+    if accepted_parent:
+        assert (
+            _operation(updated.review, parent_pointer).decision
+            is ReviewOperationDecision.ACCEPTED
+        )
+    else:
+        assert not any(
+            o.json_pointer.startswith(parent_pointer + "/")
+            for o in updated.review.operations
+        )
+    _decide(
+        service,
+        updated.review,
+        [_item(_operation(updated.review, pointer))],
+    )
+    entities = store.read("project-1").project.visual.entities
+    if accepted_parent:
+        assert entities.items["char:lulu"].description == ""
+    else:
+        assert entities.items == {} and entities.order == []
+
+
+@pytest.mark.parametrize("restore_deleted", [False, True])
+def test_partial_entity_rejection_preserves_collection_order(
+    tmp_path,
+    restore_deleted,
+):
+    store, base = make_store(tmp_path)
+    candidate = base.project.model_dump(mode="json")
+    entities = candidate["visual"]["entities"]
+    entities["items"] = {
+        key: {
+            "entity_id": key,
+            "kind": "character",
+            "name": key,
+            "required_variant_ids": [],
+        }
+        for key in ("char:lulu", "char:duck")
+    }
+    entities["order"] = ["char:lulu", "char:duck"]
+    if restore_deleted:
+        base = (
+            ProjectCommitBoundary(store)
+            .commit(
+                base=base,
+                candidate=candidate,
+                origin="frontend_edit",
+            )
+            .snapshot
+        )
+        candidate = base.project.model_dump(mode="json")
+        del candidate["visual"]["entities"]["items"]["char:lulu"]
+        candidate["visual"]["entities"]["order"] = ["char:duck"]
+    committed = ProjectCommitBoundary(store).commit(
+        base=base,
+        candidate=candidate,
+        round_id="round-entity",
+        **review_commit_kwargs(review_boundary(base)),
+    )
+    service = ProjectReviewService(store)
+    review = committed.review
+    partial = _decide(
+        service,
+        review,
+        [
+            _item(_operation(review, "/visual/entities/items/char:lulu")),
+        ],
+    )
+    current = store.read("project-1").project.visual.entities
+    assert current.order == (
+        ["char:lulu", "char:duck"] if restore_deleted else ["char:duck"]
+    )
+    assert set(current.items) == set(current.order)
+
+    # The remaining order decision must still be actionable after its
+    # membership changed as part of the per-entity rollback.
+    _decide(
+        service,
+        partial,
+        [_item(_operation(partial, "/visual/entities/order"))],
+    )
+    current = store.read("project-1").project.visual.entities
+    assert set(current.items) == set(current.order)
+
+
+def test_aborted_compensation_does_not_block_a_fresh_review_decision(
+    tmp_path,
+    monkeypatch,
+):
+    store, _base, committed = make_pending_review(tmp_path)
+    service = ProjectReviewService(store)
+    review = committed.review
+    decisions = [_item(_operation(review, "/name"))]
+    commit = service.commits.commit
+
+    def invalid_compensation(**kwargs):
+        kwargs["candidate"]["visual"]["entities"]["order"] = ["missing-entity"]
+        return commit(**kwargs)
+
+    monkeypatch.setattr(service.commits, "commit", invalid_compensation)
+    with pytest.raises(ValueError, match="order must contain"):
+        _decide(service, review, decisions, decision_id="failed-decision")
+    monkeypatch.setattr(service.commits, "commit", commit)
+
+    assert service.recover_project("project-1").ok
+    assert (
+        service.get_decision_journal(
+            "project-1",
+            review.review_id,
+            "failed-decision",
+        ).state
+        is ReviewDecisionJournalState.ABORTED
+    )
+    with pytest.raises(ReviewDecisionConflict, match="aborted"):
+        _decide(service, review, decisions, decision_id="failed-decision")
+    _decide(service, review, decisions, decision_id="fresh-decision")
+    assert store.read("project-1").project.name == "Before"
 
 
 def test_review_decision_refuses_to_overwrite_newer_user_value(

@@ -39,3 +39,17 @@ FEISHU_STREAM_MIN_INTERVAL_S = 0.15
 
 # Element ID for the markdown component inside the streaming card.
 FEISHU_STREAM_ELEMENT_ID = "streaming_content"
+
+# Element ID for the collapsible panel wrapping the reasoning markdown.
+# CardKit requires <= 20 chars, starting with a letter.
+FEISHU_REASONING_PANEL_ELEMENT_ID = "reasoning_panel"
+
+# Header label of the reasoning panel. Deliberately English: QwenPaw ships
+# internationally, and the collapsed state is conveyed by the arrow icon
+# instead of by state-dependent copy.
+FEISHU_REASONING_PANEL_TITLE = "Thinking"
+
+# Standard icon used as the panel's expand/collapse arrow. Paired with
+# ``icon_expanded_angle: 180`` it points up while expanded and down after
+# the panel is collapsed.
+FEISHU_REASONING_PANEL_ICON_TOKEN = "down-small-ccm_outlined"

@@ -144,18 +144,21 @@ def get_agent_project_dir(workspace: "Workspace") -> Path:
     The Coding tools switch does not participate in directory resolution.
     """
     from ..config.config import load_agent_config
-    from ..services.project_directory import resolve_effective_project_dir
+    from ..services.project_directory import (
+        agent_project_dirs_from_config,
+        resolve_effective_project_dirs,
+    )
 
     try:
         config = load_agent_config(workspace.agent_id)
-        project_dir = config.project_dir
+        project_dirs = agent_project_dirs_from_config(config)
     except Exception:
-        project_dir = None
+        project_dirs = []
 
-    return resolve_effective_project_dir(
+    return resolve_effective_project_dirs(
         workspace.workspace_dir,
-        agent_project_dir=project_dir,
-    )[0]
+        agent_project_dirs=project_dirs,
+    ).primary_path
 
 
 async def get_project_dir_for_request(
@@ -165,6 +168,7 @@ async def get_project_dir_for_request(
     """Resolve the effective project directory for a Files API request."""
     from ..config.config import load_agent_config
     from ..services.project_directory import (
+        agent_project_dirs_from_config,
         resolve_effective_project_dirs,
         session_project_dirs_raw_from_meta,
     )
@@ -185,9 +189,9 @@ async def get_project_dir_for_request(
     def _resolve() -> Path:
         try:
             config = load_agent_config(workspace.agent_id)
-            agent_project_dir = config.project_dir
+            agent_project_dirs = agent_project_dirs_from_config(config)
         except Exception:
-            agent_project_dir = None
+            agent_project_dirs = []
         # Reading the override normalizes (and therefore resolve()-s)
         # every stored path, so it belongs in here with the rest of the
         # filesystem work rather than on the event loop.
@@ -204,7 +208,7 @@ async def get_project_dir_for_request(
         # ``get_project_dirs_for_request``'s.
         return resolve_effective_project_dirs(
             workspace.workspace_dir,
-            agent_project_dir=agent_project_dir,
+            agent_project_dirs=agent_project_dirs,
             session_project_dirs=resolved_session,
         ).primary_path
 
@@ -239,6 +243,7 @@ async def get_project_dirs_for_request(
     """
     from ..config.config import load_agent_config
     from ..services.project_directory import (
+        agent_project_dirs_from_config,
         resolve_effective_project_dirs,
         session_project_dirs_raw_from_meta,
     )
@@ -259,9 +264,9 @@ async def get_project_dirs_for_request(
     def _resolve() -> "ResolvedProjectDirs":
         try:
             config = load_agent_config(workspace.agent_id)
-            agent_project_dir = config.project_dir
+            agent_project_dirs = agent_project_dirs_from_config(config)
         except Exception:
-            agent_project_dir = None
+            agent_project_dirs = []
         # Read inside the thread: the metadata reader resolve()-s every
         # stored path, which is exactly the blocking work this to_thread
         # exists to contain.
@@ -275,7 +280,7 @@ async def get_project_dirs_for_request(
             resolved_session = [{"path": str(pending_path), "label": None}]
         return resolve_effective_project_dirs(
             workspace.workspace_dir,
-            agent_project_dir=agent_project_dir,
+            agent_project_dirs=agent_project_dirs,
             session_project_dirs=resolved_session,
         )
 

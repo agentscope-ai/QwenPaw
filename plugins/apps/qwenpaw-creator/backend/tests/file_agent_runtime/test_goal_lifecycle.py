@@ -1,16 +1,22 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Goal lifecycle recovery: terminal goals never wedge the Session.
+"""Driver incident regressions: the Session must never stay wedged.
 
-Production incident: resuming after the mainline Goal reached COMPLETED
-bound a fresh QUEUED run to the dead Goal. The dispatcher refuses to
-start runs on terminal Goals and admission rejects every later message
-with "Active Goal is terminal", deadlocking the Session until the
-runtime records were repaired by hand.
+Terminal goals: resuming after the mainline Goal reached COMPLETED bound a
+fresh QUEUED run to the dead Goal. The dispatcher refuses to start runs on
+terminal Goals and admission rejects every later message with "Active Goal
+is terminal", deadlocking the Session until the runtime records were
+repaired by hand.
+
+Stop under polling: steady UI polling took shared Runtime locks, the stop's
+exclusive writes lost the lock race on every poll tick, and the dock showed
+「正在停止所有 Agent」 forever.
 """
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 
 import pytest
 
@@ -232,7 +238,12 @@ def test_reconcile_reclaims_a_queued_run_bound_to_a_terminal_goal(
     orphan, records, session = asyncio.run(scenario())
 
     assert orphan.status.value == "CANCELLED"
-    assert (orphan.error or {}).get("code") == "ORPHANED_ON_TERMINAL_GOAL"
+    # Either healing pass may win: the steady-state terminal-goal reclaim or
+    # the startup orphan reclaim that now runs in the start() sweep.
+    assert (orphan.error or {}).get("code") in {
+        "ORPHANED_ON_TERMINAL_GOAL",
+        "ORPHANED_BY_RESTART",
+    }
     succeeded = [
         record for record in records if record.status.value == "SUCCEEDED"
     ]
@@ -342,8 +353,102 @@ def test_stalled_interrupt_reclaims_a_running_run_with_no_live_owner(
 
     reclaimed, session = asyncio.run(scenario())
 
-    assert reclaimed.status.value == "FAILED"
-    assert (reclaimed.error or {}).get("code") == "INTERRUPTED"
+    # Either healing pass may win: the stalled-interrupt reclaim or the
+    # startup orphan reclaim that now runs in the start() sweep.
+    assert (
+        reclaimed.status.value,
+        (reclaimed.error or {}).get("code"),
+    ) in {
+        ("FAILED", "INTERRUPTED"),
+        ("CANCELLED", "ORPHANED_BY_RESTART"),
+    }
     assert session.status.value == "CANCELLED"
     assert session.active_run_id is None
     assert session.last_consumed_message_seq == session.last_message_seq
+
+
+def test_stop_completes_promptly_under_snapshot_hammering(
+    tmp_path,
+    caplog,
+) -> None:
+    """Reads are lock-free, so a stop cannot lose the race to pollers."""
+
+    async def callback(_messages, _tools) -> AgentModelTurn:
+        # A hung provider turn: the stop must never wait for it.
+        await asyncio.sleep(30)
+        return AgentModelTurn(content="不应到达")
+
+    async def scenario():
+        services = _create_project(tmp_path, initial_goal="生成一段视频")
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        runs = CreatorAgentRunStore(services.root)
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: any(
+                run.status.value == "RUNNING" for run in runs.list(PROJECT_ID)
+            ),
+        )
+
+        stop_polling = threading.Event()
+        poll_errors: list[BaseException] = []
+        poll_counts = [0] * 4
+
+        def poller(index: int) -> None:
+            while not stop_polling.is_set():
+                try:
+                    session = services.sessions.get_project_session_snapshot(
+                        PROJECT_ID,
+                    )
+                    services.sessions.list_events(
+                        PROJECT_ID,
+                        session.session_id,
+                        after_seq=0,
+                        limit=50,
+                    )
+                    runs.list(PROJECT_ID)
+                    poll_counts[index] += 1
+                except BaseException as error:  # pragma: no cover - asserted
+                    poll_errors.append(error)
+                    return
+
+        threads = [
+            threading.Thread(target=poller, args=(index,))
+            for index in range(4)
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            await asyncio.sleep(0.2)
+            started = time.monotonic()
+            assert await driver.interrupt(PROJECT_ID, reason="user_interrupt")
+            await _wait_for(
+                lambda: (
+                    services.sessions.get_project_session_snapshot(
+                        PROJECT_ID,
+                    ).active_run_id
+                    is None
+                ),
+            )
+            stop_elapsed = time.monotonic() - started
+        finally:
+            stop_polling.set()
+            for thread in threads:
+                thread.join(timeout=5)
+        await driver.stop()
+        return stop_elapsed, poll_errors, poll_counts
+
+    with caplog.at_level("WARNING"):
+        stop_elapsed, poll_errors, poll_counts = asyncio.run(scenario())
+
+    assert not poll_errors
+    assert all(count > 0 for count in poll_counts)
+    # The incident shape was an unbounded stall (>10s lock timeouts on every
+    # attempt); the stop must now finish in seconds regardless of polling.
+    assert stop_elapsed < 5.0
+    assert "timed out" not in caplog.text
+    assert "LockTimeout" not in caplog.text

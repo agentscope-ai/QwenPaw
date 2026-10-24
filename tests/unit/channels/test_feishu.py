@@ -28,7 +28,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -389,6 +392,7 @@ class TestFeishuChannelFromConfig:
             group_policy="allowlist",
             require_mention=True,
             domain="lark",
+            auto_collapse_thinking=True,
         )
 
         channel = FeishuChannel.from_config(
@@ -406,6 +410,7 @@ class TestFeishuChannelFromConfig:
         assert channel.group_policy == "allowlist"
         assert channel.require_mention is True
         assert channel.domain == "lark"
+        assert channel.auto_collapse_thinking is True
 
     def test_from_config_with_workspace(self, mock_process_handler, tmp_path):
         """from_config should use workspace_dir when provided."""
@@ -2710,7 +2715,7 @@ class TestFeishuChannelThreadReply:
     - _reply_in_thread method
     - send_content_parts thread reply path (text, image, file)
     - on_streaming_start skips thread messages
-    - _before_consume_process skips streaming card pre-creation for threads
+    - _before_consume_process only persists receive_id, never creates cards
     """
 
     # -------------------------------------------------------------------------
@@ -3168,27 +3173,36 @@ class TestFeishuChannelThreadReply:
         feishu_channel._get_receive_for_send.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_before_consume_process_skips_streaming_for_thread(
+    async def test_before_consume_process_never_creates_a_card(
         self,
         feishu_channel,
     ):
-        """_before_consume_process should skip card pre-creation for thread."""
+        """Cards are created lazily on the first stream segment.
+
+        Pre-creating one would post it before the reasoning card and invert
+        the reasoning/answer order in the chat.
+        """
         feishu_channel.streaming_enabled = True
         feishu_channel._create_streaming_card = AsyncMock(
             return_value={"card_id": "card_001"},
         )
+        feishu_channel._save_receive_id = AsyncMock()
 
         request = MagicMock()
         request.session_id = "test_session"
         request.channel_meta = {
             "feishu_receive_id": "oc_test",
             "feishu_receive_id_type": "chat_id",
-            "feishu_thread_id": "omt_thread_root",
         }
 
         await feishu_channel._before_consume_process(request)
 
         feishu_channel._create_streaming_card.assert_not_called()
+        feishu_channel._save_receive_id.assert_awaited_once_with(
+            "test_session",
+            "oc_test",
+            "chat_id",
+        )
 
 
 # =============================================================================
@@ -3575,3 +3589,456 @@ class TestProcessQuotedMessage:
         # quoted label should be first, reply should be last
         assert text_parts[0].startswith("[quoted message:")
         assert text_parts[-1] == "Reply"
+
+
+# =============================================================================
+# Reasoning panel: collapsible thinking card (Issue #7570)
+# =============================================================================
+
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+
+
+class _RecordedRequest:
+    """Stand-in for a lark_oapi request builder that records its setters.
+
+    tests/conftest.py replaces ``lark_oapi`` with a MagicMock, whose
+    submodules do not resolve, so the channel's lazily imported CardKit
+    builders are unavailable. Importing the real SDK is not an option
+    either: its vendored protobuf namespace calls
+    ``pkg_resources.declare_namespace``, which setuptools >= 81 removed.
+    Recording the builder calls keeps the emitted payload assertable
+    without relying on either.
+    """
+
+    def __init__(self) -> None:
+        self.fields: dict = {}
+
+    def __getattr__(self, name: str):
+        if name == "build":
+            return lambda: dict(self.fields)
+
+        def _record(value=None):
+            self.fields[name] = value
+            return self
+
+        return _record
+
+
+@pytest.fixture
+def cardkit_sdk(monkeypatch):
+    """Resolve the channel's lazy CardKit imports to recording builders.
+
+    Each request is handed to the client as a plain dict of the fields the
+    channel set, e.g. ``{"request_body": {"data": "<card_json>"}}``.
+    """
+    module = ModuleType("lark_oapi.api.cardkit.v1")
+    for name in (
+        "CreateCardRequest",
+        "CreateCardRequestBody",
+        "PatchCardElementRequest",
+        "PatchCardElementRequestBody",
+    ):
+        fake = MagicMock()
+        fake.builder = _RecordedRequest
+        setattr(module, name, fake)
+    # Parent packages must resolve for the dotted import to succeed.
+    for name in ("lark_oapi.api", "lark_oapi.api.cardkit"):
+        monkeypatch.setitem(sys.modules, name, ModuleType(name))
+    monkeypatch.setitem(sys.modules, "lark_oapi.api.cardkit.v1", module)
+
+
+def _created_card_json(client: MagicMock, index: int = 0) -> dict:
+    """Parse the card_json of the index-th CreateCard call."""
+    req = client.cardkit.v1.card.acreate.await_args_list[index].args[0]
+    return json.loads(req["request_body"]["data"])
+
+
+class TestReasoningPanel:
+    """Collapsible reasoning panel: card shape and streaming wiring.
+
+    The first group asserts the card JSON built by
+    ``build_streaming_card_json``; the rest drive the channel hooks and the
+    CardKit calls they emit.
+    """
+
+    def test_reasoning_card_wraps_markdown_in_a_panel(self):
+        from qwenpaw.app.channels.feishu.channel import (
+            build_streaming_card_json,
+        )
+        from qwenpaw.app.channels.feishu.constants import (
+            FEISHU_REASONING_PANEL_ELEMENT_ID,
+            FEISHU_REASONING_PANEL_ICON_TOKEN,
+            FEISHU_STREAM_ELEMENT_ID,
+        )
+
+        body = build_streaming_card_json("...", collapsible=True)
+
+        assert body["config"] == {"streaming_mode": True}
+        (top,) = body["body"]["elements"]
+        assert top["tag"] == "collapsible_panel"
+        assert top["expanded"] is True
+        assert top["element_id"] == FEISHU_REASONING_PANEL_ELEMENT_ID
+        # CardKit requires <= 20 chars, starting with a letter.
+        assert 0 < len(top["element_id"]) <= 20
+        assert top["element_id"][0].isalpha()
+        header = top["header"]
+        assert header["title"] == {
+            "tag": "plain_text",
+            "content": "Thinking",
+        }
+        assert header["icon"]["token"] == FEISHU_REASONING_PANEL_ICON_TOKEN
+        assert header["icon_position"] == "follow_text"
+        assert header["icon_expanded_angle"] == 180
+        (inner,) = top["elements"]
+        assert inner["tag"] == "markdown"
+        assert inner["element_id"] == FEISHU_STREAM_ELEMENT_ID
+        assert inner["content"] == "..."
+
+    def test_answer_card_stays_plain_markdown(self):
+        from qwenpaw.app.channels.feishu.channel import (
+            build_streaming_card_json,
+        )
+
+        body = build_streaming_card_json("...")
+
+        (top,) = body["body"]["elements"]
+        assert top["tag"] == "markdown"
+        assert "collapsible_panel" not in json.dumps(body)
+
+    def test_card_copy_contains_no_chinese(self):
+        """Card copy must stay English for an international product."""
+        from qwenpaw.app.channels.feishu.channel import (
+            build_streaming_card_json,
+        )
+
+        payload = json.dumps(
+            [
+                build_streaming_card_json("...", collapsible=True),
+                build_streaming_card_json("..."),
+            ],
+            ensure_ascii=False,
+        )
+        assert not _CJK_RE.search(payload)
+
+    @pytest.mark.asyncio
+    async def test_streaming_start_marks_reasoning_card_collapsible(
+        self,
+        feishu_channel,
+    ):
+        feishu_channel.streaming_enabled = True
+        feishu_channel._get_receive_for_send = AsyncMock(
+            return_value=("chat_id", "oc_test"),
+        )
+        feishu_channel._create_streaming_card = AsyncMock(
+            return_value={"card_id": "card_r", "message_id": "msg_r"},
+        )
+        send_meta = {}
+
+        await feishu_channel.on_streaming_start(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="reasoning",
+        )
+
+        _, kwargs = feishu_channel._create_streaming_card.call_args
+        assert kwargs["collapsible"] is True
+        card = send_meta["_fs_stream"]["cards"]["reasoning"]
+        assert card["card_id"] == "card_r"
+        assert card["collapsible"] is True
+
+    @pytest.mark.asyncio
+    async def test_streaming_start_marks_answer_card_plain(
+        self,
+        feishu_channel,
+    ):
+        feishu_channel.streaming_enabled = True
+        feishu_channel._get_receive_for_send = AsyncMock(
+            return_value=("chat_id", "oc_test"),
+        )
+        feishu_channel._create_streaming_card = AsyncMock(
+            return_value={"card_id": "card_m", "message_id": "msg_m"},
+        )
+        send_meta = {}
+
+        await feishu_channel.on_streaming_start(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="message",
+        )
+
+        _, kwargs = feishu_channel._create_streaming_card.call_args
+        assert kwargs["collapsible"] is False
+        card = send_meta["_fs_stream"]["cards"]["message"]
+        assert card["collapsible"] is False
+
+    @pytest.mark.asyncio
+    async def test_answer_card_is_posted_after_the_reasoning_card(
+        self,
+        feishu_channel,
+        cardkit_sdk,
+    ):
+        """Regression for the reported inversion.
+
+        Cards are messages, so Feishu keeps them in post order: the answer
+        card must be created after the reasoning card, never reuse it or
+        overtake it.
+        """
+        feishu_channel.streaming_enabled = True
+        feishu_channel._get_receive_for_send = AsyncMock(
+            return_value=("chat_id", "oc_test"),
+        )
+        posted: list = []
+
+        async def _send(receive_id_type, receive_id, msg_type, content):
+            posted.append(json.loads(content)["data"]["card_id"])
+            return f"msg_{len(posted)}"
+
+        feishu_channel._send_message = AsyncMock(side_effect=_send)
+
+        card_ids = iter(["card_reasoning", "card_answer"])
+
+        async def _create(_req):
+            resp = MagicMock()
+            resp.success.return_value = True
+            resp.data.card_id = next(card_ids)
+            return resp
+
+        client = MagicMock()
+        client.cardkit.v1.card.acreate = AsyncMock(side_effect=_create)
+        feishu_channel._client = client
+
+        send_meta = {}
+        for stream_type in ("reasoning", "message"):
+            await feishu_channel.on_streaming_start(
+                request=MagicMock(),
+                to_handle="feishu:sw:test",
+                event=MagicMock(),
+                send_meta=send_meta,
+                stream_type=stream_type,
+            )
+
+        assert posted == ["card_reasoning", "card_answer"]
+        cards = send_meta["_fs_stream"]["cards"]
+        assert cards["reasoning"]["card_id"] == "card_reasoning"
+        assert cards["message"]["card_id"] == "card_answer"
+        assert cards["reasoning"]["collapsible"] is True
+        assert cards["message"]["collapsible"] is False
+
+        payloads = [
+            _created_card_json(client, index)
+            for index in range(
+                len(client.cardkit.v1.card.acreate.await_args_list),
+            )
+        ]
+        assert payloads[0]["body"]["elements"][0]["tag"] == "collapsible_panel"
+        assert payloads[1]["body"]["elements"][0]["tag"] == "markdown"
+
+    @pytest.mark.asyncio
+    async def test_reasoning_end_updates_finalizes_then_collapses(
+        self,
+        feishu_channel,
+    ):
+        from unittest.mock import call
+
+        from qwenpaw.app.channels.feishu.utils import normalize_feishu_md
+
+        feishu_channel.auto_collapse_thinking = True
+        send_meta = {
+            "_fs_stream": {
+                "cards": {
+                    "reasoning": {
+                        "card_id": "card_r",
+                        "message_id": "msg_r",
+                        "sequence": 5,
+                        "collapsible": True,
+                    },
+                },
+            },
+        }
+        feishu_channel._update_streaming_text = AsyncMock()
+        feishu_channel._finalize_streaming_card = AsyncMock()
+        feishu_channel._collapse_reasoning_panel = AsyncMock()
+        recorder = MagicMock()
+        recorder.attach_mock(feishu_channel._update_streaming_text, "update")
+        recorder.attach_mock(
+            feishu_channel._finalize_streaming_card,
+            "finalize",
+        )
+        recorder.attach_mock(
+            feishu_channel._collapse_reasoning_panel,
+            "collapse",
+        )
+
+        await feishu_channel.on_streaming_end(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="reasoning",
+            accumulated_text="thought",
+        )
+
+        expected = normalize_feishu_md(
+            feishu_channel._build_stream_display_text(
+                "reasoning",
+                "thought",
+                send_meta,
+            ),
+        )
+        assert recorder.mock_calls == [
+            call.update("card_r", expected, sequence=6),
+            call.finalize("card_r", summary_text="thought", sequence=7),
+            call.collapse("card_r", sequence=8),
+        ]
+        assert send_meta["_last_sent_message_id"] == "msg_r"
+
+    @pytest.mark.asyncio
+    async def test_reasoning_end_keeps_panel_expanded_by_default(
+        self,
+        feishu_channel,
+    ):
+        """Auto-collapse is opt-in: the panel streams and finalizes as usual
+        but is left expanded for the user to fold by hand."""
+        assert feishu_channel.auto_collapse_thinking is False
+        send_meta = {
+            "_fs_stream": {
+                "cards": {
+                    "reasoning": {
+                        "card_id": "card_r",
+                        "message_id": "msg_r",
+                        "sequence": 5,
+                        "collapsible": True,
+                    },
+                },
+            },
+        }
+        feishu_channel._update_streaming_text = AsyncMock()
+        feishu_channel._finalize_streaming_card = AsyncMock()
+        feishu_channel._collapse_reasoning_panel = AsyncMock()
+
+        await feishu_channel.on_streaming_end(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="reasoning",
+            accumulated_text="thought",
+        )
+
+        feishu_channel._collapse_reasoning_panel.assert_not_called()
+        feishu_channel._update_streaming_text.assert_awaited_once()
+        feishu_channel._finalize_streaming_card.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_answer_end_never_collapses(self, feishu_channel):
+        """Answer cards keep the pre-existing finalize path exactly.
+
+        Auto-collapse is switched on here, so the card type alone has to
+        keep the answer card out of the collapse path.
+        """
+        feishu_channel.auto_collapse_thinking = True
+        send_meta = {
+            "_fs_stream": {
+                "cards": {
+                    "message": {
+                        "card_id": "card_m",
+                        "message_id": "msg_m",
+                        "sequence": 2,
+                    },
+                },
+            },
+        }
+        feishu_channel._update_streaming_text = AsyncMock()
+        feishu_channel._finalize_streaming_card = AsyncMock()
+        feishu_channel._collapse_reasoning_panel = AsyncMock()
+
+        await feishu_channel.on_streaming_end(
+            request=MagicMock(),
+            to_handle="feishu:sw:test",
+            event=MagicMock(),
+            send_meta=send_meta,
+            stream_type="message",
+            accumulated_text="answer",
+        )
+
+        feishu_channel._collapse_reasoning_panel.assert_not_called()
+        feishu_channel._finalize_streaming_card.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_collapse_sends_expanded_false_via_element_patch(
+        self,
+        feishu_channel,
+        cardkit_sdk,
+    ):
+        from qwenpaw.app.channels.feishu.constants import (
+            FEISHU_REASONING_PANEL_ELEMENT_ID,
+        )
+
+        resp = MagicMock()
+        resp.success.return_value = True
+        client = MagicMock()
+        client.cardkit.v1.card_element.apatch = AsyncMock(return_value=resp)
+        feishu_channel._client = client
+
+        assert (
+            await feishu_channel._collapse_reasoning_panel(
+                "card_r",
+                sequence=8,
+            )
+            is True
+        )
+
+        req = client.cardkit.v1.card_element.apatch.await_args.args[0]
+        assert req["card_id"] == "card_r"
+        assert req["element_id"] == FEISHU_REASONING_PANEL_ELEMENT_ID
+        assert isinstance(req["request_body"]["partial_element"], str)
+        assert json.loads(req["request_body"]["partial_element"]) == {
+            "expanded": False,
+        }
+        assert req["request_body"]["sequence"] == 8
+        assert req["request_body"]["uuid"]
+
+    @pytest.mark.asyncio
+    async def test_collapse_failure_never_raises(
+        self,
+        feishu_channel,
+        cardkit_sdk,
+    ):
+        bad = MagicMock()
+        bad.success.return_value = False
+        bad.code = 12345
+        bad.msg = "boom"
+        client = MagicMock()
+        client.cardkit.v1.card_element.apatch = AsyncMock(return_value=bad)
+        feishu_channel._client = client
+        assert (
+            await feishu_channel._collapse_reasoning_panel(
+                "card_r",
+                sequence=9,
+            )
+            is False
+        )
+
+        client.cardkit.v1.card_element.apatch = AsyncMock(
+            side_effect=RuntimeError("net down"),
+        )
+        assert (
+            await feishu_channel._collapse_reasoning_panel(
+                "card_r",
+                sequence=9,
+            )
+            is False
+        )
+
+        feishu_channel._client = None
+        assert (
+            await feishu_channel._collapse_reasoning_panel(
+                "card_r",
+                sequence=9,
+            )
+            is False
+        )

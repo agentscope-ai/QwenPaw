@@ -58,7 +58,11 @@ from .dependency import (
     DependencySpec,
 )
 from .agent import ManagedAgentProfile, ManagedAgentProfileSpec
-from .service import ManagedService, ManagedServiceSpec
+from .service import (
+    ManagedService,
+    ManagedServiceSpec,
+    ManagedServiceUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 _APP_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -118,7 +122,13 @@ def _configuration_error_detail(exc: ConfigurationException) -> dict:
     return detail
 
 
-def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
+def _build_capability_router(  # pylint: disable=too-many-statements
+    context_dependency=get_scoped_ctx,
+    *,
+    route_class=None,
+    encode=jsonable_encoder,
+    managed_stream=False,
+) -> APIRouter:
     """Build the standard frontend-to-host routes every PawApp receives.
 
     Every route resolves its context through ``get_scoped_ctx``: identity
@@ -126,10 +136,10 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
     """
     import json
 
-    router = APIRouter()
+    router = APIRouter(**({"route_class": route_class} if route_class else {}))
 
     @router.post("/chat")
-    async def chat(request: Request, ctx=Depends(get_scoped_ctx)):
+    async def chat(request: Request, ctx=Depends(context_dependency)):
         payload = await request.json()
         message = str(payload.get("message") or "").strip()
         if not message:
@@ -142,6 +152,11 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
                 message,
                 skill=payload.get("skill"),
                 session_id=session_id,
+                **(
+                    {"request_id": payload.get("request_id")}
+                    if managed_stream
+                    else {}
+                ),
             )
         except ConfigurationException as exc:
             raise HTTPException(
@@ -151,7 +166,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return {"text": reply.text}
 
     @router.post("/chat/stream")
-    async def chat_stream(request: Request, ctx=Depends(get_scoped_ctx)):
+    async def chat_stream(request: Request, ctx=Depends(context_dependency)):
         payload = await request.json()
         message = str(payload.get("message") or "").strip()
         if not message:
@@ -161,14 +176,20 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
             await ctx.ensure_chat_session(session_id)
 
         async def events():
+            source = ctx.chat_stream(
+                message,
+                skill=payload.get("skill"),
+                session_id=session_id,
+                **(
+                    {"request_id": payload.get("request_id")}
+                    if managed_stream
+                    else {}
+                ),
+            )
             try:
-                async for event in ctx.chat_stream(
-                    message,
-                    skill=payload.get("skill"),
-                    session_id=session_id,
-                ):
+                async for event in source:
                     encoded = json.dumps(
-                        jsonable_encoder(event),
+                        encode(event),
                         ensure_ascii=False,
                     )
                     yield f"data: {encoded}\n\n"
@@ -181,13 +202,16 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
                     ensure_ascii=False,
                 )
                 yield f"data: {encoded}\n\n"
+            finally:
+                if managed_stream:
+                    await source.aclose()
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
     @router.get("/chat/history")
     async def chat_history(
         session_id: Optional[str] = None,
-        ctx=Depends(get_scoped_ctx),
+        ctx=Depends(context_dependency),
     ):
         """Return the host-persisted transcript for one PawApp chat session.
 
@@ -213,13 +237,13 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         }
 
     @router.get("/chat/sessions")
-    async def chat_sessions(ctx=Depends(get_scoped_ctx)):
+    async def chat_sessions(ctx=Depends(context_dependency)):
         return {"sessions": await ctx.list_chat_sessions()}
 
     @router.post("/chat/sessions")
     async def create_chat_session(
         request: _ChatSessionCreate,
-        ctx=Depends(get_scoped_ctx),
+        ctx=Depends(context_dependency),
     ):
         return await ctx.create_chat_session(name=request.name)
 
@@ -227,7 +251,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
     async def rename_chat_session(
         chat_id: str,
         request: _ChatSessionUpdate,
-        ctx=Depends(get_scoped_ctx),
+        ctx=Depends(context_dependency),
     ):
         try:
             result = await ctx.rename_chat_session(chat_id, name=request.name)
@@ -241,7 +265,10 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return result
 
     @router.post("/chat/sessions/{chat_id}/archive")
-    async def archive_chat_session(chat_id: str, ctx=Depends(get_scoped_ctx)):
+    async def archive_chat_session(
+        chat_id: str,
+        ctx=Depends(context_dependency),
+    ):
         result = await ctx.archive_chat_session(chat_id)
         if result is None:
             raise HTTPException(
@@ -254,7 +281,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
     async def pin_chat_session(
         chat_id: str,
         request: _ChatSessionPin,
-        ctx=Depends(get_scoped_ctx),
+        ctx=Depends(context_dependency),
     ):
         result = await ctx.pin_chat_session(chat_id, pinned=request.pinned)
         if result is None:
@@ -265,7 +292,10 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return result
 
     @router.delete("/chat/sessions/{chat_id}")
-    async def delete_chat_session(chat_id: str, ctx=Depends(get_scoped_ctx)):
+    async def delete_chat_session(
+        chat_id: str,
+        ctx=Depends(context_dependency),
+    ):
         deleted = await ctx.delete_chat_session(chat_id)
         if not deleted:
             raise HTTPException(
@@ -275,30 +305,30 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return {"ok": True}
 
     @router.get("/storage")
-    async def storage_keys(ctx=Depends(get_scoped_ctx)):
+    async def storage_keys(ctx=Depends(context_dependency)):
         return {"keys": await ctx.storage.keys()}
 
     @router.get("/storage/{key}")
-    async def storage_get(key: str, ctx=Depends(get_scoped_ctx)):
+    async def storage_get(key: str, ctx=Depends(context_dependency)):
         return {"value": await ctx.storage.get(key)}
 
     @router.put("/storage/{key}")
     async def storage_set(
         key: str,
         request: Request,
-        ctx=Depends(get_scoped_ctx),
+        ctx=Depends(context_dependency),
     ):
         payload = await request.json()
         await ctx.storage.set(key, payload.get("value"))
         return {"ok": True}
 
     @router.delete("/storage/{key}")
-    async def storage_delete(key: str, ctx=Depends(get_scoped_ctx)):
+    async def storage_delete(key: str, ctx=Depends(context_dependency)):
         await ctx.storage.delete(key)
         return {"ok": True}
 
     @router.post("/toast")
-    async def toast(request: Request, ctx=Depends(get_scoped_ctx)):
+    async def toast(request: Request, ctx=Depends(context_dependency)):
         payload = await request.json()
         await ctx.toast(
             str(payload.get("message") or ""),
@@ -307,7 +337,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return {"ok": True}
 
     @router.post("/notify")
-    async def notify(request: Request, ctx=Depends(get_scoped_ctx)):
+    async def notify(request: Request, ctx=Depends(context_dependency)):
         payload = await request.json()
         await ctx.notify(
             title=str(payload.get("title") or ""),
@@ -331,7 +361,7 @@ def _make_app_id_injector(app_id: str) -> Callable:
     return inject_app_id
 
 
-class PawApp:
+class PawApp:  # pylint: disable=too-many-public-methods
     """PawApp SDK — thin wrapper over QwenPaw's Plugin API.
 
     In the plugin loading pipeline, ``PawApp.register(api)`` is called
@@ -346,6 +376,7 @@ class PawApp:
         # into the standard capabilities below.
         self.app_id = app_id
         self._plugin_api: Any = None  # set by PluginLoader via .register(api)
+        self._service_closers: dict[ManagedService, Any] = {}
 
         # Internal router for decorator-mode routes
         self._router = APIRouter()
@@ -355,6 +386,7 @@ class PawApp:
         # Buffered registrations (applied when .register(api) is called)
         self._tools: List[dict] = []
         self._commands: List[dict] = []
+        self._middlewares: List[dict] = []
         self._hooks: List[dict] = []
         self._routers: List[APIRouter] = []
         self._lifecycle: dict = {}
@@ -479,6 +511,18 @@ class PawApp:
             return func
 
         return decorator
+
+    # ─── Middleware ─────────────────────────────────────────────────
+
+    def middleware(self, factory: Callable, *, priority: int = 100) -> None:
+        """Register an AgentScope middleware factory.
+
+        The factory is called once per agent request as
+        ``factory(ctx, agent_config) -> MiddlewareBase | None``;
+        returning None skips the middleware for that request.
+        Lower priority = outermost in the onion model.
+        """
+        self._middlewares.append({"factory": factory, "priority": priority})
 
     # ─── Decorator: hook ────────────────────────────────────────────
 
@@ -640,7 +684,14 @@ class PawApp:
         expose_dependency: bool = True,
         runtime_remediation: str | None = None,
     ) -> ManagedService:
-        """Declare a process managed with the PawApp lifecycle."""
+        """Declare a process managed with the PawApp lifecycle.
+
+        Startup awaits readiness before later app hooks. Missing runtimes or
+        unavailable endpoints leave the app registered, with dependency
+        health reporting the failure; runtime packages are never installed
+        automatically. Registration and app callback errors still fail the
+        plugin transaction. Hosted cleanup owns pending starts and processes.
+        """
         service = ManagedService(
             ManagedServiceSpec(
                 name=name,
@@ -680,6 +731,15 @@ class PawApp:
                             "Provision the app runtime or attach an "
                             "external endpoint"
                         ),
+                    )
+                if service.startup_error is not None:
+                    return DependencyHealth(
+                        health="unavailable",
+                        lifecycle="failed",
+                        error_code=service.startup_error.code,
+                        message=service.startup_error.message,
+                        remediation=runtime_remediation
+                        or "Check the service environment and retry Start",
                     )
                 return DependencyHealth(
                     health="unavailable",
@@ -745,6 +805,56 @@ class PawApp:
 
     # ─── Plugin registration (called by PluginLoader) ───────────────
 
+    def _register_service(self, api: Any, service: ManagedService) -> None:
+        """Register one ordered start and its shared hosted cleanup."""
+        from qwenpaw.plugins.custody import ConnectionCloser
+
+        previous = self._service_closers.get(service)
+        if previous and previous.task and not previous.task.done():
+            raise RuntimeError("previous managed service is still closing")
+        service.reopen()
+        closer = ConnectionCloser(
+            service,
+            f"pawapp:{self.app_id}:service:{service.spec.name}",
+        )
+        self._service_closers[service] = closer
+
+        async def start_service(
+            selected_service: ManagedService = service,
+        ) -> None:
+            try:
+                await selected_service.start()
+            except ManagedServiceUnavailable as exc:
+                logger.warning(
+                    "PawApp '%s' service '%s' unavailable: %s",
+                    self.app_id or self.name,
+                    selected_service.spec.name,
+                    exc,
+                )
+
+        api.effect(
+            desc=f"pawapp:{self.app_id}:service:{service.spec.name}",
+            setup=None,
+            teardown=closer,
+        )
+        api.register_startup_hook(
+            hook_name=f"pawapp_{self.app_id}_service_{service.spec.name}",
+            callback=start_service,
+            priority=70,
+        )
+        api.register_shutdown_hook(
+            hook_name=f"pawapp_{self.app_id}_service_{service.spec.name}",
+            callback=closer,
+            priority=130,
+        )
+
+    @classmethod
+    def sdk(cls, name: str = "", *, app_id: str):
+        """Use the versioned, finite plugin SDK contracts explicitly."""
+        from ..plugins.apps import PawApp as SDKPawApp
+
+        return SDKPawApp(name=name, app_id=app_id)
+
     def register(self, api: Any) -> None:  # pylint: disable=R0912
         """Called by PluginLoader when the plugin is loaded.
 
@@ -754,7 +864,13 @@ class PawApp:
         self._plugin_api = api
 
         # Create app_id injector dependency
-        app_id_injector = Depends(_make_app_id_injector(self.app_id))
+        app_id_injector = Depends(
+            getattr(
+                self,
+                "_sdk_app_id_injector",
+                _make_app_id_injector(self.app_id),
+            ),
+        )
 
         # PluginRegistry owns one prefix per plugin. Aggregate every PawApp
         # router so standard capabilities and app routes share one atomic
@@ -790,6 +906,20 @@ class PawApp:
                 enabled=tool_info.get("enabled", True),
                 tool_type=tool_info.get("tool_type", "network"),
                 target_param=tool_info.get("target_param", ""),
+            )
+
+        for command_info in self._commands:
+            api.register_slash_command(
+                command_info["name"],
+                command_info["func"],
+                category=f"pawapp:{self.app_id or self.name}",
+                help_text=command_info.get("description", ""),
+            )
+
+        for middleware_info in self._middlewares:
+            api.register_middleware(
+                middleware_info["factory"],
+                priority=middleware_info["priority"],
             )
 
         if self._dependency_agent_tools_enabled and len(self.dependencies):
@@ -893,16 +1023,7 @@ class PawApp:
             )
 
         for service in self._services:
-            api.register_startup_hook(
-                hook_name=f"pawapp_{self.app_id}_service_{service.spec.name}",
-                callback=service.start,
-                priority=70,
-            )
-            api.register_shutdown_hook(
-                hook_name=f"pawapp_{self.app_id}_service_{service.spec.name}",
-                callback=service.stop,
-                priority=130,
-            )
+            self._register_service(api, service)
 
         # Register startup/shutdown hooks
         for hook_info in self._hooks:

@@ -20,8 +20,10 @@ from .registry import (
     reconcile_workspace_manifest,
     resolve_builtin_skill_dir,
     resolve_effective_skills,
+    select_preload_skills,
 )
 from .store import (
+    cleanup_orphan_skill_stages,
     get_skill_pool_dirs,
     get_skill_pool_dir,
     get_workspace_skills_dir,
@@ -37,6 +39,7 @@ __all__ = [
     "SkillPoolService",
     "SkillService",
     "apply_skill_config_env_overrides",
+    "cleanup_orphan_skill_stages",
     "ensure_skill_pool_initialized",
     "ensure_skills_initialized",
     "get_skill_pool_dirs",
@@ -50,6 +53,7 @@ __all__ = [
     "resolve_pool_skill_dir",
     "reconcile_workspace_manifest",
     "resolve_effective_skills",
+    "select_preload_skills",
     "run_pool_auto_update",
     "run_pool_auto_sync",
     "run_pool_automation_pipeline",

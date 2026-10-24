@@ -142,7 +142,6 @@ def collect_video_facts(
     expected_duration_seconds: float | None = None,
     expected_aspect: Any = None,
     expected_texts: Sequence[str] | None = None,
-    planned_shot_count: int | None = None,
     transcript_sentences: Sequence[Mapping[str, Any]] | None = None,
     predecoded_gray_samples: GraySamples | None = None,
 ) -> dict[str, Any]:
@@ -249,8 +248,6 @@ def collect_video_facts(
             if index is None:
                 return {"status": "skipped", "skip_reason": gray_skip_reason()}
             payload = dict(index)
-            if planned_shot_count is not None:
-                payload["planned_shot_count"] = planned_shot_count
             # Keep the prompt block bounded: scenes stay, raw curve does
             # not.
             return payload

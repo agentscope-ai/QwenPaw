@@ -194,7 +194,6 @@ async def generate_challenge_questions(
             + json.dumps(dict(plan_context), ensure_ascii=False),
             system_prompt=_GENERATION_SYSTEM_PROMPT,
             temperature=0.3,
-            max_tokens=1500,
             timeout=_TEXT_MODEL_TIMEOUT_SECONDS,
         )
         payload = _extract_json_object(response)
@@ -332,7 +331,6 @@ async def judge_challenges(
         response = await chat_completion(
             content,
             system_prompt=_JUDGE_SYSTEM_PROMPT,
-            max_tokens=1600,
         )
         return parse_challenge_verdicts(
             response,

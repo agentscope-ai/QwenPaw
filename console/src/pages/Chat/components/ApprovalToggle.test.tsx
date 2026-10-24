@@ -2,6 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { migrateChatSessionPreferences } from "../chatSessionPreferences";
 import { renderWithProviders } from "@/test/common_setup";
 import ApprovalLevelToggle from "./ApprovalLevelToggle";
 import HarnessApprovalToggle from "./HarnessApprovalToggle";
@@ -18,6 +19,49 @@ describe("compact approval controls", () => {
   beforeEach(() => {
     localStorage.clear();
     mockUseIsMobile.mockReturnValue(false);
+  });
+
+  it("keeps draft preferences isolated when navigating to another Agent or existing Chat", () => {
+    const changed = vi.fn();
+    localStorage.setItem("approval_level-draft:a", "OFF");
+    localStorage.setItem(
+      "approval_level-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "STRICT",
+    );
+    const props = {
+      runningConfigApprovalLevel: "AUTO" as const,
+      onChange: changed,
+    };
+    const view = renderWithProviders(
+      <ApprovalLevelToggle {...props} sessionId="draft:a" />,
+    );
+    expect(changed).toHaveBeenLastCalledWith("OFF");
+    view.rerender(
+      <ApprovalLevelToggle
+        {...props}
+        sessionId="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+      />,
+    );
+    expect(changed).toHaveBeenLastCalledWith("STRICT");
+    expect(localStorage.getItem("approval_level-draft:a")).toBe("OFF");
+    view.rerender(<ApprovalLevelToggle {...props} sessionId="draft:b" />);
+    expect(changed).toHaveBeenLastCalledWith(null);
+  });
+
+  it("moves both approval settings only on confirmed creation and preserves destination overrides", () => {
+    localStorage.setItem("approval_level-draft:a", "SMART");
+    localStorage.setItem("approval_level-draft:b", "STRICT");
+    localStorage.setItem("harness-approval-codex-draft:a", "manual");
+    migrateChatSessionPreferences("draft:a", "created-chat", "codex");
+    expect(localStorage.getItem("approval_level-created-chat")).toBe("SMART");
+    expect(localStorage.getItem("harness-approval-codex-created-chat")).toBe(
+      "manual",
+    );
+    expect(localStorage.getItem("approval_level-draft:a")).toBeNull();
+    expect(localStorage.getItem("approval_level-draft:b")).toBe("STRICT");
+    localStorage.setItem("approval_level-draft:a", "OFF");
+    migrateChatSessionPreferences("draft:a", "created-chat", "codex");
+    expect(localStorage.getItem("approval_level-created-chat")).toBe("SMART");
   });
 
   it("renders only the QwenPaw approval icon", () => {
@@ -116,6 +160,80 @@ describe("compact approval controls", () => {
     expect(
       screen.queryByText("agentConfig.toolExecutionLevel.autoDesc"),
     ).not.toBeInTheDocument();
+  });
+
+  it("disables decision model mode until the session decision model is enabled", async () => {
+    const user = userEvent.setup();
+    const changed = vi.fn();
+    const view = renderWithProviders(
+      <ApprovalLevelToggle
+        decisionModelEnabled={false}
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="decision-gate"
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "agentConfig.toolExecutionLevelTitle",
+      }),
+    );
+    const mode = await screen.findByText("JEV");
+    await user.hover(mode);
+    expect(
+      await screen.findByText(
+        "agentConfig.toolExecutionLevel.jevRequiresDecision",
+      ),
+    ).toBeInTheDocument();
+    await user.click(mode);
+    expect(localStorage.getItem("approval_level-decision-gate")).toBeNull();
+    expect(changed).not.toHaveBeenCalledWith("JEV");
+
+    view.rerender(
+      <ApprovalLevelToggle
+        decisionModelEnabled
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="decision-gate"
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "agentConfig.toolExecutionLevelTitle",
+      }),
+    );
+    await user.click(await screen.findByText("JEV"));
+    expect(localStorage.getItem("approval_level-decision-gate")).toBe("JEV");
+    expect(changed).toHaveBeenCalledWith("JEV");
+  });
+
+  it("falls back from a saved decision mode when the model is turned off", () => {
+    const changed = vi.fn();
+    localStorage.setItem("approval_level-old-decision", "JEV");
+    renderWithProviders(
+      <ApprovalLevelToggle
+        decisionModelEnabled={false}
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="old-decision"
+      />,
+    );
+    expect(localStorage.getItem("approval_level-old-decision")).toBe("AUTO");
+    expect(changed).toHaveBeenLastCalledWith("AUTO");
+  });
+
+  it("preserves a saved decision mode while its setting is unknown", () => {
+    const changed = vi.fn();
+    localStorage.setItem("approval_level-pending-decision", "JEV");
+    renderWithProviders(
+      <ApprovalLevelToggle
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="pending-decision"
+      />,
+    );
+    expect(localStorage.getItem("approval_level-pending-decision")).toBe("JEV");
+    expect(changed).toHaveBeenLastCalledWith("JEV");
   });
 
   it("uses a bottom drawer for harness approval on mobile", async () => {

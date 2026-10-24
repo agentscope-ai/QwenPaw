@@ -23,7 +23,7 @@ jobs:
             const body = [
               `## Welcome to QwenPaw! :tada:`,
               ``,
-              `Thank you @${author} for your first contribution! Your PR has been merged. :rocket:`,
+              `Thank you @${author}! Your first pull request has been merged. :rocket:`,
               ``,
               `We'd love to give you a shout-out in our release notes! If you're comfortable sharing, ` +
               `please reply to this comment with your social media handles using the format below:`,

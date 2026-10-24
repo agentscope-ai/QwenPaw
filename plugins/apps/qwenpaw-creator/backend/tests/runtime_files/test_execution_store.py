@@ -14,6 +14,7 @@ from domain.enums import (
     TaskStatus,
 )
 from services.runtime_files.errors import RuntimeFileValidationError
+from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.execution_models import (
     ContinuationState,
     ExecutionAuthorizationRecord,
@@ -382,3 +383,76 @@ def test_all_path_identifiers_reject_directory_traversal(
     )
     with pytest.raises(RuntimeFileValidationError):
         store.create_run(candidate)
+
+
+@pytest.mark.parametrize("domain", ["project", "execution"])
+def test_task_polling_reads_committed_head_while_a_writer_holds_lock(
+    tmp_path,
+    domain,
+) -> None:
+    store = _store(tmp_path)
+    store.create_run(_run())
+    store.create_task(_task())
+    store.lock_timeout_seconds = 0.05
+    path = (
+        tmp_path / ".locks" / f"project-{PROJECT_ID}.lock"
+        if domain == "project"
+        else tmp_path / PROJECT_ID / "runtime/locks/execution-runtime.lock"
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with CrossProcessFileLock(path):
+            head = pool.submit(store.get_task, PROJECT_ID, "task-1").result(
+                timeout=1,
+            )
+        assert head.status is TaskStatus.QUEUED
+        store.transition_task(
+            PROJECT_ID,
+            "task-1",
+            expected_status=TaskStatus.QUEUED,
+            status=TaskStatus.RUNNING,
+        )
+        assert (
+            store.get_task(PROJECT_ID, "task-1").status is TaskStatus.RUNNING
+        )
+
+
+def test_list_never_observes_a_headless_run_directory(tmp_path) -> None:
+    """Concurrent lock-free lists must never hit a run directory whose
+    head record is not yet published (atomic directory publish)."""
+
+    store = _store(tmp_path)
+    errors: list[Exception] = []
+    stop = False
+
+    def lister() -> None:
+        while not stop:
+            try:
+                store.list_specialist_runs(PROJECT_ID)
+            except Exception as exc:  # noqa: BLE001 - the assertion target
+                errors.append(exc)
+                return
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        watcher = pool.submit(lister)
+        for index in range(40):
+            store.create_specialist_run(_run(run_id=f"run-atomic-{index}"))
+        stop = True
+        watcher.result(timeout=10)
+
+    assert not errors
+    assert len(store.list_specialist_runs(PROJECT_ID)) == 40
+
+
+def test_create_replaces_a_headless_crash_leftover(tmp_path) -> None:
+    """A directory without run.json predates the atomic publish and can
+    never become a valid run; creating the same id replaces it."""
+
+    store = _store(tmp_path)
+    leftover = tmp_path / PROJECT_ID / "runtime" / "runs" / RUN_ID
+    leftover.mkdir(parents=True)
+    (leftover / "messages.jsonl").write_text("", encoding="utf-8")
+
+    created = store.create_specialist_run(_run())
+
+    assert created.run_id == RUN_ID
+    assert len(store.list_specialist_runs(PROJECT_ID)) == 1

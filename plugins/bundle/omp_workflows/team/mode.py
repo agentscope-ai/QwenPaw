@@ -31,6 +31,7 @@ class TeamMode(OMPModeBase):
     """AgentMode for the Team pipeline."""
 
     name = "team"
+    loop_entry = f"team"
     gate_cls = TeamPipelineGate
     plugin_id = "__omp_team__"
     handler_name = "team-stop-handler"

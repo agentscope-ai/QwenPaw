@@ -21,7 +21,7 @@ Effective-directory precedence, highest first::
     mode pin (Mission snapshots the whole list for the run)
     trusted request override (ACP / cron; becomes the primary)
     per-chat session override (whole list, persisted on the chat)
-    agent-level default (a single directory, inherited as primary)
+    agent-level default (an ordered list, inherited by new chats)
     workspace fallback (nothing configured; primary = workspace)
 
 A path that no longer exists is **surfaced, not dropped**: silently
@@ -78,6 +78,15 @@ ProjectDirSource = str
 # One project directory entry as it appears in chat meta / API
 # payloads: a path plus an optional user-facing label.
 RawProjectDirEntry = Union[str, Path, dict, Sequence[Any], Any]
+
+
+def agent_project_dirs_from_config(config: Any) -> list:
+    """Read agent defaults, falling back to the legacy single directory."""
+    dirs = getattr(config, "project_dirs", None)
+    if isinstance(dirs, list) and dirs:
+        return dirs
+    primary = getattr(config, "project_dir", None)
+    return [primary] if primary else []
 
 
 def normalize_project_dir(value: str | Path) -> Path:
@@ -482,6 +491,7 @@ def resolve_effective_project_dirs(
     workspace_dir: PathLike,
     *,
     agent_project_dir: Optional[str] = None,
+    agent_project_dirs: Optional[Any] = None,
     session_project_dirs: Optional[Any] = None,
     request_override: Optional[Any] = None,
     mode_override: Optional[Any] = None,
@@ -499,8 +509,8 @@ def resolve_effective_project_dirs(
        becomes the primary; the rest is inherited.
     4. ``session_project_dirs`` — per-chat override list. ``None``
        means "not set" (inherit the agent default).
-    5. ``agent_project_dir`` — the agent-level default (a **single**
-       directory; agent-level lists do not exist).
+    5. ``agent_project_dirs`` — ordered agent defaults; the legacy
+       ``agent_project_dir`` is used when no list is configured.
     6. Workspace fallback when nothing is configured.
 
     Raises:
@@ -515,7 +525,9 @@ def resolve_effective_project_dirs(
         source: ProjectDirSource = SOURCE_SESSION
     else:
         entries = normalize_dir_entry_list(
-            [agent_project_dir] if agent_project_dir else [],
+            agent_project_dirs
+            if agent_project_dirs
+            else ([agent_project_dir] if agent_project_dir else []),
         )
         source = SOURCE_AGENT if entries else SOURCE_WORKSPACE_FALLBACK
 
@@ -704,6 +716,7 @@ __all__ = [
     "SOURCE_REQUEST",
     "SOURCE_SESSION",
     "SOURCE_WORKSPACE_FALLBACK",
+    "agent_project_dirs_from_config",
     "dir_key",
     "dir_stat",
     "is_within_normalized",

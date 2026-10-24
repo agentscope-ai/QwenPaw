@@ -107,6 +107,8 @@ class TestProjectsBase:
 class TestSaveProjectDir:
     def test_round_trip(self, tmp_path, monkeypatch):
         saved = {}
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
 
         class _Cfg:
             id = "agent_x"
@@ -125,8 +127,11 @@ class TestSaveProjectDir:
             "qwenpaw.config.config.save_agent_config",
             fake_save,
         )
-        pd._save_project_dir("agent_x", "/tmp/proj")
-        assert saved == {"agent_id": "agent_x", "project_dir": "/tmp/proj"}
+        pd._save_project_dir("agent_x", str(project_dir))
+        assert saved == {
+            "agent_id": "agent_x",
+            "project_dir": str(project_dir),
+        }
 
     def test_reset_to_none(self, monkeypatch):
         saved = {}
@@ -134,6 +139,10 @@ class TestSaveProjectDir:
         class _Cfg:
             id = "agent_x"
             project_dir = "/old"
+            project_dirs = [
+                {"path": "/old", "label": "primary"},
+                {"path": "/extra", "label": None},
+            ]
 
         monkeypatch.setattr(
             "qwenpaw.config.config.load_agent_config",
@@ -141,10 +150,91 @@ class TestSaveProjectDir:
         )
         monkeypatch.setattr(
             "qwenpaw.config.config.save_agent_config",
-            lambda agent_id, config: saved.update(p=config.project_dir),
+            lambda agent_id, config: saved.update(
+                project_dir=config.project_dir,
+                project_dirs=config.project_dirs,
+            ),
         )
         pd._save_project_dir("agent_x", None)
-        assert saved["p"] is None
+        assert saved == {"project_dir": None, "project_dirs": []}
+
+    def test_promotes_new_primary_and_preserves_existing_dirs(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        new_primary = tmp_path / "new-primary"
+        for path in (first, second, new_primary):
+            path.mkdir()
+
+        config = type(
+            "_Cfg",
+            (),
+            {
+                "id": "agent_x",
+                "project_dir": str(first),
+                "project_dirs": [
+                    {"path": str(first), "label": "first"},
+                    {"path": str(second), "label": "second"},
+                ],
+            },
+        )()
+        monkeypatch.setattr(
+            "qwenpaw.config.config.load_agent_config",
+            lambda agent_id: config,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.config.config.save_agent_config",
+            lambda agent_id, saved: None,
+        )
+
+        pd._save_project_dir("agent_x", str(new_primary))
+
+        assert config.project_dir == str(new_primary)
+        assert config.project_dirs == [
+            {"path": str(new_primary), "label": None},
+            {"path": str(first), "label": "first"},
+            {"path": str(second), "label": "second"},
+        ]
+
+    def test_moves_existing_dir_to_front_and_keeps_label(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        first.mkdir()
+        second.mkdir()
+        config = type(
+            "_Cfg",
+            (),
+            {
+                "id": "agent_x",
+                "project_dir": str(first),
+                "project_dirs": [
+                    {"path": str(first), "label": "first"},
+                    {"path": str(second), "label": "second"},
+                ],
+            },
+        )()
+        monkeypatch.setattr(
+            "qwenpaw.config.config.load_agent_config",
+            lambda agent_id: config,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.config.config.save_agent_config",
+            lambda agent_id, saved: None,
+        )
+
+        pd._save_project_dir("agent_x", str(second))
+
+        assert config.project_dirs == [
+            {"path": str(second), "label": "second"},
+            {"path": str(first), "label": "first"},
+        ]
 
 
 class TestRequestModels:

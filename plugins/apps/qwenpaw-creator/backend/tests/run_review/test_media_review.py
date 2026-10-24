@@ -20,6 +20,9 @@ from services.project_files.models import (
     ArtifactVersion,
     IndexedFile,
     Project,
+    VisualCastLineup,
+    VisualEntity,
+    VisualVariant,
 )
 from services.run_review import admission
 from services.run_review import media_review as media_module
@@ -90,6 +93,70 @@ def test_parse_media_report_evidence_discipline() -> None:
     payload["findings"] = payload["findings"][:2]
     with pytest.raises(ValueError):
         _parse(json.dumps(payload), kind="image")
+
+
+def test_image_review_uses_the_generated_variant_purpose_and_prompt(tmp_path):
+    services = CreatorFileServices.create(tmp_path.resolve())
+    project = Project.new(project_id=PROJECT_ID, name="有剧情的多集短剧")
+    project.description = "茶社里的温暖真人喜剧，有完整对白。"
+    entity = VisualEntity(
+        entity_id="hero",
+        kind="character",
+        name="尕梅",
+        required_variant_ids=["day", "night"],
+    )
+    for variant_id, prompt in (
+        ("day", "米白背景身份板，红裙、黑色低马尾，多视图分离，允许黑色轮廓。"),
+        ("night", "夜间服装的身份参考"),
+    ):
+        entity.variants.items[variant_id] = VisualVariant(
+            variant_id=variant_id,
+            requirements="人物多角度参考，不是剧情画面",
+            prompt=prompt,
+        )
+        entity.variants.order.append(variant_id)
+    entity.canonical_variant_id = "night"
+    project.visual.entities.items["hero"] = entity
+    project.visual.entities.items["peer"] = VisualEntity(
+        entity_id="peer",
+        kind="character",
+        name="孙老四",
+        required_variant_ids=[],
+    )
+    project.visual.entities.order = ["hero", "peer"]
+    project.visual.cast_lineups.items["cast"] = VisualCastLineup(
+        lineup_id="cast",
+        name="双人阵容",
+        character_refs=["hero", "peer"],
+        relative_notes="坐姿，手里只有一把茶壶。",
+    )
+    project.visual.cast_lineups.order = ["cast"]
+    services.projects.create(project)
+    context = media_module._derive_plan_context(
+        services,
+        PROJECT_ID,
+        {
+            "commandType": "GENERATE_ASSET",
+            "targetRef": "asset:hero",
+            "artifactVersion": {"metadata": {"variantId": "day"}},
+        },
+    )
+    assert context["artifact_purpose"] == "character_reference"
+    assert context["generation_prompt"] == entity.variants.items["day"].prompt
+    assert context["variant_requirements"] == "人物多角度参考，不是剧情画面"
+    assert context["visual_identity"]["name"] == "尕梅"
+    lineup_context = media_module._derive_plan_context(
+        services,
+        PROJECT_ID,
+        {
+            "commandType": "GENERATE_CAST_LINEUP_IMAGE",
+            "targetRef": "lineup:cast",
+        },
+    )
+    assert lineup_context["artifact_purpose"] == "cast_lineup_reference"
+    assert lineup_context["lineup"]["expected_character_count"] == 2
+    assert lineup_context["lineup"]["characters"][0]["name"] == "尕梅"
+    assert "坐姿" in lineup_context["lineup"]["relative_notes"]
 
 
 def _admit(root: Path, version: str, owner: str = "owner-a"):
@@ -204,6 +271,7 @@ def test_legacy_media_history_migrates_to_physical_cap(tmp_path: Path) -> None:
 
 def _published(relative_uri: str) -> dict:
     return {
+        "selfReviewEnabled": True,
         "commandType": "GENERATE_STORYBOARD_IMAGE",
         "targetRef": "element:e1",
         "transactionId": "txn-img-1",
@@ -237,6 +305,23 @@ def test_schedule_respects_switch_and_filters(monkeypatch) -> None:
         _schedule(_published("assets/artifacts/a.png"))
         assert not media_module._ACTIVE_REVIEW_TASKS, "off means no task"
         monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", "1")
+        # Enabling review must not backfill already completed or legacy media.
+        for eligibility in (False, None):
+            old = _published("assets/artifacts/old.png")
+            if eligibility is None:
+                old.pop("selfReviewEnabled")
+            else:
+                old["selfReviewEnabled"] = eligibility
+            _schedule(old)
+            assert (
+                media_module.reserve_media_review(
+                    SimpleNamespace(),
+                    project_id=PROJECT_ID,
+                    published_result=old,
+                )
+                is None
+            )
+            assert not media_module._ACTIVE_REVIEW_TASKS
         skipped = _published("assets/artifacts/a.png")
         skipped["commandType"] = "COMPOSE_FINAL_VIDEO"
         _schedule(skipped)
@@ -297,19 +382,26 @@ def test_schedule_review_fence_is_reference_counted(monkeypatch) -> None:
     asyncio.run(_run())
 
 
+@pytest.mark.parametrize(
+    "command",
+    ["GENERATE_STORYBOARD_IMAGE", "GENERATE_CAST_LINEUP_IMAGE"],
+)
 def test_prepublication_reservation_closes_commit_listener_race(
     monkeypatch,
+    command,
 ) -> None:
     monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", "1")
     release = asyncio.Event()
 
     async def fake_loop(services, *, project_id, published, kind):
+        assert kind == "image"
         await release.wait()
 
     monkeypatch.setattr(media_module, "run_media_review_loop", fake_loop)
 
     async def _run() -> None:
         published = _published("assets/artifacts/precommit.png")
+        published["commandType"] = command
         token = media_module.reserve_media_review(
             SimpleNamespace(),
             project_id=PROJECT_ID,

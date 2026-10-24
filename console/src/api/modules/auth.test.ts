@@ -4,6 +4,7 @@ import { authApi } from "./auth";
 // auth.ts uses fetch directly (not the request wrapper), so mock global fetch
 vi.mock("../config", () => ({
   getApiUrl: (path: string) => `/api${path}`,
+  getApiToken: () => "current-token",
 }));
 
 function mockFetch(status: number, body: unknown) {
@@ -121,6 +122,22 @@ describe("authApi.getStatus", () => {
     await expect(authApi.getStatus()).rejects.toThrow(
       "Failed to check auth status",
     );
+  });
+});
+
+describe("authApi.getCurrentUser", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns the verified username", async () => {
+    mockFetch(200, { valid: true, username: "alice" });
+
+    await expect(authApi.getCurrentUser()).resolves.toEqual({
+      valid: true,
+      username: "alice",
+    });
+    expect(fetch).toHaveBeenCalledWith("/api/auth/verify", {
+      headers: { Authorization: "Bearer current-token" },
+    });
   });
 });
 

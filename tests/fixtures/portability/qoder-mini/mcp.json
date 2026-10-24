@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "node",
+      "args": ["server-filesystem.mjs"]
+    }
+  }
+}

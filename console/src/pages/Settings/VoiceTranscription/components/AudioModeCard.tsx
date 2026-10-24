@@ -1,4 +1,7 @@
-import { Card, Radio, Space, Alert } from "antd";
+import InlineHelp from "@/components/InlineHelp";
+import { PolicySelector } from "@/components/interaction/PolicySelector";
+import { AudioLines, Mic } from "lucide-react";
+import { Card, Alert } from "antd";
 import { useTranslation } from "react-i18next";
 import type { LocalWhisperStatus } from "../useVoiceTranscription";
 import styles from "../index.module.less";
@@ -20,33 +23,27 @@ export function AudioModeCard({
     <Card className={styles.card}>
       <h3 className={styles.cardTitle}>
         {t("voiceTranscription.audioModeLabel")}
+        <InlineHelp>{t("voiceTranscription.audioModeDescription")}</InlineHelp>
       </h3>
-      <p className={styles.cardDescription}>
-        {t("voiceTranscription.audioModeDescription")}
-      </p>
-      <Radio.Group
+      <PolicySelector
+        label={t("voiceTranscription.audioModeLabel")}
         value={audioMode}
-        onChange={(e) => onAudioModeChange(e.target.value)}
-      >
-        <Space direction="vertical" size="middle">
-          <Radio value="auto">
-            <span className={styles.optionLabel}>
-              {t("voiceTranscription.modeAuto")}
-            </span>
-            <span className={styles.optionDescription}>
-              {t("voiceTranscription.modeAutoDesc")}
-            </span>
-          </Radio>
-          <Radio value="native">
-            <span className={styles.optionLabel}>
-              {t("voiceTranscription.modeNative")}
-            </span>
-            <span className={styles.optionDescription}>
-              {t("voiceTranscription.modeNativeDesc")}
-            </span>
-          </Radio>
-        </Space>
-      </Radio.Group>
+        onChange={onAudioModeChange}
+        options={[
+          {
+            value: "auto",
+            label: t("voiceTranscription.modeAuto"),
+            description: t("voiceTranscription.modeAutoDesc"),
+            icon: <AudioLines size={18} />,
+          },
+          {
+            value: "native",
+            label: t("voiceTranscription.modeNative"),
+            description: t("voiceTranscription.modeNativeDesc"),
+            icon: <Mic size={18} />,
+          },
+        ]}
+      />
 
       {audioMode === "native" && localWhisperStatus && (
         <div style={{ marginTop: 12 }}>

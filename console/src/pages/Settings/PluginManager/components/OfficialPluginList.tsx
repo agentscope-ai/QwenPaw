@@ -1,10 +1,20 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Input, Spin, Tag, Typography } from "antd";
-import { Download, Package, RefreshCw } from "lucide-react";
+import { Alert, Button, Input, Select, Spin, Tag, Typography } from "antd";
+import { Check, Download, Package, RefreshCw } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
+import type {
+  InstallPluginResult,
+  OfficialPluginCatalogEntry,
+} from "@/api/modules/plugin";
 import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
+import {
+  getOfficialPluginVersions,
+  groupOfficialPlugins,
+  type OfficialPluginGroup,
+  type OfficialPluginSelection,
+  resolveOfficialPluginSelection,
+} from "../officialPluginVersions";
 import { PluginViewToggle, type PluginViewMode } from "./PluginViewToggle";
 import styles from "./OfficialPluginList.module.less";
 import cardStyles from "./MarketPluginList.module.less";
@@ -38,7 +48,7 @@ function kindLabelKey(kind: string): string {
 }
 
 interface OfficialPluginListProps {
-  onInstalled: () => void;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
 export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
@@ -46,6 +56,9 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
   const [nameFilter, setNameFilter] = useState("");
   const [kindFilter, setKindFilter] = useState<string | undefined>();
   const [viewMode, setViewMode] = useState<PluginViewMode>("card");
+  const [selectedVersions, setSelectedVersions] = useState<
+    Record<string, string>
+  >({});
   const isMobile = useIsMobile();
 
   const {
@@ -57,20 +70,38 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     handleInstall,
   } = useOfficialPlugins({ onInstalled });
 
+  const pluginGroups = useMemo(() => groupOfficialPlugins(plugins), [plugins]);
+
+  const selectedPlugins = useMemo(
+    () =>
+      pluginGroups.map((group) => {
+        const selection = resolveOfficialPluginSelection(
+          group,
+          selectedVersions[group.key],
+        );
+        return { group, selection, entry: selection.displayEntry };
+      }),
+    [pluginGroups, selectedVersions],
+  );
+
   const filteredPlugins = useMemo(() => {
     const keyword = nameFilter.trim().toLocaleLowerCase();
-    return plugins.filter((entry) => {
+    return selectedPlugins.filter(({ entry }) => {
       const matchesName =
         !keyword || entry.name.toLocaleLowerCase().includes(keyword);
       const matchesKind =
         !kindFilter || entry.kind?.toLowerCase() === kindFilter;
       return matchesName && matchesKind;
     });
-  }, [kindFilter, nameFilter, plugins]);
+  }, [kindFilter, nameFilter, selectedPlugins]);
 
   const kindOptions = useMemo(
-    () => [...new Set(plugins.map((plugin) => plugin.kind).filter(Boolean))],
-    [plugins],
+    () => [
+      ...new Set(
+        pluginGroups.map((group) => group.defaultVersion.kind).filter(Boolean),
+      ),
+    ],
+    [pluginGroups],
   );
 
   const renderKindTag = (entry: OfficialPluginCatalogEntry) =>
@@ -83,15 +114,8 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
       </Tag>
     ) : null;
 
-  const renderStatusTag = (entry: OfficialPluginCatalogEntry) => {
-    if (entry.upgrade_available) {
-      return (
-        <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
-          {t("pluginManager.catalogUpgrade")}
-        </Tag>
-      );
-    }
-    if (entry.installed) {
+  const renderStatusTag = (selection: OfficialPluginSelection) => {
+    if (selection.installedVersion) {
       return (
         <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
           {t("pluginManager.catalogInstalled")}
@@ -101,20 +125,68 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     return null;
   };
 
-  const renderInstallButton = (entry: OfficialPluginCatalogEntry) => (
-    <Button
-      type={entry.installed && !entry.upgrade_available ? "default" : "primary"}
-      icon={<Download size={14} />}
-      loading={installingId === entry.id}
-      disabled={installingId !== null && installingId !== entry.id}
-      onClick={() => void handleInstall(entry)}
-    >
-      {entry.upgrade_available
-        ? t("pluginManager.catalogUpgradeBtn")
-        : entry.installed
-        ? t("pluginManager.catalogReinstall")
-        : t("pluginManager.catalogInstall")}
-    </Button>
+  const requestInstall = (selection: OfficialPluginSelection) => {
+    const entry = selection.catalogEntry;
+    if (!entry) return;
+    void handleInstall(entry);
+  };
+
+  const renderInstallButton = (selection: OfficialPluginSelection) => {
+    const { catalogEntry } = selection;
+    if (selection.action === "current" || !catalogEntry) return null;
+
+    return (
+      <Button
+        type="primary"
+        icon={<Download size={14} />}
+        loading={installingId === catalogEntry.id}
+        disabled={installingId !== null && installingId !== catalogEntry.id}
+        onClick={() => requestInstall(selection)}
+      >
+        {t(
+          selection.action === "update"
+            ? "pluginManager.update"
+            : "pluginManager.catalogInstall",
+        )}
+      </Button>
+    );
+  };
+
+  const renderVersionSelect = (
+    group: OfficialPluginGroup,
+    selection: OfficialPluginSelection,
+  ) => {
+    const versions = getOfficialPluginVersions(group);
+    if (selection.action === "update") return null;
+
+    return (
+      <Select
+        className={styles.versionSelect}
+        aria-label={t("pluginManager.catalogVersion")}
+        menuItemSelectedIcon={<Check size={14} />}
+        value={selection.selectedVersion}
+        onChange={(version) =>
+          setSelectedVersions((current) => ({
+            ...current,
+            [group.key]: version,
+          }))
+        }
+        options={versions.map((version) => ({
+          value: version,
+          label: `v${version}`,
+        }))}
+      />
+    );
+  };
+
+  const renderMetadata = (selection: OfficialPluginSelection) => (
+    <>
+      v{selection.selectedVersion}
+      {selection.catalogEntry?.size ? ` · ${selection.catalogEntry.size}` : ""}
+      {selection.displayEntry.author
+        ? ` · ${selection.displayEntry.author}`
+        : ""}
+    </>
   );
 
   return (
@@ -187,17 +259,17 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         )}
         {isMobile || viewMode === "card" ? (
           <div className={cardStyles.cardGrid}>
-            {filteredPlugins.map((entry) => (
+            {filteredPlugins.map(({ group, selection, entry }) => (
               <article
                 className={cardStyles.pluginCard}
-                key={entry.id}
+                key={group.key}
                 aria-label={entry.name}
               >
                 <div className={cardStyles.cardTopRow}>
                   <div className={cardStyles.cardIcon}>
                     <Package size={18} />
                   </div>
-                  {renderStatusTag(entry)}
+                  {renderStatusTag(selection)}
                 </div>
                 <div className={cardStyles.cardTitleRow}>
                   <Text
@@ -215,21 +287,20 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                 </div>
                 <div className={cardStyles.cardFooter}>
                   <span className={cardStyles.cardMetadata}>
-                    v{entry.version}
-                    {entry.size ? ` · ${entry.size}` : ""}
-                    {entry.author ? ` · ${entry.author}` : ""}
+                    {renderMetadata(selection)}
                   </span>
                 </div>
                 <div className={cardStyles.cardActions}>
-                  {renderInstallButton(entry)}
+                  {renderVersionSelect(group, selection)}
+                  {renderInstallButton(selection)}
                 </div>
               </article>
             ))}
           </div>
         ) : (
           <div className={styles.catalogList}>
-            {filteredPlugins.map((entry) => (
-              <div className={styles.catalogRow} key={entry.id}>
+            {filteredPlugins.map(({ group, selection, entry }) => (
+              <div className={styles.catalogRow} key={group.key}>
                 <div className={styles.catalogIcon}>
                   <Package size={18} />
                 </div>
@@ -237,7 +308,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                   <div className={styles.catalogNameRow}>
                     <Text strong>{entry.name}</Text>
                     {renderKindTag(entry)}
-                    {renderStatusTag(entry)}
+                    {renderStatusTag(selection)}
                   </div>
                   {(entry.description || entry.description_i18n) && (
                     <div className={styles.catalogDescription}>
@@ -245,13 +316,12 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                     </div>
                   )}
                   <div className={styles.catalogMeta}>
-                    v{entry.version}
-                    {entry.size ? ` · ${entry.size}` : ""}
-                    {entry.author ? ` · ${entry.author}` : ""}
+                    {renderMetadata(selection)}
                   </div>
                 </div>
                 <div className={styles.catalogActions}>
-                  {renderInstallButton(entry)}
+                  {renderVersionSelect(group, selection)}
+                  {renderInstallButton(selection)}
                 </div>
               </div>
             ))}

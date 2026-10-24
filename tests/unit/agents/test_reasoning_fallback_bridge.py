@@ -100,11 +100,6 @@ async def test_reasoning_events_carry_fallback_metadata(
         "qwenpaw.loop.gates.runner.check_pending_gates",
         lambda _agent: None,
     )
-    monkeypatch.setattr(
-        "qwenpaw.agents.model_factory."
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     outputs = [evt async for evt in agent._reasoning()]
 
@@ -150,11 +145,6 @@ async def test_reasoning_events_stay_clean_without_fallback(
     monkeypatch.setattr(
         "qwenpaw.loop.gates.runner.check_pending_gates",
         lambda _agent: None,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.agents.model_factory."
-        "_supports_multimodal_for_current_model",
-        lambda: True,
     )
 
     outputs = [evt async for evt in agent._reasoning()]

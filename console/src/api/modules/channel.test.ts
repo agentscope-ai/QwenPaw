@@ -42,6 +42,18 @@ describe("channelApi", () => {
     expect(await channelApi.listChannels()).toBe(cfg);
   });
 
+  it("uses an explicit agent identity for the three initial reads", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    await channelApi.listChannels("agent-a");
+    await channelApi.listChannelTypes("agent-a");
+    await channelApi.listChannelSchemas("agent-a");
+
+    expect(request).toHaveBeenCalledTimes(3);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(options).toEqual({ headers: { "X-Agent-Id": "agent-a" } });
+    }
+  });
+
   it("updateChannels returns the persisted ChannelConfig", async () => {
     const cfg = { dingtalk: { enabled: false } } as unknown;
     vi.mocked(request).mockResolvedValue(cfg);

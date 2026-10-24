@@ -1,6 +1,9 @@
+import { Cascade } from "@/components/interaction/Cascade";
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { formatCompact } from "../../../../utils/formatNumber";
+import NumberFlow from "@number-flow/react";
+import { useReducedMotion } from "motion/react";
+import type { ReactNode } from "react";
 import { cacheHitRate, formatPercent } from "../../../../utils/cacheUsage";
 import styles from "../index.module.less";
 
@@ -19,42 +22,58 @@ export function SummaryCards({
   totalCacheReadTokens,
   totalCacheEligibleInputTokens,
 }: SummaryCardsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const reducedMotion = useReducedMotion();
+  const number = (value: number) => (
+    <NumberFlow
+      value={value}
+      locales={i18n.language}
+      format={{ notation: "compact", maximumFractionDigits: 1 }}
+      animated={!reducedMotion}
+    />
+  );
   const hitRate = cacheHitRate(
     totalCacheReadTokens,
     totalCacheEligibleInputTokens,
   );
 
   return (
+    <UsageSummaryCards
+      items={[
+        { label: t("tokenUsage.totalCalls"), value: number(totalCalls) },
+        {
+          label: t("tokenUsage.promptTokens"),
+          value: number(totalPromptTokens),
+        },
+        {
+          label: t("tokenUsage.cacheRead"),
+          value: number(totalCacheReadTokens),
+        },
+        { label: t("tokenUsage.cacheHitRate"), value: formatPercent(hitRate) },
+        {
+          label: t("tokenUsage.completionTokens"),
+          value: number(totalCompletionTokens),
+        },
+      ]}
+    />
+  );
+}
+
+export function UsageSummaryCards({
+  items,
+}: {
+  items: { label: string; value: ReactNode }[];
+}) {
+  return (
     <div className={styles.summaryCards}>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>{formatCompact(totalCalls)}</div>
-        <div className={styles.cardLabel}>{t("tokenUsage.totalCalls")}</div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>
-          {formatCompact(totalPromptTokens)}
-        </div>
-        <div className={styles.cardLabel}>{t("tokenUsage.promptTokens")}</div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>
-          {formatCompact(totalCacheReadTokens)}
-        </div>
-        <div className={styles.cardLabel}>{t("tokenUsage.cacheRead")}</div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>{formatPercent(hitRate)}</div>
-        <div className={styles.cardLabel}>{t("tokenUsage.cacheHitRate")}</div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>
-          {formatCompact(totalCompletionTokens)}
-        </div>
-        <div className={styles.cardLabel}>
-          {t("tokenUsage.completionTokens")}
-        </div>
-      </Card>
+      {items.map((item, index) => (
+        <Cascade key={item.label} index={index}>
+          <Card className={styles.card}>
+            <div className={styles.cardValue}>{item.value}</div>
+            <div className={styles.cardLabel}>{item.label}</div>
+          </Card>
+        </Cascade>
+      ))}
     </div>
   );
 }

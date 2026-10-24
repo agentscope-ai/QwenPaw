@@ -8,9 +8,11 @@ export type SkillSyncStatus =
 export interface SkillSpec {
   name: string;
   description?: string;
+  version_text?: string;
   source: string;
   enabled?: boolean;
   channels?: string[];
+  preload?: boolean;
   tags?: string[];
   last_updated?: string;
   emoji?: string;
@@ -20,11 +22,19 @@ export interface SkillDetail extends SkillSpec {
   content: string;
   config?: Record<string, unknown>;
   installed_from?: string;
+  requirements?: SkillRequirements;
+}
+
+export interface SkillRequirements {
+  require_bins: string[];
+  require_envs: string[];
+  require_mcps: string[];
 }
 
 export interface PoolSkillSpec {
   name: string;
   description?: string;
+  version_text?: string;
   source: string;
   external?: boolean;
   external_path?: string;
@@ -40,6 +50,7 @@ export interface PoolSkillDetail extends PoolSkillSpec {
   content: string;
   config?: Record<string, unknown>;
   installed_from?: string;
+  requirements?: SkillRequirements;
   builtin_language?: string;
   available_builtin_languages?: string[];
   auto_sync_targets?: string[] | null;

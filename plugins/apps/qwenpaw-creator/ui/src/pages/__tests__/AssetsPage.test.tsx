@@ -1,7 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it } from "vitest";
-import AssetsPage from "@/pages/AssetsPage";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import AssetsPage, {
+  GenerationPromptEditor,
+  visualEntityPromptTarget,
+  VoiceGenerationModal,
+} from "@/pages/AssetsPage";
+import BlueprintPrepDrawer from "@/components/blueprint/BlueprintPrepDrawer";
 import { NavigationRuntime } from "@/routing/navigation";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
@@ -159,9 +164,9 @@ describe("AssetsPage Project projection", () => {
       "/api/qwenpaw-creator/media/artifacts/cat-anchor-v1",
     ]);
 
-    // Selecting exposes the canonical ref; the hand-off button stays removed.
+    // Selecting exposes the canonical ref (the raw ref text is no longer a
+    // visible field per the updated design); the hand-off button stays removed.
     fireEvent.click(screen.getByText("测试项目最终成片"));
-    expect(screen.getByText("artifact-version:final-v1")).toBeInTheDocument();
     expect(useCreatorInteractionStore.getState().selectedRef).toBe(
       "artifact-version:final-v1",
     );
@@ -171,16 +176,29 @@ describe("AssetsPage Project projection", () => {
   });
 
   it("filters locally without requiring a separate backend asset projection", () => {
-    renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "来源素材" }));
-    expect(screen.getByText("1 项")).toBeInTheDocument();
+    const { container } = renderPage();
+    // 来源下拉（设计 84:78645）：只看上传的来源素材。
+    const openOrigin = () =>
+      fireEvent.mouseDown(
+        container.querySelector('[data-assets-origin] [role="combobox"]')!
+          .parentElement!.parentElement!,
+      );
+    openOrigin();
+    fireEvent.click(
+      document.querySelector('.ant-select-item-option[title="来源素材"]')!,
+    );
+    expect(screen.getAllByText("1 项").length).toBeGreaterThan(0);
 
+    openOrigin();
+    fireEvent.click(
+      document.querySelector('.ant-select-item-option[title="全部来源"]')!,
+    );
     fireEvent.click(screen.getByRole("button", { name: "视频" }));
-    expect(screen.getByText("3 项")).toBeInTheDocument();
+    expect(screen.getAllByText("3 项").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByPlaceholderText("搜索名称或 ID"), {
       target: { value: "最终" },
     });
-    expect(screen.getByText("1 项")).toBeInTheDocument();
+    expect(screen.getAllByText("1 项").length).toBeGreaterThan(0);
     expect(screen.getByText("测试项目最终成片")).toBeInTheDocument();
   });
 
@@ -290,9 +308,171 @@ describe("AssetsPage Project projection", () => {
     installMockFetch(ingestRoutes());
     renderPage();
 
-    fireEvent.click(screen.getByText("双人组"));
+    // The default 按归属 view shows the lineup card's ownership card name.
+    fireEvent.click(screen.getByText("双人组（阵容图）"));
 
     expect(await screen.findByText("相对关系说明")).toBeInTheDocument();
     expect(screen.getAllByText(/左矮右高/).length).toBeGreaterThan(0);
   });
+
+  it("keeps the ungenerated variant selected during background updates and dispatches that variant", async () => {
+    const project = cloneProject();
+    const entity = project.visual.entities.items.cat;
+    entity.required_variant_ids.push("variant:cat:wet");
+    entity.variants.order.push("variant:cat:wet");
+    entity.variants.items["variant:cat:wet"] = {
+      ...entity.variants.items["variant:cat:default"],
+      variant_id: "variant:cat:wet",
+      requirements: "淋湿后的造型",
+      prompt: "以主图为参考，仅把毛发改为淋湿状态",
+      reference_artifact_version_ids: ["cat-anchor-v1"],
+      generated_artifact_version_ids: [],
+      selected_artifact_version_id: null,
+    };
+    seedProject(project);
+    const { calls } = installMockFetch([
+      {
+        match: "/dispatch",
+        method: "POST",
+        response: { json: { dispatched: true } },
+      },
+      ...ingestRoutes(),
+    ]);
+    const drawer = (snapshot: ProjectDocument) => (
+      <MemoryRouter>
+        <BlueprintPrepDrawer
+          project={snapshot}
+          projectId="p1"
+          open
+          tab="visual"
+          focus={null}
+          onClose={() => {}}
+          onTabChange={() => {}}
+        />
+      </MemoryRouter>
+    );
+    const { container, rerender } = render(drawer(project));
+    fireEvent.click(screen.getByRole("button", { name: /^圆润大橘猫/ }));
+    fireEvent.click(screen.getByRole("button", { name: "淋湿后的造型" }));
+    expect(screen.getByText("设计图待生成")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /v1/ }),
+    ).not.toBeInTheDocument();
+
+    rerender(drawer({ ...structuredClone(project), generation: 4 }));
+    expect(
+      screen.getByRole("button", { name: "淋湿后的造型" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByText("以主图为参考，仅把毛发改为淋湿状态"),
+    ).toBeInTheDocument();
+    expect(container.querySelector("[data-prompt-edit]")).toHaveAttribute(
+      "data-prompt-edit",
+      "/visual/entities/items/cat/variants/items/variant:cat:wet/prompt",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "重新生成图片" }));
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.method === "POST").map((call) => call.url),
+      ).toEqual([
+        "/api/qwenpaw-creator/projects/p1/work-graph/nodes/visual%3Acat%3Avariant%3Acat%3Awet/dispatch",
+      ]),
+    );
+  });
+
+  it("keeps an anchor's selected image out of the reference picker", () => {
+    const project = cloneProject();
+    const entity = project.visual.entities.items.cat;
+    entity.variants.items["derived"] = {
+      ...entity.variants.items["variant:cat:default"],
+      variant_id: "derived",
+      prompt: "保持 [Image 1] 的角色身份",
+      reference_artifact_version_ids: ["visual:cat:variant:cat:default"],
+      generated_artifact_version_ids: [],
+      selected_artifact_version_id: null,
+    };
+    entity.variants.order.push("derived");
+    project.assets.artifact_versions_by_id["another-image"] = {
+      ...project.assets.artifact_versions_by_id["cat-anchor-v1"],
+      version_id: "another-image",
+    };
+    render(
+      <GenerationPromptEditor
+        target={visualEntityPromptTarget(project, entity, null, "derived")!}
+        onSave={vi.fn()}
+        saving={false}
+        regenerateLabel="重新生成图片"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    expect(
+      document.querySelector('[data-prompt-reference-row="1"] img'),
+    ).toHaveAttribute(
+      "src",
+      "/api/qwenpaw-creator/media/artifacts/cat-anchor-v1",
+    );
+    fireEvent.click(document.querySelector("[data-prompt-add-reference]")!);
+    expect(
+      document.querySelector('[data-picker-asset="cat-anchor-v1"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-picker-asset="another-image"]'),
+    ).toBeInTheDocument();
+  });
+});
+
+it("uses the uploaded audio picked by the user even after entering a voice description", async () => {
+  const project = cloneProject();
+  project.assets.source_versions_by_id["uploaded-voice"] = {
+    ...project.assets.source_versions_by_id["cat-video-v1"],
+    version_id: "uploaded-voice",
+    logical_asset_id: "user-audio",
+    name: "我的参考音频.wav",
+    media_kind: "audio",
+    media_type: "audio/wav",
+  };
+  seedProject(project);
+  const { calls } = installMockFetch([
+    {
+      match: "/voice-capabilities",
+      response: {
+        json: { configured: true, supportsDesign: true, model: "test" },
+      },
+    },
+    {
+      match: "/character-voice",
+      method: "POST",
+      response: { json: { ok: true } },
+    },
+    ...ingestRoutes(),
+  ]);
+  const { baseElement } = render(
+    <VoiceGenerationModal
+      open
+      projectId="p1"
+      entity={project.visual.entities.items.cat}
+      onClose={() => {}}
+    />,
+  );
+  const prompt = await screen.findByPlaceholderText(/描述想要的音色/);
+  fireEvent.change(prompt, { target: { value: "温柔的声音" } });
+  fireEvent.click(screen.getByRole("button", { name: /选择一段.*音频素材/ }));
+  fireEvent.click(
+    baseElement.querySelector('[data-picker-asset="uploaded-voice"]')!,
+  );
+  expect(
+    baseElement.querySelector('audio[aria-label="我的参考音频.wav"]'),
+  ).toHaveAttribute("src", expect.stringContaining("uploaded-voice"));
+  fireEvent.click(baseElement.querySelector("[data-picker-confirm]")!);
+  expect(prompt).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: /^生\s*成$/ }));
+  await waitFor(() =>
+    expect(
+      calls.find((call) => call.url.endsWith("/character-voice"))?.body,
+    ).toEqual({
+      characterRef: "asset:cat",
+      sampleSourceVersionId: "uploaded-voice",
+      preferredName: project.visual.entities.items.cat.name,
+    }),
+  );
 });

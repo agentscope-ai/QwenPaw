@@ -15,6 +15,7 @@ open `http://127.0.0.1:8088/` in your browser to enter the Console.
 - Manage MCP clients
 - Modify runtime configuration
 - Manage multiple agents
+- Import conversations and tool settings from Codex and Qoder
 - Connect mailboxes and review automatic new-mail processing
 - Configure LLM providers and select models
 - Manage environment variables required by tools
@@ -28,6 +29,58 @@ walk through each feature in order.
 
 > **Not seeing the Console?** Make sure the frontend has been built. See
 > [CLI](./cli).
+
+## Reverse-proxy subpath deployment
+
+To serve the Console at a path such as `https://example.com/qwenpaw/`, set
+the build-time variables in `console/.env.production.local`:
+
+```dotenv
+VITE_CONSOLE_BASENAME=/qwenpaw
+VITE_API_BASE_URL=/qwenpaw
+```
+
+Build from the repository root:
+
+```bash
+cd console
+npm install
+npm run build
+```
+
+`VITE_CONSOLE_BASENAME` sets the router prefix and the asset URL prefix
+(for example, `/qwenpaw/assets/`). Leading and trailing slashes are normalized;
+nested prefixes such as `/apps/qwenpaw` are supported. If it is unset or empty,
+the existing root and `/console` routes remain available and assets stay at
+`/assets/`. Set it to `/` for an explicitly root-only router.
+
+`VITE_API_BASE_URL` independently sets the backend URL before `/api`. Use
+`/qwenpaw` when the proxy also exposes the API at `/qwenpaw/api/`; leave it empty
+when the API is served at `/api/`, or set it to the backend's external origin.
+These variables are embedded during the build. Changing the server environment
+afterward requires rebuilding the frontend.
+
+Point `QWENPAW_CONSOLE_STATIC_DIR` to the absolute path of the resulting
+`console/dist` directory in the environment that runs `qwenpaw app`. This also
+lets a pip/uv installation serve the custom build without replacing package
+files. For Docker, include the custom build in the image or mount it and set
+`QWENPAW_CONSOLE_STATIC_DIR` to its path inside the container.
+
+Configure the proxy to strip `/qwenpaw` before forwarding every request,
+including SPA deep links, assets, API requests, and WebSockets. For example,
+with Caddy:
+
+```caddyfile
+example.com {
+    redir /qwenpaw /qwenpaw/ 308
+    handle_path /qwenpaw/* {
+        reverse_proxy 127.0.0.1:8088
+    }
+}
+```
+
+Open `https://example.com/qwenpaw/`. Forwarding the prefix unchanged would make
+asset requests reach the SPA fallback and return HTML instead of JavaScript.
 
 ---
 
@@ -359,10 +412,19 @@ cards. Click **Save** at the bottom (**Reset** reloads from the server).
 - **Context management** — Max input length, etc.
 - **Context compaction** — Compaction threshold ratio, etc.
 - **Tool result compaction** — Recent tool result window, etc.
-- **Memory summarization** — Max auto-search results, etc.
-- **Embedding model** — Whether to enable embedding cache, etc.
+- **Long-term memory** — Select ReMeLight, disabled memory, or an installed
+  memory-backend plugin. The selector is populated from the runtime registry;
+  the selected plugin can add its own configuration tab. ReMeLight exposes
+  Auto-Memory cadence; Auto-Dream, Daily Paper, and Auto Fin schedules and Inbox
+  delivery; automatic memory search; and index maintenance.
+- **Embedding model** — Embedding service, dimensions, cache, health checks, and pending-rebuild state.
 
-For mechanics, see [Context](./context) and [Config & working directory](./config).
+Saving a backend selection or plugin-owned memory configuration schedules an
+Agent reload. If a previously selected plugin is unavailable, the Console keeps
+the selection visible as unavailable instead of silently changing the Agent to
+another memory store.
+
+For mechanics, see [Context](./context), [Long-term Memory](./memory), [Embedding Models](./embedding), and [Config & working directory](./config).
 
 ---
 
@@ -456,6 +518,19 @@ Select rows → click **Delete** in the toolbar → confirm.
 > values.
 >
 > See [Config — Environment variables](./config#environment-variables).
+
+---
+
+## Import
+
+The **Import** page brings supported local Codex and Qoder conversations, memory,
+Skills, MCP, plugins, and scheduled tasks into the selected QwenPaw agent.
+
+Select a destination agent using the native QwenPaw backend, then follow
+**Applications → Choose content → Import**. Plugins are not selected by default.
+Afterwards, check Skill/MCP activation and review imported schedules separately.
+Import endpoints allow local access only. See [Import](./import) for the
+complete workflow.
 
 ---
 

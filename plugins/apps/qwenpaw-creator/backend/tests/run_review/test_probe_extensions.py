@@ -55,27 +55,14 @@ def test_program_defect_hints_stay_facts() -> None:
         },
     )
     assert "uq_shot_count" in hints
-    assert "计划 5 个镜头" in hints
+    assert "计划 5 个镜头" not in hints
     # Hints must keep the "suspicion, please verify" framing.
     assert "确认" in hints
 
 
 def test_faithfulness_declared_elements_only() -> None:
     plan = {
-        "planned_shots": [
-            {
-                "shot_id": "shot-1",
-                "description": "特写：老人手持暖色灯笼，镜头缓缓推近",
-                "dialogue": "",
-                "duration_seconds": 3,
-            },
-            {
-                "shot_id": "shot-2",
-                "description": "全景：庭院夜景",
-                "dialogue": "",
-                "duration_seconds": 2,
-            },
-        ],
+        "narrative": "特写：老人手持暖色灯笼，镜头缓缓推近。随后全景展示庭院夜景。",
     }
     elements = build_faithfulness_elements(plan)
     keys = [element["key"] for element in elements]
@@ -88,17 +75,10 @@ def test_faithfulness_declared_elements_only() -> None:
 
 def test_faithfulness_undeclared_elements_are_not_asked() -> None:
     plan = {
-        "planned_shots": [
-            {
-                "shot_id": "shot-1",
-                "description": "一只猫在沙发上",
-                "dialogue": "",
-                "duration_seconds": 3,
-            },
-        ],
+        "narrative": "一只猫在沙发上",
     }
     keys = [element["key"] for element in build_faithfulness_elements(plan)]
-    assert keys == ["faith_entity"]
+    assert keys == ["faith_entity", "faith_sequence"]
 
 
 def _probe_response(extra: dict) -> str:
@@ -222,10 +202,14 @@ def test_script_check_parser_enforces_evidence() -> None:
                     {"note": "没有引用剧本原文，必须被丢弃"},
                 ],
                 "hallucinated": [
-                    {"shot_ref": "shot-3", "claim": "出现机器人", "note": "剧本无此设定"},
-                    {"shot_ref": "shot-4"},
+                    {
+                        "element_ref": "shot-3",
+                        "claim": "出现机器人",
+                        "note": "剧本无此设定",
+                    },
+                    {"element_ref": "shot-4"},
                 ],
-                "unshootable": [{"shot_ref": "shot-5", "issue": "只有情绪词"}],
+                "unshootable": [{"element_ref": "shot-5", "issue": "只有情绪词"}],
                 "summary": "两处需修",
             },
             ensure_ascii=False,

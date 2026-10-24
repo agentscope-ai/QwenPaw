@@ -23,6 +23,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from domain.errors import ConflictError, StorageIntegrityError, ValidationError
 from models import config as model_config
+from models.minimax_errors import minimax_probe_base_resp_error
 from schemas.models import (
     AsrConfig,
     EmbeddingConfig,
@@ -51,7 +52,6 @@ from services.runtime_files.errors import (
 from services.runtime_files.idempotency_store import IdempotencyRecordStore
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.models import IdempotencyStatus
-from services.file_agent_runtime import get_creator_agent_runtime
 from services.storage_root import require_creator_data_root
 
 # QwenPaw secret store for reading encrypted provider API keys
@@ -462,7 +462,8 @@ def _assemble_model_config(
         field = ".".join(str(part) for part in loc) if loc else "unknown field"
         message = first_error.get("msg", str(exc))
         raise ValidationError(
-            f"模型配置文件不可用: {field} {message}；" "请修正 model_config.json 或重新保存模型配置",
+            f"模型配置文件不可用: {field} {message}；"
+            "请先备份并修正 model_config.json，再重新加载配置",
         ) from exc
 
 
@@ -628,7 +629,12 @@ def save_model_config(data: ModelConfigData) -> None:
 def mutate_model_config(
     mutator: Callable[[ModelConfigData], ModelConfigData],
 ) -> ModelConfigData:
-    """Apply one read-modify-write transaction under the config lock."""
+    """Update global defaults without admitting or resuming Project work.
+
+    Cache invalidation makes subsequent operations observe the new settings.
+    Project wakes belong to explicit message/commit boundaries, never a
+    settings save or an idempotent replay of that save.
+    """
 
     config_path = _config_paths()
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -691,7 +697,35 @@ def _supports_dashscope_native_search(item: ModelConfigItem) -> bool:
     )
 
 
-def _ensure_grounding_model_configured(data: ModelConfigData) -> None:
+def _grounding_config_inputs(data: ModelConfigData) -> tuple[dict, ...]:
+    connection_fields = {
+        "model_name",
+        "api_key",
+        "base_url",
+        "protocol",
+        "custom_protocol",
+    }
+    return (
+        data.grounding.model_dump(),
+        _grounding_validation_model(data).model_dump(
+            include=connection_fields,
+        ),
+        _grounding_search_model(data).model_dump(include=connection_fields),
+    )
+
+
+def _ensure_grounding_model_configured(
+    data: ModelConfigData,
+    *,
+    previous: ModelConfigData | None = None,
+) -> None:
+    # Legacy search settings must not prevent unrelated media-model repairs.
+    # Compare resolved secrets and dependencies under the config write lock;
+    # first-time setup and actual grounding edits still require validation.
+    if previous is not None and (
+        _grounding_config_inputs(data) == _grounding_config_inputs(previous)
+    ):
+        return
     grounding = data.grounding
     if not grounding.enabled:
         return
@@ -730,27 +764,22 @@ def _ensure_grounding_model_configured(data: ModelConfigData) -> None:
 
 
 def _image_backend_for_protocol(protocol: str) -> str:
-    """Map the persisted image protocol label onto a provider switch."""
+    """Map the persisted image protocol label onto a provider switch.
 
-    lowered = protocol.casefold()
-    if (
-        "dashscope" in lowered
-        or "百炼" in protocol
-        or "token plan" in lowered
-        or "tokenplan" in lowered
-    ):
-        return "DASHSCOPE"
-    if "gemini" in lowered:
-        return "GEMINI"
-    if "volcano" in lowered or "火山" in protocol or "ark" in lowered:
-        return "ARK"
-    if "flux" in lowered or "black forest" in lowered or "bfl" in lowered:
-        return "BFL"
-    if "ideogram" in lowered:
-        return "IDEOGRAM"
-    if "openai" in lowered:
-        return "OPENAI"
-    return ""
+    Delegates to :func:`models.image.image_backend_for_protocol`, the
+    same single source the persisted fallback uses, mirroring how
+    ``_video_backend_for_protocol`` defers to ``models.config``. The
+    inline copy kept here is what let MiniMax ship mapped in the
+    connection probe and in the lowest-priority fallback while this --
+    the writer behind the highest-priority input -- still returned
+    nothing, so an ``IMAGE_MODEL`` env var sent a MiniMax key and model
+    to OpenAI's ``/v1/images/generations`` and generation failed even
+    though the connection test had passed.
+    """
+
+    from models.image import image_backend_for_protocol
+
+    return image_backend_for_protocol(protocol) or ""
 
 
 def _video_backend_for_protocol(protocol: str) -> str:
@@ -899,14 +928,6 @@ async def bind_creator_tool_config(request: Request):
         model_config.reset_request_tool_configs(token)
 
 
-def _notify_agent_model_config_changed() -> None:
-    runtime = get_creator_agent_runtime()
-    if runtime is None:
-        return
-    for project in runtime.services.projects.list():
-        runtime.notify(project.project_id)
-
-
 async def _validate_section_connectivity(
     section: str,
     config: dict[str, Any],
@@ -971,7 +992,16 @@ async def _validate_section_connectivity(
             "llm",
             {},
         ).get("api_key", "")
-    if not item.get("base_url") or not api_key:
+    # Self-hosted SGLang video serves without authentication unless
+    # started with --api-key, so an empty key is a valid configuration.
+    key_optional = (
+        section == "video"
+        and model_config.video_backend_for_protocol(
+            str(item.get("protocol") or ""),
+        )
+        == "minimax_sglang"
+    )
+    if not item.get("base_url") or (not api_key and not key_optional):
         raise ValidationError(
             f"{section}: 缺少 Base URL 或 API Key，请检查配置",
         )
@@ -987,7 +1017,7 @@ async def _validate_section_connectivity(
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
-            url, headers, payload = _probe_payload(probe)
+            url, headers, payload = await _prepare_probe_payload(probe)
             if payload.pop("_get_probe", False):
                 headers.pop("Content-Type", None)
                 resp = await client.get(url, headers=headers, params=payload)
@@ -1155,6 +1185,15 @@ async def update_model_config(
     payload = data.model_dump(mode="json", by_alias=True)
     request_hash = records.request_hash(payload)
 
+    def mutate(current: ModelConfigData) -> ModelConfigData:
+        resolved = _resolve_secret_masks(data, current)
+        resolved.llm.enabled = True
+        _ensure_grounding_model_configured(
+            resolved,
+            previous=current if _config_paths().is_file() else None,
+        )
+        return resolved
+
     def transaction() -> bool:
         with records.operation_lock(
             owner_id="creator-model-config",
@@ -1168,16 +1207,12 @@ async def update_model_config(
                 request_hash=request_hash,
             )
             if reservation.record.status is IdempotencyStatus.COMPLETED:
-                _notify_agent_model_config_changed()
                 return True
             if reservation.record.status is IdempotencyStatus.FAILED:
                 raise StorageIntegrityError(
                     "上一次模型配置写入失败，请使用新的 Idempotency-Key 重试",
                 )
-            data.llm.enabled = True
-            _ensure_grounding_model_configured(data)
-            save_model_config(data)
-            _notify_agent_model_config_changed()
+            mutate_model_config(mutate)
             records.complete(
                 owner_id="creator-model-config",
                 scope="HTTP:model-config-update",
@@ -1225,11 +1260,7 @@ async def patch_creation_checkpoints(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1283,11 +1314,7 @@ async def patch_permission_mode(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1310,11 +1337,7 @@ async def patch_media_review(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1337,11 +1360,7 @@ async def patch_execution_authorization(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1421,11 +1440,7 @@ async def patch_self_review(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1468,7 +1483,10 @@ async def patch_model_config_section(
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
-        _ensure_grounding_model_configured(resolved)
+        _ensure_grounding_model_configured(
+            resolved,
+            previous=current if _config_paths().is_file() else None,
+        )
         return resolved
 
     def transaction() -> None:
@@ -1484,14 +1502,12 @@ async def patch_model_config_section(
                 request_hash=request_hash,
             )
             if reservation.record.status is IdempotencyStatus.COMPLETED:
-                _notify_agent_model_config_changed()
                 return
             if reservation.record.status is IdempotencyStatus.FAILED:
                 raise StorageIntegrityError(
                     "上一次模型配置写入失败，请使用新的 Idempotency-Key 重试",
                 )
             mutate_model_config(mutate)
-            _notify_agent_model_config_changed()
             records.complete(
                 owner_id="creator-model-config",
                 scope="HTTP:model-config-patch",
@@ -1564,6 +1580,41 @@ def _openai_model_probe(
     )
 
 
+def _minimax_image_probe(
+    body: ModelConnectionTestRequest,
+    headers: dict[str, str],
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Zero-cost MiniMax image probe.
+
+    MiniMax has no model-retrieve ``GET /models/{id}``; the OpenAI-style
+    fall-through would hit a non-existent path and surface an nginx HTML 404.
+    The task-query endpoint is free, reachable with the same Bearer key on the
+    same host, and answers with a MiniMax JSON envelope instead of raw HTML.
+    """
+    base = body.base_url.rstrip("/")
+    return (
+        f"{base}/v1/query/video_generation",
+        headers,
+        {
+            "_get_probe": True,
+            "task_id": "creator-connection-probe",
+        },
+    )
+
+
+def _minimax_base_resp_error(response: httpx.Response) -> str | None:
+    """Message when a MiniMax 2xx probe body carries a non-zero ``base_resp``.
+
+    The code table and formatting live in :mod:`models.minimax_errors` so the
+    probe and the real image/video generation paths share one definition.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return minimax_probe_base_resp_error(body)
+
+
 def _token_plan_models_probe(
     body: ModelConnectionTestRequest,
     headers: dict[str, str],
@@ -1612,7 +1663,6 @@ def _anthropic_llm_probe(
         headers,
         {
             "model": body.model_name,
-            "max_tokens": 8,
             "messages": [{"role": "user", "content": content}],
         },
     )
@@ -1649,8 +1699,24 @@ def _gemini_llm_probe(
         parts = [{"text": "Reply with pong only."}]
     payload: dict[str, Any] = {
         "contents": [{"parts": parts}],
-        "generationConfig": {"maxOutputTokens": 8},
     }
+    return url, headers, payload
+
+
+async def _prepare_probe_payload(
+    body: ModelConnectionTestRequest,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    url, headers, payload = _probe_payload(body)
+    if body.type in {"llm", "vlm"} and model_config.is_anthropic_protocol(
+        body.protocol,
+    ):
+        from models.output_budget import anthropic_output_limit
+
+        payload["max_tokens"] = await anthropic_output_limit(
+            body.model_name,
+            base_url=body.base_url,
+            api_key=body.api_key,
+        )
     return url, headers, payload
 
 
@@ -1749,7 +1815,6 @@ def _probe_payload(
             {
                 "model": body.model_name,
                 "messages": [{"role": "user", "content": content}],
-                "max_tokens": 8,
             },
         )
     if body.type == "image":
@@ -1757,6 +1822,8 @@ def _probe_payload(
             return _token_plan_models_probe(body, headers)
         if "dashscope" in body.protocol.casefold() or "百炼" in body.protocol:
             return _dashscope_policy_probe(body, headers)
+        if "minimax" in body.protocol.casefold() or "海螺" in body.protocol:
+            return _minimax_image_probe(body, headers)
         return _openai_model_probe(body, headers)
     if body.type == "video":
         from models.video_capabilities import video_model_capability
@@ -1793,6 +1860,10 @@ def _probe_payload(
                     "task_id": "creator-connection-probe",
                 },
             )
+        if video_backend == "minimax_sglang":
+            # Zero-cost self-hosted probe: the SGLang multimodal server
+            # exposes GET /health (2xx when healthy and warmed up).
+            return (f"{base}/health", headers, {"_get_probe": True})
         if video_backend == "kling":
             return (
                 f"{base}/tasks",
@@ -1878,7 +1949,7 @@ async def test_model_connection(
         )
     start = time.monotonic()
     try:
-        url, headers, payload = _probe_payload(selected)
+        url, headers, payload = await _prepare_probe_payload(selected)
         async with httpx.AsyncClient(timeout=30) as client:
             if payload.pop("_get_probe", False):
                 headers.pop("Content-Type", None)
@@ -1894,6 +1965,19 @@ async def test_model_connection(
                     json=payload,
                 )
         elapsed = round((time.monotonic() - start) * 1000)
+        if response.is_success and "minimax" in selected.protocol.casefold():
+            # MiniMax hides auth/balance failures inside an HTTP 200; without
+            # this the connection test green-lights a key the provider rejects.
+            base_resp_error = _minimax_base_resp_error(response)
+            if base_resp_error is not None:
+                return ConnectionTestResponse(
+                    ok=False,
+                    ms=elapsed,
+                    error=(
+                        f"{base_resp_error} "
+                        f"[探测端点: {redact_url(url)}，协议: {selected.protocol}]"
+                    ),
+                )
         if response.is_success:
             return ConnectionTestResponse(
                 ok=True,
@@ -1919,7 +2003,17 @@ async def test_model_connection(
             else:
                 provider_error = str(provider_body)
         except ValueError:
-            provider_error = response.text[:300]
+            # A gateway/nginx error page is HTML, not a provider message; echo
+            # ing it leaks markup into the UI and hides the real cause. Fall
+            # back to the status line only when the body is not JSON.
+            raw = response.text.strip()
+            if raw[:1] == "<" or "<html" in raw[:200].casefold():
+                provider_error = (
+                    f"服务返回了非 JSON 错误页（{response.reason_phrase}），"
+                    "通常是 Base URL 或路径不受该 provider 支持"
+                )
+            else:
+                provider_error = raw[:300]
         hint = upstream_status_hint(response.status_code)
         return ConnectionTestResponse(
             ok=False,

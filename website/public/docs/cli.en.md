@@ -688,7 +688,7 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 | `qwenpaw skills info SKILL_NAME`       | One exact skill name                                        | `--agent-id ID` (default `default`) or `--pool`                                                                                                                                                                                 |
 | `qwenpaw skills install BUNDLE_URL`    | A skill URL from a supported source                         | `--pool` imports to the Pool; `--agent-id ID` installs into that workspace; they are mutually exclusive; for compatibility, omitting both still targets the Pool; `--enable/--no-enable` is workspace-only (enabled by default) |
 | `qwenpaw skills uninstall SKILL_NAME`  | One exact skill name                                        | `--pool` removes it from the Pool; `--agent-id ID` removes it from that workspace; they are mutually exclusive; for compatibility, omitting both still targets the Pool                                                         |
-| `qwenpaw skills test SKILL`            | A local skill directory or exact name in the selected scope | `--agent-id ID` (default `default`) or `--pool`                                                                                                                                                                                 |
+| `qwenpaw skills test SKILL`            | A local skill directory or exact name in the selected scope | `--agent-id ID` (default `default` for names) or `--pool`; `--base-url URL` for command checks                                                                                                                                  |
 
 ```bash
 qwenpaw skills install https://skills.sh/owner/repo/skill --pool  # Import into the local skill pool
@@ -705,6 +705,15 @@ qwenpaw skills disable pdf --agent-id abc123      # Disable without uninstalling
 qwenpaw skills info [skill_name]               # See default agent's skill details
 qwenpaw skills info [skill_name] --pool        # See details in the Pool
 qwenpaw skills info [skill_name] --agent-id abc123 # See specific agent's skill details
+
+# Validate an installed skill
+qwenpaw skills test my_skill --agent-id abc123
+
+# Check a local directory without selecting an agent
+qwenpaw skills test ./my_skill
+
+# Also check target MCP configuration and command names
+qwenpaw skills test ./my_skill --agent-id abc123
 ```
 
 In the `skills config` checkbox, type a contiguous substring to narrow the

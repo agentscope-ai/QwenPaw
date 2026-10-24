@@ -1,11 +1,5 @@
-import {
-  Button,
-  Drawer,
-  Form,
-  Input,
-  Select,
-  Switch,
-} from "@agentscope-ai/design";
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
+import { Button, Form, Input, Select, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type {
   PoolSkillDetail,
@@ -20,6 +14,7 @@ import {
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import { MAX_TAGS, MAX_TAG_LENGTH } from "../../../Agent/Skills/components";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
+import { SkillConfigEditor } from "../../../../components/SkillConfigEditor";
 import type { PoolMode } from "../useSkillPool";
 import styles from "../index.module.less";
 
@@ -301,13 +296,12 @@ export function PoolSkillDrawer({
             </Form.Item>
 
             <Form.Item label={t("skills.config")}>
-              <Input.TextArea
-                rows={4}
+              <SkillConfigEditor
                 value={configText}
-                onChange={(e) => {
-                  onConfigTextChange(e.target.value);
-                }}
-                placeholder={t("skills.configPlaceholder")}
+                onChange={onConfigTextChange}
+                requirements={
+                  mode === "edit" ? activeSkill?.requirements : undefined
+                }
               />
             </Form.Item>
           </Form>

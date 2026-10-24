@@ -270,6 +270,13 @@ class TestNoTextDebounceBuffering:
     causes abnormal message processing.
     """
 
+    @pytest.fixture(autouse=True)
+    def enable_base_debounce(self, base_channel):
+        # These tests exercise BaseChannel's optional buffering. Console HTTP
+        # submissions intentionally disable it to support attachment-only
+        # turns.
+        base_channel._no_text_debounce = True
+
     def test_no_text_content_buffered_not_processed(
         self,
         base_channel,
@@ -1187,16 +1194,15 @@ class TestExtractChatName:
 
         assert "Hello World this is a test" in result
 
-    def test_extract_from_dict_truncates_to_50(self, base_channel):
-        """Should truncate text to 50 chars."""
+    def test_extract_from_dict_keeps_complete_text(self, base_channel):
+        """Chat names should be persisted without a backend length cap."""
         payload = {
             "content_parts": [{"text": "A" * 100}],
         }
 
         result = base_channel._extract_chat_name(payload)
 
-        assert len(result) == 50
-        assert result == "A" * 50
+        assert result == "A" * 100
 
     def test_extract_from_dict_empty_returns_new_chat(self, base_channel):
         """Empty content should return 'New Chat'."""

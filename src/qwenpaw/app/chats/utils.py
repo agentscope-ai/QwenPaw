@@ -3,12 +3,14 @@ import json
 import logging
 import platform
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
+from functools import lru_cache
 from typing import List, Optional, Union
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
+from pydantic import ValidationError
 from qwenpaw.agents.context.scroll.serialize import strip_headline
 from qwenpaw.schemas import (
     Message,
@@ -21,24 +23,127 @@ from qwenpaw.schemas import (
     FunctionCall,
     FunctionCallOutput,
     MessageType,
+    ContentType,
 )
 from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
 )
 
 from ...config import load_config
+from ...config.timezone import detect_system_timezone
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
+    QWENPAW_USER_CONTENT_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
 
+# Maximum characters of a single ``tool_result`` output included in served
+# chat history when ``truncate_oversized_outputs=True``. Tool outputs such as
+# files sent via ``send_file_to_user`` or screenshots are persisted as base64
+# inside ``tool_result``; returning them verbatim can inflate one chat-history
+# response to 10+ MB and reliably trip the console's fixed 30 s request
+# timeout on slow links (GH-8228).
+_MAX_TOOL_OUTPUT_CHARS = 64 * 1024
+
+# Inline base64 blobs above this size are replaced structurally before
+# serialisation. 4 KB matches the console's ``LARGE_BASE64_CHARS``: the UI
+# never renders base64 from the output blob (it reads ``source.url`` and
+# replaces large inline blobs), so dropping the payload is safe and makes
+# the served response both smaller and still valid JSON.
+_BASE64_KEEP_CHARS = 4 * 1024
+
+
+def _cap_tool_output(
+    output: Optional[Union[str, list, dict]],
+    max_chars: int,
+) -> Optional[Union[str, list, dict]]:
+    """Bound a served ``tool_result`` output without breaking JSON.
+
+    ``ToolResultBlock.output`` is ``str | list[TextBlock | DataBlock]``;
+    screenshots and ``view_image`` results persist as a list with the
+    base64 inside ``DataBlock.source.data``. Slicing the serialised JSON
+    string would cut inside a string literal and yield invalid JSON, so
+    oversized base64 blocks are replaced structurally *before* JSON
+    serialisation, and only plain ``str`` outputs are sliced. ``None``
+    (no output) is returned unchanged.
+    """
+    if isinstance(output, list):
+        capped = []
+        for block in output:
+            block = dict(block) if isinstance(block, dict) else block
+            if isinstance(block, dict):
+                src = block.get("source")
+                if (
+                    isinstance(src, dict)
+                    and src.get("type") == "base64"
+                    and len(src.get("data", "")) > _BASE64_KEEP_CHARS
+                ):
+                    n = len(src["data"])
+                    name = block.get("name") or "media"
+                    block = {
+                        "type": "text",
+                        "text": f"[{name}: base64 omitted from history,"
+                        f" {n} chars]",
+                    }
+            capped.append(block)
+        return capped
+    if isinstance(output, str) and len(output) > max_chars:
+        return output[:max_chars] + f" [output truncated: {len(output)} chars]"
+    return output
+
+
 logger = logging.getLogger(__name__)
 
 
-def _process_local_tz():
-    """Return the process-local timezone used by ``datetime.now()``."""
+def _fixed_local_tz() -> tzinfo:
+    """The process's current fixed offset, as ``datetime.now()`` sees it."""
     return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _resolve_process_zone() -> Optional[ZoneInfo]:
+    """Return the host's IANA zone, or ``None`` when none can be resolved."""
+    try:
+        return ZoneInfo(detect_system_timezone())
+    except (ZoneInfoNotFoundError, KeyError, ValueError):
+        return None
+
+
+def _zone_explains_offset(zone: ZoneInfo, fixed: tzinfo) -> bool:
+    """Whether *zone* puts the current wall clock at *fixed*'s offset.
+
+    ``detect_system_timezone()`` cannot report failure — it falls back to
+    ``"UTC"`` — so a resolved zone is only trustworthy when it agrees with
+    the offset the process is actually running at.  Otherwise a host whose
+    zone cannot be resolved would be stamped ``+00:00`` — off by the whole
+    UTC offset, not by the DST delta.
+    """
+    now = datetime.now()
+    return (
+        now.replace(tzinfo=zone).utcoffset()
+        == now.replace(
+            tzinfo=fixed,
+        ).utcoffset()
+    )
+
+
+@lru_cache(maxsize=1)
+def _process_local_tz():
+    """Return the process-local timezone used by ``datetime.now()``.
+
+    Resolve the host's IANA zone so the returned ``tzinfo`` carries DST
+    rules.  ``datetime.now().astimezone().tzinfo`` only ever describes the
+    *current* offset (a fixed ``datetime.timezone``), so attaching it to a
+    naive timestamp recorded in the opposite DST half-year silently shifts
+    the value by the DST delta.  The resolved zone is kept only when it
+    explains the process's current offset; otherwise it falls back to the
+    previous behaviour and uses the fixed offset.
+    """
+    fixed = _fixed_local_tz()
+    zone = _resolve_process_zone()
+    if zone is not None and _zone_explains_offset(zone, fixed):
+        return zone
+    return fixed
 
 
 def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
@@ -82,26 +187,19 @@ def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     )
 
 
-# Visual compression collapses history/context ranges into user-role
-# messages with these names. They are model-only reconstructions.
-_VISUAL_PLACEHOLDER_NAMES = frozenset(
-    {"visual_context", "visual_history"},
-)
-
-
 def _is_synthetic_user_message(msg: Msg) -> bool:
     """Return whether *msg* is a runtime-injected user-role message.
 
     Loop gates, stop handlers, and rubric evaluation append tagged
     ``role="user"`` stubs to keep a turn going; visual compression
-    collapses history into ``visual_history`` / ``visual_context``
+    collapses history into ``visual_history``
     user messages. None of them is user transcript — rendering them as
     user cards made the original instruction appear rewritten after a
     session switch.
     """
     if msg.role != "user":
         return False
-    if msg.name in _VISUAL_PLACEHOLDER_NAMES:
+    if msg.name == "visual_history":
         return True
     metadata = getattr(msg, "metadata", None)
     return (
@@ -145,10 +243,10 @@ def build_env_context(
     user_name: Optional[str] = None,
     channel: Optional[str] = None,
     working_dir: Optional[str] = None,
-    add_hint: bool = True,
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
     active_model_name: Optional[str] = None,
+    agent_id: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -160,7 +258,6 @@ def build_env_context(
             Only rendered when provided by the channel via channel_meta.
         channel: Current channel name
         working_dir: Working directory path
-        add_hint: Whether to add hint context
         default_shell: Shell executable used by execute_shell_command.
             When provided, included in the context so the LLM can
             generate syntax appropriate for that shell.
@@ -170,6 +267,7 @@ def build_env_context(
             so the LLM stops treating the workspace as home.
         active_model_name: Current active model name for runtime
             identity (e.g. "qwen-max", "gpt-4o").
+        agent_id: Current agent identifier.
 
     Returns:
         Formatted environment context string
@@ -210,19 +308,11 @@ def build_env_context(
     elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
 
-    if add_hint:
+    if agent_id:
         parts.append(
-            "- Important:\n"
-            "  1. Prefer using skills when completing tasks "
-            "(e.g. use the cron skill for scheduled tasks). "
-            "Consult the relevant skill documentation if unsure.\n"
-            "  2. When using write_file, if you want to avoid overwriting "
-            "existing content, use read_file first to inspect the file, "
-            "then use edit_file for partial updates or appending.\n"
-            "  3. Use tool calls to perform actions. A response without a "
-            "tool call indicates the task is complete. To continue a task, "
-            "you must generate a tool call or provide useful feedback if "
-            "you are blocked.\n",
+            f"- Agent Identity: Your agent id is "
+            f"{json.dumps(str(agent_id))}. "
+            f"This is your unique identifier in the multi-agent system.",
         )
 
     # Keep request-specific values after the reusable environment prefix.
@@ -511,15 +601,52 @@ def clean_display_text(text: str, role: str) -> str:
     return strip_injected_skill_block(strip_headline(text) or "", role)
 
 
+def _original_user_message(msg: Msg, metadata: dict) -> Message | None:
+    """Restore attachment input without exposing model-only file hints."""
+    if msg.role != "user" or not isinstance(msg.metadata, dict):
+        return None
+    content = msg.metadata.get(QWENPAW_USER_CONTENT_KEY)
+    if not isinstance(content, list) or not content:
+        return None
+    try:
+        message = Message(
+            type=MessageType.MESSAGE,
+            role=msg.role,
+            content=content,
+            metadata=metadata,
+        ).completed()
+    except ValidationError:
+        logger.debug("Invalid original user content for message %s", msg.id)
+        return None
+    if not all(
+        isinstance(getattr(part, "type", None), ContentType)
+        for part in message.content
+    ):
+        return None
+    message.content = [
+        part
+        for part in message.content
+        if not (isinstance(part, TextContent) and not part.text)
+    ]
+    return message
+
+
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
+    truncate_oversized_outputs: bool = False,
 ) -> List[Message]:
     """
     Convert AgentScope Msg(s) into one or more runtime Message objects.
 
     Args:
         messages: AgentScope message(s) from streaming.
+        truncate_oversized_outputs: When True, cap oversized
+            ``tool_result`` outputs (files/screenshots persisted as
+            base64) so served chat-history responses stay small enough
+            to transfer within the console's fixed 30 s request timeout
+            on slow links. Defaults to False to keep all other callers
+            byte-for-byte unchanged.
 
     Returns:
         List[Message]: One or more constructed runtime Message objects.
@@ -569,10 +696,19 @@ def agentscope_msg_to_message(
         metadata = {
             "original_id": msg.id,
             "original_name": msg.name,
-            "metadata": msg.metadata,
+            "metadata": {
+                key: value
+                for key, value in (msg.metadata or {}).items()
+                if key != QWENPAW_USER_CONTENT_KEY
+            },
             "timestamp": ts_value,
             "finished_at": finished_value or None,
         }
+
+        original_message = _original_user_message(msg, metadata)
+        if original_message is not None:
+            results.append(original_message)
+            continue
 
         if isinstance(msg.content, str):
             message = Message(type=MessageType.MESSAGE, role=role)
@@ -704,13 +840,14 @@ def agentscope_msg_to_message(
                 current_message.metadata = metadata
                 current_type = MessageType.PLUGIN_CALL_OUTPUT
 
-                if isinstance(block.get("output"), (dict, list)):
-                    output = json.dumps(
-                        block.get("output"),
-                        ensure_ascii=False,
+                output = block.get("output")
+                if truncate_oversized_outputs:
+                    output = _cap_tool_output(
+                        output,
+                        _MAX_TOOL_OUTPUT_CHARS,
                     )
-                else:
-                    output = block.get("output")
+                if isinstance(output, (dict, list)):
+                    output = json.dumps(output, ensure_ascii=False)
 
                 output_data = FunctionCallOutput(
                     call_id=block.get("id"),

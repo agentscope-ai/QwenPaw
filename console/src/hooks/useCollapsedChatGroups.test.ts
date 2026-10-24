@@ -20,4 +20,27 @@ describe("useCollapsedChatGroups", () => {
       false,
     );
   });
+
+  it("applies default collapsed groups once", () => {
+    const { result } = renderHook(() => useCollapsedChatGroups());
+
+    act(() => result.current.initializeCollapsedGroups(new Set(["older"])));
+    expect(result.current.collapsedGroups.has("older")).toBe(true);
+
+    act(() => result.current.initializeCollapsedGroups(new Set(["newer"])));
+    expect(result.current.collapsedGroups.has("newer")).toBe(false);
+  });
+
+  it("upgrades the legacy default so new group defaults can apply", () => {
+    localStorage.setItem(
+      "qwenpaw_collapsed_chat_groups_v3",
+      JSON.stringify(["cron", "subagents"]),
+    );
+    const { result } = renderHook(() => useCollapsedChatGroups());
+
+    act(() => result.current.initializeCollapsedGroups(new Set(["older"])));
+
+    expect(result.current.collapsedGroups.has("older")).toBe(true);
+    expect(localStorage.getItem("qwenpaw_collapsed_chat_groups_v3")).toBeNull();
+  });
 });

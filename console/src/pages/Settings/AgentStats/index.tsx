@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, Empty, Button } from "@agentscope-ai/design";
 import { Spin, Tooltip } from "antd";
 import { DatePicker } from "antd";
@@ -39,6 +39,14 @@ interface ColumnSeries {
 function formatDateLabel(dateStr: string, crossesYear: boolean): string {
   const date = dayjs(dateStr);
   return crossesYear ? date.format("YY/MM-DD") : date.format("MM-DD");
+}
+
+function readCssColor(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
+    fallback
+  );
 }
 
 function getColumnConfig(
@@ -100,6 +108,7 @@ function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
+  const accentColor = readCssColor("--app-accent", "#ff7f16");
   const { selectedAgent, agents } = useAgentStore();
   const selectedAgentInfo = agents.find((a) => a.id === selectedAgent);
   const agentName = selectedAgentInfo
@@ -111,38 +120,38 @@ function AgentStatsPage() {
   const [startDate, setStartDate] = useState<Dayjs>(dayjs().subtract(7, "day"));
   const [endDate, setEndDate] = useState<Dayjs>(dayjs());
 
-  const fetchData = async (start: Dayjs, end: Dayjs) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const summary = await api.getAgentStats({
-        start_date: start.format("YYYY-MM-DD"),
-        end_date: end.format("YYYY-MM-DD"),
-      });
-      setData(summary);
-    } catch (e) {
-      console.error("Failed to load agent statistics:", e);
-      const msg = t("agentStats.loadFailed");
-      message.error(msg);
-      setError(msg);
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchData = useCallback(
+    async (start: Dayjs, end: Dayjs) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const summary = await api.getAgentStats({
+          start_date: start.format("YYYY-MM-DD"),
+          end_date: end.format("YYYY-MM-DD"),
+        });
+        setData(summary);
+      } catch (e) {
+        console.error("Failed to load agent statistics:", e);
+        const msg = t("agentStats.loadFailed");
+        message.error(msg);
+        setError(msg);
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [message, t],
+  );
 
   useEffect(() => {
-    fetchData(startDate, endDate);
-  }, [selectedAgent]);
+    void fetchData(startDate, endDate);
+  }, [selectedAgent, startDate, endDate, fetchData]);
 
   const handleDateChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
     const newStart = dates?.[0] || startDate;
     const newEnd = dates?.[1] || endDate;
     if (dates?.[0]) setStartDate(newStart);
     if (dates?.[1]) setEndDate(newEnd);
-    if (dates?.[0] && dates?.[1]) {
-      fetchData(newStart, newEnd);
-    }
   };
 
   const crossesYear = useMemo(
@@ -199,11 +208,11 @@ function AgentStatsPage() {
           { key: "chats", label: t("agentStats.newSessions") },
           { key: "activeSessions", label: t("agentStats.activeSessions") },
         ],
-        ["#ff7f16", "#3b82f6"],
+        [accentColor, "#3b82f6"],
         isDarkMode,
         crossesYear,
       ),
-    [chartData, t, isDarkMode, crossesYear],
+    [accentColor, chartData, t, isDarkMode, crossesYear],
   );
 
   const agentTokenColumnConfig = useMemo(() => {
@@ -341,7 +350,7 @@ function AgentStatsPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader parent={t("nav.settings")} current={t("agentStats.title")} />
+      <PageHeader current={t("agentStats.title")} />
       <div className={styles.content}>
         {error && !data ? (
           <div className={styles.error}>

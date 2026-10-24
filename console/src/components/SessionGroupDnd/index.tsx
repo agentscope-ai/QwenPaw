@@ -193,11 +193,10 @@ export function DraggableSession({
   label,
   children,
 }: DraggableSessionProps) {
-  const { attributes, isDragging, listeners, setNodeRef, transform } =
-    useDraggable({
-      id: `session:${sessionId}`,
-      data: { sessionId, groupId, label } satisfies DragData,
-    });
+  const { isDragging, listeners, setNodeRef, transform } = useDraggable({
+    id: `session:${sessionId}`,
+    data: { sessionId, groupId, label } satisfies DragData,
+  });
   return (
     <div
       ref={setNodeRef}
@@ -212,7 +211,6 @@ export function DraggableSession({
           event.stopPropagation();
         }
       }}
-      {...attributes}
       {...listeners}
     >
       {children}

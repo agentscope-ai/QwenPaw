@@ -1,3 +1,4 @@
+import { ChartNoAxesCombined } from "lucide-react";
 import styles from "../index.module.less";
 
 interface EmptyStateProps {
@@ -8,7 +9,7 @@ interface EmptyStateProps {
 export function EmptyState({ message, className }: EmptyStateProps) {
   return (
     <div className={`${styles.emptyState} ${className ?? ""}`}>
-      <span className={styles.emptyIcon}>📊</span>
+      <ChartNoAxesCombined className={styles.emptyIcon} size={32} aria-hidden />
       <span>{message}</span>
     </div>
   );

@@ -107,31 +107,6 @@ class TestSamePythonExecutable:
         assert dc._same_python_executable(str(a), str(a)) is True
 
 
-class TestHttpGet:
-    def test_sets_trust_env_default(self, monkeypatch):
-        seen = {}
-
-        def fake_get(url, **kw):
-            seen.update(kw)
-            return _Resp()
-
-        monkeypatch.setattr(dc.httpx, "get", fake_get)
-        monkeypatch.setattr(dc, "trust_env_for_url", lambda u: False)
-        dc._http_get("http://x/api")
-        assert seen["trust_env"] is False
-
-    def test_explicit_trust_env_not_overridden(self, monkeypatch):
-        seen = {}
-
-        def fake_get(url, **kw):
-            seen.update(kw)
-            return _Resp()
-
-        monkeypatch.setattr(dc.httpx, "get", fake_get)
-        dc._http_get("http://x/api", trust_env=True)
-        assert seen["trust_env"] is True
-
-
 class TestProviderIsConfigured:
     def test_local(self):
         p = SimpleNamespace(

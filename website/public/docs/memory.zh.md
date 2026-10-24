@@ -15,6 +15,72 @@ QwenPaw 的长期记忆由工作区的文件系统和 [ReMe](https://github.com/
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw 长期记忆从记录、整理到找回的完整循环" />
 </p>
 
+## 可选的 PowerContext 后端
+
+`remelight` 仍是默认长期记忆后端。如需使用可选的 `powercontext` 后端，必须安装
+PowerContext memory 插件，并单独部署或启动 PowerContext Server；QwenPaw 不会自动下载或
+启动该服务。在源码目录中先构建并安装插件：
+
+```bash
+cd plugins/memory/powercontext/frontend
+npm install
+npm run build
+cd ../../../../
+qwenpaw plugin install plugins/memory/powercontext
+```
+
+本地服务默认地址为 `http://127.0.0.1:8000`。可使用以下命令安装并启动：
+
+```bash
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@685b31dd2961df5e31daa565f87d004755ebd2cf"
+powercontext server run
+```
+
+在 **Agent Config** 中选择 **PowerContext** 后，填写服务地址、可选 Bearer Token、记忆作用域、超时、自动检索结果数量和注入上下文预算。保存会安排 Agent 重载，无需重启整个 QwenPaw 进程。启用后，QwenPaw 会把当前回合经过长度限制的任务状态发送到所配置的服务，并在后续回合前检索相关记忆。该服务地址和作用域是数据边界，应只配置适合保存当前对话数据的服务和作用域。记忆作用域留空时，QwenPaw 会使用持久化的安装级默认值 `qwenpaw:<installation_id>:agent:<agent_id>`；即使两个独立安装使用相同 Agent ID 并连接同一个 PowerContext 服务，也会被隔离。只有希望多个 Agent 共享记忆时，才应填写相同的显式作用域。复制 QwenPaw 工作目录会同时复制安装身份；若复制品不应共享记忆，应在复制后设置不同的显式作用域。自动检索还会受总注入上下文预算限制（默认 12,000 UTF-8 字节），请求超时限制为 1–60 秒。
+
+### 网络与审批边界
+
+启用该后端后，自动检索和每回合结束后的受限状态写入均是配置驱动的后台网络操作：它们会将查询或经过长度限制的回合状态发送到所配置的 PowerContext 服务，不经过 Agent 工具调用。如果这种传输不合适，请关闭自动检索或改用其他记忆后端。相对地，Agent 可见的 `memory_search` 和 `memory_remember` 是受治理的操作：PowerContext 的检索工具被标记为网络 I/O，严格治理可以在发送查询前要求审批；`memory_remember` 同样作为网络写入受当前策略约束。
+
+### PowerContext 配置
+
+| 配置项                      | 说明                                                  | 默认值                                                       |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| `base_url`                  | PowerContext 服务地址                                 | `""`                                                         |
+| `token`                     | 可选的 Bearer Token                                   | `""`                                                         |
+| `scope_id`                  | 记忆作用域；留空时使用按安装和 Agent 隔离的默认作用域 | `""`                                                         |
+| `timeout`                   | 请求超时秒数，范围为 1–60                             | `10.0`                                                       |
+| `auto_memory_search_config` | 自动召回设置和注入上下文的总字节预算                  | `{"enabled":true,"max_results":3,"max_context_bytes":12000}` |
+
+等价的 `agent.json` 配置为：
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "powercontext",
+    "memory_backend_configs": {
+      "powercontext": {
+        "base_url": "http://127.0.0.1:8000",
+        "token": "",
+        "scope_id": "",
+        "timeout": 10.0,
+        "auto_memory_search_config": {
+          "enabled": true,
+          "max_results": 3,
+          "max_context_bytes": 12000
+        }
+      }
+    }
+  }
+}
+```
+
+插件配置必须放在 `memory_backend_configs.powercontext`；原先由核心定义的
+`powercontext_memory_config` 字段已不再支持。
+升级后的首次启动中，插件会将根配置中原有的 `powercontext_installation_id` 继承到
+QwenPaw 规范工作目录下的 `plugin-state/memory-powercontext/installation-id`。即使 Agent
+使用自定义 workspace 路径，也能保持默认作用域以及对既有远程记忆的访问。
+
 ## 先理解它怎样工作
 
 假设你是一名金融分析师，正在持续研究新能源汽车产业链。几周内，你可能先后讨论过宁德时代的产品结构、动力电池价格、碳酸锂供需，以及“锂价下跌究竟利好电池厂还是会带来库存减值”这样的判断。
@@ -161,7 +227,9 @@ Inbox 只用于查看运行结果；真正可编辑、可复用的记忆仍然�
 
 分析师的知识不只来自对话，还来自论文、新闻和数据源。Auto Resource 是这条外部资料管线的总称，目前仍处于 Beta，正在持续扩展。
 
-当前内置能力是 **Daily Paper**：启用后，QwenPaw 会从 Hugging Face Papers 的周榜和月榜中筛选与你关注主题相关的热门论文，保存原始 PDF，并生成三篇精读和一份每日简报。例如把主题设置为 `battery, lithium, energy storage`，就可以持续补充电池材料、寿命预测和储能技术相关研究。
+当前内置能力包括 **Daily Paper** 和 **Auto Fin**。
+
+启用 Daily Paper 后，QwenPaw 会从 Hugging Face Papers 的周榜和月榜中筛选与你关注主题相关的热门论文，保存原始 PDF，并生成三篇精读和一份每日简报。例如把主题设置为 `battery, lithium, energy storage`，就可以持续补充电池材料、寿命预测和储能技术相关研究。
 
 - PDF 写入 `resource/papers/`；
 - 精读和简报写入 `memory/YYYY-MM-DD/`；
@@ -171,7 +239,21 @@ Inbox 只用于查看运行结果；真正可编辑、可复用的记忆仍然�
   <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper 的调度与主题配置" />
 </p>
 
-Daily Paper 是当前内置的资料入口。任意文件仅仅放进 `resource/` 并不会被自动处理。自动抓取你感兴趣的财经新闻并沉淀到知识库仍在规划中（TODO）；在正式接入前，不应把 Auto Resource 理解成一个通用的文件导入器。
+Auto Fin 会拉取一个滚动时间窗口内的财联社电报（默认最近 24 小时），按关注主题筛选相关新闻，再搜索 ReMe 中有回顾价值的历史记忆，生成一份带有效 Wikilink 的中文研究报告。当前新闻和筛选结果只存在于本次运行内存中，只有最终报告会写入 `memory/YYYY-MM-DD/auto_fin.md`。同日重跑会参考已有报告并原子覆盖为修订结果；没有相关新闻时任务成功跳过，不写报告，也不发送 Inbox 通知。
+
+Auto Fin 没有可靠行情数据，不计算收益、目标价或买卖点，也不提供投资建议。任意文件仅仅放进 `resource/` 仍不会被自动处理，因此不应把 Auto Resource 理解成一个通用的文件导入器。完整流程与边界见 [ReMe Auto Fin 指南](https://github.com/agentscope-ai/ReMe/blob/main/plugins/auto-fin/README_ZH.md)。
+
+这两个生成能力也可以在对话中手动运行：
+
+```text
+/reme daily_paper topics="智能体,记忆" force=true
+/reme auto_fin topics="黄金,机器人" window_hours=12
+```
+
+手动执行不要求开启 `daily_paper_cron_enabled` 或 `auto_fin_cron_enabled`；这两个
+开关只控制定时调度。命令需要审批，之后会等待生成 action 执行完成。当前安装
+插件实际开放且允许从聊天调用的参数以 `/reme help` 为准。聊天审批仅能由发起
+请求的同一用户、频道和会话处理；经过身份验证的控制台可作为管理员审批。
 
 ### 4. Auto-Dream 把每日记录整理成长期经验
 
@@ -269,7 +351,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 
 1. 你在 `MEMORY.md` 中写下“重点跟踪新能源汽车、锂电池和锂资源”的稳定研究范围；
 2. Auto-Memory 把当天关于宁德时代与锂价的 session 总结成一条日期子目录笔记，并刷新当天索引页；
-3. Auto Resource 把已接入的相关论文精读补充进每日记忆；
+3. Auto Resource 把已接入的论文精读和财经研究报告补充进每日记忆；
 4. Markdown AST 分块、BM25、向量索引与文件图谱在后台持续更新；
 5. Auto-Dream 把多天记录整理成 `personal`、`procedure` 和 `wiki` 长期节点，并建立 Wikilink；
 6. Memory Search 在下一次写研报时先返回命中片段，再按需沿出边、入边和文件路径展开；
@@ -314,6 +396,11 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
       "daily_paper_use_hf_mirror": false,
       "daily_paper_topics": "",
       "daily_paper_inbox_push_enabled": true,
+      "auto_fin_cron_enabled": false,
+      "auto_fin_cron": "0 18 * * *",
+      "auto_fin_topics": "gold,robotics,semiconductors",
+      "auto_fin_window_hours": 24,
+      "auto_fin_inbox_push_enabled": true,
       "memory_search_enabled": true,
       "auto_memory_search_config": {
         "enabled": false,
@@ -324,21 +411,26 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 }
 ```
 
-| 配置项                                  | 默认值         | 说明                                                               |
-| --------------------------------------- | -------------- | ------------------------------------------------------------------ |
-| `auto_memory_interval`                  | `5`            | 每累计 N 个用户回合触发 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
-| `auto_memory_inbox_push_enabled`        | `true`         | Auto-Memory 实际改变记忆或执行失败后推送到 Inbox                   |
-| `dream_cron_enabled`                    | `true`         | 启用定时 Auto-Dream                                                |
-| `dream_cron`                            | `"0 23 * * *"` | 五段式 cron；实际运行前会随机延迟 0–60 秒                          |
-| `auto_dream_inbox_push_enabled`         | `true`         | Auto-Dream 实际改变记忆或执行失败后推送到 Inbox                    |
-| `daily_paper_cron_enabled`              | `false`        | 启用定时 Daily Paper                                               |
-| `daily_paper_cron`                      | `"0 9 * * *"`  | Daily Paper 的五段式 cron                                          |
-| `daily_paper_use_hf_mirror`             | `false`        | 通过 Hugging Face 镜像获取论文信息                                 |
-| `daily_paper_topics`                    | `""`           | 选论文时优先考虑的主题                                             |
-| `daily_paper_inbox_push_enabled`        | `true`         | 把 Daily Paper 结果推送到 Inbox                                    |
-| `memory_search_enabled`                 | `true`         | 向 Agent 提供手动 `memory_search` 工具                             |
-| `auto_memory_search_config.enabled`     | `false`        | 每次普通用户请求前自动搜索记忆                                     |
-| `auto_memory_search_config.max_results` | `2`            | 自动搜索时最多注入的结果数                                         |
+| 配置项                                  | 默认值                           | 说明                                                               |
+| --------------------------------------- | -------------------------------- | ------------------------------------------------------------------ |
+| `auto_memory_interval`                  | `5`                              | 每累计 N 个用户回合触发 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
+| `auto_memory_inbox_push_enabled`        | `true`                           | Auto-Memory 实际改变记忆或执行失败后推送到 Inbox                   |
+| `dream_cron_enabled`                    | `true`                           | 启用定时 Auto-Dream                                                |
+| `dream_cron`                            | `"0 23 * * *"`                   | 五段式 cron；实际运行前会随机延迟 0–60 秒                          |
+| `auto_dream_inbox_push_enabled`         | `true`                           | Auto-Dream 实际改变记忆或执行失败后推送到 Inbox                    |
+| `daily_paper_cron_enabled`              | `false`                          | 启用定时 Daily Paper                                               |
+| `daily_paper_cron`                      | `"0 9 * * *"`                    | Daily Paper 的五段式 cron                                          |
+| `daily_paper_use_hf_mirror`             | `false`                          | 通过 Hugging Face 镜像获取论文信息                                 |
+| `daily_paper_topics`                    | `""`                             | 选论文时优先考虑的主题                                             |
+| `daily_paper_inbox_push_enabled`        | `true`                           | 把 Daily Paper 结果推送到 Inbox                                    |
+| `auto_fin_cron_enabled`                 | `false`                          | 启用定时 Auto Fin                                                  |
+| `auto_fin_cron`                         | `"0 18 * * *"`                   | Auto Fin 的五段式 cron                                             |
+| `auto_fin_topics`                       | `"gold,robotics,semiconductors"` | 用逗号分隔的财联社新闻筛选主题                                     |
+| `auto_fin_window_hours`                 | `24`                             | 每次向前抓取财联社电报的滚动小时数，范围为 1–168                   |
+| `auto_fin_inbox_push_enabled`           | `true`                           | 把实际生成的 Auto Fin 报告或失败结果推送到 Inbox                   |
+| `memory_search_enabled`                 | `true`                           | 向 Agent 提供手动 `memory_search` 工具                             |
+| `auto_memory_search_config.enabled`     | `false`                          | 每次普通用户请求前自动搜索记忆                                     |
+| `auto_memory_search_config.max_results` | `2`                              | 自动搜索时最多注入的结果数                                         |
 
 自动搜索结果只注入当前请求，不写入正式会话历史，也不会再次被 Auto-Memory 保存。自动化产生的请求不会触发自动搜索。
 
@@ -355,23 +447,46 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 | `embedding_model_config` | 默认关闭         | 可选向量模型配置，见 [向量模型](./embedding) |
 | `needs_reindex`          | `false`          | 向量空间变化后由运行时维护的待重建标记       |
 
-旧字段 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的三个任务级 Inbox 开关，但不会写回已验证的配置。
+旧字段 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的四个任务级 Inbox 开关，但不会写回已验证的配置。
 
 ### 状态与重建索引
 
 长期记忆页面可以查看后台任务、等待队列、资源占用和索引组件状态。
 
+每个 Agent 的对话记忆沉淀由一个 FIFO Auto-Memory worker 统一处理。周期触发、
+`/reme auto_memory`、上下文压缩和 `/new` 都会向同一队列提交任务；每条状态记录
+会标明 `periodic`、`manual`、`compact` 或 `new` 触发来源。可在对话中使用
+`/auto_memory_status` 查看这些任务，使用 `/reme help` 查看运行时、聊天安全的 ReMe
+action 目录。QwenPaw 明确允许 `status`、`search`、`proactive`、`auto_memory`、
+`auto_dream`、`daily_paper` 和 `auto_fin`；原始 vault 与索引维护 action 不能从
+聊天调用。关闭时会用同一个五秒 deadline 停止 worker、
+等待正在执行的 ReMe job 退出并关闭 ReMe；如果无法按时完成，则返回失败，而不会
+无限等待或替换仍在使用的 backend。ReMe 的图谱快照、索引重建和 Embedding 配置
+撤销统一通过 memory action 接口执行，参数会按照每个 action 的完整 JSON Schema
+校验，且不会进入 Auto-Memory 队列。这些维护操作应通过经过身份验证的控制台或维护
+API 执行，而不是 `/reme`。
+
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe 后台活动、资源占用和索引组件状态" />
 </p>
 
-正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要使用 **Rebuild Memory Index**，或调用：
+正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要使用 **Rebuild Memory Index**。维护 API 支持分范围重建：
 
 ```http
-POST /api/agents/{agentId}/memory/reindex
+POST /api/agents/{agentId}/memory/reindex?scope=all
+POST /api/agents/{agentId}/memory/reindex?scope=bm25
+POST /api/agents/{agentId}/memory/reindex?scope=embedding
 ```
 
-重建会清空派生索引，再从 `memory/` 和 `digest/` 的 Markdown 生成新索引；不会删除源记忆。运行期间 CPU 和内存占用可能上升，同一个 Agent 同时只能运行一个重建任务。
+`bm25` 只重建关键词索引，`embedding` 只重建向量索引，默认的 `all` 会先重建 BM25，再重建 Embedding。`embedding` 和 `all` 要求当前 Embedding 配置已经启用，否则返回 HTTP `409`；未配置向量模型时请使用 `bm25`。重建使用已经摄取的 `memory/` 和 `digest/` chunks，不会重新解析或删除源记忆，也不会修改 Wikilink 图谱。运行期间 CPU 和内存占用可能上升，同一个 Agent 同时只能运行一个重建任务。
+
+更换 Embedding 后，向量搜索会保持不可用，直到 `embedding` 或 `all` 重建成功；BM25 仍可使用。如果不想继续这次尚未重建的向量空间变更，可以在控制台撤销，或调用：
+
+```http
+POST /api/agents/{agentId}/memory/reindex/undo
+```
+
+撤销会恢复与现有向量匹配的上一份 Embedding 配置，不会删除记忆文件。只有存在待重建变更时才能撤销。
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="重建记忆索引前的资源占用确认提示" />
@@ -381,7 +496,11 @@ POST /api/agents/{agentId}/memory/reindex
 
 ## 其他 Memory Backend
 
-QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeLight（本地文件存储）外，还支持通过 `memory_manager_backend` 切换到其他后端。
+QwenPaw 的记忆系统采用可插拔的 Backend 架构。ReMeLight 仍是内置默认后端；ADBPG 和
+PowerContext 已拆分为可独立安装的插件。若 Agent 启动时所选插件缺失或加载失败，运行时会
+暂时使用 ReMeLight，并保留原 backend 选择和插件配置；日志会记录此次兜底。插件恢复后，
+重新加载 Agent 即可恢复原 backend。通过 `memory_manager_backend` 选择后端，插件拥有的每
+Agent 配置统一保存在 `memory_backend_configs.<backend_id>`。
 
 ### ADBPG（AnalyticDB for PostgreSQL）
 
@@ -389,23 +508,39 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 
 **核心特点：**
 
-- **跨会话持久化** — 记忆存储在云端数据库，重启后不丢失，支持多设备共享
-- **服务端事实抽取** — 由 ADBPG 记忆服务完成事实提取，客户端无额外开销
+- **跨会话持久化** — 抽取完成的记忆存储在云端，支持跨会话和多设备检索
+- **服务端事实抽取** — 每个普通对话回合提交新的用户消息，由服务端异步提取事实
 - **REST API 接入** — 通过 HTTP API 调用 ADBPG 记忆服务
 - **优雅降级** — ADBPG 不可达时 Agent 正常运行，仅长期记忆功能暂时禁用
 
 **配置方式：**
 
-进入 Agent 配置页面的「运行配置」标签，找到「长期记忆管理后端」下拉框，选择 `adbpg`，并在「ADBPG 长期记忆」Tab 中填写 `REST Base URL` 与 `REST API Key`。
+在源码目录中先构建并安装插件：
 
-![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
+```bash
+cd plugins/memory/adbpg/frontend
+npm ci
+npm run build
+cd ../../../../
+qwenpaw plugin install plugins/memory/adbpg
+```
 
-> ⚠️ 切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效（页面也会以黄色横幅提醒）。
+发布的插件 ZIP 已包含配置界面，无需从源码构建。QwenPaw 运行时，可在 Console 插件页面
+上传 ZIP，或执行 `qwenpaw plugin install /path/to/memory-adbpg-1.0.0.zip`。从源码目录安装
+时，停止的 QwenPaw 需在安装后启动；运行中的 QwenPaw 会通过 API 热安装。
+
+然后进入 Agent 配置页面的「运行配置」标签，找到「长期记忆管理后端」下拉框，选择
+`adbpg`，并在 ADBPG 配置 Tab 中填写 `REST Base URL` 与 `REST API Key`。
+
+> 保存 backend 选择或插件配置后会安排 Agent 重载。backend 或有效配置发生变化时会创建
+> 新实例；backend 上下文未变化时可以复用原实例。无需重启整个进程。
+
+卸载或强制重装插件前，先将使用它的所有 Agent 切换到其他后端（如 `none`），并等待重载及待处理
+记忆任务结束。正在使用的记忆后端会拒绝卸载。
 
 > 迁移提示：ADBPG SQL 直连模式已移除。旧配置中的 `api_mode: "sql"`、
 > `host`、`port`、`user`、`password`、`dbname`、LLM 和 Embedding 相关字段
-> 会被忽略；请改为配置 `rest_base_url` 和 `rest_api_key`，保存后重启
-> QwenPaw。
+> 会被忽略；请改为配置 `rest_base_url` 和 `rest_api_key`。
 
 | 配置项                      | 说明                                                                    | 默认值                                |
 | --------------------------- | ----------------------------------------------------------------------- | ------------------------------------- |
@@ -415,22 +550,39 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 | `search_timeout`            | 记忆搜索超时时间（秒）                                                  | `10.0`                                |
 | `auto_memory_search_config` | 自动记忆搜索配置，结构与 ReMe Light 的 `auto_memory_search_config` 一致 | `{"enabled": true, "max_results": 3}` |
 
+**提交、抽取与失败处理：**
+
+服务端默认异步抽取。自动记忆任务的 `completed` 只表示客户端处理结束：对实际发送的消息，
+它最多确认 HTTP 提交已被接受，不代表抽取完成或立即可检索。可先让 Agent 记住一条事实，
+等待服务端处理后再检索；通过 `/auto_memory_status` 和日志检查提交结果。关闭记忆后端会尝试在
+关闭超时内排空待提交任务，不会等待服务端抽取完成。
+
+**隔离粒度：**
+
+`memory_isolation: true` 时，远程 `agent_id` 为当前 Agent ID；为 `false` 时，远程
+`agent_id` 为 `shared`。两种模式的 `user_id` 和写入时的 `run_id` 均固定为 `shared`，
+搜索只按 `agent_id` 和 `user_id` 过滤。因此隔离粒度是 Agent，不是聊天用户或会话；同一
+服务数据集内的共享模式 Agent 会共享远程记忆。切换开关会切换读写命名空间，不会迁移已有
+记忆。本地 Markdown 文件仍属于各 Agent 自己的工作区。
+
 **配置示例：**
 
-完整配置可写入 `agent.json` 的 `running.adbpg_memory_config` 字段：
+完整配置可写入 `agent.json` 的 `running.memory_backend_configs.adbpg` 字段：
 
 ```json
 {
   "running": {
     "memory_manager_backend": "adbpg",
-    "adbpg_memory_config": {
-      "rest_base_url": "https://your-adbpg-memory-api.example.com",
-      "rest_api_key": "your-rest-api-key",
-      "memory_isolation": true,
-      "search_timeout": 10.0,
-      "auto_memory_search_config": {
-        "enabled": true,
-        "max_results": 3
+    "memory_backend_configs": {
+      "adbpg": {
+        "rest_base_url": "https://your-adbpg-memory-api.example.com",
+        "rest_api_key": "your-rest-api-key",
+        "memory_isolation": true,
+        "search_timeout": 10.0,
+        "auto_memory_search_config": {
+          "enabled": true,
+          "max_results": 3
+        }
       }
     }
   }
@@ -438,6 +590,9 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 ```
 
 > 💡 通过 Console「运行配置」页面填写时，框架会自动将这些字段写入 `agent.json`，无需手动编辑文件。
+
+原先由核心定义的 `running.adbpg_memory_config` 字段已不再支持。启动 Agent 前请先安装
+插件，并将原字段内容迁移到 `running.memory_backend_configs.adbpg`。
 
 ---
 

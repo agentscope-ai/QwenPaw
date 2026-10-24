@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Approval API endpoints for tool guard approvals."""
+"""Authenticated Console endpoints for shared approval requests."""
 
 from __future__ import annotations
 
@@ -9,13 +9,34 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from ..approvals import get_approval_service
+from ..approvals import ApprovalActor, PendingApproval, get_approval_service
 from ..approvals.display import approval_display_fields
 from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/approval", tags=["approval"])
+
+
+def _console_admin_actor(
+    request: Request,
+    pending: PendingApproval,
+) -> ApprovalActor:
+    """Represent the authenticated/local Console as an explicit admin."""
+    user = getattr(request.state, "user", None)
+    username = (
+        user.get("username", "console")
+        if isinstance(user, dict)
+        else "console"
+    )
+    return ApprovalActor(
+        session_id=pending.session_id,
+        root_session_id=pending.root_session_id,
+        user_id=str(username),
+        channel="console",
+        agent_id=pending.agent_id,
+        is_admin=True,
+    )
 
 
 class ApprovalActionRequest(BaseModel):
@@ -121,7 +142,13 @@ async def post_approval_approve(
         body.request_id,
         ApprovalDecision.APPROVED,
         scope=scope,
+        actor=_console_admin_actor(request, pending),
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Approval request already resolved or expired",
+        )
 
     logger.info(
         "Approval approved: request_id=%s session=%s tool=%s",
@@ -191,7 +218,13 @@ async def post_approval_deny(
     resolved = await svc.resolve_request(
         body.request_id,
         ApprovalDecision.DENIED,
+        actor=_console_admin_actor(request, pending),
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Approval request already resolved or expired",
+        )
 
     logger.info(
         "Approval denied: request_id=%s session=%s tool=%s",

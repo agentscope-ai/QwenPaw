@@ -35,6 +35,7 @@ import httpx
 
 from models import config as model_config
 from models.concurrency import model_slot
+from models.output_budget import anthropic_output_limit
 from models.media_transport import upload_local_file_to_dashscope_temp
 from models.model_capability_cache import get_capability_cache
 from services.runtime_files.safe_remote_download import (
@@ -518,7 +519,6 @@ async def chat_completion(
     *,
     system_prompt: str = "",
     temperature: float = 0.2,
-    max_tokens: int = 1800,
     timeout: float | None = None,
     api_key_override: str | None = None,
     base_url_override: str | None = None,
@@ -566,12 +566,11 @@ async def chat_completion(
     video_count = sum(1 for p in media_parts if p.get("type") == "video_url")
     image_count = len(media_parts) - video_count
     logger.info(
-        "VLM request start: model=%s protocol=%s images=%d videos=%d max_tokens=%d",
+        "VLM request start: model=%s protocol=%s images=%d videos=%d",
         model_name,
         protocol or "openai",
         image_count,
         video_count,
-        max_tokens,
     )
     start_ts = time.perf_counter()
     actual_timeout = (
@@ -586,7 +585,6 @@ async def chat_completion(
                 content,
                 system_prompt=system_prompt,
                 temperature=temperature,
-                max_tokens=max_tokens,
                 timeout=actual_timeout,
                 api_key=api_key,
                 base_url=base_url,
@@ -597,7 +595,6 @@ async def chat_completion(
                 content,
                 system_prompt=system_prompt,
                 temperature=temperature,
-                max_tokens=max_tokens,
                 timeout=actual_timeout,
                 api_key=api_key,
                 base_url=base_url,
@@ -608,7 +605,6 @@ async def chat_completion(
                 content,
                 system_prompt=system_prompt,
                 temperature=temperature,
-                max_tokens=max_tokens,
                 timeout=actual_timeout,
                 api_key=api_key,
                 base_url=base_url,
@@ -708,7 +704,6 @@ async def _call_openai_vlm(
     *,
     system_prompt: str,
     temperature: float,
-    max_tokens: int,
     timeout: float,
     api_key: str,
     base_url: str,
@@ -738,7 +733,6 @@ async def _call_openai_vlm(
         "model": model_name,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
         "enable_thinking": False,
     }
     headers: dict = {
@@ -770,7 +764,6 @@ async def _call_anthropic_vlm(
     *,
     system_prompt: str,
     temperature: float,
-    max_tokens: int,
     timeout: float,
     api_key: str,
     base_url: str,
@@ -816,8 +809,12 @@ async def _call_anthropic_vlm(
     anthropic_content = _convert_to_anthropic_content(provider_content)
     body: dict = {
         "model": model_name,
-        "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": anthropic_content}],
+        "max_tokens": await anthropic_output_limit(
+            model_name,
+            base_url=base_url,
+            api_key=api_key,
+        ),
     }
     if system_prompt.strip():
         body["system"] = system_prompt.strip()
@@ -846,7 +843,6 @@ async def _call_gemini_vlm(
     *,
     system_prompt: str,
     temperature: float,
-    max_tokens: int,
     timeout: float,
     api_key: str,
     base_url: str,
@@ -909,7 +905,7 @@ async def _call_gemini_vlm(
     contents: list[dict] = [{"role": "user", "parts": gemini_parts}]
     body: dict = {
         "contents": contents,
-        "generationConfig": {"maxOutputTokens": max_tokens},
+        "generationConfig": {},
     }
     if system_prompt.strip():
         body["systemInstruction"] = {

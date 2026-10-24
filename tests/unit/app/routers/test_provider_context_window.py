@@ -16,7 +16,10 @@ from qwenpaw.config.config import ModelSlotConfig
 
 def test_active_models_info_uses_runtime_context_resolution():
     provider = SimpleNamespace(get_context_size=lambda _model_id: 1_000_000)
-    manager = SimpleNamespace(get_provider=lambda _provider_id: provider)
+    manager = SimpleNamespace(
+        get_provider=lambda _provider_id: provider,
+        default_models={},
+    )
     slot = ModelSlotConfig(provider_id="dashscope", model="qwen3.7-max")
 
     info = _active_models_info(manager, slot)

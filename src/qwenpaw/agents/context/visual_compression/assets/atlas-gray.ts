@@ -1,4 +1,4 @@
-// Frozen Low-effort production glyph atlas — DO NOT EDIT.
+// Frozen 5x8 production glyph atlas — DO NOT EDIT.
 // Source glyphs: Spleen 5x8 and Unifont 16.0.04; licenses are packaged.
 // Glyphs: 35501 codepoints (33217 wide, 95 Spleen primary)
 // Pixel format: 1 coverage byte per pixel (0-255), raw R-channel from anti-aliased canvas.

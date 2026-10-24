@@ -1,6 +1,15 @@
 import type { TFunction } from "i18next";
 import type { PoolSkillSpec, SkillSyncStatus } from "../api/types";
 
+// ─── Channel scope ──────────────────────────────────────────────────────────
+
+/** Match the backend's legacy default and wildcard semantics. */
+export function normalizeSkillChannels(channels?: string[]): string[] {
+  return !channels?.length || channels.includes("all")
+    ? ["all"]
+    : [...new Set(channels)];
+}
+
 // ─── Source / Built-in helpers ────────────────────────────────────────────────
 
 export const getSkillDisplaySource = (source: string) =>

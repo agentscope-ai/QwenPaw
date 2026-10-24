@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .module_isolation import (
     build_plugin_builtins,
+    source_only_loader,
     get_namespace_finder,
     strip_plugin_sys_path,
     sweep_bare_tree_modules,
@@ -72,7 +73,9 @@ def validate_plugin_module(
         raise ImportError(
             f"Cannot create module spec for {backend_entry}",
         )
+    spec.loader = source_only_loader(spec.loader)
 
+    modules_before = dict(sys.modules)
     module = importlib.util.module_from_spec(spec)
     # Register in sys.modules BEFORE exec_module so that
     # relative imports can resolve the parent package.
@@ -111,4 +114,4 @@ def validate_plugin_module(
         # time, and any bare sys.modules entries rooted in its tree,
         # so validation leaves no residue in the CLI process.
         strip_plugin_sys_path(plugin_path)
-        sweep_bare_tree_modules(plugin_path)
+        sweep_bare_tree_modules(plugin_path, modules_before)

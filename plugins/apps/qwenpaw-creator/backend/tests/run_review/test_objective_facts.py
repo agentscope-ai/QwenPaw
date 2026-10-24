@@ -111,6 +111,17 @@ def test_freeze_segments_require_sustained_stillness() -> None:
     assert index["freeze_segments"], "sustained stillness must be recorded"
     assert index["freeze_segments"][-1]["end_ms"] == 19 * 125
 
+    # A small moving mouth/hand occupies little of a fixed camera frame.
+    # Global mean differences stay below 2, yet it must not be called frozen.
+    talking = []
+    for position in range(10):
+        frame = np.full((36, 64), 90, dtype=np.uint8)
+        frame[20:23, 25 + position : 28 + position] = 230
+        talking.append(frame)
+    speaking = build_video_index(_samples_from_frames(talking))
+    assert speaking["low_motion_segments"]
+    assert not speaking["freeze_segments"]
+
 
 def test_machine_params_report_only_when_declared() -> None:
     info = {"width": 1920, "height": 1080, "duration": 30.0}

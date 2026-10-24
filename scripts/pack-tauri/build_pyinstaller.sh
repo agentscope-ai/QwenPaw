@@ -6,7 +6,7 @@
 #   ./scripts/pack-tauri/build_pyinstaller.sh
 #
 # Prerequisites:
-#   - Python 3.10+ with virtual environment
+#   - Python 3.10+ on PATH (used only to bootstrap the bundled runtime)
 #   - PyInstaller 6.0+ (will be installed if not present)
 
 set -e
@@ -15,6 +15,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 DIST="${DIST:-dist}"
+BINARIES_DIR="${REPO_ROOT}/console/src-tauri/binaries"
+PYTHON_RUNTIME_DIR="${BINARIES_DIR}/python-runtime"
+RUNTIME_PYTHON_DIR="${PYTHON_RUNTIME_DIR}/python"
+NATIVE_HOST_PYTHON="${RUNTIME_PYTHON_DIR}/bin/python3"
+BUILD_VENV="${DIST}/pyinstaller-venv"
+PYTHON_BIN="${BUILD_VENV}/bin/python"
 VERSION=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)
 
 echo "========================================="
@@ -27,20 +33,47 @@ echo ""
 # Check prerequisites
 echo "== Checking prerequisites =="
 
-# Create venv if missing (prefer uv if available)
-PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
-if [ ! -f "$PYTHON_BIN" ]; then
-    if command -v uv &>/dev/null; then
-        echo "Creating virtual environment with uv..."
-        uv venv "${REPO_ROOT}/.venv"
-    else
-        echo "ERROR: Python not found in .venv"
-        echo "Please create virtual environment first: python -m venv .venv"
+if command -v python3 >/dev/null 2>&1; then
+    BOOTSTRAP_PYTHON=$(command -v python3)
+elif command -v python >/dev/null 2>&1; then
+    BOOTSTRAP_PYTHON=$(command -v python)
+else
+    echo "ERROR: Python not found on PATH; it is required to stage the bundled runtime"
+    exit 1
+fi
+
+mkdir -p "${BINARIES_DIR}"
+# Check an existing uv before it downloads build dependencies.
+if command -v uv >/dev/null 2>&1; then
+    uv_version=$(uv --version | awk '{print $2}')
+    if [[ ! "$uv_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] ||
+       ! (( 10#${BASH_REMATCH[1]} > 0 || 10#${BASH_REMATCH[2]} > 13 ||
+            (10#${BASH_REMATCH[2]} == 13 && 10#${BASH_REMATCH[3]} >= 4) )); then
+        echo "ERROR: uv >= 0.13.4 is required; update uv and retry"
         exit 1
     fi
 fi
 
+# The staged python-build-standalone runtime is the canonical source for both
+# the helper interpreter and the PyInstaller build environment. The PATH
+# Python only selects the X.Y version to download and runs the staging script.
+echo "== Staging canonical Python runtime =="
+"$BOOTSTRAP_PYTHON" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
+    --dest "${PYTHON_RUNTIME_DIR}"
+if [ ! -f "$NATIVE_HOST_PYTHON" ]; then
+    echo "ERROR: Bundled Python interpreter not found at ${NATIVE_HOST_PYTHON}"
+    exit 1
+fi
+
+echo "== Creating PyInstaller build environment =="
+"$NATIVE_HOST_PYTHON" -m pip install --upgrade "pip>=26.2.2"
+"$NATIVE_HOST_PYTHON" -m pip install --upgrade "certifi>=2026.10.19"
+"$NATIVE_HOST_PYTHON" -m venv --clear "$BUILD_VENV"
+"$PYTHON_BIN" -m pip install --upgrade "pip>=26.2.2"
+"$PYTHON_BIN" -m pip install --upgrade "certifi>=2026.10.19"
+
 echo "Python: $("$PYTHON_BIN" --version)"
+echo ""
 
 install_python_packages() {
     if command -v uv &>/dev/null; then
@@ -112,7 +145,6 @@ echo ""
 BACKEND_DIR="${DIST}/pyinstaller/qwenpaw-backend"
 BACKEND_EXE="${BACKEND_DIR}/qwenpaw-backend"
 CLI_EXE="${BACKEND_DIR}/qwenpaw"
-MODEL_CATALOG="${BACKEND_DIR}/_internal/qwenpaw/providers/data/model_catalog.json"
 if [ ! -d "${BACKEND_DIR}" ]; then
     echo "ERROR: Backend bundle directory not found at ${BACKEND_DIR}"
     exit 1
@@ -125,10 +157,8 @@ if [ ! -f "${CLI_EXE}" ]; then
     echo "ERROR: CLI executable not found at ${CLI_EXE}"
     exit 1
 fi
-if [ ! -f "${MODEL_CATALOG}" ]; then
-    echo "ERROR: Model catalog not found at ${MODEL_CATALOG}"
-    exit 1
-fi
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/verify_model_catalog.py" \
+    "${BACKEND_DIR}/_internal/qwenpaw/providers/data"
 
 echo "Backend bundle created: ${BACKEND_DIR}"
 
@@ -139,9 +169,6 @@ echo ""
 
 # Copy to Tauri resources directory
 echo "== Copying to Tauri binaries directory =="
-BINARIES_DIR="${REPO_ROOT}/console/src-tauri/binaries"
-mkdir -p "${BINARIES_DIR}"
-
 DEST="${BINARIES_DIR}/qwenpaw-backend"
 rm -rf "${DEST}"
 mkdir -p "${DEST}"
@@ -151,15 +178,9 @@ chmod +x "${DEST}/qwenpaw"
 echo "Copied to: ${DEST}"
 echo ""
 
-# Stage a standalone CPython (same X.Y/arch as this build's interpreter) so the
-# frozen backend can install third-party plugin dependencies at runtime.
-echo "== Staging bundled Python runtime =="
-"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
-    --dest "${BINARIES_DIR}/python-runtime"
-
 # The Chrome Native Messaging host runs under this standalone interpreter,
 # outside the PyInstaller backend, so its dependencies must be installed here.
-NATIVE_HOST_PYTHON="${BINARIES_DIR}/python-runtime/python/bin/python3"
+echo "== Installing bundled Python helper dependencies =="
 "$NATIVE_HOST_PYTHON" -m pip install \
     --disable-pip-version-check \
     --no-input \

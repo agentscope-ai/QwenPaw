@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 
 import pytest
 
@@ -81,6 +82,84 @@ def test_explicit_image_backend_still_wins(monkeypatch) -> None:
     assert image_models.get_image_backend() == "OPENAI"
 
 
+def test_saved_minimax_image_protocol_outranks_image_model_env(
+    monkeypatch,
+) -> None:
+    """A saved MiniMax config must survive an ``IMAGE_MODEL`` deploy var.
+
+    This drives ``request_tool_configs``, the writer behind the highest
+    priority selector. It carried its own copy of the protocol rule, so
+    adding MiniMax left this path returning nothing and the env var
+    below picked OpenAI, which sent the MiniMax key and model to
+    ``/v1/images/generations``. The connection test still passed because
+    it reads the protocol through a separate branch, so the failure only
+    surfaced at generation time.
+    """
+    from api import model_routes
+    from api.model_routes import _defaults
+    from schemas.models import ImageConfig
+
+    monkeypatch.setenv("IMAGE_MODEL", "OPENAI")
+    defaults = _defaults()
+    monkeypatch.setattr(
+        model_routes,
+        "load_model_config",
+        lambda: defaults.model_copy(
+            update={
+                "image": ImageConfig(
+                    enabled=True,
+                    protocol="MiniMax（国内站）",
+                    model_name="image-01",
+                    api_key="sk-minimax",
+                    base_url="https://api.minimax.cn",
+                ),
+            },
+        ),
+    )
+
+    configs = model_routes.request_tool_configs()
+
+    tool_cfg = configs[config.CREATOR_IMAGE_CONFIG_TOOL]
+    assert tool_cfg["_image_backend"] == "MINIMAX"
+    with _tool_configs(configs):
+        assert isinstance(
+            image_models.get_image_model(),
+            image_models.MiniMaxImageModel,
+        )
+
+
+def test_every_image_protocol_resolves_to_a_registered_provider() -> None:
+    """Keep the protocol list and the provider registry from drifting.
+
+    An unmapped label makes ``request_tool_configs`` omit the selector
+    and lets ``IMAGE_MODEL`` win; a label mapped to an unregistered key
+    falls back to OpenAI. Neither shows up in a connection test, so the
+    whole list is asserted here.
+    """
+    # Mirrors IMAGE_PROTOCOLS in ui/.../creator/ModelConfigModal.tsx.
+    from models.image import _PROVIDERS
+
+    image_protocols = (
+        "OpenAI 协议",
+        "DashScope（百炼）",
+        "Google Gemini",
+        "Volcano Engine（火山引擎）",
+        "Black Forest Labs（FLUX）",
+        "Ideogram",
+        "MiniMax（国内站）",
+        "MiniMax（国际站）",
+        "Aliyun Token Plan",
+    )
+
+    unresolved = {
+        label: image_models.image_backend_for_protocol(label)
+        for label in image_protocols
+        if image_models.image_backend_for_protocol(label) not in _PROVIDERS
+    }
+
+    assert unresolved == {}
+
+
 def test_persisted_image_backend_log_never_contains_api_key(
     monkeypatch,
 ) -> None:
@@ -130,6 +209,24 @@ def test_unconfigured_concurrency_follows_the_scheduler_dispatch_cap(
     assert expected >= 5  # the new dispatch-cap default
     assert DashScopeImageModel.from_config().concurrency == expected
     assert OpenAIImageModel.from_config().concurrency == expected
+
+
+def test_qwen_image3_uses_long_multireference_timeout_by_default(
+    monkeypatch,
+) -> None:
+    for name in (
+        "DASHSCOPE_IMAGE_TIMEOUT",
+        "IMAGE_TIMEOUT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DASHSCOPE_IMAGE_MODEL_NAME", "qwen-image-3.0-pro")
+    with _tool_configs():
+        assert DashScopeImageModel.from_config().timeout == 900
+
+    monkeypatch.setenv("DASHSCOPE_IMAGE_MODEL_NAME", "qwen-image-2.0-pro")
+    with _tool_configs():
+        # Other DashScope families stay on the shared 480s baseline.
+        assert DashScopeImageModel.from_config().timeout == 480
 
 
 # ---------------------------------------------------------------------------
@@ -351,3 +448,89 @@ def test_turn_budget_scales_with_element_count() -> None:
     assert scale_mainline_max_model_turns(64, 12) == 64
     # Negative counts (defensive) fall back to the base.
     assert scale_mainline_max_model_turns(24, -3) == 24
+
+
+@pytest.mark.parametrize("case", ["encrypted", "mixed", "unavailable"])
+def test_persisted_secrets_are_decoded_when_supported(
+    tmp_path,
+    monkeypatch,
+    case,
+):
+    # pylint: disable=protected-access
+    data = {
+        "llm": {
+            "api_key": "ENC:llm-key",
+            "base_url": "https://example.com/v1",
+        },
+        "oss": {
+            "access_key_secret": "ENC:oss-secret",
+            "policy_api_key": "ENC:policy-key",
+        },
+    }
+    if case == "mixed":
+        data.update(
+            image={"api_key": "plaintext-image-key"},
+            oss={"access_key_secret": "", "policy_api_key": None},
+        )
+    config_file = tmp_path / "model_config.json"
+    config_file.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(config, "_get_model_config_path", lambda: config_file)
+    monkeypatch.setattr(
+        config,
+        "_SECRET_STORE_AVAILABLE",
+        case != "unavailable",
+    )
+    monkeypatch.setattr(
+        config,
+        "_secret_is_encrypted",
+        lambda value: value.startswith("ENC:"),
+    )
+    monkeypatch.setattr(config, "_secret_decrypt", lambda value: value[4:])
+    expected = {
+        section: {
+            key: (
+                value[4:]
+                if case != "unavailable"
+                and isinstance(value, str)
+                and value.startswith("ENC:")
+                else value
+            )
+            for key, value in fields.items()
+        }
+        for section, fields in data.items()
+    }
+    config._clear_user_config_cache()
+    try:
+        assert config._get_user_config() == expected
+    finally:
+        config._clear_user_config_cache()
+
+
+def test_live_operation_defaults_on_and_persisted_disable_wins(
+    tmp_path,
+    monkeypatch,
+):
+    """Enabled by default (no settings UI exists yet to turn it on), while
+    persisted config remains the authoritative off-switch over environment."""
+    # pylint: disable=protected-access
+    config_path = tmp_path / "model_config.json"
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    monkeypatch.delenv("CREATOR_LIVE_OPERATION_ENABLED", raising=False)
+    monkeypatch.delenv("CREATOR_COMPUTER_USE_ENABLED", raising=False)
+    config._clear_user_config_cache()
+    try:
+        assert config.get_live_operation_enabled() is True
+        assert config.get_computer_use_enabled() is False
+
+        monkeypatch.setenv("CREATOR_LIVE_OPERATION_ENABLED", "0")
+        assert config.get_live_operation_enabled() is False
+
+        config_path.write_text(
+            '{"live_operation":{"enabled":"false"}}',
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CREATOR_LIVE_OPERATION_ENABLED", "1")
+        config._clear_user_config_cache()
+        assert config.get_live_operation_enabled() is False
+    finally:
+        config._clear_user_config_cache()

@@ -9,6 +9,7 @@ import time
 import click
 
 from ..utils.stdio import ensure_standard_streams
+from ..utils.runtime_api import read_runtime_api
 
 # On Windows, force UTF-8 for stdout/stderr so cron and other commands
 # can handle Chinese and other non-ASCII (Linux is UTF-8 by default).
@@ -196,7 +197,7 @@ def _looks_like_project_path(value: str) -> bool:
 def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
     """QwenPaw CLI."""
     # default from last run if not provided
-    last = read_last_api()
+    last = read_runtime_api() or read_last_api()
     if host is None or port is None:
         if last:
             host = host or last[0]

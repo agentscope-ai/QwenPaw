@@ -314,7 +314,6 @@ OBSERVE_MAX_WINDOW_MS = 120_000
 # short"); observations below that are frame questions, not clip questions.
 OBSERVE_MIN_WINDOW_MS = 2_000
 OBSERVATION_FPS = 2.0
-OBSERVATION_MAX_TOKENS = 4096
 
 OBSERVATION_PROMPT = """You are the Source Intelligence clip verifier for
 QwenPaw Creator. You are watching ONE continuous clip cut from the original
@@ -709,7 +708,6 @@ class SourceObservationService:
             response = await vlm_model.chat_completion(
                 content,
                 temperature=0.3,
-                max_tokens=OBSERVATION_MAX_TOKENS,
             )
         answer = str(response or "").strip()
         if not answer:

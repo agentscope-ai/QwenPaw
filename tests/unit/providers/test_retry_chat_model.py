@@ -197,6 +197,28 @@ class _NonCooperativeStreamModel:
             self.closed.set()
 
 
+class _RecoveringAfterNonCooperativeStreamModel(_NonCooperativeStreamModel):
+    """Model whose provider recovers while the first stream is still stuck."""
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        if self.calls > 1:
+            return self._recovered_stream()
+        return self._stream()
+
+    async def _recovered_stream(self) -> AsyncGenerator[Any, None]:
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            yield SimpleNamespace(content="recovered")
+        finally:
+            self.active -= 1
+
+
 class _IdleStreamModel:
     model = "idle-stream-test"
     stream = True
@@ -664,6 +686,37 @@ async def test_stream_idle_timeout_retries_before_visible_output() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_timeout_reads_environment_after_model_creation(
+    monkeypatch,
+) -> None:
+    """A new stream reads its timeout through the existing EnvVarLoader."""
+    _limiters.clear()
+    state = {"started": asyncio.Event(), "closed": False}
+    inner = _IdleStreamModel([_hanging_stream(state)])
+    model = RetryChatModel(
+        inner,  # type: ignore[arg-type]
+        retry_config=RetryConfig(enabled=False),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+    )
+    monkeypatch.setenv("QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT", "0.01")
+
+    try:
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(StreamIdleTimeoutError) as exc_info:
+            _ = [chunk async for chunk in stream]
+        assert exc_info.value.timeout_seconds == 0.01
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
 async def test_stream_idle_timeout_does_not_retry_after_output() -> None:
     _limiters.clear()
     state = {
@@ -861,6 +914,66 @@ async def test_deferred_cleanup_quarantines_model_without_retry(
 
     assert inner.active == 0
     assert model._pending_provider_cleanup_tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_deferred_cleanup_allows_recovery_after_quarantine_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.providers.retry_chat_model._STREAM_CLEANUP_TIMEOUT",
+        0.01,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.retry_chat_model."
+        "_STREAM_CLEANUP_QUARANTINE_TIMEOUT",
+        0.02,
+    )
+    clock = {"now": 0.0}
+    monkeypatch.setattr(
+        "qwenpaw.providers.retry_chat_model.monotonic",
+        lambda: clock["now"],
+    )
+    _limiters.clear()
+    inner = _RecoveringAfterNonCooperativeStreamModel()
+    model = RetryChatModel(
+        inner,  # type: ignore[arg-type]
+        retry_config=RetryConfig(enabled=False),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+        stream_first_content_timeout=0.01,
+    )
+    try:
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(StreamIdleTimeoutError):
+            await anext(stream)
+
+        assert inner.active == 1
+        with pytest.raises(StreamCleanupPendingError):
+            await model(messages=[])
+        assert inner.calls == 1
+
+        clock["now"] = 0.03
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        response = await anext(stream)
+
+        assert response.content == "recovered"
+        assert inner.calls == 2
+        assert inner.active == 2
+        assert inner.max_active == 2
+        await stream.aclose()
+    finally:
+        inner.release.set()
+        if inner.active:
+            await asyncio.wait_for(inner.closed.wait(), timeout=1.0)
+        _limiters.clear()
 
 
 @pytest.mark.asyncio
@@ -1546,6 +1659,8 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
 
     try:
         inner = _ReasoningRetryMsgStreamModel()
+        thought = ThinkingBlock(thinking="real tool reasoning")
+        assert inner.formatter.set_thinking_omit_ids({thought.id}) is True
         model = RetryChatModel(
             inner,  # type: ignore[arg-type]
             retry_config=RetryConfig(enabled=False),
@@ -1562,7 +1677,7 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
                 name="assistant",
                 role="assistant",
                 content=[
-                    ThinkingBlock(thinking="real tool reasoning"),
+                    thought,
                     ToolCallBlock(id="call_1", name="tool", input="{}"),
                     ToolResultBlock(
                         id="call_1",
@@ -1593,11 +1708,18 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
         ]
         assert [
             message.get("reasoning_content") for message in first_assistants
-        ] == ["real tool reasoning", None]
+        ] == [
+            None,
+            None,
+        ]
         assert [
             message.get("reasoning_content") for message in second_assistants
-        ] == ["real tool reasoning", " "]
+        ] == [
+            "real tool reasoning",
+            " ",
+        ]
         assert inner.formatter._qwenpaw_require_reasoning_content is True
+        assert inner.formatter._qwenpaw_omit_thinking_ids == set()
         assert cache.get(model_key, "needs_reasoning_content") is True
         assert [block.type for block in messages[0].content] == [
             "thinking",

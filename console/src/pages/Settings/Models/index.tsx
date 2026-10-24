@@ -1,3 +1,7 @@
+import { Cascade } from "@/components/interaction/Cascade";
+import { IconButton } from "@/components/interaction/IconButton";
+import { motion, useReducedMotion } from "motion/react";
+import { GlobalModelDefaults } from "./GlobalModelDefaults";
 import {
   useCallback,
   useDeferredValue,
@@ -5,16 +9,23 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useMatch, useSearchParams } from "react-router-dom";
 import { Button, Input, Modal } from "@agentscope-ai/design";
-import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
+import { Alert } from "antd";
+import {
+  Plus,
+  Search,
+  SearchX,
+  RefreshCw,
+  Plug,
+  ChevronRight,
+} from "lucide-react";
 import { useProviders } from "./useProviders";
 import {
   LoadingState,
   ProviderCard,
   ProviderGroupCard,
   CustomProviderModal,
-  ModelsSection,
   ProviderConfigModal,
   ModelManageModal,
 } from "./components";
@@ -34,10 +45,15 @@ import styles from "./index.module.less";
 /* ------------------------------------------------------------------ */
 
 function ModelsPage() {
+  const isSettingsEntry = useMatch("/settings/*") !== null;
+  const reducedMotion = useReducedMotion();
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { providers, activeModels, loading, error, fetchAll } = useProviders();
+  const { providers, activeModels, loading, error, warning, fetchAll } =
+    useProviders();
   const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Prevent browsers from autofilling the search input with saved credentials
   // (e.g. the username from the login page). Browsers skip read-only inputs
@@ -54,7 +70,6 @@ function ModelsPage() {
     name: string;
     providers: ProviderInfo[];
   } | null>(null);
-  const [llmModalOpen, setLlmModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"cloud" | "local">(() => {
     const stored = localStorage.getItem("models_tab");
     return stored === "local" ? "local" : "cloud";
@@ -67,10 +82,12 @@ function ModelsPage() {
     if (providerParam && providers.length > 0) {
       const target = providers.find((p) => p.id === providerParam);
       if (target) {
-        if (manageModels) {
+        if (manageModels || target.id === "hub-managed") {
           setModelsModalProvider(target);
+          setModelsOpen(true);
         } else {
           setConfigModalProvider(target);
+          setConfigOpen(true);
         }
         setSearchParams({}, { replace: true });
       }
@@ -107,10 +124,12 @@ function ModelsPage() {
 
   const handleOpenConfig = useCallback((provider: ProviderInfo) => {
     setConfigModalProvider(provider);
+    setConfigOpen(true);
   }, []);
 
   const handleOpenModels = useCallback((provider: ProviderInfo) => {
     setModelsModalProvider(provider);
+    setModelsOpen(true);
   }, []);
 
   // P1: Defer search filtering to avoid blocking input responsiveness
@@ -133,7 +152,8 @@ function ModelsPage() {
       if (p.is_local) {
         return hasModels || getIsConfigured(p);
       }
-      return getIsConfigured(p);
+      // OpenCode is opt-in; keep its card visible while credentials are pending.
+      return (p.id === "opencode" && p.enabled === true) || getIsConfigured(p);
     };
 
     // QwenPaw Local is always "configured" (embedded)
@@ -269,27 +289,45 @@ function ModelsPage() {
 
   const configuredCloudProviderCount = useMemo(
     () =>
-      countConfiguredProviders([
-        ...cloudConfiguredGrouped.flatMap((g) => g.providers),
-        ...cloudConfiguredUngrouped,
-      ]),
-    [cloudConfiguredGrouped, cloudConfiguredUngrouped],
+      countConfiguredProviders(
+        providers.filter(
+          (provider) => !provider.is_local && !provider.is_custom,
+        ),
+      ),
+    [providers],
   );
+  const hasSearchQuery = deferredSearchQuery.trim().length > 0;
+  const activeTabHasSearchResults =
+    activeTab === "cloud"
+      ? cloudConfiguredGrouped.length > 0 ||
+        cloudConfiguredUngrouped.length > 0 ||
+        cloudAvailableGroups.length > 0
+      : localConfigured.length > 0 || localAvailable.length > 0;
 
   const renderProviderCards = (list: ProviderInfo[]) =>
-    list.map((provider) => (
-      <ProviderCard
-        key={provider.id}
-        provider={provider}
-        activeModels={activeModels}
-        onSaved={refreshProvidersSilently}
-        onOpenConfig={handleOpenConfig}
-        onOpenModels={handleOpenModels}
-      />
+    list.map((provider, index) => (
+      <Cascade key={provider.id} index={index} animate={!searchQuery}>
+        <ProviderCard
+          provider={provider}
+          activeModels={activeModels}
+          onSaved={refreshProvidersSilently}
+          onOpenConfig={handleOpenConfig}
+          onOpenModels={handleOpenModels}
+        />
+      </Cascade>
     ));
 
   return (
-    <div className={styles.settingsPage}>
+    <motion.div
+      className={[
+        styles.settingsPage,
+        isSettingsEntry ? styles.settingsEntry : "",
+      ].join(" ")}
+      animate={{
+        scale: !reducedMotion && (configOpen || modelsOpen) ? 0.995 : 1,
+      }}
+      transition={{ type: "spring", stiffness: 360, damping: 38 }}
+    >
       {loading ? (
         <LoadingState message={t("models.loading")} />
       ) : error ? (
@@ -298,11 +336,28 @@ function ModelsPage() {
         <>
           {/* ---- LLM Section (top) ---- */}
           <PageHeader
-            parent={t("nav.settings")}
+            className={isSettingsEntry ? styles.pageHeader : undefined}
             current={t("models.llmTitle")}
           />
           {/* ---- Scrollable Content ---- */}
           <div className={styles.content}>
+            {warning && (
+              <Alert
+                type="warning"
+                message={t("models.partialLoadWarning")}
+                description={warning}
+                action={
+                  <Button onClick={() => fetchAll(false)}>
+                    {t("common.retry")}
+                  </Button>
+                }
+              />
+            )}
+            <GlobalModelDefaults
+              activeModels={activeModels}
+              providers={providers}
+              onSaved={refreshProvidersSilently}
+            />
             {/* ---- Providers Section ---- */}
             <div className={styles.providersBlock}>
               <div className={styles.sectionHeaderRow}>
@@ -311,33 +366,6 @@ function ModelsPage() {
                   className={styles.providersPageHeader}
                 />
                 <div className={styles.headerRight}>
-                  <div
-                    className={[
-                      styles.llmPill,
-                      activeModels?.active_llm
-                        ? styles.llmPillOn
-                        : styles.llmPillOff,
-                    ].join(" ")}
-                    onClick={() => setLlmModalOpen(true)}
-                  >
-                    <span
-                      className={
-                        activeModels?.active_llm
-                          ? styles.llmPillDot
-                          : styles.llmPillDotOff
-                      }
-                    />
-                    <span className={styles.llmPillLabel}>
-                      {t("models.defaultLlm")}:
-                    </span>
-                    <span className={styles.llmPillValue}>
-                      {activeModels?.active_llm?.provider_id || "—"} /{" "}
-                      {activeModels?.active_llm?.model || "—"}
-                    </span>
-                    <span className={styles.llmPillEdit}>
-                      {t("common.edit")}
-                    </span>
-                  </div>
                   {/* ---- Search ---- */}
                   <div className={styles.searchRow}>
                     <Input
@@ -346,23 +374,23 @@ function ModelsPage() {
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onFocus={() => setSearchReadOnly(false)}
                       className={styles.searchInput}
-                      prefix={<SearchOutlined />}
+                      prefix={<Search size={16} strokeWidth={1.5} />}
                       allowClear
                       readOnly={searchReadOnly}
                       autoComplete="off"
                       name="models-provider-search-nofill"
                       data-form-type="other"
                     />
-                    <Button
-                      icon={<SyncOutlined />}
+                    <IconButton
+                      icon={RefreshCw}
+                      label={t("common.refresh")}
                       onClick={() => fetchAll()}
                       className={styles.searchBtn}
-                      title={t("common.refresh")}
                     />
                   </div>
                   <Button
                     type="primary"
-                    icon={<PlusOutlined />}
+                    icon={<Plus size={16} strokeWidth={1.5} />}
                     onClick={() => setAddProviderOpen(true)}
                     className={styles.addProviderBtn}
                   >
@@ -372,8 +400,11 @@ function ModelsPage() {
               </div>
 
               {/* ---- Tab Navigation ---- */}
-              <div className={styles.tabsNav}>
-                <div
+              <div className={styles.tabsNav} role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === "cloud"}
                   className={[
                     styles.tabItem,
                     activeTab === "cloud" ? styles.tabItemActive : "",
@@ -391,8 +422,11 @@ function ModelsPage() {
                       0,
                     )}
                   )
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === "local"}
                   className={[
                     styles.tabItem,
                     activeTab === "local" ? styles.tabItemActive : "",
@@ -401,11 +435,20 @@ function ModelsPage() {
                 >
                   {t("models.localCustomGroup")} (
                   {localConfigured.length + localAvailable.length})
-                </div>
+                </button>
               </div>
 
               {/* ---- Tab Content ---- */}
-              {activeTab === "cloud" && (
+              {hasSearchQuery && !activeTabHasSearchResults ? (
+                <div className={styles.searchEmpty} role="status">
+                  <SearchX size={18} strokeWidth={1.6} aria-hidden="true" />
+                  <span>
+                    {t("models.noSearchResults", {
+                      query: deferredSearchQuery.trim(),
+                    })}
+                  </span>
+                </div>
+              ) : activeTab === "cloud" ? (
                 <>
                   {/* Cloud Configured */}
                   <div className={styles.panelSection}>
@@ -434,19 +477,16 @@ function ModelsPage() {
                       </div>
                     ) : (
                       <div className={styles.emptyConfigured}>
-                        <p>{t("models.noConfigured")}</p>
-                        <Button
-                          type="primary"
-                          onClick={() => {
-                            document
-                              .getElementById("available-providers")
-                              ?.scrollIntoView({
-                                behavior: "smooth",
-                              });
-                          }}
+                        <span
+                          className={styles.emptyConfiguredIcon}
+                          aria-hidden="true"
                         >
-                          {t("models.goConfigureBtn")}
-                        </Button>
+                          <Plug size={22} strokeWidth={1.6} />
+                        </span>
+                        <div>
+                          <h3>{t("models.connectProviderTitle")}</h3>
+                          <p>{t("models.noConfigured")}</p>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -463,7 +503,16 @@ function ModelsPage() {
                       </div>
                       <div className={styles.availableGrid}>
                         {cloudAvailableGroups.map((g) => (
-                          <div
+                          <motion.button
+                            type="button"
+                            whileTap={
+                              reducedMotion ? undefined : { scale: 0.98 }
+                            }
+                            transition={{
+                              type: "spring",
+                              stiffness: 400,
+                              damping: 30,
+                            }}
                             key={g.key}
                             className={styles.availableItem}
                             onClick={() => {
@@ -477,6 +526,8 @@ function ModelsPage() {
                             <ProviderIcon
                               providerId={g.firstProvider.id}
                               size={24}
+                              decorative
+                              loading="lazy"
                             />
                             <span className={styles.availableItemName}>
                               {g.name}
@@ -486,16 +537,19 @@ function ModelsPage() {
                             )}
                             <span className={styles.availableItemAction}>
                               {t("models.configureAction")}
+                              <ChevronRight
+                                size={14}
+                                strokeWidth={1.7}
+                                aria-hidden="true"
+                              />
                             </span>
-                          </div>
+                          </motion.button>
                         ))}
                       </div>
                     </div>
                   )}
                 </>
-              )}
-
-              {activeTab === "local" && (
+              ) : (
                 <>
                   {/* Local Configured */}
                   {localConfigured.length > 0 && (
@@ -519,19 +573,38 @@ function ModelsPage() {
                       </div>
                       <div className={styles.availableGrid}>
                         {localAvailable.map((provider) => (
-                          <div
+                          <motion.button
+                            type="button"
+                            whileTap={
+                              reducedMotion ? undefined : { scale: 0.98 }
+                            }
+                            transition={{
+                              type: "spring",
+                              stiffness: 400,
+                              damping: 30,
+                            }}
                             key={provider.id}
                             className={styles.availableItem}
                             onClick={() => handleOpenConfig(provider)}
                           >
-                            <ProviderIcon providerId={provider.id} size={24} />
+                            <ProviderIcon
+                              providerId={provider.id}
+                              size={24}
+                              decorative
+                              loading="lazy"
+                            />
                             <span className={styles.availableItemName}>
                               {provider.name}
                             </span>
                             <span className={styles.availableItemAction}>
                               {t("models.configureAction")}
+                              <ChevronRight
+                                size={14}
+                                strokeWidth={1.7}
+                                aria-hidden="true"
+                              />
                             </span>
-                          </div>
+                          </motion.button>
                         ))}
                       </div>
                     </div>
@@ -539,46 +612,27 @@ function ModelsPage() {
                 </>
               )}
             </div>
-
             <CustomProviderModal
               open={addProviderOpen}
               onClose={() => setAddProviderOpen(false)}
               onSaved={fetchAll}
             />
 
-            <Modal
-              open={llmModalOpen}
-              title={t("models.defaultLlm")}
-              footer={null}
-              onCancel={() => setLlmModalOpen(false)}
-              destroyOnClose
-              width={520}
-            >
-              <ModelsSection
-                providers={providers}
-                activeModels={activeModels}
-                onSaved={() => {
-                  fetchAll();
-                  setLlmModalOpen(false);
-                }}
-              />
-            </Modal>
-
             {/* Shared Modal instances — one each for the entire page */}
             {configModalProvider && (
               <ProviderConfigModal
                 provider={configModalProvider}
                 activeModels={activeModels}
-                open={!!configModalProvider}
-                onClose={() => setConfigModalProvider(null)}
+                open={configOpen}
+                onClose={() => setConfigOpen(false)}
                 onSaved={refreshProvidersSilently}
               />
             )}
             {modelsModalProvider && (
               <ModelManageModal
                 provider={modelsModalProvider}
-                open={!!modelsModalProvider}
-                onClose={() => setModelsModalProvider(null)}
+                open={modelsOpen}
+                onClose={() => setModelsOpen(false)}
                 onSaved={refreshProvidersSilently}
                 onProviderUpdated={(p) => setModelsModalProvider(p)}
               />
@@ -586,12 +640,13 @@ function ModelsPage() {
 
             <Modal
               open={!!variantSelectGroup}
+              className={styles.modelManageModal}
               title={t("models.selectVariant", {
                 name: variantSelectGroup?.name || "",
               })}
               footer={null}
               onCancel={() => setVariantSelectGroup(null)}
-              destroyOnClose
+              destroyOnHidden
             >
               <div className={styles.variantList}>
                 {variantSelectGroup?.providers.map((p) => (
@@ -603,7 +658,7 @@ function ModelsPage() {
                       handleOpenConfig(p);
                     }}
                   >
-                    <ProviderIcon providerId={p.id} size={24} />
+                    <ProviderIcon providerId={p.id} size={24} decorative />
                     <span className={styles.variantItemName}>{p.name}</span>
                     {p.is_free_tier && (
                       <span className={styles.freeTag}>FREE</span>
@@ -615,7 +670,7 @@ function ModelsPage() {
           </div>
         </>
       )}
-    </div>
+    </motion.div>
   );
 }
 

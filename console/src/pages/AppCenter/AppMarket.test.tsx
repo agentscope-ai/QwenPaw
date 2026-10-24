@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { Modal } from "antd";
@@ -358,7 +359,7 @@ describe("AppMarket", () => {
     expect(screen.queryByText("appCenter.install")).not.toBeInTheDocument();
   });
 
-  it("does not match a community app by an unrelated owner-qualified id", async () => {
+  it("matches an installed app by its unscoped PawApp ID", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeEntry("@owner/installed-app")],
       total: 1,
@@ -371,7 +372,11 @@ describe("AppMarket", () => {
       />,
     );
 
-    expect(await screen.findByText("appCenter.install")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", {
+        name: "appCenter.installedStatus",
+      }),
+    ).toBeDisabled();
   });
 
   it("matches official entries by their bundled app id", async () => {
@@ -393,6 +398,101 @@ describe("AppMarket", () => {
         name: "appCenter.installedStatus",
       }),
     ).toBeDisabled();
+  });
+
+  it("matches official apps when the local author differs from the market owner", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("@agentscope/qwenpaw-creator", {
+          owner: "agentscope",
+          developer: "ScopeMaster",
+          version: "1.2.0",
+        }),
+      ],
+      total: 1,
+    });
+
+    render(
+      <AppMarket
+        channel="official"
+        installedAppVersions={new Map([["qwenpaw-creator", "1.2.0"]])}
+        installedApps={[
+          {
+            id: "qwenpaw-creator",
+            author: "QwenPaw Creator Team",
+            version: "1.2.0",
+          },
+        ]}
+        onInstalled={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", {
+        name: "appCenter.installedStatus",
+      }),
+    ).toBeDisabled();
+  });
+
+  it("matches app-market apps when the local author differs from the market owner", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("@zhijianma/agent-kanban", {
+          owner: "zhijianma",
+          developer: "zhijianma",
+          version: "0.1.1",
+        }),
+      ],
+      total: 1,
+    });
+
+    render(
+      <AppMarket
+        installedAppVersions={new Map([["agent-kanban", "0.1.1"]])}
+        installedApps={[
+          { id: "agent-kanban", author: "QwenPaw Team", version: "0.1.1" },
+        ]}
+        onInstalled={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", {
+        name: "appCenter.installedStatus",
+      }),
+    ).toBeDisabled();
+  });
+
+  it("offers an update for an official app when versions differ", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("@agentscope/qwenpaw-creator", {
+          owner: "agentscope",
+          developer: "ScopeMaster",
+          version: "1.3.0",
+        }),
+      ],
+      total: 1,
+    });
+
+    render(
+      <AppMarket
+        channel="official"
+        installedAppVersions={new Map([["qwenpaw-creator", "1.2.0"]])}
+        installedApps={[
+          {
+            id: "qwenpaw-creator",
+            author: "QwenPaw Creator Team",
+            version: "1.2.0",
+          },
+        ]}
+        onInstalled={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "appCenter.update" }),
+    ).toBeEnabled();
   });
 
   it("offers an update when the market version is newer", async () => {
@@ -499,6 +599,28 @@ describe("AppMarket", () => {
     const confirmOptions = confirmSpy.mock.calls[0][0];
     await confirmOptions.onOk?.();
     await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
+  });
+
+  it("previews the full description without installing or leaving the page", async () => {
+    const description =
+      "Full application description with configuration and usage details.";
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("preview-app", {
+          locales: { en: { description, category: "app" } },
+        }),
+      ],
+      total: 1,
+    });
+    render(<AppMarket onInstalled={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "preview-app" }));
+    const dialog = await screen.findByRole("dialog", { name: "preview-app" });
+    expect(within(dialog).getByText(description)).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "appCenter.install" }),
+    ).toBeVisible();
+    expect(hoisted.installPlugin).not.toHaveBeenCalled();
+    expect(windowOpen).not.toHaveBeenCalled();
   });
 
   it("opens details through the shared external-link guard", async () => {

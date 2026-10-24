@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 
+
 from services.project_files.agent_tools import (
     AgentProjectToolContext,
     AgentProjectTools,

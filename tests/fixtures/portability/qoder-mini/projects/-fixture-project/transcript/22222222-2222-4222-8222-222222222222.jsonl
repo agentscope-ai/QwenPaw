@@ -1,0 +1,2 @@
+{"type":"assistant","uuid":"assistant-tool","sessionId":"22222222-2222-4222-8222-222222222222","timestamp":"2026-08-20T01:01:00Z","cwd":"/fixture/qoder-project","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"pwd"}}]}}
+{"type":"user","uuid":"user-tool","sessionId":"22222222-2222-4222-8222-222222222222","timestamp":"2026-08-20T01:01:01Z","cwd":"/fixture/qoder-project","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"/fixture/qoder-project"}]}}

@@ -15,6 +15,45 @@ class CancelReason(StrEnum):
     SHUTDOWN = "shutdown"
 
 
+def cancellation_reason(error: BaseException | None) -> str | None:
+    """Extract the cancel reason attached via ``Task.cancel(reason)``.
+
+    Returns the normalized :class:`CancelReason` value, or ``None`` when
+    the error is not a cancellation or carries no known reason. Single
+    source of truth so every cancel observer (runtime cancel-save,
+    ON_ERROR hooks, stop API) reports the same reason vocabulary.
+    """
+    if not isinstance(error, asyncio.CancelledError) or not error.args:
+        return None
+    try:
+        return CancelReason(error.args[0]).value
+    except ValueError:
+        return None
+
+
+def format_cancel_message(
+    tool_name: str,
+    cancel_reason: CancelReason | None,
+) -> str:
+    """Format the result message for a cancelled tool call."""
+    if cancel_reason == CancelReason.USER:
+        return (
+            f"Tool `{tool_name}` was cancelled by the user. "
+            "Do not retry this tool call unless the user explicitly asks."
+        )
+    if cancel_reason == CancelReason.TIMEOUT:
+        return (
+            f"Tool `{tool_name}` was cancelled due to timeout. "
+            "Do not retry with the same timeout unless the user asks; "
+            "consider a longer timeout or a different approach."
+        )
+    reason = cancel_reason.value if cancel_reason else "unknown"
+    return (
+        f"Tool `{tool_name}` was cancelled (reason={reason}). "
+        "Do not retry unless appropriate for the new situation."
+    )
+
+
 class OffloadReason(StrEnum):
     USER = "user"
     TIMEOUT = "timeout"
@@ -45,6 +84,7 @@ class ToolCallContext:
     offload_reason: OffloadReason | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     governance_metadata: dict[str, Any] = field(default_factory=dict)
+    root_agent_id: str = ""
 
     @property
     def is_cancelled(self) -> bool:

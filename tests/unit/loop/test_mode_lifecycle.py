@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 """Tests for mode-owned handler selection and reset lifecycle."""
+
 from __future__ import annotations
+
+import json
 
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,7 +21,7 @@ from qwenpaw.loop.gates.runner import _filter_by_scope
 from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.mission.gates import MissionGate
-from qwenpaw.modes.mission.state import write_loop_config
+from qwenpaw.modes.mission.state import write_loop_config, write_prd_json
 from qwenpaw.runtime.runtime import Runtime
 
 
@@ -127,6 +130,23 @@ async def test_mission_turn_start_restores_persisted_session(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_internal_mission_uses_native_prd_gate(tmp_path):
+    mode = MissionMode()
+    write_loop_config(tmp_path, {"current_phase": "execution"})
+    prd = {
+        "userStories": [{"id": "ASSET-1", "title": "plugin", "passes": False}],
+    }
+    write_prd_json(tmp_path, prd)
+
+    mode.start_internal_mission("migration-mission", tmp_path)
+    assert not await mode.check_internal_mission("migration-mission")
+    prd["userStories"][0]["passes"] = True
+    write_prd_json(tmp_path, prd)
+    assert await mode.check_internal_mission("migration-mission")
+    mode.finish_internal_mission("migration-mission")
+
+
+@pytest.mark.asyncio
 async def test_mission_state_uses_session_lifecycle_and_reset(tmp_path):
     """Stage 1 phase persists and reset clears the same mode_state."""
     write_loop_config(
@@ -225,3 +245,71 @@ async def test_qualitative_rubric_state_is_session_isolated():
     assert first_b.action == StopAction.INTERRUPT_AND_CONTINUE
     assert next_a.action == StopAction.INTERRUPT_AND_CONTINUE
     assert next_b.action == StopAction.BYPASS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(f"budget", [-1, 0, 100])
+async def test_goal_budget_survives_acp_usage_flush(budget):
+    """Transport flush order cannot reset or double-count a goal budget."""
+    from qwenpaw.app.agent_context import scoped_session_id
+    from qwenpaw.modes.goal.gates import GoalBudgetGate
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    mode = GoalMode()
+    mode.default_max_tokens = budget
+    ctx = SimpleNamespace(session_id=f"goal-budget")
+    with scoped_session_id(ctx.session_id):
+        await mode.commands()[0].handler(ctx, f"Finish the task")
+        session = mode.active_session()
+        try:
+            for expected in (60, 120):
+                TokenRecordingModelWrapper._store_usage(
+                    None,
+                    {f"total_tokens": 60},
+                )
+                TokenRecordingModelWrapper.pop_usage_for_session(
+                    ctx.session_id,
+                )
+                assert session.tokens_used == expected
+                result = await GoalBudgetGate(mode).check({})
+                assert result.action == (
+                    StopAction.BYPASS
+                    if budget <= 0 or expected < budget
+                    else StopAction.TERMINATE
+                )
+                TokenRecordingModelWrapper.pop_usage_for_session(
+                    ctx.session_id,
+                )
+            assert session.active is (budget <= 0)
+            if budget <= 0:
+                assert session.remaining_tokens is None
+                assert f"Token budget: unlimited" in mode.prompt_provider(None)
+            await mode.on_conversation_reset(ctx)
+            await mode.commands()[0].handler(ctx, f"A new goal")
+            assert mode.active_session().tokens_used == 0
+        finally:
+            TokenRecordingModelWrapper.pop_usage_for_session(ctx.session_id)
+
+
+@pytest.mark.parametrize(f"budget", [None, -1, 0, 100])
+def test_create_goal_keeps_request_session(budget):
+    """Tool activation must share the runtime and model usage context."""
+    from qwenpaw.app.agent_context import (
+        get_current_session_id,
+        scoped_session_id,
+    )
+    from qwenpaw.modes.goal.tools import make_create_goal, make_get_goal
+    from qwenpaw.token_usage.counter import record_session_tokens
+
+    mode = GoalMode()
+    mode.default_max_tokens = 200
+    with scoped_session_id(f"goal-tool"):
+        make_create_goal(mode)(f"Finish", token_budget=budget)
+        assert get_current_session_id() == f"goal-tool"
+        record_session_tokens(f"goal-tool", 25)
+        assert mode.active_session().tokens_used == 25
+        expected_budget = 200 if budget is None else max(0, budget)
+        assert mode.active_session().max_tokens == expected_budget
+        assert json.loads(make_get_goal(mode)())[f"remaining_tokens"] == (
+            expected_budget - 25 if expected_budget > 0 else None
+        )

@@ -20,6 +20,10 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...agents.memory.reme_embedding import (
+    EmbeddingReindexUnavailableError,
+)
+from ...agents.memory.action_provider import MemoryActionProvider
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..mail.driver_config import (
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
@@ -29,10 +33,12 @@ from ..mail.driver_config import (
     sync_qwenpawmail_driver_card as _sync_qwenpawmail_driver_card,
 )
 from ..utils import safe_join, schedule_agent_reload
+from .model_validation import validate_model_slot
 from ...config.config import (
     AgentMailConfig,
     AgentProfileConfig,
     AgentProfileRef,
+    EmbeddingModelConfig,
     FallbackPolicyConfig,
     ModelSlotConfig,
     load_agent_config,
@@ -61,6 +67,14 @@ from ...utils.logging import sanitize_log_value
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get("/memory/backends")
+async def list_memory_backends() -> list[dict[str, Any]]:
+    """Describe memory backends registered by core and preloaded plugins."""
+    from qwenpaw.memory import memory_registry
+
+    return memory_registry.describe()
 
 
 class AgentSummary(BaseModel):
@@ -131,7 +145,10 @@ class BackendSettingsRequest(BaseModel):
 
 
 class AgentModelSettingsPatch(BaseModel):
-    """Model-routing fields editable from the Chat model selector."""
+    """Model-routing fields editable from the model settings page."""
+
+    active_model: ModelSlotConfig | None = None
+    decision_model: ModelSlotConfig | None = None
 
     fallback_models: list[ModelSlotConfig] | None = None
     fallback_policy: FallbackPolicyConfig | None = None
@@ -140,12 +157,17 @@ class AgentModelSettingsPatch(BaseModel):
         Literal[
             "inherit",
             "off",
+            "minimal",
             "low",
             "medium",
             "high",
+            "xhigh",
+            "max",
+            "budget",
         ]
         | None
     ) = None
+    thinking_budget: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def reject_null_non_nullable_fields(self):
@@ -181,10 +203,10 @@ class MemoryWorkerRuntimeStatus(BaseModel):
     tasks_running: int
 
 
-class MemoryCaptureTaskStatus(BaseModel):
-    """One bounded memory-capture record, newest records returned first.
+class AutoMemoryTaskStatus(BaseModel):
+    """One bounded auto-memory record, newest records returned first.
 
-    Records share the summarize queue used by periodic auto-memory and the
+    Records share the auto-memory queue used by periodic auto-memory and the
     user-triggered ``/new`` and ``/compact`` commands.
     """
 
@@ -193,6 +215,7 @@ class MemoryCaptureTaskStatus(BaseModel):
     queued_at: str | None = None
     finished_at: str | None = None
     message_count: int = 0
+    trigger: str = "manual"
     result: str | None = None
     error: str | None = None
 
@@ -215,9 +238,11 @@ class MemoryRuntimeStatus(BaseModel):
 
     worker: MemoryWorkerRuntimeStatus
     auto_memory: AutoMemoryRuntimeStatus
-    tasks: list[MemoryCaptureTaskStatus] = Field(default_factory=list)
+    tasks: list[AutoMemoryTaskStatus] = Field(default_factory=list)
     recent: RecentMemoryRuntimeStatus
     reindexing: bool
+    embedding_reindex_required: bool = False
+    embedding_reindex_undo_available: bool = False
 
 
 class ReMeMemoryStatusResponse(BaseModel):
@@ -244,9 +269,35 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
+    fallback_models: list[ModelSlotConfig] = Field(default_factory=list)
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+    )
+    subagent_model: ModelSlotConfig | None = None
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "budget",
+    ] = f"inherit"
+    thinking_budget: int | None = Field(default=None, ge=1)
     mail: AgentMailConfig | None = None
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode=f"after")
+    def validate_thinking_budget(self):
+        """Reject incomplete numeric reasoning preferences at the API edge."""
+        if (self.thinking_level == f"budget") != (
+            self.thinking_budget is not None
+        ):
+            raise ValueError(f"Budget mode requires thinking_budget")
+        return self
 
     @field_validator("id", mode="before")
     @classmethod
@@ -809,18 +860,6 @@ async def create_agent(
     active_model = (
         request.active_model if request.backend == "qwenpaw" else None
     )
-    if request.backend == "qwenpaw" and (
-        not active_model or not active_model.provider_id
-    ):
-        try:
-            from ...providers import ProviderManager
-
-            global_model = ProviderManager.get_instance().get_active_model()
-            if global_model and global_model.provider_id:
-                active_model = global_model
-        except Exception:
-            pass
-
     agent_config = AgentProfileConfig(
         id=new_id,
         name=request.name,
@@ -834,6 +873,11 @@ async def create_agent(
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
         active_model=active_model,
+        fallback_models=request.fallback_models,
+        fallback_policy=request.fallback_policy,
+        subagent_model=request.subagent_model,
+        thinking_level=request.thinking_level,
+        thinking_budget=request.thinking_budget,
         mail=request.mail,
     )
 
@@ -1281,6 +1325,34 @@ async def update_agent_model_settings(
     values = {field: getattr(body, field) for field in body.model_fields_set}
 
     def apply_settings(existing_config: AgentProfileConfig) -> None:
+        updated = AgentProfileConfig.model_validate(
+            {
+                **existing_config.model_dump(),
+                **values,
+            },
+        )
+        for field in (
+            "active_model",
+            "decision_model",
+            "subagent_model",
+            "fallback_models",
+        ):
+            value = values.get(field)
+            if field == "fallback_models":
+                if not updated.fallback_policy.enabled:
+                    continue
+                if "fallback_policy" in values:
+                    value = updated.fallback_models
+            slots = value if isinstance(value, list) else [value]
+            for slot in slots:
+                if slot is not None:
+                    validate_model_slot(
+                        request.app.state.provider_manager,
+                        slot.provider_id,
+                        slot.model,
+                        "decision" if field == "decision_model" else "chat",
+                    )
+
         for key, value in values.items():
             setattr(existing_config, key, value)
 
@@ -1290,7 +1362,9 @@ async def update_agent_model_settings(
             agentId,
             apply_settings,
         )
-    except (ValueError, AppBaseException) as exc:
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AppBaseException as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     schedule_agent_reload(request, agentId)
     return updated
@@ -1303,6 +1377,7 @@ async def update_agent_model_settings(
 )
 async def rebuild_agent_memory_index(
     agentId: str = PathParam(...),
+    scope: Literal["all", "bm25", "embedding"] = "all",
     request: Request = None,
 ) -> dict[str, str]:
     """Run the expensive ReMe reindex job as an explicit maintenance task."""
@@ -1329,8 +1404,15 @@ async def rebuild_agent_memory_index(
             detail="Memory manager is not available",
         )
 
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
     try:
-        response = await memory_manager.rebuild_index()
+        response = await memory_manager.run_action("reindex", scope=scope)
+    except EmbeddingReindexUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         if str(exc) == "Memory index rebuild is already running":
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1344,7 +1426,63 @@ async def rebuild_agent_memory_index(
     if not response.success:
         raise HTTPException(status_code=500, detail=str(response.answer))
 
-    return {"status": "completed"}
+    return {"status": "completed", "scope": scope}
+
+
+@router.post(
+    "/{agentId}/memory/reindex/undo",
+    response_model=EmbeddingModelConfig,
+    summary="Undo a pending embedding index rebuild",
+    description="Restore the last indexed embedding configuration",
+)
+async def undo_agent_memory_reindex(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> EmbeddingModelConfig:
+    """Restore the provider configuration matching the still-valid vectors."""
+    config = await run_sync_io(load_config)
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    agent_config = await run_sync_io(load_agent_config, agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Embedding index undo is only supported by ReMe Light",
+        )
+    manager = _get_multi_agent_manager(request)
+    workspace = await manager.get_agent(agentId)
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    try:
+        response = await memory_manager.run_action("undo_reindex")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        if str(exc) == "Memory index rebuild is already running":
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if response is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory action 'undo_reindex' is unavailable",
+        )
+    if not response.success:
+        raise HTTPException(status_code=500, detail=str(response.answer))
+    return EmbeddingModelConfig.model_validate(response.answer)
 
 
 @router.get(
@@ -1377,10 +1515,18 @@ async def get_agent_memory_runtime_status(
     if workspace is None or workspace.memory_manager is None:
         raise HTTPException(status_code=503, detail="Agent is not running")
     memory_config = agent_config.running.reme_light_memory_config
+    runtime_status = workspace.memory_manager.get_runtime_status(
+        auto_memory_interval=memory_config.auto_memory_interval,
+    )
+    runtime_status["embedding_reindex_required"] = bool(
+        memory_config.needs_reindex,
+    )
+    runtime_status["embedding_reindex_undo_available"] = bool(
+        memory_config.needs_reindex
+        and memory_config.pending_reindex_embedding_config is not None,
+    )
     return MemoryRuntimeStatus.model_validate(
-        workspace.memory_manager.get_runtime_status(
-            auto_memory_interval=memory_config.auto_memory_interval,
-        ),
+        runtime_status,
     )
 
 
@@ -1423,7 +1569,24 @@ async def get_agent_memory_status(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.reme_status()
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    try:
+        response = await memory_manager.run_action("status")
+    except RuntimeError as exc:
+        message = str(exc)
+        if not (
+            message.startswith("Dependency ")
+            and " accessed before start()" in message
+        ):
+            raise
+        raise HTTPException(
+            status_code=503,
+            detail="ReMe is not started or status reporting is unavailable",
+        ) from exc
     if response is None:
         raise HTTPException(
             status_code=503,
@@ -1440,13 +1603,21 @@ async def get_agent_memory_status(
             detail="ReMe returned an invalid memory status payload",
         )
     memory_config = agent_config.running.reme_light_memory_config
+    runtime_status = memory_manager.get_runtime_status(
+        auto_memory_interval=memory_config.auto_memory_interval,
+    )
+    runtime_status["embedding_reindex_required"] = bool(
+        memory_config.needs_reindex,
+    )
+    runtime_status["embedding_reindex_undo_available"] = bool(
+        memory_config.needs_reindex
+        and memory_config.pending_reindex_embedding_config is not None,
+    )
     try:
         return ReMeMemoryStatusResponse.model_validate(
             {
                 **memory,
-                "runtime": memory_manager.get_runtime_status(
-                    auto_memory_interval=memory_config.auto_memory_interval,
-                ),
+                "runtime": runtime_status,
             },
         )
     except ValueError as exc:
@@ -1493,7 +1664,12 @@ async def get_agent_memory_graph(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.graph_snapshot()
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    response = await memory_manager.run_action("graph_snapshot")
     if response is None:
         raise HTTPException(
             status_code=503,

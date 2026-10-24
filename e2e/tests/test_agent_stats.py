@@ -40,7 +40,7 @@ class TestAgentStatsPageDisplay:
 
     Functional coverage:
     1. /agent-stats page access and load
-    2. Breadcrumb validation (Settings / Agent Stats)
+    2. Page header validation (Agent Stats)
     3. Summary cards display (6 statistic cards)
     4. Card title and value validation
     """
@@ -58,20 +58,38 @@ class TestAgentStatsPageDisplay:
             page.wait_for_timeout(2000)
             logger.info("Agent stats page loaded")
 
-            # 2. Verify breadcrumb
-            log_test_step("2. Verify breadcrumb")
-            breadcrumb = page.locator('[class*="breadcrumb"], [class*="Breadcrumb"]').first
-            if breadcrumb.is_visible(timeout=3000):
-                breadcrumb_text = breadcrumb.inner_text().strip()
-                logger.info(f"Breadcrumb content: {breadcrumb_text}")
-                assert ("Settings" in breadcrumb_text or "设置" in breadcrumb_text), \
-                    "Breadcrumb should contain Settings"
-                assert ("Agent Stats" in breadcrumb_text or "Statistics" in breadcrumb_text
-                        or "统计" in breadcrumb_text or "Stats" in breadcrumb_text), \
-                    "Breadcrumb should contain Agent Stats/Statistics"
-                logger.info("Breadcrumb validation passed")
-            else:
-                logger.warning("Breadcrumb element not found, skipping validation")
+            # 2. Verify the page header.
+            # Upstream #8130 ("keep only the page title in settings
+            # headers", merged 2026-10-09) deliberately dropped the
+            # "Settings /" parent crumb from every settings page header:
+            # PageHeader now receives only ``current``. The product is
+            # correct by design; the old assertion that required
+            # "Settings"/"设置" inside the breadcrumb text was stale and
+            # failed with "Breadcrumb should contain Settings" (nightly
+            # 2026-10). We now assert the header carries THIS page's title
+            # (agentStats.title = "Agent Statistics" / "智能体统计") and
+            # never silently skip when the header is missing. Anchor on
+            # the breadcrumbCurrent span (#8247) -- the generic
+            # [class*="breadcrumb"] match also hits the wrapper.
+            log_test_step("2. Verify page header")
+            page_title = page.locator(
+                'span[class*="breadcrumbCurrent"]'
+            ).first
+            expect(page_title).to_be_visible(timeout=5000)
+            breadcrumb_text = page_title.inner_text().strip()
+            logger.info(f"Header content: {breadcrumb_text}")
+            assert (
+                "Agent Statistics" in breadcrumb_text
+                or "Agent Stats" in breadcrumb_text
+                or "Statistics" in breadcrumb_text
+                or "智能体统计" in breadcrumb_text
+                or "统计" in breadcrumb_text
+                or "Stats" in breadcrumb_text
+            ), (
+                f"Page header should carry the Agent Statistics title, "
+                f"got: {breadcrumb_text!r}"
+            )
+            logger.info("Page header validation passed")
 
             # 3. Verify summary cards area
             log_test_step("3. Verify summary cards area")
@@ -268,23 +286,114 @@ class TestAgentStatsCharts:
             else:
                 logger.info("Chart area not displayed when no data (empty state)")
 
-            # 3. Verify chart titles (if any)
-            log_test_step("3. Verify chart titles")
-            page_text = page.locator("body").inner_text()
-            chart_keywords = [
-                ("Message", "消息"),
-                ("Session", "会话"),
-                ("Token", "Token"),
-                ("LLM", "LLM"),
-                ("Tool", "工具"),
+            # 3. Verify the chart cards themselves
+            log_test_step("3. Verify chart cards")
+            # This step used to read ``body.inner_text()`` and look for keywords
+            # such as Message / Session / Token / Tool anywhere on the page,
+            # then assert that at least two matched. That evidence came from the
+            # wrong object: those words are sidebar menu labels, not chart
+            # titles. The case therefore passed on a page rendering no chart at
+            # all, and only started failing once #7502 folded the sidebar menu
+            # behind "More settings" and the words stopped being on the page —
+            # i.e. the redesign exposed a false pass rather than causing a
+            # regression.
+            #
+            # Assert on the chart cards instead. Every chart in this page is an
+            # antd Card whose title is a ``chartTitle`` span; the four trend
+            # charts always render when there is data and the two pie charts
+            # render when their config exists. Titles come from the
+            # ``agentStats.*Trend`` / ``*ByChannel`` i18n keys.
+            #
+            # ``chartCard`` / ``chartTitle`` cannot be used as bare anchors: they
+            # are defined in ``pages/Settings/AgentStats/index.module.less`` *and*
+            # in ``pages/Settings/TokenUsage/index.module.less``, both files
+            # named ``index.module.less``, so both scope to
+            # ``index-module__chartCard__<hash>``. The label text is what keeps
+            # this unambiguous, and it is scoped inside a chart card rather than
+            # read off the whole page.
+            chart_titles = [
+                ("Message Trend", "消息趋势"),
+                ("Session Trend", "会话趋势"),
+                ("Token Trend", "Token 趋势"),
+                ("LLM & Tool Call Trend", "LLM & 工具调用趋势"),
             ]
-            found_keywords = []
-            for en_kw, zh_kw in chart_keywords:
-                if en_kw in page_text or zh_kw in page_text:
-                    found_keywords.append(en_kw)
-            logger.info(f"Chart keywords found in page: {found_keywords}")
-            assert len(found_keywords) >= 2, \
-                f"Page should contain at least 2 chart-related keywords, actual: {found_keywords}"
+            found_titles = []
+            for en_title, zh_title in chart_titles:
+                for title in (en_title, zh_title):
+                    card = page.locator(
+                        f'[class*="chartCard"]:has([class*="chartTitle"]'
+                        f':text-is("{title}"))'
+                    ).first
+                    if card.count() > 0:
+                        found_titles.append(en_title)
+                        break
+            logger.info(f"Chart cards found by title: {found_titles}")
+
+            # No data is a legitimate outcome on a fresh CI environment: the
+            # page's own ``hasData`` (defined inline in
+            # ``pages/Settings/AgentStats/index.tsx``:169-174) is false when
+            # every counter in the API response is zero, and then the page
+            # renders an ``Empty`` (``index.tsx:541-544``) whose description is
+            # ``agentStats.noData``.
+            #
+            # 🔴 That Empty is NOT antd's, and the previous
+            # ``.qwenpaw-empty-description`` anchor could never match it:
+            #
+            #   ``Empty`` comes from ``@agentscope-ai/design`` (1.0.29) and
+            #   builds its class names from ``getCommonConfig().sparkPrefix``
+            #   -- ``Empty/index.js:214`` ``var sparkPrefix =
+            #   commonConfig.sparkPrefix`` and ``:275``
+            #   ``className: "".concat(sparkPrefix, "-empty-description")``.
+            #   The library default is ``'spark'`` (``lib/config.js:16``
+            #   ``export var DEFAULT_SPARK_PREFIX = 'spark'``), and nothing in
+            #   ``console/src`` ever calls ``setCommonConfig`` to change it
+            #   (repo-wide grep: zero call sites). ``App.tsx:429``'s
+            #   ``prefixCls="qwenpaw"`` is the *antd* ConfigProvider prop -- a
+            #   different mechanism that this component does not read.
+            #   So the real DOM class is ``spark-empty-description``, and the
+            #   anchor above silently matched nothing (``count() == 0``), which
+            #   is why step 2's loose ``[class*='empty']`` saw the empty state
+            #   while this step denied it, 14 ms apart, in the same run.
+            #
+            # Anchor on the description element without hard-coding the prefix,
+            # then let the i18n label keep it unambiguous. ``[class*=...]``
+            # survives any prefix the design library picks (``spark-`` today,
+            # ``qwenpaw-``/``ant-`` if upstream ever wires ``setCommonConfig``),
+            # and the ``:has-text`` pair still scopes this to *the* AgentStats
+            # no-data message rather than to any unrelated element that happens
+            # to carry "empty" in a class name. Labels verified against the
+            # i18n sources: ``console/src/locales/en.json:2276``
+            # ``"noData": "No statistics data in the selected period"`` and
+            # ``console/src/locales/zh.json:2067``
+            # ``"noData": "所选时间段内暂无统计数据"`` (``:has-text`` is a
+            # substring match, so both prefixes below hit).
+            empty_state = page.locator(
+                '[class*="empty-description"]:has-text("No statistics data"), '
+                '[class*="empty-description"]:has-text("暂无统计数据")'
+            ).first
+            is_empty = empty_state.count() > 0 and empty_state.is_visible()
+
+            if is_empty:
+                logger.info(
+                    "Agent stats has no data in this period; the page renders "
+                    "the documented empty state. Chart cards are not expected."
+                )
+                assert len(canvas_elements) == 0, (
+                    "Empty state is shown but chart canvases are present "
+                    f"({len(canvas_elements)}): the page is in an inconsistent "
+                    "state"
+                )
+            else:
+                assert len(found_titles) >= 2, (
+                    "Page should render at least 2 chart cards (Message / "
+                    "Session / Token / LLM & Tool Call trend), actual: "
+                    f"{found_titles}. No empty state either, so data was "
+                    "expected to be charted."
+                )
+                logger.info(
+                    f"Found {len(found_titles)} chart cards: {found_titles}; "
+                    f"canvas elements rendered: {len(canvas_elements)}"
+                )
 
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed")
