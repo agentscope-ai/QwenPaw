@@ -930,6 +930,8 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 - Matrix supports multimodal messages (text, images, videos, audio, and files). Attachments are received via `mxc://` media URLs and uploaded to the homeserver, then sent as native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - Only rooms the bot has already joined are monitored. Invite the bot to a room before sending messages.
 - For self-hosted homeservers, set `homeserver` to your server's base URL (e.g. `https://matrix.example.com`).
+- Password authentication reuses the saved session on restart after validating it with the homeserver. A changed server, login identity, device, or password requires a new login; an expired session falls back to password login.
+- With encryption enabled, startup checks the device keys on the homeserver and restores missing keys using the existing local crypto store. Channel health reports missing or conflicting keys and failed startup. Keep `matrix_crypto_store` when restarting so the bot retains its encryption identity and sessions.
 - Group rooms share one session by default to preserve the previous behavior. Set `share_session_in_group` to `false` to give each member an independent conversation context. Direct messages keep their existing room-based session identity.
 
 ---
