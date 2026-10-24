@@ -258,6 +258,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     )
             bind_hosts = {item.bind_host for item in model_networks.values()}
             async with model_listener.serve(bind_hosts):
+                await run_in_threadpool(runtime_service.restore_running)
                 yield
         finally:
             if docker_pulls is not None:
