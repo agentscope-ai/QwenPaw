@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ._state_utils import StateProxy
+from .context_injection import remove_runtime_context_from_state
 from .slash_command_registry import CommandSpec, FallbackHandler
 
 if TYPE_CHECKING:
@@ -446,6 +447,7 @@ async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
     if not payload:
         return AgentState(), {}
 
+    remove_runtime_context_from_state(payload)
     raw = payload.get("state")
     if raw is not None:
         return AgentState.model_validate(raw), payload
@@ -456,6 +458,7 @@ async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
         from ..app.chats.utils import parse_legacy_memory_state
 
         msgs, summary = parse_legacy_memory_state(memory_raw)
+        remove_runtime_context_from_state({"context": msgs})
         state = AgentState()
         state.context.extend(msgs)
         state.summary = summary

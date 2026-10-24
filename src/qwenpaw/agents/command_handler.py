@@ -19,6 +19,7 @@ from ..config.history_path import resolve_history_db_path
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
+from ..runtime.context_injection import is_runtime_context_message
 from ..utils.io_utils import run_sync_io
 from .context.scroll.continuation_summary import (
     ContinuationSummary,
@@ -1558,7 +1559,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
         # Snapshot the current short-term context for the conversation
         # command (most handlers don't need the messages list; the ones
         # that do — /compact, /dump_history — read it once).
-        messages = list(self._state.context)
+        messages = [
+            msg
+            for msg in self._state.context
+            if not is_runtime_context_message(msg, include_legacy=True)
+        ]
         # Parse command and arguments
         parts = query.strip().lstrip("/").split(" ", maxsplit=1)
         command = parts[0]
