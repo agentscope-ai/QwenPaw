@@ -580,6 +580,10 @@ describe("ModelConfigModal OpenCode support", () => {
 
     const ids = OPENCODE_MODELS.map((m) => m.id);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.filter((id) => id.startsWith("minimax-"))).toEqual([
+      "minimax-m3.1-flash-free",
+      "minimax-m3",
+    ]);
     for (const model of OPENCODE_MODELS) {
       expect(model.free === true).toBe(model.id.endsWith("-free"));
     }
@@ -590,6 +594,7 @@ describe("ModelConfigModal OpenCode support", () => {
         "glm-5.3",
         "deepseek-v4-pro",
         "qwen3.6-plus",
+        "minimax-m3.1-flash-free",
         "minimax-m3",
         "gpt-5.6-luna",
       ]),
@@ -607,6 +612,7 @@ describe("ModelConfigModal OpenCode support", () => {
         "deepseek-v4-flash-vision-exp",
         "qwen3.6-plus",
         "qwen3.5-plus",
+        "minimax-m3.1-flash-free",
         "minimax-m3",
         "gpt-5.6-luna",
       ].sort(),

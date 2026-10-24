@@ -57,6 +57,8 @@ from qwenpaw.providers.provider import ModelInfo, Provider
         ("GLM-5.2[1m]", 1_000_000),
         ("zhipu/glm-5.2", 1_000_000),
         # MiniMax: M3 is a 1M-context flagship; the M2.7 series is 204.8k.
+        ("MiniMax-M3.1-Flash", 1_000_000),
+        ("minimax/minimax-m3.1-flash:free", 1_000_000),
         ("MiniMax-M3", 1_000_000),
         ("MiniMax-M2.7", 204_800),
         ("MiniMax-M2.7-highspeed", 204_800),

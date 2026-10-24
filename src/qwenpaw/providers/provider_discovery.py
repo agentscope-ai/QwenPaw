@@ -12,6 +12,10 @@ from pydantic import BaseModel, Field
 from .provider import ModelInfo, Provider
 from .model_metadata import provider_catalog_models
 from .model_sync import reconcile_models
+from .provider_discovery_policy import (
+    BUILTIN_DISCOVERY_POLICIES,
+    is_legacy_minimax_text,
+)
 
 DiscoveryErrorKind = Literal[
     "authentication",
@@ -202,7 +206,11 @@ def normalize_discovered_models(
     removed = set(provider.removed_model_ids)
     by_id = {}
     for model in fetched:
-        if model.id in removed:
+        if model.id in removed or (
+            not provider.is_custom
+            and provider.id in BUILTIN_DISCOVERY_POLICIES
+            and is_legacy_minimax_text(model.id)
+        ):
             continue
         card = merge_discovered_model(provider, model, synced_at)
         card.discovery_origin = f"api"

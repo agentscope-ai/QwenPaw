@@ -21,6 +21,8 @@ pytestmark = pytest.mark.unit
         ("OpenAI", "deepseek-v4.1-flash", None),
         ("DashScope（百炼）", "qwen3.7-plus", None),
         ("Google Gemini", "gemini-2.5-pro", None),
+        ("MiniMax", "MiniMax-M3.1-Flash", 524288),
+        ("MiniMax", "MiniMax-M3", 524288),
         ("Anthropic Claude", "MiniMax-M2.7", 204800),
     ],
 )
