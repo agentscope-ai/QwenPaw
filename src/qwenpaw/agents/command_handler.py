@@ -130,6 +130,7 @@ class ConversationCommandHandlerMixin:
             "plan",
             "system_prompt",
             "reme",
+            "steer",
         },
     )
 

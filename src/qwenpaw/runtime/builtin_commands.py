@@ -838,10 +838,6 @@ def collect_builtin_command_specs() -> list[CommandSpec]:
     specs.extend(_collect_control_specs())
     specs.extend(_collect_conversation_specs())
 
-    from ..steer.handler import make_steer_command_spec
-
-    specs.append(make_steer_command_spec())
-
     return specs
 
 
