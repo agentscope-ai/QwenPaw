@@ -1495,6 +1495,40 @@ def test_expand_returns_full_turns_in_span(ms: MemorySpace):
     assert [r["content"] for r in rows] == ["tanks rolled in"]
 
 
+def test_expand_excludes_the_active_turn(tmp_path: Path):
+    """Mutable live rows must not enter a result-bound pagination snapshot."""
+    history = HistoryStore(tmp_path / "active-expand.db")
+    entries = [
+        ("old", "model_turn", "assistant", "stable historical row"),
+        ("cur-u", "context_msg", "user", "current request"),
+        ("cur-a", "model_turn", "assistant", "in-progress reply"),
+    ]
+    for key, kind, role, content in entries:
+        history.append(
+            session_id="s1",
+            agent_id="ag1",
+            dedup_key=key,
+            entry=LogEntry(
+                kind=kind,
+                role=role,
+                content=content,
+            ),
+        )
+    history.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "active-expand.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.expand(1, 3)
+    finally:
+        space.close()
+
+    assert [row["content"] for row in rows] == ["stable historical row"]
+
+
 def test_expand_includes_legacy_unowned_rows(history_db: Path):
     history = HistoryStore(history_db)
     legacy_seq = history.append(
