@@ -4,6 +4,7 @@
 # pylint: disable=protected-access,redefined-outer-name,reimported
 import os
 import re
+import sqlite3
 import tempfile
 import threading
 from pathlib import Path
@@ -889,3 +890,101 @@ def test_walk_and_grep_show_file_false_with_context(temp_dir):
         "3:  ccc",
         "---",
     ]
+
+
+@pytest.mark.parametrize(
+    "binary_bytes",
+    [
+        b"needle in binary\x00more",
+        b"needle" + b"a" * 8192 + b"\x00",
+        b"needle in binary\x01more",
+    ],
+)
+def test_walk_and_grep_skips_binary_content_with_text_extension(
+    temp_dir,
+    binary_bytes,
+):
+    (temp_dir / "plain.txt").write_text("needle in text\n", encoding="utf-8")
+    (temp_dir / "disguised.txt").write_bytes(binary_bytes)
+    matches, status = _walk_and_grep(
+        temp_dir,
+        re.compile("needle"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches == ["plain.txt:1:> needle in text"]
+
+
+def test_walk_and_grep_skips_explicit_binary_file(temp_dir):
+    connection = sqlite3.connect(temp_dir / "history.db")
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE notes (text TEXT)")
+        connection.execute("INSERT INTO notes VALUES (?)", ("needle in WAL",))
+        connection.commit()
+        binary = temp_dir / "history.db-wal"
+        assert binary.exists()
+        matches, status = _walk_and_grep(
+            binary,
+            re.compile("needle"),
+            0,
+            FakeCancel(),
+            None,
+        )
+        assert status == "ok"
+        assert not matches
+    finally:
+        connection.close()
+
+
+def test_walk_and_grep_preserves_utf8_text(temp_dir):
+    (temp_dir / "notes.txt").write_text("你好 needle 世界\n", encoding="utf-8")
+    matches, status = _walk_and_grep(
+        temp_dir,
+        re.compile("needle"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches == ["notes.txt:1:> 你好 needle 世界"]
+
+
+@pytest.mark.parametrize("path", [None, ""])
+@pytest.mark.asyncio
+async def test_grep_search_default_skips_internal_workspace_paths(
+    temp_dir,
+    monkeypatch,
+    path,
+):
+    from qwenpaw.agents.tools import file_search as search
+
+    monkeypatch.setattr(search, "get_tool_base_dir", lambda: temp_dir)
+    (temp_dir / "notes.txt").write_text("needle in notes\n")
+    (temp_dir / "history.db").write_text("needle in history\n")
+    (temp_dir / "history.db-wal").write_text("needle in WAL\n")
+    for directory in ("sessions", "state"):
+        internal = temp_dir / directory
+        internal.mkdir()
+        (internal / "entry.json").write_text("needle in state\n")
+
+    result = await search.grep_search("needle", path=path)
+    assert result.content[0].text == "notes.txt:1:> needle in notes"
+
+
+@pytest.mark.asyncio
+async def test_grep_search_explicit_text_path_can_search_internal_directory(
+    temp_dir,
+    monkeypatch,
+):
+    from qwenpaw.agents.tools import file_search as search
+
+    monkeypatch.setattr(search, "get_tool_base_dir", lambda: temp_dir)
+    sessions = temp_dir / "sessions"
+    sessions.mkdir()
+    (sessions / "entry.json").write_text("needle in session\n")
+
+    result = await search.grep_search("needle", path=str(sessions))
+    assert result.content[0].text == "entry.json:1:> needle in session"
