@@ -68,7 +68,10 @@ async def test_hung_completion_callback_does_not_block_new_messages(
     calls the router uses.
     """
     monkeypatch.setattr(
-        task_tracker_mod, "ON_FINISHED_TIMEOUT", 0.05, raising=False
+        task_tracker_mod,
+        "ON_FINISHED_TIMEOUT",
+        0.05,
+        raising=False,
     )
     tracker = TaskTracker()
     entered = asyncio.Event()
@@ -88,7 +91,7 @@ async def test_hung_completion_callback_does_not_block_new_messages(
 
     # Once the callback times out, cleanup must have completed.
     assert await _wait_until(
-        lambda: "run-hung-callback" not in tracker._runs
+        lambda: "run-hung-callback" not in tracker._runs,
     ), "run entry survived a hung completion callback"
 
     assert await tracker.get_status("run-hung-callback") == "idle"
@@ -118,7 +121,10 @@ async def test_completion_callback_timeout_is_logged_not_raised(
 ):
     """Timeout is a warning; it must not surface as a run error."""
     monkeypatch.setattr(
-        task_tracker_mod, "ON_FINISHED_TIMEOUT", 0.05, raising=False
+        task_tracker_mod,
+        "ON_FINISHED_TIMEOUT",
+        0.05,
+        raising=False,
     )
     tracker = TaskTracker()
     entered = asyncio.Event()
@@ -136,7 +142,7 @@ async def test_completion_callback_timeout_is_logged_not_raised(
         )
         await asyncio.wait_for(entered.wait(), timeout=1)
         assert await _wait_until(
-            lambda: "run-timeout-logged" not in tracker._runs
+            lambda: "run-timeout-logged" not in tracker._runs,
         )
 
     assert "completion callback timed out" in caplog.text
@@ -163,7 +169,7 @@ async def test_failing_completion_callback_still_clears_the_run():
     await asyncio.wait_for(entered.wait(), timeout=1)
 
     assert await _wait_until(
-        lambda: "run-failing-callback" not in tracker._runs
+        lambda: "run-failing-callback" not in tracker._runs,
     ), "run entry survived a failing completion callback"
     assert await tracker.has_active_tasks() is False
 
@@ -197,7 +203,7 @@ async def test_cancellation_during_callback_still_clears_the_run():
         await tracker._runs["run-cancelled"].task
 
     assert await _wait_until(
-        lambda: "run-cancelled" not in tracker._runs
+        lambda: "run-cancelled" not in tracker._runs,
     ), "run entry survived cancellation during the callback"
     assert await tracker.get_status("run-cancelled") == "idle"
 
@@ -216,7 +222,10 @@ async def test_request_stop_with_a_slow_callback_does_not_wedge_the_run(
     callback this always terminates and leaves no active run.
     """
     monkeypatch.setattr(
-        task_tracker_mod, "ON_FINISHED_TIMEOUT", 0.05, raising=False
+        task_tracker_mod,
+        "ON_FINISHED_TIMEOUT",
+        0.05,
+        raising=False,
     )
     tracker = TaskTracker()
     entered = asyncio.Event()
@@ -236,7 +245,7 @@ async def test_request_stop_with_a_slow_callback_does_not_wedge_the_run(
     assert await tracker.request_stop("run-stop-slow", reason="test") is True
 
     assert await _wait_until(
-        lambda: "run-stop-slow" not in tracker._runs
+        lambda: "run-stop-slow" not in tracker._runs,
     ), "request_stop left the run registered"
     assert await tracker.has_active_tasks() is False
     assert await tracker.get_status("run-stop-slow") == "idle"
@@ -254,7 +263,10 @@ async def test_callback_raising_timeout_error_is_not_logged_as_a_hang(
 ):
     """Our bound firing vs the callback raising TimeoutError are distinct."""
     monkeypatch.setattr(
-        task_tracker_mod, "ON_FINISHED_TIMEOUT", 5.0, raising=False
+        task_tracker_mod,
+        "ON_FINISHED_TIMEOUT",
+        5.0,
+        raising=False,
     )
     tracker = TaskTracker()
     entered = asyncio.Event()
@@ -272,7 +284,7 @@ async def test_callback_raising_timeout_error_is_not_logged_as_a_hang(
         )
         await asyncio.wait_for(entered.wait(), timeout=1)
         assert await _wait_until(
-            lambda: "run-callback-timeout-error" not in tracker._runs
+            lambda: "run-callback-timeout-error" not in tracker._runs,
         )
 
     assert (
