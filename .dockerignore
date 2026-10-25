@@ -4,8 +4,7 @@
 .idea
 .vscode
 *.md
-!README.md
-
+!README.me
 # Python dev and cache
 __pycache__
 *.py[cod]
@@ -19,7 +18,6 @@ htmlcov
 .tox
 .mypy_cache
 .ruff_cache
-
 # Tests (not needed in runtime image)
 tests
 test.py
@@ -45,13 +43,11 @@ node_modules
 !src/qwenpaw/console/dist
 !src/qwenpaw/console/dist/**
 **/.vite
-
 # Example and local config (mount at runtime instead)
 example
 config.json
 jobs.json
 sessions_mount_dir
-
 # Misc
 .env
 .env.*
