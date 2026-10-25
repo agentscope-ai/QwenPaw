@@ -1131,9 +1131,15 @@ _DANGER_NAMES = {
 _KILL_PREFIX = r"(?:^|[;&|]\s*)\s*"
 
 # Matches PID-based kills: taskkill /PID 123, kill -9 123, kill 123.
+# Digit targets only — the previous ``(?:/PID|-p|-pid|\b)\s*(\d+)`` had a
+# ``\b`` alternative that matched the boundary inside a "-9" flag or a
+# "$pid"-style variable, so ``kill -9 $pid`` extracted "9" and false-blocked
+# legitimate variable use (#8413).
 _KILL_PID_RE = re.compile(
     rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b"
-    rf".*(?:/PID|-p|-pid|\b)\s*(\d+)",
+    rf"(?:.*?/PID\s+(?:-f\s+)?(\d+)"
+    rf"|.*?\s(-?\d+)\s*$"
+    rf"|.*?\s(-?\d+)\s*[;&|])",
     re.IGNORECASE,
 )
 
@@ -1144,8 +1150,16 @@ _DANGER_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Shell variables that reference the current/parent PID.
-_SHELL_PID_VARS = {"$$", "$ppid", "$pid"}
+# Shell variables that reference the current/parent PID. ``$$`` and ``$PPID``
+# are shell-level references that always resolve to our process tree, so they
+# stay blocked unconditionally. ``$PID`` is different: it is a common user
+# variable that usually holds *some other* process's PID (captured earlier in
+# the same session, e.g. ``PID=$(pgrep mydaemon) && kill $PID``), so blocking
+# it outright breaks legitimate workflows (#8413). It is only treated as a
+# self-kill when it is paired with ``$$``/``$PPID`` in the same command — the
+# one shape where it is very likely being used as an alias for our own PID.
+_SHELL_PID_VARS = {"$$", "$ppid"}
+_SELF_KILL_VAR_HINTS = _SHELL_PID_VARS | {"$pid"}
 
 
 def _is_dangerous_self_kill(cmd: str) -> bool:
@@ -1158,7 +1172,8 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
     1. ``taskkill /IM <dangerous_name>`` — kills by image name.
     2. ``kill <pid>`` / ``taskkill /PID <pid>`` targeting our PID or
        parent.
-    3. Shell variable self-kill: ``kill -9 $$``, ``kill $PPID``.
+    3. Shell variable self-kill: ``kill -9 $$``, ``kill $PPID``, or
+       ``kill $PID`` when ``$$``/``$PPID`` appear in the same command.
     """
     lower = cmd.lower()
 
@@ -1168,11 +1183,15 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
     if "kill" in lower or "stop-process" in lower:
         if any(var in lower for var in _SHELL_PID_VARS):
             return True
+        # "$PID" alone usually names another process; only treat it as a
+        # self-kill when it rides along with an unambiguous self-reference.
+        if "$pid" in lower and any(var in lower for var in _SHELL_PID_VARS | {"$$"}):
+            return True
 
     m = _KILL_PID_RE.search(lower)
     if m:
         try:
-            target_pid = int(m.group(1))
+            target_pid = int(next(g for g in m.groups() if g))
             protected_pids = {os.getpid()}
             if hasattr(os, "getppid"):
                 protected_pids.add(os.getppid())

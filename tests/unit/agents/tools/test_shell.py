@@ -747,7 +747,23 @@ class TestIsDangerousSelfKill:
         assert _is_dangerous_self_kill("kill $PPID")
 
     def test_kill_shell_var_pid(self):
-        assert _is_dangerous_self_kill("kill $PID")
+        """$PID alone usually names another process — allowed (#8413)."""
+        assert not _is_dangerous_self_kill("kill $PID")
+
+    def test_kill_shell_var_pid_lowercase_is_safe(self):
+        assert not _is_dangerous_self_kill("kill $pid")
+
+    def test_kill_pid_from_captured_variable_is_safe(self):
+        """The workflow the guard broke: capture a PID, then kill it (#8413)."""
+        assert not _is_dangerous_self_kill("PID=$(pgrep mydaemon) && kill $PID")
+
+    def test_kill_shell_var_pid_alongside_dollar_dollar(self):
+        """$PID riding along with $$ is very likely our own PID — still blocked."""
+        assert _is_dangerous_self_kill("kill $PID $$")
+
+    def test_kill_digit_pid_after_flag_still_blocked(self):
+        """The -9 flag itself must not be misread as the target PID."""
+        assert _is_dangerous_self_kill(f"kill -9 {os.getpid()}")
 
     def test_false_positive_command_contains_cmd(self):
         """'command' contains 'cmd' but should not be blocked."""
