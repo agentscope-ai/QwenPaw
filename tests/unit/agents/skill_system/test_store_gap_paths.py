@@ -718,7 +718,7 @@ class TestExtractZipSkills:
         )
         extracted_dir, found = store.extract_zip_skills(data)
         try:
-            names = {name for _, name in found}
+            names = {name for _, name, _ in found}
             assert len(found) == 2
             assert {"demo", "other"} == names
         finally:
