@@ -183,6 +183,7 @@ class AgentBuilder:
                 build_code_mode_toolkit,
                 tools=tools,
                 governor=governor,
+                request_context=request_context,
             )
 
         skills = await run_sync_io(

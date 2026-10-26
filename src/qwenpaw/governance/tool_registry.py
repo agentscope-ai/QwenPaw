@@ -429,6 +429,15 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
     the global builtin set (scroll ``recall_history*``, memory manager
     tools). Keep this list documented when adding similar tools.
     """
+    # Code Mode executes model-authored Python outside the builtin catalog.
+    register_tool_governance(
+        registry,
+        python_name=f"run_code",
+        tool_type=f"shell",
+        target_param=f"code",
+        policy_name=f"RunCode",
+        owner=f"builtin",
+    )
     # Scroll strategy tools — hand-built descriptors, not global builtins.
     register_tool_governance(
         registry,

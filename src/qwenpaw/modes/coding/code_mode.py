@@ -24,6 +24,7 @@ from agentscope.state import AgentState
 from agentscope.tool import Toolkit, ToolBase, ToolChunk, ToolResponse
 
 from ...config import load_config
+from ...governance import PolicyGuardedTool
 from ...governance.policy import ToolCallSpec
 from ...utils.io_utils import run_sync_io
 from ...config.context import get_current_recent_max_bytes
@@ -116,10 +117,15 @@ def build_code_mode_toolkit(
     tools: list,
     skills_or_loaders: list,
     governor=None,
+    request_context=None,
 ) -> Toolkit:
     """Expose one Python entry while retaining all enabled native tools."""
     catalog = Toolkit(tools=tools, skills_or_loaders=skills_or_loaders)
-    code = CodeModeTool(catalog, governor=governor)
+    code = CodeModeTool(
+        catalog,
+        governor=governor,
+        request_context=request_context,
+    )
     return CodeModeToolkit(code)
 
 
@@ -186,10 +192,17 @@ class CodeModeTool(ToolBase):
     }
     description = CODE_DESCRIPTION
 
-    def __init__(self, toolkit: Toolkit, *, governor=None) -> None:
+    def __init__(
+        self,
+        toolkit: Toolkit,
+        *,
+        governor=None,
+        request_context=None,
+    ) -> None:
         super().__init__()
         self.toolkit = toolkit
         self.governor = governor
+        self.request_context = request_context
         self.check_permission: Callable[
             ...,
             Awaitable[PermissionDecision],
@@ -251,12 +264,16 @@ class CodeModeTool(ToolBase):
             current_script_tool_call.reset(raw_token)
             _execution_toolkit.reset(token)
 
-    async def check_permissions(self, *_args, **_kwargs):
-        """Authorize computation; every nested action has its own check."""
-        return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message="Script computation; nested tools retain permissions.",
+    async def check_permissions(self, input_data=None, context=None):
+        """Apply native governance to code before starting its worker."""
+        guard = PolicyGuardedTool(
+            self.call,
+            name=self.name,
+            input_schema=self.input_schema,
+            governor=self.governor,
+            request_context=self.request_context,
         )
+        return await guard.check_permissions(input_data, context)
 
     def sandbox_config(self):
         """Use the same switch and policy compiler as native tools."""
@@ -316,11 +333,13 @@ class _Script:
         ]
 
     async def search_tools(self, query: str = "") -> list[dict]:
-        terms = query.lower().split()
+        terms = query.casefold().split()
         return [
             item
             for item in self._tool_list()
-            if all(term in json.dumps(item).lower() for term in terms)
+            if all(
+                term in f" ".join(item.values()).casefold() for term in terms
+            )
         ][:8]
 
     async def describe_tool(self, name: str) -> dict:
