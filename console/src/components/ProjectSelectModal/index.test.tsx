@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   set: vi.fn(),
   setProjectDir: vi.fn(),
   sessionProjectDirectory: vi.fn(),
+  confirmVolumeRoot: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -42,6 +43,11 @@ vi.mock("../../api/modules/projectDirectory", () => ({
     getDirs: (...args: unknown[]) => mocks.getDirs(...args),
     set: (...args: unknown[]) => mocks.set(...args),
   },
+}));
+
+vi.mock("../../utils/volumeRootWarning", () => ({
+  confirmVolumeRootProjectDir: (...args: unknown[]) =>
+    mocks.confirmVolumeRoot(...args),
 }));
 
 vi.mock("../../features/project-directory/SessionProjectDirectory", () => ({
@@ -198,6 +204,7 @@ beforeEach(() => {
   mocks.set.mockReset().mockResolvedValue({});
   mocks.setProjectDir.mockClear();
   mocks.sessionProjectDirectory.mockClear();
+  mocks.confirmVolumeRoot.mockReset().mockResolvedValue(true);
 });
 
 // ---- Tests -----------------------------------------------------------------
@@ -397,6 +404,65 @@ describe("ProjectSelectModal", () => {
       expect(mocks.set).toHaveBeenCalledWith("/proj-b");
       expect(onConfirm).toHaveBeenCalledWith("/proj-b");
     });
+  });
+
+  it("asks before accepting a volume root as the project directory", async () => {
+    let resolveConfirm: (value: boolean) => void = () => undefined;
+    mocks.confirmVolumeRoot.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveConfirm = resolve;
+        }),
+    );
+    mocks.list.mockResolvedValue([
+      { name: "root", path: "C:\\", is_active: false },
+    ]);
+
+    const { onConfirm } = renderModal();
+    fireEvent.click(screen.getByText("codingMode.tabWorkspace"));
+    fireEvent.click(await screen.findByText("root"));
+
+    await waitFor(() => {
+      expect(mocks.confirmVolumeRoot).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "C:\\" }),
+      );
+    });
+    // Nothing is applied until the user decides.
+    expect(mocks.set).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    resolveConfirm(true);
+    await waitFor(() => {
+      expect(onConfirm).toHaveBeenCalledWith("C:\\");
+    });
+  });
+
+  it("leaves the project directory alone when the volume-root warning is declined", async () => {
+    mocks.confirmVolumeRoot.mockResolvedValue(false);
+    mocks.list.mockResolvedValue([
+      { name: "root", path: "C:\\", is_active: false },
+    ]);
+
+    const { onConfirm } = renderModal();
+    fireEvent.click(screen.getByText("codingMode.tabWorkspace"));
+    fireEvent.click(await screen.findByText("root"));
+
+    await waitFor(() => {
+      expect(mocks.confirmVolumeRoot).toHaveBeenCalled();
+    });
+    expect(mocks.set).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("does not warn for an ordinary project directory", async () => {
+    const { onConfirm } = renderModal();
+    fireEvent.click(screen.getByText("codingMode.tabWorkspace"));
+    fireEvent.click(await screen.findByText("proj-b"));
+
+    await waitFor(() => {
+      expect(onConfirm).toHaveBeenCalledWith("/proj-b");
+    });
+    expect(mocks.confirmVolumeRoot).not.toHaveBeenCalled();
   });
 
   it("loads projects and workspace on open", async () => {
