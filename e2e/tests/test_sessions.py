@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 import re
 import time
+from typing import List, Optional
+
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
 
@@ -29,6 +31,120 @@ from utils.helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Server-side truth for the "not enough sessions" gate
+# ---------------------------------------------------------------------------
+def server_session_count(page: Page, expected_ids: Optional[List[str]] = None) -> Optional[int]:
+    """Ask GET /api/chats how many sessions the server actually holds.
+
+    The table's settle wait cannot distinguish "the server is empty" from "the
+    render has not caught up with a response that already arrived". The second
+    one silently converts a real regression into a SKIP: on fork run 39743577398
+    (2026-10-22, head 7752fce07) the batch-delete case read 0 rows twice within
+    the same second the fixture finished creating 3 sessions, skipped with
+    "Insufficient sessions; need at least 2, have 0", and its own teardown then
+    resolved all three uuids from /api/chats and deleted them -- proof the data
+    was on the server the whole time. A skip reads like "nothing to test", so
+    the gate below now checks the server before accepting a zero.
+
+    Args:
+        page: any page on the app origin (the request is same-origin).
+        expected_ids: when given, also count how many of these session_ids the
+            server still reports. Lets the caller name the exact rows it just
+            created instead of trusting a global total another test may have
+            mutated in parallel.
+
+    Returns:
+        The server-side total, or None if the request failed -- callers must
+        treat None as "unknown" and fall back to the previous behaviour rather
+        than reading it as zero.
+    """
+    try:
+        result = page.evaluate(
+            """async (expectedIds) => {
+                try {
+                    const resp = await fetch('/api/chats');
+                    if (!resp.ok) return { ok: false, status: resp.status };
+                    const chats = await resp.json();
+                    const total = Array.isArray(chats) ? chats.length : -1;
+                    let matched = -1;
+                    if (Array.isArray(expectedIds) && expectedIds.length > 0) {
+                        matched = chats.filter(
+                            c => expectedIds.includes(c.session_id)
+                        ).length;
+                    }
+                    return { ok: true, total, matched };
+                } catch (e) {
+                    return { ok: false, error: e.message };
+                }
+            }""",
+            expected_ids or [],
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(f"server_session_count: request raised {exc}")
+        return None
+    if not result.get("ok"):
+        logger.warning(f"server_session_count: request failed {result}")
+        return None
+    total = result.get("total")
+    logger.info(
+        f"GET /api/chats reports total={total} "
+        f"matched_expected={result.get('matched')}"
+    )
+    return total if isinstance(total, int) and total >= 0 else None
+
+
+def settle_rows_against_server(
+    sessions_page: "SessionsPage",
+    created_ids: Optional[List[str]] = None,
+    attempts: int = 6,
+    delay_ms: int = 1500,
+) -> tuple:
+    """Re-read the table until it agrees with the server, then return both counts.
+
+    ``wait_for_data_rows`` accepts the empty-state placeholder as a terminal
+    state, which is correct for "the list really is empty" but wrong when the
+    placeholder is merely what the table renders before the in-flight
+    ``GET /api/chats`` response lands. In that window the row count reads 0
+    while the server already holds the rows the fixture created, and a caller
+    that gates on ``count < 2`` skips a case that had data to test.
+
+    This helper resolves the disagreement instead of reporting either side as
+    truth: it asks the server once, and while the server holds rows the table
+    does not show, it re-reads the table on a bounded budget. Only when the two
+    agree -- or the budget runs out -- does it return, so the caller can tell a
+    genuine empty list from a render that never caught up.
+
+    Returns:
+        ``(row_count, server_total, attempts_used)``. ``server_total`` is None
+        when the request failed, in which case ``row_count`` is the settled
+        table count and the caller should fall back to its previous behaviour.
+    """
+    row_count = sessions_page.wait_for_data_rows()
+    if row_count >= 2:
+        return row_count, None, 0
+    server_total = server_session_count(sessions_page.page, list(created_ids or []))
+    if server_total is None:
+        return row_count, None, 0
+    used = 0
+    while row_count < 2 <= server_total and used < attempts:
+        used += 1
+        logger.info(
+            f"table shows {row_count} row(s) but the server holds "
+            f"{server_total}; re-reading (attempt {used}/{attempts})"
+        )
+        sessions_page.page.wait_for_timeout(delay_ms)
+        row_count = sessions_page.wait_for_data_rows()
+        # Re-ask the server each round: a parallel test may have deleted rows,
+        # and a stale server count would keep this loop spinning to its budget.
+        server_total = server_session_count(
+            sessions_page.page, list(created_ids or [])
+        )
+        if server_total is None:
+            return row_count, None, used
+    return row_count, server_total, used
 
 
 # ============================================================================
@@ -470,9 +586,57 @@ class TestSessionBatchDelete:
         # Count DATA rows only: the table renders a hidden measure-row inside
         # <tbody>, which the old bare "tbody tr" selector counted as a session
         # (11 instead of 10 rows), so the "at least 2" gate below was off by one.
-        session_count = len(sessions_page.get_session_data_rows())
+        #
+        # Wait for the table body to SETTLE before counting: open() only
+        # proves the table container exists, while the rows arrive with the
+        # async GET /api/chats response. On nightly 2026-10-13 the count ran
+        # 0.70 s after the goto, read 0 although the fixture's three
+        # sessions were already on the server (teardown resolved their
+        # uuids), and the case skipped with "Insufficient sessions; need at
+        # least 2, have 0" -- a zero-wait race, not missing data. The real
+        # empty-list case still skips: the settle wait accepts the empty
+        # placeholder and returns 0.
+        # The settle wait above closed the zero-wait race, but it cannot tell an
+        # empty server from a render that has not caught up with a response that
+        # already landed. That distinction decides whether this branch reports
+        # "nothing to test" (skip) or hides a real regression, so cross-check the
+        # server and give the table a bounded chance to catch up first.
+        # Evidence this is not hypothetical: fork run 39743577398 (2026-10-22,
+        # head 7752fce07) read 0 rows twice in the same second the fixture logged
+        # "Created 3 test sessions", skipped with "Insufficient sessions; need at
+        # least 2, have 0", and its teardown then deleted all three uuids it had
+        # resolved from /api/chats -- the rows existed server-side while the
+        # table showed none. Runs 39743559639 / 39743594077 of the same head read
+        # 3 rows and passed, so timing alone decided the outcome.
+        session_count, server_total, settle_attempts = settle_rows_against_server(
+            sessions_page, ensure_session_data
+        )
+        if settle_attempts:
+            logger.info(
+                f"table needed {settle_attempts} extra read(s) to agree with "
+                f"the server: rows={session_count} server={server_total}"
+            )
         if session_count < 2:
-            pytest.skip(f"Insufficient sessions; need at least 2, have {session_count}")
+            if server_total is None:
+                # Server unreachable: "unknown" must not be laundered into
+                # either verdict, so keep the previous behaviour and say so.
+                pytest.skip(
+                    f"Insufficient sessions; need at least 2, have "
+                    f"{session_count} (server-side count unavailable, cannot "
+                    f"tell a real zero from a stale render)"
+                )
+            assert server_total < 2, (
+                f"Sessions table rendered {session_count} data row(s) after "
+                f"{settle_attempts} extra read(s) while GET /api/chats reports "
+                f"{server_total} -- the table is not showing sessions the "
+                f"server holds, so this is a render/refresh defect, not a lack "
+                f"of test data. The case used to skip here, which reads as "
+                f"'nothing to test' and hides it."
+            )
+            pytest.skip(
+                f"Insufficient sessions; need at least 2, have "
+                f"{session_count} (server confirms {server_total})"
+            )
 
         log_test_step("3. Tick checkboxes for the first two sessions")
         # Source: Table rowSelection; each data row has a checkbox.

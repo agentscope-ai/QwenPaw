@@ -23,7 +23,7 @@
     "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "1.2.0-beta.1791860734622",
+    "@agentscope-ai/chat": "^1.2.0-beta.1792133067831",
     "@agentscope-ai/design": "1.0.29",
     "@ant-design/icons": "^5.0.1",
     "@ant-design/plots": "^2.6.8",

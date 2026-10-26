@@ -6,11 +6,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import sqlite3
 import sys
 import threading
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,32 @@ from ..types import LogEntry
 logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5000
+_BACKUP_TIMEOUT_S = 60.0
+_WRITE_RETRY_DEADLINE_S = 5.0
+_WRITE_RETRY_MIN_S = 0.020
+_WRITE_RETRY_MAX_S = 0.150
+_SCHEMA_VERSION = 1
+_REQUIRED_COLUMNS = {"seq", "session_id", "kind"}
+
+_CONTENTION_CODES = {
+    sqlite3.SQLITE_BUSY,
+    sqlite3.SQLITE_LOCKED,
+}
+
+_OPTIONAL_COLUMNS = {
+    "agent_id": "TEXT",
+    "role": "TEXT",
+    "name": "TEXT",
+    "content": "TEXT",
+    "tool_call_id": "TEXT",
+    "tool_input": "TEXT",
+    "tool_state": "TEXT",
+    "headline": "TEXT",
+    "blocks": "TEXT",
+    "metadata": "TEXT",
+    "created_at": "TEXT",
+    "dedup_key": "TEXT",
+}
 _UNSET = object()
 
 # The recall tool's own turns — the model's ``ms.*`` Python source and its
@@ -53,6 +82,189 @@ _INSERT_COLUMNS = (
     "created_at",
     "dedup_key",
 )
+
+
+class HistorySchemaError(sqlite3.DatabaseError):
+    """The DB is valid SQLite, but its schema cannot be opened safely."""
+
+
+class HistoryCorruptionError(sqlite3.DatabaseError):
+    """An integrity check proved that the SQLite file is corrupt."""
+
+
+def _is_contention_error(exc: BaseException) -> bool:
+    """Whether *exc* is transient SQLite writer/schema contention."""
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        primary_code = code & 0xFF
+        return primary_code in _CONTENTION_CODES
+    return str(exc).lower() in {
+        "database is locked",
+        "database table is locked",
+        "database schema is locked",
+    }
+
+
+def _retry_contention(conn: sqlite3.Connection, operation):
+    """Acquire a writer within one deadline without replaying writes."""
+    deadline = time.monotonic() + _WRITE_RETRY_DEADLINE_S
+    previous_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    try:
+        while True:
+            remaining = max(0.0, deadline - time.monotonic())
+            wait_ms = min(250, int(remaining * 1000))
+            conn.execute(f"PRAGMA busy_timeout={wait_ms}")
+            try:
+                return operation()
+            except sqlite3.OperationalError as exc:
+                remaining = deadline - time.monotonic()
+                if not _is_contention_error(exc) or remaining <= 0:
+                    raise
+                time.sleep(
+                    min(
+                        random.uniform(_WRITE_RETRY_MIN_S, _WRITE_RETRY_MAX_S),
+                        remaining,
+                    ),
+                )
+    finally:
+        conn.execute(f"PRAGMA busy_timeout={previous_timeout}")
+
+
+@contextmanager
+def _immediate_transaction(
+    conn: sqlite3.Connection,
+):
+    """Run a short write transaction with bounded, jittered lock retries.
+
+    ``BEGIN IMMEDIATE`` surfaces the only-writer collision before any
+    statement mutates state. Retrying that boundary is therefore safe and
+    avoids SQLite's deterministic lock-wait convoy across gateway/CLI/worker
+    processes. Non-contention errors are never retried.
+    """
+    _retry_contention(conn, lambda: conn.execute("BEGIN IMMEDIATE"))
+    try:
+        yield
+        conn.commit()
+    except BaseException:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+
+
+def _validate_history_columns(conn: sqlite3.Connection) -> set[str]:
+    """Require the columns and rowid alias used by history writes and FTS."""
+    rows = conn.execute(f"PRAGMA table_info(conversation_history)").fetchall()
+    columns = {str(row[1]) for row in rows}
+    missing_required = _REQUIRED_COLUMNS - columns
+    if missing_required:
+        missing = f", ".join(sorted(missing_required))
+        raise HistorySchemaError(
+            f"history schema is missing required column(s): {missing}",
+        )
+    primary_key = [(row[1], row[2].upper()) for row in rows if row[5]]
+    # A rowid alias has no separate primary-key index. This also rejects
+    # WITHOUT ROWID tables and SQLite's column-level PRIMARY KEY DESC case.
+    indexed_primary_key = any(
+        row[3] == f"pk"
+        for row in conn.execute(f"PRAGMA index_list(conversation_history)")
+    )
+    if primary_key != [(f"seq", f"INTEGER")] or indexed_primary_key:
+        raise HistorySchemaError(
+            f"history seq must be an INTEGER PRIMARY KEY alias for rowid",
+        )
+    return columns
+
+
+def _validate_history_connection(conn: sqlite3.Connection) -> int:
+    """Validate integrity and the minimum compatible history schema."""
+    row = conn.execute("PRAGMA quick_check").fetchone()
+    result = str(row[0]) if row else "no result"
+    if result != "ok":
+        raise HistoryCorruptionError(f"quick_check failed: {result}")
+
+    version_row = conn.execute("PRAGMA user_version").fetchone()
+    version = int(version_row[0] if version_row else 0)
+    if version > _SCHEMA_VERSION:
+        raise HistorySchemaError(
+            f"history schema version {version} is newer than supported "
+            f"version {_SCHEMA_VERSION}",
+        )
+
+    _validate_history_columns(conn)
+    return version
+
+
+def validate_history_database(db_path: str | Path) -> int:
+    """Read-only integrity and compatibility check for an existing store.
+
+    Returns the on-disk ``PRAGMA user_version``. Version ``0`` remains valid
+    for pre-versioned stores and is migrated on the next runtime open.
+    """
+    path = Path(db_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    conn = sqlite3.connect(
+        path.as_uri() + "?mode=ro",
+        uri=True,
+        timeout=_BUSY_TIMEOUT_MS / 1000,
+    )
+    try:
+        conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        return _validate_history_connection(conn)
+    finally:
+        conn.close()
+
+
+def backup_history_database(
+    source: str | Path,
+    destination: str | Path,
+    *,
+    check_cancelled: Callable[[], None] | None = None,
+) -> Path:
+    """Create a verified snapshot with bounded, cancellable copying."""
+    deadline = time.monotonic() + _BACKUP_TIMEOUT_S
+
+    def check_progress(_status: int, _remaining: int, _total: int) -> None:
+        if check_cancelled is not None:
+            check_cancelled()
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"History snapshot timed out: {source}")
+
+    check_progress(0, 0, 0)
+    source_path = Path(source).expanduser().resolve()
+    if not source_path.is_file():
+        raise FileNotFoundError(source_path)
+    target = Path(destination).expanduser()
+    if target.resolve() == source_path:
+        raise ValueError(
+            "history backup destination must differ from source",
+        )
+    if target.exists():
+        raise FileExistsError(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(
+        source_path.as_uri() + "?mode=ro",
+        uri=True,
+        timeout=_BUSY_TIMEOUT_MS / 1000,
+    )
+    snapshot: sqlite3.Connection | None = None
+    try:
+        # Short lock waits let progress checks observe cancellation promptly.
+        conn.execute(f"PRAGMA busy_timeout=100")
+        snapshot = sqlite3.connect(str(target))
+        conn.backup(
+            snapshot,
+            pages=256,
+            progress=check_progress,
+            sleep=0.05,
+        )
+        _validate_history_connection(snapshot)
+        return target
+    finally:
+        if snapshot is not None:
+            snapshot.close()
+        conn.close()
 
 
 class HistoryStore:
@@ -230,11 +442,17 @@ class HistoryStore:
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,
+            timeout=_BUSY_TIMEOUT_MS / 1000,
         )
         identity_after_open = self._file_identity(self._path)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        # Set the wait policy before journal_mode: switching/confirming WAL can
+        # itself need a lock when several processes start at once.
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        _retry_contention(
+            self._conn,
+            lambda: self._conn.execute("PRAGMA journal_mode=WAL"),
+        )
         # A cache hit is valid only if the file still matches across open.
         # Replacement after the claim must not bypass the integrity check.
         can_skip_check = (
@@ -329,7 +547,7 @@ class HistoryStore:
     def _repair_fts(self) -> None:
         logger.warning("Rebuilding damaged history FTS index: %s", self._path)
         try:
-            with self._conn:
+            with _immediate_transaction(self._conn):
                 self._rebuild_fts()
                 self._check_fts()
         except sqlite3.DatabaseError as exc:
@@ -386,12 +604,50 @@ class HistoryStore:
             file=sys.stderr,
         )
 
+    @staticmethod
+    def _schema_columns(conn: sqlite3.Connection) -> set[str]:
+        return {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(conversation_history)",
+            ).fetchall()
+        }
+
+    def _migrate_schema(self) -> None:
+        """Apply bounded, idempotent upgrades to the current schema version."""
+        version_row = self._conn.execute("PRAGMA user_version").fetchone()
+        version = int(version_row[0] if version_row else 0)
+        if version > _SCHEMA_VERSION:
+            raise HistorySchemaError(
+                f"history schema version {version} is newer than supported "
+                f"version {_SCHEMA_VERSION}",
+            )
+
+        columns = _validate_history_columns(self._conn)
+        for name, ddl in _OPTIONAL_COLUMNS.items():
+            if name not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE conversation_history "
+                    f"ADD COLUMN {name} {ddl}",
+                )
+
     @property
     def path(self) -> Path:
         return self._path
 
     def _init_schema(self) -> None:
-        with self._conn:
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        missing_columns = _OPTIONAL_COLUMNS.keys() - self._schema_columns(
+            self._conn,
+        )
+        # Reopening an initialized store must not wait for an ordinary writer.
+        # Only schema creation/migration needs an explicit write transaction.
+        transaction = (
+            self._conn
+            if version == _SCHEMA_VERSION and not missing_columns
+            else _immediate_transaction(self._conn)
+        )
+        with self._lock, transaction:
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS conversation_history (
@@ -413,6 +669,7 @@ class HistoryStore:
                 )
                 """,
             )
+            self._migrate_schema()
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS ch_session "
                 "ON conversation_history(session_id)",
@@ -439,6 +696,10 @@ class HistoryStore:
                 "ON conversation_history(session_id, dedup_key)",
             )
             self._init_fts()
+            # Publish the version only after every table/index/FTS migration in
+            # this transaction has succeeded.
+            if version != _SCHEMA_VERSION:
+                self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
 
     def _init_fts(self) -> None:
         """Create the FTS5 full-text index over ``content``, if available.
@@ -528,7 +789,9 @@ class HistoryStore:
         """
         row = self._insert_row(session_id, agent_id, entry, dedup_key)
         placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
             cur = self._conn.execute(
                 f"INSERT INTO conversation_history "
                 f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
@@ -578,7 +841,9 @@ class HistoryStore:
             f"ON CONFLICT(session_id, dedup_key) DO NOTHING"
         )
         inserted = 0
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
             for entry, dedup_key in entries:
                 row = self._insert_row(
                     session_id,
@@ -623,7 +888,9 @@ class HistoryStore:
         first-write values. ``seq`` is unchanged. Omitting ``metadata`` keeps
         the stored value unchanged for backwards-compatible direct callers.
         """
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
             old_row = self._conn.execute(
                 "SELECT seq, content, name FROM conversation_history "
                 "WHERE seq = ?",
@@ -687,7 +954,9 @@ class HistoryStore:
         """Assign legacy unowned rows in a canonical session to an agent."""
         if not session_id or not agent_id:
             return 0
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
             cur = self._conn.execute(
                 "UPDATE conversation_history SET agent_id = ? "
                 "WHERE session_id = ? AND agent_id IS NULL",
@@ -726,7 +995,9 @@ class HistoryStore:
         moved = 0
         deduplicated = 0
         claimed = 0
-        with self._lock, self._conn:
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
             for source_id in sources:
                 for start in range(0, len(keys), 400):
                     chunk = keys[slice(start, start + 400)]
@@ -879,7 +1150,7 @@ class HistoryStore:
         show before an operator commits a purge, so they never delete blindly.
         """
         where, params = self._purge_where(before, kinds)
-        with self._lock, self._conn:
+        with self._lock:
             row = self._conn.execute(
                 "SELECT COUNT(*) AS rows, "
                 "COALESCE(SUM(LENGTH(content)), 0) AS content_bytes "
@@ -916,16 +1187,28 @@ class HistoryStore:
         but the file does not shrink on disk until a separate vacuum.
         """
         where, params = self._purge_where(before, kinds)
+        if dry_run:
+            return self.estimate_purge(before=before, kinds=kinds)["rows"]
         with self._lock:
+            # Avoid writer contention when retention has nothing to delete.
+            # Re-read matching rows under the write lock for FTS consistency.
+            match = self._conn.execute(
+                f"SELECT 1 FROM conversation_history WHERE {where} LIMIT 1",
+                params,
+            ).fetchone()
+            if match is None:
+                return 0
             for attempt in range(2):
                 try:
-                    with self._conn:
+                    with _immediate_transaction(
+                        self._conn,
+                    ):
                         doomed = self._conn.execute(
                             "SELECT seq, content, name "
                             "FROM conversation_history WHERE " + where,
                             params,
                         ).fetchall()
-                        if dry_run or not doomed:
+                        if not doomed:
                             return len(doomed)
                         if self._fts:
                             for row in doomed:
@@ -940,7 +1223,6 @@ class HistoryStore:
                     # rebuild for operational errors or retry more than once.
                     if (
                         attempt
-                        or dry_run
                         or not self._fts
                         or not self._is_corruption(exc)
                     ):

@@ -33,6 +33,7 @@ from ....constant import (
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
+from ....utils.io_utils import run_sync_io
 from . import _as_internals as as_internals
 from .continuation_summary import (
     ContinuationSummary,
@@ -323,12 +324,10 @@ class ScrollContextManager:
         :meth:`_persist_guarded_async`, which must NOT evict when this returns
         ``False``, or it would drop un-persisted turns).
 
-        The SQLite writes are synchronous. ``on_save`` runs this directly on
-        the event loop because its AgentScope hook is synchronous and its
-        write is incremental (one turn); ``compress`` instead offloads it to a
-        worker thread (see :meth:`_persist_guarded_async`) so the larger
-        whole-window persist never blocks the loop. ``HistoryStore`` serializes
-        both paths on its own lock.
+        The SQLite writes are synchronous. The agent drains ``on_save`` in a
+        worker at stream boundaries; ``compress`` likewise offloads through
+        :meth:`_persist_guarded_async`. ``HistoryStore`` serializes both paths
+        on its own lock.
         """
         if self._recall_loop_guard is not None:
             active = self._active_turn_tail(agent)
@@ -354,9 +353,9 @@ class ScrollContextManager:
         the write worth keeping off the loop. The synchronous SQLite work runs
         in a worker thread; ``HistoryStore``'s connection is opened
         ``check_same_thread=False`` and every access is serialized by its lock,
-        so this coexists safely with a concurrent on-loop ``on_save``.
+        so synchronous callers and workers cannot share an active transaction.
         """
-        return await asyncio.to_thread(self._persist_guarded, agent)
+        return await run_sync_io(self._persist_guarded, agent)
 
     async def _offload_dialog(self, middle: list[Msg]) -> None:
         """Best-effort legacy ``dialog/*.jsonl`` archive of evicted turns.

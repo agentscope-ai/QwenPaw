@@ -25,6 +25,7 @@ DiscoveryErrorKind = Literal[
 ]
 
 DISCOVERY_MODEL_FIELDS = (
+    "model_type",
     f"released_at",
     "max_input_length_auto_detected",
     "max_output_length",

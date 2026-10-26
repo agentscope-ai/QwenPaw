@@ -1,4 +1,4 @@
-import { Suspense, useMemo } from "react";
+import { useMemo } from "react";
 import { Layout, Spin } from "antd";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,7 @@ import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
 import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
+import { ChunkRecoverySuspense } from "../../components/ChunkRecoverySuspense";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
 import { useRoutes } from "../../plugins/registry/hooks";
@@ -53,13 +54,25 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     <HubModeContext.Provider value={hubMode}>
       <Layout className={styles.mainLayout}>
         <RouteDocumentTitle title={pageTitle} />
+        <a
+          className={styles.skipLink}
+          href="#main-content"
+          onClick={() => document.getElementById("main-content")?.focus()}
+        >
+          {t("accessibility.skipToContent", "Skip to content")}
+        </a>
         <AmbientLight />
         {!settingsCenterActive && (
           <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
         )}
         <Layout className={styles.mainContentLayout}>
           <Header showBrand={settingsCenterActive} />
-          <Content className="page-container">
+          <Content
+            id="main-content"
+            role="main"
+            tabIndex={-1}
+            className="page-container"
+          >
             <ConsolePollService />
             <AgentStatusPollingController />
             <Slot name="content.statusBar" kind="fill" />
@@ -68,10 +81,10 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                 resetKey={currentPath}
                 canRestartRuntime={hubMode}
               >
-                <Suspense
+                <ChunkRecoverySuspense
                   fallback={
                     <Spin
-                      tip={t("common.loading")}
+                      aria-label={t("common.loading")}
                       style={{ display: "block", margin: "20vh auto" }}
                     />
                   }
@@ -81,6 +94,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                       <Route
                         key={r.id}
                         path={r.path}
+                        caseSensitive={r.caseSensitive}
                         element={
                           <PageShell
                             title={getRouteTitle(r, i18n.language)}
@@ -92,7 +106,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                       />
                     ))}
                   </Routes>
-                </Suspense>
+                </ChunkRecoverySuspense>
               </ChunkErrorBoundary>
             </div>
           </Content>

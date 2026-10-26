@@ -32,11 +32,13 @@ from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...providers.thinking import ThinkingPreference
 from ...services.session_thinking import (
+    decision_settings,
     session_model,
     session_preference,
     thinking_view,
 )
-from ...config.config import ModelSlotConfig
+from ...config.config import ModelSlotConfig, load_agent_config
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
@@ -106,6 +108,11 @@ def _safe_filename(name: str) -> str:
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
 
 
+def _safe_log_token(value: str) -> str:
+    """Neutralize CR/LF so untrusted IDs cannot forge log lines (CWE-117)."""
+    return value.replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     """Return ``(placeholder_name, first_user_text)`` for a new chat.
 
@@ -137,6 +144,18 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
 
 async def _persist_pending_model_settings(workspace, chat, request_context):
     """Bind first-turn model and reasoning before building the runtime."""
+    pending_decision = request_context.pop("session_decision_enabled", None)
+    if pending_decision is not None:
+        if not isinstance(pending_decision, bool):
+            raise HTTPException(422, "Invalid decision preference")
+        chat = await workspace.chat_manager.set_session_decision(
+            chat.id,
+            pending_decision,
+            only_if_unset=True,
+        )
+        if chat is None:
+            raise HTTPException(409, "Session disappeared before saving")
+
     pending_model = request_context.pop(f"session_model", None)
     if pending_model is not None and session_model(chat.meta) is None:
         try:
@@ -213,6 +232,18 @@ async def _persist_pending_project_dirs(
         chat,
         request_context,
     )
+    if str(request_context.get("approval_level", "")).upper() == "JEV":
+        runtime = (chat.meta or {}).get("runtime_context") or {}
+        config = await run_sync_io(load_agent_config, workspace.agent_id)
+        enabled = await run_sync_io(
+            decision_settings,
+            config,
+            runtime.get("decision_enabled"),
+        )
+        if not enabled["enabled"]:
+            # A requested decision review must not become automatic execution
+            # when the model is unavailable or disabled.
+            request_context["approval_level"] = "STRICT"
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)
@@ -556,6 +587,13 @@ async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
     cancel_reason: CancelReason = Query(default=CancelReason.USER),
+    initiator: str = Query(
+        default="",
+        description=(
+            "Session that initiated the stop (e.g. the caller session of a "
+            "cancelled chat_with_agent). Used for cancel traceability."
+        ),
+    ),
 ) -> dict:
     """Stop the running chat and its foreground tool calls."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
@@ -609,8 +647,15 @@ async def post_console_chat_stop(
     )
     stopped = run_stopped or tool_cancelled > 0
 
-    logger.debug(
-        "[STOP API] stop completed: stopped=%s run_stopped=%s tools=%s",
+    # One INFO audit line so a cancelled session can be traced back to WHO
+    # stopped it and WHY (user stop / upstream timeout cascade / shutdown),
+    # without enabling DEBUG (GH-8252).
+    logger.info(
+        "[STOP API] chat stop: chat_id=%s reason=%s initiator=%s "
+        "stopped=%s run_stopped=%s tools_cancelled=%s",
+        _safe_log_token(resolved_chat_id),
+        cancel_reason.value,
+        _safe_log_token(initiator) or "-",
         stopped,
         run_stopped,
         tool_cancelled,

@@ -1,10 +1,11 @@
 import { Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import { Button, Result, Space } from "antd";
+import { Button, Result, Space, Spin } from "antd";
 import { Check, Copy, RotateCw } from "lucide-react";
 import i18n from "../i18n";
 import { hubApi } from "../api/modules/hub";
 import {
+  blockChunkRecoveryHealth,
   isChunkLoadError,
   reloadAfterChunkError,
 } from "../utils/chunkRecovery";
@@ -18,6 +19,7 @@ import {
   saveChunkDiagnostic,
 } from "../utils/chunkDiagnostics";
 import type { ChunkDiagnostic } from "../utils/chunkDiagnostics";
+import { waitForChunkServerReady } from "../utils/chunkServerReadiness";
 import { copyText } from "../utils/clipboard";
 import styles from "./ChunkErrorBoundary.module.less";
 
@@ -37,12 +39,14 @@ interface State {
   previousDiagnostic: ChunkDiagnostic | null;
   copied: boolean;
   copyFailed: boolean;
+  waitingForServer: boolean;
+  recovering: boolean;
 }
 
 /**
  * Error boundary that wraps lazily-loaded route chunks.
  *
- * - **Chunk-load errors** reset rejected imports and refresh at most twice per build.
+ * - **Chunk-load errors** reset rejected imports and refresh twice per recovery cycle.
  *   Persistent failures retain a targeted fallback and manual refresh.
  * - **Other render errors** (runtime bugs) get a generic fallback so the
  *   rest of the app remains functional.
@@ -60,9 +64,13 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     previousDiagnostic: null,
     copied: false,
     copyFailed: false,
+    waitingForServer: false,
+    recovering: false,
   };
 
   private diagnosticGeneration = 0;
+  private releaseHealthBlock: (() => void) | null = null;
+  private readinessController: AbortController | null = null;
 
   static getDerivedStateFromError(error: unknown): State {
     return {
@@ -74,12 +82,17 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       previousDiagnostic: null,
       copied: false,
       copyFailed: false,
+      waitingForServer: false,
+      recovering: isChunkLoadError(error),
     };
   }
 
   componentDidUpdate(prevProps: Readonly<Props>) {
     if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
       this.diagnosticGeneration += 1;
+      this.readinessController?.abort();
+      this.releaseHealthBlock?.();
+      this.releaseHealthBlock = null;
       this.setState({
         hasError: false,
         isChunkError: false,
@@ -89,25 +102,39 @@ export class ChunkErrorBoundary extends Component<Props, State> {
         previousDiagnostic: null,
         copied: false,
         copyFailed: false,
+        waitingForServer: false,
+        recovering: false,
       });
     }
   }
 
   componentWillUnmount() {
     this.diagnosticGeneration += 1;
+    this.readinessController?.abort();
+    this.releaseHealthBlock?.();
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
+    this.releaseHealthBlock ??= blockChunkRecoveryHealth();
     const label = isChunkLoadError(error) ? "Chunk load error" : "Render error";
     console.error(`${label}:`, error, info);
     if (isChunkLoadError(error)) {
       resetFailedLazyImports(error);
-      void this.diagnoseChunkError(error);
+      const diagnosis = this.diagnoseChunkError(error);
+      const generation = this.diagnosticGeneration;
+      void diagnosis.catch(() => {
+        if (generation === this.diagnosticGeneration && this.state.hasError) {
+          this.setState({ recovering: false, waitingForServer: false });
+        }
+      });
     }
   }
 
   diagnoseChunkError = async (error: ErrorLike) => {
     const generation = ++this.diagnosticGeneration;
+    this.readinessController?.abort();
+    const controller = new AbortController();
+    this.readinessController = controller;
     const diagnostic = captureChunkDiagnostic(error);
     const previous = readBeforeAutomaticReloadDiagnostic(diagnostic.page);
     saveChunkDiagnostic(diagnostic);
@@ -120,13 +147,39 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       return;
     const completed = { ...diagnostic, recheck };
     saveChunkDiagnostic(completed);
-    this.setState({ diagnostic: completed, copied: false });
-    reloadAfterChunkError((decision) => {
+    this.setState({
+      diagnostic: completed,
+      copied: false,
+      waitingForServer: true,
+    });
+    const serverReadiness = await waitForChunkServerReady(
+      failedResourceUrl(error),
+      controller.signal,
+    );
+    if (
+      controller.signal.aborted ||
+      generation !== this.diagnosticGeneration ||
+      !this.state.hasError
+    )
+      return;
+    completed.serverReadiness = serverReadiness;
+    this.readinessController = null;
+    saveChunkDiagnostic(completed);
+    this.setState({ diagnostic: completed, waitingForServer: false });
+    if (
+      serverReadiness.outcome !== "ready" &&
+      serverReadiness.outcome !== "not-applicable"
+    ) {
+      this.setState({ recovering: false });
+      return;
+    }
+    const reloading = reloadAfterChunkError((decision) => {
       completed.automaticReloadAttempted = decision.reason === "reload";
       completed.automaticReload = decision;
       saveChunkDiagnostic(completed);
       this.setState({ diagnostic: { ...completed } });
     });
+    if (!reloading) this.setState({ recovering: false });
   };
 
   copyDiagnostic = async () => {
@@ -151,7 +204,14 @@ export class ChunkErrorBoundary extends Component<Props, State> {
   }
 
   restartRuntime = async () => {
-    this.setState({ restarting: true, restartError: "" });
+    this.diagnosticGeneration += 1;
+    this.readinessController?.abort();
+    this.setState({
+      restarting: true,
+      restartError: "",
+      waitingForServer: false,
+      recovering: false,
+    });
     try {
       await hubApi.restartOwnRuntime();
       window.location.reload();
@@ -166,9 +226,18 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     }
   };
 
+  reloadPage = () => {
+    this.diagnosticGeneration += 1;
+    this.readinessController?.abort();
+    window.location.reload();
+  };
+
   render() {
     if (this.state.hasError) {
-      const titleKey = this.state.isChunkError
+      const { recovering } = this.state;
+      const titleKey = recovering
+        ? "common.loading"
+        : this.state.isChunkError
         ? "chunkError.title"
         : "chunkError.genericTitle";
       const subTitleKey = this.state.isChunkError
@@ -177,9 +246,20 @@ export class ChunkErrorBoundary extends Component<Props, State> {
 
       return (
         <Result
-          status="error"
-          title={i18n.t(titleKey)}
-          subTitle={this.state.restartError || i18n.t(subTitleKey)}
+          status={recovering ? "info" : "error"}
+          icon={recovering ? <Spin size="large" /> : undefined}
+          title={
+            recovering ? (
+              <span role="status">{i18n.t(titleKey)}</span>
+            ) : (
+              i18n.t(titleKey)
+            )
+          }
+          subTitle={
+            recovering
+              ? undefined
+              : this.state.restartError || i18n.t(subTitleKey)
+          }
           extra={
             <div className={styles.recovery} style={{ margin: 0 }}>
               {this.state.diagnostic && (
@@ -188,7 +268,12 @@ export class ChunkErrorBoundary extends Component<Props, State> {
                     <summary>{i18n.t("chunkError.details")}</summary>
                     <p role="status" className={styles.observation}>
                       {i18n.t(
-                        this.state.diagnostic.recheck
+                        this.state.waitingForServer
+                          ? "chunkError.serverReadiness.checking"
+                          : this.state.diagnostic.serverReadiness?.outcome ===
+                            "timeout"
+                          ? "chunkError.serverReadiness.timeout"
+                          : this.state.diagnostic.recheck
                           ? `chunkError.observations.${this.state.diagnostic.recheck.outcome}`
                           : "chunkError.checking",
                       )}
@@ -219,7 +304,10 @@ export class ChunkErrorBoundary extends Component<Props, State> {
                     )}
                   </Button>
                 )}
-                <Button type="primary" onClick={() => window.location.reload()}>
+                <Button
+                  type={recovering ? "default" : "primary"}
+                  onClick={this.reloadPage}
+                >
                   {i18n.t("chunkError.reload")}
                 </Button>
                 {this.props.canRestartRuntime && (

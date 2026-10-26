@@ -24,6 +24,16 @@ vi.mock("../utils/clipboard", () => ({
   copyText: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../utils/chunkServerReadiness", () => ({
+  waitForChunkServerReady: vi.fn().mockResolvedValue({
+    outcome: "not-applicable",
+    attempts: 0,
+    consecutiveSuccesses: 0,
+    elapsedMs: 0,
+    lastStatus: null,
+  }),
+}));
+
 const translations = {
   en: en.chunkError,
   zh: zh.chunkError,

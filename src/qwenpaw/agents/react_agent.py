@@ -11,6 +11,7 @@ as constructor parameters and does not build them internally.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -32,6 +33,7 @@ from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
 from .context.overflow_recovery import call_with_overflow_recovery
+from .injected_events import merge_injected_events
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
 from .utils.message_request_normalizer import _is_media_block
@@ -61,6 +63,15 @@ if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
+
+
+_VIDEO_COUNT_LIMIT_RE = re.compile(
+    r"\bat most (\d+) video(?:\(s\)|s)?(?!\w)",
+)
+_VIDEO_PART_REJECTION_RE = re.compile(
+    r"\b(?:unknown|unexpected)\s+(?:variant|field|part|content(?: type)?)"
+    r"\s*[:=]?\s*[`'\"]?(?:video_url|input_video)\b",
+)
 
 
 _GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
@@ -184,6 +195,15 @@ _MEDIA_PAYLOAD_REJECTION_SIGNALS = (
     "image too large",
     "image is too large",
     "image dimensions",
+    # OpenAI-compatible gateways (LM Studio, issue #8171) report a zero
+    # per-prompt media budget as "At most 0 video(s) may be provided ...".
+    "at most 0 image",
+    "at most 0 video",
+    "at most 0 audio",
+    # "Message content supports text content only. Images, audio and files
+    # are not enabled." (issue #8290). The media-noun gate above keeps
+    # unrelated "not enabled" errors out.
+    "are not enabled",
 )
 
 # A payload rejection only counts when the provider actually names the media
@@ -216,6 +236,12 @@ class QwenPawAgent(Agent):
     - Tool-guard security (via ``PolicyGuardedTool.check_permissions``)
     """
 
+    # Events a middleware wants shown in the chat stream (an injected
+    # advisor plan, for example). ``__init__`` arms the queue only when a
+    # middleware says it emits them. ``_reasoning`` then merges them live
+    # into the events it forwards.
+    _injected_events: asyncio.Queue[Any] | None = None
+
     def __init__(
         self,
         *,
@@ -244,6 +270,11 @@ class QwenPawAgent(Agent):
         self._request_context = dict(request_context or {})
         self._model_session_id = uuid.uuid4().hex
         self._workspace_dir = workspace_dir
+        if any(
+            getattr(mw, "emits_injected_exchanges", False)
+            for mw in middlewares
+        ):
+            self._injected_events = asyncio.Queue()
         self._language = agent_config.language
         # Optional context-management strategy. When None, the agent keeps its
         # native AgentScope compression (see compress_context /
@@ -369,7 +400,13 @@ class QwenPawAgent(Agent):
             if last_msg is not None and last_msg.role == "assistant":
                 persist_tool_call_extras(last_msg, tool_call_extras)
         if self._context_manager is not None:
-            self._context_manager.on_save(self, block_list)
+            if getattr(self, "_defer_context_save", False):
+                pending = getattr(self, "_pending_context_save", None)
+                if pending is None:
+                    pending = self._pending_context_save = []
+                pending.extend(block_list)
+            else:
+                self._context_manager.on_save(self, block_list)
 
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).
@@ -587,6 +624,13 @@ class QwenPawAgent(Agent):
             return False
         return get_capability_cache().get(key, "rejects_audio", False)
 
+    def _model_rejects_video(self) -> bool:
+        """Check the capability cache for a learned video rejection."""
+        key = self._get_model_key()
+        if key is None:
+            return False
+        return get_capability_cache().get(key, "rejects_video", False)
+
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -633,6 +677,18 @@ class QwenPawAgent(Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
+    def _set_formatter_video_strip(self, enabled: bool) -> None:
+        """Toggle request-time video stripping on the active formatter.
+
+        Narrower than ``_qwenpaw_force_strip_media``: images and audio in the
+        same request stay untouched, so a session that only tripped over an
+        unsupported ``video_url`` part keeps its other media.
+        """
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_video", enabled)
+
     def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
         """Propagate reasoning omissions through model wrappers."""
         model_setter = getattr(self.model, "set_thinking_omit_ids", None)
@@ -674,9 +730,45 @@ class QwenPawAgent(Agent):
             and (count > 0)
         )
 
+    def _last_wire_request_had_video(self) -> bool:
+        """Return whether the last completed formatting emitted video."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_video_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
     @staticmethod
     def _is_audio_fallback_error(exc: Exception) -> bool:
-        """Return whether a provider rejected the current audio payload."""
+        """Return whether the provider rejected the current audio payload.
+
+        Recognized rejection shapes:
+
+        1. DashScope modality error — HTTP 400 with
+           ``InternalError.Algo.InvalidParameter`` and the
+           "incorrect modal ... audio ..." wording.
+        2. DashScope URL-shape error — HTTP 400 with
+           "The provided URL does not appear to be valid" when local
+           audio is serialized as raw base64 (issue #7015, first
+           failure mode).
+        3. llama.cpp ``llama-server`` (OpenAI-compatible) backed by a
+           vision-only mmproj — HTTP 500 with
+           "audio input is not supported".
+        4. Providers that reject the ``input_audio`` wire part as an
+           unknown / unexpected field or variant.
+        5. LM Studio (OpenAI-compatible) serving a model without audio
+           support — HTTP 400 "At most 0 audio(s) may be provided in one
+           prompt." (issue #8171).
+
+        Callers gate this classifier on ``_last_wire_request_had_audio()``,
+        so shape 2 cannot misclassify genuinely malformed image/video
+        URLs: those requests carry no audio blocks and never reach the
+        audio-strip retry.
+        """
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
         has_bad_request_status = status == 400 or "<400>" in error_str
@@ -700,11 +792,59 @@ class QwenPawAgent(Agent):
                 "wrong position",
             )
         )
-        return rejects_unknown_audio_part or (
+        if rejects_unknown_audio_part:
+            return True
+        if (
             has_bad_request_status
             and "internalerror.algo.invalidparameter" in error_str
             and invalid_modal
+        ):
+            return True
+        if (
+            has_bad_request_status
+            and "the provided url does not appear to be valid" in error_str
+        ):
+            return True
+        if "audio input is not supported" in error_str:
+            return True
+        if "at most 0 audio" in error_str and "may be provided" in error_str:
+            return True
+        return False
+
+    @staticmethod
+    def _is_video_fallback_error(exc: Exception) -> bool:
+        """Recognize video type/capability rejections and count limits."""
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+        error_str = " ".join(str(exc).lower().split())
+        # Schema errors can list image/audio parts as accepted alternatives.
+        if _VIDEO_PART_REJECTION_RE.search(error_str):
+            return True
+        # Broader rejections must retain the existing media-free fallback.
+        if re.search(
+            r"\b(?:images?|image_url|input_image|audios?|input_audio|"
+            r"files?|input_file|pdf|vision|media|multimodal)\b",
+            error_str,
+        ):
+            return False
+        return bool(
+            _VIDEO_COUNT_LIMIT_RE.search(error_str)
+            or "video input is not supported" in error_str
+            or re.search(
+                r"\bmodel\b.{0,40}\b(?:does not|doesn't|cannot|can't) "
+                r"support videos?\b",
+                error_str,
+            )
+            or re.search(r"\bunsupported modality\s*:\s*video\b", error_str),
         )
+
+    @staticmethod
+    def _is_video_capability_error(exc: Exception) -> bool:
+        """Allow learning only for rejected video types or zero budgets."""
+        if not QwenPawAgent._is_video_fallback_error(exc):
+            return False
+        limit = _VIDEO_COUNT_LIMIT_RE.search(str(exc).lower())
+        return limit is None or int(limit.group(1)) == 0
 
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Freeze local images before they enter a provider request."""
@@ -966,6 +1106,9 @@ class QwenPawAgent(Agent):
         should_strip_audio = (
             not should_strip_media and self._model_rejects_audio()
         )
+        should_strip_video = (
+            not should_strip_media and self._model_rejects_video()
+        )
         if should_strip_media:
             if self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(True)
@@ -982,6 +1125,12 @@ class QwenPawAgent(Agent):
             and self._uses_request_time_media_normalization()
         ):
             self._set_formatter_audio_strip(True)
+
+        if (
+            should_strip_video
+            and self._uses_request_time_media_normalization()
+        ):
+            self._set_formatter_video_strip(True)
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
@@ -1026,7 +1175,7 @@ class QwenPawAgent(Agent):
                     )
 
         try:
-            async for evt in super()._reasoning(tool_choice=tool_choice):
+            async for evt in self._reasoning_events(tool_choice):
                 acknowledge_seen_inputs(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
@@ -1034,6 +1183,10 @@ class QwenPawAgent(Agent):
                     self._attach_fallback_notices(evt, fallback_sink)
                     yield evt
         except Exception as e:
+            video_fallback_retry = (
+                self._last_wire_request_had_video()
+                and self._is_video_fallback_error(e)
+            )
             audio_fallback_retry = (
                 self._last_wire_request_had_audio()
                 and self._is_audio_fallback_error(e)
@@ -1049,7 +1202,8 @@ class QwenPawAgent(Agent):
                 and self._is_media_payload_rejection_error(e)
             )
             if not (
-                audio_fallback_retry
+                video_fallback_retry
+                or audio_fallback_retry
                 or media_capability_retry
                 or media_payload_retry
             ):
@@ -1058,6 +1212,8 @@ class QwenPawAgent(Agent):
                         self._set_formatter_media_strip(False)
                     if should_strip_audio:
                         self._set_formatter_audio_strip(False)
+                    if should_strip_video:
+                        self._set_formatter_video_strip(False)
                 raise
 
             model_key = self._get_model_key()
@@ -1065,7 +1221,14 @@ class QwenPawAgent(Agent):
                 media_capability_retry
                 and self._is_global_media_capability_error(e)
             )
-            if audio_fallback_retry:
+            if video_fallback_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected a "
+                    "video input (%s); stripping only video and retrying.",
+                    e,
+                )
+                self._set_formatter_video_strip(True)
+            elif audio_fallback_retry:
                 logger.warning(
                     "_reasoning failed because the provider rejected an "
                     "audio payload (%s); stripping audio and retrying.",
@@ -1094,15 +1257,23 @@ class QwenPawAgent(Agent):
                     self._strip_media_blocks_from_memory()
 
             try:
-                async for evt in super()._reasoning(
-                    tool_choice=tool_choice,
-                ):
+                async for evt in self._reasoning_events(tool_choice):
                     acknowledge_seen_inputs(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:
                         self._attach_fallback_notices(evt, fallback_sink)
                         yield evt
+                if (
+                    model_key
+                    and video_fallback_retry
+                    and self._is_video_capability_error(e)
+                ):
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_video",
+                        True,
+                    )
                 if model_key and learn_global_rejection:
                     get_capability_cache().learn(
                         model_key,
@@ -1117,6 +1288,7 @@ class QwenPawAgent(Agent):
                     )
             finally:
                 if self._uses_request_time_media_normalization():
+                    self._set_formatter_video_strip(False)
                     self._set_formatter_audio_strip(False)
                     self._set_formatter_media_strip(False)
         else:
@@ -1125,6 +1297,8 @@ class QwenPawAgent(Agent):
                     self._set_formatter_media_strip(False)
                 if should_strip_audio:
                     self._set_formatter_audio_strip(False)
+                if should_strip_video:
+                    self._set_formatter_video_strip(False)
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
@@ -1299,6 +1473,32 @@ class QwenPawAgent(Agent):
         return _is_media_block(block)
 
     # ------------------------------------------------------------------
+    # Middleware-injected exchanges, surfaced to the UI as tool calls
+    # ------------------------------------------------------------------
+
+    def _reasoning_events(self, tool_choice: Any) -> Any:
+        """The base reasoning stream, with injected exchanges merged in
+        when a middleware emits them."""
+        inner = super()._reasoning(tool_choice=tool_choice)
+        queue = self._injected_events
+        if queue is None:
+            return inner
+        return merge_injected_events(inner, queue)
+
+    def emit_injected_event(self, event: Any) -> bool:
+        """Show ``event`` in the chat stream as soon as possible.
+
+        Middlewares run inside a model call while the UI only sees what
+        ``_reasoning`` yields, so this queue is the bridge. Returns False
+        when no middleware armed the queue (the event is dropped).
+        """
+        queue = self._injected_events
+        if queue is None:
+            return False
+        queue.put_nowait(event)
+        return True
+
+    # ------------------------------------------------------------------
     # Tool call enhancement: hint injection + hook registration
     # ------------------------------------------------------------------
 
@@ -1318,10 +1518,17 @@ class QwenPawAgent(Agent):
         for hint in hints:
             self.state.context.append(hint)
 
+    async def _flush_context_save(self) -> None:
+        """Finish deferred history writes before publishing the next event."""
+        pending = getattr(self, "_pending_context_save", None)
+        if pending is not None:
+            self._pending_context_save = None
+            await run_sync_io(self._context_manager.on_save, self, pending)
+
     async def _reply(self, **kwargs: Any) -> Any:
-        """Override kept as extension point; hint injection moved to
-        ``_reasoning`` so each ReAct iteration picks up new hints."""
+        """Drain history writes off the event loop at stream boundaries."""
         stream = super()._reply(**kwargs)
+        self._defer_context_save = True
         try:
             while True:
                 # Heartbeat consumers may resume each event in a new task.
@@ -1334,13 +1541,21 @@ class QwenPawAgent(Agent):
                         evt = await anext(stream)
                     except StopAsyncIteration:
                         return
+                    finally:
+                        await self._flush_context_save()
                 yield evt
         finally:
-            with model_session(
-                self._request_context,
-                self._model_session_id,
-            ):
-                await stream.aclose()
+            try:
+                with model_session(
+                    self._request_context,
+                    self._model_session_id,
+                ):
+                    try:
+                        await stream.aclose()
+                    finally:
+                        await self._flush_context_save()
+            finally:
+                self._defer_context_save = False
 
     def _register_tool_call_hooks(self) -> None:
         """Register per-tool default timeouts on the ToolCoordinator."""

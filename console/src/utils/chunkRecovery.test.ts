@@ -1,10 +1,35 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createForeignError } from "../test/foreignError";
 import {
+  blockChunkRecoveryHealth,
   getFrontendBuildId,
   isChunkLoadError,
+  markChunkPageHealthy,
   reloadAfterChunkError,
 } from "./chunkRecovery";
+
+function browser() {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => values.set(key, value)),
+    removeItem: vi.fn((key: string) => values.delete(key)),
+  };
+  const reload = vi.fn();
+  const navigator = { onLine: true };
+  const events = new EventTarget();
+  vi.stubGlobal("window", {
+    navigator,
+    sessionStorage: storage,
+    location: { reload },
+    setTimeout,
+    clearTimeout,
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
+    dispatchEvent: events.dispatchEvent.bind(events),
+  });
+  return { values, storage, reload, navigator };
+}
 
 describe("chunk-load error recognition", () => {
   it("recognizes module failures from a different JavaScript realm", () => {
@@ -60,22 +85,6 @@ describe("chunk-load error recognition", () => {
 
 describe("bounded document recovery", () => {
   afterEach(() => vi.unstubAllGlobals());
-
-  function browser() {
-    const values = new Map<string, string>();
-    const storage = {
-      getItem: vi.fn((key: string) => values.get(key) ?? null),
-      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
-    };
-    const reload = vi.fn();
-    const navigator = { onLine: true };
-    vi.stubGlobal("window", {
-      navigator,
-      sessionStorage: storage,
-      location: { reload },
-    });
-    return { values, storage, reload, navigator };
-  }
 
   it("persists the guard before reloading and prevents repeated reloads", () => {
     const { values, reload } = browser();
@@ -198,4 +207,229 @@ describe("bounded document recovery", () => {
     expect(reloadAfterChunkError()).toBe(false);
     expect(reload).not.toHaveBeenCalled();
   });
+});
+
+describe("healthy recovery intervals", () => {
+  const reloadKey = "qwenpaw:chunk-reload-build";
+  let current: ReturnType<typeof browser>;
+  let guard: string;
+  let visibility: DocumentVisibilityState;
+  let releases: (() => void)[];
+  let addedScript: HTMLScriptElement | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    visibility = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(
+      () => visibility,
+    );
+    current = browser();
+    guard = JSON.stringify({ build: getFrontendBuildId(), attempts: 2 });
+    current.values.set(reloadKey, guard);
+    releases = [];
+  });
+
+  afterEach(() => {
+    for (const release of releases) release();
+    addedScript?.remove();
+    addedScript = undefined;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function healthyPage() {
+    const release = markChunkPageHealthy();
+    releases.push(release);
+    return release;
+  }
+
+  function blockedPage() {
+    const release = blockChunkRecoveryHealth();
+    releases.push(release);
+    return release;
+  }
+
+  function changeAvailability(kind: "offline" | "hidden", available: boolean) {
+    if (kind === "offline") {
+      current.navigator.onLine = available;
+      window.dispatchEvent(new Event(available ? "online" : "offline"));
+    } else {
+      visibility = available ? "visible" : "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    }
+  }
+
+  it("grants exactly two new reloads after 60 healthy seconds", () => {
+    expect(reloadAfterChunkError()).toBe(false);
+    healthyPage();
+    vi.advanceTimersByTime(59_999);
+    expect(current.values.get(reloadKey)).toBe(guard);
+    vi.advanceTimersByTime(1);
+    expect(current.values.has(reloadKey)).toBe(false);
+
+    expect(reloadAfterChunkError()).toBe(true);
+    expect(reloadAfterChunkError()).toBe(true);
+    expect(reloadAfterChunkError()).toBe(false);
+    vi.advanceTimersByTime(120_000);
+    expect(reloadAfterChunkError()).toBe(false);
+    expect(current.reload).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the original interval as healthy windows mount and unmount", () => {
+    healthyPage();
+    vi.advanceTimersByTime(20_000);
+    const release = healthyPage();
+    vi.advanceTimersByTime(20_000);
+    release();
+    vi.advanceTimersByTime(19_999);
+    expect(current.values.get(reloadKey)).toBe(guard);
+    vi.advanceTimersByTime(1);
+    expect(current.values.has(reloadKey)).toBe(false);
+  });
+
+  it("cancels a pending reset as soon as another chunk fails", () => {
+    guard = JSON.stringify({ build: getFrontendBuildId(), attempts: 1 });
+    current.values.set(reloadKey, guard);
+    healthyPage();
+    vi.advanceTimersByTime(59_999);
+    expect(reloadAfterChunkError()).toBe(true);
+    const updated = current.values.get(reloadKey);
+    expect(JSON.parse(updated!)).toMatchObject({ attempts: 2 });
+    vi.advanceTimersByTime(60_000);
+    expect(current.values.get(reloadKey)).toBe(updated);
+  });
+
+  it("keeps a healthy window blocked until every loading or error view is gone", () => {
+    healthyPage();
+    vi.advanceTimersByTime(40_000);
+    const first = blockedPage();
+    const second = blockedPage();
+    vi.advanceTimersByTime(60_000);
+    first();
+    first();
+    vi.advanceTimersByTime(60_000);
+    expect(current.values.get(reloadKey)).toBe(guard);
+
+    second();
+    vi.advanceTimersByTime(59_999);
+    expect(current.values.get(reloadKey)).toBe(guard);
+    vi.advanceTimersByTime(1);
+    expect(current.values.has(reloadKey)).toBe(false);
+  });
+
+  it.each(["offline", "hidden"] as const)(
+    "requires a fresh minute after becoming %s during recovery",
+    (kind) => {
+      healthyPage();
+      vi.advanceTimersByTime(40_000);
+      changeAvailability(kind, false);
+      vi.advanceTimersByTime(120_000);
+      expect(current.values.get(reloadKey)).toBe(guard);
+
+      changeAvailability(kind, true);
+      vi.advanceTimersByTime(59_999);
+      expect(current.values.get(reloadKey)).toBe(guard);
+      vi.advanceTimersByTime(1);
+      expect(current.values.has(reloadKey)).toBe(false);
+    },
+  );
+
+  it.each(["offline", "hidden"] as const)(
+    "does not start recovery while initially %s",
+    (kind) => {
+      changeAvailability(kind, false);
+      healthyPage();
+      vi.advanceTimersByTime(60_000);
+      expect(current.values.get(reloadKey)).toBe(guard);
+      changeAvailability(kind, true);
+      vi.advanceTimersByTime(59_999);
+      expect(current.values.get(reloadKey)).toBe(guard);
+      vi.advanceTimersByTime(1);
+      expect(current.values.has(reloadKey)).toBe(false);
+    },
+  );
+
+  it("cancels recovery when the last healthy page unmounts", () => {
+    const release = healthyPage();
+    vi.advanceTimersByTime(30_000);
+    release();
+    release();
+    vi.advanceTimersByTime(60_000);
+    window.dispatchEvent(new Event("online"));
+    vi.advanceTimersByTime(60_000);
+    expect(current.values.get(reloadKey)).toBe(guard);
+    healthyPage();
+    vi.advanceTimersByTime(60_000);
+    expect(current.values.has(reloadKey)).toBe(false);
+  });
+
+  it.each(["same", "other"])(
+    "preserves a changed guard for the %s build",
+    (build) => {
+      healthyPage();
+      vi.advanceTimersByTime(30_000);
+      const replacement = JSON.stringify({
+        build: build === "same" ? getFrontendBuildId() : "other-build",
+        attempts: 1,
+      });
+      current.values.set(reloadKey, replacement);
+      vi.advanceTimersByTime(30_000);
+      expect(current.values.get(reloadKey)).toBe(replacement);
+    },
+  );
+
+  it("preserves the guard if the frontend build changes during recovery", () => {
+    healthyPage();
+    vi.advanceTimersByTime(30_000);
+    addedScript = document.createElement("script");
+    addedScript.type = "module";
+    addedScript.src = `${document.baseURI}assets/new-build.js`;
+    document.head.append(addedScript);
+    vi.advanceTimersByTime(30_000);
+    expect(current.values.get(reloadKey)).toBe(guard);
+  });
+
+  it("restores recovery for a legacy marker of the current build", () => {
+    current.values.set(reloadKey, getFrontendBuildId());
+    healthyPage();
+    vi.advanceTimersByTime(60_000);
+    expect(current.values.has(reloadKey)).toBe(false);
+  });
+
+  it.each([
+    "other-build",
+    "invalid-json",
+    JSON.stringify({ build: "other-build", attempts: 2 }),
+    ...[-1, 0, 1.5, "2", null].map((attempts) =>
+      JSON.stringify({ build: getFrontendBuildId(), attempts }),
+    ),
+  ])("preserves unrelated or malformed guards: %s", (stored) => {
+    current.values.set(reloadKey, stored);
+    healthyPage();
+    vi.advanceTimersByTime(60_000);
+    expect(current.values.get(reloadKey)).toBe(stored);
+    expect(current.storage.removeItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps the guard when storage is unreadable at registration", () => {
+    current.storage.getItem.mockImplementation(() => {
+      throw new DOMException("Storage blocked", "SecurityError");
+    });
+    expect(healthyPage).not.toThrow();
+    vi.advanceTimersByTime(60_000);
+    expect(current.values.get(reloadKey)).toBe(guard);
+  });
+
+  it.each(["getItem", "removeItem"] as const)(
+    "keeps the guard when storage %s becomes blocked before reset",
+    (method) => {
+      healthyPage();
+      current.storage[method].mockImplementation(() => {
+        throw new DOMException("Storage blocked", "SecurityError");
+      });
+      expect(() => vi.advanceTimersByTime(60_000)).not.toThrow();
+      expect(current.values.get(reloadKey)).toBe(guard);
+    },
+  );
 });

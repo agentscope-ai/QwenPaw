@@ -48,6 +48,8 @@ def _patch_transport(monkeypatch, handler):
 
 def _patch_plugins_dir(monkeypatch, tmp_path: Path) -> Path:
     pdir = tmp_path / "plugins"
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    monkeypatch.setattr(config_utils, "WORKING_DIR", tmp_path / "work")
     monkeypatch.setattr(config_utils, "get_plugins_dir", lambda: pdir)
     return pdir
 
@@ -275,179 +277,6 @@ class TestApiUninstallPlugin:
 
 
 # ---------------------------------------------------------------------------
-# _find_uv
-# ---------------------------------------------------------------------------
-
-
-class TestFindUv:
-    def test_found_on_path(self, monkeypatch):
-        monkeypatch.setattr(pc.shutil, "which", lambda name: "/usr/bin/uv")
-        assert pc._find_uv() == "/usr/bin/uv"
-
-    def test_found_in_local_bin(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(pc.shutil, "which", lambda name: None)
-        uv = tmp_path / ".local" / "bin" / "uv"
-        uv.parent.mkdir(parents=True)
-        uv.write_text("")
-        monkeypatch.setattr(
-            pc.Path,
-            "home",
-            classmethod(lambda cls: tmp_path),
-        )
-        monkeypatch.delenv("LOCALAPPDATA", raising=False)
-        assert pc._find_uv() == str(uv)
-
-    def test_found_in_windows_appdata(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(pc.shutil, "which", lambda name: None)
-        lad = tmp_path / "lad"
-        uv = lad / "Programs" / "uv" / "uv.exe"
-        uv.parent.mkdir(parents=True)
-        uv.write_text("")
-        monkeypatch.setattr(
-            pc.Path,
-            "home",
-            classmethod(lambda cls: tmp_path / "nohome"),
-        )
-        monkeypatch.setenv("LOCALAPPDATA", str(lad))
-        assert pc._find_uv() == str(uv)
-
-    def test_not_found(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(pc.shutil, "which", lambda name: None)
-        monkeypatch.setattr(
-            pc.Path,
-            "home",
-            classmethod(lambda cls: tmp_path / "nohome"),
-        )
-        monkeypatch.delenv("LOCALAPPDATA", raising=False)
-        assert pc._find_uv() is None
-
-
-# ---------------------------------------------------------------------------
-# _install_requirements_cli
-# ---------------------------------------------------------------------------
-
-
-class _Completed:
-    def __init__(self, returncode=0, stdout="", stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
-
-
-class TestInstallRequirementsCli:
-    def test_pip_success(self, monkeypatch, tmp_path, capsys):
-        req = tmp_path / "requirements.txt"
-        req.write_text("x==1\n")
-        target = tmp_path / "plugin"
-        target.mkdir()
-        monkeypatch.setattr(
-            pc.subprocess,
-            "run",
-            lambda cmd, **kw: _Completed(0),
-        )
-        assert pc._install_requirements_cli(req, target) is True
-        assert "Dependencies installed" in capsys.readouterr().out
-        assert target.exists()
-
-    def test_pip_timeout_cleans_up(self, monkeypatch, tmp_path, capsys):
-        req = tmp_path / "requirements.txt"
-        req.write_text("")
-        target = tmp_path / "plugin"
-        target.mkdir()
-
-        def boom(cmd, **kw):
-            raise subprocess.TimeoutExpired(cmd, 300)
-
-        monkeypatch.setattr(pc.subprocess, "run", boom)
-        assert pc._install_requirements_cli(req, target) is False
-        assert not target.exists()
-        assert "timed out" in capsys.readouterr().err
-
-    def test_pip_hard_failure_cleans_up(self, monkeypatch, tmp_path, capsys):
-        req = tmp_path / "requirements.txt"
-        req.write_text("")
-        target = tmp_path / "plugin"
-        target.mkdir()
-        monkeypatch.setattr(
-            pc.subprocess,
-            "run",
-            lambda cmd, **kw: _Completed(1, stderr="nope"),
-        )
-        assert pc._install_requirements_cli(req, target) is False
-        assert not target.exists()
-        assert "nope" in capsys.readouterr().err
-
-    def test_pip_missing_and_no_uv(self, monkeypatch, tmp_path, capsys):
-        req = tmp_path / "requirements.txt"
-        req.write_text("")
-        target = tmp_path / "plugin"
-        target.mkdir()
-        monkeypatch.setattr(
-            pc.subprocess,
-            "run",
-            lambda cmd, **kw: _Completed(1, stderr="No module named pip"),
-        )
-        monkeypatch.setattr(pc, "_find_uv", lambda: None)
-        assert pc._install_requirements_cli(req, target) is False
-        assert not target.exists()
-        assert "uv was not found" in capsys.readouterr().err
-
-    def test_pip_missing_then_uv_success(self, monkeypatch, tmp_path, capsys):
-        req = tmp_path / "requirements.txt"
-        req.write_text("")
-        target = tmp_path / "plugin"
-        target.mkdir()
-        calls = []
-
-        def fake_run(cmd, **kw):
-            calls.append(cmd)
-            if cmd[1:3] == ["-m", "pip"]:
-                return _Completed(1, stderr="No module named pip")
-            return _Completed(0)
-
-        monkeypatch.setattr(pc.subprocess, "run", fake_run)
-        monkeypatch.setattr(pc, "_find_uv", lambda: "/usr/bin/uv")
-        assert pc._install_requirements_cli(req, target) is True
-        assert target.exists()
-        assert calls[1][0] == "/usr/bin/uv"
-        assert "(via uv)" in capsys.readouterr().out
-
-    def test_pip_missing_then_uv_timeout(self, monkeypatch, tmp_path, capsys):
-        req = tmp_path / "requirements.txt"
-        req.write_text("")
-        target = tmp_path / "plugin"
-        target.mkdir()
-
-        def fake_run(cmd, **kw):
-            if cmd[1:3] == ["-m", "pip"]:
-                return _Completed(1, stderr="No module named pip")
-            raise subprocess.TimeoutExpired(cmd, 300)
-
-        monkeypatch.setattr(pc.subprocess, "run", fake_run)
-        monkeypatch.setattr(pc, "_find_uv", lambda: "/usr/bin/uv")
-        assert pc._install_requirements_cli(req, target) is False
-        assert not target.exists()
-        assert "via uv" in capsys.readouterr().err
-
-    def test_pip_missing_then_uv_failure(self, monkeypatch, tmp_path, capsys):
-        req = tmp_path / "requirements.txt"
-        req.write_text("")
-        target = tmp_path / "plugin"
-        target.mkdir()
-
-        def fake_run(cmd, **kw):
-            if cmd[1:3] == ["-m", "pip"]:
-                return _Completed(1, stdout="No module named pip")
-            return _Completed(2, stderr="uv broke")
-
-        monkeypatch.setattr(pc.subprocess, "run", fake_run)
-        monkeypatch.setattr(pc, "_find_uv", lambda: "/usr/bin/uv")
-        assert pc._install_requirements_cli(req, target) is False
-        assert not target.exists()
-        assert "uv broke" in capsys.readouterr().err
-
-
-# ---------------------------------------------------------------------------
 # _is_running / _safe_extract_zip
 # ---------------------------------------------------------------------------
 
@@ -485,176 +314,6 @@ class TestSafeExtractZip:
             pc._safe_extract_zip(zf, out)
         zf.close()
         assert not (tmp_path / "evil.txt").exists()
-
-
-# ---------------------------------------------------------------------------
-# _sync_tool_plugin_to_agents / _remove_tool_plugin_from_agents
-# ---------------------------------------------------------------------------
-
-
-class _AgentConfig:
-    def __init__(self, tools=None):
-        self.tools = tools or _Tools()
-
-
-class _Tools:
-    def __init__(self):
-        self.builtin_tools = {}
-
-
-class TestSyncToolPluginToAgents:
-    def test_non_tool_manifest_noop(self, capsys):
-        pc._sync_tool_plugin_to_agents({"meta": {}})
-        assert capsys.readouterr().out == ""
-
-    def test_no_agents_found(self, monkeypatch, capsys):
-        monkeypatch.setattr(config_utils, "load_config", lambda: _Cfg({}))
-        pc._sync_tool_plugin_to_agents({"meta": {"tool_name": "t1"}})
-        assert "No agents found" in capsys.readouterr().out
-
-    def test_syncs_to_agents_missing_tool(self, monkeypatch, capsys):
-        saved = {}
-
-        monkeypatch.setattr(
-            config_utils,
-            "load_config",
-            lambda: _Cfg({"a1": object(), "a2": object()}),
-        )
-
-        cfgs = {"a1": _AgentConfig(), "a2": _AgentConfig(_Tools())}
-        cfgs["a2"].tools.builtin_tools["t1"] = object()
-
-        import qwenpaw.config.config as cc
-
-        monkeypatch.setattr(
-            cc,
-            "load_agent_config",
-            lambda aid: cfgs[aid],
-        )
-
-        def fake_save(aid, cfg):
-            saved[aid] = cfg
-
-        monkeypatch.setattr(cc, "save_agent_config", fake_save)
-        pc._sync_tool_plugin_to_agents({"meta": {"tool_name": "t1"}})
-        out = capsys.readouterr().out
-        assert "Synced tool to 1 agent" in out
-        assert list(saved) == ["a1"]
-        assert "t1" in saved["a1"].tools.builtin_tools
-
-    def test_all_agents_already_have_tool(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            config_utils,
-            "load_config",
-            lambda: _Cfg({"a1": object()}),
-        )
-        cfg = _AgentConfig()
-        cfg.tools.builtin_tools["t1"] = object()
-        import qwenpaw.config.config as cc
-
-        monkeypatch.setattr(cc, "load_agent_config", lambda aid: cfg)
-        pc._sync_tool_plugin_to_agents({"meta": {"tool_name": "t1"}})
-        assert "already have this tool" in capsys.readouterr().out
-
-    def test_load_failure_is_warned_not_raised(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            config_utils,
-            "load_config",
-            lambda: _Cfg({"a1": object()}),
-        )
-        import qwenpaw.config.config as cc
-
-        def boom(aid):
-            raise RuntimeError("bad json")
-
-        monkeypatch.setattr(cc, "load_agent_config", boom)
-        pc._sync_tool_plugin_to_agents({"meta": {"tool_name": "t1"}})
-        out = capsys.readouterr().out
-        assert "Synced tool to" not in out
-
-
-class _Cfg:
-    def __init__(self, profiles):
-        self.agents = _Agents(profiles)
-
-
-class _Agents:
-    def __init__(self, profiles):
-        self.profiles = profiles
-
-
-class TestRemoveToolPluginFromAgents:
-    def test_non_tool_manifest_noop(self, capsys):
-        pc._remove_tool_plugin_from_agents({})
-        assert capsys.readouterr().out == ""
-
-    def test_no_agent_dirs(self, monkeypatch, capsys):
-        monkeypatch.setattr(config_utils, "get_agent_dirs", lambda: [])
-        pc._remove_tool_plugin_from_agents({"meta": {"tool_name": "t1"}})
-        assert "No agents found" in capsys.readouterr().out
-
-    def test_removes_from_agents(self, monkeypatch, tmp_path, capsys):
-        d1 = tmp_path / "a1"
-        d1.mkdir()
-        (d1 / "agent.json").write_text("{}")
-        d2 = tmp_path / "a2"  # no agent.json -> skipped
-        d2.mkdir()
-        monkeypatch.setattr(
-            config_utils,
-            "get_agent_dirs",
-            lambda: [d1, d2],
-        )
-        cfg = _AgentConfig()
-        cfg.tools.builtin_tools["t1"] = object()
-        saved = []
-
-        import qwenpaw.config.config as cc
-
-        monkeypatch.setattr(cc, "load_agent_config", lambda p: cfg)
-        monkeypatch.setattr(
-            cc,
-            "save_agent_config",
-            lambda p, c: saved.append(p),
-        )
-        pc._remove_tool_plugin_from_agents({"meta": {"tool_name": "t1"}})
-        out = capsys.readouterr().out
-        assert "Removed tool from 1 agent" in out
-        assert "t1" not in cfg.tools.builtin_tools
-
-    def test_load_failure_is_warned_not_raised(
-        self,
-        monkeypatch,
-        tmp_path,
-        capsys,
-    ):
-        d1 = tmp_path / "a1"
-        d1.mkdir()
-        (d1 / "agent.json").write_text("{}")
-        monkeypatch.setattr(config_utils, "get_agent_dirs", lambda: [d1])
-        import qwenpaw.config.config as cc
-
-        def boom(p):
-            raise RuntimeError("bad json")
-
-        monkeypatch.setattr(cc, "load_agent_config", boom)
-        pc._remove_tool_plugin_from_agents({"meta": {"tool_name": "t1"}})
-        out = capsys.readouterr().out
-        assert "Removed tool from" not in out
-
-    def test_no_agent_had_tool(self, monkeypatch, tmp_path, capsys):
-        d1 = tmp_path / "a1"
-        d1.mkdir()
-        (d1 / "agent.json").write_text("{}")
-        monkeypatch.setattr(config_utils, "get_agent_dirs", lambda: [d1])
-        import qwenpaw.config.config as cc
-
-        monkeypatch.setattr(
-            cc,
-            "load_agent_config",
-            lambda p: _AgentConfig(),
-        )
-        pc._remove_tool_plugin_from_agents({"meta": {"tool_name": "t1"}})
-        assert "No agents had this tool" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -822,7 +481,8 @@ class TestInstallCommandOffline:
         d.mkdir()
         (d / "plugin.json").write_text("{bad")
         res = CliRunner().invoke(pc.plugin, ["install", str(d)])
-        assert "Invalid plugin.json" in res.output
+        assert res.exit_code != 0
+        assert "Failed to install plugin" in res.output
 
     def test_manifest_read_failure_generic(self, monkeypatch, tmp_path):
         self._offline(monkeypatch)
@@ -830,7 +490,8 @@ class TestInstallCommandOffline:
         d.mkdir()
         (d / "plugin.json").write_bytes(b"\xff\xfe\x00invalid")
         res = CliRunner().invoke(pc.plugin, ["install", str(d)])
-        assert "Failed to read plugin.json" in res.output
+        assert res.exit_code != 0
+        assert "Failed to install plugin" in res.output
 
     def test_manifest_missing_fields(self, monkeypatch, tmp_path):
         self._offline(monkeypatch)
@@ -838,7 +499,8 @@ class TestInstallCommandOffline:
         d.mkdir()
         (d / "plugin.json").write_text(json.dumps({"id": "x"}))
         res = CliRunner().invoke(pc.plugin, ["install", str(d)])
-        assert "missing required fields" in res.output
+        assert res.exit_code != 0
+        assert "Field required" in res.output
 
     def test_already_exists_without_force(self, monkeypatch, tmp_path):
         self._offline(monkeypatch)
@@ -857,12 +519,10 @@ class TestInstallCommandOffline:
         src.mkdir()
         _write_plugin(src, extra={"entry": {"backend": "backend.py"}})
 
-        def bad_validate(pid, path, entry):
-            raise ImportError("broken")
-
-        monkeypatch.setattr(pc, "_validate_plugin_module", bad_validate)
+        (src / "backend.py").write_text("def broken(\n")
         res = CliRunner().invoke(pc.plugin, ["install", str(src)])
-        assert "validation failed" in res.output
+        assert res.exit_code != 0
+        assert "never closed" in res.output
         assert not (pdir / "demo").exists()
 
     def test_copy_failure(self, monkeypatch, tmp_path):
@@ -878,59 +538,8 @@ class TestInstallCommandOffline:
 
         monkeypatch.setattr(pc.shutil, "copytree", boom)
         res = CliRunner().invoke(pc.plugin, ["install", str(src)])
-        assert "Failed to copy" in res.output
-
-    def test_full_install_with_deps_and_tool_sync(
-        self,
-        monkeypatch,
-        tmp_path,
-    ):
-        self._offline(monkeypatch)
-        pdir = _patch_plugins_dir(monkeypatch, tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        _write_plugin(
-            src,
-            extra={
-                "entry": {"backend": "backend.py"},
-                "meta": {"tool_name": "demo_tool"},
-            },
-        )
-        (src / "requirements.txt").write_text("x==1\n")
-        monkeypatch.setattr(pc, "_validate_plugin_module", lambda *a: None)
-        monkeypatch.setattr(
-            pc,
-            "_install_requirements_cli",
-            lambda req, tgt: True,
-        )
-        synced = []
-        monkeypatch.setattr(
-            pc,
-            "_sync_tool_plugin_to_agents",
-            lambda m: synced.append(m),
-        )
-        res = CliRunner().invoke(pc.plugin, ["install", str(src)])
-        assert res.exit_code == 0
-        assert "installed successfully" in res.output
-        assert (pdir / "demo" / "plugin.json").is_file()
-        assert len(synced) == 1
-
-    def test_requirements_failure_aborts(self, monkeypatch, tmp_path):
-        self._offline(monkeypatch)
-        _patch_plugins_dir(monkeypatch, tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        _write_plugin(src)
-        (src / "requirements.txt").write_text("x==1\n")
-        monkeypatch.setattr(pc, "_validate_plugin_module", lambda *a: None)
-        monkeypatch.setattr(
-            pc,
-            "_install_requirements_cli",
-            lambda req, tgt: False,
-        )
-        res = CliRunner().invoke(pc.plugin, ["install", str(src)])
-        assert res.exit_code == 0
-        assert "installed successfully" not in res.output
+        assert res.exit_code != 0
+        assert "disk full" in res.output
 
     def test_url_install_temp_dir_cleanup_failure_swallowed(
         self,
@@ -973,6 +582,7 @@ class TestInstallCommandOffline:
         _write_plugin(src)
         old = pdir / "demo"
         old.mkdir(parents=True)
+        _write_plugin(old)
         (old / "stale.txt").write_text("old")
         monkeypatch.setattr(pc, "_validate_plugin_module", lambda *a: None)
         res = CliRunner().invoke(
@@ -1156,32 +766,6 @@ class TestUninstallCommand:
         assert "Cancelled" in res.output
         assert d.exists()
 
-    def test_offline_uninstall_removes_and_cleans_agents(
-        self,
-        monkeypatch,
-        tmp_path,
-    ):
-        monkeypatch.setattr(pc, "_is_running", lambda: False)
-        pdir = _patch_plugins_dir(monkeypatch, tmp_path)
-        d = pdir / "demo"
-        d.mkdir(parents=True)
-        _write_plugin(d, extra={"meta": {"tool_name": "t1"}})
-        removed = []
-        monkeypatch.setattr(
-            pc,
-            "_remove_tool_plugin_from_agents",
-            lambda m: removed.append(m),
-        )
-        res = CliRunner().invoke(
-            pc.plugin,
-            ["uninstall", "demo"],
-            input="y\n",
-        )
-        assert res.exit_code == 0
-        assert "uninstalled successfully" in res.output
-        assert not d.exists()
-        assert len(removed) == 1
-
     def test_offline_uninstall_broken_manifest_still_removes(
         self,
         monkeypatch,
@@ -1296,3 +880,202 @@ class TestValidateCommand:
         assert res.exit_code == 0
         assert "validation passed" in res.output
         assert "ID: a" in res.output
+
+
+@pytest.fixture(name="offline_environment")
+def _offline_environment(monkeypatch, tmp_path):
+    monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
+    monkeypatch.delenv("QWENPAW_RUNTIME_PROVISIONER", raising=False)
+    monkeypatch.setattr(pc, "_is_running", lambda: False)
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    return _patch_plugins_dir(monkeypatch, tmp_path)
+
+
+def test_offline_force_dependency_failure_preserves_old(
+    monkeypatch,
+    tmp_path,
+    offline_environment,
+):
+    old = offline_environment / "demo"
+    old.mkdir(parents=True)
+    _write_plugin(old)
+    (old / "user.txt").write_text("keep")
+    source = tmp_path / "source"
+    source.mkdir()
+    _write_plugin(source, extra={"version": "2.0.0"})
+    (source / "requirements.txt").write_text("qwenpaw-test-missing==1\n")
+    calls = []
+
+    def fail_install(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args[0], 1, "", "deps failed")
+
+    from qwenpaw.plugins.loader import PluginLoader
+
+    monkeypatch.setattr(
+        PluginLoader,
+        "_run_subprocess_with_streaming_log",
+        staticmethod(fail_install),
+    )
+    result = CliRunner().invoke(
+        pc.plugin,
+        ["install", str(source), "--force"],
+    )
+    assert calls
+    assert "installed successfully" not in result.output
+    assert json.loads((old / "plugin.json").read_text())["version"] == "1.0.0"
+    assert (old / "user.txt").read_text() == "keep"
+
+
+def test_offline_install_defers_import_registration_and_startup(
+    tmp_path,
+    offline_environment,
+):
+    source = tmp_path / "source"
+    source.mkdir()
+    _write_plugin(source, extra={"entry": {"backend": "backend.py"}})
+    marker = tmp_path / "imported"
+    (source / "backend.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('imported')\n"
+        "class Plugin:\n"
+        "    def register(self, api):\n"
+        f"        Path({str(marker)!r}).write_text('registered')\n"
+        "    async def startup(self, api):\n"
+        f"        Path({str(marker)!r}).write_text('started')\n"
+        "plugin = Plugin()\n",
+    )
+    result = CliRunner().invoke(pc.plugin, ["install", str(source)])
+    assert result.exit_code == 0, result.output
+    assert "installed successfully" in result.output
+    assert (offline_environment / "demo" / "plugin.json").is_file()
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("owned", [True, False])
+def test_offline_uninstall_respects_inventory_ownership(
+    tmp_path,
+    offline_environment,
+    owned,
+):
+    from qwenpaw.plugins.provision import inventory_path, save_inventory
+
+    root = offline_environment / "demo"
+    root.mkdir(parents=True)
+    _write_plugin(root)
+    dest = tmp_path / "data"
+    dest.mkdir()
+    (dest / "user.txt").write_text("keep")
+    save_inventory(
+        "demo",
+        {
+            "locations": {str(dest): {"owned": owned}},
+            "provisions": [],
+        },
+    )
+    result = CliRunner().invoke(
+        pc.plugin,
+        ["uninstall", "demo"],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "uninstalled successfully" in result.output
+    assert dest.exists() is not owned
+    if not owned:
+        assert (dest / "user.txt").read_text() == "keep"
+    assert not inventory_path("demo").exists()
+    assert not root.exists()
+
+
+def test_offline_uninstall_config_failure_retains_cleanup_for_retry(
+    monkeypatch,
+    tmp_path,
+    offline_environment,
+):
+    from types import SimpleNamespace
+    from qwenpaw.plugins.provision import inventory_path, record_tool_factory
+    import qwenpaw.config.config as cc
+
+    root = offline_environment / "demo"
+    root.mkdir(parents=True)
+    _write_plugin(root)
+    record_tool_factory("demo", "send_message", {"enabled": True})
+    config = cc.Config()
+    monkeypatch.setattr(config_utils, "load_config", lambda *args: config)
+    monkeypatch.setattr(
+        cc,
+        "load_agent_config",
+        lambda agent: SimpleNamespace(
+            tools=SimpleNamespace(builtin_tools={"send_message": {}}),
+        ),
+    )
+
+    def fail_save(*args):
+        raise PermissionError("agent config is read-only")
+
+    monkeypatch.setattr(cc, "save_agent_config", fail_save)
+    result = CliRunner().invoke(
+        pc.plugin,
+        ["uninstall", "demo"],
+        input="y\n",
+    )
+    assert result.exit_code != 0
+    assert "agent config is read-only" in result.output
+    assert "uninstalled successfully" not in result.output
+    assert root.is_dir()
+    assert inventory_path("demo").is_file()
+    monkeypatch.setattr(cc, "save_agent_config", lambda *args: None)
+    result = CliRunner().invoke(
+        pc.plugin,
+        ["uninstall", "demo"],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "uninstalled successfully" in result.output
+    assert not root.exists()
+    assert not inventory_path("demo").exists()
+
+
+@pytest.mark.parametrize("failure_stage", ["commit", "cleanup"])
+def test_offline_force_install_respects_durable_commit(
+    monkeypatch,
+    tmp_path,
+    offline_environment,
+    failure_stage,
+):
+    from qwenpaw.plugins import loader, updates
+
+    old = offline_environment / "demo"
+    old.mkdir(parents=True)
+    _write_plugin(old)
+    (old / "user.txt").write_text("old data")
+    source = tmp_path / "source"
+    source.mkdir()
+    _write_plugin(source, extra={"version": "2.0.0"})
+
+    def fail(*args):
+        raise PermissionError(f"{failure_stage} blocked")
+
+    if failure_stage == "commit":
+        monkeypatch.setattr(updates, "mark_update_committed", fail)
+    else:
+        monkeypatch.setattr(loader, "_remove_dir", fail)
+    result = CliRunner().invoke(
+        pc.plugin,
+        ["install", str(source), "--force"],
+    )
+    assert result.exit_code != 0
+    assert f"{failure_stage} blocked" in result.output
+    assert "installed successfully" not in result.output
+    version = json.loads((old / "plugin.json").read_text())["version"]
+    marker = updates.marker_path("demo")
+    if failure_stage == "commit":
+        assert version == "1.0.0"
+        assert (old / "user.txt").read_text() == "old data"
+        assert not marker.exists()
+    else:
+        assert version == "2.0.0"
+        saved = json.loads(marker.read_text())
+        assert saved["status"] == "committed"
+        backup = Path(saved["backup_path"])
+        assert (backup / "user.txt").read_text() == "old data"

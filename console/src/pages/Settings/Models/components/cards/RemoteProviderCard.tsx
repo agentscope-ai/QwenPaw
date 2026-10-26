@@ -83,13 +83,14 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
       {!isManaged && (
         <ProviderCloseButton
           ids={[provider.id]}
+          providerName={provider.name}
           onSaved={onSaved}
           onConfigure={() => onOpenConfig(provider)}
         />
       )}
       {/* Header - same layout as GroupCard */}
       <div className={styles.groupCardHeader}>
-        <ProviderIcon providerId={provider.id} size={36} />
+        <ProviderIcon providerId={provider.id} size={36} decorative />
         <span className={styles.groupCardName}>{provider.name}</span>
       </div>
       <ProviderCardStatus
@@ -113,10 +114,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
               </div>
             </div>
 
-            <ProviderCredentialField
-              provider={provider}
-              onEdit={onOpenConfig}
-            />
+            <ProviderCredentialField provider={provider} onSaved={onSaved} />
           </>
         )}
         <button

@@ -1,0 +1,134 @@
+@import "@openuidev/react-ui/components.css";
+
+/* The build scopes this stylesheet to UI blocks and OpenUI portals. */
+.openui-markdown-renderer-link {
+  color: var(--openui-text-neutral-link);
+}
+
+.openui-markdown-renderer-code {
+  font: var(--openui-text-code-default);
+  border-radius: var(--openui-radius-xs);
+}
+
+/* Prism's CSS mode keeps syntax classes for standalone and Markdown code. */
+.openui-code-block-wrapper .openui-code-block-syntax-highlighter {
+  background: var(--openui-sunk);
+  color: var(--openui-text-neutral-primary);
+  font: var(--openui-text-code-default);
+  border: 1px solid var(--openui-border-default);
+  border-radius: var(--openui-radius-l);
+  /* Markdown adds a separate important padding rule upstream. */
+  padding: var(--openui-space-m-l) !important;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.openui-code-block-syntax-highlighter code {
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-shadow: none;
+  tab-size: 4;
+}
+
+.openui-code-block-syntax-highlighter .token {
+  color: inherit;
+  background: transparent;
+  text-shadow: none;
+}
+
+.openui-code-block-syntax-highlighter :is(.comment, .prolog, .doctype, .cdata) {
+  color: var(--openui-text-neutral-secondary);
+}
+
+.openui-code-block-syntax-highlighter :is(.keyword, .atrule, .selector) {
+  color: var(--openui-text-brand);
+}
+
+.openui-code-block-syntax-highlighter
+  :is(.string, .char, .attr-value, .inserted) {
+  color: var(--openui-text-success-primary);
+}
+
+.openui-code-block-syntax-highlighter
+  :is(.function, .class-name, .builtin, .property, .attr-name) {
+  color: var(--openui-text-info-primary);
+}
+
+.openui-code-block-syntax-highlighter
+  :is(.number, .boolean, .constant, .symbol) {
+  color: var(--openui-text-alert-primary);
+}
+
+.openui-code-block-syntax-highlighter :is(.deleted, .important) {
+  color: var(--openui-text-danger-primary);
+}
+
+.openui-code-block-syntax-highlighter :is(.bold, .important) {
+  font-weight: 600;
+}
+
+.openui-code-block-syntax-highlighter .italic {
+  font-style: italic;
+}
+
+.openui-code-block-wrapper:focus-within .openui-code-block-copy-button {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .openui-code-block-copy-button {
+    opacity: 1;
+  }
+}
+
+/* The pinned Table renderer places its pagination directly after the table
+ * wrapper, with an inline 13px/gray label. Keep cells and nested content alone. */
+.openui-scrollable-table-wrapper + div > span {
+  color: var(--openui-text-neutral-secondary) !important;
+  font: var(--openui-text-label-sm) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.openui-image-block-loader {
+  border-color: var(--openui-border-interactive);
+  border-top-color: var(--openui-interactive-accent-default);
+}
+
+.openui-chip-item--selected,
+.openui-option-card--selected {
+  background-color: var(--app-selected-bg, var(--openui-highlight));
+  border-color: var(--openui-border-accent);
+}
+
+.openui-chip-item--selected {
+  color: var(--openui-text-brand);
+}
+
+.openui-select-item[data-state="checked"] {
+  background-color: var(--app-selected-bg, var(--openui-highlight));
+  color: var(--openui-text-brand);
+  outline-color: var(--openui-border-accent);
+}
+
+.openui-tabs-trigger[data-state="active"] {
+  color: var(--openui-text-brand);
+}
+
+.openui-button-base-primary {
+  box-shadow: var(--openui-shadow-s);
+}
+
+.openui-button-base-primary:disabled {
+  background-color: var(--openui-highlight);
+  border-color: var(--openui-border-default);
+  color: var(--openui-text-neutral-tertiary);
+}
+
+/* Include portaled controls and keyboard-only focus, without the browser's
+ * default blue ring standing out from the selected host accent. */
+[class*="openui-"]:focus-visible {
+  outline: 2px solid
+    var(--app-focus-ring, var(--openui-border-interactive-selected));
+  outline-offset: 2px;
+}

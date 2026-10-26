@@ -2,7 +2,7 @@
 
 > Quiet surfaces. Precise structure. Orange with purpose. Motion that follows intent.
 
-This document defines QwenPaw's visual identity and interaction language across the product. It guides reusable components and future design decisions; feature requirements, page layouts, and implementation progress belong in their respective documents under `docs/design/`.
+This document defines QwenPaw's visual identity, interaction language, and implementation quality gates across the product. It guides reusable components and future design decisions; feature requirements, page layouts, and implementation progress belong in their respective workspace documents. Complete the [implementation quality gates](#implementation-quality-gates) to verify that an implementation preserves this language in real states and interactions.
 
 ## Character and principles
 
@@ -14,14 +14,26 @@ QwenPaw should feel calm, capable, and carefully made, with the clarity of a pro
 - **Continuity:** preserve the relationship between an action, its source, and its result.
 - **Agency:** respond immediately, allow interruption, and keep navigation and dismissal predictable.
 - **Consistency:** reuse the same visual and physical behavior for the same meaning.
+- **Proportionality:** match visual weight and implementation scope to the user impact. A routine recoverable state should not become a new focal surface.
 
 Apple informs hierarchy, materials, typography, and direct manipulation. Rare UI informs the craft of individual interactions. QwenPaw translates these references into its own orange identity and shared component vocabulary.
+
+### Context-specific expression
+
+QwenPaw should be recognizable without turning every page into the same template. Begin with the page's primary user task, information shape, and risk; then express those needs through the shared language above.
+
+- Give each page one dominant task and one clear visual entry point. Supporting regions stay quieter unless their state requires attention.
+- Spend distinctiveness on one meaningful composition or interaction. Repeating glow, tilt, stagger, oversized type, or identical cards across a page weakens hierarchy.
+- Do not add an eyebrow, badge, metric, illustration, gradient, or container unless it communicates structure, state, or affordance.
+- Prefer the product's real terminology and representative content. Placeholder marketing language and fabricated metrics make an operational interface less trustworthy.
+- Adapt shared patterns to the content while preserving tokens, control behavior, and accessibility. A page may be distinctive; it must not create a parallel design system.
+- When an established QwenPaw pattern already solves the task, reuse it. Novelty must improve comprehension, continuity, or control rather than merely make the page look different.
 
 ## Color and brand identity
 
 **QwenPaw's default brand orange is `#FF7F16` (RGB 255, 127, 22).** QwenPaw supports custom themes: this color defines the built-in identity, not a mandatory runtime UI color. Use the active theme's accent consistently for primary emphasis, selected states, active controls, and restrained interaction highlights. Do not introduce a competing decorative accent palette.
 
-The following values reflect the built-in theme in [`console/src/styles/tokens.css`](console/src/styles/tokens.css). Components must consume semantic tokens instead of repeating literal hex values. Theme overrides remain authoritative at runtime.
+The following values reflect the built-in theme in the active workspace's `console/src/styles/tokens.css`. Components must consume semantic tokens instead of repeating literal hex values. Theme overrides remain authoritative at runtime.
 
 | Role            | Token                  | Light theme              | Dark theme           |
 | --------------- | ---------------------- | ------------------------ | -------------------- |
@@ -103,6 +115,8 @@ Review visible copy by asking: does this text identify something, show meaningfu
 
 Use a 4px spacing unit with a restrained scale: **4, 8, 12, 16, 24, 32, 48**. Default to 16px horizontal gaps and 16px or 24px vertical gaps. Use 24px content padding on standard surfaces, reducing toward 16px when space is limited.
 
+These values guide new or intentionally redesigned surfaces. A localized bug fix must preserve established spacing and geometry unless they cause the defect or block its minimum accessible fix. Do not use a nearby change as an opportunity to normalize unrelated values.
+
 - Align related surfaces and controls to shared edges and baselines.
 - Use proximity to establish relationships before adding borders or containers.
 - Let importance determine area. Bento composition can combine a dominant surface with smaller supporting surfaces while preserving a common grid.
@@ -122,7 +136,7 @@ The supplied image's “short edge × 18%” rule is a proportional study for sm
 
 Reflow according to content, not device labels. Reduce columns before compressing controls, preserve reading order, and retain useful alignment when groups stack. Scale outer padding with available width. Account for safe areas, zoom, long translations, and the software keyboard.
 
-No essential interaction may depend on hover, a precision pointer, or a drag gesture alone. Use comfortably sized touch targets, aiming for at least 44 × 44 CSS px where touch is expected, even when the visible icon is smaller.
+No essential interaction may depend on hover, a precision pointer, or a drag gesture alone. For controls expected to be used by touch, aim for a 44 × 44 CSS px target through the control, a local hit-area wrapper, or sufficient spacing. This is not permission to resize every descendant button: target the specific control, avoid broad selectors, and leave unrelated geometry unchanged.
 
 ## Surfaces, light, and depth
 
@@ -144,6 +158,37 @@ Controls should express what can be done and provide a clear response when it ha
 Use switches for standalone binary settings, segmented controls for a few short exclusive choices, and searchable selection for long lists. When enabling a capability and adjusting its amount form one natural action, consider the integrated magnetic rail described below. Use free text when the content actually requires it. These are reusable selection principles, not mandates for particular product modules.
 
 Pending feedback must reflect real work; completion feedback must reflect a confirmed result. Failures should explain the next useful action and preserve recoverable input. Prefer inline status to disruptive announcements for routine changes.
+
+### Page state contract
+
+Design each data-backed surface as a state system, not only as an ideal screenshot. Identify which of the following states apply before implementation and keep the primary action, layout, and recovery path coherent between them.
+
+State coverage is a behavioral requirement, not a demand for a separate card, panel, illustration, or layout for every state. Prefer the smallest existing inline pattern that communicates the condition and next action. Escalate visual weight only when the state blocks a primary task, carries material risk, or requires sustained attention.
+
+| State     | Required behavior                                                                                                            |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Initial   | Avoid flashing an empty or error state before the first request resolves.                                                    |
+| Loading   | Preserve useful structure, identify real progress, and keep unrelated controls available.                                    |
+| Empty     | Explain what is absent and offer the next relevant action when one exists.                                                   |
+| Partial   | Show usable results and identify only the region that is incomplete or unavailable.                                          |
+| Stale     | Keep readable cached content while making refresh state and data age understandable.                                         |
+| Pending   | Acknowledge the accepted action immediately without presenting an unconfirmed result as complete.                            |
+| Success   | Reflect the confirmed state in place; avoid redundant celebration for routine work.                                          |
+| Error     | Preserve recoverable input and provide a useful retry or alternative with the least visual weight appropriate to the impact. |
+| Offline   | Distinguish lost connectivity from server rejection and explain what remains available.                                      |
+| Forbidden | Explain the unavailable capability without presenting a control that appears broken.                                         |
+
+Not every surface needs a unique visual for every row in this table. It must, however, define all applicable states and avoid treating missing data, loading, permission failure, and request failure as the same condition.
+
+### Asynchronous interaction stability
+
+- The latest user intent wins. An older request or animation must not overwrite a newer selection, navigation, or edit.
+- Prevent accidental duplicate submission while preserving intentional repeated actions. A disabled control alone is insufficient when another input path can trigger the same operation.
+- Cancellation, dismissal, route changes, and unmounting must stop or safely detach work whose result no longer has a valid destination.
+- Optimistic changes need an explicit confirmation boundary and a recoverable rollback path. Keep attempted input available when persistence fails.
+- Separate draft, pending, confirmed, stale, and failed state when the distinction affects what the user can trust or do next.
+- Keep geometry stable while status changes. Loading labels, validation text, and retry controls should not unexpectedly move the control the user is operating.
+- Announce consequential asynchronous changes at a useful cadence. Do not expose decorative frames, streaming fragments, or every progress tick to assistive technology.
 
 ## Interaction craft
 
@@ -371,20 +416,35 @@ Keep the hit target stable and the label legible. Small or dense controls may us
 
 Use established packages and existing shared components for animation, gestures, accessible interaction, and assets. Do not write a custom spring solver, drag engine, number ticker, or icon set for these effects.
 
-The current dependency set in [`console/package.json`](console/package.json) already includes:
+The current dependency set in the active workspace's `console/package.json` already includes:
 
-| Need                                        | Existing package                     |
-| ------------------------------------------- | ------------------------------------ |
-| Springs, presence, and shared layout motion | `motion`                             |
-| Drawer and sheet foundation                 | `vaul`                               |
-| Animated numeric values                     | `@number-flow/react`                 |
-| Dragging and sortable interactions          | `@dnd-kit/core`, `@dnd-kit/sortable` |
+| Need                                        | Existing package                      |
+| ------------------------------------------- | ------------------------------------- |
+| Springs, presence, and shared layout motion | `motion`                              |
+| Drawer and sheet foundation                 | `vaul`                                |
+| Animated numeric values                     | `@number-flow/react`                  |
+| Dragging and sortable interactions          | `@dnd-kit/core`, `@dnd-kit/sortable`  |
 | Wheel selection                             | Native CSS scroll snap and `scrollTo` |
-| Interface icons                             | `lucide-react`                       |
+| Interface icons                             | `lucide-react`                        |
 
 Duration wheels use native scrolling for momentum and snapping, commit on `scrollend`, and use instant external positioning under reduced motion. Keep dependency distributions unmodified; application-specific transitions belong in the host UI.
 
 Reuse the project's wrappers before adding a dependency. Apply QwenPaw tokens and behavior to package primitives rather than copying a showcase's entire appearance. Rare UI is a reference for interaction craft; adopting its code is a separate implementation decision that requires checking suitability and license terms.
+
+## Perceived and runtime performance
+
+Performance is part of interaction quality. Optimize the delay the user experiences and verify the bottleneck before changing architecture or removing useful behavior.
+
+- Respond to input on contact, but reserve success treatment for confirmed completion. When work takes time, keep the source action and its status visibly connected.
+- Preserve a useful shell during navigation and refresh. Prefer local pending feedback over replacing an entire usable page with a spinner.
+- Load editors, visualizations, large media, and infrequently used panels when their capability is requested when doing so improves measured startup or interaction cost.
+- For long or expensive collections, measure rendering and interaction cost before choosing pagination, virtualization, incremental rendering, or simpler row content. Do not virtualize small lists by default.
+- Keep multi-megabyte parsing, serialization, recursive traversal, syntax highlighting, image decoding, and deep cloning out of synchronous interaction paths. Bound or defer unavoidable work and preserve cancellation where practical.
+- Avoid broad subscriptions and unstable object identities that redraw unrelated regions. Memoization must address measured or structurally evident repeated work, not decorate every component.
+- Prevent layout shift by reserving stable space for asynchronous content and by keeping fonts, media dimensions, and temporary states predictable.
+- Treat bundle size, network waterfalls, long tasks, interaction latency, and memory growth as measured signals. A performance claim requires before-and-after evidence from an appropriate build or browser profile.
+
+Feature documents may define tighter budgets for a critical flow. Do not invent universal numeric limits without a measurement environment, representative data, and an owner for the resulting gate.
 
 ## Accessibility and quality floor
 
@@ -399,7 +459,7 @@ Accessibility is part of the material and interaction design, not a separate vis
 
 ## Design review checklist
 
-Use this checklist for each design or implementation review. It is a reusable quality gate, not a record that the current application has passed these checks.
+Use this checklist for each design or implementation review. It is a reusable quality gate, not a record that the current application has passed these checks. Complete the applicable [rendered and interaction checks](#implementation-quality-gates) before claiming implementation completion.
 
 - [ ] The built-in theme uses QwenPaw Orange `#FF7F16` and its `#FF9D4D` variant; custom themes take precedence through semantic tokens.
 - [ ] Static controls, gradients, glows, and in-progress interactions follow the active custom theme in light and dark modes without reverting to hardcoded defaults.
@@ -407,13 +467,19 @@ Use this checklist for each design or implementation review. It is a reusable qu
 - [ ] Type, icons, baselines, spacing, and corners form a coherent hierarchy.
 - [ ] Visible copy is concise; secondary explanations use contextual help accessible by hover, focus, and touch, while essential labels, states, and errors remain visible.
 - [ ] Surfaces group related content without unnecessary nesting or empty space.
+- [ ] Routine loading, empty, and recoverable error states use the least visual weight that keeps the next action clear.
+- [ ] The page has one dominant task and does not rely on generic or decorative template patterns.
 - [ ] Light and dark themes preserve readable material separation.
 - [ ] Responsive layouts preserve reading order, touch access, and useful density.
+- [ ] Applicable loading, empty, partial, stale, pending, error, offline, and permission states have coherent actions and recovery.
+- [ ] Rapid repetition, interruption, cancellation, and late asynchronous results preserve the latest user intent.
 - [ ] Motion explains an interaction, remains interruptible, and uses one clear focal effect.
 - [ ] Thoughtful control combinations simplify one intention; related visual feedback shares one semantic state.
 - [ ] Magnetic boundaries are discoverable, stable under jitter, and equivalent through keyboard input.
 - [ ] Reduced motion, keyboard, touch, focus restoration, and screen-reader behavior are considered.
 - [ ] Existing packages and shared primitives are reused before introducing new machinery.
+- [ ] Selectors and layout changes stay local to the affected component; unrelated spacing and controls remain unchanged.
+- [ ] Performance recommendations are supported by bundle, network, rendering, or interaction evidence rather than intuition alone.
 - [ ] Actual visual and interaction checks support any claim of implementation completion.
 
 ## References and interpretation
@@ -423,6 +489,173 @@ Use this checklist for each design or implementation review. It is a reusable qu
 - The two user-supplied images — proportional corners, aligned bento composition, tonal separation, and soft light. Their numeric shortcuts are interpreted as visual suggestions, not official Apple rules.
 - The eight user-supplied effect briefs — the source of the motion vocabulary above.
 - The user-supplied thinking-budget reference and description — the source of the magnetic enable rail, integrated Off/On boundary, and coordinated rolling readout. The specified thresholds and timing are QwenPaw proposals, not measurements of the reference animation.
-- [`console/src/styles/tokens.css`](console/src/styles/tokens.css) — current theme color definitions; [`console/package.json`](console/package.json) — available implementation dependencies.
+- `console/src/styles/tokens.css` in the active workspace — current theme color definitions; `console/package.json` — available implementation dependencies.
 
 This document defines the intended QwenPaw language. It does not assert that every existing screen already conforms to it.
+
+## Implementation quality gates
+
+This section turns the preceding design principles into repeatable implementation checks. Use the target workspace's repository instructions together with this shared document. These gates constrain the quality of the requested change; they never authorize adjacent restyling, cleanup, or feature work. They apply to new pages, material UI changes, and bug fixes whose behavior or presentation changes. They do not require every check for a copy-only or invisible refactor; record why an omitted check cannot affect the result.
+
+### Verification principles
+
+- Verify the rendered product, not only JSX and styles. Static review cannot prove layout, focus order, computed contrast, animation, or responsive behavior.
+- Test the states and inputs that users can actually reach. Do not report a theoretical issue as observed behavior without a real path or representative fixture.
+- Match effort to risk and scope. A compact control or bug fix needs focused checks and the smallest visible change; it must not restyle adjacent surfaces. A new navigation, editor, modal, or data workspace needs the full applicable matrix.
+- Apply a gate only to the changed behavior and its proven impact surface. Passing a checklist is not a reason to implement every ideal it mentions.
+- Keep evidence reproducible. Record the route, viewport, theme, input method, data state, and command or browser action that produced a result.
+- Distinguish static reasoning from executed verification. Never describe an unrun check as passed.
+- Treat external design and performance guidance as hypotheses. QwenPaw's requirements, repository behavior, and measured results remain authoritative.
+
+### Before implementation
+
+Record the following in the task plan or feature design:
+
+| Decision          | Required answer                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| User job          | What should become easier, clearer, or safer?                                                          |
+| Primary action    | Which action or reading task owns the visual hierarchy?                                                |
+| Existing pattern  | Which shared component, token, or interaction already fits?                                            |
+| Change boundary   | What is the smallest component and style surface that can satisfy the request?                         |
+| Applicable states | Which loading, empty, partial, stale, pending, success, error, offline, or forbidden states can occur? |
+| Risk              | What can be lost, duplicated, hidden, delayed, or misinterpreted?                                      |
+| Evidence          | Which rendered checks and focused tests will prove the result?                                         |
+
+For a material redesign, describe one intended visual direction before editing. The direction must name the hierarchy, density, surface treatment, and signature detail in QwenPaw terms. Do not present several unrelated design systems when the product language already determines the answer.
+
+### Required state coverage
+
+Exercise every applicable user-visible state. A state can be excluded only when the underlying contract makes it unreachable. Coverage requires correct behavior and recovery, not a bespoke visual treatment; reuse a compact existing pattern unless stronger emphasis is justified by impact.
+
+| State     | Check                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------- |
+| Initial   | No premature empty, error, or permission message flashes.                                |
+| Loading   | The layout remains stable and the status has appropriate semantics.                      |
+| Empty     | The message distinguishes no data from failed data and offers a relevant next step.      |
+| Partial   | Usable content remains available while the failed or pending region is identifiable.     |
+| Stale     | Existing content remains readable and its refresh state is honest.                       |
+| Pending   | Repeated activation is controlled and unconfirmed work is not shown as complete.         |
+| Success   | The confirmed result appears at the source of the action without redundant interruption. |
+| Error     | Input is recoverable and the message describes the operation and next useful action.     |
+| Offline   | Connectivity loss is distinct from authorization, validation, and server failure.        |
+| Forbidden | The unavailable capability and reason are understandable; the UI does not look broken.   |
+
+For asynchronous flows, also check rapid repetition, a second action before the first resolves, cancellation or dismissal, navigation away, and an older result arriving after a newer one.
+
+### Rendered experience matrix
+
+Use the product's declared support matrix when it exists. Otherwise, use these representative checks for web surfaces and add desktop-window constraints relevant to the feature.
+
+| Dimension              | Minimum checks                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| Viewport               | 375px mobile, 768px tablet, and 1280px desktop widths                                       |
+| Zoom and text          | 200% browser zoom or equivalent enlarged text                                               |
+| Theme                  | Built-in light, built-in dark, and one custom accent when theme-sensitive                   |
+| Content                | Short and long labels, Chinese and English, empty values, and representative dense data     |
+| Input                  | Pointer, keyboard-only, and touch behavior when the surface supports touch                  |
+| Motion                 | Default motion and reduced motion                                                           |
+| Direction and overlays | Scrolled content, open overlays, and software-keyboard or safe-area effects when applicable |
+
+At each applicable point, verify:
+
+- No page-level horizontal overflow, clipped essential content, or unreachable action.
+- Reading and focus order still match the visual order.
+- Touch targets changed by the task remain usable without compressing labels or broadly resizing unrelated controls.
+- Dialogs, popovers, sheets, and menus remain inside the usable viewport.
+- Focus enters temporary UI appropriately and returns to a meaningful control on dismissal.
+- Selected, disabled, pending, success, warning, and error states remain distinguishable without color alone.
+- Long content wraps, truncates with an accessible full value, or uses deliberate scrolling; it never disappears accidentally.
+- Theme changes update static and animated accent treatments without leaving hardcoded remnants.
+
+### Visual quality review
+
+- Confirm one dominant page task and a clear first point of attention.
+- Check alignment of shared edges, text baselines, icon optical centers, and nested contours.
+- For new or intentionally redesigned surfaces, confirm that spacing comes from the shared scale and density reflects the task. For focused fixes, preserve unrelated existing spacing.
+- Remove cards, borders, badges, glows, gradients, labels, and motion that do not communicate structure, state, or affordance.
+- Compare repeated controls for consistent geometry and behavior while preserving meaningful hierarchy between regions.
+- Review real copy. Labels name the action precisely, errors offer a recovery path, and fabricated metrics or marketing filler are absent.
+- Inspect both the calm default state and the busiest valid state. A sparse screenshot alone cannot prove the design.
+
+### Accessibility review
+
+Static source review:
+
+- Prefer native semantic elements and established accessible primitives.
+- Give controls unique, contextual accessible names; repeated icon buttons cannot all be announced as only “Settings” or “Delete.”
+- Associate labels, help, validation, and errors with their controls.
+- Define accessible names, values, and keyboard behavior for composite or gesture-driven controls.
+- Keep essential status in text or semantics rather than color, position, or motion alone.
+
+Rendered verification:
+
+- Traverse the complete flow with the keyboard and confirm visible focus.
+- Check focus containment and restoration for temporary layers.
+- Measure actual composited foreground and boundary contrast in each applicable theme.
+- Confirm useful loading, completion, and error announcements without noisy repeated updates.
+- Verify zoom, enlarged text, reduced motion, and touch alternatives for pointer gestures.
+
+Automated accessibility output is supporting evidence, not proof that the experience is understandable or fully keyboard operable.
+
+### Stability review
+
+- Repeat primary actions rapidly and confirm that one intended action produces one result.
+- Interrupt animations and requests with a second action; the newest intent must remain authoritative.
+- Dismiss or navigate away during pending work and check for stale updates, orphaned overlays, leaked listeners, and console errors.
+- Simulate request rejection after optimistic UI and verify rollback, retained input, and recovery.
+- Change theme, locale, viewport, and data while overlays or long-running states are active.
+- Verify stable identity and keys for reordered, filtered, virtualized, or streamed collections.
+- Check cleanup for timers, subscriptions, observers, global listeners, object URLs, and cancellable work touched by the change.
+
+Focused unit or component tests should cover deterministic state transitions and known regression shapes. Browser verification should cover integration behavior that DOM mocks cannot prove.
+
+### Performance review
+
+Start with evidence appropriate to the suspected cost:
+
+| Signal                | Suitable evidence                                                         |
+| --------------------- | ------------------------------------------------------------------------- |
+| Startup or route cost | Production-like bundle report and network waterfall                       |
+| Slow interaction      | Browser performance trace and long-task or render analysis                |
+| Excessive redraw      | React profiling with representative state and data                        |
+| Large collection      | Render, scroll, filter, and selection measurements at representative size |
+| Layout instability    | Recorded layout shifts and the responsible elements                       |
+| Memory growth         | Repeated open-close or navigation cycle with heap or listener evidence    |
+
+Rules:
+
+- Reproduce and measure before optimizing unless the defect is a direct unbounded synchronous path.
+- Use representative data and document the environment; a fast development machine is not a universal baseline.
+- Prefer removing work, narrowing subscriptions, and loading on demand before adding memoization or architectural complexity.
+- Do not lazy-load the content that defines the first useful view without measuring the tradeoff.
+- Do not claim an improvement from source inspection alone. Report comparable before-and-after measurements.
+- Preserve accessibility, cancellation, and error states while optimizing. Faster incomplete behavior is not an improvement.
+
+### Focused validation
+
+Choose the smallest commands that exercise the changed surface. Do not run the full frontend build, formatter, or test suite unless the task explicitly requires it.
+
+Typical focused evidence includes:
+
+- Affected Vitest files or a new regression test.
+- Type checking scoped through the repository's supported command when available.
+- ESLint or Prettier checks limited to changed files.
+- Browser checks on the affected route and representative viewports.
+- Console and network inspection during the changed interaction.
+- A production-like bundle or performance trace only when making a performance claim.
+
+### Completion record
+
+Summarize UI work with:
+
+```markdown
+### Verification
+
+- Static checks: <commands and results>
+- Rendered checks: <route, viewports, themes, and states>
+- Interaction checks: <keyboard, pointer/touch, interruption, and failure paths>
+- Performance evidence: <measurement or “not claimed / not measured”>
+- Not verified: <explicit remaining platforms, states, or tools>
+```
+
+A design is not complete merely because the default screenshot looks polished. Completion requires the applicable states to remain understandable, responsive, recoverable, and consistent with QwenPaw under real interaction.

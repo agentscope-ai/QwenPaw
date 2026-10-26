@@ -1,6 +1,7 @@
 {
   "id": "aliyun-hub",
-  "name": "Aliyun Hub",
+  "name": "Aliyun Skill Hub",
+  "publish": false,
   "version": "1.0.0",
   "type": "hub",
   "description": "Aliyun Skill marketplace source.",

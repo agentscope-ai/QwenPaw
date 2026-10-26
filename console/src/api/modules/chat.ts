@@ -4,6 +4,7 @@ import { buildAuthHeaders } from "../authHeaders";
 import type {
   ChatSpec,
   ChatHistory,
+  ChatResolution,
   ChatDeleteResponse,
   ChatUpdateRequest,
   ChatGroup,
@@ -25,6 +26,18 @@ export interface ChatStatusResponse {
 const FILES_PREVIEW = "/files/preview";
 
 export const chatApi = {
+  resolveChat: (
+    chatId: string,
+    options?: { currentAgentId?: string; signal?: AbortSignal },
+  ) => {
+    const params = new URLSearchParams({ chat_id: chatId });
+    if (options?.currentAgentId)
+      params.set("current_agent_id", options.currentAgentId);
+    return request<ChatResolution>(`/chats/resolve?${params}`, {
+      signal: options?.signal,
+    });
+  },
+
   /** Upload a file for chat attachment. Returns URL path for content. */
   uploadFile: async (file: File): Promise<ChatUploadResponse> => {
     const formData = new FormData();
@@ -49,7 +62,7 @@ export const chatApi = {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    let cleaned = filename.replace(/^\/+/, "");
+    const cleaned = filename.replace(/^\/+/, "");
     const path = `${FILES_PREVIEW}/${cleaned}`;
     const url = getApiUrl(path);
 
@@ -146,26 +159,30 @@ export const chatApi = {
       },
     ),
 
-  archiveChat: (chatId: string) =>
+  archiveChat: (chatId: string, agentId?: string) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}/archive`, {
       method: "POST",
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
     }),
 
-  unarchiveChat: (chatId: string) =>
+  unarchiveChat: (chatId: string, agentId?: string) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}/unarchive`, {
       method: "POST",
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
     }),
 
-  batchArchiveChats: (chatIds: string[]) =>
+  batchArchiveChats: (chatIds: string[], agentId?: string) =>
     request<BatchArchiveResult>("/chats/actions/batch-archive", {
       method: "POST",
       body: JSON.stringify({ chat_ids: chatIds }),
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
     }),
 
-  batchUnarchiveChats: (chatIds: string[]) =>
+  batchUnarchiveChats: (chatIds: string[], agentId?: string) =>
     request<BatchArchiveResult>("/chats/actions/batch-unarchive", {
       method: "POST",
       body: JSON.stringify({ chat_ids: chatIds }),
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
     }),
 
   listGroups: () => request<ChatGroup[]>("/chats/groups"),
@@ -213,9 +230,10 @@ export const sessionApi = {
   getSession: (sessionId: string) =>
     request<ChatHistory>(`/chats/${encodeURIComponent(sessionId)}`),
 
-  deleteSession: (sessionId: string) =>
+  deleteSession: (sessionId: string, agentId?: string) =>
     request<ChatDeleteResponse>(`/chats/${encodeURIComponent(sessionId)}`, {
       method: "DELETE",
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
     }),
 
   createSession: (session: Partial<Session>) =>
@@ -224,18 +242,24 @@ export const sessionApi = {
       body: JSON.stringify(session),
     }),
 
-  updateSession: (sessionId: string, session: ChatUpdateRequest) =>
+  updateSession: (
+    sessionId: string,
+    session: ChatUpdateRequest,
+    agentId?: string,
+  ) =>
     request<Session>(`/chats/${encodeURIComponent(sessionId)}`, {
       method: "PUT",
       body: JSON.stringify(session),
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
     }),
 
-  batchDeleteSessions: (sessionIds: string[]) =>
+  batchDeleteSessions: (sessionIds: string[], agentId?: string) =>
     request<{ success: boolean; deleted_count: number }>(
       "/chats/batch-delete",
       {
         method: "POST",
         body: JSON.stringify(sessionIds),
+        headers: agentId ? { "X-Agent-Id": agentId } : undefined,
       },
     ),
 };

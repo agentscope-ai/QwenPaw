@@ -18,6 +18,13 @@
  * Both surfaces share the single audit log in `./audit.ts`.
  */
 import type React from "react";
+import type { ChatCodeBlockProps } from "../types/qwenpaw";
+
+export interface ChatCodeBlockItem {
+  id: string;
+  language: string;
+  render: React.ComponentType<ChatCodeBlockProps>;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Disposable
@@ -146,6 +153,8 @@ export interface Route {
   id: string;
   /** URL path. Supports react-router patterns, including "/chat/*". */
   path: string;
+  /** Match path casing exactly. Defaults to case-insensitive matching. */
+  caseSensitive?: boolean;
   /** Lazy or eager component. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   component: React.ComponentType<any>;

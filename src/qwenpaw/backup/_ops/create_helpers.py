@@ -1,24 +1,37 @@
 # -*- coding: utf-8 -*-
 """Helpers for creating backups: agents, global config, secrets, skill pool."""
+
 from __future__ import annotations
 
 import logging
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
 
+from ...agents.context.scroll.history import backup_history_database
 from .._utils.constants import (
     PREFIX_CONFIG,
     PREFIX_SECRETS,
     PREFIX_SKILL_POOL,
     PREFIX_WORKSPACES,
 )
+from .._utils.history_sqlite import (
+    archive_history_db_filename,
+    configured_history_db_path,
+    history_agent_config_bytes,
+    history_sidecar_paths,
+)
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
 
 logger = logging.getLogger(__name__)
 
 
-def add_agent_workspaces(
+class BackupCancelled(Exception):
+    """Raised when cooperative cancellation stops archive creation."""
+
+
+def add_agent_workspaces(  # pylint: disable=too-many-branches
     zf: zipfile.ZipFile,
     valid_agents: list[tuple[str, Any]],
     progress_callback=None,
@@ -28,7 +41,15 @@ def add_agent_workspaces(
 
     Returns:
         False if stop_event was set (cancelled), True otherwise.
+
+    Raises:
+        BackupCancelled: If cancellation interrupts a history snapshot.
     """
+
+    def check_cancelled() -> None:
+        if stop_event and stop_event.is_set():
+            raise BackupCancelled()
+
     total = len(valid_agents)
     logger.info(
         "Backing up %d agent(s): %s",
@@ -47,27 +68,60 @@ def add_agent_workspaces(
         if ws.is_dir():
             file_count = 0
             skipped = 0
-            for entry in sorted(ws.rglob("*")):
-                if stop_event and stop_event.is_set():
-                    return False
-                if not entry.is_file():
-                    continue
-                rel = entry.relative_to(ws).as_posix()
-                arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
-                try:
-                    zf.write(entry, arcname)
-                except (PermissionError, OSError) as exc:
-                    # A file that can't be added (e.g. an open Chromium
-                    # cache file the backend has locked) must not abort
-                    # the whole backup; skip it and continue (#4916).
-                    skipped += 1
-                    logger.warning(
-                        "Skipping %s (could not be added to backup): %s",
-                        entry,
-                        exc,
+            history_db = configured_history_db_path(ws)
+            sidecars = history_sidecar_paths(history_db)
+            history_filename = archive_history_db_filename(ws, history_db)
+            with tempfile.TemporaryDirectory(
+                prefix=f"qwenpaw-history-{aid}-",
+            ) as snapshot_dir:
+                history_snapshot = Path(snapshot_dir) / "history.db"
+                if history_db.is_file():
+                    backup_history_database(
+                        history_db,
+                        history_snapshot,
+                        check_cancelled=check_cancelled,
                     )
-                    continue
-                file_count += 1
+                    zf.write(
+                        history_snapshot,
+                        f"{PREFIX_WORKSPACES}{aid}/{history_filename}",
+                    )
+                    file_count += 1
+                for entry in sorted(ws.rglob("*")):
+                    if stop_event and stop_event.is_set():
+                        return False
+                    resolved_entry = entry.resolve()
+                    if (
+                        not entry.is_file()
+                        or resolved_entry in sidecars
+                        or resolved_entry == history_db
+                    ):
+                        continue
+                    relative = entry.relative_to(ws)
+                    rel = relative.as_posix()
+                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                    try:
+                        if rel == f"agent.json":
+                            zf.writestr(
+                                arcname,
+                                history_agent_config_bytes(
+                                    ws,
+                                    history_filename,
+                                ),
+                            )
+                        else:
+                            zf.write(entry, arcname)
+                    except (PermissionError, OSError) as exc:
+                        # A file that can't be added (e.g. an open Chromium
+                        # cache file the backend has locked) must not abort
+                        # the whole backup; skip it and continue (#4916).
+                        skipped += 1
+                        logger.warning(
+                            "Skipping %s (could not be added to backup): %s",
+                            entry,
+                            exc,
+                        )
+                        continue
+                    file_count += 1
             if skipped:
                 logger.warning(
                     "Agent '%s': skipped %d file(s) that could not be "

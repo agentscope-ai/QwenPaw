@@ -41,6 +41,8 @@ vi.mock("./useTools", () => ({
           { name: "append_file", description: "Append text", enabled: false },
         ],
     loading: false,
+    error: null,
+    ready: true,
     batchLoading: false,
     ...state,
     toggleAsyncExecution: vi.fn(),

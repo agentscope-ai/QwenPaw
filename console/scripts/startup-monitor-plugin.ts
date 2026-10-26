@@ -31,6 +31,7 @@ export function startupMonitorPlugin(): Plugin {
                 copied,
                 copyFailed,
                 checking,
+                serverReadiness,
                 recheckNote,
                 observations,
               } = locale.chunkError;
@@ -44,6 +45,7 @@ export function startupMonitorPlugin(): Plugin {
                   copied,
                   copyFailed,
                   checking,
+                  serverReadiness,
                   recheckNote,
                   observations,
                 },

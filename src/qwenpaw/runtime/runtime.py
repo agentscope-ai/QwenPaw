@@ -526,12 +526,9 @@ class Runtime:
     @staticmethod
     def _cancellation_reason(error: BaseException | None) -> str | None:
         """Read the reason attached by ``Task.cancel(reason)``."""
-        if not isinstance(error, asyncio.CancelledError) or not error.args:
-            return None
-        reason = error.args[0]
-        if reason in {"user", "timeout", "agent", "shutdown"}:
-            return str(reason)
-        return None
+        from ..tool_calls import cancellation_reason
+
+        return cancellation_reason(error)
 
     @staticmethod
     def _runtime_cancel_message(cancel_reason: str | None) -> str:

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { subscribeToPluginChanges } from "@/utils/pluginChangeEvents";
 import {
   fetchPluginCatalog,
   installPlugin,
@@ -19,15 +20,19 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [plugins, setPlugins] = useState<OfficialPluginCatalogEntry[]>([]);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   const loadCatalog = useCallback(async () => {
+    const id = ++requestId.current;
     setLoading(true);
     setCatalogError(null);
     try {
       const data = await fetchPluginCatalog();
+      if (id !== requestId.current) return;
       setCatalogError(data.error || null);
       setPlugins(data.plugins ?? []);
     } catch (err) {
+      if (id !== requestId.current) return;
       const msg =
         err instanceof Error
           ? err.message
@@ -35,12 +40,17 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
       setCatalogError(msg);
       setPlugins([]);
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
   }, [t]);
 
   useEffect(() => {
     void loadCatalog();
+    const unsubscribe = subscribeToPluginChanges(() => void loadCatalog());
+    return () => {
+      unsubscribe();
+      ++requestId.current;
+    };
   }, [loadCatalog]);
 
   const handleInstall = useCallback(
@@ -52,7 +62,6 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
         });
         message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
         await onInstalled(result);
-        await loadCatalog();
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : t("pluginManager.installFailed");
@@ -61,7 +70,7 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
         setInstallingId(null);
       }
     },
-    [loadCatalog, message, onInstalled, t],
+    [message, onInstalled, t],
   );
 
   return {

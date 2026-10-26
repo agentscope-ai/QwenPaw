@@ -201,6 +201,24 @@ def _with_session_model(config, selected):
     return config.model_copy(update=update)
 
 
+def decision_settings(config, override: bool | None) -> dict:
+    """Resolve the session toggle against agent and global configuration."""
+    configured = config.backend == "qwenpaw" and bool(
+        config.decision_model
+        or ProviderManager.get_instance().default_models["decision"],
+    )
+    return {
+        "configured": configured,
+        "override": override,
+        "enabled": configured
+        and (
+            override
+            if override is not None
+            else config.decision_model is not None
+        ),
+    }
+
+
 async def thinking_view(
     workspace,
     override=None,
@@ -240,7 +258,7 @@ async def thinking_view(
             if provider is None or not provider.enabled:
                 return None, None, ThinkingControl(), None, None, None
         info = provider.get_model_info(slot.model)
-        if info is None:
+        if info is None or getattr(info, "model_type", "chat") == "decision":
             return None, None, ThinkingControl(), None, None, None
         name = info.name
         return (
@@ -274,6 +292,13 @@ async def thinking_view(
     if effective.level == f"inherit" and model_default is not None:
         effective = model_default
     return {
+        "decision": await run_sync_io(
+            decision_settings,
+            config,
+            ((meta or {}).get("runtime_context") or {}).get(
+                "decision_enabled",
+            ),
+        ),
         f"model_source": model_source,
         f"model": model,
         f"model_name": model_name,

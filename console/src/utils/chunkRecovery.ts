@@ -1,5 +1,102 @@
 const RELOAD_KEY = "qwenpaw:chunk-reload-build";
 const MAX_RELOADS = 2;
+const HEALTHY_PERIOD_MS = 60_000;
+
+let healthyPages = 0;
+let healthBlocks = 0;
+let healthyTimer: number | undefined;
+
+function cancelHealthyReset() {
+  if (healthyTimer !== undefined) window.clearTimeout(healthyTimer);
+  healthyTimer = undefined;
+}
+
+function isHealthy() {
+  return (
+    healthyPages > 0 &&
+    healthBlocks === 0 &&
+    window.navigator.onLine &&
+    document.visibilityState === "visible"
+  );
+}
+
+function canResetGuard(stored: string | null, build: string) {
+  if (stored === build) return true;
+  if (!stored) return false;
+  try {
+    const guard = JSON.parse(stored);
+    return (
+      guard?.build === build &&
+      Number.isInteger(guard.attempts) &&
+      guard.attempts > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function restartHealthyReset() {
+  if (!isHealthy()) {
+    cancelHealthyReset();
+    return;
+  }
+  if (healthyTimer !== undefined) return;
+  try {
+    const build = getFrontendBuildId();
+    const stored = window.sessionStorage.getItem(RELOAD_KEY);
+    if (!canResetGuard(stored, build)) return;
+    healthyTimer = window.setTimeout(() => {
+      healthyTimer = undefined;
+      if (!isHealthy()) return;
+      try {
+        if (
+          getFrontendBuildId() === build &&
+          window.sessionStorage.getItem(RELOAD_KEY) === stored
+        ) {
+          window.sessionStorage.removeItem(RELOAD_KEY);
+        }
+      } catch {
+        // Storage restrictions keep the existing reload protection intact.
+      }
+    }, HEALTHY_PERIOD_MS);
+  } catch {
+    // A healthy page must remain usable when session storage is restricted.
+  }
+}
+
+function trackRecoveryHealth(healthy: boolean): () => void {
+  if (healthyPages + healthBlocks === 0) {
+    window.addEventListener("online", restartHealthyReset);
+    window.addEventListener("offline", restartHealthyReset);
+    document.addEventListener("visibilitychange", restartHealthyReset);
+  }
+  if (healthy) healthyPages += 1;
+  else healthBlocks += 1;
+  restartHealthyReset();
+  let tracked = true;
+  return () => {
+    if (!tracked) return;
+    tracked = false;
+    if (healthy) healthyPages -= 1;
+    else healthBlocks -= 1;
+    restartHealthyReset();
+    if (healthyPages + healthBlocks === 0) {
+      window.removeEventListener("online", restartHealthyReset);
+      window.removeEventListener("offline", restartHealthyReset);
+      document.removeEventListener("visibilitychange", restartHealthyReset);
+    }
+  };
+}
+
+/** Restore recovery only after committed content stays healthy for a minute. */
+export function markChunkPageHealthy(): () => void {
+  return trackRecoveryHealth(true);
+}
+
+/** Loading and error views block every healthy page in the same tab. */
+export function blockChunkRecoveryHealth(): () => void {
+  return trackRecoveryHealth(false);
+}
 
 export interface ChunkReloadDecision {
   reason:
@@ -51,10 +148,11 @@ export function isChunkLoadError(error: unknown): error is ErrorLike {
   );
 }
 
-/** Publish every decision and reload at most twice per build and tab. */
+/** Reload at most twice per build and tab between sustained healthy periods. */
 export function reloadAfterChunkError(
   onDecision?: (decision: ChunkReloadDecision) => void,
 ): boolean {
+  cancelHealthyReset();
   let decision: ChunkReloadDecision = {
     reason: "offline",
     attempts: null,

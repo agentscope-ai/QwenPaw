@@ -90,8 +90,8 @@
 .more {
   position: absolute;
   right: 7px;
-  width: 24px;
-  height: 24px;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -112,16 +112,23 @@
   background: var(--app-fill);
 }
 
+.more:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
 .renameInput {
   min-width: 0;
   flex: 1;
-  height: 26px;
+  height: var(--app-control-sm);
   font-size: 11px;
 }
 
 @media (hover: none), (max-width: 768px) {
   .more {
     position: static;
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
     opacity: 1;
   }
 

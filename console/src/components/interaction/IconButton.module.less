@@ -1,0 +1,30 @@
+.button {
+  width: var(--app-control-md);
+  min-width: var(--app-control-md);
+  height: var(--app-control-md);
+  padding: 0;
+
+  &:global(.ant-btn-sm),
+  &:global(.qwenpaw-btn-sm) {
+    width: var(--app-control-sm);
+    min-width: var(--app-control-sm);
+    height: var(--app-control-sm);
+  }
+
+  &:global(.ant-btn-lg),
+  &:global(.qwenpaw-btn-lg) {
+    width: var(--app-control-lg);
+    min-width: var(--app-control-lg);
+    height: var(--app-control-lg);
+  }
+}
+
+@media (any-pointer: coarse) {
+  .button,
+  .button:global(.ant-btn-sm),
+  .button:global(.qwenpaw-btn-sm) {
+    width: var(--app-hit-touch);
+    min-width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+  }
+}

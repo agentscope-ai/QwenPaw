@@ -40,6 +40,7 @@ import {
   Users,
 } from "lucide-react";
 import { clearAuthToken } from "../../api/config";
+import { addRouterBasename } from "../../utils/navigationMode";
 import HubShell from "./components/HubShell";
 import OverviewPanel from "./components/OverviewPanel";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -612,7 +613,9 @@ export default function HubPage() {
     defaultProvisionerStatus?.reason || t("hub.runtimes.preflightFailed");
   const logout = () => {
     clearAuthToken();
-    window.location.assign("/login");
+    window.location.assign(
+      addRouterBasename(window.location.pathname, "/login"),
+    );
   };
 
   return (

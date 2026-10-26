@@ -142,7 +142,7 @@ export function SkillDrawer({
     });
   };
 
-  const { schedule, flush } = useAutoSave(async () => {
+  const { schedule, requestClose } = useAutoSave(async () => {
     if (!editing || loading) return false;
     let values: SkillDrawerFormValues;
     try {
@@ -154,7 +154,8 @@ export function SkillDrawer({
     return await handleSubmit(values);
   });
   const closeEditor = async () => {
-    if (!editing || (await flush())) onClose();
+    if (editing) await requestClose(onClose);
+    else onClose();
   };
 
   const handleContentChange = (content: string) => {

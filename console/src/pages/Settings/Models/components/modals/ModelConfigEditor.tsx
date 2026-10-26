@@ -7,6 +7,7 @@ import { ThinkingCapabilityFields } from "./ThinkingCapabilityFields";
 import type { ThinkingControlSpec } from "@/features/thinking/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Switch } from "@agentscope-ai/design";
+import { Select, Space } from "antd";
 import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -59,6 +60,8 @@ export function ModelConfigEditor({
     ThinkingControlSpec | null | undefined
   >();
   const [capabilities, setCapabilities] = useState<CapabilityOverrides>({});
+  const [modelType, setModelType] = useState<ModelInfo["model_type"]>();
+  const isDecision = (modelType ?? model.model_type) === "decision";
   const configuredMaxTokens = requestMaxTokens(model);
 
   const [maxTokens, setMaxTokens] = useState<number | null>(
@@ -92,9 +95,35 @@ export function ModelConfigEditor({
 
   const [text, setText] = useState(initialText);
   const [dirty, setDirty] = useState(false);
+  const [thinkingBudgetMinimum, thinkingBudgetMaximum] = thinkingBudgetRange;
+
+  const inheritedThinkingControl = useMemo<ThinkingControlSpec | null>(() => {
+    if (model.thinking_control) return model.thinking_control;
+    if (!thinkingParamStyle) return null;
+    return {
+      kind: thinkingParamStyle === "budget" ? "budget" : "effort",
+      supports_off: true,
+      efforts: (reasoningEffortOptions ?? ["low", "medium", "high"]).filter(
+        (value) => value !== "none",
+      ) as ThinkingLevel[],
+      budget_min: thinkingBudgetMinimum,
+      budget_max: thinkingBudgetMaximum,
+    };
+  }, [
+    model.thinking_control,
+    thinkingParamStyle,
+    reasoningEffortOptions,
+    thinkingBudgetMinimum,
+    thinkingBudgetMaximum,
+  ]);
+  const previewThinkingControl =
+    thinkingDeclaration === undefined
+      ? inheritedThinkingControl
+      : thinkingDeclaration;
 
   useEffect(() => {
     setCapabilities({});
+    setModelType(undefined);
     setThinkingDeclaration(undefined);
     setText(initialText);
     setMaxTokens(configuredMaxTokens);
@@ -106,6 +135,8 @@ export function ModelConfigEditor({
     setReasoningEffort(model.reasoning_effort ?? null);
     setDirty(false);
   }, [
+    model.id,
+    model.model_type,
     initialText,
     configuredMaxTokens,
     resolvedContext,
@@ -134,8 +165,52 @@ export function ModelConfigEditor({
     setDirty(true);
   }, []);
 
+  const handleThinkingDeclarationChange = useCallback(
+    (next: ThinkingControlSpec | null) => {
+      setThinkingDeclaration(next);
+      setDirty(true);
+      if (!next) {
+        setThinkingEnabled(null);
+        setThinkingBudget(null);
+        setReasoningEffort(null);
+        return;
+      }
+
+      if (next.kind === "unsupported" || next.kind === "unknown") {
+        setThinkingEnabled(null);
+        setThinkingBudget(null);
+        setReasoningEffort(null);
+        return;
+      }
+
+      if (!next.supports_off && thinkingEnabled === false) {
+        setThinkingEnabled(null);
+      }
+      if (next.kind === "budget") {
+        setReasoningEffort(null);
+        if (thinkingBudget !== null) {
+          const minimum = next.budget_min ?? 1;
+          const maximum = next.budget_max ?? minimum;
+          setThinkingBudget(
+            Math.min(maximum, Math.max(minimum, thinkingBudget)),
+          );
+        }
+        return;
+      }
+
+      setThinkingBudget(null);
+      if (
+        reasoningEffort !== null &&
+        !next.efforts.includes(reasoningEffort as ThinkingLevel)
+      ) {
+        setReasoningEffort(null);
+      }
+    },
+    [reasoningEffort, thinkingBudget, thinkingEnabled],
+  );
+
   const handleSave = async () => {
-    const trimmed = text.trim();
+    const trimmed = isDecision ? "" : text.trim();
     let parsed: Record<string, unknown> = {};
     if (trimmed) {
       try {
@@ -158,16 +233,23 @@ export function ModelConfigEditor({
     setSaving(true);
     try {
       const updated = await api.configureModel(providerId, model.id, {
-        ...capabilities,
-        ...(thinkingDeclaration !== undefined
-          ? { thinking_control: thinkingDeclaration }
+        model_type: modelType,
+        ...(!isDecision
+          ? {
+              ...capabilities,
+              ...(thinkingDeclaration !== undefined
+                ? { thinking_control: thinkingDeclaration }
+                : {}),
+              ...(maxInputLengthDirty
+                ? { max_input_length: maxInputLength }
+                : {}),
+              generate_kwargs: parsed,
+              relay_reasoning: relayReasoning,
+              thinking_enabled: thinkingEnabled,
+              thinking_budget: thinkingBudget,
+              reasoning_effort: reasoningEffort,
+            }
           : {}),
-        ...(maxInputLengthDirty ? { max_input_length: maxInputLength } : {}),
-        generate_kwargs: parsed,
-        relay_reasoning: relayReasoning,
-        thinking_enabled: thinkingEnabled,
-        thinking_budget: thinkingBudget,
-        reasoning_effort: reasoningEffort,
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
@@ -186,8 +268,8 @@ export function ModelConfigEditor({
     }
   };
 
-  return (
-    <div className={styles.editor}>
+  const chatFields = !isDecision && (
+    <>
       <InteractiveCard as="section" tilt={0} className={styles.capabilities}>
         <ModelCapabilitiesFields
           model={model}
@@ -224,21 +306,15 @@ export function ModelConfigEditor({
             }
           />
         </InteractiveCard>
-        {(model.thinking_control || thinkingParamStyle) && (
+        {previewThinkingControl && (
           <InteractiveCard as="section" tilt={0} className={styles.thinking}>
+            <div className={styles.thinkingHeading}>
+              <span>{t("thinkingControl.title")}</span>
+              <InlineHelp>{t("thinkingControl.modelSettingHint")}</InlineHelp>
+            </div>
             <ThinkingControl
               tone="quiet"
-              control={
-                model.thinking_control ?? {
-                  kind: thinkingParamStyle === "budget" ? "budget" : "effort",
-                  supports_off: true,
-                  efforts: (
-                    reasoningEffortOptions ?? ["low", "medium", "high"]
-                  ).filter((v) => v !== "none") as ThinkingLevel[],
-                  budget_min: thinkingBudgetRange[0],
-                  budget_max: thinkingBudgetRange[1],
-                }
-              }
+              control={previewThinkingControl}
               value={
                 thinkingEnabled === false || reasoningEffort === "none"
                   ? { level: "off" }
@@ -275,10 +351,7 @@ export function ModelConfigEditor({
                 ? model.thinking_control
                 : thinkingDeclaration
             }
-            onChange={(next) => {
-              setThinkingDeclaration(next);
-              setDirty(true);
-            }}
+            onChange={handleThinkingDeclarationChange}
           />
 
           {/* Responses API models handle reasoning via native reasoning items
@@ -313,6 +386,29 @@ export function ModelConfigEditor({
           />
         </details>
       </InteractiveCard>
+    </>
+  );
+
+  return (
+    <div className={styles.editor}>
+      <Space>
+        <span>{t("models.modelType")}</span>
+        <Select
+          size="small"
+          style={{ width: 128 }}
+          aria-label={t("models.modelType")}
+          value={modelType ?? model.model_type ?? "chat"}
+          options={[
+            { value: "chat", label: t("models.modelTypeChat") },
+            { value: "decision", label: t("models.modelTypeDecision") },
+          ]}
+          onChange={(value) => {
+            setModelType(value);
+            setDirty(true);
+          }}
+        />
+      </Space>
+      {chatFields}
       <div className={styles.actions}>
         <Button
           type="primary"

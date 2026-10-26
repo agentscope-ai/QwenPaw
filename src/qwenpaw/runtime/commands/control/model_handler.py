@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ....exceptions import ProviderError
+
 from ....utils.io_utils import run_sync_io
 from ....utils.logging import sanitize_log_value
 from .base import BaseControlCommandHandler, ControlContext
@@ -196,7 +198,11 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
             # Get all models for this provider (both built-in and user-added)
             extra_models = list(provider_info.extra_models)
-            all_models = list(provider_info.models) + extra_models
+            all_models = [
+                m
+                for m in list(provider_info.models) + extra_models
+                if m.model_type == "chat"
+            ]
             extra_model_ids = {m.id for m in extra_models}
 
             lines.append(f"\n**Provider: {provider_name}** (`{provider_id}`)")
@@ -512,4 +518,8 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Model `{model_id}` not found in provider `{provider_id}`.",
             )
 
+        try:
+            provider.validate_chat_model(model_id)
+        except ProviderError as exc:
+            return False, str(exc)
         return True, ""

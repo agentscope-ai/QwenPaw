@@ -1,6 +1,7 @@
 {
   "id": "modelscope-hub",
-  "name": "ModelScope Hub",
+  "name": "ModelScope Skill Hub",
+  "publish": false,
   "version": "1.0.0",
   "type": "hub",
   "description": "ModelScope Skill marketplace source.",

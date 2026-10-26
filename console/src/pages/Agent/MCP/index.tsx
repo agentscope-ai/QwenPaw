@@ -1,6 +1,6 @@
 import { Cascade } from "@/components/interaction/Cascade";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import { Button, Empty, Input, Select } from "@agentscope-ai/design";
 import { Tabs, Alert, Segmented } from "antd";
 import InlineHelp from "@/components/InlineHelp";
@@ -78,9 +78,12 @@ const defaultForm = {
 function MCPPage() {
   const { t } = useTranslation();
   const {
+    agentId,
     clients,
     providerServers,
     loading,
+    error,
+    ready,
     toggleEnabled,
     deleteClient,
     createClient,
@@ -140,6 +143,14 @@ function MCPPage() {
     setActiveTab("form");
     setCreateError(null);
   }, []);
+  const activeAgentRef = useRef(agentId);
+
+  useLayoutEffect(() => {
+    if (activeAgentRef.current === agentId) return;
+    activeAgentRef.current = agentId;
+    setCreateModalOpen(false);
+    resetModal();
+  }, [agentId, resetModal]);
 
   const handleToggleEnabled = async (
     client: MCPClientInfo,
@@ -156,6 +167,8 @@ function MCPPage() {
 
   // ---------- JSON import ----------
   const handleCreateFromJson = async () => {
+    const submitAgent = agentId;
+    if (activeAgentRef.current !== submitAgent) return;
     setCreateError(null);
     try {
       const parsed = JSON.parse(newClientJson) as Record<string, unknown>;
@@ -206,6 +219,7 @@ function MCPPage() {
       let allSuccess = true;
       for (const { key, data } of clientsToCreate) {
         const success = await createClient(key, data);
+        if (activeAgentRef.current !== submitAgent) return;
         if (!success) allSuccess = false;
       }
 
@@ -220,6 +234,8 @@ function MCPPage() {
 
   // ---------- Form create ----------
   const handleCreateFromForm = async () => {
+    const submitAgent = agentId;
+    if (activeAgentRef.current !== submitAgent) return;
     setCreateError(null);
     const key = form.key.trim();
     const name = form.name.trim();
@@ -275,6 +291,7 @@ function MCPPage() {
     };
 
     const success = await createClient(key, clientData);
+    if (activeAgentRef.current !== submitAgent) return;
     if (success) {
       setCreateModalOpen(false);
       resetModal();
@@ -289,127 +306,164 @@ function MCPPage() {
       <PageHeader
         current={t("mcp.title")}
         extra={
-          <Button
-            type="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setCreateModalOpen(true)}
-          >
-            {t("mcp.create")}
-          </Button>
+          ready ? (
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              onClick={() => setCreateModalOpen(true)}
+            >
+              {t("mcp.create")}
+            </Button>
+          ) : undefined
         }
       />
 
-      <div className={styles.collectionToolbar}>
-        <Input
-          aria-label={t("common.search")}
-          placeholder={t("common.search")}
-          prefix={<Search size={16} />}
-          value={query}
-          allowClear
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <Segmented
-          value={filter}
-          onChange={(value) => setFilter(String(value))}
-          options={[
-            { value: "all", label: t("common.all") },
-            { value: "enabled", label: t("common.enabled") },
-            { value: "disabled", label: t("common.disabled") },
-          ]}
-        />
-      </div>
-      {loading ? (
+      {ready && (
+        <div className={styles.collectionToolbar}>
+          <Input
+            aria-label={t("common.search")}
+            placeholder={t("common.search")}
+            prefix={<Search size={16} />}
+            value={query}
+            allowClear
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <Segmented
+            value={filter}
+            onChange={(value) => setFilter(String(value))}
+            options={[
+              { value: "all", label: t("common.all") },
+              { value: "enabled", label: t("common.enabled") },
+              { value: "disabled", label: t("common.disabled") },
+            ]}
+          />
+        </div>
+      )}
+      {!ready ? (
         <div className={styles.loading}>
-          <p>{t("common.loading")}</p>
-        </div>
-      ) : clients.length === 0 && providerServers.length === 0 ? (
-        <div className={styles.emptyState}>
-          <Empty description={t("mcp.emptyState")} />
-        </div>
-      ) : (
-        <div className={styles.mcpSections}>
-          <section className={styles.mcpSection}>
-            <div className={styles.sectionHeader}>
-              <div className={styles.sectionIcon}>
-                <Server size={17} />
-              </div>
-              <div>
-                <h2>{t("mcp.qwenpawManaged")}</h2>
-                <InlineHelp>{t("mcp.qwenpawManagedHint")}</InlineHelp>
-              </div>
-            </div>
-            {visibleClients.length === 0 ? (
-              <div className={styles.sectionEmpty}>{t("mcp.emptyState")}</div>
-            ) : (
-              <div className={styles.mcpGrid}>
-                {visibleClients.map((client, index) => (
-                  <Cascade key={client.key} index={index}>
-                    <MCPClientCard
-                      client={client}
-                      onToggle={handleToggleEnabled}
-                      onDelete={handleDelete}
-                      onUpdate={updateClient}
-                      onUpdatePolicy={updatePolicy}
-                      onRefresh={refreshClients}
-                    />
-                  </Cascade>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {providerServers.length > 0 && (
-            <section className={styles.mcpSection}>
-              <div className={styles.sectionHeader}>
-                <div className={styles.sectionIcon}>
-                  <LockKeyhole size={17} />
-                </div>
-                <div>
-                  <h2>
-                    {t("mcp.providerManaged", {
-                      provider: providerServers[0].provider_id,
-                    })}
-                  </h2>
-                  <InlineHelp>{t("mcp.providerManagedHint")}</InlineHelp>
-                </div>
-              </div>
-              <div className={styles.providerGrid}>
-                {providerServers.map((server) => (
-                  <article
-                    className={styles.providerCard}
-                    key={`${server.provider_id}:${server.name}`}
-                  >
-                    <div className={styles.providerCardHeader}>
-                      <strong>{server.name}</strong>
-                      <span
-                        className={
-                          server.enabled
-                            ? styles.providerEnabled
-                            : styles.providerDisabled
-                        }
-                      >
-                        {server.enabled
-                          ? t("common.enabled")
-                          : t("common.disabled")}
-                      </span>
-                    </div>
-                    <div className={styles.providerMeta}>
-                      <span>{server.transport}</span>
-                      <span>{t("mcp.providerOnly")}</span>
-                      <span>{t("mcp.readOnly")}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
+          {error ? (
+            <Alert
+              type="error"
+              showIcon
+              message={error}
+              action={
+                <Button onClick={() => void refreshClients()}>
+                  {t("common.retry")}
+                </Button>
+              }
+            />
+          ) : (
+            <p>{t("common.loading")}</p>
           )}
         </div>
+      ) : (
+        <>
+          {error && (
+            <Alert
+              className={styles.loadWarning}
+              type="warning"
+              showIcon
+              message={error}
+              action={
+                <Button onClick={() => void refreshClients()}>
+                  {t("common.retry")}
+                </Button>
+              }
+            />
+          )}
+          {loading ? null : clients.length === 0 &&
+            providerServers.length === 0 ? (
+            <div className={styles.emptyState}>
+              <Empty description={t("mcp.emptyState")} />
+            </div>
+          ) : (
+            <div className={styles.mcpSections}>
+              <section className={styles.mcpSection}>
+                <div className={styles.sectionHeader}>
+                  <div className={styles.sectionIcon}>
+                    <Server size={17} />
+                  </div>
+                  <div>
+                    <h2>{t("mcp.qwenpawManaged")}</h2>
+                    <InlineHelp>{t("mcp.qwenpawManagedHint")}</InlineHelp>
+                  </div>
+                </div>
+                {visibleClients.length === 0 ? (
+                  <div className={styles.sectionEmpty}>
+                    {t("mcp.emptyState")}
+                  </div>
+                ) : (
+                  <div className={styles.mcpGrid}>
+                    {visibleClients.map((client, index) => (
+                      <Cascade key={`${agentId}:${client.key}`} index={index}>
+                        <MCPClientCard
+                          client={client}
+                          onToggle={handleToggleEnabled}
+                          onDelete={handleDelete}
+                          onUpdate={updateClient}
+                          onUpdatePolicy={updatePolicy}
+                          onRefresh={refreshClients}
+                        />
+                      </Cascade>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {providerServers.length > 0 && (
+                <section className={styles.mcpSection}>
+                  <div className={styles.sectionHeader}>
+                    <div className={styles.sectionIcon}>
+                      <LockKeyhole size={17} />
+                    </div>
+                    <div>
+                      <h2>
+                        {t("mcp.providerManaged", {
+                          provider: providerServers[0].provider_id,
+                        })}
+                      </h2>
+                      <InlineHelp>{t("mcp.providerManagedHint")}</InlineHelp>
+                    </div>
+                  </div>
+                  <div className={styles.providerGrid}>
+                    {providerServers.map((server) => (
+                      <article
+                        className={styles.providerCard}
+                        key={`${server.provider_id}:${server.name}`}
+                      >
+                        <div className={styles.providerCardHeader}>
+                          <strong>{server.name}</strong>
+                          <span
+                            className={
+                              server.enabled
+                                ? styles.providerEnabled
+                                : styles.providerDisabled
+                            }
+                          >
+                            {server.enabled
+                              ? t("common.enabled")
+                              : t("common.disabled")}
+                          </span>
+                        </div>
+                        <div className={styles.providerMeta}>
+                          <span>{server.transport}</span>
+                          <span>{t("mcp.providerOnly")}</span>
+                          <span>{t("mcp.readOnly")}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       <Modal
         centered
         title={t("mcp.create")}
-        open={createModalOpen}
+        open={ready && createModalOpen}
         onCancel={() => {
           setCreateModalOpen(false);
           resetModal();

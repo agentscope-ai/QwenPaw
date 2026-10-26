@@ -151,7 +151,9 @@ interface ChannelDrawerProps {
   isBuiltin: boolean;
   channelSchema?: ChannelSchema;
   onClose: () => void;
-  onSubmit: (values: Record<string, unknown>) => void | Promise<void>;
+  onSubmit: (
+    values: Record<string, unknown>,
+  ) => void | boolean | Promise<void | boolean>;
 }
 
 export function ChannelDrawer({
@@ -184,6 +186,12 @@ export function ChannelDrawer({
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey, t) : activeLabel;
   const { message } = useAppMessage();
+  const formInitialValues: Record<string, unknown> = {
+    ...(activeKey !== "console" ? { no_text_debounce: true } : {}),
+    ...(activeKey === "sip" ? { sip_mode: "dev", sip_transport: "UDP" } : {}),
+    ...(activeKey === "mqtt" ? { transport: "tcp", qos: "2" } : {}),
+    ...initialValues,
+  };
   const matrixAuthMethod = Form.useWatch("auth_method", form);
   const isMatrixPasswordAuth = matrixAuthMethod === "password";
   const feishuDomain = (Form.useWatch("domain", form) as string) || "feishu";
@@ -841,7 +849,6 @@ export function ChannelDrawer({
             <Form.Item
               name="transport"
               label={t("channels.sipTransport")}
-              initialValue="tcp"
               rules={[{ required: true }]}
             >
               <Select>
@@ -861,7 +868,6 @@ export function ChannelDrawer({
             <Form.Item
               name="qos"
               label={t("channels.fieldQoS")}
-              initialValue="2"
               rules={[{ required: true }]}
             >
               <Select>
@@ -1023,7 +1029,6 @@ export function ChannelDrawer({
               name="sip_mode"
               label={t("channels.sipMode")}
               tooltip={t("channels.sipModeTooltip")}
-              initialValue="dev"
             >
               <Select
                 options={[
@@ -1079,11 +1084,7 @@ export function ChannelDrawer({
                 placeholder="5061"
               />
             </Form.Item>
-            <Form.Item
-              name="sip_transport"
-              label={t("channels.sipTransport")}
-              initialValue="UDP"
-            >
+            <Form.Item name="sip_transport" label={t("channels.sipTransport")}>
               <Select
                 options={[
                   { value: "UDP", label: "UDP" },
@@ -1808,19 +1809,19 @@ export function ChannelDrawer({
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  const { schedule, flush } = useAutoSave(async () => {
-    const values = form.getFieldsValue(true);
+  const { schedule, flush, requestClose } = useAutoSave(async () => {
+    // Only currently registered fields belong to this channel's payload.
+    const values = form.getFieldsValue();
     try {
       await form.validateFields();
     } catch {
       return false;
     }
     if (activeKey !== "matrix") {
-      await onSubmit(values);
-      return;
+      return onSubmit(values);
     }
     const { auth_method, ...rest } = values;
-    await onSubmit(
+    return onSubmit(
       auth_method === "password"
         ? { ...rest, access_token: "" }
         : { ...rest, password: "", encryption: false },
@@ -1833,11 +1834,7 @@ export function ChannelDrawer({
       placement="right"
       title={drawerTitle}
       open={open}
-      onClose={() => {
-        void flush().then((saved) => {
-          if (saved) onClose();
-        });
-      }}
+      onClose={() => void requestClose(onClose)}
       destroyOnHidden
       footer={null}
       key={activeKey} // Force remount when switching channels
@@ -1847,7 +1844,7 @@ export function ChannelDrawer({
           form={form}
           layout="vertical"
           className={styles.channelForm}
-          initialValues={initialValues}
+          initialValues={formInitialValues}
           onFinishFailed={() =>
             setExpandedSections([
               "credentials",
@@ -2007,11 +2004,11 @@ export function ChannelDrawer({
                         renderAccessControlFields()}
                       {activeKey !== "console" && (
                         <Form.Item
+                          className={styles.noTextDebounceItem}
                           name="no_text_debounce"
                           label={t("channels.noTextDebounce")}
                           valuePropName="checked"
                           tooltip={t("channels.noTextDebounceTooltip")}
-                          initialValue={true}
                         >
                           <Switch />
                         </Form.Item>

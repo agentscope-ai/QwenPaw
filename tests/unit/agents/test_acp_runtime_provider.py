@@ -313,6 +313,8 @@ async def test_runtime_provider_rejects_other_model():
 
 
 async def test_runtime_failure_is_an_acp_request_error(monkeypatch):
+    """Unexpected internal errors keep the JSON-RPC error contract."""
+
     async def _raise_runtime_error():
         raise RuntimeError("upstream returned secret-token")
 
@@ -409,3 +411,34 @@ def test_acp_protocol_and_overrides_are_private(protocol):
     assert config.model_overrides[f"generate_kwargs"] == {f"temperature": 0.2}
     first.models[0].generate_kwargs[f"temperature"] = 0.9
     assert second.models[0].generate_kwargs[f"temperature"] == 0.2
+
+
+@pytest.mark.parametrize(f"failure", [RuntimeError, asyncio.CancelledError])
+async def test_failed_workspace_start_cleans_up(
+    monkeypatch,
+    tmp_path,
+    failure,
+):
+    """Failed startup must not leave partially started services."""
+    from unittest.mock import AsyncMock, Mock
+    from qwenpaw.app.workspace import workspace as workspace_module
+
+    workspace = SimpleNamespace(
+        bootstrap_plugins=Mock(),
+        set_app_services=Mock(),
+        start=AsyncMock(side_effect=failure(f"Startup stopped")),
+        stop=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        workspace_module,
+        f"Workspace",
+        Mock(return_value=workspace),
+    )
+    agent = QwenPawACPAgent(agent_id=f"default", workspace_dir=tmp_path)
+    monkeypatch.setattr(agent, f"_ensure_app_services", AsyncMock())
+    monkeypatch.setattr(agent, f"_build_bootstrap_kwargs", lambda _: {})
+    with pytest.raises(failure):
+        await agent._ensure_workspace()
+    workspace.stop.assert_awaited_once_with(final=True)
+    assert agent._workspace is None
+    assert not agent._workspace_ready
