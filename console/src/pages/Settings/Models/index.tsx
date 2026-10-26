@@ -358,6 +358,12 @@ function ModelsPage() {
                     />
                   </div>
                   <Button
+                    icon={<PlusOutlined />}
+                    onClick={() => setQuickAddOpen(true)}
+                  >
+                    {t("models.quickAdd")}
+                  </Button>
+                  <Button
                     type="primary"
                     icon={<PlusOutlined />}
                     onClick={() => setAddProviderOpen(true)}
