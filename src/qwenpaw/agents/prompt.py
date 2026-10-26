@@ -384,36 +384,61 @@ def build_bootstrap_guidance(
     )
 
 
-def _get_active_model_info():
+def _resolve_active_model_slot(model_slot=None):
+    """Resolve the model slot that serves the current turn.
+
+    Priority: explicit slot > tool-scoped effective slot > persisted
+    ``agent.json`` pointer > global default.  The tool-scoped value is set
+    while a guarded tool runs, so a session model override is visible to
+    capability helpers that re-read configuration from disk.
+    """
+    if model_slot is not None:
+        return model_slot
+
+    try:
+        from ..config.context import get_current_effective_model
+
+        active = get_current_effective_model()
+        if active is not None:
+            return active
+    except Exception:
+        pass
+
+    try:
+        from ..app.agent_context import get_current_agent_id
+        from ..config.config import load_agent_config
+
+        agent_id = get_current_agent_id()
+        agent_config = load_agent_config(agent_id)
+        if agent_config.active_model:
+            return agent_config.active_model
+    except Exception:
+        pass
+
+    try:
+        from ..providers.provider_manager import ProviderManager
+
+        return ProviderManager.get_instance().get_active_model()
+    except Exception:
+        return None
+
+
+def _get_active_model_info(model_slot=None):
     """Resolve the active model's ModelInfo and model name.
 
-    Tries agent-specific model first, then falls back to global.
+    Tries the explicit slot, then the tool-scoped effective model, then
+    the agent-specific configuration, then the global default.
 
     Returns:
         A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
         when the active model cannot be resolved.
     """
     try:
-        from ..app.agent_context import get_current_agent_id
-        from ..config.config import load_agent_config
         from ..providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
 
-        # Try to get agent-specific model first
-        active = None
-        try:
-            agent_id = get_current_agent_id()
-            agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
-                active = agent_config.active_model
-        except Exception:
-            pass
-
-        # Fallback to global active model
-        if not active:
-            active = manager.get_active_model()
-
+        active = _resolve_active_model_slot(model_slot)
         if not active:
             return None, None
 
@@ -518,9 +543,14 @@ def get_active_model_multimodal_raw() -> bool | None:
     return model_info.supports_multimodal
 
 
-def build_multimodal_hint() -> str:
-    """Build a short system-prompt snippet describing multimodal capability."""
-    model_info, model_name = _get_active_model_info()
+def build_multimodal_hint(model_slot=None) -> str:
+    """Build a short system-prompt snippet describing multimodal capability.
+
+    Args:
+        model_slot: Optional slot that serves this turn. When omitted the
+            shared resolution order (tool scope, agent, global) is used.
+    """
+    model_info, model_name = _get_active_model_info(model_slot)
     if model_info is None:
         return ""
     return format_multimodal_hint(model_info, model_name)

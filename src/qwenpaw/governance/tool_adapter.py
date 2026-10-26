@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import logging
 import uuid
+from contextlib import aclosing
+from inspect import isasyncgen
 from typing import Any, Optional
 
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from .policy import (
@@ -514,6 +516,50 @@ async def _policy_tool_check_permissions(
         )
 
 
+async def _scoped_async_tool(iterator: Any, model_slot: Any):
+    """Re-enter the tool scope for every item of a streaming tool.
+
+    An async-generator tool returns from ``FunctionTool.__call__`` before
+    its body runs; the scope must therefore wrap each ``__anext__``.
+    """
+    from ..config.context import scoped_effective_model
+
+    async with aclosing(iterator) as stream:
+        while True:
+            with scoped_effective_model(model_slot):
+                try:
+                    item = await stream.__anext__()
+                except StopAsyncIteration:
+                    return
+            yield item
+
+
+async def _call_with_effective_model(
+    tool: Any,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    """Invoke the wrapped tool with its turn's effective model in scope.
+
+    Capability helpers inside tools (for example ``view_image``) resolve
+    the serving model from this scope instead of re-reading the persisted
+    agent pointer, which a session model override must not shadow.
+    """
+    from agentscope.tool import FunctionTool
+
+    from ..config.context import scoped_effective_model
+
+    request_context = getattr(tool, "_qp_request_context", None) or {}
+    model_slot = request_context.get("effective_model")
+    if model_slot is None:
+        return await FunctionTool.__call__(tool, *args, **kwargs)
+    with scoped_effective_model(model_slot):
+        result = await FunctionTool.__call__(tool, *args, **kwargs)
+    if isasyncgen(result):
+        return _scoped_async_tool(result, model_slot)
+    return result
+
+
 async def _policy_tool_call(
     self: Any,
     *args: Any,
@@ -532,10 +578,7 @@ async def _policy_tool_call(
             kwargs["sandbox_config"] = sandbox_config
 
     # Call the original function
-    from agentscope.tool import FunctionTool
-    from agentscope.message import ToolResultState
-
-    result = await FunctionTool.__call__(self, *args, **kwargs)
+    result = await _call_with_effective_model(self, *args, **kwargs)
 
     # Check if sandbox violation was returned (state=DENIED)
     if not (
@@ -638,7 +681,7 @@ async def _policy_tool_call(
         )
         kwargs.pop("sandbox_config", None)
         self._qp_sandbox_mode = False
-        return await FunctionTool.__call__(self, *args, **kwargs)
+        return await _call_with_effective_model(self, *args, **kwargs)
     else:
         # User denied: return the violation as DENIED
         return ToolChunk(

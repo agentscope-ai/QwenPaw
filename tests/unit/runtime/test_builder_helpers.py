@@ -328,3 +328,57 @@ class TestBoundSkillLoaderDirs:
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == [str(skill)]
+
+
+class TestResolveEffectiveModel:
+    """The turn's serving slot drives prompt and tool capability checks."""
+
+    def test_uses_session_resolved_agent_model(self):
+        from qwenpaw.config.config import ModelSlotConfig
+
+        slot = ModelSlotConfig(provider_id="p", model="session-model")
+        config = types.SimpleNamespace(active_model=slot)
+
+        assert (
+            builder_mod.AgentBuilder._resolve_effective_model(
+                config,
+                None,
+            )
+            == slot
+        )
+
+    def test_request_override_wins(self):
+        from qwenpaw.config.config import ModelSlotConfig
+
+        config = types.SimpleNamespace(
+            active_model=ModelSlotConfig(provider_id="p", model="agent"),
+        )
+
+        assert builder_mod.AgentBuilder._resolve_effective_model(
+            config,
+            {"provider_id": "p", "model": "override"},
+        ) == ModelSlotConfig(provider_id="p", model="override")
+
+    def test_string_override_is_normalized(self):
+        from qwenpaw.config.config import ModelSlotConfig
+
+        config = types.SimpleNamespace(active_model=None)
+
+        assert builder_mod.AgentBuilder._resolve_effective_model(
+            config,
+            "p:override",
+        ) == ModelSlotConfig(provider_id="p", model="override")
+
+    def test_empty_override_falls_back_like_the_model_factory(self):
+        from qwenpaw.config.config import ModelSlotConfig
+
+        agent_slot = ModelSlotConfig(provider_id="p", model="agent")
+        config = types.SimpleNamespace(active_model=agent_slot)
+
+        assert (
+            builder_mod.AgentBuilder._resolve_effective_model(
+                config,
+                {"provider_id": "", "model": ""},
+            )
+            == agent_slot
+        )

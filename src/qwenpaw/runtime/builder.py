@@ -350,6 +350,21 @@ class AgentBuilder:
         agent_config = await apply_session_thinking(ctx, agent_config)
         ctx.agent_config = agent_config
 
+        # Publish the slot that serves this turn before any tool is
+        # constructed: driver tools copy the request context at build
+        # time, while capability helpers read it during tool calls.
+        request = getattr(ctx, "request", None)
+        model_slot_override = getattr(request, "model_slot_override", None)
+        if model_slot_override is None:
+            model_slot_override = request_context.get("model_slot_override")
+        request_context["effective_model"] = self._resolve_effective_model(
+            agent_config,
+            model_slot_override,
+        )
+        if not hasattr(ctx, "extras") or ctx.extras is None:
+            ctx.extras = {}
+        ctx.extras["effective_model"] = request_context["effective_model"]
+
         # Validate model availability.
         active = agent_config.active_model
         if not (active and active.provider_id and active.model):
@@ -453,9 +468,6 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model_slot_override = getattr(ctx.request, "model_slot_override", None)
-        if model_slot_override is None:
-            model_slot_override = request_context.get("model_slot_override")
         model, _formatter = await run_sync_io(
             self.build_model,
             agent_config,
@@ -613,6 +625,7 @@ class AgentBuilder:
                 "heartbeat_enabled": heartbeat_enabled,
                 "env_context": self._build_env_context(ctx, agent_config),
                 "agent_config": agent_config,
+                "effective_model": ctx_extras.get("effective_model"),
                 "driver_prompt_hints": self._get_driver_prompt_hints(ctx),
                 "preloaded_skills": preloaded_skills,
             },
@@ -698,6 +711,26 @@ class AgentBuilder:
         if workspace is not None:
             return getattr(workspace, "local_workspace", None)
         return None
+
+    @staticmethod
+    def _resolve_effective_model(
+        agent_config: Any,
+        model_slot_override: Any,
+    ) -> Any:
+        """Return the model slot that serves this turn.
+
+        A request-level override wins; otherwise the agent config already
+        carries the session's model after ``apply_session_thinking``.
+        """
+        from ..agents.model_factory import (
+            _is_usable_model_slot,
+            _resolve_model_slot_override,
+        )
+
+        slot = _resolve_model_slot_override(model_slot_override)
+        if _is_usable_model_slot(slot):
+            return slot
+        return agent_config.active_model
 
     @staticmethod
     def _build_request_context(ctx: Any) -> dict[str, Any]:
