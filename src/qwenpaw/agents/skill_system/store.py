@@ -164,23 +164,36 @@ def get_skill_pool_dirs() -> list[Path]:
     return [get_skill_pool_dir(), *get_extra_skill_dirs()]
 
 
+def safe_nested_skill_dir(base_dir: Path, rel: str) -> Path:
+    """Resolve a possibly-nested relative skill path inside *base_dir*.
+
+    Unlike ``safe_skill_dir`` this accepts ``/`` separators so a categorised
+    destination (``cat/skill``) is allowed, while still guarding escape.
+    """
+    candidate = (base_dir / rel).resolve()
+    base_resolved = base_dir.resolve()
+    if not candidate.is_relative_to(base_resolved):
+        raise SkillsError(
+            message=f"Unsafe skill path outside root: {rel}",
+        )
+    return candidate
+
+
 def resolve_pool_skill_dir(skill_name: str) -> Path | None:
     """Resolve a pool skill's directory across all roots, in order.
 
-    Returns the first ``<root>/<skill_name>`` containing ``SKILL.md`` (primary
-    pool wins), or ``None`` when the skill is not found in any root.
+    Returns the first matching directory containing ``SKILL.md`` (primary
+    pool wins), or ``None`` when the skill is not found in any root. Nested
+    layouts are matched by leaf name so a categorised pool still resolves.
     """
     try:
         normalized = normalize_skill_dir_name(skill_name)
     except SkillsError:
         return None
     for root in get_skill_pool_dirs():
-        try:
-            candidate = safe_skill_dir(root, normalized)
-        except SkillsError:
-            continue
-        if (candidate / "SKILL.md").exists():
-            return candidate
+        resolved = resolve_skill_dir(root, normalized)
+        if resolved is not None:
+            return resolved
     return None
 
 
@@ -391,6 +404,28 @@ _IGNORED_SKILL_ARTIFACTS = {
     ".DS_Store",
     "Thumbs.db",
     "desktop.ini",
+}
+
+# Directory names never descended into during a recursive skill scan: version
+# control, mirrors, archives and caches. Mirrors Hermes' EXCLUDED_SKILL_DIRS.
+_SKILL_SCAN_EXCLUDED = {
+    ".archive",
+    ".git",
+    ".github",
+    ".hub",
+    ".locks",
+    "_org",
+    ".curator_backups",
+    "node_modules",
+}
+
+# Sub-directories that are part of a skill's *content* rather than a nested
+# skill. Only pruned when the parent directory itself holds a SKILL.md.
+_SKILL_SUPPORT_DIRS = {
+    "references",
+    "templates",
+    "assets",
+    "scripts",
 }
 
 
@@ -748,7 +783,93 @@ def is_ignored_skill_entry(name: str) -> bool:
     skill-dir enumeration (registry scanners, pool / workspace conflict
     checks, zip imports). Add new patterns here when they appear.
     """
-    return name in _IGNORED_SKILL_ARTIFACTS or name.startswith((".", "~"))
+    return (
+        name in _IGNORED_SKILL_ARTIFACTS
+        or name in _SKILL_SCAN_EXCLUDED
+        or name.startswith((".", "~"))
+    )
+
+
+def iter_skill_dirs(root: Path) -> Iterator[Path]:
+    """Yield every SKILL.md-bearing directory under *root*, recursively.
+
+    Supports nested organisation (``<root>/<category>/<skill>/``) while
+    keeping the flat layout working unchanged. A directory that itself holds
+    a ``SKILL.md`` is a skill; its ``references`` / ``scripts`` / ``assets``
+    / ``templates`` sub-directories are content, so they are not descended
+    into as skill candidates. Symlink cycles are guarded via visited
+    realpaths.
+
+    Yield order is depth-first, parents before their children, sorted by
+    name for stability.
+    """
+    if not root.is_dir():
+        return
+
+    seen: set[Path] = set()
+
+    def walk(directory: Path) -> Iterator[Path]:
+        try:
+            real = directory.resolve()
+        except OSError:
+            return
+        if real in seen:
+            return
+        seen.add(real)
+
+        try:
+            children = sorted(directory.iterdir(), key=lambda item: item.name)
+        except OSError:
+            return
+
+        has_skill_md = (directory / "SKILL.md").is_file()
+        if has_skill_md:
+            yield directory
+
+        for child in children:
+            if not child.is_dir() or is_ignored_skill_entry(child.name):
+                continue
+            if has_skill_md and child.name in _SKILL_SUPPORT_DIRS:
+                continue
+            yield from walk(child)
+
+    yield from walk(root)
+
+
+def rel_path_of(root: Path, skill_dir: Path) -> str:
+    """Return *skill_dir* relative to *root* as a posix-style string."""
+    try:
+        return skill_dir.relative_to(root).as_posix()
+    except ValueError:
+        return skill_dir.name
+
+
+def resolve_skill_dir(
+    root: Path,
+    name: str,
+    rel_path: str = "",
+) -> Path | None:
+    """Resolve a skill *name* to its directory inside *root*.
+
+    ``rel_path`` (recorded in the manifest) is authoritative while it still
+    points at a real skill directory; the direct ``root / name`` layout is
+    tried next; a recursive leaf-name match is the final fallback so a
+    manually moved skill keeps resolving.
+    """
+    if rel_path:
+        candidate = root / rel_path
+        if (candidate / "SKILL.md").is_file():
+            return candidate
+
+    direct = root / name
+    if (direct / "SKILL.md").is_file():
+        return direct
+
+    for skill_dir in iter_skill_dirs(root):
+        if skill_dir.name == name:
+            return skill_dir
+
+    return None
 
 
 def _extract_and_validate_zip(data: bytes, tmp_dir: Path) -> None:
@@ -1046,14 +1167,13 @@ def workspace_skill_name_conflict(
     skill with *normalized_name* already exists, else ``None``.
     """
     skill_root = get_workspace_skills_dir(workspace_dir)
-    if not (skill_root / normalized_name).exists():
+    if (
+        resolve_skill_dir(skill_root, normalized_name) is None
+        and not (skill_root / normalized_name).exists()
+    ):
         return None
     existing = (
-        {
-            p.name
-            for p in skill_root.iterdir()
-            if p.is_dir() and not is_ignored_skill_entry(p.name)
-        }
+        {p.name for p in iter_skill_dirs(skill_root)}
         if skill_root.exists()
         else set()
     )
@@ -1220,6 +1340,7 @@ def import_skill_dir(
     target_root: Path,
     skill_name: str,
     pawport_owner: dict[str, Any] | None = None,
+    rel_path: str = "",
 ) -> bool:
     """Import a skill directory to target location.
 
@@ -1227,6 +1348,9 @@ def import_skill_dir(
         src_dir: Source skill directory
         target_root: Target root directory
         skill_name: Name of the skill
+        pawport_owner: Optional PawPort ownership marker to prepare.
+        rel_path: Nested destination relative to ``target_root``; falls back
+            to ``skill_name`` so the flat layout is unchanged.
     Returns:
         bool: True if import succeeded, False otherwise
     """
@@ -1234,7 +1358,7 @@ def import_skill_dir(
     if not post.get("name") or not post.get("description"):
         return False
 
-    target_dir = safe_skill_dir(target_root, skill_name)
+    target_dir = safe_nested_skill_dir(target_root, rel_path or skill_name)
     if target_dir.exists():
         return False
 
@@ -1244,6 +1368,7 @@ def import_skill_dir(
         return {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
 
     target_root.mkdir(parents=True, exist_ok=True)
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
     stage_root = Path(
         tempfile.mkdtemp(
             prefix=_SKILL_IMPORT_STAGE_PREFIX,
@@ -1320,14 +1445,18 @@ def write_skill_to_dir(
         _create_files_from_tree(script_dir, scripts)
 
 
-def extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
+def extract_zip_skills(
+    data: bytes,
+) -> tuple[Path, list[tuple[Path, str, str]]]:
     """Extract and validate a skill zip.
 
-    Returns ``(tmp_dir, found_skills)``.
+    Returns ``(tmp_dir, found_skills)`` where each entry is
+    ``(skill_dir, skill_name, rel_path)``. ``rel_path`` preserves the
+    archive's nested category layout.
 
     Naming rule:
     - single-skill zips use the skill frontmatter ``name`` when present
-    - multi-skill zips apply the same rule per top-level skill directory
+    - multi-skill zips apply the same rule per discovered skill directory
 
     This keeps import results consistent across different zip layouts.
     """
@@ -1344,18 +1473,21 @@ def extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
     ]
     extract_root = (
         real_entries[0]
-        if len(real_entries) == 1 and real_entries[0].is_dir()
+        if len(real_entries) == 1
+        and real_entries[0].is_dir()
+        and (real_entries[0] / "SKILL.md").exists()
         else tmp_dir
     )
     if (extract_root / "SKILL.md").exists():
-        found = [(extract_root, _resolve_skill_name(extract_root))]
+        found = [(extract_root, _resolve_skill_name(extract_root), "")]
     else:
         found = [
-            (path, _resolve_skill_name(path))
-            for path in sorted(extract_root.iterdir())
-            if not is_ignored_skill_entry(path.name)
-            and path.is_dir()
-            and (path / "SKILL.md").exists()
+            (
+                path,
+                _resolve_skill_name(path),
+                rel_path_of(extract_root, path),
+            )
+            for path in iter_skill_dirs(extract_root)
         ]
     if not found:
         shutil.rmtree(tmp_dir, ignore_errors=True)

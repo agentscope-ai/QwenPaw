@@ -36,6 +36,7 @@ from ...agents.skill_system import (
     SkillPoolService,
     SkillService,
     refresh_pool_automation,
+    resolve_skill_dir,
     run_pool_auto_sync,
 )
 from ...agents.skill_system.registry import (
@@ -62,7 +63,6 @@ from ...agents.skill_system.store import (
     read_skill_manifest,
     read_skill_pool_manifest,
     resolve_pool_skill_dir,
-    safe_skill_dir,
     suggest_conflict_name,
 )
 from ...security.skill_scanner import SkillScanError
@@ -563,13 +563,15 @@ def _snapshot_workspace_skill(
 ) -> dict[str, Any]:
     manifest = read_skill_manifest(workspace_dir)
     entry = manifest.get("skills", {}).get(skill_name)
-    skill_dir = workspace_dir / "skills" / skill_name
+    rel_path = str((entry or {}).get("rel_path") or "") or skill_name
+    skill_dir = workspace_dir / "skills" / rel_path
     backup_dir: Path | None = None
     if skill_dir.exists():
         backup_root = Path(
             tempfile.mkdtemp(prefix=f"qwenpaw_skill_rollback_{skill_name}_"),
         )
-        backup_dir = backup_root / skill_name
+        backup_dir = backup_root / rel_path
+        backup_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill_dir, backup_dir)
     return {
         "workspace_dir": workspace_dir,
@@ -582,13 +584,15 @@ def _snapshot_workspace_skill(
 def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
     workspace_dir = Path(snapshot["workspace_dir"])
     skill_name = str(snapshot["skill_name"])
-    skill_dir = workspace_dir / "skills" / skill_name
     backup_dir = snapshot.get("backup_dir")
     entry = snapshot.get("entry")
+    rel_path = str((entry or {}).get("rel_path") or "") or skill_name
+    skill_dir = workspace_dir / "skills" / rel_path
 
     if skill_dir.exists():
         shutil.rmtree(skill_dir)
     if backup_dir is not None and Path(backup_dir).exists():
+        skill_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(Path(backup_dir), skill_dir)
 
     def _restore(payload: dict[str, Any]) -> None:
@@ -810,8 +814,12 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
             )
         try:
             source = entry.get("source", "customized")
-            skill_dir = safe_skill_dir(skill_root, skill_name)
-            if not (skill_dir / "SKILL.md").is_file():
+            skill_dir = resolve_skill_dir(
+                skill_root,
+                skill_name,
+                str(entry.get("rel_path") or ""),
+            )
+            if skill_dir is None or not (skill_dir / "SKILL.md").is_file():
                 continue
             metadata = build_skill_metadata(
                 skill_name,
@@ -903,11 +911,14 @@ def _build_workspace_skill_detail(
         return None
     entry = normalize_skill_manifest_entry(raw_entry)
     try:
-        skill_dir = safe_skill_dir(
+        skill_dir = resolve_skill_dir(
             get_workspace_skills_dir(workspace_dir),
             skill_name,
+            str(entry.get("rel_path") or ""),
         )
     except AppBaseException:
+        return None
+    if skill_dir is None:
         return None
     source = str(entry.get("source", "customized") or "customized")
     skill_data = read_skill_content_and_metadata_from_dir(
@@ -1003,10 +1014,15 @@ def _list_workspace_skill_names(workspace_dir: Path) -> list[str]:
     names: list[str] = []
     for skill_name in sorted(manifest.get("skills", {})):
         try:
-            skill_dir = safe_skill_dir(skill_root, skill_name)
+            entry = manifest.get("skills", {}).get(skill_name) or {}
+            skill_dir = resolve_skill_dir(
+                skill_root,
+                skill_name,
+                str(entry.get("rel_path") or ""),
+            )
         except AppBaseException:
             continue
-        if (skill_dir / "SKILL.md").is_file():
+        if skill_dir is not None and (skill_dir / "SKILL.md").is_file():
             names.append(skill_name)
     return names
 

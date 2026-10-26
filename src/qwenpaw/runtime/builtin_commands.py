@@ -710,7 +710,7 @@ def _parse_skill_query(query: str) -> tuple[str, str] | None:
     return (name, user_input) if name else None
 
 
-# pylint: disable-next=too-many-return-statements
+# pylint: disable-next=too-many-return-statements,too-many-branches
 async def _skill_fallback_handler(
     raw_text: str,
     ctx: Any,
@@ -736,8 +736,8 @@ async def _skill_fallback_handler(
     skill_name, user_input = parsed
 
     from ..agents.skill_system.registry import (
-        get_workspace_skills_dir,
         resolve_effective_skills,
+        resolve_workspace_skill_dir,
     )
 
     request = getattr(ctx, "request", None)
@@ -751,15 +751,13 @@ async def _skill_fallback_handler(
     except Exception:
         return None
 
-    skills_dir = get_workspace_skills_dir(Path(workspace_dir))
-    skill_dir = next(
-        (
-            skills_dir / sn
-            for sn in effective_skills
-            if sn.lower() == skill_name
-        ),
+    matched = next(
+        (sn for sn in effective_skills if sn.lower() == skill_name),
         None,
     )
+    if matched is None:
+        return None
+    skill_dir = resolve_workspace_skill_dir(Path(workspace_dir), matched)
     if skill_dir is None or not skill_dir.exists():
         return None
 

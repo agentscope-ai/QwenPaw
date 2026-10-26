@@ -32,13 +32,14 @@ from .store import (
     extract_zip_skills,
     get_pool_skill_manifest_path,
     get_skill_pool_dir,
+    get_skill_pool_dirs,
     get_workspace_identity,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     import_skill_dir,
-    is_ignored_skill_entry,
     is_pool_builtin_entry,
     is_primary_pool_skill_dir,
+    iter_skill_dirs,
     mutate_json,
     mutate_pool_manifest,
     normalize_skill_dir_name,
@@ -47,8 +48,11 @@ from .store import (
     read_skill_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
+    rel_path_of,
     resolve_pool_skill_dir,
+    resolve_skill_dir,
     safe_skill_dir,
+    safe_nested_skill_dir,
     scan_skill_dir_or_raise,
     staged_skill_dir,
     suggest_conflict_name,
@@ -185,7 +189,10 @@ class SkillPoolService:
         validate_skill_content(content)
         skill_name = normalize_skill_dir_name(name)
         pool_dir = get_skill_pool_dir()
-        skill_dir = safe_skill_dir(pool_dir, skill_name)
+        skill_dir = resolve_skill_dir(pool_dir, skill_name) or safe_skill_dir(
+            pool_dir,
+            skill_name,
+        )
         manifest = read_skill_pool_manifest()
         existing = manifest.get("skills", {}).get(skill_name)
         if existing is not None or skill_dir.exists():
@@ -265,35 +272,31 @@ class SkillPoolService:
                             "single-skill zip imports"
                         ),
                     )
-                found = [(found[0][0], normalized_target)]
+                found = [(found[0][0], normalized_target, found[0][2])]
             found = [
-                (d, normalize_skill_dir_name(renames.get(n, n)))
-                for d, n in found
+                (d, normalize_skill_dir_name(renames.get(n, n)), rp)
+                for d, n, rp in found
             ]
             manifest = read_skill_pool_manifest()
             existing_pool_names = (
                 set(
                     manifest.get("skills", {}).keys(),
                 )
-                | {
-                    p.name
-                    for p in pool_dir.iterdir()
-                    if p.is_dir() and not is_ignored_skill_entry(p.name)
-                }
+                | {p.name for p in iter_skill_dirs(pool_dir)}
                 if pool_dir.exists()
                 else set(
                     manifest.get("skills", {}).keys(),
                 )
             )
-            for skill_dir, skill_name in found:
+            for skill_dir, skill_name, _rel_path in found:
                 validate_skill_content(
                     (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
                 )
                 scan_skill_dir_or_raise(skill_dir, skill_name)
             conflicts: list[dict[str, Any]] = []
-            planned: list[tuple[Path, str]] = []
+            planned: list[tuple[Path, str, str]] = []
             seen_names: set[str] = set()
-            for skill_dir, skill_name in found:
+            for skill_dir, skill_name, rel_path in found:
                 if skill_name in seen_names:
                     conflicts.append(
                         build_import_conflict(
@@ -307,7 +310,8 @@ class SkillPoolService:
                     skill_name,
                 )
                 occupied = (
-                    existing is not None or (pool_dir / skill_name).exists()
+                    existing is not None
+                    or (pool_dir / (rel_path or skill_name)).exists()
                 )
                 if occupied:
                     conflicts.append(
@@ -317,7 +321,7 @@ class SkillPoolService:
                         ),
                     )
                     continue
-                planned.append((skill_dir, skill_name))
+                planned.append((skill_dir, skill_name, rel_path))
             if conflicts:
                 return {
                     "imported": [],
@@ -325,11 +329,12 @@ class SkillPoolService:
                     "conflicts": conflicts,
                 }
             imported: list[str] = []
-            for skill_dir, skill_name in planned:
+            for skill_dir, skill_name, rel_path in planned:
                 if import_skill_dir(
                     skill_dir,
                     pool_dir,
                     skill_name,
+                    rel_path=rel_path,
                 ):
                     imported.append(skill_name)
 
@@ -827,8 +832,19 @@ class SkillPoolService:
                 )
 
             workspace_skills_dir = get_workspace_skills_dir(workspace_dir)
-            target_dir = safe_skill_dir(workspace_skills_dir, new_name)
-            old_dir = safe_skill_dir(workspace_skills_dir, old_name)
+            old_dir = resolve_skill_dir(workspace_skills_dir, old_name) or (
+                workspace_skills_dir / old_name
+            )
+            target_dir = safe_nested_skill_dir(
+                workspace_skills_dir,
+                rel_path_of(workspace_skills_dir, old_dir).replace(
+                    old_name,
+                    new_name,
+                    1,
+                )
+                if old_dir.exists()
+                else new_name,
+            )
             try:
                 target_dir.parent.mkdir(parents=True, exist_ok=True)
                 with staged_skill_dir(new_name) as staged_dir:
@@ -900,8 +916,12 @@ class SkillPoolService:
     ) -> dict[str, Any]:
         try:
             skill_name = normalize_skill_dir_name(skill_name)
-            source_dir = safe_skill_dir(
-                get_workspace_skills_dir(workspace_dir),
+            ws_root = get_workspace_skills_dir(workspace_dir)
+            source_dir = resolve_skill_dir(
+                ws_root,
+                skill_name,
+            ) or safe_skill_dir(
+                ws_root,
                 skill_name,
             )
         except SkillsError:
@@ -910,7 +930,8 @@ class SkillPoolService:
             return {"success": False, "reason": "not_found"}
 
         final_name = normalize_skill_dir_name(skill_name)
-        target_dir = safe_skill_dir(get_skill_pool_dir(), final_name)
+        rel_path = rel_path_of(ws_root, source_dir) or final_name
+        target_dir = safe_nested_skill_dir(get_skill_pool_dir(), rel_path)
         manifest = read_skill_pool_manifest()
         existing = manifest.get("skills", {}).get(final_name)
         if existing:
@@ -1105,9 +1126,17 @@ class SkillPoolService:
         if source_dir is None:
             return {"success": False, "reason": "not_found"}
         final_name = normalize_skill_dir_name(skill_name)
-        target_dir = safe_skill_dir(
+        rel_path = ""
+        for pool_root in get_skill_pool_dirs():
+            try:
+                if source_dir.is_relative_to(pool_root):
+                    rel_path = rel_path_of(pool_root, source_dir)
+                    break
+            except ValueError:
+                pass
+        target_dir = safe_nested_skill_dir(
             get_workspace_skills_dir(workspace_dir),
-            final_name,
+            rel_path or final_name,
         )
         workspace_manifest = read_skill_manifest(workspace_dir)
         existing = workspace_manifest.get("skills", {}).get(final_name)

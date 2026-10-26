@@ -21,6 +21,7 @@ from ..agents.skill_system import (
     reconcile_pool_manifest,
     reconcile_workspace_manifest,
     resolve_pool_skill_dir,
+    resolve_workspace_skill_dir,
 )
 from ..agents.skill_system.models import SkillRequirements
 from ..agents.skill_system.registry import (
@@ -784,7 +785,10 @@ def info_cmd(
     entry = manifest.get(skill_name, {})
     channels = entry.get("channels") or ["all"]
     enabled = bool(entry.get("enabled", False))
-    skill_dir = get_workspace_skills_dir(working_dir) / skill_name
+    skill_dir = resolve_workspace_skill_dir(
+        working_dir,
+        skill_name,
+    ) or (get_workspace_skills_dir(working_dir) / skill_name)
 
     click.echo(f"Skill: {skill.name}")
     click.echo(f"Enabled: {'yes' if enabled else 'no'}")
