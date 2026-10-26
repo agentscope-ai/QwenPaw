@@ -15,6 +15,7 @@ from qwenpaw.providers.openai_provider import (
     OpenAIProvider,
 )
 from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.thinking import ThinkingControl
 
 
 def _make_provider(is_custom: bool = False) -> OpenAIProvider:
@@ -26,6 +27,49 @@ def _make_provider(is_custom: bool = False) -> OpenAIProvider:
         is_custom=is_custom,
         chat_model="OpenAIChatModel",
     )
+
+
+@pytest.mark.parametrize(
+    ("control", "expected"),
+    [
+        (None, {}),
+        (
+            ThinkingControl(
+                kind="budget",
+                budget_min=1,
+                budget_max=8192,
+                supports_off=True,
+                wire="compat_budget",
+            ),
+            {"extra_body": {"enable_thinking": False}},
+        ),
+        (
+            ThinkingControl(
+                kind="effort",
+                efforts=["low", "high"],
+                supports_off=True,
+                wire="compat_effort",
+            ),
+            {"extra_body": {"thinking": {"type": "disabled"}}},
+        ),
+    ],
+)
+def test_chat_model_uses_declared_disable_thinking_wire(
+    control,
+    expected,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="strict-compat-model",
+            name="Strict compat model",
+            thinking_control=control,
+        ),
+    ]
+
+    model = provider.get_chat_model_instance("strict-compat-model")
+
+    assert model._disable_thinking_kwargs == expected
 
 
 async def test_check_connection_success(monkeypatch) -> None:

@@ -567,6 +567,10 @@ class OpenAIProvider(Provider):
         return OpenAIChatModelCompat(
             credential=credential,
             provider_id=self.id,
+            disable_thinking_kwargs=self.get_agent_thinking_kwargs(
+                model_id,
+                "off",
+            ),
             usage_guard=lambda: self.check_model_billing(model_id),
             request_policy=self.prepare_request,
             capture_cache_status=self.capture_cache_headers,

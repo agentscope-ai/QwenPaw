@@ -680,19 +680,35 @@ class TestOpenAIChatModelCompatDisableThinking:
     Volcengine / SiliconFlow / Zhipu / GitHub / Aliyun / Modelscope / MiMo —
     they all build an ``OpenAIChatModelCompat``."""
 
-    def test_translates_to_extra_body(self):
+    def test_unknown_control_does_not_guess_wire_params(self):
         from qwenpaw.providers.openai_chat_model_compat import (
             OpenAIChatModelCompat,
         )
 
         compat = _compat_instance(OpenAIChatModelCompat)
+        compat._disable_thinking_kwargs = {}
         kwargs = {"disable_thinking": True}
         compat._consume_disable_thinking(kwargs)
-        assert kwargs["extra_body"] == {
-            "enable_thinking": False,
-            "thinking": {"type": "disabled"},
-        }
-        assert "disable_thinking" not in kwargs
+        assert kwargs == {}
+
+    @pytest.mark.parametrize(
+        "translated",
+        [
+            {"extra_body": {"enable_thinking": False}},
+            {"extra_body": {"thinking": {"type": "disabled"}}},
+            {"reasoning_effort": "none"},
+        ],
+    )
+    def test_uses_declared_wire_params(self, translated):
+        from qwenpaw.providers.openai_chat_model_compat import (
+            OpenAIChatModelCompat,
+        )
+
+        compat = _compat_instance(OpenAIChatModelCompat)
+        compat._disable_thinking_kwargs = translated
+        kwargs = {"disable_thinking": True}
+        compat._consume_disable_thinking(kwargs)
+        assert kwargs == translated
 
     def test_noop_when_flag_absent(self):
         from qwenpaw.providers.openai_chat_model_compat import (
@@ -700,6 +716,7 @@ class TestOpenAIChatModelCompatDisableThinking:
         )
 
         compat = _compat_instance(OpenAIChatModelCompat)
+        compat._disable_thinking_kwargs = {}
         kwargs = {"temperature": 0.7}
         compat._consume_disable_thinking(kwargs)
         assert kwargs == {"temperature": 0.7}
@@ -710,6 +727,9 @@ class TestOpenAIChatModelCompatDisableThinking:
         )
 
         compat = _compat_instance(OpenAIChatModelCompat)
+        compat._disable_thinking_kwargs = {
+            "extra_body": {"enable_thinking": False},
+        }
         compat.extra_body = {"top_k": 10}  # provider-configured body
         kwargs = {"disable_thinking": True, "extra_body": {"seed": 1}}
         compat._consume_disable_thinking(kwargs)
@@ -717,7 +737,6 @@ class TestOpenAIChatModelCompatDisableThinking:
             "top_k": 10,
             "seed": 1,
             "enable_thinking": False,
-            "thinking": {"type": "disabled"},
         }
 
 
