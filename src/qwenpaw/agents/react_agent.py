@@ -33,6 +33,7 @@ from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
 from .context.overflow_recovery import call_with_overflow_recovery
+from .context.types import DecisionCompactionResult
 from .injected_events import merge_injected_events
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
@@ -371,10 +372,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
             and lcc.decision_compact_config.enabled
         )
 
-    async def try_decision_compact(self, *, target, tokens, source_refs=None):
-        """Run optional semantic previews without enabling long-term memory."""
+    async def try_decision_compact(
+        self,
+        *,
+        tokens: int,
+        source_refs: dict[str, str] | None = None,
+    ) -> DecisionCompactionResult:
+        """Return semantic-preview commit status and its token measurement."""
         if not self.decision_compaction_enabled:
-            return False
+            return DecisionCompactionResult(changed=False, tokens_after=tokens)
         from .context.decision_compaction import DecisionCompactor
 
         compactor = getattr(self, "_decision_compactor", None)
@@ -382,7 +388,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             compactor = self._decision_compactor = DecisionCompactor()
         return await compactor.compact(
             self,
-            target=target,
             tokens=tokens,
             source_refs=source_refs,
         )
@@ -418,11 +423,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     self,
                     kwargs,
                 )
-                if tokens > target and await self.try_decision_compact(
-                    target=target,
-                    tokens=tokens,
-                ):
-                    return
+                if tokens > target:
+                    result = await self.try_decision_compact(tokens=tokens)
+                    if result.changed and result.tokens_after <= target:
+                        return
 
         await super()._compress_context_impl(
             context_config,

@@ -13,7 +13,10 @@ from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
 from qwenpaw.agents.context import decision_compaction
 from qwenpaw.agents.context.decision_compaction import DecisionCompactor
-from qwenpaw.agents.context.types import DECISION_COMPACTED
+from qwenpaw.agents.context.types import (
+    DECISION_COMPACTED,
+    DecisionCompactionResult,
+)
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.react_agent import QwenPawAgent
@@ -134,12 +137,11 @@ def model(monkeypatch):
     return model
 
 
-async def compact(compactor, agent, *, target=100000, refs=None):
+async def compact(compactor, agent, *, refs=None):
     kwargs = await agent._prepare_model_input()
     tokens = await agent.model.count_tokens(**kwargs)
     return await compactor.compact(
         agent,
-        target=target,
         tokens=tokens,
         source_refs=refs,
     )
@@ -213,7 +215,11 @@ async def test_real_reme_compacts_only_archived_completed_results(
         else None
     )
     compactor = DecisionCompactor()
-    assert await compact(compactor, agent, refs=refs)
+    result = await compact(compactor, agent, refs=refs)
+    assert result.changed
+    assert result.tokens_after == await agent.model.count_tokens(
+        **await agent._prepare_model_input(),
+    )
     assert agent.state.context[-1].model_dump(mode="json") == before[-1]
     for msg in agent.state.context[1:4]:
         assert msg.content[1].metadata[DECISION_COMPACTED]
@@ -227,18 +233,23 @@ async def test_real_reme_compacts_only_archived_completed_results(
     )
     # Repeated passes skip previously compacted results.
     calls = model.await_count
-    assert not await compact(compactor, agent, refs=refs)
+    repeated = await compact(compactor, agent, refs=refs)
+    assert not repeated.changed
+    assert repeated.tokens_after == result.tokens_after
     assert model.await_count == calls
     await compactor.close()
     model.client.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_partial_savings_continue_existing_pipeline(model):
+async def test_committed_savings_are_independent_of_caller_budget(model):
     agent = make_agent()
     before = agent.state.context
     compactor = DecisionCompactor()
-    assert not await compact(compactor, agent, target=1)
+    result = await compact(compactor, agent)
+    assert result.changed
+    assert result.tokens_after > 1
+    assert agent._decision_compaction_revision == 1
     assert agent.state.context is not before
     assert agent.state.context[1].content[1].metadata[DECISION_COMPACTED]
     await compactor.close()
@@ -288,14 +299,18 @@ async def test_failures_and_cancellation_preserve_original_context(
 
         model.side_effect = wait_for_cancel
         task = asyncio.create_task(
-            compactor.compact(agent, target=10, tokens=100000),
+            compactor.compact(agent, tokens=100000),
         )
         await asyncio.wait_for(started.wait(), 2)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
     else:
-        assert not await compactor.compact(agent, target=10, tokens=100000)
+        result = await compactor.compact(agent, tokens=100000)
+        assert result == DecisionCompactionResult(
+            changed=False,
+            tokens_after=100000,
+        )
     assert agent.state.context is before
     assert [m.model_dump(mode="json") for m in before] == snapshot
     await compactor.close()
@@ -344,7 +359,7 @@ async def test_native_retries_reuse_archives(model, tmp_path, outcome):
     for _ in range(2):
         compactor = DecisionCompactor()
         try:
-            assert not await compact(compactor, agent)
+            assert not (await compact(compactor, agent)).changed
             assert agent.state.context is original
             assert len(list((tmp_path / "results").glob("*.txt"))) == 3
         finally:
@@ -366,7 +381,11 @@ async def test_disabled_compaction_does_not_create_component_or_model(
     config = agent._agent_config.running.light_context_config
     config.context_compact_config.enabled = automatic
     config.decision_compact_config.enabled = decision
-    assert not await agent.try_decision_compact(target=10, tokens=100000)
+    result = await agent.try_decision_compact(tokens=100000)
+    assert result == DecisionCompactionResult(
+        changed=False,
+        tokens_after=100000,
+    )
     decision_compaction.create_decision_model_async.assert_not_awaited()
     assert not hasattr(agent, "_decision_compactor")
 
@@ -390,7 +409,7 @@ async def test_scroll_durability_and_recovery_use_original_rows(
     }
     originals = history.contents_by_seqs(set(manager._seq_by_tcid.values()))
     compactor = DecisionCompactor()
-    assert await compact(compactor, agent, refs=refs)
+    assert (await compact(compactor, agent, refs=refs)).changed
     assert await manager._persist_guarded_async(agent)
     assert (
         history.contents_by_seqs(set(manager._seq_by_tcid.values()))
@@ -443,7 +462,7 @@ async def test_invalid_or_stale_proposals_never_commit(
 
     monkeypatch.setattr(CompactContextStep, "execute", tamper)
     compactor = DecisionCompactor()
-    assert not await compact(compactor, agent)
+    assert not (await compact(compactor, agent)).changed
     assert agent.state.context is before
     if mutation == "stale":
         assert agent.state.context[-1].content[0].text == "new input"
@@ -457,20 +476,24 @@ async def test_cancellation_during_host_count_rolls_back(model):
     agent.model.count_tokens = AsyncMock(side_effect=asyncio.CancelledError())
     compactor = DecisionCompactor()
     with pytest.raises(asyncio.CancelledError):
-        await compactor.compact(agent, target=1, tokens=100000)
+        await compactor.compact(agent, tokens=100000)
     assert agent.state.context is before
     await compactor.close()
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fits_budget", [False, True])
 async def test_scroll_compacts_before_existing_folding(
     model,
     tmp_path,
     monkeypatch,
+    fits_budget,
 ):
     agent = make_agent()
-    agent.model.context_size = 12000
+    agent.model.context_size = 12000 if fits_budget else 100
     agent.context_config.reserve_ratio = 0.1
+    count = agent.model.count_tokens
+    agent.model.count_tokens = AsyncMock(wraps=count)
     history = HistoryStore(tmp_path / "history.db")
     manager = ScrollContextManager(
         history=history,
@@ -493,24 +516,43 @@ async def test_scroll_compacts_before_existing_folding(
 
     monkeypatch.setattr(history, "contents_by_seqs", checked_read)
     manager._batch_fold_completed_tool_results = AsyncMock(
-        side_effect=AssertionError(
-            "Decision model should relieve pressure first",
+        side_effect=(
+            AssertionError(
+                "Decision model should relieve pressure first",
+            )
+            if fits_budget
+            else RuntimeError("Continue existing folding")
         ),
     )
-    await manager.compress(agent)
+    manager._live_tokens = AsyncMock(
+        side_effect=AssertionError("Committed previews are already counted"),
+    )
+    if fits_budget:
+        await manager.compress(agent)
+        manager._batch_fold_completed_tool_results.assert_not_awaited()
+    else:
+        with pytest.raises(RuntimeError, match="Continue existing folding"):
+            await manager.compress(agent)
+        assert manager._batch_fold_completed_tool_results.await_args.kwargs[
+            "tokens"
+        ] == await count(**agent.model.count_tokens.await_args.kwargs)
     assert agent.state.context[1].content[1].metadata[DECISION_COMPACTED]
-    manager._batch_fold_completed_tool_results.assert_not_awaited()
+    assert agent.model.count_tokens.await_count == 2
     agent.offloader.offload_tool_result.assert_not_awaited()
     await agent._decision_compactor.close()
     history.close()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("forced", [False, True])
+@pytest.mark.parametrize(
+    ("forced", "context_size"),
+    [(False, 12000), (False, 100), (True, 12000)],
+)
 async def test_native_dispatch_preserves_manual_compact(
     model,
     monkeypatch,
     forced,
+    context_size,
 ):
     from agentscope.agent import Agent
 
@@ -519,12 +561,12 @@ async def test_native_dispatch_preserves_manual_compact(
     agent.__dict__.update(vars(fake))
     agent._context_manager = None
     agent._get_active_formatter = lambda: None
-    agent.model.context_size = 12000
+    agent.model.context_size = context_size
     fallback = AsyncMock()
     monkeypatch.setattr(Agent, "_compress_context_impl", fallback)
     cfg = SimpleNamespace(trigger_ratio=0.000001 if forced else 0.8)
     await agent._compress_context_impl(cfg)
-    assert fallback.await_count == (1 if forced else 0)
+    assert fallback.await_count == (1 if forced or context_size == 100 else 0)
     if forced:
         decision_compaction.create_decision_model_async.assert_not_awaited()
     else:
@@ -550,7 +592,7 @@ async def test_synthetic_continuation_does_not_expose_active_turn(model):
         ),
     )
     compactor = DecisionCompactor()
-    assert await compact(compactor, agent)
+    assert (await compact(compactor, agent)).changed
     assert agent.state.context[-2].model_dump(mode="json") == active
     await compactor.close()
 
@@ -570,7 +612,7 @@ async def test_memory_middleware_detects_compaction_without_eviction(
         )
     before = MemoryMiddleware._compression_state(agent)
     compactor = DecisionCompactor()
-    assert await compact(compactor, agent)
+    assert (await compact(compactor, agent)).changed
     assert before[1] == tuple(msg.id for msg in agent.state.context)
     assert MemoryMiddleware._did_compress_context(agent, before)
     assert not MemoryMiddleware._did_compress_context(

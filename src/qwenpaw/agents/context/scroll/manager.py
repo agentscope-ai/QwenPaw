@@ -589,15 +589,19 @@ class ScrollContextManager:
                             "recall_history(op='recall_tool', "
                             f"tool_call_id={tcid!r})"
                         )
-                if await agent.try_decision_compact(
-                    target=trigger,
+                result = await agent.try_decision_compact(
                     tokens=tokens,
                     source_refs=refs,
-                ):
+                )
+                if result.changed and result.tokens_after <= trigger:
                     self._overflow_warned = False
                     log_timings("decision_compaction_below_trigger")
                     return
-                tokens = await self._live_tokens(agent)
+                tokens = (
+                    result.tokens_after
+                    if result.changed
+                    else await self._live_tokens(agent)
+                )
             pre_folded, tokens = await self._batch_fold_completed_tool_results(
                 agent,
                 tokens=tokens,

@@ -548,11 +548,14 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         )
         return model
 
-    async def _auto_memory_options(
+    async def _prepare_auto_memory_job(
         self,
         kwargs: dict[str, Any],
-    ) -> bool:
-        """Apply the live image gate and return the tag-generation opt-in."""
+    ) -> str:
+        """Inject the model, update image kwargs, and select the memory job.
+
+        The caller holds the LLM job lock through preparation and execution.
+        """
         from ..prompt import get_model_supports_image
 
         config = await run_sync_io(self._load_memory_config)
@@ -586,7 +589,11 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 getattr(model, "model_key", None)
                 or getattr(model, "model", "unknown"),
             )
-        return config.auto_memory_generate_tags
+        return (
+            "auto_memory_with_tags"
+            if config.auto_memory_generate_tags
+            else "auto_memory"
+        )
 
     async def test_and_stage_embedding(
         self,
@@ -696,8 +703,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 async with self._llm_job_lock:
                     job_name = name
                     if name == "auto_memory":
-                        if await self._auto_memory_options(kwargs):
-                            job_name = "auto_memory_with_tags"
+                        job_name = await self._prepare_auto_memory_job(kwargs)
                     else:
                         await self._update_qwenpaw_model()
                     response = await self._reme.run_job(job_name, **kwargs)

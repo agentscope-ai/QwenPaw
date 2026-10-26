@@ -397,7 +397,9 @@ async def test_tag_failures_are_reported_without_losing_job_outcome(
         },
     )
     manager._reme.run_job.return_value = response
-    manager._auto_memory_options = AsyncMock(return_value=True)
+    manager._prepare_auto_memory_job = AsyncMock(
+        return_value="auto_memory_with_tags",
+    )
     with patch(
         "qwenpaw.agents.memory.reme_light_memory_manager.append_inbox_event",
         new_callable=AsyncMock,

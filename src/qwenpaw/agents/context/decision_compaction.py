@@ -15,7 +15,7 @@ from ...constant import (
 from ...utils.io_utils import run_async_to_completion
 from ..model_factory import create_decision_model_async
 from . import _as_internals as as_internals
-from .types import DECISION_COMPACTED
+from .types import DECISION_COMPACTED, DecisionCompactionResult
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +50,20 @@ class DecisionCompactor:
             self._model, self._component = model, component
         return self._component
 
-    async def compact(self, agent, *, target, tokens, source_refs=None):
+    async def compact(
+        self,
+        agent,
+        *,
+        tokens: int,
+        source_refs: dict[str, str] | None = None,
+    ) -> DecisionCompactionResult:
         """Commit only validated output previews with a smaller real input.
 
         Scroll supplies durable recall references. Native mode archives each
         eligible result through its offloader. Every error leaves the current
         context intact and allows the original compression pipeline to run.
+        The caller serializes access to the agent context and decides whether
+        the committed token count meets its budget or needs more compression.
         """
         context_config = agent._agent_config.running.light_context_config
         cfg = context_config.decision_compact_config
@@ -64,7 +72,6 @@ class DecisionCompactor:
                 return await self._compact(
                     agent,
                     cfg,
-                    target,
                     tokens,
                     source_refs,
                 )
@@ -73,12 +80,22 @@ class DecisionCompactor:
                 "Decision model compaction failed; using normal compaction",
                 exc_info=True,
             )
-            return False
+            return DecisionCompactionResult(changed=False, tokens_after=tokens)
 
-    async def _compact(self, agent, cfg, target, tokens, source_refs):
+    async def _compact(
+        self,
+        agent,
+        cfg,
+        tokens: int,
+        source_refs,
+    ) -> DecisionCompactionResult:
         from reme.schema.compaction import CompactionRequest, CompactionResult
         from reme.steps.compaction import CompactContextStep, collect_pairs
 
+        unchanged = DecisionCompactionResult(
+            changed=False,
+            tokens_after=tokens,
+        )
         original = agent.state.context
         snapshot = [msg.model_dump(mode="json") for msg in original]
         # Protect the complete active turn as well as ReMe's recent window.
@@ -138,7 +155,7 @@ class DecisionCompactor:
                 if key in request.source_refs
             }
         if not pairs:
-            return False
+            return unchanged
         request.goal = "\n".join(
             b.get("text", "")
             for m in snapshot[active_start:]
@@ -150,10 +167,10 @@ class DecisionCompactor:
             **request.model_dump(mode="json"),
         )
         if not response.success:
-            return False
+            return unchanged
         result = CompactionResult.model_validate(response.answer)
         if not result.changed:
-            return False
+            return unchanged
         candidate, changed_ids = self._validated_candidate(
             request,
             pairs,
@@ -163,7 +180,7 @@ class DecisionCompactor:
         if [
             msg.model_dump(mode="json") for msg in agent.state.context
         ] != snapshot:
-            return False
+            return unchanged
         # Count the exact formatter input, including system prompt and tools.
         # Roll back on failures/cancellation, before any subsequent await.
         agent.state.context = candidate
@@ -175,7 +192,7 @@ class DecisionCompactor:
                 kwargs,
             )
             if after >= tokens:
-                return False
+                return unchanged
             agent._decision_compaction_revision = (
                 getattr(agent, "_decision_compaction_revision", 0) + 1
             )
@@ -189,7 +206,7 @@ class DecisionCompactor:
             tokens,
             after,
         )
-        return after <= target
+        return DecisionCompactionResult(changed=True, tokens_after=after)
 
     @staticmethod
     async def _archive_native(agent, pairs, original):

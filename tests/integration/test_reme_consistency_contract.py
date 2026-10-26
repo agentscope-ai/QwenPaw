@@ -181,8 +181,8 @@ async def test_missing_tag_write_preserves_memory_and_warns_host(
     monkeypatch.setattr(AutoMemoryStep, "execute", write_memory)
     monkeypatch.setattr(
         manager,
-        "_auto_memory_options",
-        AsyncMock(return_value=True),
+        "_prepare_auto_memory_job",
+        AsyncMock(return_value="auto_memory_with_tags"),
     )
     monkeypatch.setattr(
         app.context.components["agent_wrapper"]["default"],
