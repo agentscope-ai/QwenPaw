@@ -126,8 +126,10 @@ class WorkerProcess:
                     cpu += sum(child.cpu_times()[:2])
                 except psutil.NoSuchProcess:
                     continue
-            if memory > 256 * 1024 * 1024 or cpu > 10:
-                raise RuntimeError(f"Code exceeded its memory/CPU limit")
+            if memory > 256 * 1024 * 1024:
+                raise RuntimeError(f"Code exceeded its 256 MiB memory limit")
+            if cpu > 10:
+                raise RuntimeError(f"Code exceeded its 10 CPU-second limit")
             return True
         except psutil.NoSuchProcess:
             return False

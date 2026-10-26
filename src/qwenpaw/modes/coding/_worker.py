@@ -23,7 +23,7 @@ class Worker:
     def __init__(self) -> None:
         # Keep the daemon reader off Python's shutdown-managed stdin buffer.
         self.input = os.fdopen(os.dup(sys.stdin.fileno()), "rb")
-        self.output = sys.stdout
+        self.output = sys.stdout.buffer
         self.lock = threading.Lock()
         self.pending: dict[int, asyncio.Future] = {}
         self.sequence = 0
@@ -38,7 +38,7 @@ class Worker:
         if len(packet.encode("utf-8")) > MAX_MESSAGE_BYTES:
             raise ValueError(f"Code message exceeds 16 MiB")
         with self.lock:
-            self.output.write(f"{packet}\n")
+            self.output.write(f"{packet}\n".encode(f"utf-8"))
             self.output.flush()
 
     def resolve(self, packet: dict) -> None:

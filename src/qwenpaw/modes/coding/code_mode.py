@@ -97,11 +97,14 @@ def _describe_catalog(catalog: dict[str, dict]) -> str:
             f'r = await tools.execute_shell_command(command="pwd"); '
             f'text(r["content"])',
         )
-    names = ", ".join(
-        f"tools.{schema['python_name']}" for schema in catalog.values()
-    )
+    summaries = []
+    for schema in catalog.values():
+        description = f"{schema['description']}".split()
+        summary = f"{' '.join(description)[:180]}"
+        summaries.append(f"- tools.{schema['python_name']}: {summary}")
+    names = f"\n".join(summaries)
     return (
-        f"\n\nAvailable tools: {names or '(none)'}.\n"
+        f"\n\nAvailable tools:\n{names or '(none)'}\n"
         f"Inspect await describe_tool(name) for any omitted contract.\n"
         f"Examples (enabled tools): {'; '.join(examples)}\n\n"
         + "\n\n".join(selected)
@@ -172,7 +175,7 @@ class CodeModeTool(ToolBase):
     """A fresh CPython worker sharing the live native tool catalog."""
 
     name = "run_code"
-    is_read_only = True
+    is_read_only = False
     is_concurrency_safe = False
     is_state_injected = True
     input_schema = {

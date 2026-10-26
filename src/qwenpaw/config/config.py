@@ -2994,6 +2994,9 @@ class ToolsConfig(BaseModel):
         icon value.
         """
         defaults = _default_builtin_tools()
+        # Retired built-ins must not remain as nonfunctional settings.
+        for name in (f"lsp", f"ast_search"):
+            self.builtin_tools.pop(name, None)
         # Keep persisted configurations from the former stable-track name
         # compatible with the unified browser identity.
         legacy = self.builtin_tools.pop("browser_use", None)
