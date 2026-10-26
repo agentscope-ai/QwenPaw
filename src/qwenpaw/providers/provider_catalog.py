@@ -56,6 +56,7 @@ AZURE_OPENAI_MODELS = _models("azure-openai")
 MINIMAX_MODELS = _models("minimax-cn")
 KIMI_MODELS = _models("kimi-cn")
 DEEPSEEK_MODELS = _models("deepseek")
+ATLASCLOUD_MODELS = _models("atlascloud")
 VOLCENGINE_MODELS = _models("volcengine-cn")
 VOLCENGINE_CODINGPLAN_MODELS = _models("volcengine-cn-codingplan")
 VOLCENGINE_AGENTPLAN_MODELS = _models("volcengine-cn-agentplan")
@@ -379,6 +380,16 @@ PROVIDER_DEEPSEEK = DeepSeekProvider(
     freeze_url=True,
 )
 
+PROVIDER_ATLASCLOUD = OpenAIProvider(
+    id="atlascloud",
+    name="Atlas Cloud",
+    base_url="https://api.atlascloud.ai/v1",
+    api_key_prefix="",
+    models=ATLASCLOUD_MODELS,
+    support_model_discovery=True,
+    freeze_url=True,
+)
+
 PROVIDER_ANTHROPIC = AnthropicProvider(
     id="anthropic",
     name="Anthropic",
@@ -550,6 +561,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_ANTHROPIC,
     PROVIDER_GEMINI,
     PROVIDER_DEEPSEEK,
+    PROVIDER_ATLASCLOUD,
     PROVIDER_KIMI_CN,
     PROVIDER_KIMI_INTL,
     PROVIDER_KIMI_CODINGPLAN,
@@ -587,6 +599,7 @@ __all__ = [
     "AZURE_OPENAI_MODELS",
     "BUILTIN_PROVIDERS",
     "DASHSCOPE_MODELS",
+    "ATLASCLOUD_MODELS",
     "DEEPSEEK_MODELS",
     "GEMINI_MODELS",
     "KILO_MODELS",
@@ -605,6 +618,7 @@ __all__ = [
     "PROVIDER_ANTHROPIC",
     "PROVIDER_AZURE_OPENAI",
     "PROVIDER_DASHSCOPE",
+    "PROVIDER_ATLASCLOUD",
     "PROVIDER_DEEPSEEK",
     "PROVIDER_GEMINI",
     "PROVIDER_KILO",
