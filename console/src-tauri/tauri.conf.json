@@ -40,10 +40,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "nsis"],
+    "publisher": "QwenPaw Contributors <qwenpaw@users.noreply.github.com>",
+    "copyright": "Copyright © QwenPaw Contributors",
+    "targets": ["app", "nsis", "deb", "appimage"],
     "icon": [
       "../../scripts/pack/assets/icon.icns",
-      "../../scripts/pack/assets/icon.ico"
+      "../../scripts/pack/assets/icon.ico",
+      "icons/icon.png"
     ],
     "resources": [
       "binaries/qwenpaw-backend",
