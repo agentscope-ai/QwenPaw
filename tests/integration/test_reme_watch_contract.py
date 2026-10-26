@@ -23,6 +23,7 @@ from qwenpaw.config.config import AgentProfileConfig
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 @pytest.mark.asyncio
 async def test_embedded_reme_starts_indexes_and_closes_without_shared_workers(
     tmp_path,

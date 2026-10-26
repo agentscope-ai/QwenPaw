@@ -18,6 +18,8 @@ from qwenpaw.agents.memory.reme_light_memory_manager import (
 )
 from qwenpaw.config.config import AgentProfileConfig
 
+pytestmark = [pytest.mark.integration, pytest.mark.p1]
+
 
 @pytest.fixture(name="embedded_memory")
 def make_embedded_memory(tmp_path):

@@ -575,11 +575,14 @@ class ScrollContextManager:
                     {
                         self._seq_by_tcid[entry.tool_call_id]
                         for entry in results
+                        if entry.tool_call_id is not None
                     },
                 )
                 refs = {}
                 for entry in results:
                     tcid = entry.tool_call_id
+                    if tcid is None:
+                        continue
                     seq = self._seq_by_tcid[tcid]
                     if seq in contents and contents[seq] == entry.content:
                         refs[tcid] = (
