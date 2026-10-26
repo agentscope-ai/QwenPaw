@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, List, Mapping
 
@@ -16,6 +17,7 @@ from agentscope.credential import TypeSafeCredential
 from typesafe_sdk import TypeSafeError
 
 from .provider import ModelConnectionResult, ModelInfo, Provider
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 
 
 class TypeSafeEvaluationError(RuntimeError):
@@ -71,6 +73,32 @@ class TypeSafeProvider(Provider):
             provider_headers=self.custom_headers,
         )
 
+    async def as_decision_model_async(
+        self,
+        model: str,
+        *,
+        timeout: float = 10,
+        max_retries: int = 1,
+    ) -> JevClassifierModel:
+        """Construct off-loop; close the client if creation is cancelled."""
+        classifier = None
+
+        def create():
+            nonlocal classifier
+            classifier = self.as_decision_model(
+                model,
+                timeout=timeout,
+                max_retries=max_retries,
+            )
+            return classifier
+
+        try:
+            return await run_sync_io(create)
+        except asyncio.CancelledError:
+            if classifier is not None:
+                await run_async_to_completion(classifier.client.aclose())
+            raise
+
     @asynccontextmanager
     async def _classifier(
         self,
@@ -80,7 +108,7 @@ class TypeSafeProvider(Provider):
         """Yield a decision model, normalizing SDK failures."""
         classifier = None
         try:
-            classifier = self.as_decision_model(
+            classifier = await self.as_decision_model_async(
                 model,
                 timeout=timeout,
                 # Approval decisions are latency-sensitive; fail fast and let
@@ -98,7 +126,7 @@ class TypeSafeProvider(Provider):
             ) from exc
         finally:
             if classifier is not None:
-                await classifier.client.aclose()
+                await run_async_to_completion(classifier.client.aclose())
 
     async def evaluate(
         self,

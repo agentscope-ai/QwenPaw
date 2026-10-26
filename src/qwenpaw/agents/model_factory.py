@@ -2531,7 +2531,7 @@ def _decision_model_settings(agent_config):
 async def create_decision_model_async(agent_config):
     """Build a host-owned decision model from the configured provider."""
     provider, model = await run_sync_io(_decision_model_settings, agent_config)
-    return provider.as_decision_model(model)
+    return await provider.as_decision_model_async(model)
 
 
 async def create_model_and_formatter_async(

@@ -407,7 +407,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
 
         if self.decision_compaction_enabled:
-            from .context.scroll import _as_internals as as_internals
+            from .context import _as_internals as as_internals
 
             cfg = context_config or self.context_config
             target = cfg.trigger_ratio * self.model.context_size

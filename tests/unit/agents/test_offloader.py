@@ -9,12 +9,14 @@ without touching a real agent runtime.
 # pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from agentscope.message import Msg
@@ -347,6 +349,60 @@ class TestOffloadToolResult:
 
         assert nested.is_dir()
         assert Path(path).parent == nested
+
+    async def test_deduplication_reuses_complete_archive(
+        self,
+        offloader,
+        monkeypatch,
+    ):
+        from qwenpaw.agents import offloader as module
+
+        write = Mock(wraps=module.write_text_atomic)
+        monkeypatch.setattr(module, "write_text_atomic", write)
+        paths = await asyncio.gather(
+            *(
+                offloader.offload_tool_result(
+                    "s1",
+                    _tool_result("same"),
+                    deduplicate=True,
+                )
+                for _ in range(3)
+            ),
+        )
+        assert len(set(paths)) == 1
+        assert Path(paths[0]).read_text(encoding="utf-8") == "same"
+        write.assert_called_once()
+        Path(paths[0]).unlink()
+        restored = await offloader.offload_tool_result(
+            "s1",
+            _tool_result("same"),
+            deduplicate=True,
+        )
+        assert restored == paths[0]
+        assert Path(restored).read_text(encoding="utf-8") == "same"
+
+    async def test_deduplication_distinguishes_session_call_and_content(
+        self,
+        offloader,
+    ):
+        original = _tool_result("first")
+        changed_call = _tool_result("first")
+        changed_call.id = "call-2"
+        paths = [
+            await offloader.offload_tool_result(
+                session,
+                result,
+                deduplicate=True,
+            )
+            for session, result in (
+                ("s1", original),
+                ("s2", original),
+                ("s1", changed_call),
+                ("s1", _tool_result("changed")),
+            )
+        ]
+        assert len(set(paths)) == 4
+        assert Path(paths[0]).read_text(encoding="utf-8") == "first"
 
 
 # ---------------------------------------------------------------------------

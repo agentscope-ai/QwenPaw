@@ -34,7 +34,7 @@ from ....constant import (
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
 from ....utils.io_utils import run_sync_io
-from . import _as_internals as as_internals
+from .. import _as_internals as as_internals
 from .continuation_summary import (
     ContinuationSummary,
     SummaryMode,

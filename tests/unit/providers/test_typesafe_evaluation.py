@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """TypeSafe evaluation uses provider settings and validates responses."""
 
+import asyncio
 import json
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -238,3 +240,58 @@ def test_as_model_requires_provider_key_before_constructing_sdk(
         provider.as_decision_model("jev-2")
     factory, _client = sdk_client
     factory.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("construction_fails", [False, True])
+async def test_cancelled_construction_finishes_and_closes_client(
+    monkeypatch,
+    provider,
+    construction_fails,
+):
+    loop = asyncio.get_running_loop()
+    loop_thread = threading.get_ident()
+    entered, release = asyncio.Event(), threading.Event()
+    closing, close_release = asyncio.Event(), asyncio.Event()
+
+    async def close():
+        closing.set()
+        await close_release.wait()
+
+    model = SimpleNamespace(
+        client=SimpleNamespace(aclose=AsyncMock(side_effect=close)),
+    )
+
+    def construct(_self, *_args, **_kwargs):
+        assert threading.get_ident() != loop_thread
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(5), "Construction was not released"
+        if construction_fails:
+            raise RuntimeError("construction failed")
+        return model
+
+    monkeypatch.setattr(TypeSafeProvider, "as_decision_model", construct)
+    task = asyncio.create_task(provider.as_decision_model_async("jev-2"))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+        release.set()
+        if not construction_fails:
+            await asyncio.wait_for(closing.wait(), 2)
+            for _ in range(2):
+                task.cancel()
+                await asyncio.sleep(0)
+                assert not task.done()
+        close_release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+        assert model.client.aclose.await_count == (
+            0 if construction_fails else 1
+        )
+    finally:
+        release.set()
+        close_release.set()
+        await asyncio.gather(task, return_exceptions=True)

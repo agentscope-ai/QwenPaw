@@ -17,6 +17,7 @@ from qwenpaw.agents.context.types import DECISION_COMPACTED
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.react_agent import QwenPawAgent
+from qwenpaw.agents.offloader import QwenPawOffloader
 from qwenpaw.config.config import AgentProfileConfig, DecisionCompactConfig
 
 
@@ -302,6 +303,56 @@ async def test_failures_and_cancellation_preserve_original_context(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "outcome",
+    ["keep", "model_error", "no_savings", "timeout"],
+)
+async def test_native_retries_reuse_archives(model, tmp_path, outcome):
+    agent = make_agent()
+    original = agent.state.context
+    agent.offloader = QwenPawOffloader(
+        str(tmp_path / "dialog"),
+        str(tmp_path / "results"),
+    )
+    if outcome == "keep":
+
+        async def keep(**kwargs):
+            return SimpleNamespace(
+                content={
+                    key: SimpleNamespace(
+                        type="binary_answer",
+                        probability=0.99,
+                    )
+                    for key in kwargs["questions"]
+                },
+                usage=None,
+            )
+
+        model.side_effect = keep
+    elif outcome == "model_error":
+        model.side_effect = RuntimeError("provider unavailable")
+    elif outcome == "no_savings":
+        agent.model.count_tokens = AsyncMock(return_value=1000000)
+    else:
+
+        async def wait(**_kwargs):
+            await asyncio.Event().wait()
+
+        model.side_effect = wait
+        cfg = agent._agent_config.running.light_context_config
+        cfg.decision_compact_config.total_timeout_seconds = 0.02
+
+    for _ in range(2):
+        compactor = DecisionCompactor()
+        try:
+            assert not await compact(compactor, agent)
+            assert agent.state.context is original
+            assert len(list((tmp_path / "results").glob("*.txt"))) == 3
+        finally:
+            await compactor.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("automatic", "decision"),
     [(False, False), (False, True), (True, False)],
 )
@@ -366,7 +417,7 @@ async def test_invalid_or_stale_proposals_never_commit(
     monkeypatch,
     mutation,
 ):
-    from reme.steps.compaction.compact_context import CompactContextStep
+    from reme.steps.compaction import CompactContextStep
 
     agent = make_agent()
     before = agent.state.context

@@ -14,7 +14,7 @@ from ...constant import (
 )
 from ...utils.io_utils import run_async_to_completion
 from ..model_factory import create_decision_model_async
-from .scroll import _as_internals as as_internals
+from . import _as_internals as as_internals
 from .types import DECISION_COMPACTED
 
 logger = logging.getLogger(__name__)
@@ -77,8 +77,7 @@ class DecisionCompactor:
 
     async def _compact(self, agent, cfg, target, tokens, source_refs):
         from reme.schema.compaction import CompactionRequest, CompactionResult
-        from reme.steps.compaction.compact_context import CompactContextStep
-        from reme.steps.compaction.messages import collect_pairs
+        from reme.steps.compaction import CompactContextStep, collect_pairs
 
         original = agent.state.context
         snapshot = [msg.model_dump(mode="json") for msg in original]
@@ -204,6 +203,7 @@ class DecisionCompactor:
             path = await offloader.offload_tool_result(
                 agent._model_session_id,
                 original[mi].content[bi],
+                deduplicate=True,
             )
             if path:
                 refs[pair.call_id] = f"read_file(file_path={str(path)!r})"
@@ -212,7 +212,7 @@ class DecisionCompactor:
     @staticmethod
     def _validated_candidate(request, pairs, result, cfg):
         """Compare the entire proposal with permitted output previews."""
-        from reme.steps.compaction.messages import preview_result
+        from reme.steps.compaction import preview_result
 
         refs = request.source_refs
         expected = deepcopy(request.messages)

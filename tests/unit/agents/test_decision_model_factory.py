@@ -2,6 +2,7 @@
 """Resolve QwenPaw decision slots into provider-owned AS configuration."""
 
 import asyncio
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -60,9 +61,20 @@ async def test_agent_or_global_slot_returns_provider_as_instance(
         get_provider=lambda _: provider,
     )
     monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    loop_thread = threading.get_ident()
+
+    def construct(*_args, **_kwargs):
+        assert threading.get_ident() != loop_thread
+        return provider.as_decision_model.return_value
+
+    provider.as_decision_model.side_effect = construct
     result = await module.create_decision_model_async(config)
     assert result is provider.as_decision_model.return_value
-    provider.as_decision_model.assert_called_once_with(slot.model)
+    provider.as_decision_model.assert_called_once_with(
+        slot.model,
+        timeout=10,
+        max_retries=1,
+    )
 
 
 @pytest.mark.asyncio

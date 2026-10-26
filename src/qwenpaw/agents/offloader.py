@@ -8,6 +8,7 @@ text files.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -20,10 +21,18 @@ from typing import TYPE_CHECKING
 import aiofiles
 import aiofiles.os
 
+from ..utils.io_utils import get_path_lock, run_sync_io, write_text_atomic
+
 if TYPE_CHECKING:
     from agentscope.message import Msg, ToolResultBlock
 
 logger = logging.getLogger(__name__)
+
+
+def _write_archive_once(path: Path, content: str) -> None:
+    """Publish a complete archive once for each result."""
+    if not path.exists():
+        write_text_atomic(path, content)
 
 
 class QwenPawOffloader:
@@ -104,21 +113,16 @@ class QwenPawOffloader:
 
     async def offload_tool_result(
         self,
-        session_id: str,  # pylint: disable=unused-argument
+        session_id: str,
         tool_result: "ToolResultBlock",
+        *,
+        deduplicate: bool = False,
     ) -> str:
         """Persist a truncated tool result to a text file.
 
-        ``session_id`` unused — same rationale as
-        :meth:`offload_context`.
+        Decision compaction may reuse an archive for the same session, call,
+        and text. The default AgentScope offloading behavior uses a fresh file.
         """
-        await aiofiles.os.makedirs(self._tool_results_dir, exist_ok=True)
-
-        filepath = os.path.join(
-            self._tool_results_dir,
-            f"{uuid.uuid4().hex}.txt",
-        )
-
         output = getattr(tool_result, "output", None) or ""
         if isinstance(output, list):
             parts = []
@@ -132,6 +136,23 @@ class QwenPawOffloader:
         else:
             content = str(output)
 
+        if deduplicate:
+            archive_id = hashlib.sha256(
+                json.dumps(
+                    [session_id, tool_result.id, content],
+                    ensure_ascii=False,
+                ).encode("utf-8"),
+            ).hexdigest()
+            path = Path(self._tool_results_dir) / f"{archive_id}.txt"
+            async with get_path_lock(path):
+                await run_sync_io(_write_archive_once, path, content)
+            return str(path)
+
+        await aiofiles.os.makedirs(self._tool_results_dir, exist_ok=True)
+        filepath = os.path.join(
+            self._tool_results_dir,
+            f"{uuid.uuid4().hex}.txt",
+        )
         async with aiofiles.open(filepath, mode="w", encoding="utf-8") as f:
             await f.write(content)
 
