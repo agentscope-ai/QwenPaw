@@ -135,6 +135,24 @@ cp -f "${DEB_PATH}" "${DEB_OUT}"
 cp -f "${APPIMAGE_PATH}" "${APPIMAGE_OUT}"
 chmod +x "${APPIMAGE_OUT}"
 
+# --------------------------------------------------------------- 5) cleanup
+# Tauri stages a full copy of the bundle resources under
+# target/release/binaries, and linuxdeploy keeps its working trees under
+# target/release/bundle/appimage_deb. Together they are tens of gigabytes of
+# pure intermediates that are rebuilt on the next run. Drop them by default;
+# set QWENPAW_DESKTOP_KEEP_STAGING=1 to keep them for debugging.
+if [ "${QWENPAW_DESKTOP_KEEP_STAGING:-0}" != "1" ]; then
+  echo "== Step 5: clean packaging intermediates =="
+  BUNDLE_ROOT="${REPO_ROOT}/console/src-tauri/target/release"
+  rm -rf \
+    "${BUNDLE_ROOT}/binaries" \
+    "${BUNDLE_ROOT}/bundle/appimage_deb" \
+    "${BUNDLE_ROOT}/bundle/deb" \
+    "${BUNDLE_ROOT}/bundle/appimage"
+  echo "Removed staged resources and bundle working trees."
+  echo "Set QWENPAW_DESKTOP_KEEP_STAGING=1 to keep them."
+fi
+
 echo ""
 echo "========================================="
 echo "Build complete"
