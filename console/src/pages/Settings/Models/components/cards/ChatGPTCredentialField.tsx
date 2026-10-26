@@ -1,5 +1,4 @@
-import { Tooltip } from "antd";
-import { CircleHelp } from "lucide-react";
+import InlineHelp from "@/components/InlineHelp";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "@/api/types";
 import type { ChatGPTSession } from "./ChatGPTAccountPanel";
@@ -27,15 +26,10 @@ export function ChatGPTCredentialField({
   return (
     <div className={styles.groupCardField}>
       <span className={styles.groupCardFieldLabel}>
-        <Tooltip
-          title={t("models.chatgpt.localHelp")}
-          trigger={["hover", "focus", "click"]}
-        >
-          <span tabIndex={0} className={accountStyles.summaryLabel}>
-            {t("models.chatgpt.account")}
-            <CircleHelp size={14} strokeWidth={1.7} aria-hidden />
-          </span>
-        </Tooltip>
+        {t("models.chatgpt.account")}
+        <InlineHelp inline subject={t("models.chatgpt.account")}>
+          {t("models.chatgpt.localHelp")}
+        </InlineHelp>
       </span>
       <div className={styles.groupCardMono}>
         <span className={accountStyles.summaryValue} title={label}>

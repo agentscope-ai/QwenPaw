@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Form, Dropdown, Tooltip } from "antd";
+import { Form, Dropdown } from "antd";
+import InlineHelp from "@/components/InlineHelp";
 import { Button } from "@agentscope-ai/design";
 import {
   ArrowUpRight,
-  CircleHelp,
   CircleCheck,
   LogIn,
   LogOut,
@@ -113,15 +113,12 @@ export function ChatGPTAccountPanel({
     <>
       <Form.Item
         label={
-          <Tooltip
-            title={t("models.chatgpt.localHelp")}
-            trigger={["hover", "focus"]}
-          >
-            <span tabIndex={0} className={styles.summaryLabel}>
-              {t("models.chatgpt.account")}
-              <CircleHelp size={14} aria-hidden />
-            </span>
-          </Tooltip>
+          <span className={styles.summaryLabel}>
+            {t("models.chatgpt.account")}
+            <InlineHelp inline subject={t("models.chatgpt.account")}>
+              {t("models.chatgpt.localHelp")}
+            </InlineHelp>
+          </span>
         }
       >
         {session?.connected ? (

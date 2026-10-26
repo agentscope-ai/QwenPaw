@@ -652,7 +652,6 @@ export function ProviderConfigModal({
 
   return (
     <SharedModal
-      surfaceId={`provider:${provider.id}`}
       width={800}
       className={styles.modelManageModal}
       title={t("models.configureProvider", { name: providerName })}
