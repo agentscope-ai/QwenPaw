@@ -601,7 +601,13 @@ class QwenPawAgent(Agent):
                         cm.purge_old,
                         lcc.scroll_config.history_retention_days,
                         blocks_retention_days=(
-                            lcc.scroll_config.blocks_retention_days
+                            # getattr: lightweight test mocks may omit the
+                            # field; missing means "not configured" = off.
+                            getattr(
+                                lcc.scroll_config,
+                                "blocks_retention_days",
+                                0,
+                            )
                         ),
                     )
                 except Exception:

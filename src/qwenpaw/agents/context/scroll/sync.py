@@ -918,7 +918,14 @@ def _sync_all_scroll_agents() -> None:
                 )
 
         retention_days = lcc.scroll_config.history_retention_days
-        blocks_retention_days = lcc.scroll_config.blocks_retention_days
+        # getattr (not attribute access): some callers construct lightweight
+        # mocks without this field (see test_sync.py scroll_config
+        # SimpleNamespaces); a missing field means "not configured" = off.
+        blocks_retention_days = getattr(
+            lcc.scroll_config,
+            "blocks_retention_days",
+            0,
+        )
         history = HistoryStore(db_path)
         try:
             report = sync_sessions_to_history(

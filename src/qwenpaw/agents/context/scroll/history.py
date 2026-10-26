@@ -1258,23 +1258,35 @@ class HistoryStore:
         where += " AND blocks IS NOT NULL"
         # CAST to BLOB so LENGTH counts bytes, not characters — blocks
         # is JSON text and the returned key/logs say "bytes".
-        with self._lock, self._conn:
-            row = self._conn.execute(
-                "SELECT COUNT(*) AS rows, "
-                "COALESCE(SUM(LENGTH(CAST(blocks AS BLOB))), 0) "
-                "AS blocks_bytes "
-                "FROM conversation_history WHERE " + where,
+        count_sql = (
+            "SELECT COUNT(*) AS rows, "
+            "COALESCE(SUM(LENGTH(CAST(blocks AS BLOB))), 0) "
+            "AS blocks_bytes "
+            "FROM conversation_history WHERE " + where
+        )
+        with self._lock:
+            if dry_run:
+                row = self._conn.execute(count_sql, params).fetchone()
+                return {
+                    "rows": int(row["rows"]),
+                    "blocks_bytes": int(row["blocks_bytes"]),
+                }
+            # Probe before opening a write transaction, mirroring purge():
+            # skip writer contention when nothing qualifies.
+            match = self._conn.execute(
+                f"SELECT 1 FROM conversation_history WHERE {where} LIMIT 1",
                 params,
             ).fetchone()
-            if dry_run:
-                aged = int(row["rows"])
-            else:
+            if match is None:
+                return {"rows": 0, "blocks_bytes": 0}
+            with _immediate_transaction(self._conn):
+                row = self._conn.execute(count_sql, params).fetchone()
                 aged = self._conn.execute(
                     "UPDATE conversation_history SET blocks = NULL WHERE "
                     + where,
                     params,
                 ).rowcount
-        return {"rows": aged, "blocks_bytes": int(row["blocks_bytes"])}
+        return {"rows": int(aged), "blocks_bytes": int(row["blocks_bytes"])}
 
     def vacuum(self) -> None:
         """Rebuild the database file to reclaim space freed by ``purge``.
