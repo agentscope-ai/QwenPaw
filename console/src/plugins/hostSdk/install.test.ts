@@ -10,6 +10,7 @@ import { installHostSdk } from "./install";
 import { installHostExternals } from "../hostExternals";
 import { chatExtensions } from "../registry/chatExtensions";
 import { auditStore } from "../registry/audit";
+import type { ThemeTokenOverrides } from "../registry/types";
 
 beforeEach(() => {
   // Reset the window.QwenPaw namespace before each test so installHostSdk
@@ -94,6 +95,74 @@ describe("window.QwenPaw.chat.theme / sender", () => {
     expect(
       chatExtensions.getScalarSnapshot()["theme.colorPrimary"]?.value,
     ).toBe("#123456");
+  });
+
+  it("theme.overrideTokens(pluginId, tokens) is exposed", () => {
+    expect(typeof window.QwenPaw.chat!.theme.overrideTokens).toBe("function");
+  });
+
+  it("theme.overrideTokens writes both schemes per token", () => {
+    window.QwenPaw.chat!.theme.overrideTokens("p1", {
+      surface: { light: "#fff", dark: "#111" },
+      "surface-raised": { light: "#fafafa", dark: "#222" },
+    });
+    const snap = chatExtensions.getThemeTokenSnapshot();
+    expect(snap.surface).toEqual({
+      pluginId: "p1",
+      value: { light: "#fff", dark: "#111" },
+    });
+    expect(snap["surface-raised"]?.value.dark).toBe("#222");
+    expect(snap.bg).toBeUndefined();
+  });
+
+  it("theme.overrideTokens dispose reverts only that plugin's tokens", () => {
+    const d = window.QwenPaw.chat!.theme.overrideTokens("p1", {
+      border: { light: "#ccc", dark: "#333" },
+    });
+    d.dispose();
+    expect(chatExtensions.getThemeTokenSnapshot().border).toBeUndefined();
+  });
+
+  it("theme.overrideTokens stacks per token and falls back on dispose", () => {
+    const first = window.QwenPaw.chat!.theme.overrideTokens("p1", {
+      text: { light: "#111", dark: "#eee" },
+    });
+    const second = window.QwenPaw.chat!.theme.overrideTokens("p2", {
+      text: { light: "#222", dark: "#ddd" },
+    });
+    expect(chatExtensions.getThemeTokenSnapshot().text?.value.light).toBe(
+      "#222",
+    );
+    second.dispose();
+    expect(chatExtensions.getThemeTokenSnapshot().text?.value.light).toBe(
+      "#111",
+    );
+    first.dispose();
+    expect(chatExtensions.getThemeTokenSnapshot().text).toBeUndefined();
+  });
+
+  it("theme.overrideTokens rejects a token missing one scheme", () => {
+    const partial = { bg: { light: "#fff" } } as unknown as ThemeTokenOverrides;
+    expect(() =>
+      window.QwenPaw.chat!.theme.overrideTokens("p1", partial),
+    ).toThrow(/both "light" and "dark"/);
+  });
+
+  it("theme.overrideTokens rejects unknown token names", () => {
+    const unknown = {
+      accent: { light: "#fff", dark: "#000" },
+    } as unknown as ThemeTokenOverrides;
+    expect(() =>
+      window.QwenPaw.chat!.theme.overrideTokens("p1", unknown),
+    ).toThrow(/unknown token "accent"/);
+  });
+
+  it("disposeAll(pluginId) clears theme tokens too", () => {
+    window.QwenPaw.chat!.theme.overrideTokens("p1", {
+      bg: { light: "#fff", dark: "#000" },
+    });
+    window.QwenPaw.chat!.disposeAll("p1");
+    expect(chatExtensions.getThemeTokenSnapshot().bg).toBeUndefined();
   });
 
   it("sender.set(partial) writes placeholder and disclaimer", () => {

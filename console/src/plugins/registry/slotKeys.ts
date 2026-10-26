@@ -58,3 +58,23 @@ export const ChatList = {
 } as const;
 
 export type ChatListField = (typeof ChatList)[keyof typeof ChatList];
+
+/**
+ * Theme token override keys.
+ *
+ * Semantic roles from `styles/tokens.css`, WITHOUT the `--app-` prefix, so a
+ * plugin writes `{ surface: { light, dark } }` instead of reaching into the
+ * raw custom-property namespace. The set is closed on purpose: plugins may
+ * override these six roles only, which keeps the API surface small and lets
+ * the remaining `--app-*` roles stay an implementation detail.
+ */
+export const ThemeTokens = {
+  bg: "bg",
+  surface: "surface",
+  surfaceRaised: "surface-raised",
+  border: "border",
+  text: "text",
+  textSecondary: "text-secondary",
+} as const;
+
+export type ThemeTokenKey = (typeof ThemeTokens)[keyof typeof ThemeTokens];
