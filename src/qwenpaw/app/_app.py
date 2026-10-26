@@ -603,7 +603,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             app.state.local_transcription = LocalTranscriptionService(
                 plugin_loader,
-                WORKING_DIR / "local-whisper-migration.json",
+                WORKING_DIR
+                / "plugin_runtime"
+                / "migrations"
+                / "local-whisper.json",
             )
             await app.state.local_transcription.start()
 

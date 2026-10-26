@@ -36,7 +36,7 @@ PyPI 手动安装：`pip install -U "qwenpaw[whisper]"`。
 管理员管理的环境应由管理员安装 `openai-whisper` 及依赖；`QWENPAW_RUNTIME_PROVISIONER=local`
 下程序不会自动修改管理员 Python。
 
-迁移记录位于工作目录的 `local-whisper-migration.json`。迁移尝试前先写入一次性标记；
+迁移记录位于工作目录的 `plugin_runtime/migrations/local-whisper.json`。迁移尝试前先写入一次性标记；
 中断或失败后需要用户主动重试，不在重启时自动恢复已卸载的插件。
 插件通过框架安装到标准 `plugins/local-whisper` 目录，后续启动直接由框架发现。
 发行内容中的源码仅作为安装来源，不参与自动加载。

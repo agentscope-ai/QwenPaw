@@ -38,7 +38,7 @@ async def setup(tmp_path, monkeypatch):
         )
         service = local.LocalTranscriptionService(
             host._loader,
-            host.root / "local-whisper-migration.json",
+            host.root / "plugin_runtime" / "migrations" / "local-whisper.json",
         )
         try:
             yield host, service, gate
@@ -288,6 +288,7 @@ async def test_uninstall_waits_for_real_transcription_worker(
 async def test_invalid_migration_marker_never_reinstalls(setup):
     _, service, gate = setup
     select()
+    service.state_path.parent.mkdir(parents=True, exist_ok=True)
     service.state_path.write_text("broken-json")
     await service.start()
     assert service.task is None
