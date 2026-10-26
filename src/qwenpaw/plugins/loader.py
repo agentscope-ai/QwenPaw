@@ -551,28 +551,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         )
         if decision.unsupported:
             return decision
-        if decision.missing:
-            from ._sdk_dependencies import loaded_sdk_conflicts
-
-            conflicts = await run_sync_io(
-                loaded_sdk_conflicts,
-                source_path,
-                decision.missing,
-            )
-            if conflicts:
-                return GateDecision(
-                    allow_install=False,
-                    already_satisfied=False,
-                    missing=decision.missing,
-                    host_conflicts=conflicts,
-                    require_restart=True,
-                    reason=(
-                        f"Plugin '{plugin_id}' cannot safely replace "
-                        "distributions in this process "
-                        f"({', '.join(conflicts)}). "
-                        "Restart the backend to apply."
-                    ),
-                )
         if decision.already_satisfied or not decision.allow_install:
             return decision
         logger.info(
@@ -627,15 +605,13 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """
         from .install_lock import plugin_install_lock
 
-        from ._sdk_dependencies import is_sdk_source
-
-        sdk = is_sdk_source(source_path or requirements_file.parent)
-        lock_options = {"timeout": 1800} if sdk else {}
         with plugin_install_lock(
             _install_lock_path(plugin_id),
-            **lock_options,
+            timeout=self._dependency_install_timeout(
+                source_path or requirements_file.parent,
+            ),
         ) as acquired:
-            if sdk and not acquired:
+            if not acquired:
                 raise RuntimeError(
                     "Dependency installer is busy or its lock is unavailable; "
                     "retry later",
@@ -644,28 +620,24 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             # with fresh import caches before spending resources on pip.
             _ensure_plugin_site_on_path()
             importlib.invalidate_caches()
-            missing = self._find_unsatisfied_dependencies(requirements_file)
-            from ._sdk_dependencies import loaded_sdk_conflicts
-
-            conflicts = loaded_sdk_conflicts(
-                source_path or requirements_file.parent,
-                missing,
+            decision = DependencyGate().evaluate(
+                requirements_file,
+                allow_install=True,
+                plugin_id=plugin_id,
             )
-            if conflicts:
+            if decision.require_restart:
                 from .errors import SDKRestartRequiredError
 
-                raise SDKRestartRequiredError(
-                    f"Plugin '{plugin_id}' cannot safely replace "
-                    "distributions in this process "
-                    f"({', '.join(conflicts)}). Restart the backend to apply.",
-                )
-            if not missing:
+                raise SDKRestartRequiredError(decision.reason)
+            if decision.already_satisfied:
                 logger.info(
                     "Plugin '%s' dependencies already satisfied by a "
                     "concurrent installer; skipping pip install",
                     plugin_id,
                 )
                 return
+            if not decision.allow_install:
+                raise RuntimeError(decision.reason)
             if source_path is None:
                 self._install_requirements(requirements_file, plugin_id)
             else:
@@ -1510,9 +1482,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
     @staticmethod
     def _dependency_install_timeout(source: Path) -> int:
         """Bound downloads for optional large packages; default stays 300s."""
-        manifest = json.loads(
-            (source / "plugin.json").read_text(encoding="utf-8"),
-        )
+        path = source / "plugin.json"
+        if not path.is_file():
+            return 300
+        manifest = json.loads(path.read_text(encoding="utf-8"))
         value = (manifest.get("meta") or {}).get(
             "dependency_install_timeout",
             300,
@@ -1554,32 +1527,13 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 "ask the administrator to install the requirements, "
                 "or use Docker for independently managed dependencies.",
             )
-        from ._sdk_dependencies import is_sdk_source, install_sdk_requirements
-
-        if is_sdk_source(source_path or requirements_file.parent):
-            python = _desktop_python() if _is_frozen() else sys.executable
-            if python is None:
-                raise RuntimeError(
-                    "The bundled dependency runtime is unavailable",
-                )
-            install_sdk_requirements(
-                requirements_file,
-                plugin_id,
-                python=str(python),
-                target=str(_plugin_site_dir()) if _is_frozen() else None,
-                run=self._run_subprocess_with_streaming_log,
-                find_uv=self._find_uv,
-                timeout=self._dependency_install_timeout(
-                    source_path or requirements_file.parent,
-                ),
-            )
-            importlib.invalidate_caches()
-            return
         logger.info(
             f"Installing dependencies for plugin '{plugin_id}'...",
         )
         req = str(requirements_file)
-        timeout = 300
+        timeout = self._dependency_install_timeout(
+            source_path or requirements_file.parent,
+        )
 
         # In a frozen desktop build ``sys.executable`` is the backend binary,
         # not a Python interpreter; install via the bundled runtime instead.
@@ -1606,7 +1560,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
                 f"Dependency installation timed out for '{plugin_id}' "
-                f"(300 s limit exceeded)",
+                f"({timeout} s limit exceeded)",
             ) from exc
 
         if result.returncode == 0:
@@ -1656,7 +1610,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
                 f"Dependency installation timed out for '{plugin_id}' "
-                f"(300 s limit exceeded, via uv)",
+                f"({timeout} s limit exceeded, via uv)",
             ) from exc
 
         if uv_result.returncode != 0:
@@ -1711,7 +1665,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
                 f"Dependency installation timed out for '{plugin_id}' "
-                f"(300 s limit exceeded)",
+                f"({timeout} s limit exceeded)",
             ) from exc
 
         if result.returncode != 0:
@@ -1848,10 +1802,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     ok=False,
                     unchanged=True,
                     errors=[decision.reason],
-                    needs_restart=bool(
-                        incoming_manifest.sdk is not None
-                        and decision.require_restart,
-                    ),
+                    needs_restart=decision.require_restart,
                 )
             if decision.missing and not decision.allow_install:
                 return ReloadReport(

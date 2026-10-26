@@ -4382,7 +4382,6 @@
     "localWhisperManage": "プラグインを管理",
     "localWhisperPlugin": "プラグイン",
     "localWhisperFfmpegHelp": "ffmpeg のインストール手順",
-    "localWhisperFfmpegHint": "ffmpeg をインストールし、QwenPaw から利用できるようにしてください。QwenPaw は確認のみ行い、インストールや削除は行いません。",
     "localWhisperModelHint": "モデルは最初の文字起こし時に読み込まれます。",
     "localWhisperDependenciesKept": "Python 依存関係は保持されています。ローカル文字起こしにはプラグインをインストールしてください。",
     "localWhisperState_missing": "ローカル Whisper · 未インストール",

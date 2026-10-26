@@ -4397,7 +4397,6 @@
     "localWhisperManage": "Управление плагином",
     "localWhisperPlugin": "Плагин",
     "localWhisperFfmpegHelp": "Инструкция по установке ffmpeg",
-    "localWhisperFfmpegHint": "Установите ffmpeg и обеспечьте доступ к нему из QwenPaw. QwenPaw только проверяет его наличие, но не устанавливает и не удаляет.",
     "localWhisperModelHint": "Модель загружается при первой транскрипции.",
     "localWhisperDependenciesKept": "Зависимости Python сохранены. Для локальной транскрипции установите плагин.",
     "localWhisperState_missing": "Локальный Whisper · Не установлен",

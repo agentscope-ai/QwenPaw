@@ -3562,7 +3562,6 @@
     "localWhisperManage": "Kelola plugin",
     "localWhisperPlugin": "Plugin",
     "localWhisperFfmpegHelp": "Petunjuk instalasi ffmpeg",
-    "localWhisperFfmpegHint": "Instal ffmpeg dan pastikan QwenPaw dapat menemukannya. QwenPaw hanya memeriksa ketersediaannya, tidak menginstal atau menghapusnya.",
     "localWhisperModelHint": "Model dimuat saat transkripsi pertama.",
     "localWhisperDependenciesKept": "Dependensi Python masih tersedia. Instal plugin untuk menggunakan transkripsi lokal.",
     "localWhisperState_missing": "Whisper Lokal · Belum diinstal",

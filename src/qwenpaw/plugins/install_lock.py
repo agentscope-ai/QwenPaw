@@ -89,21 +89,20 @@ def plugin_install_lock(
 
     Args:
         lock_path: Path to the lock file. Parent dirs are created.
-        timeout: Seconds to wait for the lock before giving up. The block
-            still runs when the wait times out (the install proceeds
-            unlocked rather than being skipped), so a stuck peer can never
-            permanently block a plugin from installing its dependencies.
+        timeout: Seconds to wait for the lock before yielding ``False``.
 
     Yields:
-        ``True`` if the lock was acquired, ``False`` if the wait timed out
-        and the body runs without the lock.
+        ``True`` if the lock was acquired, ``False`` on timeout or lock
+        errors. The block is entered in either case; callers must check
+        the result before writing. PluginLoader refuses to install when
+        the result is ``False``.
     """
     lock_path = Path(lock_path)
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError:
         logger.debug(
-            "Could not create lock dir for %s; proceeding without lock",
+            "Could not create lock dir for %s; lock not acquired",
             lock_path,
             exc_info=True,
         )
@@ -114,7 +113,7 @@ def plugin_install_lock(
         fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
     except OSError:
         logger.debug(
-            "Could not open lock file %s; proceeding without lock",
+            "Could not open lock file %s; lock not acquired",
             lock_path,
             exc_info=True,
         )
@@ -129,7 +128,7 @@ def plugin_install_lock(
                 acquired = _acquire_os_lock(fd)
             except OSError:
                 logger.debug(
-                    "Unexpected error locking %s; proceeding without lock",
+                    "Unexpected error locking %s; lock not acquired",
                     lock_path,
                     exc_info=True,
                 )
@@ -141,10 +140,10 @@ def plugin_install_lock(
 
         if not acquired:
             logger.warning(
-                "Timed out after %.0fs waiting for plugin install lock %s; "
-                "proceeding without it",
-                timeout,
+                "Could not acquire plugin install lock %s "
+                "(wait limit %.0fs)",
                 lock_path,
+                timeout,
             )
         yield acquired
     finally:

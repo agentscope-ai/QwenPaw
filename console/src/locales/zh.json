@@ -5150,7 +5150,6 @@
     "localWhisperManage": "管理插件",
     "localWhisperPlugin": "插件",
     "localWhisperFfmpegHelp": "查看 ffmpeg 安装说明",
-    "localWhisperFfmpegHint": "请自行安装 ffmpeg，并确保 QwenPaw 能找到它。QwenPaw 只检查其是否可用，不负责安装或卸载。",
     "localWhisperModelHint": "模型将在首次转写时加载。",
     "localWhisperDependenciesKept": "Python 依赖已保留，安装插件后即可使用本地转写。",
     "localWhisperState_missing": "本地 Whisper · 未安装",

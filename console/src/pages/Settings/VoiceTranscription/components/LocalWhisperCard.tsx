@@ -100,11 +100,6 @@ export function LocalWhisperCard({
           </Button>
         )}
       </Space>
-      {!status.ffmpeg_installed && (
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
-          {t("voiceTranscription.localWhisperFfmpegHint")}
-        </Typography.Paragraph>
-      )}
     </section>
   );
 }

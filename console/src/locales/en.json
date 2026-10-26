@@ -789,7 +789,6 @@
     "localWhisperManage": "Manage plugin",
     "localWhisperPlugin": "Plugin",
     "localWhisperFfmpegHelp": "ffmpeg installation instructions",
-    "localWhisperFfmpegHint": "Install ffmpeg and make it available to QwenPaw. QwenPaw only checks it; it does not install or remove it.",
     "localWhisperModelHint": "The model loads on the first transcription.",
     "localWhisperDependenciesKept": "Python dependencies are present. Install the plugin to use local transcription.",
     "localWhisperState_missing": "Local Whisper · Not installed",
