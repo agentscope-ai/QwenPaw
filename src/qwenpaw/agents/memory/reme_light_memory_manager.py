@@ -181,7 +181,7 @@ def _load_validated_reme_app() -> type:
     if "watch_mode" not in signature(WatchChangesStep.__init__).parameters:
         raise _ReMeContractError(
             "QwenPaw requires ReMe with watch_mode support. "
-            "Install the ReMe source containing the watcher isolation change.",
+            f"Reinstall reme-ai=={_REQUIRED_REME_VERSION} from PyPI.",
         )
     required = {
         "ReMe.run_job": getattr(ReMeApp, "run_job", None),

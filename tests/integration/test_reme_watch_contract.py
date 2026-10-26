@@ -2,10 +2,11 @@
 # pylint: disable=protected-access
 """Offline startup and watcher coverage for the actual embedded ReMe config.
 
-To test against a local ReMe checkout, install it into the test environment::
+Install the pinned integration dependencies before running the contract::
 
-    uv pip install --python .venv/bin/python --no-deps -e /path/to/ReMe
-    .venv/bin/python -m pytest tests/integration/test_reme_watch_contract.py
+    python -m pip install reme-ai==0.4.2.0
+    python -m pip install reme-auto-fin==0.1.3 reme-daily-paper==0.1.3
+    python -m pytest tests/integration/test_reme_watch_contract.py
 """
 
 import asyncio
