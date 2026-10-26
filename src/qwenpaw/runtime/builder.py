@@ -182,6 +182,7 @@ class AgentBuilder:
             make_toolkit = partial(
                 build_code_mode_toolkit,
                 tools=tools,
+                governor=governor,
             )
 
         skills = await run_sync_io(
@@ -357,6 +358,9 @@ class AgentBuilder:
             agent_config,
             request_context,
         )
+        if request_context.get(f"coding_mode") is True:
+            agent_config = agent_config.model_copy(deep=True)
+            agent_config.coding_mode.enabled = True
         agent_config = await apply_session_thinking(ctx, agent_config)
         ctx.agent_config = agent_config
 

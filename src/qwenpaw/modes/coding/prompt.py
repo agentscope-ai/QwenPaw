@@ -18,11 +18,12 @@ audio(block), or video(block). text/print cannot show media to the model.
 File paths and shell cwd default to the active project.
 """
 
-CODE_DESCRIPTION = f"""Run Python source in a fresh isolated CPython process.
+CODE_DESCRIPTION = f"""Run Python source in a fresh CPython process.
 Input: {{"code": "Python source"}}, without Markdown fences inside the string.
 Top-level await and the Python standard library are supported. No variables
-persist across calls. Host files, processes and network must be accessed
-through the enabled tools, not directly from the worker.
+persist across calls. Use enabled tools for host files, processes and network;
+permissions and execution hooks apply. OS sandboxing follows the global
+security.sandbox_enabled setting and is disabled by default.
 
 Calling and discovering tools:
 - await tools.<name>(parameter=value): keyword arguments only. Names and real
