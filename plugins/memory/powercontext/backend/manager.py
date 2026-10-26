@@ -15,6 +15,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+import httpx
 from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
 from agentscope.message import ToolCallBlock, ToolCallState
 from agentscope.message import ToolResultBlock, ToolResultState, Usage
@@ -33,6 +34,7 @@ from .client import (
     MAX_SEARCH_QUERY_LENGTH,
     TRUNCATION_MARKER,
     PowerContextConfig,
+    PowerContextHTTPError,
     PowerContextMemoryClient,
     safe_powercontext_exception_summary,
     truncate_utf8_text,
@@ -48,6 +50,8 @@ from .prompts import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_CONTEXT_BYTES = 12000
+_SCOPE_RETRY_INITIAL_DELAY = 1.0
+_SCOPE_RETRY_MAX_DELAY = 30.0
 
 
 def get_or_create_installation_id(host_working_dir: str | Path) -> str:
@@ -118,8 +122,19 @@ class PowerContextMemoryManager(BaseMemoryManager):
         self._client: PowerContextMemoryClient | None = None
         self._config: PowerContextMemoryConfig | None = None
         self._resolved_scope_id = ""
+        self._binding_error = ""
+        self._binding_client: PowerContextMemoryClient | None = None
+        self._scope_retry_task: asyncio.Task | None = None
+        self._closing = False
 
     async def start(self) -> None:
+        if (
+            self._closing
+            or self._client
+            or self._binding_client
+            or self._scope_retry_task
+        ):
+            return
         cfg = PowerContextMemoryConfig.model_validate(
             self.context.backend_config,
         )
@@ -143,33 +158,92 @@ class PowerContextMemoryManager(BaseMemoryManager):
                     timeout=cfg.timeout,
                 ),
             )
-            self._resolved_scope_id = await client.resolve_scope(
+            scope_id = await client.resolve_scope(
                 create_default=not bool(cfg.scope_id),
             )
-            self._client = client
+            if not self._closing:
+                self._resolved_scope_id = scope_id
+                self._client = client
+                self._binding_error = ""
         except Exception as exc:
-            summary = safe_powercontext_exception_summary(
-                exc,
-                token=cfg.token.strip(),
-            )
-            logger.warning("PowerContext initialization failed: %s", summary)
-            self._client = None
-            self._resolved_scope_id = ""
+            retry = self._record_binding_failure(exc)
+            if retry and client is not None and not self._closing:
+                self._binding_client = client
+                self._scope_retry_task = asyncio.create_task(
+                    self._retry_scope_binding(client, cfg),
+                )
+                # The retry task now owns this unbound client.
+                client = None
         finally:
             if client is not None and self._client is not client:
+                await self._close_client(client)
+
+    def _record_binding_failure(self, exc: Exception) -> bool:
+        retry = (
+            isinstance(exc, PowerContextHTTPError)
+            and 500 <= exc.status_code < 600
+        ) or (
+            isinstance(exc, httpx.TransportError)
+            and not isinstance(
+                exc,
+                (httpx.UnsupportedProtocol, httpx.LocalProtocolError),
+            )
+        )
+        summary = safe_powercontext_exception_summary(
+            exc,
+            token=self._config.token.strip() if self._config else "",
+        )
+        self._binding_error = f"PowerContext Scope binding failed: {summary}"
+        if retry:
+            self._binding_error += "; retrying automatically."
+        logger.warning("%s", self._binding_error)
+        return retry
+
+    async def _retry_scope_binding(
+        self,
+        client: PowerContextMemoryClient,
+        cfg: PowerContextMemoryConfig,
+    ) -> None:
+        delay = _SCOPE_RETRY_INITIAL_DELAY
+        try:
+            while not self._closing:
+                await asyncio.sleep(delay)
                 try:
-                    await client.close()
-                except Exception as exc:
-                    logger.warning(
-                        "PowerContext initialization cleanup failed: %s",
-                        safe_powercontext_exception_summary(
-                            exc,
-                            token=cfg.token.strip(),
-                        ),
+                    scope_id = await client.resolve_scope(
+                        create_default=not bool(cfg.scope_id),
                     )
+                except Exception as exc:
+                    if not self._record_binding_failure(exc):
+                        return
+                else:
+                    if not self._closing:
+                        self._resolved_scope_id = scope_id
+                        self._client = client
+                        self._binding_error = ""
+                        logger.info("PowerContext Scope binding recovered")
+                    return
+                delay = min(delay * 2, _SCOPE_RETRY_MAX_DELAY)
+        finally:
+            if self._client is client or await self._close_client(client):
+                self._binding_client = None
+            self._scope_retry_task = None
 
     def _get_installation_id(self) -> str:
         return get_or_create_installation_id(self.context.host_working_dir)
+
+    async def close(self) -> bool:
+        """Stop binding retries even if shared worker shutdown fails."""
+        self._closing = True
+        task = self._scope_retry_task
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        # Cancellation before the task's first step cannot run its finally.
+        if self._binding_client is not None:
+            if not await self._close_client(self._binding_client):
+                return False
+            self._binding_client = None
+        return await super().close()
 
     async def _close_backend(self) -> bool:
         """Close the remote client after shared auto-memory work stops."""
@@ -177,6 +251,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
         self._resolved_scope_id = ""
         if client is None:
             return True
+        return await self._close_client(client)
+
+    async def _close_client(self, client: PowerContextMemoryClient) -> bool:
         try:
             await client.close()
             return True
@@ -384,7 +461,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
             or empty content when no context is available.
         """
         if self._client is None or self._config is None:
-            return self._tool_error("PowerContext is not configured.")
+            return self._tool_error(
+                self._binding_error or "PowerContext is not configured.",
+            )
         try:
             prepared = await self._client.prepare_context(
                 query=query,
@@ -530,7 +609,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
     ) -> ToolChunk:
         """Search and bound the complete rendered result before injection."""
         if self._client is None:
-            return self._tool_error("PowerContext is not configured.")
+            return self._tool_error(
+                self._binding_error or "PowerContext is not configured.",
+            )
 
         parts: list[str] = []
         notice_bytes = len(
@@ -613,7 +694,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
     async def memory_remember(self, kind: str, text: str) -> ToolChunk:
         """Explicitly persist one important memory in PowerContext."""
         if self._client is None:
-            return self._tool_error("PowerContext is not configured.")
+            return self._tool_error(
+                self._binding_error or "PowerContext is not configured.",
+            )
         if not kind.strip() or not text.strip():
             return self._tool_error("Both kind and text are required.")
         normalized_text = text.strip()
@@ -834,7 +917,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
     ) -> ToolChunk:
         """Preserve remote records while sharing transport error handling."""
         if self._client is None:
-            return self._tool_error("PowerContext is not configured.")
+            return self._tool_error(
+                self._binding_error or "PowerContext is not configured.",
+            )
         try:
             payload = await getattr(self._client, operation)(**arguments)
             rendered = json.dumps(payload, ensure_ascii=False)

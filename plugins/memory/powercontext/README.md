@@ -185,6 +185,14 @@ An explicit `scope_id` must already exist in PowerContext and be accessible to
 the token. The plugin binds to that Scope; it does not replace it or create a
 different Scope when access fails.
 
+If startup Scope binding fails because of a transport error or an HTTP 5xx
+response, the same manager retries in the background with exponential delays
+from 1 to 30 seconds. Memory tools, automatic recall, and persistence stay
+disabled until binding succeeds. Authentication, configuration, and invalid
+Scope errors are reported without automatic retries; correct the configuration
+and reload the Agent. Closing the manager cancels pending retries. Recovery
+enables future turns; turns skipped during the outage are not backfilled.
+
 Default Scope creation and replay of the creation request require
 `server.admin`. Reading an explicit Scope requires `scope.read`; remembering
 requires `scope.contribute`. Artifact writes may need additional permissions for

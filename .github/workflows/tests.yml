@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'plugins/memory/powercontext/**'
       - 'scripts/check-channels.sh'
       - 'scripts/check_channel_contracts.py'
       - '.gitattributes'
@@ -62,6 +63,7 @@ jobs:
             code:
               - 'src/**'
               - 'tests/**'
+              - 'plugins/memory/powercontext/**'
               - 'scripts/check-channels.sh'
               - 'scripts/check_channel_contracts.py'
               - '.gitattributes'
@@ -138,6 +140,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
+
+      - name: Run PowerContext plugin unit tests
+        shell: bash
+        run: python -m pytest plugins/memory/powercontext/tests -m "not integration" -v
 
       - name: Run unit tests
         shell: bash
