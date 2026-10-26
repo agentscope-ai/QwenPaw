@@ -7,6 +7,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ...app.approvals.models import ApprovalRequestSummary
     from .models import ToolGuardResult
 
 
@@ -62,10 +63,58 @@ _SEVERITY_EMOJI = {
 }
 
 
+def format_approval_actions(request_id: str | None = None) -> list[str]:
+    """Return the copy-paste commands that resolve one approval.
+
+    A chat user may be looking at several pending requests at once, so the
+    commands carry the short request id whenever one is known.  The handlers
+    accept both forms (``/approval approve`` alone approves the queue head).
+    """
+    short = (request_id or "")[:16]
+    suffix = f" {short}".rstrip()
+    return [
+        "\U0001f4a1 **Actions**",
+        f"- Approve: `/approval approve{suffix}`",
+        f"- Deny: `/approval deny{suffix}`",
+        f"- Cancel: `/approval cancel{suffix}`",
+        "- List: `/approval list`",
+    ]
+
+
+def format_summary_approval_body(
+    summary: "ApprovalRequestSummary",
+    *,
+    request_id: str | None = None,
+) -> str:
+    """Format a channel approval body for non-ToolGuard approval sources.
+
+    Driver-policy and plugin approvals used to push only their bare
+    ``result_summary`` sentence ("Tool 'x' requires approval for call."),
+    which told a chat user that something was waiting but not how to answer
+    it.  This renders the same header/actions block the ToolGuard path uses.
+    """
+    sev = (summary.severity or "").upper()
+    emoji = _SEVERITY_EMOJI.get(sev, "")
+
+    lines = [
+        "\U0001f6e1\ufe0f **Approval Required**",
+        "",
+        f"\u2022 **Tool**: `{summary.name}`",
+        f"\u2022 **Severity**: {emoji} {sev}",
+    ]
+    if summary.result_summary:
+        lines.append("")
+        lines.append(summary.result_summary)
+    lines.append("")
+    lines.extend(format_approval_actions(request_id))
+    return "\n".join(lines)
+
+
 def format_channel_approval_body(
     result: "ToolGuardResult",
     *,
     max_items: int = 3,
+    request_id: str | None = None,
 ) -> str:
     """Format a rich markdown body for channel approval notifications."""
     sev = result.max_severity.value
@@ -105,10 +154,6 @@ def format_channel_approval_body(
         lines.append(f"```json\n{params_str}\n```")
 
     lines.append("")
-    lines.append("\U0001f4a1 **Actions**")
-    lines.append("- Approve: `/approval approve`")
-    lines.append("- Deny: `/approval deny`")
-    lines.append("- Cancel: `/approval cancel`")
-    lines.append("- List: `/approval list`")
+    lines.extend(format_approval_actions(request_id))
 
     return "\n".join(lines)
