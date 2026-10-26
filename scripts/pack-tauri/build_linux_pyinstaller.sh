@@ -50,6 +50,17 @@ for tool in npm node rustc cargo python3; do
   fi
 done
 
+# The bootstrap interpreter only runs this build; the runtime that ships inside
+# the app is staged separately and must stay inside the supported series.
+# A newer host Python (3.14+) is fine: staging falls back to 3.13 on its own.
+if command -v python3 >/dev/null 2>&1; then
+  HOST_PY="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  case "${HOST_PY}" in
+    3.11|3.12|3.13) echo "  [OK] python3 ${HOST_PY} (used as the bootstrap interpreter)" ;;
+    *) echo "  [INFO] python3 ${HOST_PY} is outside 3.11-3.13; the bundled runtime will be staged as 3.13" ;;
+  esac
+fi
+
 if ! pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
   echo "  [MISSING] webkit2gtk-4.1 (pkg-config)"
   missing+=("libwebkit2gtk-4.1-dev")
@@ -60,7 +71,7 @@ if [ ${#missing[@]} -gt 0 ]; then
   echo "Missing prerequisites: ${missing[*]}"
   echo ""
   echo "Install the system packages:"
-  echo "  sudo apt-get install -y build-essential curl file patchelf libfuse2 \\"
+  echo "  sudo apt-get install -y build-essential curl file patchelf libfuse2 pkgconf \\"
   echo "    libgtk-3-dev libsoup-3.0-dev librsvg2-dev \\"
   echo "    libayatana-appindicator3-dev libwebkit2gtk-4.1-dev"
   echo ""
