@@ -1185,7 +1185,9 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
             return True
         # "$PID" alone usually names another process; only treat it as a
         # self-kill when it rides along with an unambiguous self-reference.
-        if "$pid" in lower and any(var in lower for var in _SHELL_PID_VARS | {"$$"}):
+        if "$pid" in lower and any(
+            var in lower for var in _SHELL_PID_VARS | {"$$"}
+        ):
             return True
 
     m = _KILL_PID_RE.search(lower)

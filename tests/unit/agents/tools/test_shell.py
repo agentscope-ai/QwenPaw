@@ -754,11 +754,13 @@ class TestIsDangerousSelfKill:
         assert not _is_dangerous_self_kill("kill $pid")
 
     def test_kill_pid_from_captured_variable_is_safe(self):
-        """The workflow the guard broke: capture a PID, then kill it (#8413)."""
-        assert not _is_dangerous_self_kill("PID=$(pgrep mydaemon) && kill $PID")
+        """The workflow the guard broke: capture a PID, kill it (#8413)."""
+        assert not _is_dangerous_self_kill(
+            "PID=$(pgrep mydaemon) && kill $PID"
+        )
 
     def test_kill_shell_var_pid_alongside_dollar_dollar(self):
-        """$PID riding along with $$ is very likely our own PID — still blocked."""
+        """$PID with $$ in the same command is still blocked."""
         assert _is_dangerous_self_kill("kill $PID $$")
 
     def test_kill_digit_pid_after_flag_still_blocked(self):
