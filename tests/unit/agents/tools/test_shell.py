@@ -750,23 +750,6 @@ class TestIsDangerousSelfKill:
         """$PID alone usually names another process — allowed (#8413)."""
         assert not _is_dangerous_self_kill("kill $PID")
 
-    def test_kill_shell_var_pid_lowercase_is_safe(self):
-        assert not _is_dangerous_self_kill("kill $pid")
-
-    def test_kill_pid_from_captured_variable_is_safe(self):
-        """The workflow the guard broke: capture a PID, kill it (#8413)."""
-        assert not _is_dangerous_self_kill(
-            "PID=$(pgrep mydaemon) && kill $PID"
-        )
-
-    def test_kill_shell_var_pid_alongside_dollar_dollar(self):
-        """$PID with $$ in the same command is still blocked."""
-        assert _is_dangerous_self_kill("kill $PID $$")
-
-    def test_kill_digit_pid_after_flag_still_blocked(self):
-        """The -9 flag itself must not be misread as the target PID."""
-        assert _is_dangerous_self_kill(f"kill -9 {os.getpid()}")
-
     def test_false_positive_command_contains_cmd(self):
         """'command' contains 'cmd' but should not be blocked."""
         assert not _is_dangerous_self_kill("echo 'run a command'")
@@ -1254,6 +1237,27 @@ async def test_execute_posix_host_timeout_preserves_partial_output(tmp_path):
     assert stdout == "partial-out"
     assert stderr.startswith("partial-err\n")
     assert "TimeoutError" in stderr
+
+
+class TestSelfKillGuardVariablePid:
+    """#8413: $PID must not be treated as a self-reference on its own."""
+
+    def test_lowercase_pid_is_safe(self):
+        assert not _is_dangerous_self_kill("kill $pid")
+
+    def test_captured_pid_workflow_is_safe(self):
+        """Capture a PID, then kill it — the workflow the guard broke."""
+        assert not _is_dangerous_self_kill(
+            "PID=$(pgrep mydaemon) && kill $PID",
+        )
+
+    def test_pid_alongside_dollar_dollar_is_blocked(self):
+        """$PID with $$ in the same command is still a self-kill."""
+        assert _is_dangerous_self_kill("kill $PID $$")
+
+    def test_digit_pid_after_flag_still_blocked(self):
+        """The -9 flag must not be misread as the target PID."""
+        assert _is_dangerous_self_kill(f"kill -9 {os.getpid()}")
 
 
 # ---------------------------------------------------------------------------
