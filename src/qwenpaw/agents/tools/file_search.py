@@ -19,6 +19,9 @@ from agentscope.message import ToolResultState
 from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
+from ..utils.file_handling import (
+    decode_text_bytes_with_encoding_fallback,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -452,9 +455,17 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         hit_indices: list[int] = []
 
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            # Decode with the shared utf-8 → gbk/cp936 ladder so Chinese
+            # Windows GBK sources are searchable. utf-8 errors="ignore"
+            # previously dropped those bytes and made Chinese queries miss.
+            with open(file_path, "rb") as binary_file:
+                raw = binary_file.read()
+                decoded = decode_text_bytes_with_encoding_fallback(
+                    raw,
+                    file_name=file_path,
+                )
                 line_no = 0
-                for line in f:
+                for line in decoded.splitlines(keepends=True):
                     if line_no % 1000 == 0 and cancel.is_set():
                         status = "timeout"
                         break
