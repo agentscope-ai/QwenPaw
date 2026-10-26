@@ -1,4 +1,4 @@
-//! Discover one authenticated runtime per data directory and launch only if absent.
+//! Reuse a matching runtime or replace an older one under the launch lock.
 
 use std::{fs::File, path::PathBuf, process::Stdio, time::Duration};
 
@@ -12,6 +12,7 @@ const TOKEN_HEADER: &str = "X-QwenPaw-Control-Token";
 #[derive(Clone, Deserialize)]
 pub(crate) struct Runtime {
     protocol: u32,
+    version: String,
     instance: String,
     token: String,
     pub port: u16,
@@ -56,6 +57,12 @@ impl Runtime {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
+        self.stop_locked().await?;
+        Ok(operation)
+    }
+
+    /// The caller holds launch.lock throughout shutdown and replacement.
+    async fn stop_locked(&self) -> Result<(), String> {
         let response = client()?
             .post(format!(
                 "http://127.0.0.1:{}/api/runtime/shutdown",
@@ -83,7 +90,7 @@ impl Runtime {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
-        Ok(operation)
+        Ok(())
     }
 }
 
@@ -230,13 +237,54 @@ pub(super) async fn connect(
                             .ok_or("Missing desktop client identity")?
                             .to_owned();
                         runtime.directory = directory.clone();
+                        // Development runs mutable Python source and uses the
+                        // Cargo placeholder version, not a packaged release.
+                        #[cfg(not(debug_assertions))]
+                        {
+                            let version = semver::Version::parse(&runtime.version)
+                                .map_err(|err| format!("Invalid backend version: {err}"))?;
+                            let current = &app.package_info().version;
+                            let ordering = crate::updates::compare_pep440(&version, current)
+                                .ok_or("Unsupported backend or desktop version")?;
+                            match ordering {
+                                std::cmp::Ordering::Greater => {
+                                    return Err(format!(
+                                        "A newer QwenPaw backend ({version}) is already running. \
+                                         This desktop is {current}. Open or install the newer desktop version."
+                                    ));
+                                }
+                                std::cmp::Ordering::Less => {
+                                    if launched {
+                                        return Err(format!(
+                                            "The bundled backend ({version}) does not match this desktop ({current}). \
+                                             Reinstall QwenPaw and retry."
+                                        ));
+                                    }
+                                    log::info!(
+                                        "[backend] replacing runtime {version} with {current}"
+                                    );
+                                    runtime.stop_locked().await?;
+                                    drop(response);
+                                    launch(app, &directory)?;
+                                    launched = true;
+                                    continue;
+                                }
+                                std::cmp::Ordering::Equal => {}
+                            }
+                        }
                         log::info!(
-                            "[backend] shared runtime connected after {}ms (launched={launched})",
+                            "[backend] shared runtime {} connected after {}ms (launched={launched})",
+                            runtime.version,
                             started.elapsed().as_millis()
                         );
                         return Ok((runtime, response));
                     }
                 }
+            } else if !launched {
+                return Err(
+                    "Cannot read the running backend version. Quit the old QwenPaw service and retry."
+                        .into(),
+                );
             }
         }
         tokio::time::sleep(Duration::from_millis(200)).await;

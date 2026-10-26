@@ -11,7 +11,29 @@ import pytest
 from qwenpaw.tauri.backend_guard import BackendInstance
 
 
-def test_runtime_lock_rejects_a_second_owner(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("2.3.0", "2.3.0"),
+        ("2.3.0a1", "2.3.0-alpha.1"),
+        ("2.3.0b2", "2.3.0-beta.2"),
+        ("2.3.0rc3", "2.3.0-rc.3"),
+        ("2.3.0.dev1", "2.3.0-dev.1"),
+        ("2.3.0b2.dev1", "2.3.0-beta.2.dev.1"),
+        ("2.3.0.post1", "2.3.0+post.1"),
+        ("2.3.0.post1.dev2", "2.3.0-dev.2+post.1"),
+    ],
+)
+def test_runtime_lock_rejects_a_second_owner(
+    tmp_path,
+    monkeypatch,
+    version,
+    expected,
+):
+    monkeypatch.setattr(
+        "qwenpaw.tauri.backend_guard.__version__",
+        version,
+    )
     monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
     with BackendInstance(tmp_path, "shared") as first:
         first.publish(12345)
@@ -21,6 +43,7 @@ def test_runtime_lock_rejects_a_second_owner(tmp_path, monkeypatch):
         record = json.loads((first.directory / "runtime.json").read_text())
         assert record["instance"] == first.instance
         assert record["mode"] == "shared"
+        assert record["version"] == expected
         assert record["token"] == first.token
     assert not (first.directory / "runtime.json").exists()
     with BackendInstance(tmp_path, "shared") as replacement:

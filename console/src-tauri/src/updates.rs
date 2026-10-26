@@ -25,6 +25,8 @@ use remote::{check_and_download, check_installable_update};
 use signature::verify_cached_update;
 use version::version_lte;
 
+#[cfg(not(debug_assertions))]
+pub(crate) use version::compare_pep440;
 pub(crate) use version::is_remote_update_newer;
 
 #[derive(Serialize)]

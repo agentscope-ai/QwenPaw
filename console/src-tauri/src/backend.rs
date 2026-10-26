@@ -56,7 +56,7 @@ pub(crate) fn agent_host_state(state: tauri::State<'_, BackendState>) -> Snapsho
     state.status.snapshot()
 }
 
-/// Retry means rediscovery, never stopping a healthy shared runtime.
+/// Retry rediscovers a matching runtime, replacing only an older version.
 #[tauri::command]
 pub(crate) async fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<BackendState>();

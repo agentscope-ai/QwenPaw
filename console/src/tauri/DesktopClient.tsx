@@ -161,7 +161,7 @@ function DesktopContent({
 
   const failed = host.phase === "failed" || !!error;
   const status = failed
-    ? t("desktop.host.failed")
+    ? error || host.error || t("desktop.host.failed")
     : t("desktop.host.connecting");
   const controls = (
     <>

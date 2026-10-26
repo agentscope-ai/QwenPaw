@@ -8,6 +8,10 @@ import os
 import secrets
 from pathlib import Path
 
+from packaging.version import Version
+
+from ..__version__ import __version__
+
 if os.name == "nt":
     import msvcrt
 else:
@@ -49,12 +53,27 @@ class BackendInstance:
 
     def publish(self, port: int) -> None:
         """Publish only while holding the lifetime lock."""
+        # Match the PEP 440 to SemVer mapping used by desktop packaging.
+        release = Version(__version__)
+        version = f"{release.major}.{release.minor}.{release.micro}"
+        labels = []
+        if release.pre:
+            kind, number = release.pre
+            name = {"a": "alpha", "b": "beta", "rc": "rc"}[kind]
+            labels.append(f"{name}.{number}")
+        if release.dev is not None:
+            labels.append(f"dev.{release.dev}")
+        if labels:
+            version += f"-{'.'.join(labels)}"
+        if release.post is not None:
+            version += f"+post.{release.post}"
         temporary = self.directory / "runtime.json.tmp"
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(
                 {
                     "protocol": 1,
+                    "version": version,
                     "instance": self.instance,
                     "token": self.token,
                     "port": port,
