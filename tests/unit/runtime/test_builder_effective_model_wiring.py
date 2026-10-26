@@ -31,7 +31,9 @@ async def test_effective_model_is_visible_to_driver_tools(monkeypatch):
         return agent_config
 
     monkeypatch.setattr(
-        builder_mod, "apply_session_thinking", identity_session
+        builder_mod,
+        "apply_session_thinking",
+        identity_session,
     )
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",

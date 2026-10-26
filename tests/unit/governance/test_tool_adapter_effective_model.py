@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """The guarded tool wrapper publishes the turn's serving model."""
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name
 
 import inspect
 from types import SimpleNamespace

@@ -8,7 +8,7 @@ explicitly, so ``view_image`` and the multimodal hint stop reading a stale
 agent-level default (issue #8378).
 """
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 
 from types import SimpleNamespace
 
@@ -63,11 +63,9 @@ def stale_agent_model(monkeypatch):
         id="g",
         all_models=lambda: [GLOBAL_MODEL],
     )
+    providers = {"p": provider, "g": global_provider}
     manager = SimpleNamespace(
-        get_provider=lambda provider_id: {
-            "p": provider,
-            "g": global_provider,
-        }.get(provider_id),
+        get_provider=providers.get,
         get_active_model=lambda: GLOBAL_SLOT,
         active_model=GLOBAL_SLOT,
     )
