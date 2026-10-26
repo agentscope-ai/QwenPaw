@@ -967,6 +967,194 @@ def _block_to_dict(block: Any) -> dict:
     return dict(block) if hasattr(block, "__iter__") else {"type": "unknown"}
 
 
+# Tools whose tool-result media is a *delivery* artefact, not model input.
+# The channel renders the block and sends the file; the model only needs to
+# know what was delivered, so the bytes are replaced with a reference.
+_DELIVERY_ONLY_TOOL_RESULTS = frozenset({"send_file_to_user"})
+
+_MEDIA_PREFIXES = ("image/", "video/", "audio/")
+
+
+def _delivery_only_tool_results() -> frozenset[str]:
+    """Delivery-only tools, extendable via env for custom tools."""
+    extra = os.environ.get("QWENPAW_DELIVERY_ONLY_TOOL_RESULTS", "")
+    return _DELIVERY_ONLY_TOOL_RESULTS | {
+        name.strip() for name in extra.split(",") if name.strip()
+    }
+
+
+def _media_elision_disabled() -> bool:
+    """Kill switch for the turn-scoped media rule."""
+    return os.environ.get(
+        "QWENPAW_DISABLE_MEDIA_ELISION",
+        "",
+    ).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _msg_role(msg: Any) -> str:
+    role = (
+        msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", "")
+    )
+    return str(role or "")
+
+
+def _msg_content(msg: Any) -> Any:
+    if isinstance(msg, dict):
+        return msg.get("content")
+    return getattr(msg, "content", None)
+
+
+def _is_final_assistant_turn(msg: Any) -> bool:
+    """True for an assistant message that closes a turn.
+
+    A turn closes when the assistant answers with text and asks for no more
+    tools.  Media that appears *before* such a message has already been
+    consumed: the model turned the pixels into text, so replaying the bytes
+    buys nothing.
+    """
+    if _msg_role(msg) != "assistant":
+        return False
+    content = _msg_content(msg)
+    if not isinstance(content, list) or not content:
+        return False
+    has_text = False
+    for block in content:
+        btype = _block_to_dict(block).get("type")
+        if btype in ("tool_use", "tool_call"):
+            return False
+        if (
+            btype == "text"
+            and str(
+                _block_to_dict(block).get("text") or "",
+            ).strip()
+        ):
+            has_text = True
+    return has_text
+
+
+def _media_slot(block: Any) -> tuple[str, str, int, str] | None:
+    """Return ``(media_type, name, bytes, path)`` for a media block."""
+    bd = _block_to_dict(block)
+    source = bd.get("source")
+    if not isinstance(source, dict):
+        return None
+    media_type = str(source.get("media_type") or "")
+    if not media_type.startswith(_MEDIA_PREFIXES):
+        return None
+    name = str(bd.get("name") or "")
+    if source.get("type") == "base64":
+        size = len(str(source.get("data") or "")) * 3 // 4
+        return media_type, name, size, ""
+    url = str(source.get("url") or "")
+    path = _file_url_to_path(url) if url else ""
+    size = 0
+    if path and os.path.isfile(path):
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+    return media_type, name, size, path
+
+
+def _media_reference_text(
+    media_type: str,
+    name: str,
+    size: int,
+    path: str,
+) -> str:
+    """Text stand-in that keeps the media addressable but off the wire."""
+    kind = media_type.split("/", 1)[0] or "media"
+    label = name or os.path.basename(path) or kind
+    megabytes = size / 1048576.0 if size else 0.0
+    where = path or "(in-memory; no file path recorded)"
+    hint = (
+        f"call view_{kind} again if another look is needed"
+        if path
+        else "ask for it to be resent if another look is needed"
+    )
+    return (
+        f"[{kind} not re-sent to the model: {label} ({media_type}, "
+        f"{megabytes:.2f} MB) at {where} — {hint}]"
+    )
+
+
+def _media_reference_block(block: Any, slot: tuple[str, str, int, str]) -> Any:
+    text = _media_reference_text(*slot)
+    if isinstance(block, dict):
+        return {"type": "text", "text": text}
+    return TextBlock(type="text", text=text)
+
+
+def _elide_consumed_media(msgs: list) -> int:
+    """Replace media the model no longer needs with path references.
+
+    Two rules, applied to the request copy only (stored history is untouched):
+
+    * media from a delivery tool is never model input, regardless of age;
+    * media that precedes the last completed assistant turn has already been
+      consumed, so only the *current* turn's media stays inline.
+
+    Deterministic for a given history, and the rule only moves forward, so it
+    keeps prefix-cache churn to the turned-over boundary instead of rewriting
+    the conversation every request.
+    """
+    if not msgs or _media_elision_disabled():
+        return 0
+    delivery_tools = _delivery_only_tool_results()
+
+    last_final = -1
+    for index, msg in enumerate(msgs):
+        if _is_final_assistant_turn(msg):
+            last_final = index
+    last_index = len(msgs) - 1
+
+    def _historical(index: int) -> bool:
+        """A turn is history once it completed and something followed it."""
+        if last_final < 0 or index > last_final:
+            return False
+        return index < last_index
+
+    replaced = 0
+    for msg_index, msg in enumerate(msgs):
+        content = _msg_content(msg)
+        if not isinstance(content, list):
+            continue
+        for block_index, block in enumerate(list(content)):
+            bd = _block_to_dict(block)
+            if bd.get("type") == "tool_result":
+                tool_name = str(bd.get("name") or "")
+                output = (
+                    block.get("output")
+                    if isinstance(block, dict)
+                    else getattr(block, "output", None)
+                )
+                if not isinstance(output, list):
+                    continue
+                for item_index, item in enumerate(list(output)):
+                    slot = _media_slot(item)
+                    if slot is None:
+                        continue
+                    if tool_name in delivery_tools or _historical(msg_index):
+                        output[item_index] = _media_reference_block(item, slot)
+                        replaced += 1
+                continue
+            slot = _media_slot(block)
+            if slot is None:
+                continue
+            # Only the current turn's media stays inline; once a turn has
+            # completed and the conversation moved on, the pixels are already
+            # consumed.
+            if _historical(msg_index):
+                content[block_index] = _media_reference_block(block, slot)
+                replaced += 1
+    return replaced
+
+
 def _substitute_video_blocks(
     msgs: list,
 ) -> dict[str, dict]:
@@ -1709,6 +1897,17 @@ def _create_file_block_support_formatter(
                 self,
                 supports_multimodal=supports_multimodal,
             )
+
+            # Media the model no longer needs is replaced with a path
+            # reference before any file is read or encoded: delivery-only
+            # tool results always, plus anything from a completed turn.
+            if not _media_elision_disabled():
+                elided = _elide_consumed_media(normalized_msgs)
+                if elided:
+                    logger.debug(
+                        "media elision: replaced %d block(s) with references",
+                        elided,
+                    )
 
             has_reasoning = False
             # Tool-call IDs are required to be unique within one assistant
