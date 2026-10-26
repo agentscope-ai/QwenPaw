@@ -2585,7 +2585,8 @@
       "token_plan": "Token Plan",
       "token_plan_intl": "Token（国际区）",
       "china": "中国区",
-      "international": "国际区"
+      "international": "国际区",
+      "chatgpt": "ChatGPT 订阅"
     },
     "configuredGroup": "已配置",
     "configuredOnline": "个提供商在线",
@@ -2896,6 +2897,36 @@
     "scope": {
       "global": "全局模型",
       "agent": "当前智能体"
+    },
+    "apiPricing": {
+      "standard": "标准处理 · 美元 / 百万 token",
+      "prompt": "输入",
+      "completion": "输出",
+      "input_cache_read": "缓存读取",
+      "longContext": "输入超过 272K token 时，整次请求的输入及缓存读取费率为 2 倍，输出为 1.5 倍。",
+      "cacheWrite": "缓存写入：30 分钟按输入价的 1.25 倍，12 小时按 2.5 倍计费。",
+      "exclusions": "API 费率；不含工具、区域附加费用及 ChatGPT 订阅用量。",
+      "checked": "核对日期：{{date}}"
+    },
+    "chatgpt": {
+      "localOnly": "仅本地",
+      "contextHelp": "账号接口报告的上限：{{maximum}} tokens；当前会话默认预算：{{default}} tokens。",
+      "localHelp": "由于 OpenAI 接入政策及本地 OAuth 回调限制，一键登录仅支持本地运行的 QwenPaw，浏览器和 QwenPaw 必须在同一台电脑。",
+      "account": "ChatGPT 账号",
+      "connected": "已连接 ChatGPT 订阅",
+      "disconnected": "未连接",
+      "permissionMissing": "尚未授权使用订阅额度",
+      "failed": "登录未完成，请重试。",
+      "waiting": "等待浏览器授权…",
+      "refresh": "刷新账号模型",
+      "usage": "管理用量",
+      "reconnect": "重新登录",
+      "changeAccount": "更换账号",
+      "accountActions": "ChatGPT 账号操作",
+      "connectedShort": "已连接",
+      "signOut": "退出登录",
+      "revokeWarning": "已在本地退出，但未能确认远端授权已撤销；请在 ChatGPT 设置中断开 QwenPaw。",
+      "modelHelp": "模型来自当前 ChatGPT 账号，使用订阅额度或 credits。此接入方式不支持采样参数及输出 token 限制。"
     }
   },
   "files": {
@@ -4562,7 +4593,9 @@
       "eyebrow": "身份与访问控制",
       "title": "用户访问",
       "description": "集中创建本地账号、分配管理员权限并撤销会话。",
-      "addAccount": "添加账号",
+      "changeAccount": "更换账号",
+      "accountActions": "ChatGPT 账号操作",
+      "connectedShort": "已连接",
       "publicRegistration": "开放注册",
       "publicRegistrationDescription": "关闭后，仅管理员可以创建账号。",
       "currentAccountProtected": "当前账户已保护",

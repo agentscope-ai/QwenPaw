@@ -1,3 +1,4 @@
+import { ChatGPTCredentialField } from "./ChatGPTCredentialField";
 import { ProviderCredentialField } from "./ProviderCredentialField";
 import { ProviderCardStatus } from "./ProviderCardStatus";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
@@ -32,6 +33,10 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   const { message } = useAppMessage();
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
 
+  const providerName =
+    provider.id === "openai-chatgpt"
+      ? t("models.providerVariants.chatgpt")
+      : provider.name;
   const isManaged = provider.id === "hub-managed";
   const needsOAuth =
     provider.supports_oauth && !provider.api_key && !provider.oauth_connected;
@@ -83,7 +88,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
       {!isManaged && (
         <ProviderCloseButton
           ids={[provider.id]}
-          providerName={provider.name}
+          providerName={providerName}
           onSaved={onSaved}
           onConfigure={() => onOpenConfig(provider)}
         />
@@ -91,7 +96,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
       {/* Header - same layout as GroupCard */}
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={provider.id} size={36} decorative />
-        <span className={styles.groupCardName}>{provider.name}</span>
+        <span className={styles.groupCardName}>{providerName}</span>
       </div>
       <ProviderCardStatus
         configured={isConfigured}
@@ -114,7 +119,18 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
               </div>
             </div>
 
-            <ProviderCredentialField provider={provider} onSaved={onSaved} />
+            {provider.id === "openai-chatgpt" ? (
+              <ChatGPTCredentialField
+                provider={provider}
+                onConfigure={() => onOpenConfig(provider)}
+              />
+            ) : (
+              <ProviderCredentialField
+                key={provider.id}
+                provider={provider}
+                onSaved={onSaved}
+              />
+            )}
           </>
         )}
         <button
@@ -162,7 +178,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         open={oauthModalOpen}
         className={styles.modelManageModal}
         providerId={provider.id}
-        providerName={provider.name}
+        providerName={providerName}
         onSuccess={() => {
           setOauthModalOpen(false);
           onSaved();

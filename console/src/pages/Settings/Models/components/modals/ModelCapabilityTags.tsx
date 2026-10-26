@@ -177,13 +177,15 @@ export function CapabilityTags({
 export function BillingTag({
   model,
   iconOnly = false,
+  priceDetails = false,
 }: {
   model: ModelInfo;
   iconOnly?: boolean;
+  priceDetails?: boolean;
 }) {
   const { t } = useTranslation();
   const billing = model.billing ?? (model.is_free ? "free" : "unknown");
-  return (
+  const tag = (
     <CapabilityTag
       iconOnly={iconOnly}
       icon={
@@ -193,5 +195,48 @@ export function BillingTag({
     >
       {t(`models.billing.${billing}`)}
     </CapabilityTag>
+  );
+  if (!priceDetails || !model.pricing?.prompt) return tag;
+  const pricing = model.pricing;
+  const source = model.capability_provenance?.billing;
+  const price = (value: string) => {
+    const amount = Number(value) * 1_000_000;
+    return Number.isFinite(amount)
+      ? amount.toLocaleString(undefined, { maximumFractionDigits: 6 })
+      : "—";
+  };
+  return (
+    <Tooltip
+      trigger={["hover", "focus", "click"]}
+      title={
+        <div>
+          <div>{t("models.apiPricing.standard")}</div>
+          {(["prompt", "completion", "input_cache_read"] as const).map(
+            (key) =>
+              pricing[key] != null && (
+                <div key={key}>
+                  {t(`models.apiPricing.${key}`)}: ${price(pricing[key])}
+                </div>
+              ),
+          )}
+          {source?.context_threshold === 272000 && (
+            <p>{t("models.apiPricing.longContext")}</p>
+          )}
+          {source?.cache_write_30m_multiplier === 1.25 && (
+            <p>{t("models.apiPricing.cacheWrite")}</p>
+          )}
+          <div>{t("models.apiPricing.exclusions")}</div>
+          {typeof source?.updated_at === "string" && (
+            <div>
+              {t("models.apiPricing.checked", { date: source.updated_at })}
+            </div>
+          )}
+        </div>
+      }
+    >
+      <span tabIndex={0} style={{ display: "inline-flex" }}>
+        {tag}
+      </span>
+    </Tooltip>
   );
 }

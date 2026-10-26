@@ -14,6 +14,9 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
+const requestMock = vi.hoisted(() => vi.fn());
+vi.mock("@/api/request", () => ({ request: requestMock }));
+
 const apiMocks = vi.hoisted(() => ({
   testProviderConnection: vi.fn(),
   configureProvider: vi.fn(),
@@ -780,5 +783,107 @@ describe("ProviderConfigModal", () => {
       fireEvent.keyDown(textarea, { key: "a" });
       expect(textarea.value).toBe("abc");
     });
+  });
+});
+
+describe("subscription and OAuth credentials in the shared provider form", () => {
+  it("keeps OpenRouter's existing OAuth flow reachable", async () => {
+    renderModal(
+      makeProvider({
+        id: "openrouter",
+        is_custom: false,
+        supports_oauth: true,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "modelSelector.oauthTitle" }),
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: "modelSelector.oauthContinue",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps account edits usable during OAuth and replaces abandoned attempts", async () => {
+    const session = {
+      active: "account",
+      connected: true,
+      sharing: true,
+      accounts: [{ id: "account", email: "test@example.com" }],
+    };
+    const popup = {
+      closed: false,
+      opener: null,
+      close: vi.fn(),
+      location: { replace: vi.fn() },
+    };
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(popup as unknown as Window);
+    requestMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/start"))
+        return {
+          state: "pending-sign-in",
+          authorize_url: "https://auth.openai.com/authorize",
+        };
+      if (url.includes("/status/")) return { status: "pending" };
+      if (url.endsWith("/session")) return session;
+      return { ok: true };
+    });
+    try {
+      const { unmount } = renderModal(
+        makeProvider({
+          id: "openai-chatgpt",
+          is_custom: false,
+          freeze_url: true,
+          support_connection_check: false,
+          meta: { chatgpt_session: session },
+        }),
+      );
+      expect(screen.getByRole("switch")).toBeInTheDocument();
+      expect(
+        screen.queryByPlaceholderText("models.enterApiKeyOptional"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("models.advancedConfig"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("models.chatgpt.addAccount"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("models.chatgpt.reconnect"),
+      ).not.toBeInTheDocument();
+      const switchAccount = async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: "models.chatgpt.accountActions" }),
+        );
+        fireEvent.click(
+          await screen.findByRole("menuitem", {
+            name: "models.chatgpt.changeAccount",
+          }),
+        );
+      };
+      await switchAccount();
+      await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+      expect(
+        screen.getByRole("button", { name: "models.chatgpt.accountActions" }),
+      ).toBeEnabled();
+      popup.closed = true;
+      expect(screen.getByText("test@example.com")).toBeInTheDocument();
+      popup.closed = false;
+      await switchAccount();
+      await waitFor(() =>
+        expect(popup.location.replace).toHaveBeenCalledTimes(2),
+      );
+      expect(requestMock).toHaveBeenCalledWith(
+        "/providers/chatgpt/cancel/pending-sign-in",
+        { method: "POST" },
+      );
+      unmount();
+      expect(popup.close).toHaveBeenCalled();
+    } finally {
+      openSpy.mockRestore();
+    }
   });
 });

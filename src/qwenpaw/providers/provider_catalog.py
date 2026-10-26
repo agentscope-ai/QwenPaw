@@ -4,6 +4,7 @@
 from typing import List
 
 from .anthropic_provider import AnthropicProvider
+from .chatgpt_provider import ChatGPTProvider
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
 from .lmstudio_provider import LMStudioProvider
@@ -251,6 +252,19 @@ PROVIDER_OPENAI = OpenAIProvider(
     provider_variant=f"chat_completions",
     support_model_discovery=True,
     freeze_url=True,
+)
+
+PROVIDER_CHATGPT = ChatGPTProvider(
+    id=f"openai-chatgpt",
+    name=f"ChatGPT Subscription",
+    base_url=f"https://api.openai.com/v1",
+    chat_model=f"OpenAIResponseModel",
+    require_api_key=False,
+    merge_with_catalog=False,
+    freeze_url=True,
+    provider_group=f"openai",
+    provider_group_name=f"OpenAI",
+    provider_variant=f"chatgpt",
 )
 
 PROVIDER_OPENAI_RESPONSE = OpenAIResponseProvider(
@@ -546,6 +560,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_KILO,
     PROVIDER_OPENAI,
     PROVIDER_OPENAI_RESPONSE,
+    PROVIDER_CHATGPT,
     PROVIDER_AZURE_OPENAI,
     PROVIDER_ANTHROPIC,
     PROVIDER_GEMINI,
@@ -571,7 +586,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
 BUILTIN_PROVIDER_CATALOG_KEYS = {
     provider.id: provider.id
     for provider in BUILTIN_PROVIDERS
-    if not provider.is_local
+    if not provider.is_local and provider.id != f"openai-chatgpt"
 }
 
 
