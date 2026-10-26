@@ -374,7 +374,7 @@
 
 .ruleRow {
   display: grid;
-  grid-template-columns: 140px 180px minmax(0, 1fr) 36px;
+  grid-template-columns: 140px 180px minmax(0, 1fr) auto;
   align-items: start;
   gap: var(--app-space-3);
 }
@@ -601,6 +601,7 @@
 
 @media (any-pointer: coarse) {
   .ruleRow > .removeRule {
+    min-width: var(--app-hit-touch);
     min-height: var(--app-hit-touch);
   }
 }
