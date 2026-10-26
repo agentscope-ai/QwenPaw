@@ -19,6 +19,7 @@ from filelock import FileLock
 
 from ...constant import SECRET_DIR
 from ...security.secret_store import decrypt_dict_fields, encrypt_dict_fields
+from ...utils.oauth_callback import oauth_error_html, oauth_success_html
 from ..provider_persistence import write_snapshot_payload
 from .base import generate_code_challenge, generate_code_verifier
 
@@ -166,14 +167,16 @@ class ChatGPTAccounts:
                         query,
                     )
                     body = (
-                        f"Sign-in complete. Return to QwenPaw."
+                        oauth_success_html(f"openai-chatgpt")
                         if ok
-                        else f"Sign-in failed. Return to QwenPaw."
+                        else oauth_error_html(
+                            f"Authorization failed. Please retry in QwenPaw.",
+                        )
                     ).encode()
                     self.send_response(200 if ok else 400)
                     self.send_header(
                         f"Content-Type",
-                        f"text/plain",
+                        f"text/html; charset=utf-8",
                     )
                     self.send_header(f"Cache-Control", f"no-store")
                     self.send_header(f"Content-Length", str(len(body)))

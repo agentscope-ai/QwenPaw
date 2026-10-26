@@ -98,6 +98,8 @@ def test_loopback_registration_identity_refresh_and_signout(
         },
     )
     assert response.status_code == 200
+    assert response.headers[f"content-type"].startswith(f"text/html")
+    assert response.text == auth_module.oauth_success_html(f"openai-chatgpt")
     assert accounts.status()[f"sharing"]
     assert f"secret-access" not in accounts.path.read_text()
 

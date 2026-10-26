@@ -805,22 +805,14 @@ describe("subscription and OAuth credentials in the shared provider form", () =>
     ).toBeInTheDocument();
   });
 
-  it("keeps account edits usable during OAuth and replaces abandoned attempts", async () => {
+  it("reuses OAuth confirmation and cancels abandoned subscription attempts", async () => {
     const session = {
       active: "account",
       connected: true,
       sharing: true,
       accounts: [{ id: "account", email: "test@example.com" }],
     };
-    const popup = {
-      closed: false,
-      opener: null,
-      close: vi.fn(),
-      location: { replace: vi.fn() },
-    };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popup as unknown as Window);
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     requestMock.mockImplementation(async (url: string) => {
       if (url.endsWith("/start"))
         return {
@@ -865,23 +857,43 @@ describe("subscription and OAuth credentials in the shared provider form", () =>
         );
       };
       await switchAccount();
-      await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(requestMock).not.toHaveBeenCalled();
+      expect(
+        screen.getByText("models.chatgpt.oauthDescription"),
+      ).toBeInTheDocument();
+      const continueSignIn = () =>
+        fireEvent.click(
+          screen.getByRole("button", { name: "modelSelector.oauthContinue" }),
+        );
+      continueSignIn();
+      await waitFor(() =>
+        expect(openSpy).toHaveBeenCalledWith(
+          "https://auth.openai.com/authorize",
+          "_blank",
+          "popup,width=600,height=700",
+        ),
+      );
+      expect(screen.getByText("test@example.com")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
+      await waitFor(() =>
+        expect(requestMock).toHaveBeenCalledWith(
+          "/providers/chatgpt/cancel/pending-sign-in",
+          { method: "POST" },
+        ),
+      );
       expect(
         screen.getByRole("button", { name: "models.chatgpt.accountActions" }),
       ).toBeEnabled();
-      popup.closed = true;
-      expect(screen.getByText("test@example.com")).toBeInTheDocument();
-      popup.closed = false;
       await switchAccount();
-      await waitFor(() =>
-        expect(popup.location.replace).toHaveBeenCalledTimes(2),
-      );
+      continueSignIn();
+      await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(2));
+      requestMock.mockClear();
+      unmount();
       expect(requestMock).toHaveBeenCalledWith(
         "/providers/chatgpt/cancel/pending-sign-in",
         { method: "POST" },
       );
-      unmount();
-      expect(popup.close).toHaveBeenCalled();
     } finally {
       openSpy.mockRestore();
     }

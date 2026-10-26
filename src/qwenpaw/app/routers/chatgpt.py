@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ...providers.oauth.chatgpt import chatgpt_accounts
 from ...providers.provider_manager import ProviderManager
+from ...tauri.env import DESKTOP_CORS_ORIGINS
 from .providers import get_provider_manager
 
 
@@ -17,10 +18,14 @@ def require_local(request: Request, response: Response) -> None:
     """Require same-machine browser access and never cache account state."""
     hosts = {f"127.0.0.1", f"localhost", f"::1"}
     origin = request.headers.get(f"origin")
+    local_origin = (
+        not origin
+        or origin in DESKTOP_CORS_ORIGINS
+        or urlsplit(origin).hostname in hosts
+    )
     if (
         request.url.hostname not in hosts
-        or origin
-        and urlsplit(origin).hostname not in hosts
+        or not local_origin
         or not request.client
         or request.client.host not in hosts
     ):
@@ -97,7 +102,11 @@ async def status(
         if attempt.status == f"completed":
             await sync_models(manager, reset=True)
             attempt.status = f"ready"
-        return {f"status": attempt.status}
+        return {
+            f"status": (
+                f"completed" if attempt.status == f"ready" else attempt.status
+            ),
+        }
 
 
 @router.post(f"/cancel/{{state}}")

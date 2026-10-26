@@ -3050,7 +3050,6 @@
       "checked": "Checked {{date}}"
     },
     "chatgpt": {
-      "localOnly": "Local only",
       "contextHelp": "Account-reported limit: {{maximum}} tokens; default session budget: {{default}} tokens.",
       "localHelp": "Due to OpenAI access policies and the local OAuth callback requirement, one-click sign-in is available only when QwenPaw and your browser run on the same computer.",
       "account": "ChatGPT account",
@@ -3058,8 +3057,6 @@
       "disconnected": "Not connected",
       "permissionMissing": "Plan usage not authorized",
       "failed": "Sign-in was not completed. Please try again.",
-      "waiting": "Waiting for browser authorization…",
-      "refresh": "Refresh account models",
       "usage": "Manage usage",
       "reconnect": "Sign in again",
       "changeAccount": "Switch account",
@@ -3067,7 +3064,8 @@
       "connectedShort": "Connected",
       "signOut": "Sign out",
       "revokeWarning": "Signed out locally. Remote revocation was not confirmed; disconnect QwenPaw in ChatGPT Settings.",
-      "modelHelp": "Models come from this ChatGPT account. Usage counts against your plan or credits. Sampling and output-token settings are not supported by this access route."
+      "modelHelp": "Models come from this ChatGPT account. Usage counts against your plan or credits. Sampling and output-token settings are not supported by this access route.",
+      "oauthDescription": "A browser window will open to authorize use of your ChatGPT plan. Return to QwenPaw when you are done."
     }
   },
   "files": {
