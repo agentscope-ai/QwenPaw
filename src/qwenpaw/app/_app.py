@@ -102,6 +102,9 @@ async def _sync_scroll_history_on_startup() -> None:
 
 async def _shutdown_plugins(app: FastAPI) -> None:
     """Tear down plugin runtime resources before other services stop."""
+    transcription = getattr(app.state, "local_transcription", None)
+    if transcription is not None:
+        await transcription.close()
     plugin_loader = getattr(app.state, "plugin_loader", None)
     if plugin_loader is not None:
         logger.info("Executing plugin shutdown (mode=shutdown)...")
@@ -595,6 +598,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             logger.debug("Activating loaded plugins...")
             await plugin_loader.activate_all_loaded()
+
+            from ..plugins.local_transcription import LocalTranscriptionService
+
+            app.state.local_transcription = LocalTranscriptionService(
+                plugin_loader,
+                WORKING_DIR / "local-whisper-migration.json",
+            )
+            await app.state.local_transcription.start()
 
             # ---- Approval Service ----
             try:

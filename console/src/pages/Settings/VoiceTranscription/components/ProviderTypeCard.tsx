@@ -1,12 +1,15 @@
 import InlineHelp from "@/components/InlineHelp";
 import { PolicySelector } from "@/components/interaction/PolicySelector";
 import { MicOff, Cloud, Monitor } from "lucide-react";
-import { Card, Alert } from "antd";
+import { Card } from "antd";
+import { LocalWhisperCard } from "./LocalWhisperCard";
 import { useTranslation } from "react-i18next";
 import type { LocalWhisperStatus } from "../useVoiceTranscription";
 import styles from "../index.module.less";
 
 interface ProviderTypeCardProps {
+  onInstall?: () => void;
+  onEnable?: () => void;
   providerType: string;
   onProviderTypeChange: (value: string) => void;
   isLocalWhisper: boolean;
@@ -14,6 +17,8 @@ interface ProviderTypeCardProps {
 }
 
 export function ProviderTypeCard({
+  onInstall,
+  onEnable,
   providerType,
   onProviderTypeChange,
   isLocalWhisper,
@@ -56,29 +61,11 @@ export function ProviderTypeCard({
       />
 
       {isLocalWhisper && localWhisperStatus && (
-        <div style={{ marginTop: 12 }}>
-          {localWhisperStatus.available ? (
-            <Alert
-              type="success"
-              showIcon
-              message={t("voiceTranscription.localWhisperReady")}
-            />
-          ) : (
-            <Alert
-              type="warning"
-              showIcon
-              message={t("voiceTranscription.localWhisperMissing")}
-              description={t("voiceTranscription.localWhisperMissingDesc", {
-                ffmpeg: localWhisperStatus.ffmpeg_installed
-                  ? t("common.enabled")
-                  : t("common.disabled"),
-                whisper: localWhisperStatus.whisper_installed
-                  ? t("common.enabled")
-                  : t("common.disabled"),
-              })}
-            />
-          )}
-        </div>
+        <LocalWhisperCard
+          status={localWhisperStatus}
+          onInstall={onInstall}
+          onEnable={onEnable}
+        />
       )}
     </Card>
   );

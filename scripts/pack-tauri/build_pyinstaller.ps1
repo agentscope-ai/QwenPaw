@@ -206,6 +206,9 @@ if (-not (Test-Path $CLI_EXE)) {
     (Join-Path $BACKEND_DIR "_internal\qwenpaw\providers\data")
 Assert-LastExit "Model catalog verification failed"
 
+& $PYTHON_BIN (Join-Path $PSScriptRoot "verify_optional_audio.py") $BACKEND_DIR
+Assert-LastExit "Optional audio dependency verification failed"
+
 Write-Host "Backend bundle created: $BACKEND_DIR" -ForegroundColor Green
 
 # Get size

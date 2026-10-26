@@ -163,6 +163,67 @@ def _uv_additions(output: str) -> set[str]:
     return names
 
 
+def _pip_plan(report: Path) -> dict:
+    try:
+        plan = json.loads(report.read_text(encoding="utf-8"))
+        if plan["version"] != "1" or not isinstance(plan["install"], list):
+            raise ValueError("Unknown pip report format")
+        for item in plan["install"]:
+            canonicalize_name(item["metadata"]["name"], validate=True)
+        return plan
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise SDKRestartRequiredError(
+            "Unrecognized pip dependency plan.",
+        ) from exc
+
+
+def _target_requirements(
+    plan: dict | None,
+    installed: dict[str, str],
+) -> list[str]:
+    """Install only missing, hash-bound artifacts from a complete pip plan.
+
+    pip --target ignores installed packages. Its constrained plan still proves
+    compatibility with the frozen host, but copying those host dependencies
+    would shadow live code. Skip them and install the remaining exact artifacts
+    without resolving a second time.
+    """
+    if plan is None:
+        raise SDKRestartRequiredError(
+            "The desktop dependency runtime needs pip to verify artifacts. "
+            "Repair the bundled Python runtime.",
+        )
+    requirements = []
+    seen = set()
+    try:
+        for item in plan["install"]:
+            name = canonicalize_name(item["metadata"]["name"], validate=True)
+            version = str(Version(item["metadata"]["version"]))
+            if name in seen:
+                raise ValueError(f"Duplicate planned distribution: {name}")
+            seen.add(name)
+            if name in installed:
+                if item.get("is_direct") or Version(
+                    installed[name],
+                ) != Version(version):
+                    raise ValueError(f"Dependency plan replaces {name}")
+                continue
+            download = item["download_info"]
+            digest = download["archive_info"]["hashes"]["sha256"]
+            url = download["url"]
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+                raise ValueError(f"Missing artifact hash for {name}")
+            if not isinstance(url, str) or any(c in url for c in "\r\n"):
+                raise ValueError(f"Invalid artifact URL for {name}")
+            separator = "&" if "#" in url else "#"
+            requirements.append(f"{name} @ {url}{separator}sha256={digest}")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SDKRestartRequiredError(
+            f"Cannot safely install the desktop dependency plan: {exc}",
+        ) from exc
+    return requirements
+
+
 def install_sdk_requirements(
     requirements: Path,
     plugin_id: str,
@@ -171,6 +232,7 @@ def install_sdk_requirements(
     target: str | None,
     run: Callable,
     find_uv: Callable,
+    timeout: int = 300,
 ) -> None:
     """Resolve read-only, then install with the same installed-version pins."""
     snapshot = _installed_snapshot()
@@ -203,7 +265,7 @@ def install_sdk_requirements(
         dry = ["--dry-run", "--report", str(report)]
 
         def execute(args):
-            return run(args, timeout=300, plugin_id=plugin_id)
+            return run(args, timeout=timeout, plugin_id=plugin_id)
 
         result = execute(command + suffix + pins + dry)
         using_uv = False
@@ -234,25 +296,32 @@ def install_sdk_requirements(
                 f"Dependency resolution failed for '{plugin_id}': "
                 f"{result.stdout}{result.stderr}",
             )
+        plan = None
         if using_uv:
             additions = _uv_additions(result.stdout + "\n" + result.stderr)
         else:
-            try:
-                plan = json.loads(report.read_text(encoding="utf-8"))
-                if plan["version"] != "1" or not isinstance(
-                    plan["install"],
-                    list,
-                ):
-                    raise ValueError("Unknown pip report format")
-                additions = {
-                    canonicalize_name(item["metadata"]["name"], validate=True)
-                    for item in plan["install"]
-                }
-            except (OSError, ValueError, TypeError, KeyError) as exc:
-                raise SDKRestartRequiredError(
-                    "Unrecognized pip dependency plan.",
-                ) from exc
-        if additions & installed.keys():
+            plan = _pip_plan(report)
+            additions = {
+                canonicalize_name(item["metadata"]["name"])
+                for item in plan["install"]
+            }
+        if target:
+            selected = _target_requirements(plan, installed)
+            additions -= installed.keys()
+            selected_file = Path(temp) / "additions.txt"
+            selected_file.write_text(
+                "\n".join(selected) + "\n",
+                encoding="utf-8",
+            )
+            suffix = [
+                "--target",
+                target,
+                "--no-deps",
+                "--require-hashes",
+                "-r",
+                str(selected_file),
+            ]
+        elif additions & installed.keys():
             raise SDKRestartRequiredError(
                 "Dependency plan reinstalls existing distributions (including "
                 "same-version source changes); restart to apply.",

@@ -118,6 +118,8 @@ include-package-data = true
     "plugins/frontend/**",
     "plugins/py.typed",
     "plugins/templates/**",
+    "plugins/optional/*/plugin.json",
+    "plugins/optional/*/README.md",
     "docs/*.md",
     "app/channels/yuanbao/proto/**",
 ]
@@ -174,7 +176,7 @@ qwenpaw-data = [
     "qwenpaw-data-skills>=0.3.3,<0.4",
 ]
 full = [
-    "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",
+    "qwenpaw[qwenpaw-data,hub,local,codex,qoder]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

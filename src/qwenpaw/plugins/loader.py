@@ -627,7 +627,19 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """
         from .install_lock import plugin_install_lock
 
-        with plugin_install_lock(_install_lock_path(plugin_id)):
+        from ._sdk_dependencies import is_sdk_source
+
+        sdk = is_sdk_source(source_path or requirements_file.parent)
+        lock_options = {"timeout": 1800} if sdk else {}
+        with plugin_install_lock(
+            _install_lock_path(plugin_id),
+            **lock_options,
+        ) as acquired:
+            if sdk and not acquired:
+                raise RuntimeError(
+                    "Dependency installer is busy or its lock is unavailable; "
+                    "retry later",
+                )
             # Another process may have installed while we waited; re-probe
             # with fresh import caches before spending resources on pip.
             _ensure_plugin_site_on_path()
@@ -1495,6 +1507,22 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             stderr="",
         )
 
+    @staticmethod
+    def _dependency_install_timeout(source: Path) -> int:
+        """Bound downloads for optional large packages; default stays 300s."""
+        manifest = json.loads(
+            (source / "plugin.json").read_text(encoding="utf-8"),
+        )
+        value = (manifest.get("meta") or {}).get(
+            "dependency_install_timeout",
+            300,
+        )
+        if not isinstance(value, int) or not 300 <= value <= 3600:
+            raise ValueError(
+                "dependency_install_timeout must be 300..3600 seconds",
+            )
+        return value
+
     def _install_requirements(
         self,
         requirements_file: Path,
@@ -1541,6 +1569,9 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 target=str(_plugin_site_dir()) if _is_frozen() else None,
                 run=self._run_subprocess_with_streaming_log,
                 find_uv=self._find_uv,
+                timeout=self._dependency_install_timeout(
+                    source_path or requirements_file.parent,
+                ),
             )
             importlib.invalidate_caches()
             return

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import {
+  notifyPluginChange,
+  subscribeToPluginChanges,
+} from "../../../utils/pluginChangeEvents";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 
@@ -12,11 +16,8 @@ export interface TranscriptionProvider {
   available: boolean;
 }
 
-export interface LocalWhisperStatus {
-  available: boolean;
-  ffmpeg_installed: boolean;
-  whisper_installed: boolean;
-}
+import type { LocalWhisperStatus } from "../../../api/modules/agent";
+export type { LocalWhisperStatus } from "../../../api/modules/agent";
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,7 @@ export function useVoiceTranscription() {
   const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
   const requestGenerationRef = useRef(0);
+  const installingRef = useRef(false);
   const loadedAgentRef = useRef<string | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -90,6 +92,93 @@ export function useVoiceTranscription() {
       loadedAgentRef.current = null;
     };
   }, [fetchSettings]);
+
+  // Refresh plugin state independently of unsaved voice settings. Polling also
+  // picks up changes from other tabs and the plugin management page.
+  useEffect(() => {
+    if (
+      loading ||
+      error ||
+      (providerType !== "local_whisper" && audioMode !== "native")
+    )
+      return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const status = await api.getLocalWhisperStatus();
+        if (!cancelled) setLocalWhisperStatus(status);
+      } catch {
+        // Do not leave a previously green status after losing the connection.
+        if (!cancelled)
+          setLocalWhisperStatus(
+            (status) =>
+              status && {
+                ...status,
+                available: false,
+                state: "failed",
+                error: t("voiceTranscription.loadFailed"),
+              },
+          );
+      }
+    };
+    const poll = async () => {
+      await refresh();
+      if (!cancelled) timer = setTimeout(() => void poll(), 2000);
+    };
+    const onChange = () => void refresh();
+    const unsubscribe = subscribeToPluginChanges(onChange);
+    window.addEventListener("focus", onChange);
+    timer = setTimeout(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      window.removeEventListener("focus", onChange);
+    };
+  }, [audioMode, providerType, loading, error, selectedAgent, t]);
+
+  const installLocalWhisper = useCallback(async () => {
+    if (installingRef.current || localWhisperStatus?.state === "installing")
+      return;
+    installingRef.current = true;
+    const generation = requestGenerationRef.current;
+    setLocalWhisperStatus(
+      (status) => status && { ...status, state: "installing", error: "" },
+    );
+    try {
+      const status = await api.installLocalWhisper();
+      notifyPluginChange();
+      if (generation === requestGenerationRef.current)
+        setLocalWhisperStatus(status);
+    } catch (err) {
+      if (generation === requestGenerationRef.current) {
+        setLocalWhisperStatus(
+          (status) =>
+            status && {
+              ...status,
+              state: "failed",
+              error: String(err),
+            },
+        );
+      }
+    } finally {
+      installingRef.current = false;
+    }
+  }, [localWhisperStatus?.state]);
+
+  const enableLocalWhisper = useCallback(async () => {
+    const generation = requestGenerationRef.current;
+    try {
+      await api.enableLocalWhisper();
+      notifyPluginChange();
+      const status = await api.getLocalWhisperStatus();
+      if (generation === requestGenerationRef.current)
+        setLocalWhisperStatus(status);
+    } catch (err) {
+      message.error(String(err));
+    }
+  }, [message]);
 
   const handleSave = useCallback(
     async (automatic = false) => {
@@ -160,6 +249,8 @@ export function useVoiceTranscription() {
     selectedProviderId,
     setSelectedProviderId,
     localWhisperStatus,
+    installLocalWhisper,
+    enableLocalWhisper,
     availableProviders,
     showProviderSection,
     isLocalWhisper,

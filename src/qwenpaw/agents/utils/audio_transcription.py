@@ -9,35 +9,11 @@ Transcription is only attempted when explicitly enabled via the
 ``transcription_provider_type`` config setting.  The default is ``"disabled"``.
 """
 
-import asyncio
 import logging
-import shutil
-import threading
 from typing import List, Optional, Tuple
 from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
-
-# ------------------------------------------------------------------
-# Cached local-whisper model (lazy singleton)
-# ------------------------------------------------------------------
-_local_whisper_model = None
-_local_whisper_lock = threading.Lock()
-
-
-def _get_local_whisper_model():
-    """Return a cached whisper model, loading it on first call."""
-    global _local_whisper_model  # noqa: PLW0603
-    if _local_whisper_model is not None:
-        return _local_whisper_model
-    with _local_whisper_lock:
-        if _local_whisper_model is not None:
-            return _local_whisper_model
-        import whisper
-
-        _local_whisper_model = whisper.load_model("base")
-        return _local_whisper_model
-
 
 # ------------------------------------------------------------------
 # Provider helpers
@@ -121,84 +97,51 @@ def get_configured_transcription_provider_id() -> str:
 
 
 def check_local_whisper_available() -> dict:
-    """Check whether the local whisper provider can be used.
+    """Lightweight settings probe; never import the optional recognizer."""
+    from ...plugins.local_transcription import get_status
 
-    Returns a dict with::
-
-        {
-            "available": bool,
-            "ffmpeg_installed": bool,
-            "whisper_installed": bool,
-        }
-    """
-    ffmpeg_ok = shutil.which("ffmpeg") is not None
-
-    whisper_ok = False
-    try:
-        import whisper as _whisper  # noqa: F401
-
-        whisper_ok = True
-    except ImportError:
-        pass
-
-    return {
-        "available": ffmpeg_ok and whisper_ok,
-        "ffmpeg_installed": ffmpeg_ok,
-        "whisper_installed": whisper_ok,
-    }
+    return get_status()
 
 
-# ------------------------------------------------------------------
-# Transcription backends
-# ------------------------------------------------------------------
+async def _transcribe_backend(
+    backend_id: str,
+    file_path: str,
+) -> Optional[str]:
+    from ...plugins.registry import PluginRegistry
+    from ...plugins._workspace import current_workspace_id
+    from ...config.context import get_current_session_id
 
-
-async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
-    """Transcribe using the locally installed ``openai-whisper`` library.
-
-    Requires both ``ffmpeg`` and ``openai-whisper`` to be installed.
-    Returns the transcribed text, or ``None`` on failure.
-    """
-    status = check_local_whisper_available()
-    if not status["available"]:
-        missing = []
-        if not status["ffmpeg_installed"]:
-            missing.append("ffmpeg")
-        if not status["whisper_installed"]:
-            missing.append("openai-whisper")
-        logger.warning(
-            "Local Whisper unavailable (missing: %s). "
-            "Install the missing dependencies to use local transcription.",
-            ", ".join(missing),
-        )
+    backend = PluginRegistry().get_transcription_backend(backend_id)
+    if backend is None:
+        logger.warning("Transcription backend %s is not active", backend_id)
         return None
-
-    def _run():
-        model = _get_local_whisper_model()
-        result = model.transcribe(file_path)
-        return (result.get("text") or "").strip()
-
     try:
-        text = await asyncio.to_thread(_run)
-        if text:
-            logger.debug(
-                "Local Whisper transcribed %s: %s",
-                file_path,
-                text[:80],
+        result = await backend.call(
+            file_path=file_path,
+            workspace_id=current_workspace_id(),
+            session_id=get_current_session_id() or "",
+        )
+        if result.error:
+            logger.warning(
+                "Transcription %s: %s (%s)",
+                backend_id,
+                result.error,
+                result.message,
             )
-            return text
-        logger.warning(
-            "Local Whisper returned empty text for %s",
-            file_path,
-        )
-        return None
+            return None
+        return result.text.strip() or None
     except Exception:
         logger.warning(
-            "Local Whisper transcription failed for %s",
-            file_path,
+            "Transcription backend %s failed",
+            backend_id,
             exc_info=True,
         )
         return None
+
+
+async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
+    """Compatibility entry point; recognition is owned by the SDK plugin."""
+    return await _transcribe_backend("local_whisper", file_path)
 
 
 def _get_configured_provider_creds() -> Optional[Tuple[str, str]]:
@@ -314,5 +257,4 @@ async def transcribe_audio(file_path: str) -> Optional[str]:
     if provider_type == "whisper_api":
         return await _transcribe_whisper_api(file_path)
 
-    logger.warning("Unknown transcription_provider_type: %s", provider_type)
-    return None
+    return await _transcribe_backend(provider_type, file_path)
