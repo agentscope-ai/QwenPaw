@@ -14,7 +14,7 @@
 
 **下载地址**：[GitHub Releases][releases]
 
-本文档说明如何在 Windows 和 macOS 系统上安装和使用 QwenPaw Desktop 桌面应用。
+本文档说明如何在 Windows、macOS 和 Linux 系统上安装和使用 QwenPaw Desktop 桌面应用。
 
 [releases]: https://qwenpaw.agentscope.io/downloads
 
@@ -26,6 +26,7 @@
 
 - [Windows 使用指南](#windows-使用指南)
 - [macOS 使用指南](#macos-使用指南)
+- [Linux 使用指南](#linux-使用指南)
 - [技术支持](#技术支持)
 
 ---
@@ -233,6 +234,54 @@ A: 当前采用
 - ✅ **一次信任**：手动信任后永久有效
 
 ---
+
+## Linux 使用指南
+
+### 系统要求
+
+- **操作系统**：Ubuntu 24.04 LTS 或更新、Debian 13 或更新（glibc 2.39+），x86_64
+- **运行依赖**：`libwebkit2gtk-4.1-0`、`libgtk-3-0t64`、`libayatana-appindicator3-1`
+- **会话**：Wayland 或 X11 均可（Ubuntu 26.04 的 GNOME 50 只有 Wayland）
+- **磁盘空间**：安装后约 3.5 GB
+
+### 安装步骤
+
+**方式一 —— deb 包（推荐）**
+
+1. 从 [Release 页面][releases] 下载 `QwenPaw-Tauri-<version>-linux-x86_64.deb`
+2. 用 apt 安装，依赖会自动补齐：
+
+   ```bash
+   sudo apt install ./QwenPaw-Tauri-<version>-linux-x86_64.deb
+   ```
+
+3. 从应用列表启动 **QwenPaw Desktop**，或执行 `qwenpaw-desktop`
+
+**方式二 —— AppImage（免安装）**
+
+1. 下载 `QwenPaw-Tauri-<version>-linux-x86_64.AppImage`
+2. 赋可执行权限并运行：
+
+   ```bash
+   chmod +x QwenPaw-Tauri-<version>-linux-x86_64.AppImage
+   ./QwenPaw-Tauri-<version>-linux-x86_64.AppImage
+   ```
+
+AppImage 不带依赖元数据：系统若缺 `libwebkit2gtk-4.1-0` 或 `libfuse2`，需先手动安装。
+
+### 首次启动
+
+首次启动会在 `~/.qwenpaw` 下创建目录并自动初始化默认工作区。会话、配置与 Agent 数据都在这里：
+
+- `~/.qwenpaw/workspaces/` —— 各 Agent 工作区
+- `~/.qwenpaw/config.json` —— 配置
+- `~/.qwenpaw.secret/` —— 凭据
+- `~/.qwenpaw/desktop.log` —— 日志
+
+### 更新与卸载
+
+- **更新**：下载并安装更新的包，或替换 AppImage 文件
+- **卸载**：`sudo apt remove qwen-paw-desktop` —— 会保留 `~/.qwenpaw`，需要彻底清除请手动删除
 
 ## 技术支持
 
