@@ -2428,6 +2428,8 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 get_workspace_skill_manifest_path,
                 default_workspace_manifest,
                 mutate_json,
+                rel_path_of,
+                resolve_skill_dir,
             )
             from .provision import (
                 commit_migrations,
@@ -2450,7 +2452,12 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             owned_names = []
             created_names = []
             for skill_name in skill_names:
-                dest = ws_skills_dir / skill_name
+                src_dir = resolve_skill_dir(skills_dir, skill_name)
+                if src_dir is None:
+                    continue
+                rel = rel_path_of(skills_dir, src_dir) or skill_name
+                dest = ws_skills_dir / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
                 previous = load_inventory(self.plugin_id)["locations"].get(
                     str(dest.absolute()),
                 )
@@ -2459,7 +2466,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 if dest.exists() and previous and not location_owned(previous):
                     continue
                 branch = self.provision_files(
-                    skills_dir / skill_name,
+                    src_dir,
                     dest,
                     version,
                 )
