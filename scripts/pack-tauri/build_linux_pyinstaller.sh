@@ -98,6 +98,12 @@ bash scripts/pack-tauri/build_pyinstaller.sh
 echo ""
 
 # ------------------------------------------------------------------- 3) Tauri bundles
+# Tauri merges into an existing AppDir instead of recreating it, so leftovers
+# from an earlier product name (or an earlier failed run) stay behind and can
+# break the next bundling step. Always start from clean bundle directories.
+rm -rf "${REPO_ROOT}/console/src-tauri/target/release/bundle/deb" \
+       "${REPO_ROOT}/console/src-tauri/target/release/bundle/appimage"
+
 echo "== Step 3: Tauri bundles (deb + AppImage) =="
 cd console
 # CI/containers usually have no FUSE; this lets the AppImage bundler extract
