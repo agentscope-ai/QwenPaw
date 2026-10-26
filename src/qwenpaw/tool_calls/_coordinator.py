@@ -1191,7 +1191,10 @@ class ToolCoordinator:
 def _parse_tool_input(tool_call: Any) -> dict[str, Any]:
     raw = getattr(tool_call, "input", None)
     if isinstance(raw, str):
-        raw = json.loads(raw)
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
     if isinstance(raw, dict):
         return dict(raw)
     return {}

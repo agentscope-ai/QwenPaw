@@ -946,7 +946,7 @@ class QwenPawACPAgent(Agent):
         command are left untouched so explicit commands always win.
         Later messages and resumed sessions are never prefixed.
         """
-        if self._agent_mode in (None, f"code"):
+        if self._agent_mode is None or self._agent_mode == f"code":
             return text
         if session_id in self._agent_mode_started:
             return text

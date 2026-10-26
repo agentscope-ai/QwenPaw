@@ -4500,7 +4500,7 @@
       "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
       "modeBlock": "Block",
       "modeWarn": "Warn Only",
-        "timeout": "Scan Timeout (seconds)",
+      "timeout": "Scan Timeout (seconds)",
       "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
       "saveSuccess": "Skill scanner settings saved",
       "saveFailed": "Failed to save skill scanner settings",
