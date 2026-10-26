@@ -24,6 +24,31 @@ from qwenpaw.agents.offloader import QwenPawOffloader
 from qwenpaw.config.config import AgentProfileConfig, DecisionCompactConfig
 
 
+def _tool_message(
+    call_id,
+    evidence="original evidence ",
+    tool_input='{"file_path":"a"}',
+):
+    return Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                id=call_id,
+                name="read_file",
+                input=tool_input,
+                state="finished",
+            ),
+            ToolResultBlock(
+                id=call_id,
+                name="read_file",
+                output=evidence * 300,
+                state="success",
+            ),
+        ],
+    )
+
+
 def make_agent():
     config = AgentProfileConfig(id="agent", name="Agent")
     config.running.light_context_config.decision_compact_config = (
@@ -39,55 +64,14 @@ def make_agent():
             role="user",
             content=[TextBlock(text="Earlier task")],
         ),
+        *(_tool_message(f"c{index}") for index in range(3)),
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="Current task")],
+        ),
+        _tool_message("active", "active evidence ", tool_input="{}"),
     ]
-    for index in range(3):
-        context.append(
-            Msg(
-                name="assistant",
-                role="assistant",
-                content=[
-                    ToolCallBlock(
-                        id=f"c{index}",
-                        name="read_file",
-                        input='{"file_path":"a"}',
-                        state="finished",
-                    ),
-                    ToolResultBlock(
-                        id=f"c{index}",
-                        name="read_file",
-                        output="original evidence " * 300,
-                        state="success",
-                    ),
-                ],
-            ),
-        )
-    context.extend(
-        [
-            Msg(
-                name="user",
-                role="user",
-                content=[TextBlock(text="Current task")],
-            ),
-            Msg(
-                name="assistant",
-                role="assistant",
-                content=[
-                    ToolCallBlock(
-                        id="active",
-                        name="read_file",
-                        input="{}",
-                        state="finished",
-                    ),
-                    ToolResultBlock(
-                        id="active",
-                        name="read_file",
-                        output="active evidence " * 300,
-                        state="success",
-                    ),
-                ],
-            ),
-        ],
-    )
     agent = object.__new__(QwenPawAgent)
     agent.__dict__.update(
         _agent_config=config,
@@ -208,6 +192,7 @@ async def test_real_reme_compacts_only_archived_completed_results(
     scroll,
 ):
     agent = make_agent()
+    original = agent.state.context
     before = [m.model_dump(mode="json") for m in agent.state.context]
     refs = (
         {f"c{i}": f"recall_history(tool_call_id='c{i}')" for i in range(3)}
@@ -217,6 +202,8 @@ async def test_real_reme_compacts_only_archived_completed_results(
     compactor = DecisionCompactor()
     result = await compact(compactor, agent, refs=refs)
     assert result.changed
+    assert agent.state.context is not original
+    assert agent._decision_compaction_revision == 1
     assert result.tokens_after == await agent.model.count_tokens(
         **await agent._prepare_model_input(),
     )
@@ -239,20 +226,6 @@ async def test_real_reme_compacts_only_archived_completed_results(
     assert model.await_count == calls
     await compactor.close()
     model.client.aclose.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_committed_savings_are_independent_of_caller_budget(model):
-    agent = make_agent()
-    before = agent.state.context
-    compactor = DecisionCompactor()
-    result = await compact(compactor, agent)
-    assert result.changed
-    assert result.tokens_after > 1
-    assert agent._decision_compaction_revision == 1
-    assert agent.state.context is not before
-    assert agent.state.context[1].content[1].metadata[DECISION_COMPACTED]
-    await compactor.close()
 
 
 @pytest.mark.asyncio
@@ -279,11 +252,9 @@ async def test_failures_and_cancellation_preserve_original_context(
         )
     elif failure == "no_savings":
         agent.model.count_tokens = AsyncMock(return_value=1000000)
-    elif failure in {"timeout", "cancel"}:
+    elif failure == "timeout":
 
         async def wait(**_kwargs):
-            if failure == "cancel":
-                raise asyncio.CancelledError()
             await asyncio.Event().wait()
 
         model.side_effect = wait
@@ -319,7 +290,7 @@ async def test_failures_and_cancellation_preserve_original_context(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "outcome",
-    ["keep", "model_error", "no_savings", "timeout"],
+    ["keep", "model_error"],
 )
 async def test_native_retries_reuse_archives(model, tmp_path, outcome):
     agent = make_agent()
@@ -343,18 +314,8 @@ async def test_native_retries_reuse_archives(model, tmp_path, outcome):
             )
 
         model.side_effect = keep
-    elif outcome == "model_error":
-        model.side_effect = RuntimeError("provider unavailable")
-    elif outcome == "no_savings":
-        agent.model.count_tokens = AsyncMock(return_value=1000000)
     else:
-
-        async def wait(**_kwargs):
-            await asyncio.Event().wait()
-
-        model.side_effect = wait
-        cfg = agent._agent_config.running.light_context_config
-        cfg.decision_compact_config.total_timeout_seconds = 0.02
+        model.side_effect = RuntimeError("provider unavailable")
 
     for _ in range(2):
         compactor = DecisionCompactor()

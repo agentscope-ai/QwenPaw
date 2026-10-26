@@ -3,13 +3,16 @@
 """Tests for optional memory actions exposed by ReMe."""
 
 from contextlib import asynccontextmanager
+import shlex
 from types import MethodType, SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from reme.config import parse_kwargs
 
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
+    _validate_reme_action_kwargs,
 )
 
 
@@ -179,21 +182,41 @@ async def test_run_action_forwards_note_name_without_job_name_collision(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "response",
-    [None, SimpleNamespace(success=True), SimpleNamespace(success=False)],
-)
-async def test_auto_dream_preserves_single_job_result(response):
-    """Digest results return directly without running a follow-up job."""
+async def test_auto_dream_preserves_unavailable_job_result():
+    """An unavailable digest job returns without running a follow-up job."""
     manager = _manager_with_jobs({"auto_dream": _job()})
-    manager._run_reme_job.return_value = response
-    assert await manager.run_action("auto_dream") is response
+    manager._run_reme_job.return_value = None
+    assert await manager.run_action("auto_dream") is None
     manager._run_reme_job.assert_awaited_once_with(
         "auto_dream",
         needs_llm=True,
         raise_on_error=True,
         lifecycle_locked=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("key", "value_type", "invalid", "example"),
+    [
+        ("tags", "array", "[赵六]", "tags='[\"tag\"]'"),
+        ("filter", "object", "{kind:decision}", 'filter=\'{"key":"value"}\''),
+    ],
+)
+def test_invalid_json_arguments_explain_and_validate_correct_quoting(
+    key,
+    value_type,
+    invalid,
+    example,
+):
+    schema = {
+        "properties": {key: {"type": value_type}},
+        "required": [key],
+    }
+    with pytest.raises(ValueError) as exc_info:
+        _validate_reme_action_kwargs("search", schema, {key: invalid})
+    assert example in str(exc_info.value)
+    corrected = parse_kwargs(*shlex.split(example))
+    _validate_reme_action_kwargs("search", schema, corrected)
 
 
 @pytest.mark.asyncio

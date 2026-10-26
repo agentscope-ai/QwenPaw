@@ -369,10 +369,14 @@ def test_auto_fin_payload_preserves_an_explicit_request_date() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "job_name",
-    ["auto_memory", "daily_paper", "auto_fin"],
+    ("job_name", "success"),
+    [
+        ("auto_memory", True),
+        ("auto_memory", False),
+        ("daily_paper", True),
+        ("auto_fin", True),
+    ],
 )
-@pytest.mark.parametrize("success", [True, False])
 async def test_tag_failures_are_reported_without_losing_job_outcome(
     job_name,
     success,

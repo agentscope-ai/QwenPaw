@@ -100,24 +100,26 @@ def memory_job(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_memory_formatter_resizes_request_images_only(memory_job):
-    await memory_job.manager._update_qwenpaw_model()
-    memory_job.factory.assert_awaited_once_with(
-        "memory-agent",
-        require_image_support=False,
-        resize_images_to_max_bytes=True,
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("entry_point", ["auto_memory", "run_action"])
-@pytest.mark.parametrize("enabled", [False, True])
-@pytest.mark.parametrize("supports_image", [False, None, True])
+@pytest.mark.parametrize(
+    ("entry_point", "enabled", "supports_image", "requested", "expected"),
+    [
+        ("auto_memory", False, True, True, False),
+        ("auto_memory", True, True, True, True),
+        ("auto_memory", True, False, True, False),
+        ("auto_memory", True, None, True, False),
+        ("auto_memory", True, True, False, False),
+        ("run_action", False, True, True, False),
+        ("run_action", True, True, True, True),
+        ("run_action", True, True, False, False),
+    ],
+)
 async def test_images_require_setting_and_actual_memory_model_support(
     memory_job,
     entry_point,
     enabled,
     supports_image,
+    requested,
+    expected,
 ):
     memory_job.config.auto_memory_include_images = enabled
     memory_job.metadata.supports_image = supports_image
@@ -130,25 +132,23 @@ async def test_images_require_setting_and_actual_memory_model_support(
         await manager.auto_memory(
             [message],
             session_id="test-session",
-            include_images=True,
+            include_images=requested,
         )
     else:
         await manager.run_action(
             "auto_memory",
             messages=[message.model_dump(mode="json")],
             session_id="test-session",
-            include_images=True,
+            include_images=requested,
         )
 
     call = manager._reme.run_job.await_args
     assert call.args == ("auto_memory",)
-    assert call.kwargs["include_images"] is (
-        enabled and supports_image is True
-    )
+    assert call.kwargs["include_images"] is expected
     assert call.kwargs["messages"][0]["content"][0]["type"] == "data"
     memory_job.factory.assert_awaited_once_with(
         "memory-agent",
-        require_image_support=enabled,
+        require_image_support=enabled and requested,
         resize_images_to_max_bytes=True,
     )
     manager._reme.update_component.assert_awaited_once_with(
@@ -156,28 +156,6 @@ async def test_images_require_setting_and_actual_memory_model_support(
         "default",
         model=memory_job.model,
     )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("entry_point", ["auto_memory", "run_action"])
-async def test_explicit_false_can_disable_images(memory_job, entry_point):
-    memory_job.config.auto_memory_include_images = True
-    manager = memory_job.manager
-    message = _image_message()
-    if entry_point == "auto_memory":
-        await manager.auto_memory(
-            [message],
-            session_id="test-session",
-            include_images=False,
-        )
-    else:
-        await manager.run_action(
-            "auto_memory",
-            messages=[message.model_dump(mode="json")],
-            session_id="test-session",
-            include_images=False,
-        )
-    assert manager._reme.run_job.await_args.kwargs["include_images"] is False
 
 
 @pytest.mark.asyncio
@@ -297,3 +275,8 @@ async def test_llm_jobs_keep_injected_model_until_completion(memory_job):
         release.set()
         await asyncio.gather(first, second)
     assert manager._reme.update_component.await_count == 2
+    memory_job.factory.assert_awaited_with(
+        "memory-agent",
+        require_image_support=False,
+        resize_images_to_max_bytes=True,
+    )
