@@ -1918,6 +1918,7 @@ def _create_file_block_support_formatter(
                             out_msg.setdefault("reasoning_content", " ")
 
             wire_messages = _strip_top_level_message_name(messages)
+            _sanitize_malformed_file_parts(wire_messages)
             self._qwenpaw_last_wire_media_count = _count_wire_media_blocks(
                 wire_messages,
             )
@@ -2011,6 +2012,67 @@ def _strip_top_level_message_name(
         if "role" in message:
             message.pop("name", None)
     return messages
+
+
+def _sanitize_malformed_file_parts(messages: list[dict]) -> None:
+    """Strip file content parts that lack required fields before API send.
+
+    The OpenAI-compatible Chat Completions API requires every
+    ``{"type": "file"}`` content part to carry either a top-level
+    ``file_id`` or a ``file_data`` value (either directly or nested
+    inside a ``file`` sub-object). When a file block in conversation
+    history has lost its data, the API rejects the entire request.
+    """
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        cleaned: list[dict] = []
+        changed = False
+        for part in content:
+            if not isinstance(part, dict):
+                cleaned.append(part)
+                continue
+            if part.get("type") == "file":
+                if part.get("file_id"):
+                    cleaned.append(part)
+                    continue
+                file_obj = part.get("file")
+                if isinstance(file_obj, dict) and file_obj.get("file_data"):
+                    cleaned.append(part)
+                    continue
+                if part.get("file_data"):
+                    cleaned.append(part)
+                    continue
+                filename = (
+                    (file_obj.get("filename") or "")
+                    if isinstance(file_obj, dict)
+                    else ""
+                )
+                logger.warning(
+                    "Dropping malformed file content part "
+                    "(missing file_id/file_data): %r",
+                    filename,
+                )
+                changed = True
+                cleaned.append(
+                    {
+                        "type": "text",
+                        "text": (
+                            f"[File '{filename}' unavailable — "
+                            "data lost from conversation history]"
+                            if filename
+                            else (
+                                "[File unavailable — "
+                                "data lost from conversation history]"
+                            )
+                        ),
+                    },
+                )
+            else:
+                cleaned.append(part)
+        if changed:
+            msg["content"] = cleaned
 
 
 def _resolve_model_slot_override(model_slot_override: Any):
