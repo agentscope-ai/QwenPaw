@@ -1200,7 +1200,8 @@ class ToolResultPruningConfig(BaseModel):
         ge=1,
         le=365,
         description=(
-            "Number of days to retain complete archived tool result files. "
+            "Number of days to retain complete archived tool result files "
+            "after their latest publication or reuse. "
             "This lifetime is independent of Scroll history retention; after "
             "expiry, history may still contain the bounded preview but not "
             "the complete artifact."

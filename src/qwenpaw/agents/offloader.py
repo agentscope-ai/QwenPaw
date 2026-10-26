@@ -12,7 +12,6 @@ import hashlib
 import json
 import logging
 import os
-import sys
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,7 +20,7 @@ from typing import TYPE_CHECKING
 import aiofiles
 import aiofiles.os
 
-from ..utils.io_utils import get_path_lock, run_sync_io, write_text_atomic
+from ..utils.io_utils import get_sync_path_lock, run_sync_io, write_text_atomic
 
 if TYPE_CHECKING:
     from agentscope.message import Msg, ToolResultBlock
@@ -29,10 +28,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _write_archive_once(path: Path, content: str) -> None:
-    """Publish a complete archive once for each result."""
-    if not path.exists():
-        write_text_atomic(path, content)
+def _write_or_refresh_archive(path: Path, content: str) -> None:
+    """Publish or renew an archive without racing retention cleanup."""
+    with get_sync_path_lock(path.parent):
+        if path.exists():
+            os.utime(path, None)
+        else:
+            write_text_atomic(path, content)
 
 
 class QwenPawOffloader:
@@ -121,7 +123,8 @@ class QwenPawOffloader:
         """Persist a truncated tool result to a text file.
 
         Decision compaction may reuse an archive for the same session, call,
-        and text. The default AgentScope offloading behavior uses a fresh file.
+        and text, renewing its retention window each time. The default
+        AgentScope offloading behavior uses a fresh file.
         """
         output = getattr(tool_result, "output", None) or ""
         if isinstance(output, list):
@@ -144,8 +147,7 @@ class QwenPawOffloader:
                 ).encode("utf-8"),
             ).hexdigest()
             path = Path(self._tool_results_dir) / f"{archive_id}.txt"
-            async with get_path_lock(path):
-                await run_sync_io(_write_archive_once, path, content)
+            await run_sync_io(_write_or_refresh_archive, path, content)
             return str(path)
 
         await aiofiles.os.makedirs(self._tool_results_dir, exist_ok=True)
@@ -160,8 +162,9 @@ class QwenPawOffloader:
         return filepath
 
     def cleanup_expired(self, retention_days: int = 5) -> int:
-        """Delete tool-result files older than *retention_days*.
+        """Delete tool-result files unreferenced for *retention_days*.
 
+        Modification time records the latest publication or archive reuse.
         Returns the number of files deleted.
         """
         tool_dir = Path(self._tool_results_dir)
@@ -171,21 +174,17 @@ class QwenPawOffloader:
         cutoff = datetime.now() - timedelta(days=retention_days)
         deleted = failed = 0
 
-        for fp in tool_dir.glob("*.txt"):
-            try:
-                st = os.stat(fp)
-                if sys.platform == "win32":
-                    ts = st.st_ctime
-                else:
-                    ts = getattr(st, "st_birthtime", st.st_mtime)
-                if datetime.fromtimestamp(ts) < cutoff:
-                    fp.unlink()
-                    deleted += 1
-            except FileNotFoundError:
-                pass
-            except Exception as e:
-                failed += 1
-                logger.warning("Failed to delete %s: %s", fp, e)
+        with get_sync_path_lock(tool_dir):
+            for fp in tool_dir.glob("*.txt"):
+                try:
+                    if datetime.fromtimestamp(os.stat(fp).st_mtime) < cutoff:
+                        fp.unlink()
+                        deleted += 1
+                except FileNotFoundError:
+                    pass
+                except Exception as e:
+                    failed += 1
+                    logger.warning("Failed to delete %s: %s", fp, e)
 
         if deleted or failed:
             logger.info(
