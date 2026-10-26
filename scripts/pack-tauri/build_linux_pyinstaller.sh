@@ -81,6 +81,9 @@ fi
 echo ""
 
 # ------------------------------------------------------- 1) console + version sync
+if [ "${QWENPAW_SKIP_BACKEND_BUILD:-0}" = "1" ]; then
+  echo "== Steps 1-2 skipped (QWENPAW_SKIP_BACKEND_BUILD=1); reusing console/src-tauri/binaries =="
+else
 echo "== Step 1: console assets + Tauri version override =="
 cd console
 npm ci
@@ -96,6 +99,7 @@ echo ""
 echo "== Step 2: PyInstaller backend + bundled runtimes =="
 bash scripts/pack-tauri/build_pyinstaller.sh
 echo ""
+fi
 
 # ------------------------------------------------------------------- 3) Tauri bundles
 # Tauri merges into an existing AppDir instead of recreating it, so leftovers
@@ -108,10 +112,89 @@ echo "== Step 3: Tauri bundles (deb + AppImage) =="
 cd console
 # CI/containers usually have no FUSE; this lets the AppImage bundler extract
 # and run itself without mounting.
+set +e
 APPIMAGE_EXTRACT_AND_RUN=1 npm exec -- tauri build \
   --config src-tauri/tauri.version.conf.json \
   --bundles deb,appimage
+TAURI_STATUS=$?
+set -e
 cd ..
+echo ""
+
+# ------------------------------------------------------- 3b) AppImage fallback
+# linuxdeploy walks every ELF file in the AppDir and shells out to `ldd` for
+# each one. With a bundled Python runtime that is thousands of files, and a
+# single unresolved name aborts the whole bundling step. Our AppDir already
+# ships every dependency it needs, so dependency inference adds nothing: pack
+# the tree with appimagetool when linuxdeploy fails.
+APPDIR_ROOT="${REPO_ROOT}/console/src-tauri/target/release/bundle/appimage"
+APPDIR="$(ls -d "${APPDIR_ROOT}"/*.AppDir 2>/dev/null | head -1 || true)"
+APPIMAGE_OUT=""
+if [ "${TAURI_STATUS}" -ne 0 ]; then
+  if [ -z "${APPDIR}" ] || [ ! -x "${APPDIR}/AppRun" ]; then
+    echo "ERROR: bundling failed and no usable AppDir was produced"
+    exit "${TAURI_STATUS}"
+  fi
+  echo "== Step 3b: tauri bundling failed; packing the AppDir with appimagetool =="
+
+  APPDIR_NAME="$(basename "${APPDIR}" .AppDir)"
+  # Tauri emits the resource payload twice under usr/lib (once per product
+  # name it knows about). Keep only the one the runtime resolves.
+  # The runtime resolves resources under usr/lib/<product name>, and Tauri can
+  # emit the payload under two names. Keep one real tree and point the other
+  # name at it, so either resolution works and the archive stores it once.
+  PRIMARY_LIB=""
+  for lib_dir in "${APPDIR}"/usr/lib/*/; do
+    [ -d "${lib_dir}" ] || continue
+    name="$(basename "${lib_dir}")"
+    if [ -d "${lib_dir}binaries" ] && [ "${name}" = "${APPDIR_NAME}" ]; then
+      PRIMARY_LIB="${name}"
+    fi
+  done
+  for lib_dir in "${APPDIR}"/usr/lib/*/; do
+    [ -d "${lib_dir}" ] || continue
+    name="$(basename "${lib_dir}")"
+    [ -d "${lib_dir}binaries" ] || continue
+    if [ -z "${PRIMARY_LIB}" ]; then
+      PRIMARY_LIB="${name}"
+      continue
+    fi
+    if [ "${name}" != "${PRIMARY_LIB}" ]; then
+      echo "    deduplicating usr/lib/${name} -> symlink to ${PRIMARY_LIB}"
+      rm -rf "${lib_dir}"
+      ln -sfn "${PRIMARY_LIB}" "${APPDIR}/usr/lib/${name}"
+    fi
+  done
+
+  # appimagetool wants the icon named by the desktop entry next to it.
+  DESKTOP_FILE="$(ls "${APPDIR}"/usr/share/applications/*.desktop 2>/dev/null | head -1 || true)"
+  if [ -n "${DESKTOP_FILE}" ]; then
+    ICON_NAME="$(sed -n 's/^Icon=//p' "${DESKTOP_FILE}" | head -1)"
+    if [ -n "${ICON_NAME}" ] && [ ! -e "${APPDIR}/${ICON_NAME}.png" ]; then
+      SOURCE_PNG="$(ls "${APPDIR}"/*.png 2>/dev/null | head -1 || true)"
+      if [ -n "${SOURCE_PNG}" ]; then
+        cp -f "${SOURCE_PNG}" "${APPDIR}/${ICON_NAME}.png"
+      fi
+    fi
+    if [ -n "${ICON_NAME}" ] && [ -e "${APPDIR}/${ICON_NAME}.png" ]; then
+      ln -sfn "${ICON_NAME}.png" "${APPDIR}/.DirIcon"
+    fi
+  fi
+
+  TOOL_CACHE="${XDG_CACHE_HOME:-${HOME}/.cache}/qwenpaw-desktop"
+  mkdir -p "${TOOL_CACHE}"
+  APPIMAGETOOL="${TOOL_CACHE}/appimagetool-x86_64.AppImage"
+  if [ ! -x "${APPIMAGETOOL}" ]; then
+    echo "    downloading appimagetool"
+    curl -fL --retry 3 -o "${APPIMAGETOOL}" \
+      https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+    chmod +x "${APPIMAGETOOL}"
+  fi
+
+  APPIMAGE_OUT="${APPDIR_ROOT}/${APPDIR_NAME}.AppImage"
+  ARCH="$(uname -m)" APPIMAGE_EXTRACT_AND_RUN=1 "${APPIMAGETOOL}" \
+    --no-appstream "${APPDIR}" "${APPIMAGE_OUT}"
+fi
 echo ""
 
 # ---------------------------------------------------------------- 4) collect output
