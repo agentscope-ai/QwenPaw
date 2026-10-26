@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createForeignError } from "../test/foreignError";
 import { installStartupMonitor } from "./monitor";
@@ -76,6 +78,7 @@ beforeEach(() => {
 
 afterEach(() => {
   stop();
+  Reflect.deleteProperty(window, "__qwenpawStartupMonitorInstalled");
   document.querySelectorAll("script, link").forEach((node) => node.remove());
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
@@ -84,6 +87,30 @@ afterEach(() => {
 });
 
 describe("Console startup recovery", () => {
+  it("keeps the external watchdog inactive when the startup monitor is installed", async () => {
+    const timerCount = vi.getTimerCount();
+    new Function(
+      "window",
+      "document",
+      "sessionStorage",
+      "setTimeout",
+      "clearTimeout",
+      readFileSync(join(process.cwd(), "public", "bootWatchdog.js"), "utf8"),
+    )(window, document, sessionStorage, setTimeout, clearTimeout);
+
+    expect(vi.getTimerCount()).toBe(timerCount);
+    expect(Reflect.get(window, "__qwenpawBootWatchdog")).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(readChunkDiagnostic()).toBeNull();
+    expect(sessionStorage.getItem("qwenpaw:boot-retries")).toBeNull();
+
+    entry.dispatchEvent(new Event("error"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reloadAfterChunkError).toHaveBeenCalledOnce();
+    expect(document.querySelector(".qwenpaw-boot--error")).not.toBeNull();
+    expect(document.getElementById("qwenpaw-boot-error")).toBeNull();
+  });
+
   it.each(["error", "unhandledrejection"] as const)(
     "preserves a foreign module failure from a startup %s event",
     async (kind) => {
