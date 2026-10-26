@@ -891,10 +891,12 @@ def _offline_environment(monkeypatch, tmp_path):
     return _patch_plugins_dir(monkeypatch, tmp_path)
 
 
+@pytest.mark.parametrize("failure_stage", ["installer_check", "install"])
 def test_offline_force_dependency_failure_preserves_old(
     monkeypatch,
     tmp_path,
     offline_environment,
+    failure_stage,
 ):
     old = offline_environment / "demo"
     old.mkdir(parents=True)
@@ -910,10 +912,17 @@ def test_offline_force_dependency_failure_preserves_old(
         calls.append(args)
         return subprocess.CompletedProcess(args[0], 1, "", "deps failed")
 
-    from qwenpaw.plugins.loader import PluginLoader
+    from qwenpaw.plugins import loader
 
+    # Exercise rollback independently of the runner's installed pip version.
+    def check_installer(_python):
+        if failure_stage == "installer_check":
+            raise RuntimeError("Unsafe pip; requires >= 26.2.2")
+        return True
+
+    monkeypatch.setattr(loader, "require_pip", check_installer)
     monkeypatch.setattr(
-        PluginLoader,
+        loader.PluginLoader,
         "_run_subprocess_with_streaming_log",
         staticmethod(fail_install),
     )
@@ -921,7 +930,10 @@ def test_offline_force_dependency_failure_preserves_old(
         pc.plugin,
         ["install", str(source), "--force"],
     )
-    assert calls
+    assert bool(calls) == (failure_stage == "install")
+    assert (
+        "deps failed" if failure_stage == "install" else "Unsafe pip"
+    ) in result.output
     assert "installed successfully" not in result.output
     assert json.loads((old / "plugin.json").read_text())["version"] == "1.0.0"
     assert (old / "user.txt").read_text() == "keep"
