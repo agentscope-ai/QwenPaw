@@ -1,5 +1,8 @@
 # Build output
 dist/
+dist-tauri/
+src-tauri/target/
+src-tauri/gen/schemas/
 build/
 
 # Dependencies

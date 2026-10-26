@@ -72,7 +72,7 @@ import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import type { SkillSpec } from "../../api/types";
 import {
   AdvisorModelsPill,
   useIsAdvisorConversation,
@@ -921,10 +921,10 @@ function useMultimodalCapabilities(
       return;
     }
     try {
-      const [providers, activeModels] = await Promise.all([
-        providerApi.listProviders(),
-        loadSessionModel(selectedAgent, { sessionId, chatId }),
-      ]);
+      const activeModels = await loadSessionModel(selectedAgent, {
+        sessionId,
+        chatId,
+      });
       if (revision !== capsRevision.current) return;
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
@@ -932,20 +932,17 @@ function useMultimodalCapabilities(
         updateCapsIfChanged(noCaps);
         return;
       }
-      const provider = (providers as ProviderInfo[]).find(
-        (p) => p.id === activeProviderId,
+      const model = await providerApi.previewModelInfo(
+        activeProviderId,
+        activeModelId,
       );
-      if (!provider) {
-        updateCapsIfChanged(noCaps);
-        return;
-      }
-      const allModels: ModelInfo[] = [
-        ...(provider.models ?? []),
-        ...(provider.extra_models ?? []),
-      ];
-      const model = allModels.find((m) => m.id === activeModelId);
+      if (revision !== capsRevision.current) return;
       updateCapsIfChanged({
-        supportsMultimodal: model?.supports_multimodal ?? false,
+        supportsMultimodal: Boolean(
+          model?.supports_multimodal ||
+            model?.supports_image ||
+            model?.supports_video,
+        ),
         supportsImage: model?.supports_image ?? false,
         supportsVideo: model?.supports_video ?? false,
       });

@@ -11,7 +11,7 @@ import click
 import pytest
 
 from qwenpaw.tauri import entry
-from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV, DESKTOP_READY_PREFIX
+from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV
 
 
 def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
@@ -127,13 +127,6 @@ def test_run_click_command_allows_successful_system_exit(capsys):
     assert captured.err == ""
 
 
-def test_emit_backend_ready_writes_stdout_protocol(capsys):
-    entry._emit_backend_ready(54321)
-
-    captured = capsys.readouterr()
-    assert captured.out == f'{DESKTOP_READY_PREFIX} {{"port":54321}}\n'
-
-
 def test_socket_port_returns_bound_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -180,6 +173,7 @@ def test_main_supports_frozen_entry_without_package_context(
     monkeypatch,
     tmp_path,
 ):
+    monkeypatch.setattr(os, "environ", os.environ.copy())
     config_path = tmp_path / "config.json"
     config_path.write_text("{}", encoding="utf-8")
     calls = []
@@ -198,7 +192,11 @@ def test_main_supports_frozen_entry_without_package_context(
     monkeypatch.setattr(entry, "_install_desktop_runtime", lambda: None)
     monkeypatch.setattr(entry, "install_sidecar_logging", lambda path: None)
     monkeypatch.setattr(entry, "_install_certifi_env", lambda: None)
-    monkeypatch.setattr(entry, "_run_backend_server", calls.append)
+    monkeypatch.setattr(
+        entry,
+        "_run_backend_server",
+        lambda level, instance: calls.append(level),
+    )
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path)
     monkeypatch.setattr(
         "qwenpaw.utils.platform.warn_unelevated_sandbox",

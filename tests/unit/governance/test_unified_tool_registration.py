@@ -171,6 +171,7 @@ class TestBuiltinDescriptorGovernance:
             "RecallHistory": "internal",
             "RecallHistoryPython": "shell",
             "MemorySearch": "internal",
+            "MemoryListTags": "internal",
             "MemoryRemember": "network",
         }
         for name, tool_type in expected.items():
@@ -185,6 +186,7 @@ class TestBuiltinDescriptorGovernance:
         """
         expected_mappings = {
             "memory_search": "MemorySearch",
+            "memory_list_tags": "MemoryListTags",
             "memory_remember": "MemoryRemember",
         }
         for python_name, policy_name in expected_mappings.items():
