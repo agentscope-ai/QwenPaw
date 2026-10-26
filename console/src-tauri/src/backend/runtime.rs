@@ -77,7 +77,11 @@ impl Runtime {
         if response.status() == reqwest::StatusCode::CONFLICT {
             return Err(super::OTHER_CLIENTS_ERROR.into());
         }
-        response.error_for_status().map_err(|err| err.to_string())?;
+        // A stopping server can reject shutdown with 503. Its lifetime
+        // locks, not the HTTP response, establish that it has fully exited.
+        if response.status() != reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            response.error_for_status().map_err(|err| err.to_string())?;
+        }
         let started = std::time::Instant::now();
         // A supervisor can have exited while Python is still alive. Both
         // leases must be released before replacing the bundled runtime files.
@@ -177,18 +181,7 @@ pub(super) async fn connect(
         "[backend] discovery admitted after {}ms",
         started.elapsed().as_millis()
     );
-    crate::updates::coordination::ensure_available(app, &directory)?;
     let mut launched = false;
-    let runtime_lock = lock_file(directory.join("daemon.lock"))?;
-    if try_lock(&runtime_lock)? {
-        FileExt::unlock(&runtime_lock).map_err(|err| err.to_string())?;
-        let backend_lock = lock_file(directory.join("runtime.lock"))?;
-        if try_lock(&backend_lock)? {
-            FileExt::unlock(&backend_lock).map_err(|err| err.to_string())?;
-            launch(app, &directory)?;
-            launched = true;
-        }
-    }
     let environment: std::collections::HashMap<_, _> =
         crate::runtime_env::collect(app).into_iter().collect();
     let payload = serde_json::json!({
@@ -207,6 +200,22 @@ pub(super) async fn connect(
                 "Runtime did not become ready; see {}",
                 directory.join("launcher.log").display()
             ));
+        }
+        // An existing runtime may finish exiting while discovery is polling.
+        // Launch at most once here, including the interval before its daemon
+        // acquires its lifetime lock.
+        if !launched {
+            crate::updates::coordination::ensure_available(app, &directory)?;
+            let runtime_lock = lock_file(directory.join("daemon.lock"))?;
+            if try_lock(&runtime_lock)? {
+                FileExt::unlock(&runtime_lock).map_err(|err| err.to_string())?;
+                let backend_lock = lock_file(directory.join("runtime.lock"))?;
+                if try_lock(&backend_lock)? {
+                    FileExt::unlock(&backend_lock).map_err(|err| err.to_string())?;
+                    launch(app, &directory)?;
+                    launched = true;
+                }
+            }
         }
         if let Ok(bytes) = std::fs::read(directory.join("runtime.json")) {
             if let Ok(mut runtime) = serde_json::from_slice::<Runtime>(&bytes) {
@@ -237,6 +246,8 @@ pub(super) async fn connect(
                             .ok_or("Missing desktop client identity")?
                             .to_owned();
                         runtime.directory = directory.clone();
+                        // Release versions are synced from Python by
+                        // sync_tauri_version.mjs during packaging.
                         // Development runs mutable Python source and uses the
                         // Cargo placeholder version, not a packaged release.
                         #[cfg(not(debug_assertions))]

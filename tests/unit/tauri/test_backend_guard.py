@@ -3,12 +3,25 @@
 
 import json
 import os
+import runpy
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from qwenpaw.tauri.backend_guard import BackendInstance
+
+
+@pytest.fixture(name="manifest_to_semver", scope="module")
+def _manifest_to_semver():
+    script = (
+        Path(__file__).resolve().parents[3]
+        / "scripts"
+        / "pack-tauri"
+        / "generate_update_manifest.py"
+    )
+    return runpy.run_path(str(script))["to_semver"]
 
 
 @pytest.mark.parametrize(
@@ -29,6 +42,7 @@ def test_runtime_lock_rejects_a_second_owner(
     monkeypatch,
     version,
     expected,
+    manifest_to_semver,
 ):
     monkeypatch.setattr(
         "qwenpaw.tauri.backend_guard.__version__",
@@ -44,6 +58,7 @@ def test_runtime_lock_rejects_a_second_owner(
         assert record["instance"] == first.instance
         assert record["mode"] == "shared"
         assert record["version"] == expected
+        assert record["version"] == manifest_to_semver(version)
         assert record["token"] == first.token
     assert not (first.directory / "runtime.json").exists()
     with BackendInstance(tmp_path, "shared") as replacement:

@@ -54,6 +54,7 @@ class BackendInstance:
     def publish(self, port: int) -> None:
         """Publish only while holding the lifetime lock."""
         # Match the PEP 440 to SemVer mapping used by desktop packaging.
+        # Packaging rejects epochs, local segments and non-triplet releases.
         release = Version(__version__)
         version = f"{release.major}.{release.minor}.{release.micro}"
         labels = []
