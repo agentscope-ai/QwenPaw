@@ -314,7 +314,20 @@ def _attach_logger_file_handler(
     target.addHandler(file_handler)
 
 
-def add_project_file_handler(log_path: Path) -> None:
+def create_rotating_file_handler(
+    log_path: Path,
+) -> logging.handlers.RotatingFileHandler:
+    """Create a rotating file handler with the configured rotation limits."""
+    max_bytes, backup_count = _resolve_log_rotation_settings()
+    return _SafeRotatingFileHandler(
+        log_path,
+        encoding="utf-8",
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+    )
+
+
+def add_project_file_handler(log_path: Path) -> logging.FileHandler:
     """Add a rotating file handler to the project logger for daemon logs.
 
     Uses _SafeRotatingFileHandler on all platforms with automatic log
@@ -328,27 +341,26 @@ def add_project_file_handler(log_path: Path) -> None:
 
     Args:
         log_path: Path to the log file.
+
+    Returns:
+        The file handler that owns ``log_path``.
     """
     log_path = Path(log_path).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger(LOG_NAMESPACE)
     for handler in logger.handlers:
-        base = getattr(handler, "baseFilename", None)
-        if base is not None and Path(base).resolve() == log_path:
+        if (
+            isinstance(handler, logging.FileHandler)
+            and Path(handler.baseFilename).resolve() == log_path
+        ):
             _attach_logger_file_handler(
                 "apscheduler",
                 handler,
                 level=logging.WARNING,
             )
-            return
+            return handler
 
-    max_bytes, backup_count = _resolve_log_rotation_settings()
-    file_handler = _SafeRotatingFileHandler(
-        log_path,
-        encoding="utf-8",
-        maxBytes=max_bytes,
-        backupCount=backup_count,
-    )
+    file_handler = create_rotating_file_handler(log_path)
 
     file_handler.setLevel(logger.level or logging.INFO)
 
@@ -361,3 +373,4 @@ def add_project_file_handler(log_path: Path) -> None:
         file_handler,
         level=logging.WARNING,
     )
+    return file_handler

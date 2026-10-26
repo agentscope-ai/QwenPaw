@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import time
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,27 @@ from tests.integration.helpers import (
     PLUGIN_HTTP_TIMEOUT,
     wait_until_plugin_loader_ready,
 )
+
+
+@pytest.fixture(scope=f"module", autouse=True)
+def aliyun_cli_on_path(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[None]:
+    """Keep plugin lifecycle checks independent of CLI installation/network."""
+    bin_dir = tmp_path_factory.mktemp(f"aliyun-cli")
+    windows = os.name == f"nt"
+    cli = bin_dir / (f"aliyun.cmd" if windows else f"aliyun")
+    cli.write_text(
+        f"@echo off\necho integration-test\n"
+        if windows
+        else f"#!/bin/sh\necho integration-test\n",
+        encoding=f"utf-8",
+    )
+    cli.chmod(0o755)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(f"PATH", str(bin_dir), prepend=os.pathsep)
+        yield
+
 
 # --------------------------------------------------------------------------- #
 # helpers

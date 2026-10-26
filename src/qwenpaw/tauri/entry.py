@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import multiprocessing as mp
 import os
@@ -13,10 +12,10 @@ from collections.abc import Sequence
 
 import click
 
+from qwenpaw.tauri.backend_guard import BackendInstance
 from qwenpaw.tauri.env import (
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
-    DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
@@ -280,12 +279,10 @@ def _run_click_command(
         raise RuntimeError(message) from exc
 
 
-def _emit_backend_ready(port: int) -> None:
-    payload = json.dumps({"port": port}, separators=(",", ":"))
-    print(f"{DESKTOP_READY_PREFIX} {payload}", flush=True)
-
-
-def _run_backend_server(log_level: str) -> None:
+def _run_backend_server(
+    log_level: str,
+    instance: BackendInstance,
+) -> None:
     import uvicorn
 
     from qwenpaw.browser.control_link.chrome.protocol import (
@@ -315,11 +312,6 @@ def _run_backend_server(log_level: str) -> None:
     os.environ.pop("QWENPAW_RELOAD_MODE", None)
     setup_logger(normalized_log_level)
 
-    # Ensure only one desktop backend runs: terminate any orphan left by a
-    # crashed/force-quit previous launch before we bind a new port (#5550).
-    from qwenpaw.tauri.backend_guard import reconcile_singleton_backend
-
-    reconcile_singleton_backend(WORKING_DIR)
     if normalized_log_level in ("debug", "trace"):
         from qwenpaw.cli.main import log_init_timings
 
@@ -363,9 +355,12 @@ def _run_backend_server(log_level: str) -> None:
         write_port_file(port_file, port)
         write_last_api(host, port)
         server = uvicorn.Server(config)
-        # Exposed so /api/desktop/shutdown can trigger a graceful exit.
+        # Exposed so /api/runtime/shutdown can trigger a graceful exit.
         fastapi_app.state.uvicorn_server = server
-        _emit_backend_ready(port)
+        fastapi_app.state.runtime_instance = instance
+        fastapi_app.state.runtime_clients = {}
+        instance.publish(port)
+
         server.run(sockets=[backend_socket])
     except Exception:
         backend_socket.close()
@@ -392,6 +387,16 @@ def main() -> None:
     _install_subprocess_guard()
     _install_desktop_runtime()
 
+    from qwenpaw.constant import WORKING_DIR
+
+    os.environ["QWENPAW_RUNTIME_MODE"] = "shared"
+    with BackendInstance(WORKING_DIR, "shared") as instance:
+        _run_initialized_backend(instance)
+
+
+def _run_initialized_backend(
+    instance: BackendInstance,
+) -> None:
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
 
     install_sidecar_logging(WORKING_DIR / "desktop.log")
@@ -414,7 +419,10 @@ def main() -> None:
 
     warn_unelevated_sandbox()
 
-    _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
+    _run_backend_server(
+        os.environ.get(LOG_LEVEL_ENV, "info"),
+        instance,
+    )
 
 
 if __name__ == "__main__":

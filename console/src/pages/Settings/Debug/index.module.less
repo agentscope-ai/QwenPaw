@@ -207,6 +207,19 @@
 .toolbarRight {
   flex-wrap: wrap;
 }
+@media (max-width: 900px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toolbarLeft,
+  .toolbarRight {
+    width: 100%;
+  }
+  .toolbarRight > * {
+    flex: 1;
+  }
+}
 @media (max-width: 700px) {
   .content :global(.ant-card-head-wrapper) {
     flex-wrap: wrap;

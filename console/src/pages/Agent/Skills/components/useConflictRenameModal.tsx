@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Input, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 
@@ -16,22 +16,31 @@ export function useConflictRenameModal(): {
   showConflictRenameModal: (
     items: ConflictItem[],
   ) => Promise<Record<string, string> | null>;
+  cancelConflictRenameModal: () => void;
   conflictRenameModal: React.ReactNode;
 } {
   const { t } = useTranslation();
   const [items, setItems] = useState<InternalItem[]>([]);
-  const [resolver, setResolver] = useState<
+  const resolverRef = useRef<
     ((result: Record<string, string> | null) => void) | null
   >(null);
+
+  const cancelConflictRenameModal = useCallback(() => {
+    const resolve = resolverRef.current;
+    resolverRef.current = null;
+    setItems([]);
+    resolve?.(null);
+  }, []);
 
   const showConflictRenameModal = (
     incoming: ConflictItem[],
   ): Promise<Record<string, string> | null> =>
     new Promise((resolve) => {
+      resolverRef.current?.(null);
       setItems(
         incoming.map((item) => ({ ...item, new_name: item.suggested_name })),
       );
-      setResolver(() => resolve);
+      resolverRef.current = resolve;
     });
 
   const handleOk = () => {
@@ -41,15 +50,10 @@ export function useConflictRenameModal(): {
         renameMap[item.key] = item.new_name.trim();
       }
     }
-    resolver?.(renameMap);
+    const resolve = resolverRef.current;
+    resolverRef.current = null;
     setItems([]);
-    setResolver(null);
-  };
-
-  const handleCancel = () => {
-    resolver?.(null);
-    setItems([]);
-    setResolver(null);
+    resolve?.(renameMap);
   };
 
   const conflictRenameModal = (
@@ -57,7 +61,7 @@ export function useConflictRenameModal(): {
       open={items.length > 0}
       title={t("skillPool.multiConflictTitle")}
       onOk={handleOk}
-      onCancel={handleCancel}
+      onCancel={cancelConflictRenameModal}
       zIndex={2100}
     >
       <p>{t("skillPool.multiConflictDesc")}</p>
@@ -79,5 +83,9 @@ export function useConflictRenameModal(): {
     </Modal>
   );
 
-  return { showConflictRenameModal, conflictRenameModal };
+  return {
+    showConflictRenameModal,
+    cancelConflictRenameModal,
+    conflictRenameModal,
+  };
 }

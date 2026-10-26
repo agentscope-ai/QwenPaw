@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "Chuyển đến nội dung chính"
+  },
   "common": {
     "save": "Lưu",
     "reset": "Đặt lại",
@@ -22,6 +25,7 @@
     "view": "Xem",
     "content": "Nội dung",
     "loading": "Đang tải...",
+    "loadMore": "Tải thêm",
     "saving": "Đang lưu...",
     "copy": "Sao chép",
     "copied": "Đã sao chép",
@@ -58,13 +62,26 @@
     "cliAuthenticated": "{{type}} CLI đã xác thực"
   },
   "desktop": {
+    "update": {
+      "title": "Cập nhật QwenPaw?",
+      "otherWindows": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_one": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_other": "Còn {{count}} cửa sổ khác đang mở.",
+      "description": "Cập nhật sẽ đóng tất cả cửa sổ QwenPaw và ngắt các tác vụ đang chạy.",
+      "confirm": "Đóng và cập nhật",
+      "preparing": "Đang đóng cửa sổ…"
+    },
     "closeWindow": {
-      "title": "Đóng cửa sổ",
-      "description": "Bạn muốn thực hiện thao tác nào khi đóng cửa sổ? Thoát ứng dụng sẽ dừng tất cả tác vụ đang chạy và tác vụ đã lên lịch.",
+      "title": "Đóng QwenPaw?",
+      "description": "Tiếp tục chạy nền để duy trì tác vụ. Thoát hoàn toàn sẽ kết thúc các tác vụ đang chạy.",
       "remember": "Ghi nhớ lựa chọn của tôi",
       "showWindow": "Hiển thị cửa sổ",
       "minimizeToTray": "Thu nhỏ xuống khay hệ thống",
       "quitApp": "Thoát ứng dụng",
+      "keepRunning": "Tiếp tục chạy nền",
+      "quitting": "Đang thoát…",
+      "stopService": "Thoát hoàn toàn",
+      "stopBlocked": "QwenPaw vẫn đang được sử dụng trong cửa sổ hoặc ứng dụng khác. Hãy đóng chúng trước khi thoát hoàn toàn.",
       "preference": "Đóng cửa sổ",
       "askEveryTime": "Hỏi mỗi lần"
     }
@@ -921,6 +938,9 @@
         "memberDefaultsHint": "Cuộc trò chuyện mới bắt đầu với mô hình này. Thành viên có thể chuyển sang mô hình khác được cấp quyền.",
         "settingsSaved": "Đã lưu cài đặt mô hình",
         "defaultModel": "Mô hình mặc định",
+        "gatewayTimeout": "Thời gian chờ cổng (giây)",
+        "gatewayTimeoutHelp": "Mặc định là 600 giây; tối thiểu 60. Áp dụng cho yêu cầu mới sau khi lưu, bao gồm phản hồi truyền trực tuyến. Thời gian chờ kết nối vẫn là 10 giây.",
+        "gatewayTimeoutInvalid": "Nhập số giây là số nguyên từ 60 trở lên.",
         "chooseDefault": "Chọn mô hình có sẵn cho mọi thành viên",
         "saveSettings": "Lưu cài đặt mô hình",
         "providers": "Nhà cung cấp",
@@ -1210,6 +1230,11 @@
     "prompt1": "Hãy bắt đầu hành trình mới!",
     "prompt2": "Bạn có thể cho tôi biết những kỹ năng của mình không?",
     "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh",
+    "composer": {
+      "attach": "Đính kèm tệp",
+      "send": "Gửi tin nhắn",
+      "stop": "Dừng tạo"
+    },
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
     "commands": {
       "clear": {
@@ -1371,6 +1396,7 @@
     "createSuccess": "Tạo thu hoạch thành công",
     "emptyApprovals": "Không có phê duyệt nào đang chờ",
     "emptyPush": "Không có tin nhắn đẩy",
+    "loadFailed": "Không thể tải tin nhắn đẩy. Vui lòng thử lại.",
     "wobbleEnable": "Bật thông báo rung phê duyệt",
     "wobbleDisable": "Tắt thông báo rung phê duyệt",
     "emptyHarvests": "Chưa có thu hoạch nào",
@@ -1451,6 +1477,7 @@
   "acp": {
     "title": "Kết nối ACP",
     "loading": "Đang tải cấu hình ACP...",
+    "loadError": "Không thể tải cấu hình ACP.",
     "builtin": "Cấu hình sẵn",
     "custom": "Tùy chỉnh",
     "create": "Thêm kết nối ACP",
@@ -1509,6 +1536,7 @@
   "voiceTranscription": {
     "title": "Phiên âm giọng nói",
     "description": "Cấu hình cách xử lý tin nhắn âm thanh đến.",
+    "loadFailed": "Không thể tải cài đặt phiên âm giọng nói",
     "saveSuccess": "Đã lưu chế độ âm thanh",
     "saveFailed": "Lưu chế độ âm thanh thất bại",
     "audioModeLabel": "Chế độ âm thanh",
@@ -2006,10 +2034,6 @@
         "name": "Tìm tệp",
         "description": "Tìm tệp theo tên hoặc mẫu đường dẫn."
       },
-      "ast_search": {
-        "name": "Tìm cấu trúc mã",
-        "description": "Tìm mẫu mã dựa trên cú pháp."
-      },
       "desktop_screenshot": {
         "name": "Chụp màn hình",
         "description": "Chụp màn hình máy tính để tác tử kiểm tra."
@@ -2279,6 +2303,12 @@
     "byModel": "Theo mô hình"
   },
   "approval": {
+    "queue": {
+      "title": "Phê duyệt đang chờ",
+      "position": "{{current}} / {{total}}",
+      "previous": "Phê duyệt trước",
+      "next": "Phê duyệt tiếp theo"
+    },
     "title": "Yêu cầu phê duyệt bảo mật",
     "description": "Agent đang yêu cầu phê duyệt để thực thi hành động sau:",
     "approve": "Phê duyệt",
@@ -2522,9 +2552,6 @@
     "changeProjectDirectory": "Quản lý",
     "manageDefaultFolders": "Workspace mặc định",
     "projectDirectoryWorkspaceFallback": "Đang dùng thư mục cấu hình Agent",
-    "enhancedCodeCapability": "Tăng cường khả năng lập trình",
-    "enhancedCodeCapabilityTooltip": "Thêm công cụ mã mà không đổi thư mục dự án.",
-    "enhancedCodeCapabilityDescription": "Bật AST, LSP, prompt mã, ngữ cảnh Git và quản lý mã nguồn.",
     "description": "Cấu hình các tham số runtime của agent",
     "visualCompactCollapseLabel": "Nén trực quan",
     "visualCompactDescription": "Chuyển lịch sử hội thoại cũ thành ảnh để tiết kiệm token. Chỉ dẫn hệ thống và hội thoại gần đây vẫn là văn bản.",
@@ -3028,6 +3055,7 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "disableBtn": "Vô hiệu hóa",
     "llmConfiguration": "Cấu hình LLM",
     "providersTitle": "Nhà cung cấp",
     "providersDescription": "Cấu hình API key và endpoint cho từng nhà cung cấp.",
@@ -3235,6 +3263,7 @@
     "title": "Kênh",
     "description": "Quản lý và cấu hình các kênh nhắn tin",
     "loading": "Đang tải kênh...",
+    "loadFailed": "Không thể tải kênh. Vui lòng thử lại.",
     "configSaved": "Đã lưu cấu hình",
     "configFailed": "Lưu cấu hình thất bại",
     "botConflictTitle": "Bot đang được sử dụng",
@@ -4056,6 +4085,8 @@
     "title": "Phiên làm việc",
     "description": "Xem và quản lý các phiên chat đang hoạt động",
     "loading": "Đang tải phiên...",
+    "selectSession": "Chọn {{name}}",
+    "loadFailed": "Không thể tải phiên. Vui lòng thử lại.",
     "confirmDelete": "Xác nhận xóa",
     "deleteConfirm": "Bạn có chắc muốn xóa phiên này không?",
     "batchDeleteConfirm": "Bạn có chắc muốn xóa {{count}} phiên đã chọn không?",

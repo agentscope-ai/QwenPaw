@@ -1,7 +1,7 @@
 .control {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--app-space-4);
   width: 100%;
   min-width: 0;
 
@@ -9,7 +9,7 @@
   :global(.qwenpaw-slider) {
     margin: 0 12px;
     padding-block: 19px;
-    height: 44px;
+    height: var(--app-control-lg);
     box-sizing: border-box;
   }
   :global(.ant-slider-rail),
@@ -78,8 +78,8 @@
 .value {
   flex-shrink: 0;
   min-width: 68px;
-  min-height: 40px;
-  padding: 8px;
+  min-height: var(--app-control-lg);
+  padding: var(--app-space-2);
   border: 1px solid var(--app-border-subtle);
   border-radius: 10px;
   background: var(--app-fill-faint);
@@ -94,11 +94,11 @@
     color: var(--app-text);
   }
   &:focus-visible {
-    outline: 2px solid var(--app-focus-ring);
-    outline-offset: 2px;
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
   }
-  @media (pointer: coarse) {
-    min-height: 44px;
+  @media (any-pointer: coarse) {
+    min-height: var(--app-hit-touch);
   }
 }
 
@@ -118,6 +118,8 @@
   overflow: hidden;
 }
 .value:disabled {
-  opacity: 0.45;
+  color: var(--app-disabled-text);
+  background: var(--app-disabled-bg);
+  opacity: var(--app-disabled-opacity);
   cursor: not-allowed;
 }

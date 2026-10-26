@@ -22,9 +22,6 @@ const BUILTIN_TOOLS = [
   "execute_shell_command",
   "execute_python_code",
   "browser",
-  // ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
-  "browser",
-  // ── END DEPRECATED BROWSER ──
   "desktop_screenshot",
   "view_image",
   "read_file",
@@ -40,6 +37,7 @@ interface RuleModalProps {
   open: boolean;
   editingRule: ToolGuardRule | null;
   existingRuleIds: string[];
+  saving?: boolean;
   onOk: () => void;
   onCancel: () => void;
   form: FormInstance;
@@ -49,6 +47,7 @@ export function RuleModal({
   open,
   editingRule,
   existingRuleIds,
+  saving = false,
   onOk,
   onCancel,
   form,
@@ -91,9 +90,12 @@ export function RuleModal({
       }
       open={open}
       onOk={onOk}
-      onCancel={onCancel}
+      onCancel={saving ? undefined : onCancel}
       okText={t("common.confirm")}
       cancelText={t("common.cancel")}
+      confirmLoading={saving}
+      okButtonProps={{ disabled: saving }}
+      cancelButtonProps={{ disabled: saving }}
       width={640}
       destroyOnHidden
     >
@@ -124,6 +126,7 @@ export function RuleModal({
             options={toolOptions}
             placeholder={t("security.rules.toolsPlaceholder")}
             allowClear
+            style={{ width: "100%" }}
           />
         </SettingsField>
         <SettingsField label={t("security.rules.params")} name="params">
@@ -131,6 +134,7 @@ export function RuleModal({
             mode="tags"
             placeholder={t("security.rules.paramsPlaceholder")}
             allowClear
+            style={{ width: "100%" }}
           />
         </SettingsField>
         <SettingsField
@@ -139,6 +143,7 @@ export function RuleModal({
         >
           <Select
             options={SEVERITY_OPTIONS.map((s) => ({ label: s, value: s }))}
+            style={{ width: "100%" }}
           />
         </SettingsField>
         <SettingsField
@@ -150,6 +155,7 @@ export function RuleModal({
               label: t(`security.rules.categories.${c}`, { defaultValue: c }),
               value: c,
             }))}
+            style={{ width: "100%" }}
           />
         </SettingsField>
         <SettingsField

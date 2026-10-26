@@ -638,7 +638,8 @@
   }
 
   .openFilesBtn {
-    width: 34px;
+    width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
     padding: 0;
   }
 
@@ -664,6 +665,18 @@
 
   .toolbar {
     justify-content: flex-end;
+  }
+
+  .tabBar {
+    min-height: var(--app-hit-touch);
+  }
+
+  .closeBtn,
+  .tabControlBtn,
+  .iconBtn,
+  .modeSwitch button {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
   }
 }
 

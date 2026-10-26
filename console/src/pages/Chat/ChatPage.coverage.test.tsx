@@ -24,6 +24,7 @@ import { useStoppedTurnsStore } from "./stoppedTurns";
 // ---------------------------------------------------------------------------
 const {
   mockListProviders,
+  mockPreviewModelInfo,
   mockGetActiveModels,
   mockUploadFile,
   mockFilePreviewUrl,
@@ -44,6 +45,7 @@ const {
   mockHydrateBackgroundTasksForSession,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
+  mockPreviewModelInfo: vi.fn(),
   mockGetActiveModels: vi.fn(),
   mockUploadFile: vi.fn(),
   mockFilePreviewUrl: vi.fn((f: string) => `/preview/${f}`),
@@ -162,6 +164,7 @@ vi.mock("../../features/session-settings/sessionModel", () => ({
 vi.mock("@/api/modules/provider", () => ({
   providerApi: {
     listProviders: mockListProviders,
+    previewModelInfo: mockPreviewModelInfo,
     getActiveModels: mockGetActiveModels,
   },
 }));
@@ -235,6 +238,8 @@ vi.mock("./sessionApi", () => ({
     ),
     registerResolvedChat: vi.fn(),
     getRouteResolutionVersion: vi.fn(() => 0),
+    isRouteRemoved: vi.fn(() => false),
+    clearRouteRemoval: vi.fn(),
     bindToOwner: vi.fn(() => ({
       getSession: vi.fn(async (id: string) => ({ id, name: id, messages: [] })),
       getSessionList: vi.fn(async () => []),
@@ -625,6 +630,12 @@ describe("ChatPage coverage", () => {
     ]);
     mockGetActiveModels.mockResolvedValue({
       active_llm: { provider_id: "openai", model: "gpt-4" },
+    });
+    mockPreviewModelInfo.mockResolvedValue({
+      id: "gpt-4",
+      supports_multimodal: true,
+      supports_image: true,
+      supports_video: false,
     });
     mockUploadFile.mockResolvedValue({
       url: "uploaded.png",

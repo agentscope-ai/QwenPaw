@@ -43,6 +43,16 @@ else
 fi
 
 mkdir -p "${BINARIES_DIR}"
+# Check an existing uv before it downloads build dependencies.
+if command -v uv >/dev/null 2>&1; then
+    uv_version=$(uv --version | awk '{print $2}')
+    if [[ ! "$uv_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] ||
+       ! (( 10#${BASH_REMATCH[1]} > 0 || 10#${BASH_REMATCH[2]} > 13 ||
+            (10#${BASH_REMATCH[2]} == 13 && 10#${BASH_REMATCH[3]} >= 4) )); then
+        echo "ERROR: uv >= 0.13.4 is required; update uv and retry"
+        exit 1
+    fi
+fi
 
 # The staged python-build-standalone runtime is the canonical source for both
 # the helper interpreter and the PyInstaller build environment. The PATH
@@ -56,7 +66,11 @@ if [ ! -f "$NATIVE_HOST_PYTHON" ]; then
 fi
 
 echo "== Creating PyInstaller build environment =="
+"$NATIVE_HOST_PYTHON" -m pip install --upgrade "pip>=26.2.2"
+"$NATIVE_HOST_PYTHON" -m pip install --upgrade "certifi>=2026.10.19"
 "$NATIVE_HOST_PYTHON" -m venv --clear "$BUILD_VENV"
+"$PYTHON_BIN" -m pip install --upgrade "pip>=26.2.2"
+"$PYTHON_BIN" -m pip install --upgrade "certifi>=2026.10.19"
 
 echo "Python: $("$PYTHON_BIN" --version)"
 echo ""

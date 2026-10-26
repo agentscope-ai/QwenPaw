@@ -384,7 +384,7 @@ class DirectoryContextContributor(SyncPromptContributor):
 
 
 class CodingModeContributor(SyncPromptContributor):
-    """Inject Coding Mode persona block when coding mode is active.
+    """Inject Code Mode orchestration guidance when enabled.
 
     Only code-specific guidance lives here. The project/workspace paths
     themselves come from :class:`DirectoryContextContributor`, which
@@ -402,9 +402,9 @@ class CodingModeContributor(SyncPromptContributor):
         cm = getattr(agent_config, "coding_mode", None)
         if not cm or not getattr(cm, "enabled", False):
             return None
-        from ..modes.coding import _CODING_SYSTEM_PROMPT_TEMPLATE
+        from ..modes.coding.prompt import CODING_GUIDELINES
 
-        return _CODING_SYSTEM_PROMPT_TEMPLATE
+        return CODING_GUIDELINES
 
 
 class ScrollContextContributor(SyncPromptContributor):

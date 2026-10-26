@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
     paths:
       - 'src/**'
       - 'tests/**'
@@ -13,13 +13,14 @@ on:
       - 'pyproject.toml'
       - 'setup.py'
       - 'deploy/Dockerfile'
+      - '.nvmrc'
       - '.github/workflows/tests.yml'
   pull_request:
     # Default types plus ready_for_review: converting a draft PR to
     # ready must re-trigger this workflow so the real tiers run on the
     # current head right after the author leaves draft state.
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
   workflow_dispatch:
     inputs:
       integration_marker:
@@ -69,6 +70,7 @@ jobs:
               - '.gitattributes'
               - 'pyproject.toml'
               - 'setup.py'
+              - '.nvmrc'
               - '.github/workflows/tests.yml'
 
   approval-gate:
@@ -135,10 +137,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
       - name: Run unit tests
@@ -199,10 +206,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
       - name: Check channel contract coverage
@@ -279,10 +291,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
           # The macOS runner ships setuptools 65.5.0, which pip's resolver
           # upgrades to the latest release (84.x) while backtracking the
           # dependency graph. setuptools >= 82 no longer ships

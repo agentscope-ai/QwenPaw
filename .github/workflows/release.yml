@@ -283,6 +283,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Validate tag matches src/qwenpaw/__version__.py
         run: |
           python -m pip install --quiet packaging
@@ -331,10 +337,16 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Set up Node (for console build)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -356,7 +368,6 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install setuptools wheel build
 
       - name: Build package
@@ -386,8 +397,8 @@ jobs:
       ref: ${{ needs.resolve.outputs.sha }}
       # On dry_run (fork) the private ACR base images are unreachable, so fall
       # back to public images for the Docker health-check build.
-      docker_node_image: ${{ inputs.dry_run && 'node:20-slim' || '' }}
-      docker_uv_image: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:latest' || '' }}
+      docker_node_image: ${{ inputs.dry_run && 'node:22.23.4-slim' || '' }}
+      docker_uv_image: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:0.13.4' || '' }}
     secrets: inherit
 
   build-desktop:
@@ -410,10 +421,16 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
 
       - name: Build OpenUI plugin
         run: |
@@ -484,8 +501,8 @@ jobs:
 
       - name: Build multi-arch image
         env:
-          DOCKER_NODE_IMAGE: ${{ inputs.dry_run && 'node:20-slim' || '' }}
-          DOCKER_UV_IMAGE: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:latest' || '' }}
+          DOCKER_NODE_IMAGE: ${{ inputs.dry_run && 'node:22.23.4-slim' || '' }}
+          DOCKER_UV_IMAGE: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:0.13.4' || '' }}
           QWENPAW_DISABLED_CHANNELS: "imessage"
           QWENPAW_VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -496,7 +513,7 @@ jobs:
           if [ -n "${DOCKER_UV_IMAGE}" ]; then
             BUILD_ARGS+=(--build-arg "UV_IMAGE=${DOCKER_UV_IMAGE}")
           fi
-          docker buildx build --platform linux/amd64,linux/arm64 \
+          docker buildx build --pull --no-cache --platform linux/amd64,linux/arm64 \
             -f deploy/Dockerfile \
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
             --build-arg \
@@ -641,6 +658,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Download plugins dist
         uses: actions/download-artifact@v4

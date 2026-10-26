@@ -1035,6 +1035,7 @@
   background: transparent;
   font-family: inherit;
   flex: 1;
+  min-height: var(--app-hit-desktop);
   padding: 7px 6px;
   text-align: center;
   font-size: calc(11px * var(--app-font-scale));
@@ -1119,8 +1120,11 @@
 }
 
 .groupCardChangeBtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--app-hit-desktop);
+  padding-inline: 6px;
   border: 0;
-  padding: 0;
   background: transparent;
   font-size: calc(11px * var(--app-font-scale));
   color: var(--models-accent-strong);
@@ -1509,6 +1513,9 @@
 }
 
 .tabItem {
+  appearance: none;
+  background: transparent;
+  border: 0;
   padding: 10px 20px;
   font-size: var(--app-font-secondary);
   font-weight: 500;
@@ -2459,6 +2466,7 @@
   }
 
   .tabItem {
+    min-height: var(--app-hit-touch);
     padding: 8px 14px;
     font-size: var(--app-font-caption);
     white-space: nowrap;
@@ -2534,6 +2542,7 @@
 
   .groupSegBtn {
     flex: 0 0 auto;
+    min-height: var(--app-hit-touch);
     padding: 6px 10px;
     font-size: calc(10px * var(--app-font-scale));
   }
@@ -2562,6 +2571,7 @@
   .groupCardActBtn {
     flex: 1;
     min-width: 0;
+    min-height: var(--app-hit-touch);
     padding: 6px 10px;
     font-size: calc(11px * var(--app-font-scale));
     text-align: center;
@@ -2591,7 +2601,7 @@
   }
 
   .actionBtn {
-    height: 28px;
+    min-height: var(--app-hit-touch);
     font-size: var(--app-font-caption);
   }
 
@@ -2716,7 +2726,7 @@
   }
 
   .modelListItemStatusButton {
-    height: 22px;
+    min-height: 22px;
     padding: 0 8px;
     font-size: calc(11px * var(--app-font-scale));
   }
@@ -2779,8 +2789,9 @@
   right: 12px;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: var(--app-hit-desktop);
+  min-width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -2793,10 +2804,13 @@
   color: var(--app-text);
 }
 .providerClose:focus-visible {
-  outline: 2px solid var(--app-accent);
+  outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+  outline-offset: var(--app-focus-ring-offset);
 }
 .providerClose:disabled {
-  opacity: 0.4;
+  color: var(--app-disabled-text);
+  background: var(--app-disabled-bg);
+  opacity: var(--app-disabled-opacity);
   cursor: wait;
 }
 
@@ -2851,7 +2865,7 @@
 }
 .providerSettings {
   composes: providerClose;
-  right: 42px;
+  right: 52px;
 }
 .selectedModelsLink {
   display: flex;
@@ -2912,14 +2926,18 @@
 .groupCardMono {
   overflow-wrap: anywhere;
 }
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   .providerClose,
   .providerSettings {
-    min-width: 44px;
-    min-height: 44px;
+    width: var(--app-hit-touch);
+    min-width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+  }
+  .providerSettings {
+    right: 64px;
   }
   .groupCardHeader {
-    padding-right: 88px;
+    padding-right: 104px;
   }
 }
 
@@ -3108,5 +3126,42 @@
   .modalFooterLeft,
   .modalFooterRight {
     flex-wrap: wrap;
+  }
+}
+
+/* Mobile is touch-first even when the browser reports a fine pointer. */
+@media (max-width: 768px) {
+  .settingsPage .searchBtn,
+  .settingsPage .addProviderBtn,
+  .providerClose,
+  .providerSettings,
+  .groupCardChangeBtn,
+  .groupCardKeyCancelBtn,
+  .selectedModelsLink {
+    min-height: var(--app-hit-touch);
+  }
+
+  .settingsPage .searchBtn,
+  .providerClose,
+  .providerSettings {
+    width: var(--app-hit-touch);
+    min-width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+  }
+
+  .providerSettings {
+    right: 64px;
+  }
+
+  .groupCardHeader {
+    padding-right: 104px;
+  }
+
+  .groupCardChangeBtn,
+  .groupCardKeyCancelBtn {
+    display: inline-flex;
+    align-items: center;
+    min-width: var(--app-hit-touch);
+    padding-inline: 8px;
   }
 }

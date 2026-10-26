@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { ProviderInfo } from "../../../api/types";
 import { loadModelSelectorData } from "./modelSelectorApi";
 
 describe("loadModelSelectorData", () => {
@@ -63,17 +64,51 @@ describe("loadModelSelectorData", () => {
     expect(result.activeModels).toBeNull();
   });
 
-  it("两个请求都成功时 loadError 为 false", async () => {
-    const providers = [
-      { id: "test", name: "Test", models: [], extra_models: [] },
+  it("publishes the active model before the provider catalog finishes", async () => {
+    const providers: ProviderInfo[] = [
+      {
+        id: "test",
+        name: "Test",
+        models: [],
+        extra_models: [],
+        api_key_prefix: "",
+        chat_model: "",
+        is_custom: false,
+        is_local: false,
+        support_model_discovery: false,
+        support_connection_check: false,
+        freeze_url: false,
+        require_api_key: false,
+        api_key: "",
+        base_url: "",
+        generate_kwargs: {},
+      },
     ];
     const activeModels = { active_llm: { provider_id: "test", model: "m1" } };
+    let resolveProviders!: (value: typeof providers) => void;
+    const onActiveModels = vi.fn();
     const dataSource = {
-      listProviders: vi.fn().mockResolvedValue(providers),
+      listProviders: vi.fn(
+        () =>
+          new Promise<typeof providers>((resolve) => {
+            resolveProviders = resolve;
+          }),
+      ),
       getActiveModels: vi.fn().mockResolvedValue(activeModels),
     };
 
-    const result = await loadModelSelectorData("default", dataSource);
+    const loading = loadModelSelectorData(
+      "default",
+      dataSource,
+      undefined,
+      undefined,
+      onActiveModels,
+    );
+    await vi.waitFor(() =>
+      expect(onActiveModels).toHaveBeenCalledWith(activeModels),
+    );
+    resolveProviders(providers);
+    const result = await loading;
 
     expect(result.loadError).toBe(false);
     expect(result.providers).toEqual(providers);

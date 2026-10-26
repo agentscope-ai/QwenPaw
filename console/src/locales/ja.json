@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "メインコンテンツへスキップ"
+  },
   "common": {
     "save": "保存",
     "reset": "リセット",
@@ -22,6 +25,7 @@
     "view": "閲覧",
     "content": "内容",
     "loading": "読み込み中...",
+    "loadMore": "さらに読み込む",
     "saving": "保存中...",
     "copy": "コピー",
     "copied": "クリップボードにコピーしました",
@@ -56,13 +60,26 @@
     "cliAuthenticated": "{{type}} CLI 認証済み"
   },
   "desktop": {
+    "update": {
+      "title": "QwenPaw を更新しますか？",
+      "otherWindows": "他に {{count}} 個のウィンドウが開いています。",
+      "otherWindows_one": "他に {{count}} 個のウィンドウが開いています。",
+      "otherWindows_other": "他に {{count}} 個のウィンドウが開いています。",
+      "description": "更新すると、すべての QwenPaw ウィンドウが閉じられ、実行中のタスクが中断されます。",
+      "confirm": "閉じて更新",
+      "preparing": "ウィンドウを閉じています…"
+    },
     "closeWindow": {
-      "title": "ウィンドウを閉じる",
-      "description": "ウィンドウを閉じるときに実行する操作を選択してください。アプリを終了すると、実行中のすべてのタスクとスケジュール済みタスクが停止します。",
+      "title": "QwenPaw を閉じますか？",
+      "description": "バックグラウンドではタスクが続行されます。完全に終了すると、実行中のタスクも終了します。",
       "remember": "選択を記憶する",
       "showWindow": "ウィンドウを表示",
       "minimizeToTray": "トレイに最小化",
       "quitApp": "アプリを終了",
+      "keepRunning": "バックグラウンドで続行",
+      "quitting": "終了中…",
+      "stopService": "完全に終了",
+      "stopBlocked": "QwenPaw は他のウィンドウやアプリで使用中です。完全に終了する前に、それらを閉じてください。",
       "preference": "ウィンドウを閉じる",
       "askEveryTime": "毎回確認する"
     }
@@ -1382,6 +1399,7 @@
     "title": "チャンネル",
     "description": "メッセージチャンネルの管理と設定",
     "loading": "チャンネルを読み込み中...",
+    "loadFailed": "チャンネルを読み込めませんでした。もう一度お試しください。",
     "configSaved": "設定を保存しました",
     "configFailed": "設定の保存に失敗しました",
     "botConflictTitle": "Bot はすでに使用されています",
@@ -1675,6 +1693,8 @@
     "title": "セッション",
     "description": "アクティブなチャットセッションの表示と管理",
     "loading": "セッションを読み込み中...",
+    "selectSession": "{{name}} を選択",
+    "loadFailed": "セッションの読み込みに失敗しました。再試行してください。",
     "confirmDelete": "削除の確認",
     "deleteConfirm": "このセッションを削除してもよろしいですか？",
     "batchDeleteConfirm": "選択した {{count}} 件のセッションを削除してもよろしいですか？",
@@ -1895,6 +1915,7 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "disableBtn": "無効化",
     "modelType": "モデルタイプ",
     "modelTypeChat": "チャット",
     "modelTypeDecision": "判定",
@@ -2396,9 +2417,6 @@
     "changeProjectDirectory": "管理",
     "manageDefaultFolders": "既定のワークスペース",
     "projectDirectoryWorkspaceFallback": "Agent の設定ディレクトリを使用中",
-    "enhancedCodeCapability": "コード能力を強化",
-    "enhancedCodeCapabilityTooltip": "プロジェクトディレクトリを変更せずにコードツールを追加します。",
-    "enhancedCodeCapabilityDescription": "AST、LSP、コードプロンプト、Gitコンテキスト、ソース管理を有効にします。",
     "description": "エージェントのランタイムパラメーターを設定します",
     "reactAgentTitle": "ReActエージェント",
     "llmRetryTitle": "LLM自動再試行",
@@ -3010,10 +3028,6 @@
         "name": "ファイルを探す",
         "description": "名前やパスのパターンでファイルを探します。"
       },
-      "ast_search": {
-        "name": "コード構造を検索",
-        "description": "構文を考慮してコードのパターンを検索します。"
-      },
       "desktop_screenshot": {
         "name": "デスクトップを撮影",
         "description": "エージェントが確認できるよう画面を撮影します。"
@@ -3375,6 +3389,11 @@
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド",
+    "composer": {
+      "attach": "ファイルを添付",
+      "send": "メッセージを送信",
+      "stop": "生成を停止"
+    },
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {
       "clear": {
@@ -4120,6 +4139,9 @@
         "memberDefaultsHint": "新しい会話はこのモデルで開始します。メンバーは許可された他のモデルに切り替えられます。",
         "settingsSaved": "モデル設定を保存しました",
         "defaultModel": "既定モデル",
+        "gatewayTimeout": "ゲートウェイのタイムアウト（秒）",
+        "gatewayTimeoutHelp": "既定値は600秒、最小値は60秒です。保存後の新しいリクエストとストリーミング応答に適用されます。接続タイムアウトは10秒のままです。",
+        "gatewayTimeoutInvalid": "60秒以上の整数を入力してください。",
         "chooseDefault": "全メンバーが利用できるモデルを選択",
         "saveSettings": "モデル設定を保存",
         "providers": "プロバイダー",
@@ -4410,6 +4432,7 @@
   "acp": {
     "title": "ACP プロトコル連携",
     "loading": "ACP 設定を読み込み中...",
+    "loadError": "ACP 設定を読み込めませんでした。",
     "builtin": "プリセット",
     "custom": "カスタム",
     "create": "ACP 連携を追加",
@@ -4605,6 +4628,12 @@
     "localModelsNotice": "バックアップファイルにはローカルモデルファイルは含まれません。デバイス間の移行の場合は、対象デバイスで必要なローカルモデルを再ダウンロードしてください。"
   },
   "approval": {
+    "queue": {
+      "title": "保留中の承認",
+      "position": "{{current}} / {{total}}",
+      "previous": "前の承認",
+      "next": "次の承認"
+    },
     "title": "セキュリティ承認が必要です",
     "tool": "ツール",
     "severity": "重要度",
@@ -4737,6 +4766,7 @@
     "createSuccess": "Harvest を作成しました",
     "emptyApprovals": "保留中の承認はありません",
     "emptyPush": "通知はありません",
+    "loadFailed": "プッシュ通知を読み込めませんでした。もう一度お試しください。",
     "wobbleEnable": "承認の揺れ通知を有効にする",
     "wobbleDisable": "承認の揺れ通知を無効にする",
     "emptyHarvests": "Harvest はまだありません",

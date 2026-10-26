@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 
 import click
@@ -51,9 +52,10 @@ import click
     metavar=f"MODE_ID",
     default=None,
     help=(
-        f"Select a QwenPaw agent loop mode (e.g. goal, "
+        f"Select a QwenPaw agent mode (e.g. code, goal, "
         f"mission, custom:<id>, plugin:<name>). The first message of "
         f"each new session uses its registered slash command. "
+        f"Code enables Python tool orchestration for every request. "
         f"This does not change ACP permission settings."
     ),
 )
@@ -75,6 +77,8 @@ def acp_cmd(
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
+
+    os.environ["QWENPAW_RUNTIME_MODE"] = "stdio"
 
     level = logging.DEBUG if debug else logging.WARNING
     logging.basicConfig(

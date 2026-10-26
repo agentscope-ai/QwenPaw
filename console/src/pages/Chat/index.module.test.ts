@@ -180,6 +180,25 @@ describe("Chat mobile layout styles", () => {
     expect(composerRule).toContain("overflow: visible");
   });
 
+  it("sizes only the bridged submit action to a 44px mobile target", () => {
+    const composerStart = stylesSource.indexOf(
+      "/* Mobile composer: keep the input row dominant",
+    );
+    const composerRule = stylesSource.slice(
+      composerStart,
+      stylesSource.indexOf("@media (max-width: 480px)", composerStart),
+    );
+
+    expect(composerRule).toContain('[data-qwenpaw-composer-submit="true"]');
+    expect(composerRule).toMatch(
+      /\[data-qwenpaw-composer-submit="true"\][\s\S]*?width:\s*44px\s*!important/,
+    );
+    expect(composerRule).toMatch(
+      /\[data-qwenpaw-composer-submit="true"\][\s\S]*?height:\s*44px\s*!important/,
+    );
+    expect(composerRule).not.toContain('[class$="-sender-actions-btn"]');
+  });
+
   it("removes low-priority composer chrome on narrow phones", () => {
     const narrowStart = stylesSource.indexOf("@media (max-width: 480px)");
     const narrowRule = stylesSource.slice(
