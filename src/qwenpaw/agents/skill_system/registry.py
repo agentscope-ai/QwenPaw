@@ -958,6 +958,11 @@ def _build_reconciled_pool_entry(
         protected=protected,
     )
     new_entry["external"] = is_external
+    if not is_external:
+        new_entry["rel_path"] = rel_path_of(
+            get_skill_pool_dir().resolve(),
+            skill_dir.resolve(),
+        )
     if not is_external and (
         source == "builtin" or is_pool_builtin_entry(existing)
     ):

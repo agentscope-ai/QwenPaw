@@ -49,8 +49,11 @@ from .store import (
     read_skill_manifest,
     read_skill_pool_manifest,
     rel_path_of,
+    renamed_skill_rel_path,
     resolve_pool_skill_dir,
+    resolve_pool_skill_dir_checked,
     resolve_skill_dir,
+    resolve_skill_dir_checked,
     safe_skill_dir,
     safe_nested_skill_dir,
     scan_skill_dir_or_raise,
@@ -84,6 +87,7 @@ def _register_pool_skill_entry(
     config: dict[str, Any] | None = None,
     tags: Any | None = None,
     preserve_from: dict[str, Any] | None = None,
+    rel_path: str = "",
 ) -> None:
     """Upsert a pool skill entry — single source of truth for entry shape."""
     payload.setdefault("skills", {})
@@ -97,6 +101,11 @@ def _register_pool_skill_entry(
         protected=protected,
     )
     entry["external"] = not is_primary_pool_skill_dir(skill_dir)
+    if not entry["external"]:
+        entry["rel_path"] = rel_path or rel_path_of(
+            get_skill_pool_dir().resolve(),
+            skill_dir.resolve(),
+        )
 
     installed_from_final = installed_from or str(
         preserve_from.get("installed_from", "") or "",
@@ -272,11 +281,30 @@ class SkillPoolService:
                             "single-skill zip imports"
                         ),
                     )
-                found = [(found[0][0], normalized_target, found[0][2])]
-            found = [
-                (d, normalize_skill_dir_name(renames.get(n, n)), rp)
-                for d, n, rp in found
-            ]
+                found = [
+                    (
+                        found[0][0],
+                        normalized_target,
+                        renamed_skill_rel_path(
+                            found[0][2],
+                            normalized_target,
+                        ),
+                    ),
+                ]
+            renamed_found: list[tuple[Path, str, str]] = []
+            for skill_dir, skill_name, rel_path in found:
+                rename = renames.get(rel_path) if rel_path else None
+                if rename is None:
+                    rename = renames.get(skill_name, skill_name)
+                new_name = normalize_skill_dir_name(rename)
+                renamed_found.append(
+                    (
+                        skill_dir,
+                        new_name,
+                        renamed_skill_rel_path(rel_path, new_name),
+                    ),
+                )
+            found = renamed_found
             manifest = read_skill_pool_manifest()
             existing_pool_names = (
                 set(
@@ -296,7 +324,7 @@ class SkillPoolService:
             conflicts: list[dict[str, Any]] = []
             planned: list[tuple[Path, str, str]] = []
             seen_names: set[str] = set()
-            for skill_dir, skill_name, rel_path in found:
+            for skill_dir, skill_name, dest_rel in found:
                 if skill_name in seen_names:
                     conflicts.append(
                         build_import_conflict(
@@ -311,7 +339,7 @@ class SkillPoolService:
                 )
                 occupied = (
                     existing is not None
-                    or (pool_dir / (rel_path or skill_name)).exists()
+                    or (pool_dir / dest_rel).exists()
                 )
                 if occupied:
                     conflicts.append(
@@ -321,7 +349,7 @@ class SkillPoolService:
                         ),
                     )
                     continue
-                planned.append((skill_dir, skill_name, rel_path))
+                planned.append((skill_dir, skill_name, dest_rel))
             if conflicts:
                 return {
                     "imported": [],
@@ -329,26 +357,29 @@ class SkillPoolService:
                     "conflicts": conflicts,
                 }
             imported: list[str] = []
-            for skill_dir, skill_name, rel_path in planned:
+            imported_dests: list[tuple[str, str]] = []
+            for skill_dir, skill_name, dest_rel in planned:
                 if import_skill_dir(
                     skill_dir,
                     pool_dir,
                     skill_name,
-                    rel_path=rel_path,
+                    rel_path=dest_rel,
                 ):
                     imported.append(skill_name)
+                    imported_dests.append((skill_name, dest_rel))
 
             if imported:
 
                 def _update(payload: dict[str, Any]) -> None:
-                    for name in imported:
+                    for name, dest_rel in imported_dests:
                         _register_pool_skill_entry(
                             payload,
                             name,
-                            pool_dir / name,
+                            pool_dir / dest_rel,
                             source="customized",
                             installed_from="zip",
                             preserve_from={},
+                            rel_path=dest_rel,
                         )
 
                 mutate_pool_manifest(_update)
@@ -370,9 +401,11 @@ class SkillPoolService:
         if entry is None:
             return False
 
-        skill_dir = resolve_pool_skill_dir(skill_name) or safe_skill_dir(
-            get_skill_pool_dir(),
-            skill_name,
+        skill_dir = resolve_pool_skill_dir_checked(skill_name) or (
+            safe_skill_dir(
+                get_skill_pool_dir(),
+                skill_name,
+            )
         )
         if skill_dir.exists():
             shutil.rmtree(skill_dir)
@@ -659,9 +692,11 @@ class SkillPoolService:
         config: dict[str, Any] | None,
         entry: dict[str, Any],
     ) -> dict[str, Any]:
-        skill_dir = resolve_pool_skill_dir(skill_name) or safe_skill_dir(
-            get_skill_pool_dir(),
-            skill_name,
+        skill_dir = resolve_pool_skill_dir_checked(skill_name) or (
+            safe_skill_dir(
+                get_skill_pool_dir(),
+                skill_name,
+            )
         )
         new_config = (
             config if config is not None else entry.get("config") or {}
@@ -728,12 +763,25 @@ class SkillPoolService:
         config: dict[str, Any] | None,
         entry: dict[str, Any],
     ) -> dict[str, Any]:
-        old_skill_dir = resolve_pool_skill_dir(skill_name) or safe_skill_dir(
-            get_skill_pool_dir(),
-            skill_name,
+        old_skill_dir = resolve_pool_skill_dir_checked(skill_name) or (
+            safe_skill_dir(
+                get_skill_pool_dir(),
+                skill_name,
+            )
         )
         root_dir = old_skill_dir.parent
         skill_dir = safe_skill_dir(root_dir, final_name)
+        old_rel = str(entry.get("rel_path") or "")
+        if old_skill_dir.exists():
+            old_rel = rel_path_of(
+                get_skill_pool_dir().resolve(),
+                old_skill_dir.resolve(),
+            )
+        target_rel = (
+            renamed_skill_rel_path(old_rel, final_name)
+            if old_rel
+            else final_name
+        )
 
         with staged_skill_dir(final_name) as staged_dir:
             if old_skill_dir.exists():
@@ -760,6 +808,7 @@ class SkillPoolService:
                 source="customized",
                 config=new_config,
                 preserve_from=current_entry,
+                rel_path=target_rel,
             )
             payload["skills"].pop(skill_name, None)
 
@@ -832,18 +881,30 @@ class SkillPoolService:
                 )
 
             workspace_skills_dir = get_workspace_skills_dir(workspace_dir)
-            old_dir = resolve_skill_dir(workspace_skills_dir, old_name) or (
-                workspace_skills_dir / old_name
+            try:
+                old_dir = resolve_skill_dir_checked(
+                    workspace_skills_dir,
+                    old_name,
+                    str(old_entry.get("rel_path") or ""),
+                ) or safe_skill_dir(workspace_skills_dir, old_name)
+            except SkillsError:
+                logger.warning(
+                    "rename: unsafe skill path for '%s' in workspace '%s'",
+                    old_name,
+                    agent_id,
+                )
+                continue
+            old_rel = str(old_entry.get("rel_path") or "")
+            if old_dir.exists():
+                old_rel = rel_path_of(workspace_skills_dir, old_dir)
+            target_rel = (
+                renamed_skill_rel_path(old_rel, new_name)
+                if old_rel
+                else new_name
             )
             target_dir = safe_nested_skill_dir(
                 workspace_skills_dir,
-                rel_path_of(workspace_skills_dir, old_dir).replace(
-                    old_name,
-                    new_name,
-                    1,
-                )
-                if old_dir.exists()
-                else new_name,
+                target_rel,
             )
             try:
                 target_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -880,6 +941,10 @@ class SkillPoolService:
                     "channels": _old.get("channels") or ["all"],
                     "preload": _old.get("preload") is True,
                     "source": metadata["source"],
+                    "rel_path": rel_path_of(
+                        workspace_skills_dir.resolve(),
+                        _target.resolve(),
+                    ),
                     "installed_from": str(
                         _old.get("installed_from", "") or "",
                     ),
@@ -917,9 +982,16 @@ class SkillPoolService:
         try:
             skill_name = normalize_skill_dir_name(skill_name)
             ws_root = get_workspace_skills_dir(workspace_dir)
-            source_dir = resolve_skill_dir(
+            ws_entry = (
+                read_skill_manifest(workspace_dir)
+                .get("skills", {})
+                .get(skill_name)
+                or {}
+            )
+            source_dir = resolve_skill_dir_checked(
                 ws_root,
                 skill_name,
+                str(ws_entry.get("rel_path") or ""),
             ) or safe_skill_dir(
                 ws_root,
                 skill_name,

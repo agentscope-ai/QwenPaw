@@ -688,7 +688,7 @@ class TestSpecBuilderFailureLegs:
         _write_workspace_manifest(workspace_dir, {"..": {"enabled": True}})
         with patch.object(
             skills_module,
-            "safe_skill_dir",
+            "resolve_skill_dir",
             side_effect=AppBaseException("unsafe"),
         ):
             detail = skills_module._build_workspace_skill_detail(
@@ -790,12 +790,16 @@ class TestSpecBuilderFailureLegs:
         _write_skill(workspace_dir / "skills" / "demo", "demo")
         _write_workspace_manifest(workspace_dir, {"demo": {}, "bad": {}})
 
-        def _safe(root: Path, name: str) -> Path:
+        def _resolve(root: Path, name: str, rel_path: str = "") -> Path:
             if name == "bad":
                 raise AppBaseException("unsafe name")
-            return root / name
+            return root / (rel_path or name)
 
-        with patch.object(skills_module, "safe_skill_dir", side_effect=_safe):
+        with patch.object(
+            skills_module,
+            "resolve_skill_dir",
+            side_effect=_resolve,
+        ):
             names = skills_module._list_workspace_skill_names(workspace_dir)
         assert names == ["demo"]
 

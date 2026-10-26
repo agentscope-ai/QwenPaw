@@ -13,11 +13,11 @@ import shutil
 import tempfile
 import time
 import zipfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, TypeVar
 
 import frontmatter
@@ -183,13 +183,27 @@ def resolve_pool_skill_dir(skill_name: str) -> Path | None:
     """Resolve a pool skill's directory across all roots, in order.
 
     Returns the first matching directory containing ``SKILL.md`` (primary
-    pool wins), or ``None`` when the skill is not found in any root. Nested
-    layouts are matched by leaf name so a categorised pool still resolves.
+    pool wins), or ``None`` when the skill is not found in any root. A
+    ``rel_path`` recorded in the pool manifest is authoritative for the
+    primary pool so categorised layouts resolve to the exact copy; otherwise
+    nested layouts are matched by leaf name.
     """
     try:
         normalized = normalize_skill_dir_name(skill_name)
     except SkillsError:
         return None
+    primary_dir = get_skill_pool_dir()
+    try:
+        entry = read_skill_pool_manifest().get("skills", {}).get(
+            normalized,
+        )
+        rel_path = str((entry or {}).get("rel_path") or "")
+    except Exception:  # pragma: no cover - manifest is best-effort here
+        rel_path = ""
+    if rel_path:
+        candidate = primary_dir / rel_path
+        if (candidate / "SKILL.md").is_file():
+            return candidate
     for root in get_skill_pool_dirs():
         resolved = resolve_skill_dir(root, normalized)
         if resolved is not None:
@@ -198,9 +212,15 @@ def resolve_pool_skill_dir(skill_name: str) -> Path | None:
 
 
 def is_primary_pool_skill_dir(skill_dir: Path) -> bool:
-    """Return whether ``skill_dir`` lives under the primary pool."""
+    """Return whether ``skill_dir`` lives anywhere under the primary pool.
+
+    Nested layouts (``pool/cat/skill``) are primary-pool skills too; only
+    directories from configured extra roots are external.
+    """
     try:
-        return skill_dir.resolve().parent == get_skill_pool_dir().resolve()
+        return skill_dir.resolve().is_relative_to(
+            get_skill_pool_dir().resolve(),
+        )
     except Exception:  # pragma: no cover
         return False
 
@@ -872,6 +892,76 @@ def resolve_skill_dir(
     return None
 
 
+def renamed_skill_rel_path(rel_path: str, new_name: str) -> str:
+    """Return *rel_path* with only its leaf segment replaced by *new_name*.
+
+    Category segments must stay untouched: renaming ``foo-tools/foo`` to
+    ``bar`` yields ``foo-tools/bar``, never ``bar-tools/foo``.
+    """
+    parent = PurePosixPath(rel_path or "").parent
+    if str(parent) == ".":
+        return new_name
+    return f"{parent.as_posix()}/{new_name}"
+
+
+def ensure_skill_dir_contained(
+    skill_dir: Path,
+    roots: Iterable[Path],
+    *,
+    label: str = "",
+) -> Path:
+    """Return *skill_dir* if its resolved path stays inside one of *roots*."""
+    try:
+        resolved = skill_dir.resolve()
+    except OSError as exc:
+        raise SkillsError(
+            message=f"Could not resolve skill path: {label or skill_dir}",
+        ) from exc
+    for root in roots:
+        try:
+            root_resolved = root.resolve()
+        except OSError:
+            continue
+        if resolved.is_relative_to(root_resolved):
+            return skill_dir
+    raise SkillsError(
+        message=f"Unsafe skill path outside root: {label or skill_dir.name}",
+    )
+
+
+def resolve_skill_dir_checked(
+    root: Path,
+    name: str,
+    rel_path: str = "",
+) -> Path | None:
+    """Resolve a skill directory and reject symlink escapes from *root*.
+
+    Mutation paths (save / rename / delete) must use this instead of the
+    read-only ``resolve_skill_dir`` so a symlinked category cannot make them
+    write or delete outside the skills root.
+    """
+    candidate = resolve_skill_dir(root, name, rel_path)
+    if candidate is None:
+        return None
+    return ensure_skill_dir_contained(
+        candidate,
+        (root,),
+        label=rel_path or name,
+    )
+
+
+def resolve_pool_skill_dir_checked(skill_name: str) -> Path | None:
+    """Resolve a pool skill directory and reject symlink escapes."""
+    candidate = resolve_pool_skill_dir(skill_name)
+    if candidate is None:
+        return None
+    return ensure_skill_dir_contained(
+        candidate,
+        get_skill_pool_dirs(),
+        label=skill_name,
+    )
+
+
 def _extract_and_validate_zip(data: bytes, tmp_dir: Path) -> None:
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         total = sum(info.file_size for info in zf.infolist())
@@ -1199,8 +1289,11 @@ def render_skill_md(
 def build_import_conflict(
     skill_name: str,
     existing_names: set[str] | None = None,
+    *,
+    selected: str = "",
+    shadowed: str = "",
 ) -> dict[str, Any]:
-    return {
+    conflict: dict[str, Any] = {
         "reason": "conflict",
         "skill_name": skill_name,
         "suggested_name": suggest_conflict_name(
@@ -1208,6 +1301,11 @@ def build_import_conflict(
             existing_names,
         ),
     }
+    if selected:
+        conflict["selected"] = selected
+    if shadowed:
+        conflict["shadowed"] = shadowed
+    return conflict
 
 
 # ---------------------------------------------------------------------------
