@@ -20,6 +20,7 @@ import {
   Mic,
   Bug,
   SlidersHorizontal,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
@@ -68,6 +69,12 @@ const SETTINGS_ITEMS: SettingsItem[] = [
     labelKey: "nav.security",
     fallback: "Security",
     Icon: ShieldCheck,
+  },
+  {
+    routeId: "core.offload-policy",
+    labelKey: "nav.offloadPolicy",
+    fallback: "Tool Offload",
+    Icon: Wrench,
   },
   {
     routeId: "core.token-usage",

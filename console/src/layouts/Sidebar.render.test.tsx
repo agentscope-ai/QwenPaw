@@ -403,7 +403,7 @@ describe("Sidebar", () => {
   it("shows a local identity capsule when authentication is disabled", () => {
     renderWithProviders(<Sidebar selectedKey="core.chat" />);
     const label = screen.getByText("sidebar.localWorkspace");
-    expect(label.closest("button")).toHaveAttribute("aria-haspopup", "menu");
+    expect(label.closest("button")).toHaveAttribute("aria-haspopup", "dialog");
     expect(screen.getByText("sidebar.localMode")).toBeInTheDocument();
   });
 
@@ -635,7 +635,7 @@ describe("Sidebar", () => {
       await screen.findByRole("button", { name: "More settings" }),
     ).toBeVisible();
     const quickSettings = screen.getByRole("button", { name: "Settings" });
-    expect(quickSettings).toHaveAttribute("aria-haspopup", "menu");
+    expect(quickSettings).toHaveAttribute("aria-haspopup", "dialog");
     expect(quickSettings).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(quickSettings);
@@ -818,9 +818,9 @@ describe("Sidebar", () => {
     renderSidebar();
     await openAccountModal();
     // Modal form renders; submit with only the current password filled
-    const inputs = screen.getByRole("dialog").querySelectorAll("input");
-    // currentPassword is the first input
-    fireEvent.change(inputs[0], { target: { value: "current-pw" } });
+    fireEvent.change(screen.getByLabelText("account.currentPassword"), {
+      target: { value: "current-pw" },
+    });
     const submitBtn = screen.getByText("account.save");
     fireEvent.click(submitBtn);
     await waitFor(() => {
@@ -914,13 +914,31 @@ describe("Sidebar", () => {
     );
   });
 
+  it("returns focus to the quick settings trigger on Escape", async () => {
+    mocks.renderActualSettingsPanel = true;
+    renderSidebar();
+    const trigger = await screen.findByRole("button", {
+      name: "Settings",
+    });
+    fireEvent.click(trigger);
+
+    const panel = await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.keyDown(panel, { key: "Escape" });
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+  });
+
   it("flags a whitespace-only new password", async () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     renderSidebar();
     await openAccountModal();
-    const inputs = screen.getByRole("dialog").querySelectorAll("input");
-    fireEvent.change(inputs[0], { target: { value: "current-pw" } });
-    fireEvent.change(inputs[2], { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("account.currentPassword"), {
+      target: { value: "current-pw" },
+    });
+    fireEvent.change(screen.getByLabelText("account.newPassword"), {
+      target: { value: "   " },
+    });
     fireEvent.click(screen.getByText("account.save"));
     // newPassword present but empty → early error, no API call
     await waitFor(() => {
@@ -933,9 +951,12 @@ describe("Sidebar", () => {
     mocks.updateProfile.mockRejectedValue(new Error("password is incorrect"));
     renderSidebar();
     await openAccountModal();
-    const inputs = screen.getByRole("dialog").querySelectorAll("input");
-    fireEvent.change(inputs[0], { target: { value: "current-pw" } });
-    fireEvent.change(inputs[1], { target: { value: "new-user" } });
+    fireEvent.change(screen.getByLabelText("account.currentPassword"), {
+      target: { value: "current-pw" },
+    });
+    fireEvent.change(screen.getByLabelText("account.newUsername"), {
+      target: { value: "new-user" },
+    });
     fireEvent.click(screen.getByText("account.save"));
     await waitFor(() => {
       expect(mocks.updateProfile).toHaveBeenCalledWith(
@@ -995,6 +1016,35 @@ describe("Sidebar", () => {
       });
     });
     expect(mocks.getPushMessages).not.toHaveBeenCalled();
+  });
+
+  it("slows inbox polling and refreshes when the tab becomes visible", async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const view = renderSidebar();
+    try {
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(14999));
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(1);
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(2);
+
+      hidden.mockReturnValue(true);
+      await act(() => vi.advanceTimersByTimeAsync(30000));
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(2);
+
+      hidden.mockReturnValue(false);
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(3);
+    } finally {
+      view.unmount();
+      hidden.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it.each([
