@@ -5,7 +5,9 @@
 from contextlib import contextmanager
 import json
 import os
+import shutil
 import subprocess
+import sys
 import zipfile
 
 import pytest
@@ -19,9 +21,40 @@ from .test_manifest_dependencies import package
 pytestmark = pytest.mark.p1
 
 
+@pytest.fixture(scope="session")
+def desktop_certifi_wheel(tmp_path_factory):
+    """Fetch the desktop certificate dependency once per session."""
+    wheels = tmp_path_factory.mktemp("desktop-certifi")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "download",
+            "--disable-pip-version-check",
+            "--no-deps",
+            "--only-binary=:all:",
+            "--dest",
+            str(wheels),
+            "certifi==2026.10.19",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return next(wheels.glob("certifi-*.whl"))
+
+
 @pytest.mark.parametrize("sdk", [False, True])
 @pytest.mark.parametrize("mode", ["pip", "uv", "desktop"])
-def test_install_with_duplicate_unrelated_packages(tmp_path, sdk, mode):
+def test_install_with_duplicate_unrelated_packages(
+    tmp_path,
+    sdk,
+    mode,
+    request,
+):
     """Install/import a local wheel despite old shared-site host metadata."""
     python, _ = dependency_python(
         tmp_path / "python",
@@ -29,6 +62,8 @@ def test_install_with_duplicate_unrelated_packages(tmp_path, sdk, mode):
     )
     wheels = tmp_path / "wheels"
     wheels.mkdir()
+    if mode == "desktop":
+        shutil.copy2(request.getfixturevalue("desktop_certifi_wheel"), wheels)
     info = "unified_probe-1.0.dist-info"
     files = {
         "unified_probe/__init__.py": "VALUE = 'installed'\n",
@@ -70,13 +105,19 @@ for name in ('uvicorn', 'certifi'):
         f'Metadata-Version: 2.1\nName: {name}\nVersion: 0.0.1\n'
     )
 # Use metadata in a second site, as after a desktop upgrade. Keep actual
-# host modules available; this test never replaces their files.
+# host modules available. The desktop installer may upgrade target certifi.
 sys.path.append(str(target))
 for name in ('uvicorn', 'certifi'):
     versions = {d.version for d in importlib.metadata.distributions()
                 if d.metadata['Name'].lower() == name}
     assert len(versions) >= 2, (name, versions)
-before = {p: p.read_bytes() for p in target.rglob('*') if p.is_file()}
+before = {
+    p: p.read_bytes() for p in target.rglob('*')
+    if p.is_file() and (
+        mode != 'desktop'
+        or not p.relative_to(target).parts[0].startswith('certifi-')
+    )
+}
 if mode == 'desktop':
     loader._is_frozen = lambda: True
     dependency_gate._is_frozen = lambda: True
@@ -103,6 +144,22 @@ async def main():
             assert Path(unified_probe.__file__).is_relative_to(target)
             command = commands[-1]
             assert command[command.index('--target') + 1] == str(target)
+            # Host certifi cannot satisfy this target-only check.
+            versions = {
+                d.version
+                for d in importlib.metadata.distributions(path=[str(target)])
+                if d.metadata['Name'].lower() == 'certifi'
+            }
+            assert '2026.10.19' in versions, versions
+            subprocess.run(
+                [sys.executable, '-I', '-c',
+                 'import sys; sys.path.insert(0, sys.argv[1]); '
+                 'import certifi, ssl; '
+                 'assert certifi.__version__ == "2026.10.19"; '
+                 'ssl.create_default_context(cafile=certifi.where())',
+                 str(target)],
+                check=True,
+            )
         else:
             assert '--target' not in commands[-1]
         assert len(commands) == (2 if mode == 'uv' else 1), commands
