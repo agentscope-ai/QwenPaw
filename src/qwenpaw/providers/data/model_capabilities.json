@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.08.25",
-  "published_at": "2026-08-25T00:00:00Z",
+  "catalog_version": "2026.10.26.1",
+  "published_at": "2026-10-26T00:00:00Z",
   "capabilities": [
     {
       "provider_id": "modelscope",
@@ -327,89 +327,89 @@
       "provider_id": "openai",
       "model_id": "gpt-5.2",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.2",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "gpt-5",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "gpt-5-mini",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "gpt-5-nano",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "gpt-4.1",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4.1",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "gpt-4.1-mini",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "gpt-4.1-nano",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "o4-mini",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o4-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "gpt-4o",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4o",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "gpt-4o-mini",
       "expected_image": true,
-      "expected_video": true,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": ""
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "openai",
       "model_id": "o3",
       "expected_image": true,
       "expected_video": false,
-      "doc_url": "https://platform.openai.com/docs/models",
-      "note": "o3 supports image but not video"
+      "doc_url": "https://developers.openai.com/api/docs/models/o3",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     },
     {
       "provider_id": "azure-openai",
@@ -730,6 +730,526 @@
       "expected_video": false,
       "doc_url": "https://opencode.ai/docs/zen",
       "note": "OpenCode Zen aggregates heterogeneous providers; capability varies by model, probe to determine."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-sol",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-6-astra",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.2-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.4",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.4",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-4-turbo",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4-turbo",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.1",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.1",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "o1",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o1",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.3-codex",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "o1-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o1-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.4-nano",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.5-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.4-mini",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-3.5-turbo",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.6",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.4-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-terra",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-4",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.2-chat-latest",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "o3-mini",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o3-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "o3-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o3-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.3-chat-latest",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.5",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.5",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-6.1-sol",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-6-luna",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-6-sol",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.2",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.2",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5-mini",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5-nano",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-4.1",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4.1",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-4.1-mini",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-4.1-nano",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "o3",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o3",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "o4-mini",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o4-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-4o",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4o",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-4o-mini",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.6-sol",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-6-astra",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.2-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.4",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.4",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-4-turbo",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4-turbo",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.1",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.1",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "o1",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o1",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.6-luna",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.3-codex",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "o1-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o1-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.4-nano",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.5-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.4-mini",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-3.5-turbo",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.6",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.4-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.6-terra",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-4",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-4",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.2-chat-latest",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "o3-mini",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o3-mini",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "o3-pro",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/o3-pro",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.3-chat-latest",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-5.5",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-5.5",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-6.1-sol",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-6-luna",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
+    },
+    {
+      "provider_id": "openai-response",
+      "model_id": "gpt-6-sol",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "note": "Official input modalities checked 2026-10-26. Video frames supplied as images are not native video input."
     }
   ]
 }

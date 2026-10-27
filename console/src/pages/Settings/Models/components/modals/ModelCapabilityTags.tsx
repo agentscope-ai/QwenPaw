@@ -177,13 +177,15 @@ export function CapabilityTags({
 export function BillingTag({
   model,
   iconOnly = false,
+  priceDetails = false,
 }: {
   model: ModelInfo;
   iconOnly?: boolean;
+  priceDetails?: boolean;
 }) {
   const { t } = useTranslation();
   const billing = model.billing ?? (model.is_free ? "free" : "unknown");
-  return (
+  const tag = (
     <CapabilityTag
       iconOnly={iconOnly}
       icon={
@@ -193,5 +195,62 @@ export function BillingTag({
     >
       {t(`models.billing.${billing}`)}
     </CapabilityTag>
+  );
+  if (!priceDetails || !model.pricing?.prompt) return tag;
+  const pricing = model.pricing;
+  const source = model.capability_provenance?.billing;
+  const price = (value: string) => {
+    const amount = Number(value) * 1_000_000;
+    return Number.isFinite(amount)
+      ? amount.toLocaleString(undefined, { maximumFractionDigits: 6 })
+      : "—";
+  };
+  return (
+    <Tooltip
+      trigger={["hover", "focus", "click"]}
+      title={
+        <div>
+          <div>{t("models.apiPricing.standard")}</div>
+          {(["prompt", "completion", "input_cache_read"] as const).map(
+            (key) =>
+              pricing[key] != null && (
+                <div key={key}>
+                  {t(`models.apiPricing.${key}`)}: ${price(pricing[key])}
+                </div>
+              ),
+          )}
+          {typeof source?.context_threshold === "number" &&
+            typeof source.long_context_input_multiplier === "number" &&
+            typeof source.long_context_output_multiplier === "number" && (
+              <p>
+                {t("models.apiPricing.longContext", {
+                  threshold: source.context_threshold.toLocaleString(),
+                  inputMultiplier: source.long_context_input_multiplier,
+                  outputMultiplier: source.long_context_output_multiplier,
+                })}
+              </p>
+            )}
+          {typeof source?.cache_write_30m_multiplier === "number" &&
+            typeof source.cache_write_12h_multiplier === "number" && (
+              <p>
+                {t("models.apiPricing.cacheWrite", {
+                  shortMultiplier: source.cache_write_30m_multiplier,
+                  longMultiplier: source.cache_write_12h_multiplier,
+                })}
+              </p>
+            )}
+          <div>{t("models.apiPricing.exclusions")}</div>
+          {typeof source?.updated_at === "string" && (
+            <div>
+              {t("models.apiPricing.checked", { date: source.updated_at })}
+            </div>
+          )}
+        </div>
+      }
+    >
+      <span tabIndex={0} style={{ display: "inline-flex" }}>
+        {tag}
+      </span>
+    </Tooltip>
   );
 }

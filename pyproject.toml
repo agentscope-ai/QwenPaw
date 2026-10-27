@@ -8,6 +8,8 @@ dependencies = [
     "certifi>=2026.10.19",
     "agentscope[model-ollama,classifier-jev]==2.0.10",
     "httpx>=0.27.0",
+    "PyJWT[crypto]>=2.8",
+    "filelock>=3.13",
     "websockets>=15.0.1,<16",
     "packaging>=24.0",
     "click>=8.1,<9",

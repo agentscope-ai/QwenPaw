@@ -2281,6 +2281,27 @@
     },
     "billing": {
       "free": "無料"
+    },
+    "chatgpt": {
+      "contextHelp": "アカウントの上限：{{maximum}} トークン、セッションの既定値：{{default}} トークン。",
+      "localHelp": "OpenAI のポリシーとローカル OAuth コールバックの制限により、QwenPaw とブラウザを同じコンピューターで実行する必要があります。",
+      "account": "ChatGPT アカウント",
+      "connected": "ChatGPT サブスクリプションに接続済み",
+      "disconnected": "未接続",
+      "permissionMissing": "プラン利用が未承認です",
+      "failed": "ログインが完了しませんでした。もう一度お試しください。",
+      "usage": "使用量を管理",
+      "reconnect": "再ログイン",
+      "changeAccount": "アカウントを切り替え",
+      "accountActions": "ChatGPT アカウントの操作",
+      "connectedShort": "接続済み",
+      "signOut": "ログアウト",
+      "revokeWarning": "ローカルでログアウトしました。認可の取り消しを確認できませんでした。ChatGPT の設定で QwenPaw の接続を解除してください。",
+      "modelHelp": "モデルは現在の ChatGPT アカウントから取得します。プランの利用枠またはクレジットを消費します。この接続ではサンプリングと出力トークン制限を設定できません。",
+      "oauthDescription": "ブラウザを開いて ChatGPT プランの利用を承認します。完了後、QwenPaw に戻ってください。"
+    },
+    "providerVariants": {
+      "chatgpt": "ChatGPT サブスクリプション"
     }
   },
   "files": {

@@ -2230,7 +2230,15 @@
     "currentModelProtected": "Switch the current model before removing it",
     "addToSelector": "Add to selector",
     "removeFromSelector": "Remove from selector",
-    "searchCandidates": "Search candidate models..."
+    "searchCandidates": "Search candidate models...",
+    "oauthTitle": "Kết nối {{provider}}",
+    "oauthDescription": "Một cửa sổ trình duyệt sẽ mở để cấp quyền truy cập {{provider}}. Khóa API sẽ được lưu tự động.",
+    "oauthContinue": "Tiếp tục",
+    "oauthWaiting": "Đang chờ cấp quyền…",
+    "oauthWaitingDescription": "Vui lòng hoàn tất cấp quyền trong trình duyệt.",
+    "oauthConnected": "Đã kết nối {{provider}}",
+    "oauthFailed": "Cấp quyền thất bại, vui lòng thử lại",
+    "oauthTimeout": "Đã hết thời gian cấp quyền, vui lòng thử lại"
   },
   "modelConfig": {
     "title": "Cấu hình mô hình",
@@ -3012,6 +3020,8 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "connect": "Xác thực OAuth",
+    "settings": "Cài đặt",
     "disableBtn": "Vô hiệu hóa",
     "llmConfiguration": "Cấu hình LLM",
     "providersTitle": "Nhà cung cấp",
@@ -3152,7 +3162,28 @@
       "free": "Free"
     },
     "manageModels": "Quản lý mô hình",
-    "localRuntimeSectionTitle": "Môi trường chạy mô hình cục bộ"
+    "localRuntimeSectionTitle": "Môi trường chạy mô hình cục bộ",
+    "chatgpt": {
+      "contextHelp": "Giới hạn tài khoản: {{maximum}} token; ngân sách phiên mặc định: {{default}} token.",
+      "localHelp": "Do chính sách OpenAI và yêu cầu gọi lại OAuth cục bộ, QwenPaw và trình duyệt phải chạy trên cùng một máy tính.",
+      "account": "Tài khoản ChatGPT",
+      "connected": "Đã kết nối gói ChatGPT",
+      "disconnected": "Chưa kết nối",
+      "permissionMissing": "Chưa cấp quyền sử dụng gói",
+      "failed": "Đăng nhập chưa hoàn tất. Vui lòng thử lại.",
+      "usage": "Quản lý mức sử dụng",
+      "reconnect": "Đăng nhập lại",
+      "changeAccount": "Đổi tài khoản",
+      "accountActions": "Thao tác tài khoản ChatGPT",
+      "connectedShort": "Đã kết nối",
+      "signOut": "Đăng xuất",
+      "revokeWarning": "Đã đăng xuất cục bộ. Chưa xác nhận việc thu hồi quyền; hãy ngắt kết nối QwenPaw trong cài đặt ChatGPT.",
+      "modelHelp": "Mô hình được lấy từ tài khoản ChatGPT hiện tại. Mức sử dụng được tính vào hạn mức gói hoặc tín dụng. Cách truy cập này không hỗ trợ cài đặt lấy mẫu và giới hạn token đầu ra.",
+      "oauthDescription": "Trình duyệt sẽ mở để cấp quyền sử dụng gói ChatGPT của bạn. Quay lại QwenPaw khi hoàn tất."
+    },
+    "providerVariants": {
+      "chatgpt": "Gói ChatGPT"
+    }
   },
   "security": {
     "parent": "Cài đặt",

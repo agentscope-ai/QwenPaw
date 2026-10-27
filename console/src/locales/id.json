@@ -4084,6 +4084,27 @@
     },
     "billing": {
       "free": "Gratis"
+    },
+    "chatgpt": {
+      "contextHelp": "Batas akun: {{maximum}} token; anggaran sesi default: {{default}} token.",
+      "localHelp": "Karena kebijakan OpenAI dan callback OAuth lokal, QwenPaw dan browser harus berjalan di komputer yang sama.",
+      "account": "Akun ChatGPT",
+      "connected": "Langganan ChatGPT terhubung",
+      "disconnected": "Belum terhubung",
+      "permissionMissing": "Penggunaan langganan belum diizinkan",
+      "failed": "Login belum selesai. Silakan coba lagi.",
+      "usage": "Kelola penggunaan",
+      "reconnect": "Login ulang",
+      "changeAccount": "Ganti akun",
+      "accountActions": "Tindakan akun ChatGPT",
+      "connectedShort": "Terhubung",
+      "signOut": "Keluar",
+      "revokeWarning": "Anda telah keluar secara lokal. Pencabutan izin belum dikonfirmasi; putuskan QwenPaw di pengaturan ChatGPT.",
+      "modelHelp": "Model berasal dari akun ChatGPT saat ini. Penggunaan mengurangi kuota langganan atau kredit. Pengaturan sampling dan batas token keluaran tidak didukung melalui akses ini.",
+      "oauthDescription": "Browser akan terbuka untuk mengizinkan penggunaan langganan ChatGPT Anda. Kembali ke QwenPaw setelah selesai."
+    },
+    "providerVariants": {
+      "chatgpt": "Langganan ChatGPT"
     }
   },
   "files": {
