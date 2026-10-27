@@ -672,11 +672,11 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             return None
         if slot.provider_id.strip():
             return slot
-        active_model = getattr(agent_config, "active_model", None)
-        provider_id = getattr(active_model, "provider_id", "") or ""
+        active_model = agent_config.active_model
+        provider_id = active_model.provider_id if active_model else ""
         if not provider_id:
             global_model = ProviderManager.get_instance().get_active_model()
-            provider_id = str(getattr(global_model, "provider_id", "") or "")
+            provider_id = global_model.provider_id if global_model else ""
         if not provider_id:
             logger.warning(
                 "Memory model '%s' has no provider and the agent's main "

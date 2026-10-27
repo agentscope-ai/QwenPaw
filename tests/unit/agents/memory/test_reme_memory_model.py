@@ -98,6 +98,20 @@ def _build_manager() -> ReMeLightMemoryManager:
             ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b"),
             ModelSlotConfig(provider_id="ollama", model="qwenpaw-flash-4b"),
         ),
+        # Version-tagged bare names inherit the agent's typed provider slot.
+        (
+            ModelSlotConfig(provider_id="", model="qwen2.5:7b"),
+            ModelSlotConfig(provider_id="ollama", model="qwen3:8b"),
+            None,
+            ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b"),
+        ),
+        # No inherited provider means the unchanged main-model path is used.
+        (
+            ModelSlotConfig(provider_id="", model="qwen2.5:7b"),
+            None,
+            None,
+            None,
+        ),
         # A slot without a model name is unusable and ignored.
         (
             ModelSlotConfig(provider_id="dashscope", model=""),

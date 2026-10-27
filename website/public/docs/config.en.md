@@ -576,10 +576,10 @@ See [Decision model compaction](./context#optional-decision-model-compaction) fo
 | `memory_model`                   | object \| string \| null | `null`                           | Optional model slot for memory-writing jobs (auto-memory / auto-dream / Daily Paper / Auto Fin). The canonical form is `{"provider_id": "...", "model": "..."}`; a string is always treated as a bare model name and inherits the main model's provider, including version-tagged names such as `qwen2.5:7b`. Unset uses the agent's main model. |
 | `needs_reindex`                  | bool                     | `false`                          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                                                                                                                                                                                    |
 
-Enable **Include images in auto-memory** in the Agent's memory settings to remember visual details. ReMe uses the Agent's
-configured model, or the global model when inherited; a chat session's temporary model selection does not change it.
+Enable **Include images in auto-memory** in the Agent's memory settings to remember visual details. ReMe uses `memory_model`
+when set, otherwise the Agent's main model (or the inherited global model); a chat session's temporary model selection does not change it.
 Image support must be recognized (`supports_image: true`); unknown capability leaves images disabled. Image jobs retain
-only fallback models with confirmed image support. The default ReMe
+only fallback models with confirmed image support, including the Agent's main model when used as a fallback for `memory_model`. The default ReMe
 wrapper limit is **5 images per Auto-Memory invocation**, including all conversation turns submitted together.
 LLM-backed memory jobs run sequentially, so a long Dream or Daily Paper job can delay Auto-Memory; memory searches remain independent.
 

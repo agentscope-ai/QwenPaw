@@ -19,6 +19,7 @@ import type { ReMeLightMemoryConfig } from "@/api/types/agent";
 import type { ModelSlotConfig, ProviderInfo } from "@/api/types/provider";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { useAgentStore } from "@/stores/agentStore";
+import { buildEligibleProviders } from "@/pages/Chat/ModelSelector/modelSelectorModels";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
@@ -258,9 +259,9 @@ export function ReMeLightMemoryCard() {
       value: MAIN_MODEL_VALUE,
       label: t("agentConfig.memoryModelUseMain"),
     },
-    ...providers.flatMap((provider) => {
+    ...buildEligibleProviders(providers).flatMap((provider) => {
       const seen = new Set<string>();
-      return [...(provider.models ?? []), ...(provider.extra_models ?? [])]
+      return provider.models
         .filter((model) => {
           if (seen.has(model.id)) return false;
           seen.add(model.id);

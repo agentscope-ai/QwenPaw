@@ -495,12 +495,15 @@ describe("memory writing model selector", () => {
     {
       id: "ollama",
       name: "Ollama",
+      require_api_key: false,
+      base_url: "http://localhost:11434",
       models: [{ id: "qwen2.5:7b", name: "Qwen 2.5 7B" }],
       extra_models: [],
     },
     {
       id: "dashscope",
       name: "DashScope",
+      api_key: "configured-key",
       models: [{ id: "qwen-flash", name: "Qwen Flash" }],
       extra_models: [],
     },
@@ -531,6 +534,77 @@ describe("memory writing model selector", () => {
     fireEvent.mouseDown(selector);
     fireEvent.click(await screen.findByText("agentConfig.memoryModelUseMain"));
     expect(screen.getByTestId("memory-model-value")).toHaveTextContent("null");
+  });
+
+  it("only offers configured chat providers and keeps configured extra models", async () => {
+    vi.mocked(api.listProviders).mockResolvedValue([
+      ...providers,
+      {
+        id: "gemini",
+        name: "Unconfigured Gemini",
+        api_key: "",
+        models: [{ id: "gemini-2.5-flash", name: "Gemini Flash" }],
+      },
+      {
+        id: "disabled",
+        name: "Disabled",
+        enabled: false,
+        api_key: "configured-key",
+        models: [{ id: "disabled-model", name: "Disabled model" }],
+      },
+      {
+        id: "custom",
+        name: "Custom",
+        is_custom: true,
+        base_url: "http://localhost:8000/v1",
+        models: [],
+        extra_models: [
+          { id: "extra-chat", name: "Extra chat", model_type: "chat" },
+          { id: "extra-embedding", name: "Embedding", model_type: "embedding" },
+        ],
+      },
+    ] as Awaited<ReturnType<typeof api.listProviders>>);
+    renderWithProviders(<MemoryModelForm />);
+    fireEvent.mouseDown(
+      await screen.findByRole("combobox", {
+        name: "agentConfig.memoryModelLabel",
+      }),
+    );
+
+    expect(await screen.findByText("Custom / Extra chat")).toBeInTheDocument();
+    expect(screen.getByText("Ollama / Qwen 2.5 7B")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Unconfigured Gemini / Gemini Flash"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Disabled / Disabled model"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Custom / Embedding")).not.toBeInTheDocument();
+  });
+
+  it("preserves a saved selection from an unconfigured provider", async () => {
+    vi.mocked(api.listProviders).mockResolvedValue(
+      providers.map((provider) => ({
+        ...provider,
+        api_key: "",
+        require_api_key: true,
+      })),
+    );
+    renderWithProviders(
+      <MemoryModelForm
+        initialModel={{
+          provider_id: "dashscope",
+          model: "qwen-flash",
+        }}
+      />,
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryModelUnavailable"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
+      '{"provider_id":"dashscope","model":"qwen-flash"}',
+    );
   });
 
   it("round-trips an existing selection", async () => {
