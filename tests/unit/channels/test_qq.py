@@ -17,6 +17,7 @@ Run:
     pytest tests/unit/channels/test_qq.py -v
     pytest tests/unit/channels/test_qq.py::TestQQChannelInit -v
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised
 from __future__ import annotations
@@ -2001,6 +2002,77 @@ class TestHandleWSPayload:
         assert qq_channel._enqueue.call_count == 2
         assert state.last_seq == 301
 
+    @pytest.mark.parametrize(
+        "event_type",
+        ["GROUP_MESSAGE_CREATE", "GROUP_AT_MESSAGE_CREATE"],
+    )
+    def test_handle_group_dispatch_and_replays(
+        self,
+        qq_channel,
+        mock_websocket,
+        event_type,
+    ):
+        """Both group events enqueue once and retain both replay guards."""
+        from qwenpaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        hb = MagicMock(spec=_HeartbeatController)
+        enqueued = []
+        qq_channel.set_enqueue(enqueued.append)
+        payload = {
+            "op": 0,
+            "t": event_type,
+            "s": 300,
+            "d": {
+                "id": "group_msg_1",
+                "content": "hello group",
+                "author": {"member_openid": "member_1"},
+                "group_openid": "group_1",
+            },
+        }
+
+        qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token",
+            state,
+            hb,
+        )
+        assert len(enqueued) == 1
+        assert enqueued[0].session_id == "qq:group:group_1"
+
+        # An old sequence is rejected even if its message ID is different.
+        replay = {**payload, "d": {**payload["d"], "id": "group_msg_2"}}
+        qq_channel._handle_ws_payload(
+            replay,
+            mock_websocket,
+            "token",
+            state,
+            hb,
+        )
+        assert len(enqueued) == 1
+
+        # A newer sequence carrying the same ID is also rejected, even
+        # when the gateway uses the other group event name.
+        other_event = (
+            "GROUP_AT_MESSAGE_CREATE"
+            if event_type == "GROUP_MESSAGE_CREATE"
+            else "GROUP_MESSAGE_CREATE"
+        )
+        replay = {**payload, "t": other_event, "s": 301}
+        qq_channel._handle_ws_payload(
+            replay,
+            mock_websocket,
+            "token",
+            state,
+            hb,
+        )
+        assert len(enqueued) == 1
+        assert state.last_seq == 301
+
     def test_handle_heartbeat_ack(self, qq_channel, mock_websocket):
         """Should handle HEARTBEAT_ACK."""
         from qwenpaw.app.channels.qq.channel import (
@@ -2336,21 +2408,41 @@ class TestHandleMsgEvent:
         assert meta["guild_id"] == "g_200"
         assert enqueued[0].session_id == "qq:guild:ch_100"
 
-    def test_group_message(self, qq_channel):
-        """Group message should work correctly."""
+    @pytest.mark.parametrize(
+        "event_type",
+        ["GROUP_MESSAGE_CREATE", "GROUP_AT_MESSAGE_CREATE"],
+    )
+    @pytest.mark.parametrize(
+        "author, expected_sender",
+        [
+            ({"member_openid": "mem_1", "id": "fallback"}, "mem_1"),
+            ({"id": "fallback"}, "fallback"),
+        ],
+    )
+    def test_group_message(
+        self,
+        qq_channel,
+        event_type,
+        author,
+        expected_sender,
+    ):
+        """Both group events preserve sender and conversation metadata."""
         enqueued = []
         qq_channel._enqueue = enqueued.append
         d = {
-            "author": {"member_openid": "mem_1"},
+            "author": author,
             "content": "hi group",
             "id": "msg_003",
             "group_openid": "grp_300",
         }
-        qq_channel._handle_msg_event("GROUP_AT_MESSAGE_CREATE", d)
+        qq_channel._handle_msg_event(event_type, d)
         assert len(enqueued) == 1
         meta = enqueued[0].channel_meta
         assert meta["message_type"] == "group"
         assert meta["group_openid"] == "grp_300"
+        assert meta["sender_id"] == expected_sender
+        assert meta["message_id"] == "msg_003"
+        assert meta["is_group"] is True
         assert enqueued[0].session_id == "qq:group:grp_300"
 
     def test_guild_direct_message_uses_guild_session(self, qq_channel):
