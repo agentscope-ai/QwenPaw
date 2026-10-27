@@ -558,7 +558,8 @@ async def test_provider_discovery_deadline_cancels_actual_callback(
 
     callback = """
         async def callback(call, timeout):
-            assert 0 < call.deadline - time.monotonic() <= timeout
+            now = time.monotonic()
+            assert now < call.deadline <= now + timeout
             try:
                 await asyncio.sleep(100)
             finally:
@@ -567,7 +568,8 @@ async def test_provider_discovery_deadline_cancels_actual_callback(
     if synchronous:
         callback = """
         def callback(call, timeout):
-            assert 0 < call.deadline - time.monotonic() <= timeout
+            now = time.monotonic()
+            assert now < call.deadline <= now + timeout
             safety_deadline = time.monotonic() + 2
             try:
                 while (
@@ -1280,10 +1282,10 @@ plugin = Plugin()
                     "state.txt",
                     b"version-two",
                 )
-                from urllib.parse import unquote, urlparse
+                from qwenpaw.utils.media_paths import file_url_to_path
 
                 assert (
-                    Path(unquote(urlparse(attachment.url).path)).read_bytes()
+                    Path(file_url_to_path(attachment.url)).read_bytes()
                     == b"version-two"
                 )
             assert (

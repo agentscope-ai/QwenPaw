@@ -92,7 +92,8 @@ def _installed_snapshot() -> dict[str, tuple[str, tuple[str, ...]]]:
             if previous and previous[0] != version:
                 raise ValueError(
                     f"Conflicting installed distributions for {name}: "
-                    f"{previous[0]} at {previous[1]}; {version} at {source}",
+                    f"{previous[0]} at {', '.join(previous[1])}; "
+                    f"{version} at {source}",
                 )
             sources = set(previous[1] if previous else ())
             sources.add(source)

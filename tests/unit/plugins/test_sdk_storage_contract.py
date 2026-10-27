@@ -3,9 +3,11 @@
 
 import json
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 import pytest
+
+from qwenpaw.utils.media_paths import file_url_to_path
 
 
 def make_plugin(tmp_path):
@@ -120,7 +122,7 @@ async def test_media_reference_remains_readable_after_reload(tmp_path):
         )
         parsed = urlparse(attachment.url)
         assert parsed.scheme == "file"
-        path = Path(unquote(parsed.path))
+        path = Path(file_url_to_path(attachment.url))
         assert path.read_bytes() == b"persistent media"
         assert attachment.preview_url.startswith("/api/files/preview/")
         assert (await host.reload("storage-contract")).ok
@@ -181,7 +183,7 @@ plugin = Plugin()
         for result, expected in ((one, b"one"), (two, b"two")):
             assert (
                 Path(
-                    unquote(urlparse(result.metadata["url"]).path),
+                    file_url_to_path(result.metadata["url"]),
                 ).read_bytes()
                 == expected
             )
@@ -304,7 +306,7 @@ plugin = Plugin()
         assert attachment.preview_url == result.metadata["preview"]
         assert attachment.preview_url.startswith("/api/files/preview/")
         assert (
-            Path(unquote(urlparse(attachment.url).path)).read_bytes()
+            Path(file_url_to_path(attachment.url)).read_bytes()
             == b"image-data"
         )
 
@@ -338,7 +340,7 @@ async def test_async_storage_and_media_preserve_sync_contract(tmp_path):
             b"media",
             mime_type="text/plain",
         )
-        media_path = Path(unquote(urlparse(attachment.url).path))
+        media_path = Path(file_url_to_path(attachment.url))
         assert (
             media_path.read_bytes() == b"media"
             and attachment.mime_type == "text/plain"

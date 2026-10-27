@@ -452,11 +452,8 @@ class Plugin:
     def register(self, ctx):
         async def slow(call, args):
             assert call.deadline is not None
-            assert (
-                0
-                < call.deadline - asyncio.get_running_loop().time()
-                <= 0.05
-            )
+            now = asyncio.get_running_loop().time()
+            assert now < call.deadline <= now + 0.05
             try:
                 await asyncio.sleep(10)
                 return ToolResult.text("must not finish")

@@ -549,10 +549,6 @@ async def test_interrupt_waits_for_actual_command_exit(
     from qwenpaw.runtime.commands.control import handle_control_command
 
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    monkeypatch.setattr(
-        "qwenpaw.plugins.activity.INTERRUPT_TIMEOUT_SECONDS",
-        0.01,
-    )
     (
         loader,
         installed,
@@ -615,7 +611,9 @@ async def test_interrupt_waits_for_actual_command_exit(
                 delete_files=True,
             )
         else:
-            report = await asyncio.wait_for(unload, 0.5)
+            # This also removes files and persists config; the timeout is a
+            # deadlock guard, not a half-second filesystem performance target.
+            report = await asyncio.wait_for(unload, 10)
             assert command.cancelled()
         assert report.clean and report.quiescent
         assert calls == ["command-exit", "teardown"]
@@ -1581,9 +1579,14 @@ async def test_install_cancel_waits_for_copy_before_next_load(
     loader.registry = fresh_registry
     finished = {"done": False}
     real_copy = shutil.copytree
+    started = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
 
     def _slow_copy(src, dst, *args, **kwargs):
-        time.sleep(0.12)
+        loop.call_soon_threadsafe(started.set)
+        if not release.wait(10):
+            raise TimeoutError("test did not release plugin copy")
         result = real_copy(src, dst, *args, **kwargs)
         finished["done"] = True
         return result
@@ -1592,10 +1595,15 @@ async def test_install_cancel_waits_for_copy_before_next_load(
     task = asyncio.create_task(
         loader.load_plugin_from_path(source, install_dir=install_dir),
     )
-    await asyncio.sleep(0.02)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        await asyncio.wait_for(started.wait(), 10)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 10)
     assert finished["done"]
     record = await loader.load_plugin_from_path(
         source,

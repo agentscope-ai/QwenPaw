@@ -2,6 +2,7 @@
 """Sidecar availability must not remove a PawApp's diagnostic routes."""
 
 import asyncio
+from dataclasses import replace
 import signal
 import sys
 from unittest.mock import MagicMock
@@ -251,12 +252,19 @@ async def test_repaired_service_clears_startup_diagnostic(monkeypatch):
         command=("missing",),
         mode_env="SERVICE_FIXTURE_MODE",
         external_url_env="SERVICE_FIXTURE_URL",
-        startup_timeout=0.01,
+        startup_timeout=5,
     )
     with pytest.raises(RuntimeError, match="not ready"):
         _ = service.base_url
-    with pytest.raises(TimeoutError):
-        await service.start()
+    # Inject a fast startup failure without shrinking the later health probe.
+    with monkeypatch.context() as failed_start:
+        failed_start.setattr(
+            service,
+            "spec",
+            replace(service.spec, startup_timeout=0.01),
+        )
+        with pytest.raises(TimeoutError):
+            await service.start()
     assert service.startup_error is not None
     monkeypatch.setattr(service_module, "_health_request", lambda *_: True)
     try:

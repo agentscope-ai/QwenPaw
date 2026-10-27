@@ -54,7 +54,7 @@ class Plugin:
             directory.mkdir(parents=True, exist_ok=True)
             path = directory / "state.json"
             state = (
-                json.loads(path.read_text())
+                json.loads(path.read_text(encoding="utf-8"))
                 if path.exists()
                 else {"calls": 0, "user_note": "keep"}
             )
@@ -95,7 +95,7 @@ async def run(phase):
         path = working / "config.json"
         if not path.exists():
             return
-        config = json.loads(path.read_text())
+        config = json.loads(path.read_text(encoding="utf-8"))
         for identifier, profile in (
             config.get("agents", {}).get("profiles", {}).items()
         ):
@@ -188,7 +188,9 @@ async def run(phase):
             assert not hasattr(tools, TOOL_NAME)
             assert PLUGIN_ID not in load_config().plugins
             assert json.loads(
-                (working / "legacy-user-data/state.json").read_text(),
+                (working / "legacy-user-data/state.json").read_text(
+                    encoding="utf-8",
+                ),
             ) == {
                 "calls": 6,
                 "user_note": "keep",
