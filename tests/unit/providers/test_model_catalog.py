@@ -264,6 +264,31 @@ def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
     )
 
 
+def test_packaged_refresh_ignores_previous_release_ota(tmp_path: Path) -> None:
+    """The merged catalog must supersede the previous main release."""
+    ota = tmp_path / "ota.json"
+    missing = tmp_path / "missing.json"
+    _write_catalog(
+        ota,
+        {
+            "mimo-tokenplan": [
+                {"id": "mimo-v2.5-pro", "name": "Previous default"},
+            ],
+        },
+        catalog_version="2026.10.26.1",
+        published_at="2026-10-26T00:00:00Z",
+    )
+    expected = model_catalog.load_model_catalog(
+        ota_path=missing,
+        local_path=missing,
+    )
+    actual = model_catalog.load_model_catalog(
+        ota_path=ota,
+        local_path=missing,
+    )
+    assert actual == expected
+
+
 def test_stale_ota_is_ignored_but_local_override_still_applies(
     tmp_path: Path,
 ) -> None:

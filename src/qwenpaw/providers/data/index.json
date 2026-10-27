@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "catalog_version": "2026.10.26.1",
-  "published_at": "2026-10-26T00:00:00Z",
+  "catalog_version": "2026.10.27.1",
+  "published_at": "2026-10-27T00:00:00Z",
   "source_url": "https://models.dev/api.json",
   "providers": {
     "openrouter": {
