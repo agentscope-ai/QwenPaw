@@ -2262,7 +2262,17 @@
       "migration": "Migrasi aplikasi",
       "other": "Belum dikategorikan"
     },
-    "webSearchConfigLoadError": "Gagal memuat kredensial penyedia ini. Coba lagi sebelum menyimpan."
+    "webSearchConfigLoadError": "Gagal memuat kredensial penyedia ini. Coba lagi sebelum menyimpan.",
+    "detailTitle": "Detail alat · {{name}}",
+    "detailTitleFallback": "Detail alat",
+    "detailAbout": "Tentang",
+    "parameters": "Parameter",
+    "noParameters": "Alat ini tidak memiliki parameter",
+    "paramName": "Nama",
+    "paramType": "Tipe",
+    "paramRequired": "Wajib",
+    "paramDefault": "Default",
+    "paramDescription": "Deskripsi"
   },
   "modelConfig": {
     "promptTitle": "Model LLM Diperlukan - Pilih di Chat Setelah Konfigurasi",

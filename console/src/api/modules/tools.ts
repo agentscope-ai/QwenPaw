@@ -20,6 +20,9 @@ export interface ToolInfo {
   source_plugin_name?: string | null;
   category?: string | null;
   description: string;
+  summary?: string;
+  detail?: string;
+  input_schema?: Record<string, unknown>;
   async_execution: boolean;
   icon: string;
   requires_config?: boolean;
@@ -27,30 +30,44 @@ export interface ToolInfo {
   config_values?: Record<string, unknown>;
 }
 
+function withLang(path: string, lang?: string): string {
+  if (!lang) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}lang=${encodeURIComponent(
+    lang,
+  )}`;
+}
+
 export const toolsApi = {
   /**
    * List all built-in tools
    */
-  listTools: (agentId?: string) =>
+  listTools: (agentId?: string, lang?: string) =>
     request<ToolInfo[]>(
-      "/tools",
+      withLang("/tools", lang),
       agentId ? { headers: { "X-Agent-Id": agentId } } : undefined,
     ),
 
   /**
    * Toggle tool enabled status
    */
-  toggleTool: (toolName: string) =>
-    request<ToolInfo>(`/tools/${encodeURIComponent(toolName)}/toggle`, {
-      method: "PATCH",
-    }),
+  toggleTool: (toolName: string, lang?: string) =>
+    request<ToolInfo>(
+      withLang(`/tools/${encodeURIComponent(toolName)}/toggle`, lang),
+      {
+        method: "PATCH",
+      },
+    ),
 
   /**
    * Update tool async_execution setting
    */
-  updateAsyncExecution: (toolName: string, asyncExecution: boolean) =>
+  updateAsyncExecution: (
+    toolName: string,
+    asyncExecution: boolean,
+    lang?: string,
+  ) =>
     request<ToolInfo>(
-      `/tools/${encodeURIComponent(toolName)}/async-execution`,
+      withLang(`/tools/${encodeURIComponent(toolName)}/async-execution`, lang),
       {
         method: "PATCH",
         body: JSON.stringify({ async_execution: asyncExecution }),

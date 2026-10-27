@@ -3,7 +3,7 @@ import { useAutoSave } from "@/hooks/useAutoSave";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Spin, Popover, Segmented } from "antd";
+import { Alert, Spin, Segmented } from "antd";
 import {
   Switch,
   Button,
@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
+import { ToolDetailDrawer } from "./components/ToolDetailDrawer";
 import { WebSearchConfigModal } from "./WebSearchConfigModal";
 import styles from "./index.module.less";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
@@ -42,17 +43,6 @@ function browserModeButtonLabel(experimental: boolean, t: TFunction): string {
   return experimental
     ? t("tools.browserUnifiedModeButton")
     : t("tools.browserLegacyModeButton");
-}
-
-function browserTrackLabel(tool: ToolInfo, t: TFunction): string {
-  const effective = tool.config_values?.experimental_effective;
-  const shown =
-    effective === undefined
-      ? tool.config_values?.experimental !== false
-      : effective !== false;
-  return shown
-    ? t("tools.browserUnifiedDescription")
-    : t("tools.browserLegacyDescription");
 }
 
 function browserRestartPending(tool: ToolInfo): boolean {
@@ -239,6 +229,8 @@ export default function ToolsPage() {
   const { t } = useTranslation();
   const { selectedAgent } = useAgentStore();
   const entered = useRef(false);
+  const [detailToolName, setDetailToolName] = useState<string | null>(null);
+  useEffect(() => setDetailToolName(null), [selectedAgent]);
   const {
     tools,
     loading,
@@ -453,7 +445,11 @@ export default function ToolsPage() {
                           index={index}
                           animate={!entered.current}
                         >
-                          <InteractiveCard className={styles.toolCard} tilt={2}>
+                          <InteractiveCard
+                            className={styles.toolCard}
+                            tilt={2}
+                            onClick={() => setDetailToolName(tool.name)}
+                          >
                             <div className={styles.cardHeader}>
                               <span className={styles.toolIcon}>
                                 <Icon
@@ -465,35 +461,28 @@ export default function ToolsPage() {
                               <h3 className={styles.toolName}>
                                 {toolLabel(tool)}
                               </h3>
-                              <Popover
-                                trigger={["hover", "focus", "click"]}
-                                content={
-                                  <div className={styles.helpContent}>
-                                    <code>{tool.name}</code>
-                                    <p>
-                                      {tool.name === "browser"
-                                        ? browserTrackLabel(tool, t)
-                                        : toolDescription(tool)}
-                                    </p>
-                                  </div>
-                                }
+                              <button
+                                type="button"
+                                data-press
+                                className={styles.helpButton}
+                                aria-label={`${toolLabel(tool)} · ${t(
+                                  "common.help",
+                                )}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setDetailToolName(tool.name);
+                                }}
                               >
-                                <button
-                                  type="button"
-                                  data-press
-                                  className={styles.helpButton}
-                                  aria-label={`${toolLabel(tool)} · ${t(
-                                    "common.help",
-                                  )}`}
-                                >
-                                  <CircleHelp
-                                    size={16}
-                                    strokeWidth={1.75}
-                                    aria-hidden
-                                  />
-                                </button>
-                              </Popover>
-                              <span className={styles.switchTarget}>
+                                <CircleHelp
+                                  size={16}
+                                  strokeWidth={1.75}
+                                  aria-hidden
+                                />
+                              </button>
+                              <span
+                                className={styles.switchTarget}
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 <Switch
                                   aria-label={`${t(
                                     tool.enabled
@@ -526,7 +515,10 @@ export default function ToolsPage() {
                                 </span>
                               )}
                             {(canConfigure || tool.source_plugin_id) && (
-                              <div className={styles.cardFooter}>
+                              <div
+                                className={styles.cardFooter}
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 {tool.source_plugin_id && (
                                   <span className={styles.pluginSource}>
                                     {tool.source_plugin_name ||
@@ -563,7 +555,10 @@ export default function ToolsPage() {
                               </div>
                             )}
                             {hasActions && (
-                              <div className={styles.extraActions}>
+                              <div
+                                className={styles.extraActions}
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 {BROWSER_TOOL_NAMES.has(tool.name) ? (
                                   <BrowserExperimentalToggle
                                     toolName={tool.name}
@@ -626,6 +621,13 @@ export default function ToolsPage() {
           />
         )
       )}
+      <ToolDetailDrawer
+        tool={tools.find((tool) => tool.name === detailToolName) ?? null}
+        open={Boolean(
+          detailToolName && tools.some((tool) => tool.name === detailToolName),
+        )}
+        onClose={() => setDetailToolName(null)}
+      />
     </div>
   );
 }

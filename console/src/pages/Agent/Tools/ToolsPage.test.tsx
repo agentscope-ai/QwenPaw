@@ -36,6 +36,14 @@ vi.mock("./useTools", () => ({
           {
             name: "read_file",
             description: "Read file contents",
+            detail: "Read selected lines from a workspace file.",
+            input_schema: {
+              type: "object",
+              properties: {
+                file_path: { type: "string", description: "Path to read" },
+              },
+              required: ["file_path"],
+            },
             enabled: true,
           },
           { name: "append_file", description: "Append text", enabled: false },
@@ -107,6 +115,25 @@ describe("ToolsPage", () => {
       screen.queryByRole("heading", { name: "Read files" }),
     ).not.toBeInTheDocument();
   });
+  it("opens tool documentation and parameters without changing enabled state", async () => {
+    render(<ToolsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Read files · Help" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Tool details · read_file",
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "Read selected lines from a workspace file.",
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent("file_path");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Path to read");
+    expect(state.toggleEnabled).not.toHaveBeenCalled();
+    const closeButtons = screen.getAllByRole("button", { name: /^Close$/ });
+    fireEvent.click(closeButtons[closeButtons.length - 1]);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
+
   it("exposes an accessible switch for a disabled tool", () => {
     render(<ToolsPage />);
     fireEvent.click(

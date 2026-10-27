@@ -3165,7 +3165,17 @@
       "migration": "アプリの移行",
       "other": "未分類"
     },
-    "webSearchConfigLoadError": "このプロバイダーの認証情報を読み込めませんでした。保存前に再試行してください。"
+    "webSearchConfigLoadError": "このプロバイダーの認証情報を読み込めませんでした。保存前に再試行してください。",
+    "detailTitle": "ツール詳細 · {{name}}",
+    "detailTitleFallback": "ツール詳細",
+    "detailAbout": "説明",
+    "parameters": "パラメータ",
+    "noParameters": "このツールにはパラメータがありません",
+    "paramName": "名前",
+    "paramType": "型",
+    "paramRequired": "必須",
+    "paramDefault": "デフォルト",
+    "paramDescription": "説明"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",

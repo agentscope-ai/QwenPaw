@@ -37,7 +37,10 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 }));
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: harness.t }),
+  useTranslation: () => ({
+    t: harness.t,
+    i18n: { language: "en", resolvedLanguage: "en" },
+  }),
 }));
 
 import ToolsPage from "./index";
@@ -106,8 +109,8 @@ describe("ToolsPage load recovery", () => {
         ).toBeChecked();
       }
       expect(harness.listTools).toHaveBeenCalledTimes(2);
-      expect(harness.listTools).toHaveBeenNthCalledWith(1, "agent-a");
-      expect(harness.listTools).toHaveBeenNthCalledWith(2, "agent-a");
+      expect(harness.listTools).toHaveBeenNthCalledWith(1, "agent-a", "en");
+      expect(harness.listTools).toHaveBeenNthCalledWith(2, "agent-a", "en");
       expect(harness.toggleTool).not.toHaveBeenCalled();
       expect(harness.updateAsyncExecution).not.toHaveBeenCalled();
       expect(harness.updateToolConfig).not.toHaveBeenCalled();

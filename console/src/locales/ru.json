@@ -3182,7 +3182,17 @@
       "migration": "Миграция приложений",
       "other": "Без категории"
     },
-    "webSearchConfigLoadError": "Не удалось загрузить учётные данные провайдера. Повторите попытку перед сохранением."
+    "webSearchConfigLoadError": "Не удалось загрузить учётные данные провайдера. Повторите попытку перед сохранением.",
+    "detailTitle": "Сведения об инструменте · {{name}}",
+    "detailTitleFallback": "Сведения об инструменте",
+    "detailAbout": "Описание",
+    "parameters": "Параметры",
+    "noParameters": "У этого инструмента нет параметров",
+    "paramName": "Имя",
+    "paramType": "Тип",
+    "paramRequired": "Обязательный",
+    "paramDefault": "По умолчанию",
+    "paramDescription": "Описание"
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель — выберите в Chat после настройки",
