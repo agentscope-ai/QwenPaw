@@ -9,6 +9,8 @@ import pytest
 
 from qwenpaw.utils.media_paths import file_url_to_path
 
+from .timing import WAIT_TIMEOUT
+
 
 def make_plugin(tmp_path):
     root = tmp_path / "storage-plugin"
@@ -401,7 +403,7 @@ async def test_only_registered_cleanup_can_write_during_reload(tmp_path):
         ctx.resources.defer(legitimate_cleanup)
         reload_task = asyncio.create_task(host.reload("storage-contract"))
         try:
-            await asyncio.wait_for(entered.wait(), 2)
+            await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
 
             async def unregistered_cleanup():
                 await ctx.storage.awrite_json("forged.json", True)

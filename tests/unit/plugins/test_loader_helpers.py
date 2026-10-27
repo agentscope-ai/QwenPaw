@@ -17,6 +17,8 @@ import pytest
 
 import qwenpaw.plugins.loader as pl
 
+from .timing import WAIT_TIMEOUT
+
 
 @pytest.fixture()
 def working_dir(tmp_path, monkeypatch):
@@ -370,7 +372,10 @@ class TestHubPluginLifecycle:
             assert not catalog_request.done()
             await loader.load_all_plugins(types=["hub"])
             app.state.market_ready.set()
-            catalog = await asyncio.wait_for(catalog_request, timeout=1)
+            catalog = await asyncio.wait_for(
+                catalog_request,
+                timeout=WAIT_TIMEOUT,
+            )
             assert [provider.key for provider in catalog] == [
                 "qwenpaw",
                 "clawhub",
@@ -447,7 +452,7 @@ class TestHubPluginLifecycle:
                 config={"registered": registered, "release": release},
             ),
         )
-        await asyncio.wait_for(registered.wait(), timeout=5)
+        await asyncio.wait_for(registered.wait(), timeout=WAIT_TIMEOUT)
         try:
             assert "qwenpaw" not in market_registry.snapshot()
             with pytest.raises(ValueError, match="not loaded"):

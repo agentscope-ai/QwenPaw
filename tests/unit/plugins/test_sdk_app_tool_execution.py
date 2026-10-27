@@ -7,6 +7,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 SOURCE = """
 import asyncio
 import json
@@ -136,11 +138,12 @@ plugin = Plugin()
 
 
 async def wait_value(ctx, key):
-    for _ in range(300):
-        value = ctx.storage.read_json(key, None)
-        if value is not None:
-            return value
-        await asyncio.sleep(0.01)
+    async with asyncio.timeout(WAIT_TIMEOUT):
+        while True:
+            value = ctx.storage.read_json(key, None)
+            if value is not None:
+                return value
+            await asyncio.sleep(0.01)
     pytest.fail(f"Runtime did not produce {key}")
 
 
@@ -195,29 +198,31 @@ async def test_app_cancel_preserves_other_users_real_tool_and_model_roundtrip(
             (tmp_path / "release-bob").touch()
             results = await wait_value(ctx, "model-result-bob.json")
             assert len(results) == 1 and "tool-completed:bob" in results[0]
-            for _ in range(200):
-                bob = await host.request(
-                    "GET",
-                    f'/api/tool-app/tasks/{tasks["bob"]["run_id"]}',
-                    user_id="bob",
-                )
-                if bob.json()["status"] != "running":
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    bob = await host.request(
+                        "GET",
+                        f'/api/tool-app/tasks/{tasks["bob"]["run_id"]}',
+                        user_id="bob",
+                    )
+                    if bob.json()["status"] != "running":
+                        break
+                    await asyncio.sleep(0.01)
             assert bob.json()["status"] == "completed"
             assert ctx.storage.read_json("entered-bob.json") == 1
         finally:
             for user in ("alice", "bob"):
                 (tmp_path / f"release-{user}").touch()
-            for _ in range(300):
-                if (
-                    host.resource_snapshot("extension-contract")[
-                        "active_calls"
-                    ]
-                    == 0
-                ):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (
+                        host.resource_snapshot("extension-contract")[
+                            "active_calls"
+                        ]
+                        == 0
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
 
 
 @pytest.mark.parametrize(

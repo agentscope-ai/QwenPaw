@@ -18,6 +18,8 @@ from qwenpaw.plugins.lifecycle import UnloadMode
 from qwenpaw.plugins.loader import PluginLoader
 from qwenpaw.plugins.provision import provisions_dir
 
+from .timing import WAIT_TIMEOUT
+
 # Exact old wrapper from origin/main; do not execute its external startup.
 _LEGACY_PATCH = '''
 def _patch_plugin_loader_unload() -> None:
@@ -487,19 +489,22 @@ async def test_legacy_stop_timeout_reuses_pending_task(
                         UnloadMode.UNINSTALL,
                         delete_files=True,
                     ),
-                    5,
+                    WAIT_TIMEOUT,
                 )
                 assert not report.clean and not report.quiescent
                 assert report.errors
                 assert root.exists()
-        assert await asyncio.wait_for(manager.stop_agent("other"), 5)
+        assert await asyncio.wait_for(
+            manager.stop_agent("other"),
+            WAIT_TIMEOUT,
+        )
         other.stop.assert_awaited_once()
         assert "other" not in manager.agents
         assert len(calls) == 1
         assert (provisions_dir() / "compat" / "cloudpaw.json").exists()
     finally:
         release.set()
-        await asyncio.wait_for(stopped.wait(), 5)
+        await asyncio.wait_for(stopped.wait(), WAIT_TIMEOUT)
     update = await loader.lifecycle.reload("cloudpaw")
     assert not update.ok and update.errors
     with pytest.raises(RuntimeError, match="being uninstalled"):

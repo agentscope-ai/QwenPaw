@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Public bound model services keep both caller and provider resources owned.
-"""
+"""Bound model services retain both caller and provider resource ownership."""
 
 import asyncio
 
 import pytest
 
 from .test_sdk_context_services import package
+
+from .timing import WAIT_TIMEOUT
 
 CALLER = """
 from qwenpaw.plugins.messages import ContentBlock, Message
@@ -155,7 +156,7 @@ plugin = Plugin()
 
 
 async def until(predicate):
-    async with asyncio.timeout(5):
+    async with asyncio.timeout(WAIT_TIMEOUT):
         while not predicate():
             await asyncio.sleep(0.01)
 
@@ -201,7 +202,7 @@ async def test_context_model_stream_close_releases_both_plugin_owners(
         )
         try:
             first = asyncio.create_task(anext(stream))
-            event = await asyncio.wait_for(first, 5)
+            event = await asyncio.wait_for(first, WAIT_TIMEOUT)
             assert first.done() and event.content[0].text == "first"
             for owner in ("bound-caller-owner", "bound-provider-owner"):
                 assert host.resource_snapshot(owner)["active_calls"] > 0
@@ -209,7 +210,7 @@ async def test_context_model_stream_close_releases_both_plugin_owners(
                     await host.reload(owner)
         finally:
             try:
-                await asyncio.wait_for(stream.aclose(), 5)
+                await asyncio.wait_for(stream.aclose(), WAIT_TIMEOUT)
             finally:
                 provider.storage.write_json("release.json", True)
         assert provider.storage.read_json("provider-closed.json") is True
@@ -253,7 +254,7 @@ async def test_context_model_cancel_waits_for_actual_sync_provider_worker(
         finally:
             provider.storage.write_json("release.json", True)
             with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(task, 5)
+                await asyncio.wait_for(task, WAIT_TIMEOUT)
         assert provider.storage.read_json("provider-closed.json") is True
         for owner in ("bound-caller-owner", "bound-provider-owner"):
             assert host.resource_snapshot(owner)["active_calls"] == 0
@@ -445,7 +446,7 @@ plugin = Plugin()
             provider.storage.write_json("allow-close.json", True)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(task, 8)
+                await asyncio.wait_for(task, WAIT_TIMEOUT)
         assert provider.storage.read_json("cleanup-finished.json") is True
         for owner in ("bound-caller-owner", "bound-provider-owner"):
             assert host.resource_snapshot(owner)["active_calls"] == 0

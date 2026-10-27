@@ -26,6 +26,8 @@ from qwenpaw.plugins.settings import (
 from qwenpaw.plugins.workspace_projector import WorkspaceProjector
 from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 
+from .timing import WAIT_TIMEOUT
+
 
 def _write_plugin(
     root: Path,
@@ -271,7 +273,7 @@ async def test_cancel_config_shutdown_retains_original_hooks_for_retry(
         loader.lifecycle.update_config("cancel-stop", {"value": "new"}),
     )
     try:
-        await asyncio.wait_for(plugin.entered.wait(), timeout=1)
+        await asyncio.wait_for(plugin.entered.wait(), timeout=WAIT_TIMEOUT)
         updating.cancel()
         with pytest.raises(asyncio.CancelledError):
             await updating
@@ -391,7 +393,7 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
 
     def blocked_save(*args, **kwargs):
         loop.call_soon_threadsafe(started.set)
-        if not release.wait(timeout=5):
+        if not release.wait(timeout=WAIT_TIMEOUT * 2):
             raise TimeoutError("test did not release config writer")
         if not save_succeeds:
             raise OSError("disk write failed")
@@ -405,7 +407,7 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
         loader.lifecycle.update_config("cfg", {"cmd": "new"}),
     )
     try:
-        await asyncio.wait_for(started.wait(), timeout=5)
+        await asyncio.wait_for(started.wait(), timeout=WAIT_TIMEOUT)
         task.cancel()
         await asyncio.sleep(0)
         assert not task.done()
@@ -426,7 +428,7 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
     )
     report = await asyncio.wait_for(
         loader.lifecycle.update_config("cfg", {"cmd": "retry"}),
-        timeout=5,
+        timeout=WAIT_TIMEOUT,
     )
     assert report.ok
 

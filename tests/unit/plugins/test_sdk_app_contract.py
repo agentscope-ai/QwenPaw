@@ -8,6 +8,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 SOURCE = """
 import asyncio
 from pathlib import Path
@@ -262,7 +264,10 @@ async def test_http_stream_holds_lifecycle_until_disconnect(tmp_path):
             assert response.status == 200
             chunks = response.chunks()
             first = asyncio.create_task(anext(chunks))
-            assert await asyncio.wait_for(first, 2) == b"data: first\n\n"
+            assert (
+                await asyncio.wait_for(first, WAIT_TIMEOUT)
+                == b"data: first\n\n"
+            )
             assert first.done()
             with pytest.raises(PluginBusyError):
                 await host.reload("extension-contract")
@@ -315,10 +320,11 @@ async def test_app_task_ownership_cancel_and_actual_callback_stop(tmp_path):
             and task["run_id"] != task["session_id"]
         )
         try:
-            for _ in range(100):
-                if ctx.storage.read_json("task-entered.json", False):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if ctx.storage.read_json("task-entered.json", False):
+                        break
+                    await asyncio.sleep(0.01)
             assert ctx.storage.read_json("task-entered.json", False)
             for workspace, user in (("one", "bob"), ("two", "alice")):
                 foreign = await host.request(
@@ -350,15 +356,16 @@ async def test_app_task_ownership_cancel_and_actual_callback_stop(tmp_path):
             assert state.json()["status"] == "cancelled"
         finally:
             (tmp_path / "task-release").touch()
-            for _ in range(100):
-                if (
-                    host.resource_snapshot("extension-contract")[
-                        "active_calls"
-                    ]
-                    == 0
-                ):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (
+                        host.resource_snapshot("extension-contract")[
+                            "active_calls"
+                        ]
+                        == 0
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
         assert (await host.reload("extension-contract")).ok
 
 
@@ -397,18 +404,19 @@ async def test_app_approval_is_bound_to_authenticated_scope(
             ),
         )
         try:
-            for _ in range(100):
-                response = await host.request(
-                    "GET",
-                    "/api/sdk-app/approvals?session_id=approval-session",
-                    workspace_id="one",
-                    user_id="alice",
-                )
-                assert response.status == 200
-                approvals = response.json()["approvals"]
-                if approvals:
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    response = await host.request(
+                        "GET",
+                        "/api/sdk-app/approvals?session_id=approval-session",
+                        workspace_id="one",
+                        user_id="alice",
+                    )
+                    assert response.status == 200
+                    approvals = response.json()["approvals"]
+                    if approvals:
+                        break
+                    await asyncio.sleep(0.01)
             assert len(approvals) == 1
             request_id = approvals[0]["request_id"]
             other_list = await host.request(
@@ -472,7 +480,7 @@ async def test_app_approval_is_bound_to_authenticated_scope(
             assert (
                 resolved.status == 200 and resolved.json()["resolved"] is True
             )
-            answer = await asyncio.wait_for(waiting, 2)
+            answer = await asyncio.wait_for(waiting, WAIT_TIMEOUT)
             assert answer.json() == {"approved": approved}
         finally:
             if not waiting.done():
@@ -497,15 +505,16 @@ async def test_cancelled_app_approval_request_leaves_no_actionable_approval(
             ),
         )
         try:
-            for _ in range(100):
-                response = await host.request(
-                    "GET",
-                    "/api/sdk-app/approvals?session_id=cancelled-request",
-                    user_id="alice",
-                )
-                if response.json()["approvals"]:
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    response = await host.request(
+                        "GET",
+                        "/api/sdk-app/approvals?session_id=cancelled-request",
+                        user_id="alice",
+                    )
+                    if response.json()["approvals"]:
+                        break
+                    await asyncio.sleep(0.01)
             assert response.json()["approvals"]
             waiting.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -545,14 +554,15 @@ plugin = Plugin()
         await host.load(make_plugin(tmp_path, source, ["apps"]))
         async with host.websocket("/api/sdk-return-app/once") as socket:
             assert await socket.receive() == "done"
-            assert await asyncio.wait_for(socket.receive(), 1) is None
+            assert (
+                await asyncio.wait_for(socket.receive(), WAIT_TIMEOUT) is None
+            )
         assert (
             host.resource_snapshot("extension-contract")["active_calls"] == 0
         )
 
 
 async def test_complete_http_response_waits_for_actual_scope_cleanup(tmp_path):
-    import threading
     from qwenpaw.plugins.testing import PluginTestHost
 
     source = """
@@ -579,16 +589,24 @@ class Plugin:
 plugin = Plugin()
 """
     release = tmp_path / "release"
-    timer = threading.Timer(0.3, release.touch)
     async with PluginTestHost(tmp_path / "host") as host:
         ctx = await host.load(
             make_plugin(tmp_path, source, ["apps", "resources"]),
             config={"directory": str(tmp_path)},
         )
         initial = ctx.resources.snapshot()["resources"]
-        timer.start()
+        request = asyncio.create_task(
+            host.request("GET", "/api/cleanup/thread"),
+        )
         try:
-            response = await host.request("GET", "/api/cleanup/thread")
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while not (tmp_path / "stopping").exists():
+                    await asyncio.sleep(0.01)
+            assert (
+                not request.done()
+            ), "Response returned before cleanup finished"
+            release.touch()
+            response = await asyncio.wait_for(request, WAIT_TIMEOUT)
             assert response.status == 200 and response.json() == {"ok": True}
             assert (tmp_path / "stopping").exists()
             assert (
@@ -597,8 +615,7 @@ plugin = Plugin()
             assert ctx.resources.snapshot()["resources"] == initial
         finally:
             release.touch()
-            timer.cancel()
-            timer.join(1)
+            await asyncio.wait_for(request, WAIT_TIMEOUT)
 
 
 async def test_http_cleanup_failure_reported_once_then_host_retries(

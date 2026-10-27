@@ -8,6 +8,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 
 async def test_command_alias_reply_and_release(tmp_path):
     from qwenpaw.plugins.messages import Message
@@ -270,13 +272,14 @@ plugin = Plugin()
         try:
             result = await asyncio.wait_for(
                 host.run_hooks(HookPhase.PRE_DISPATCH, messages=messages),
-                1,
+                WAIT_TIMEOUT,
             )
             assert result.action == "continue" and result.replace_input is None
-            for _ in range(100):
-                if (tmp_path / "cancelled").exists():
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (tmp_path / "cancelled").exists():
+                        break
+                    await asyncio.sleep(0.01)
             assert (tmp_path / "cancelled").exists()
             assert (
                 host.resource_snapshot("extension-contract")["active_calls"]
@@ -286,15 +289,16 @@ plugin = Plugin()
                 await host.reload("extension-contract")
         finally:
             (tmp_path / "release").touch()
-            for _ in range(100):
-                if (
-                    host.resource_snapshot("extension-contract")[
-                        "active_calls"
-                    ]
-                    == 0
-                ):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (
+                        host.resource_snapshot("extension-contract")[
+                            "active_calls"
+                        ]
+                        == 0
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
         assert (tmp_path / "finished").exists()
         assert result.replace_input is None
         assert (await host.reload("extension-contract")).ok
@@ -529,10 +533,11 @@ plugin = Plugin()
         )
         running = asyncio.create_task(host.run_hooks("pre_execute"))
         try:
-            for _ in range(100):
-                if (tmp_path / "entered").exists():
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (tmp_path / "entered").exists():
+                        break
+                    await asyncio.sleep(0.01)
             assert (tmp_path / "entered").exists()
             await host.call_command("/revokehook")
         finally:
@@ -674,11 +679,11 @@ plugin=Plugin()
 
         invocation = asyncio.create_task(consume())
         try:
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not (tmp_path / "entered").exists():
                     await asyncio.sleep(0.01)
             invocation.cancel()
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not (tmp_path / "cancel-observed").exists():
                     await asyncio.sleep(0.01)
             invocation.cancel()
@@ -692,7 +697,7 @@ plugin=Plugin()
         finally:
             (tmp_path / "release").touch()
             await asyncio.gather(invocation, return_exceptions=True)
-        async with asyncio.timeout(3):
+        async with asyncio.timeout(WAIT_TIMEOUT):
             while not (tmp_path / "finished").exists():
                 await asyncio.sleep(0.01)
         assert (await host.reload("extension-contract")).ok

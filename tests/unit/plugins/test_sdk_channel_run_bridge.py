@@ -17,6 +17,8 @@ from .test_sdk_channel_routing_contract import (
     wait_for,
 )
 
+from .timing import WAIT_TIMEOUT
+
 
 async def test_host_close_during_model_run_finishes_queue_consumer(
     tmp_path,
@@ -52,7 +54,7 @@ async def test_repeated_cancellation_preserves_queued_terminal_callback(
         ctx.storage.write_json("callback-fault.json", "gate")
         await host.receive_channel(CHANNEL, incoming("hold-first", "one"))
         try:
-            async with asyncio.timeout(8):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not ctx.storage.read_json("model.json", []):
                     await asyncio.sleep(0.01)
             tracker = (await host._workspace("test")).task_tracker
@@ -144,7 +146,7 @@ async def test_stop_retains_terminal_task_queued_before_callback_admission(
             remember_request,
         )
         await host.receive_channel(CHANNEL, incoming("empty-output", "queued"))
-        await asyncio.wait_for(queued.wait(), 5)
+        await asyncio.wait_for(queued.wait(), WAIT_TIMEOUT)
         assert len(notifications) == 2
         stopping = asyncio.create_task(host.stop_channel(CHANNEL))
         try:
@@ -153,7 +155,7 @@ async def test_stop_retains_terminal_task_queued_before_callback_admission(
                 "Pending terminal must retain the actual run state "
                 "until delivery finishes"
             )
-            await asyncio.wait_for(channel._end_run(requests[0]), 1)
+            await asyncio.wait_for(channel._end_run(requests[0]), WAIT_TIMEOUT)
             assert (
                 len(notifications) == 2
             ), "Repeated end must not enqueue a duplicate terminal"
@@ -168,7 +170,7 @@ async def test_stop_retains_terminal_task_queued_before_callback_admission(
             ] == ["start"]
         finally:
             release.set()
-            await asyncio.wait_for(stopping, 7)
+            await asyncio.wait_for(stopping, WAIT_TIMEOUT)
         assert not cancelled
         events = ctx.storage.read_json("events.json")
         assert [event["phase"] for event in events] == ["start", "end"]
@@ -224,7 +226,7 @@ async def test_host_close_retains_native_tracker_completion_callback(
             CHANNEL,
             incoming("empty-output", "native-tail"),
         )
-        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
         native = callback_tasks[0]
         active = await workspace.task_tracker.snapshot_active_tasks(
             owner=workspace,
@@ -235,7 +237,10 @@ async def test_host_close_retains_native_tracker_completion_callback(
         try:
             if timeout_then_retry:
                 with pytest.raises(SDKError):
-                    await asyncio.wait_for(asyncio.shield(closing), 7)
+                    await asyncio.wait_for(
+                        asyncio.shield(closing),
+                        WAIT_TIMEOUT,
+                    )
             else:
                 await asyncio.sleep(0.05)
                 assert not closing.done(), (
@@ -250,7 +255,7 @@ async def test_host_close_retains_native_tracker_completion_callback(
                     pass
         finally:
             release.set()
-            await asyncio.wait_for(asyncio.shield(native), 5)
+            await asyncio.wait_for(asyncio.shield(native), WAIT_TIMEOUT)
             await asyncio.gather(closing, return_exceptions=True)
             await host.close()
         assert finished.is_set() and native.done()

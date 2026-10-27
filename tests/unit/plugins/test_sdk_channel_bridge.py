@@ -10,12 +10,15 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 
 async def wait_flag(ctx, name):
-    for _ in range(300):
-        if ctx.storage.read_json(name, False):
-            return
-        await asyncio.sleep(0.01)
+    async with asyncio.timeout(WAIT_TIMEOUT):
+        while True:
+            if ctx.storage.read_json(name, False):
+                return
+            await asyncio.sleep(0.01)
     pytest.fail(f"Channel callback did not reach {name}")
 
 
@@ -95,7 +98,7 @@ plugin = Plugin()
             cancellation = asyncio.create_task(
                 workspace.task_tracker.request_stop(runs[0]),
             )
-            done, _ = await asyncio.wait({cancellation}, timeout=2)
+            done, _ = await asyncio.wait({cancellation}, timeout=WAIT_TIMEOUT)
             assert (
                 cancellation in done
             ), "Synchronous sender never observed cancellation"
@@ -106,7 +109,7 @@ plugin = Plugin()
         finally:
             release.touch()
             if cancellation is not None:
-                await asyncio.wait_for(cancellation, 3)
+                await asyncio.wait_for(cancellation, WAIT_TIMEOUT)
             await host.stop_channel("sync-send")
 
 
@@ -281,10 +284,11 @@ plugin = Plugin()
                     session_id="one-queue",
                 ),
             )
-            for _ in range(100):
-                if manager._enqueue_tasks:
-                    break
-                await asyncio.sleep(0)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if manager._enqueue_tasks:
+                        break
+                    await asyncio.sleep(0)
             assert manager._enqueue_tasks and all(
                 not task.done() for task in manager._enqueue_tasks
             )
@@ -301,10 +305,11 @@ plugin = Plugin()
         finally:
             gate.release()
         ctx = host.context("extension-contract")
-        for _ in range(300):
-            if ctx.storage.read_json("sent.json", []):
-                break
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(WAIT_TIMEOUT):
+            while True:
+                if ctx.storage.read_json("sent.json", []):
+                    break
+                await asyncio.sleep(0.01)
         assert ctx.storage.read_json("calls.json") == ["fresh"]
         assert ctx.storage.read_json("sent.json") == ["fresh"]
         await host.stop_channel("queued-channel")
@@ -359,10 +364,11 @@ async def test_channel_uses_real_sender_access_policy_before_runtime(tmp_path):
                 ),
             )
         await wait_sent(ctx, "test")
-        for _ in range(100):
-            if ctx.storage.read_json("calls.json", []):
-                break
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(WAIT_TIMEOUT):
+            while True:
+                if ctx.storage.read_json("calls.json", []):
+                    break
+                await asyncio.sleep(0.01)
         assert ctx.storage.read_json("calls.json") == ["allowed"]
         await host.stop_channel("sdk-contract-channel")
 
@@ -448,7 +454,7 @@ async def test_stop_waits_for_invocation_not_long_lived_queue_worker(
                 (ContentBlock(text="/channelprobe pending"),),
             ),
         )
-        await asyncio.wait_for(waiting.wait(), 3)
+        await asyncio.wait_for(waiting.wait(), WAIT_TIMEOUT)
         try:
             await asyncio.wait_for(
                 host.stop_channel("sdk-contract-channel"),
@@ -474,11 +480,12 @@ async def test_stop_waits_for_invocation_not_long_lived_queue_worker(
                 ),
             )
             current = host.context("extension-contract")
-            for _ in range(200):
-                rows = current.storage.read_json("sent-test.json", [])
-                if rows and rows[-1]["text"] == "test:replacement":
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    rows = current.storage.read_json("sent-test.json", [])
+                    if rows and rows[-1]["text"] == "test:replacement":
+                        break
+                    await asyncio.sleep(0.01)
             assert rows[-1]["text"] == "test:replacement"
             assert (
                 current.storage.read_json("called-test.json") == "replacement"

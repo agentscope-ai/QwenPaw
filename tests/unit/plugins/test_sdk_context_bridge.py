@@ -14,6 +14,8 @@ import pytest
 
 from .test_sdk_context_services import package
 
+from .timing import WAIT_TIMEOUT
+
 
 async def configure_loopback(host, base_url):
     from qwenpaw.providers.provider import ProviderInfo, ModelInfo
@@ -239,7 +241,9 @@ async def test_cancelled_factory_worker_closes_real_late_model_client(
         if provider.id == "context-loopback":
             created.append(model)
             entered.set()
-            assert release.wait(10), "Factory test gate was not released"
+            assert release.wait(
+                WAIT_TIMEOUT * 2,
+            ), "Factory test gate was not released"
         return model
 
     def forbidden_network(*_):
@@ -298,7 +302,7 @@ plugin = Plugin()
             host.call_tool("late_factory_probe", {}, workspace_id="bound"),
         )
         try:
-            assert await asyncio.to_thread(entered.wait, 5)
+            assert await asyncio.to_thread(entered.wait, WAIT_TIMEOUT)
             task.cancel()
             await asyncio.sleep(0.02)
             assert not task.done(), "Factory thread is still live"
@@ -307,7 +311,7 @@ plugin = Plugin()
         finally:
             release.set()
             with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(task, 5)
+                await asyncio.wait_for(task, WAIT_TIMEOUT)
         assert len(created) == 1
         assert created[
             0
@@ -435,11 +439,11 @@ plugin = Plugin()
                 workspace_id="bound",
             )
             try:
-                first = await asyncio.wait_for(anext(stream), 5)
+                first = await asyncio.wait_for(anext(stream), WAIT_TIMEOUT)
                 assert connected.is_set() and first.content[0].text == "first"
             finally:
-                await asyncio.wait_for(stream.aclose(), 5)
-            await asyncio.wait_for(disconnected.wait(), 2)
+                await asyncio.wait_for(stream.aclose(), WAIT_TIMEOUT)
+            await asyncio.wait_for(disconnected.wait(), WAIT_TIMEOUT)
             assert (
                 host.resource_snapshot("transport-caller")["active_calls"] == 0
             )
@@ -452,7 +456,7 @@ plugin = Plugin()
         if serving:
             await asyncio.wait_for(
                 asyncio.gather(*tuple(serving), return_exceptions=True),
-                3,
+                WAIT_TIMEOUT,
             )
 
 
@@ -1044,21 +1048,29 @@ async def test_interrupt_reload_retries_cleanup_after_outer_tool_exits(
                 "release.json",
                 True,
             )
-            for _ in range(50):
-                pending = {
-                    task
-                    for owner in ("bound-caller-owner", "bound-provider-owner")
-                    if (instance := host._loader.lifecycle.get_instance(owner))
-                    for task in instance.activity.tasks
-                    if not task.done()
-                }
-                if not call.done():
-                    pending.add(call)
-                if not pending:
-                    break
-                for task in pending:
-                    task.cancel()
-                await asyncio.sleep(0.02)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    pending = {
+                        task
+                        for owner in (
+                            "bound-caller-owner",
+                            "bound-provider-owner",
+                        )
+                        if (
+                            instance := host._loader.lifecycle.get_instance(
+                                owner,
+                            )
+                        )
+                        for task in instance.activity.tasks
+                        if not task.done()
+                    }
+                    if not call.done():
+                        pending.add(call)
+                    if not pending:
+                        break
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.sleep(0.02)
             await asyncio.gather(call, return_exceptions=True)
 
 
@@ -1230,19 +1242,24 @@ plugin = Plugin()
                 "release.json",
                 True,
             )
-            for _ in range(50):
-                pending = {
-                    task
-                    for owner in (
-                        "runtime-cleanup-caller",
-                        "runtime-cleanup-provider",
-                    )
-                    if (instance := host._loader.lifecycle.get_instance(owner))
-                    for task in instance.activity.tasks
-                    if not task.done()
-                }
-                if not pending:
-                    break
-                for task in pending:
-                    task.cancel()
-                await asyncio.sleep(0.02)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    pending = {
+                        task
+                        for owner in (
+                            "runtime-cleanup-caller",
+                            "runtime-cleanup-provider",
+                        )
+                        if (
+                            instance := host._loader.lifecycle.get_instance(
+                                owner,
+                            )
+                        )
+                        for task in instance.activity.tasks
+                        if not task.done()
+                    }
+                    if not pending:
+                        break
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.sleep(0.02)

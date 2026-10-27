@@ -6,7 +6,6 @@ import asyncio
 import json
 import shutil
 import threading
-import time
 
 import pytest
 
@@ -15,6 +14,8 @@ from qwenpaw.plugins import provision, updates
 from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.lifecycle import UnloadMode
 from qwenpaw.plugins.loader import PluginLoader
+
+from .timing import WAIT_TIMEOUT, wait_for_thread_progress
 
 
 @pytest.fixture
@@ -86,7 +87,7 @@ async def test_file_preparation_keeps_event_loop_responsive(
 
     def slow_save(*args, **kwargs):
         before = len(ticks)
-        time.sleep(0.08)
+        wait_for_thread_progress(lambda: len(ticks) > before)
         progress.append(len(ticks) > before)
         return original(*args, **kwargs)
 
@@ -167,13 +168,13 @@ async def test_cancelled_preparation_waits_for_worker_and_rolls_back(
 
     def blocked_save(*args, **kwargs):
         loop.call_soon_threadsafe(entered.set)
-        assert release.wait(2)
+        assert release.wait(WAIT_TIMEOUT * 2)
         return original(*args, **kwargs)
 
     monkeypatch.setattr(provision, "save_inventory", blocked_save)
     task = asyncio.create_task(loader.lifecycle.activate("async-files"))
     try:
-        await asyncio.wait_for(entered.wait(), 2)
+        await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
         task.cancel()
         await asyncio.sleep(0)
         assert not task.done()

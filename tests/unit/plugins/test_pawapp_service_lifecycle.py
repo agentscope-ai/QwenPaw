@@ -20,6 +20,8 @@ from qwenpaw.plugins import custody
 from qwenpaw.plugins.lifecycle import UnloadMode
 from qwenpaw.plugins.loader import PluginLoader
 
+from .timing import WAIT_TIMEOUT
+
 
 def _fixture_plugin(tmp_path, registry, declaration):
     root = tmp_path / "service-fixture"
@@ -352,7 +354,7 @@ async def test_stuck_service_close_retains_retry_and_blocks_reregister(
     try:
         report = await asyncio.wait_for(
             loader.lifecycle.unload(manifest.id, UnloadMode.UNLOAD),
-            timeout=1,
+            timeout=WAIT_TIMEOUT,
         )
         assert not report.clean and not report.quiescent
         assert len(calls) == 1
@@ -377,7 +379,7 @@ async def test_service_close_interruption_does_not_reset_kill_deadline(
     ready = tmp_path / "ready"
 
     async def await_ready(_service):
-        async with asyncio.timeout(5):
+        async with asyncio.timeout(WAIT_TIMEOUT):
             while not ready.exists():
                 await asyncio.sleep(0.001)
 
@@ -410,7 +412,7 @@ async def test_service_close_interruption_does_not_reset_kill_deadline(
     try:
         closing = asyncio.create_task(closer())
         if interruption == "cancel":
-            await asyncio.wait_for(terminating.wait(), timeout=1)
+            await asyncio.wait_for(terminating.wait(), timeout=WAIT_TIMEOUT)
             closing.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await closing
@@ -419,7 +421,7 @@ async def test_service_close_interruption_does_not_reset_kill_deadline(
                 await closing
         assert service._process is process  # pylint: disable=protected-access
         assert (
-            await asyncio.wait_for(process.wait(), timeout=2)
+            await asyncio.wait_for(process.wait(), timeout=WAIT_TIMEOUT)
             == -signal.SIGKILL
         )
         with pytest.raises(RuntimeError, match="close was cancelled"):
