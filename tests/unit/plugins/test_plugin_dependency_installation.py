@@ -21,10 +21,10 @@ from .test_manifest_dependencies import package
 pytestmark = pytest.mark.p1
 
 
-@pytest.fixture(scope="session")
-def desktop_certifi_wheel(tmp_path_factory):
-    """Fetch the desktop certificate dependency once per session."""
-    wheels = tmp_path_factory.mktemp("desktop-certifi")
+@pytest.fixture(name="certifi_wheel", scope="session")
+def _certifi_wheel(tmp_path_factory):
+    """Fetch the shared installer's certificate dependency once per session."""
+    wheels = tmp_path_factory.mktemp("installer-certifi")
     result = subprocess.run(
         [
             sys.executable,
@@ -53,7 +53,7 @@ def test_install_with_duplicate_unrelated_packages(
     tmp_path,
     sdk,
     mode,
-    request,
+    certifi_wheel,
 ):
     """Install/import a local wheel despite old shared-site host metadata."""
     python, _ = dependency_python(
@@ -62,8 +62,7 @@ def test_install_with_duplicate_unrelated_packages(
     )
     wheels = tmp_path / "wheels"
     wheels.mkdir()
-    if mode == "desktop":
-        shutil.copy2(request.getfixturevalue("desktop_certifi_wheel"), wheels)
+    shutil.copy2(certifi_wheel, wheels)
     info = "unified_probe-1.0.dist-info"
     files = {
         "unified_probe/__init__.py": "VALUE = 'installed'\n",
@@ -216,6 +215,41 @@ asyncio.run(main())
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout.strip().splitlines()[-1])["imported"]
+
+
+@pytest.mark.parametrize("mode", ["pip", "uv", "desktop"])
+def test_install_failure_preserves_process_output(tmp_path, monkeypatch, mode):
+    from qwenpaw.plugins import loader as module
+
+    loader = PluginLoader([tmp_path])
+    monkeypatch.setattr(module, "_is_frozen", lambda: mode == "desktop")
+    monkeypatch.setattr(module, "_desktop_python", lambda: sys.executable)
+    monkeypatch.setattr(module, "_plugin_site_dir", lambda: tmp_path / "site")
+    monkeypatch.setattr(module, "require_pip", lambda _: True, raising=False)
+    monkeypatch.setattr(module, "require_uv", lambda _: True, raising=False)
+    monkeypatch.setattr(loader, "_find_uv", lambda: "uv")
+    run = loader._run_subprocess_with_streaming_log
+
+    def fail(args, **kwargs):
+        detail = (
+            "No module named pip"
+            if mode == "uv" and args[0] != "uv"
+            else "No matching distribution found for missing-probe"
+        )
+        # Exercise the real stderr-to-stdout streaming used by installers.
+        return run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; print(sys.argv[1], file=sys.stderr); sys.exit(1)",
+                detail,
+            ],
+            **kwargs,
+        )
+
+    monkeypatch.setattr(loader, "_run_subprocess_with_streaming_log", fail)
+    with pytest.raises(RuntimeError, match="No matching distribution found"):
+        loader._install_requirements(tmp_path / "requirements.txt", "probe")
 
 
 @pytest.mark.parametrize("sdk", [False, True])

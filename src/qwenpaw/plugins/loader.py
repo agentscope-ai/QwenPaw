@@ -1591,7 +1591,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         if not pip_missing:
             raise RuntimeError(
                 f"Dependency installation failed for '{plugin_id}': "
-                f"{result.stderr}",
+                f"{result.stderr or result.stdout}",
             )
 
         # ── Attempt 2: uv pip install ─────────────────────────────────
@@ -1630,7 +1630,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         if uv_result.returncode != 0:
             raise RuntimeError(
                 f"Dependency installation failed for '{plugin_id}' "
-                f"(via uv): {uv_result.stderr}",
+                f"(via uv): {uv_result.stderr or uv_result.stdout}",
             )
         logger.info(
             f"Dependencies installed for plugin '{plugin_id}' (via uv)",
