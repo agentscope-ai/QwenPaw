@@ -46,7 +46,7 @@ async def test_market_search_multiple_providers_aggregates(
                             "source": "clawhub",
                             "canonicalUrl": "/tester/skill",
                             "displayName": "Claw skill",
-                        }
+                        },
                     ],
                 },
             )
@@ -63,7 +63,7 @@ async def test_market_search_multiple_providers_aggregates(
                 "success": True,
                 "data": {
                     "skills": [
-                        {"id": "@tester/skill", "display_name": "Skill"}
+                        {"id": "@tester/skill", "display_name": "Skill"},
                     ],
                     "total": 11,
                 },
