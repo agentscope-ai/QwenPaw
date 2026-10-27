@@ -3,6 +3,7 @@
 # pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,11 @@ from types import SimpleNamespace
 from qwenpaw.agents.memory.proactive import proactive_agenda as pa
 from qwenpaw.agents.memory.proactive.proactive_delivery import DeliveryLedger
 
-from .conftest import FakeMemoryManager, agenda_entry
+from .conftest import (
+    BlockingRefreshManager,
+    FakeMemoryManager,
+    agenda_entry,
+)
 
 
 def _ledger(tmp_path: Path) -> DeliveryLedger:
@@ -339,7 +344,7 @@ class TestEnsureAgenda:
             [agenda_entry("t-1"), agenda_entry("t-2")],
         )
         fresh = DeliveryLedger(writer.path)
-        assert fresh.entries == []  # nothing hydrated yet
+        assert not fresh.entries  # nothing hydrated yet
 
         bundle = await pa.ensure_agenda(
             manager,
@@ -380,3 +385,79 @@ def test_refresh_allowed_without_ledger_or_window():
     assert pa._refresh_allowed(None, 120) is True
     assert pa._refresh_allowed(ledger, 0) is True
     assert pa._refresh_allowed(ledger, 120) is True
+
+
+class TestRefreshSerialization:
+    """One rebuild per workspace, and never on a read-only round."""
+
+    async def test_read_only_round_never_refreshes(self):
+        manager = FakeMemoryManager([])
+
+        bundle = await pa.ensure_agenda(
+            manager,
+            None,
+            cooldown_days=3,
+            refresh=False,
+        )
+
+        # ``/proactive`` answers from this read alone and queues the rebuild
+        # itself, so the minutes-long chain must not run inline.
+        assert manager.actions() == ["proactive"]
+        assert bundle.items == []
+        assert bundle.refreshed is False
+        assert bundle.throttled is False
+
+    async def test_read_only_round_still_reports_the_throttle(
+        self,
+        tmp_path: Path,
+    ):
+        manager = FakeMemoryManager([])
+        ledger = _ledger(tmp_path)
+        await ledger.record_refresh()
+
+        bundle = await pa.ensure_agenda(
+            manager,
+            ledger,
+            cooldown_days=3,
+            min_interval_minutes=120,
+            refresh=False,
+        )
+
+        assert manager.actions() == ["proactive"]
+        assert bundle.throttled is True
+
+    async def test_parallel_rounds_share_one_refresh(self):
+        manager = BlockingRefreshManager(
+            [],
+            refresh_swaps_agenda=[agenda_entry("t-new")],
+        )
+
+        first = asyncio.create_task(
+            pa.ensure_agenda(manager, None, cooldown_days=3, scope="/ws/a"),
+        )
+        await manager.refresh_started.wait()
+        assert pa.refresh_in_progress("/ws/a") is True
+
+        second = asyncio.create_task(
+            pa.ensure_agenda(manager, None, cooldown_days=3, scope="/ws/a"),
+        )
+        # Let the second round reach the lock the first one is holding.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        manager.release.set()
+
+        first_bundle, second_bundle = await asyncio.gather(first, second)
+
+        assert manager.actions().count("proactive_refresh") == 1
+        assert [item.topic_id for item in first_bundle.items] == ["t-new"]
+        # The waiter re-reads instead of rebuilding a second time.
+        assert [item.topic_id for item in second_bundle.items] == ["t-new"]
+        assert second_bundle.refreshed is False
+        assert pa.refresh_in_progress("/ws/a") is False
+
+    async def test_locks_and_progress_are_keyed_by_scope(self):
+        assert pa._lock_for("/ws/a") is pa._lock_for("/ws/a")
+        assert pa._lock_for("/ws/a") is not pa._lock_for("/ws/b")
+        # An unknown workspace still shares one registry entry.
+        assert pa._lock_for("") is pa._lock_for("   ")
+        assert pa.refresh_in_progress("") is False

@@ -25,14 +25,16 @@ if TYPE_CHECKING:  # pragma: no cover
         AgendaRound,
         ProactiveConfig,
         ProactiveSettings,
-        build_agenda_receipt,
         deliver_proactive_round,
         disable_proactive_for_session,
         enable_proactive_for_session,
         load_proactive_settings,
+        present_agenda_receipt,
         proactive_configs,
         proactive_tasks,
         proactive_trigger_loop,
+        rebuild_notice,
+        start_agenda_rebuild,
     )
 
 # pylint: disable=undefined-all-variable
@@ -50,7 +52,6 @@ __all__ = [
     "AgendaRound",
     "ProactiveConfig",
     "ProactiveSettings",
-    "build_agenda_receipt",
     "deliver_proactive_round",
     "enable_proactive_for_session",
     "disable_proactive_for_session",
@@ -58,6 +59,9 @@ __all__ = [
     "proactive_tasks",
     "proactive_configs",
     "load_proactive_settings",
+    "present_agenda_receipt",
+    "rebuild_notice",
+    "start_agenda_rebuild",
 ]
 
 _PROACTIVE_EXPORTS = {
@@ -65,7 +69,6 @@ _PROACTIVE_EXPORTS = {
     "AgendaRound",
     "ProactiveConfig",
     "ProactiveSettings",
-    "build_agenda_receipt",
     "deliver_proactive_round",
     "enable_proactive_for_session",
     "disable_proactive_for_session",
@@ -73,6 +76,9 @@ _PROACTIVE_EXPORTS = {
     "proactive_tasks",
     "proactive_configs",
     "load_proactive_settings",
+    "present_agenda_receipt",
+    "rebuild_notice",
+    "start_agenda_rebuild",
 }
 
 

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 
@@ -111,6 +112,25 @@ class FakeMemoryManager:
         return [name for name, _ in self.calls]
 
 
+class BlockingRefreshManager(FakeMemoryManager):
+    """A fake whose rebuild stays in flight until the test releases it.
+
+    ReMe's chain takes minutes, so anything that has to observe "a rebuild
+    is already running" needs a fake that does not finish instantly.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.refresh_started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def run_action(self, action: str, **kwargs: Any):
+        if action == "proactive_refresh":
+            self.refresh_started.set()
+            await self.release.wait()
+        return await super().run_action(action, **kwargs)
+
+
 @pytest.fixture
 def fake_manager() -> FakeMemoryManager:
     return FakeMemoryManager()
@@ -124,3 +144,15 @@ def _clear_ledger_cache():
     proactive_delivery._ledgers.clear()
     yield
     proactive_delivery._ledgers.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clear_refresh_registry():
+    """The per-workspace rebuild registry is process-wide; never leak it."""
+    from qwenpaw.agents.memory.proactive import proactive_agenda
+
+    proactive_agenda._refresh_locks.clear()
+    proactive_agenda._refresh_running.clear()
+    yield
+    proactive_agenda._refresh_locks.clear()
+    proactive_agenda._refresh_running.clear()

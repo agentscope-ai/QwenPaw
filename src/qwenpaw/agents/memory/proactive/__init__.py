@@ -24,10 +24,12 @@ from .proactive_delivery import (
 from .proactive_responder import (
     AgendaRound,
     ProactiveSettings,
-    build_agenda_receipt,
     collect_agenda,
     deliver_proactive_round,
     load_proactive_settings,
+    present_agenda_receipt,
+    rebuild_notice,
+    start_agenda_rebuild,
 )
 from .proactive_trigger import (
     disable_proactive_for_session,
@@ -46,7 +48,6 @@ __all__ = [
     "DeliveryLedger",
     "ProactiveConfig",
     "ProactiveSettings",
-    "build_agenda_receipt",
     "collect_agenda",
     "deliver_proactive_round",
     "disable_proactive_for_session",
@@ -57,9 +58,12 @@ __all__ = [
     "ledger_path",
     "load_proactive_settings",
     "mark_delivered",
+    "present_agenda_receipt",
     "proactive_configs",
     "proactive_tasks",
     "proactive_trigger_loop",
+    "rebuild_notice",
     "refresh_agenda",
     "select_presentation_items",
+    "start_agenda_rebuild",
 ]

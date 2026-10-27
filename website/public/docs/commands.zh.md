@@ -1169,7 +1169,7 @@ Proactive Mode（主动议程模式）把长期记忆提炼出的**当日主动�
 /proactive           # 立即在当前聊天回执当日议程，并武装空闲监听（默认 30 分钟）
 /proactive on        # 同上
 /proactive 60        # 同上，空闲阈值改为 60 分钟（须为正整数）
-/proactive now       # 立刻强制重跑一次议程并推送到收件箱
+/proactive now       # 后台强制重跑一次议程，完成后单独发回执并推送收件箱
 /proactive off       # 停止空闲监听
 ```
 
@@ -1179,7 +1179,7 @@ Proactive Mode（主动议程模式）把长期记忆提炼出的**当日主动�
 
 1. **读取**：调 ReMe 的 `proactive` job 只读现成议程，到期提醒已排在最前
 2. **去重**：用本地投递台账过滤掉冷却期内已经展示过的条目
-3. **按需刷新**：只有过滤后为空时，才调 `proactive_refresh` 从 topic extraction 重跑一遍，并受最小刷新间隔限流
+3. **按需刷新（后台）**：只有过滤后为空时，才调 `proactive_refresh` 从 topic extraction 重跑一遍；重跑放在后台任务里（同一 workspace 同时只允许一个，并受最小刷新间隔限流），`/proactive` 立刻回一句“正在重建”，完成后单独发一条回执，不会让会话一直转圈
 4. **呈现**：`/proactive` 回到当前聊天；空闲轮次与每日任务写入收件箱，议程为空时**完全静默**（不写收件箱、只留日志）
 5. **回传**：每次真正展示后尽力调用 `proactive_feedback`，让 ReMe 知道哪些已经用过
 

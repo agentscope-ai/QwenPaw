@@ -10,7 +10,7 @@ import pytest
 
 from qwenpaw.agents.memory.proactive import proactive_responder as pr
 
-from .conftest import FakeMemoryManager, agenda_entry
+from .conftest import BlockingRefreshManager, FakeMemoryManager, agenda_entry
 
 
 def _settings(**overrides) -> pr.ProactiveSettings:
@@ -58,6 +58,27 @@ def memory_config(monkeypatch):
             ),
         ),
     )
+
+
+@pytest.fixture
+def push_notices(monkeypatch):
+    """Capture the out-of-band console pushes a finished rebuild sends."""
+    notices: list[tuple[str, str]] = []
+
+    async def _append(session_id: str, text: str, **_kwargs) -> None:
+        notices.append((session_id, text))
+
+    monkeypatch.setattr("qwenpaw.app.console_push_store.append", _append)
+    return notices
+
+
+@pytest.fixture(autouse=True)
+def no_lingering_rebuilds():
+    """Keep one test's background rebuild out of the next test's way."""
+    yield
+    for task in list(pr._rebuild_tasks.values()):
+        task.cancel()
+    pr._rebuild_tasks.clear()
 
 
 class TestLoadSettings:
@@ -121,12 +142,12 @@ class TestProviderResolution:
         assert pr.resolve_memory_provider(manager) is manager
 
 
-class TestBuildAgendaReceipt:
+class TestPresentAgendaReceipt:
     async def test_disabled_switch_explains_how_to_enable(
         self,
         tmp_path: Path,
     ):
-        receipt = await pr.build_agenda_receipt(
+        receipt = await pr.present_agenda_receipt(
             agent_id="agent-1",
             workspace_dir=str(tmp_path),
             memory_manager=FakeMemoryManager(),
@@ -148,11 +169,11 @@ class TestBuildAgendaReceipt:
             ],
         )
 
-        receipt = await pr.build_agenda_receipt(
+        receipt = await pr.present_agenda_receipt(
             agent_id="agent-1",
             workspace_dir=str(tmp_path),
             memory_manager=manager,
-            external_ref="chat-7",
+            session_id="chat-7",
             settings=_settings(),
         )
 
@@ -169,18 +190,19 @@ class TestBuildAgendaReceipt:
         assert manager.feedback[0][0]["external_ref"] == "chat-7"
         assert manager.feedback[0][0]["agenda_date"] == "2026-10-11"
 
-    async def test_empty_agenda_refreshes_then_explains(self, tmp_path: Path):
+    async def test_empty_agenda_answers_at_once(self, tmp_path: Path):
+        """An empty read never waits for ReMe's minutes-long rebuild."""
         manager = FakeMemoryManager([])
 
-        receipt = await pr.build_agenda_receipt(
+        receipt = await pr.present_agenda_receipt(
             agent_id="agent-1",
             workspace_dir=str(tmp_path),
             memory_manager=manager,
             settings=_settings(),
         )
 
-        assert "proactive_refresh" in manager.actions()
-        assert "Nothing worth raising today" in receipt
+        assert manager.actions() == ["proactive"]
+        assert "background" in receipt
         assert not manager.feedback
 
     async def test_forced_refresh_empty_state_says_so(self, tmp_path: Path):
@@ -208,7 +230,7 @@ class TestBuildAgendaReceipt:
         ledger = pr._ledger_for(str(tmp_path), settings)
         await ledger.record_refresh()
 
-        receipt = await pr.build_agenda_receipt(
+        receipt = await pr.present_agenda_receipt(
             agent_id="agent-1",
             workspace_dir=str(tmp_path),
             memory_manager=manager,
@@ -237,7 +259,7 @@ class TestBuildAgendaReceipt:
         ledger = pr._ledger_for(str(tmp_path), settings)
         await ledger.record_refresh()
 
-        receipt = await pr.build_agenda_receipt(
+        receipt = await pr.present_agenda_receipt(
             agent_id="agent-1",
             workspace_dir=str(tmp_path),
             memory_manager=manager,
@@ -261,7 +283,7 @@ class TestBuildAgendaReceipt:
         ledger = pr._ledger_for(str(tmp_path), settings)
         await ledger.record([{"topic_id": "t-1", "channel": "inbox"}])
 
-        receipt = await pr.build_agenda_receipt(
+        receipt = await pr.present_agenda_receipt(
             agent_id="agent-1",
             workspace_dir=str(tmp_path),
             memory_manager=manager,
@@ -270,11 +292,12 @@ class TestBuildAgendaReceipt:
 
         assert "already delivered" in receipt
         assert "5 day(s)" in receipt
-        # Everything was withheld, so the round still tried one refresh.
-        assert "proactive_refresh" in manager.actions()
+        # Everything was withheld, which is an answer on its own: no rebuild.
+        assert "proactive_refresh" not in manager.actions()
+        assert not pr._rebuild_tasks
 
     async def test_unavailable_backend_explains(self, tmp_path: Path):
-        receipt = await pr.build_agenda_receipt(
+        receipt = await pr.present_agenda_receipt(
             agent_id="agent-1",
             workspace_dir=str(tmp_path),
             memory_manager=object(),
@@ -289,7 +312,7 @@ class TestBuildAgendaReceipt:
     ):
         manager = FakeMemoryManager([agenda_entry("t-1")])
 
-        receipt = await pr.build_agenda_receipt(
+        receipt = await pr.present_agenda_receipt(
             agent_id="agent-1",
             workspace_dir=str(tmp_path),
             memory_manager=manager,
@@ -298,6 +321,162 @@ class TestBuildAgendaReceipt:
 
         assert "主动议程建议" in receipt
         assert "可以让我" in receipt
+
+
+class _FailingManager(FakeMemoryManager):
+    """A fake whose rebuild raises, like ReMe losing its model."""
+
+    async def run_action(self, action: str, **kwargs):
+        if action == "proactive_refresh":
+            raise RuntimeError("reme exploded")
+        return await super().run_action(action, **kwargs)
+
+
+class TestDeferredRebuild:
+    """An empty agenda answers at once; the receipt follows on its own."""
+
+    async def test_finished_rebuild_pushes_its_own_receipt(
+        self,
+        tmp_path: Path,
+        append_event,
+        memory_config,
+        push_notices,
+    ):
+        manager = FakeMemoryManager(
+            [],
+            refresh_swaps_agenda=[agenda_entry("t-new")],
+        )
+
+        reply = await pr.present_agenda_receipt(
+            agent_id="agent-1",
+            workspace_dir=str(tmp_path),
+            memory_manager=manager,
+            session_id="chat-7",
+            settings=_settings(),
+        )
+
+        assert "background" in reply
+        assert "inbox" in reply
+        assert push_notices == []
+
+        await pr._rebuild_tasks[str(tmp_path)]
+
+        assert "proactive_refresh" in manager.actions()
+        # The inbox keeps the durable copy ...
+        assert len(append_event) == 1
+        assert append_event[0]["payload"]["agenda"][0]["topic_id"] == "t-new"
+        # ... and the session that asked gets one notice pointing at it.
+        assert len(push_notices) == 1
+        session_id, notice = push_notices[0]
+        assert session_id == "chat-7"
+        assert "Proactive agenda rebuilt" in notice
+        assert "1 item(s)" in notice
+        assert manager.feedback[0][0]["channel"] == "inbox"
+
+    async def test_rebuild_without_inbox_sends_the_receipt_itself(
+        self,
+        tmp_path: Path,
+        append_event,
+        memory_config,
+        push_notices,
+    ):
+        manager = FakeMemoryManager(
+            [],
+            refresh_swaps_agenda=[agenda_entry("t-new")],
+        )
+
+        reply = await pr.present_agenda_receipt(
+            agent_id="agent-1",
+            workspace_dir=str(tmp_path),
+            memory_manager=manager,
+            session_id="chat-7",
+            settings=_settings(inbox_enabled=False),
+        )
+        await pr._rebuild_tasks[str(tmp_path)]
+
+        assert "inbox" not in reply
+        assert not append_event
+        assert len(push_notices) == 1
+        # With no durable inbox copy the push carries the whole receipt.
+        assert "title-t-new" in push_notices[0][1]
+        assert manager.feedback[0][0]["channel"] == "in_conversation"
+
+    async def test_second_call_does_not_start_another_rebuild(
+        self,
+        tmp_path: Path,
+        push_notices,
+    ):
+        manager = BlockingRefreshManager([])
+
+        first = await pr.present_agenda_receipt(
+            agent_id="agent-1",
+            workspace_dir=str(tmp_path),
+            memory_manager=manager,
+            session_id="chat-7",
+            settings=_settings(),
+        )
+        await manager.refresh_started.wait()
+
+        second = await pr.present_agenda_receipt(
+            agent_id="agent-1",
+            workspace_dir=str(tmp_path),
+            memory_manager=manager,
+            session_id="chat-8",
+            settings=_settings(),
+        )
+
+        assert "background" in first
+        assert "already being rebuilt" in second
+        assert len(pr._rebuild_tasks) == 1
+
+        manager.release.set()
+        await pr._rebuild_tasks[str(tmp_path)]
+
+        assert manager.actions().count("proactive_refresh") == 1
+        # Only the session that queued the rebuild hears about it.
+        assert [session for session, _ in push_notices] == ["chat-7"]
+
+    async def test_rebuild_that_found_nothing_says_so(
+        self,
+        tmp_path: Path,
+        append_event,
+        memory_config,
+        push_notices,
+    ):
+        manager = FakeMemoryManager([])
+
+        await pr.present_agenda_receipt(
+            agent_id="agent-1",
+            workspace_dir=str(tmp_path),
+            memory_manager=manager,
+            session_id="chat-7",
+            settings=_settings(),
+        )
+        await pr._rebuild_tasks[str(tmp_path)]
+
+        assert "proactive_refresh" in manager.actions()
+        assert not append_event
+        assert "nothing is worth raising today" in push_notices[0][1]
+        assert not manager.feedback
+
+    async def test_failed_rebuild_is_reported(
+        self,
+        tmp_path: Path,
+        push_notices,
+    ):
+        manager = _FailingManager([])
+
+        await pr.present_agenda_receipt(
+            agent_id="agent-1",
+            workspace_dir=str(tmp_path),
+            memory_manager=manager,
+            session_id="chat-7",
+            settings=_settings(),
+        )
+        await pr._rebuild_tasks[str(tmp_path)]
+
+        assert "did not succeed" in push_notices[0][1]
+        assert not pr.rebuild_in_progress(str(tmp_path))
 
 
 class TestDeliverProactiveRound:

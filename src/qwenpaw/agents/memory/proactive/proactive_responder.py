@@ -7,7 +7,10 @@ agenda and pins due reminders first, so delivery here is read-only
 presentation:
 
 * ``/proactive`` answers in the user's current chat with the top few
-  openers (:func:`build_agenda_receipt`);
+  openers (:func:`present_agenda_receipt`).  Reading the agenda is cheap;
+  rebuilding it is not, so an empty read queues
+  :func:`start_agenda_rebuild` and answers at once instead of holding the
+  chat open for minutes;
 * the idle trigger and the daily cron push the same items to the inbox
   (:func:`deliver_proactive_round`).
 
@@ -16,7 +19,9 @@ keeps an agenda item from ever being mistaken for an instruction the
 agent should carry out by itself.
 """
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +35,7 @@ from .proactive_agenda import (
     AgendaBundle,
     AgendaItem,
     ensure_agenda,
+    refresh_in_progress,
     select_presentation_items,
 )
 from .proactive_delivery import (
@@ -155,8 +161,14 @@ async def collect_agenda(
     force_refresh: bool = False,
     limit: int | None = None,
     settings: ProactiveSettings | None = None,
+    allow_refresh: bool = True,
 ) -> AgendaRound:
-    """Read (and refresh when empty) the agenda for one delivery round."""
+    """Read (and refresh when empty) the agenda for one delivery round.
+
+    ``allow_refresh=False`` keeps the round read-only: ReMe's rebuild costs
+    minutes of model work, so a caller answering a live chat asks for the
+    ranked agenda only and schedules the rebuild itself.
+    """
     resolved = settings or await load_proactive_settings(agent_id)
     provider = resolve_memory_provider(memory_manager)
     cap = resolved.max_items if limit is None else limit
@@ -177,6 +189,8 @@ async def collect_agenda(
         cooldown_days=resolved.cooldown_days,
         min_interval_minutes=resolved.refresh_min_interval_minutes,
         force_refresh=force_refresh,
+        scope=workspace_dir,
+        refresh=allow_refresh,
     )
     base.available = bundle.available
     base.date = bundle.date
@@ -197,20 +211,26 @@ async def collect_agenda(
     return base
 
 
-async def build_agenda_receipt(
+async def present_agenda_receipt(
     *,
     agent_id: str,
     workspace_dir: str,
     memory_manager: Any,
     limit: int | None = None,
-    external_ref: str = "",
+    session_id: str = "",
     settings: ProactiveSettings | None = None,
 ) -> str:
-    """Build the ``/proactive`` in-chat receipt and mark it delivered.
+    """Answer ``/proactive`` in chat without ever blocking on a rebuild.
 
-    The receipt is the whole delivery: a few ranked openers rendered as one
-    assistant message.  The agent is never asked to act on them, so an
-    agenda item cannot turn into an unrequested tool call.
+    Reading ReMe's ranked agenda is cheap, so a non-empty agenda is presented
+    right away -- a few openers as one message, never an instruction to the
+    agent -- and reported back as delivered.
+
+    When nothing is left to show, the rebuild (ReMe's extract -> topics ->
+    plan -> agenda chain, minutes of model work) is queued in the background
+    and the caller gets an immediate notice instead of a spinner.  The
+    receipt then follows on its own: a console push to the session that
+    asked, plus an inbox card whenever that switch is on.
     """
     resolved = settings or await load_proactive_settings(agent_id)
     if not resolved.enabled:
@@ -222,23 +242,257 @@ async def build_agenda_receipt(
         workspace_dir=workspace_dir,
         limit=limit,
         settings=resolved,
+        allow_refresh=False,
+    )
+    if outcome.shown:
+        await mark_delivered(
+            resolve_memory_provider(memory_manager),
+            _ledger_for(workspace_dir, resolved),
+            items=outcome.shown,
+            channel=CHANNEL_CONVERSATION,
+            external_ref=session_id,
+            date=outcome.date,
+        )
+        return render_agenda_receipt(
+            outcome.shown,
+            resolved.language,
+            date=outcome.date,
+        )
+
+    # Nothing to present.  Name the most specific reason; only a genuinely
+    # empty agenda earns a rebuild, and only one at a time.
+    if not outcome.available:
+        return text_for("empty_unavailable", resolved.language)
+    if outcome.hidden_total:
+        return text_for(
+            "empty_all_delivered",
+            resolved.language,
+            count=outcome.hidden_total,
+            days=resolved.cooldown_days,
+        )
+    if outcome.throttled:
+        return text_for(
+            "empty_throttled",
+            resolved.language,
+            minutes=resolved.refresh_min_interval_minutes,
+        )
+    queued = start_agenda_rebuild(
+        agent_id=agent_id,
+        workspace_dir=workspace_dir,
+        memory_manager=memory_manager,
+        session_id=session_id,
+        limit=limit,
+        settings=resolved,
+    )
+    return rebuild_notice(
+        resolved.language,
+        queued=queued,
+        inbox_enabled=resolved.inbox_enabled,
+    )
+
+
+def rebuild_notice(
+    agent_language: Any,
+    *,
+    queued: bool,
+    inbox_enabled: bool = False,
+) -> str:
+    """What an interactive surface says after handing a rebuild off.
+
+    Shared by ``/proactive`` and ``/proactive now`` so both answer at once
+    with the same promise: the receipt arrives separately, and the inbox
+    keeps a durable copy when that switch is on.
+    """
+    if not queued:
+        return text_for("rebuild_in_progress", agent_language)
+    notice = text_for("rebuild_started", agent_language)
+    if inbox_enabled:
+        inbox_note = text_for("rebuild_started_inbox", agent_language)
+        notice = f"{notice}\n\n{inbox_note}"
+    return notice
+
+
+_rebuild_tasks: dict[str, "asyncio.Task[None]"] = {}
+
+
+def _rebuild_key(workspace_dir: str, agent_id: str) -> str:
+    return (workspace_dir or agent_id or "").strip() or "default"
+
+
+def rebuild_in_progress(workspace_dir: str, agent_id: str = "") -> bool:
+    """Whether this workspace already has a rebuild queued or running."""
+    task = _rebuild_tasks.get(_rebuild_key(workspace_dir, agent_id))
+    if task is not None and not task.done():
+        return True
+    # The idle trigger and the daily cron refresh through ``ensure_agenda``
+    # without queueing a task here, so ask the refresh registry too.
+    return refresh_in_progress(workspace_dir)
+
+
+def start_agenda_rebuild(
+    *,
+    agent_id: str,
+    workspace_dir: str,
+    memory_manager: Any,
+    session_id: str = "",
+    limit: int | None = None,
+    settings: ProactiveSettings | None = None,
+) -> bool:
+    """Queue one background rebuild; ``False`` when one is already running.
+
+    No interactive surface should wait minutes for ReMe's chain, and one
+    rebuild per workspace is enough: a second ``/proactive`` -- or a cron or
+    idle round landing at the same moment -- reports the running one instead
+    of stacking another chain on the same ``interests.yaml``.
+    """
+    if rebuild_in_progress(workspace_dir, agent_id):
+        logger.info(
+            "proactive agenda rebuild already running: workspace=%s",
+            workspace_dir or agent_id,
+        )
+        return False
+    key = _rebuild_key(workspace_dir, agent_id)
+    task = asyncio.create_task(
+        _rebuild_and_deliver(
+            agent_id=agent_id,
+            workspace_dir=workspace_dir,
+            memory_manager=memory_manager,
+            session_id=session_id,
+            limit=limit,
+            settings=settings,
+        ),
+        name=f"proactive-rebuild-{key}",
+    )
+    _rebuild_tasks[key] = task
+
+    def _forget(_done: "asyncio.Task[None]", _key: str = key) -> None:
+        _rebuild_tasks.pop(_key, None)
+
+    task.add_done_callback(_forget)
+    return True
+
+
+async def _rebuild_and_deliver(
+    *,
+    agent_id: str,
+    workspace_dir: str,
+    memory_manager: Any,
+    session_id: str,
+    limit: int | None,
+    settings: ProactiveSettings | None,
+) -> None:
+    """Rebuild the agenda in the background, then deliver its receipt."""
+    # This task outlives the request that queued it, so re-seed the context
+    # everything downstream (inbox store, config cache) resolves.
+    from ....app.agent_context import (  # noqa: PLC0415
+        set_current_agent_id,
+    )
+    from ....config.context import (  # noqa: PLC0415
+        set_current_workspace_dir,
+    )
+
+    set_current_agent_id(agent_id)
+    set_current_workspace_dir(Path(workspace_dir) if workspace_dir else None)
+
+    resolved = settings or await load_proactive_settings(agent_id)
+    started = time.monotonic()
+    try:
+        outcome = await collect_agenda(
+            memory_manager,
+            agent_id=agent_id,
+            workspace_dir=workspace_dir,
+            force_refresh=True,
+            limit=limit,
+            settings=resolved,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("proactive agenda rebuild failed")
+        await notify_rebuild_result(
+            session_id,
+            text_for("rebuild_failed", resolved.language, error=exc),
+        )
+        return
+
+    elapsed = int(time.monotonic() - started)
+    logger.info(
+        "proactive agenda rebuild done in %ds: shown=%d reason=%s",
+        elapsed,
+        len(outcome.shown),
+        outcome.skip_reason or "-",
     )
     if not outcome.shown:
-        return outcome.empty_state()
+        # ``refreshed`` tells a rebuild that found nothing apart from one
+        # that never succeeded (ReMe down, job missing, refresh error).
+        if outcome.refreshed:
+            notice = text_for(
+                "rebuild_empty",
+                resolved.language,
+                seconds=elapsed,
+            )
+        else:
+            notice = text_for(
+                "rebuild_failed",
+                resolved.language,
+                error=outcome.skip_reason or "unavailable",
+            )
+        await notify_rebuild_result(session_id, notice)
+        return
 
-    await mark_delivered(
-        resolve_memory_provider(memory_manager),
-        _ledger_for(workspace_dir, resolved),
-        items=outcome.shown,
-        channel=CHANNEL_CONVERSATION,
-        external_ref=external_ref,
-        date=outcome.date,
-    )
-    return render_agenda_receipt(
-        outcome.shown,
-        resolved.language,
-        date=outcome.date,
-    )
+    pushed = False
+    if resolved.inbox_enabled:
+        pushed = await _push_to_inbox(
+            agent_id=agent_id,
+            workspace_dir=workspace_dir,
+            memory_manager=memory_manager,
+            settings=resolved,
+            outcome=outcome,
+            channel="idle",
+        )
+    if pushed:
+        notice = text_for(
+            "rebuild_done_inbox",
+            resolved.language,
+            count=len(outcome.shown),
+            seconds=elapsed,
+        )
+    else:
+        # Without a durable inbox copy the chat notice carries the receipt.
+        await mark_delivered(
+            resolve_memory_provider(memory_manager),
+            _ledger_for(workspace_dir, resolved),
+            items=outcome.shown,
+            channel=CHANNEL_CONVERSATION,
+            external_ref=session_id,
+            date=outcome.date,
+        )
+        notice = render_agenda_receipt(
+            outcome.shown,
+            resolved.language,
+            date=outcome.date,
+        )
+    await notify_rebuild_result(session_id, notice)
+
+
+async def notify_rebuild_result(session_id: str, text: str) -> None:
+    """Push one out-of-band notice into the console session that asked.
+
+    This is the surface cron already uses for out-of-band text: the console
+    polls it and shows a bubble.  Bubbles are transient, which is why a
+    rebuild with items also lands in the inbox whenever that switch is on.
+    """
+    if not session_id or not text.strip():
+        return
+    try:
+        from ....app.console_push_store import (  # noqa: PLC0415
+            append as push_store_append,
+        )
+
+        await push_store_append(session_id, text.strip())
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "proactive rebuild notice could not be pushed",
+            exc_info=True,
+        )
 
 
 async def deliver_proactive_round(
@@ -306,6 +560,27 @@ async def deliver_proactive_round(
         )
         return outcome
 
+    await _push_to_inbox(
+        agent_id=agent_id,
+        workspace_dir=workspace_dir,
+        memory_manager=memory_manager,
+        settings=resolved,
+        outcome=outcome,
+        channel=channel,
+    )
+    return outcome
+
+
+async def _push_to_inbox(
+    *,
+    agent_id: str,
+    workspace_dir: str,
+    memory_manager: Any,
+    settings: ProactiveSettings,
+    outcome: AgendaRound,
+    channel: str,
+) -> bool:
+    """Emit one round's inbox card and report it as delivered."""
     from ....app.inbox_store import (  # noqa: PLC0415
         append_event as append_inbox_event,
     )
@@ -321,23 +596,23 @@ async def deliver_proactive_round(
         items=outcome.shown,
         append_event=append_inbox_event,
         channel=channel,
-        language=resolved.language,
+        language=settings.language,
     )
     if event is None:
         outcome.skip_reason = "inbox_rejected"
-        return outcome
+        return False
 
     outcome.pushed = True
     outcome.event_id = str(event.get("id") or "")
     await mark_delivered(
         resolve_memory_provider(memory_manager),
-        _ledger_for(workspace_dir, resolved),
+        _ledger_for(workspace_dir, settings),
         items=outcome.shown,
         channel=CHANNEL_INBOX,
         external_ref=outcome.event_id,
         date=outcome.date,
     )
-    return outcome
+    return True
 
 
 def _memory_config_for(agent_id: str) -> Any:

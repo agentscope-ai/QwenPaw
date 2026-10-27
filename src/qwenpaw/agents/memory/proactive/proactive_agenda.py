@@ -12,6 +12,7 @@ ReMe's ``proactive_refresh`` job, and ReMe early-exits it without a call
 when there is no new material to read.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -22,6 +23,34 @@ if TYPE_CHECKING:
     from .proactive_delivery import DeliveryLedger
 
 logger = logging.getLogger(__name__)
+
+# One rebuild at a time per workspace.  ReMe's chain (extract -> topics ->
+# plan -> agenda) costs minutes of model work and rewrites the day's
+# ``interests.yaml``, so letting ``/proactive``, the idle trigger and the
+# daily cron start it in parallel would duplicate the work and race on the
+# same files.
+_DEFAULT_SCOPE = "default"
+_refresh_locks: dict[str, asyncio.Lock] = {}
+_refresh_running: set[str] = set()
+
+
+def _scope_key(scope: str) -> str:
+    return scope.strip() or _DEFAULT_SCOPE
+
+
+def _lock_for(scope: str) -> asyncio.Lock:
+    key = _scope_key(scope)
+    lock = _refresh_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _refresh_locks[key] = lock
+    return lock
+
+
+def refresh_in_progress(scope: str = "") -> bool:
+    """Whether one rebuild is already running for this workspace."""
+    return _scope_key(scope) in _refresh_running
+
 
 _TEXT_FIELDS = (
     "topic_id",
@@ -315,6 +344,8 @@ async def ensure_agenda(
     min_interval_minutes: int = 0,
     force_refresh: bool = False,
     date: str = "",
+    scope: str = "",
+    refresh: bool = True,
 ) -> AgendaBundle:
     """Return undelivered agenda items, refreshing only when empty.
 
@@ -326,6 +357,12 @@ async def ensure_agenda(
         force_refresh: Refresh first regardless of the current agenda. The
             daily cron uses this so every push reflects fresh extraction.
         date: Agenda date override, empty means ReMe's today.
+        scope: Workspace the rebuild belongs to; refreshes for one scope are
+            serialized so parallel callers cannot stack duplicate chains.
+        refresh: Set ``False`` for a read-only round. The bundle then only
+            reports whether a rebuild is due (``throttled`` says it is not),
+            which is what lets ``/proactive`` answer immediately and hand the
+            rebuild to a background task.
     """
     if ledger is not None:
         # ``is_delivered`` and ``last_refresh_at`` read the in-memory copy,
@@ -348,15 +385,66 @@ async def ensure_agenda(
         )
         return AgendaBundle(read=read, items=items, throttled=True)
 
-    refreshed = await refresh_agenda(memory_manager, date=date)
-    if ledger is not None:
-        await ledger.record_refresh()
+    if not refresh:
+        return AgendaBundle(read=read, items=items)
+
+    key = _scope_key(scope)
+    lock = _lock_for(key)
+    # ``Lock.acquire`` has a no-yield fast path, so reading ``locked()``
+    # here is atomic with respect to other tasks: it tells us whether the
+    # rebuild below is a second one for the same empty agenda.
+    waited = lock.locked()
+    async with lock:
+        if waited and not force_refresh:
+            settled = await _reread_after_wait(
+                memory_manager,
+                ledger,
+                cooldown_days=cooldown_days,
+                min_interval_minutes=min_interval_minutes,
+                date=date,
+            )
+            if settled is not None:
+                return settled
+        _refresh_running.add(key)
+        try:
+            logger.info("proactive agenda refresh started (scope=%s)", key)
+            refreshed = await refresh_agenda(memory_manager, date=date)
+            if ledger is not None:
+                await ledger.record_refresh()
+        finally:
+            _refresh_running.discard(key)
     if not refreshed:
         return AgendaBundle(read=read, items=items)
 
     read = await fetch_agenda(memory_manager, date=date)
     items = filter_delivered(read.items, ledger, cooldown_days=cooldown_days)
     return AgendaBundle(read=read, items=items, refreshed=True)
+
+
+async def _reread_after_wait(
+    memory_manager: "MemoryActionProvider",
+    ledger: "DeliveryLedger | None",
+    *,
+    cooldown_days: int,
+    min_interval_minutes: int,
+    date: str,
+) -> AgendaBundle | None:
+    """Re-read once a concurrent rebuild finished.
+
+    ``None`` means the wait bought nothing -- the agenda is still empty and
+    the throttle still allows it -- so the caller owes its own rebuild.
+    """
+    read = await fetch_agenda(memory_manager, date=date)
+    items = filter_delivered(read.items, ledger, cooldown_days=cooldown_days)
+    if items:
+        return AgendaBundle(read=read, items=items)
+    if not _refresh_allowed(ledger, min_interval_minutes):
+        logger.info(
+            "proactive agenda refresh throttled (%d min window)",
+            min_interval_minutes,
+        )
+        return AgendaBundle(read=read, items=items, throttled=True)
+    return None
 
 
 def _refresh_allowed(

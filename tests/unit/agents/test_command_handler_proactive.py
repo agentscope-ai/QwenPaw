@@ -12,7 +12,6 @@ from qwenpaw.agents.command_handler import (
     CommandHandler,
 )
 from qwenpaw.agents.memory.proactive.proactive_responder import (
-    AgendaRound,
     ProactiveSettings,
 )
 
@@ -41,11 +40,7 @@ def calls(monkeypatch):
         "enabled": [],
         "disabled": 0,
         "receipt": "**Proactive agenda** (2026-10-11, 1 item(s))",
-        "round": AgendaRound(
-            available=True,
-            skip_reason="empty",
-            language="en",
-        ),
+        "queued": True,
     }
 
     def _enable(session_id, minutes, workspace=None):
@@ -60,9 +55,9 @@ def calls(monkeypatch):
         record["receipt_kwargs"] = kwargs
         return record["receipt"]
 
-    async def _round(**kwargs):
-        record["round_kwargs"] = kwargs
-        return record["round"]
+    def _rebuild(**kwargs):
+        record["rebuild_kwargs"] = kwargs
+        return bool(record["queued"])
 
     monkeypatch.setattr(
         "qwenpaw.agents.memory.enable_proactive_for_session",
@@ -73,12 +68,12 @@ def calls(monkeypatch):
         _disable,
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.build_agenda_receipt",
+        "qwenpaw.agents.memory.present_agenda_receipt",
         _receipt,
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.deliver_proactive_round",
-        _round,
+        "qwenpaw.agents.memory.start_agenda_rebuild",
+        _rebuild,
     )
     return record
 
@@ -200,7 +195,7 @@ async def test_bare_command_arms_the_loop_and_returns_the_agenda(
     ]
     assert calls["receipt_kwargs"]["agent_id"] == "agent-1"
     assert calls["receipt_kwargs"]["workspace_dir"] == "/ws/agent-1"
-    assert calls["receipt_kwargs"]["external_ref"] == "chat-1"
+    assert calls["receipt_kwargs"]["session_id"] == "chat-1"
 
 
 @pytest.mark.asyncio
@@ -238,57 +233,30 @@ async def test_missing_workspace_is_reported(calls, settings):
 
 
 @pytest.mark.asyncio
-async def test_now_pushes_a_round_and_reports_the_count(calls, settings):
+async def test_now_queues_a_rebuild_and_answers_at_once(calls, settings):
+    """``/proactive now`` never waits for ReMe's minutes-long chain."""
     del settings
-    calls["round"] = AgendaRound(
-        available=True,
-        pushed=True,
-        event_id="event-3",
-        shown=[SimpleNamespace(topic_id="t-1")] * 2,
-    )
 
     msg = await _handler(_workspace()).handle_command("/proactive now")
 
     text = _text(msg)
-    assert "Pushed To Your Inbox" in text
-    assert "2 proactive agenda item(s)" in text
-    assert calls["round_kwargs"]["force_refresh"] is True
-    assert calls["round_kwargs"]["channel"] == "idle"
+    assert "background" in text
+    assert "separate message" in text
+    # The inbox switch is on, so the copy says where the durable copy lands.
+    assert "inbox" in text
+    assert calls["rebuild_kwargs"]["agent_id"] == "agent-1"
+    assert calls["rebuild_kwargs"]["workspace_dir"] == "/ws/agent-1"
+    assert calls["rebuild_kwargs"]["session_id"] == "chat-1"
 
 
 @pytest.mark.asyncio
-async def test_now_without_an_agenda_explains_the_empty_round(
+async def test_now_reports_a_rebuild_that_is_already_running(
     calls,
     settings,
 ):
     del settings
-    calls["round"] = AgendaRound(
-        available=True,
-        refreshed=True,
-        forced_refresh=True,
-        language="en",
-    )
+    calls["queued"] = False
 
     msg = await _handler(_workspace()).handle_command("/proactive now")
 
-    text = _text(msg)
-    assert "Nothing Was Pushed" in text
-    assert "rebuilt the agenda from topic extraction" in text
-
-
-@pytest.mark.asyncio
-async def test_now_survives_a_failing_round(monkeypatch, settings):
-    del settings
-
-    async def _boom(**_kwargs):
-        raise RuntimeError("reme exploded")
-
-    monkeypatch.setattr(
-        "qwenpaw.agents.memory.deliver_proactive_round",
-        _boom,
-    )
-
-    msg = await _handler(_workspace()).handle_command("/proactive now")
-
-    assert "Error Enabling Proactive Mode" in _text(msg)
-    assert "reme exploded" in _text(msg)
+    assert "already being rebuilt" in _text(msg)

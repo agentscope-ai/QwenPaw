@@ -54,6 +54,25 @@ _TEXTS: dict[str, dict[str, str]] = {
             "主动议程未启用。请在 运行配置 → 长期记忆 中打开"
             "「主动议程 (Proactive)」开关后再使用 /proactive。"
         ),
+        "rebuild_started": (
+            "当前没有待展示的主动议程。我已在后台让 ReMe 从 topic "
+            "extraction 开始重建今天的议程，通常需要几分钟。完成后我会"
+            "单独发一条回执，不会一直占着这个会话。"
+        ),
+        "rebuild_started_inbox": "重建出的议程也会放进收件箱，方便稍后查看。",
+        "rebuild_in_progress": (
+            "主动议程已经在后台重建中，通常需要几分钟；完成后我会单独发"
+            "一条回执，不用重复触发。"
+        ),
+        "rebuild_done_inbox": (
+            "**主动议程已重建**（{count} 条，用时约 {seconds} 秒）\n\n"
+            "已放入收件箱。想推进哪一条，在这里告诉我编号或标题就行。"
+        ),
+        "rebuild_empty": (
+            "主动议程已重建（用时约 {seconds} 秒），但今天没有值得主动"
+            "提醒你的新条目。有新素材时我会推送到收件箱。"
+        ),
+        "rebuild_failed": "主动议程这次没有重建成功（{error}）。稍后可以再试一次 /proactive。",
     },
     "en": {
         "receipt_header": "**Proactive agenda** ({date}, {count} item(s))",
@@ -95,6 +114,35 @@ _TEXTS: dict[str, dict[str, str]] = {
         "disabled": (
             "Proactive agenda is disabled. Enable it under Run Config -> "
             "Long-term Memory before using /proactive."
+        ),
+        "rebuild_started": (
+            "Nothing to present right now. I started rebuilding today's "
+            "agenda from topic extraction in the background, which usually "
+            "takes a few minutes. The receipt follows as a separate message "
+            "instead of holding this chat open."
+        ),
+        "rebuild_started_inbox": (
+            "The rebuilt agenda also lands in your inbox, so you can read "
+            "it later."
+        ),
+        "rebuild_in_progress": (
+            "The agenda is already being rebuilt in the background, which "
+            "takes a few minutes. The receipt follows as a separate message; "
+            "no need to trigger it again."
+        ),
+        "rebuild_done_inbox": (
+            "**Proactive agenda rebuilt** ({count} item(s), about "
+            "{seconds}s)\n\n"
+            "It is in your inbox now. Tell me the number or title here to "
+            "take one forward."
+        ),
+        "rebuild_empty": (
+            "The agenda was rebuilt (about {seconds}s) and nothing is worth "
+            "raising today. New material will land in your inbox."
+        ),
+        "rebuild_failed": (
+            "The proactive agenda rebuild did not succeed this time "
+            "({error}). Try /proactive again later."
         ),
     },
 }

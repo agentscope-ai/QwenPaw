@@ -1182,7 +1182,7 @@ Proactive Mode surfaces **today's proactive agenda**, distilled from long-term m
 /proactive           # reply with today's agenda in this chat now, and arm the idle watcher (30 minutes)
 /proactive on        # same as above
 /proactive 60        # same, with a 60-minute idle threshold (positive integer)
-/proactive now       # rebuild the agenda immediately and push it to the inbox
+/proactive now       # rebuild the agenda in the background; the receipt follows and lands in the inbox
 /proactive off       # stop the idle watcher
 ```
 
@@ -1192,7 +1192,7 @@ With the master switch off the command only replies that proactive has to be ena
 
 1. **Read**: call ReMe's `proactive` job to read the existing agenda, due reminders already first
 2. **Dedupe**: filter out entries the local delivery ledger shows you inside the cooldown window
-3. **Refresh on demand**: only when nothing is left, call `proactive_refresh` to rebuild from topic extraction, rate-limited by the minimum refresh interval
+3. **Refresh on demand (background)**: only when nothing is left, call `proactive_refresh` to rebuild from topic extraction. The rebuild runs as a background task (one per workspace, rate-limited by the minimum refresh interval), so `/proactive` answers "rebuilding" at once and the receipt follows as its own message instead of leaving the chat spinning
 4. **Present**: `/proactive` answers in the current chat; idle rounds and the daily job write to the inbox and stay **completely silent** on an empty agenda (log line only)
 5. **Report back**: after each real delivery, make a best-effort `proactive_feedback` call so ReMe knows what was already used
 

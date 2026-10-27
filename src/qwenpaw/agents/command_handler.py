@@ -106,13 +106,16 @@ ReMeActionAuthorizer = Callable[
 # agenda.  The agent only ever shows those items -- it never executes one --
 # so the copy says exactly that instead of warning about bypassed tool
 # protection (there is no bypass agent and no screenshot any more).
+# An empty read never holds the chat open either: the rebuild is queued in
+# the background and its receipt arrives as a separate push.
 _PROACTIVE_DEFAULT_IDLE_MINUTES = 30
 _PROACTIVE_USAGE = (
     "- Usage: /proactive [minutes|on|off|now]\n"
     "- Examples:\n"
     "  \u2022 /proactive (present the agenda, watch after 30 idle minutes)\n"
     "  \u2022 /proactive 45 (same, with a 45 minute idle threshold)\n"
-    "  \u2022 /proactive now (rebuild the agenda and push it to the inbox)\n"
+    "  \u2022 /proactive now (rebuild the agenda in the background; the "
+    "receipt follows)\n"
     "  \u2022 /proactive off (stop the idle watcher)\n"
 )
 _PROACTIVE_MESSAGES: dict[str, dict[str, str]] = {
@@ -128,13 +131,6 @@ _PROACTIVE_MESSAGES: dict[str, dict[str, str]] = {
             "**Proactive Mode Disabled**\n\n"
             "- The idle watcher stopped; no more proactive agenda pushes"
         ),
-        "pushed": (
-            "**Pushed To Your Inbox**\n\n"
-            "- {count} proactive agenda item(s) in this round\n"
-            "- The inbox cannot run them: tell me the number or title in "
-            "chat to take one forward"
-        ),
-        "not_pushed": "**Nothing Was Pushed**",
         "error_on": "**Error Enabling Proactive Mode**\n\n- {error}",
         "error_off": "**Error Disabling Proactive Mode**\n\n- {error}",
         "error_args": "**Invalid Proactive Arguments**\n\n" + _PROACTIVE_USAGE,
@@ -154,12 +150,6 @@ _PROACTIVE_MESSAGES: dict[str, dict[str, str]] = {
         "disabled": (
             "**主动模式已停用**\n\n- 已停止空闲监听，不再推送主动议程"
         ),
-        "pushed": (
-            "**已推送到收件箱**\n\n"
-            "- 本次共 {count} 条主动议程\n"
-            "- 收件箱不支持直接执行；想推进哪一条，在聊天里告诉我编号或标题"
-        ),
-        "not_pushed": "**本次没有推送**",
         "error_on": "**启用主动模式时出错**\n\n- {error}",
         "error_off": "**停用主动模式时出错**\n\n- {error}",
         "error_args": (
@@ -168,7 +158,7 @@ _PROACTIVE_MESSAGES: dict[str, dict[str, str]] = {
             "- 示例:\n"
             "  \u2022 /proactive （呈现议程，并在空闲 30 分钟后持续观察）\n"
             "  \u2022 /proactive 45 （同上，空闲阈值 45 分钟）\n"
-            "  \u2022 /proactive now （重新生成议程并推送到收件箱）\n"
+            "  \u2022 /proactive now （后台重新生成议程，完成后单独发回执）\n"
             "  \u2022 /proactive off （停止空闲监听）\n"
         ),
         "no_workspace": "当前命令上下文没有绑定 workspace，无法启动空闲监听。",
@@ -1680,10 +1670,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
         args = args.strip().lower()
         from ..app.agent_context import get_current_agent_id
         from .memory import (
-            build_agenda_receipt,
             disable_proactive_for_session,
             enable_proactive_for_session,
             load_proactive_settings,
+            present_agenda_receipt,
         )
         from .memory.proactive.proactive_prompts import text_for
 
@@ -1727,7 +1717,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 agent_id=agent_id,
                 workspace_dir=workspace_dir,
                 memory_manager=memory_manager,
-                msgs=msgs,
+                agent_lang=agent_lang,
+                settings=settings,
             )
 
         minutes = _PROACTIVE_DEFAULT_IDLE_MINUTES
@@ -1752,11 +1743,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 msgs["error_on"].format(error=e),
             )
 
-        receipt = await build_agenda_receipt(
+        receipt = await present_agenda_receipt(
             agent_id=agent_id,
             workspace_dir=workspace_dir,
             memory_manager=memory_manager,
-            external_ref=self._current_session_id(),
+            session_id=self._current_session_id(),
             settings=settings,
         )
         header = msgs["enabled"].format(minutes=minutes)
@@ -1768,28 +1759,31 @@ class CommandHandler(ConversationCommandHandlerMixin):
         agent_id: str,
         workspace_dir: str,
         memory_manager: Any,
-        msgs: dict[str, str],
+        agent_lang: str,
+        settings: Any = None,
     ) -> Msg:
-        """Run one inbox round immediately (``/proactive now``)."""
-        from .memory import deliver_proactive_round
+        """Queue one forced rebuild (``/proactive now``).
 
-        try:
-            outcome = await deliver_proactive_round(
-                agent_id=agent_id,
-                workspace_dir=workspace_dir,
-                memory_manager=memory_manager,
-                channel="idle",
-                force_refresh=True,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.exception("proactive now round failed")
-            return await self._make_system_msg(
-                msgs["error_on"].format(error=e),
-            )
-        if outcome.pushed:
-            return await self._make_system_msg(
-                msgs["pushed"].format(count=len(outcome.shown)),
-            )
+        ReMe rebuilds the agenda from topic extraction, which is minutes of
+        model work, so the command only queues it.  The receipt arrives on
+        its own -- a push into this session plus an inbox card -- instead of
+        leaving the chat spinning until the chain finishes.
+        """
+        from .memory import rebuild_notice, start_agenda_rebuild
+
+        queued = start_agenda_rebuild(
+            agent_id=agent_id,
+            workspace_dir=workspace_dir,
+            memory_manager=memory_manager,
+            session_id=self._current_session_id(),
+            settings=settings,
+        )
         return await self._make_system_msg(
-            f"{msgs['not_pushed']}\n\n{outcome.empty_state()}",
+            rebuild_notice(
+                agent_lang,
+                queued=queued,
+                inbox_enabled=bool(
+                    getattr(settings, "inbox_enabled", False),
+                ),
+            ),
         )
