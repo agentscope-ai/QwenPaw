@@ -5742,6 +5742,9 @@
     }
   },
   "preview": {
+    "unavailable": "预览不可用",
+    "showDetails": "查看原因",
+    "hideDetails": "收起详情",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "该文件被文件防护拦截（敏感文件保护）。",
       "OUTSIDE_WORKSPACE": "该文件位于工作区范围之外。请在 设置 → 安全 → 文件防护 中启用「允许控制台预览工作区外文件」。",

@@ -5723,6 +5723,9 @@
     }
   },
   "preview": {
+    "unavailable": "Preview unavailable",
+    "showDetails": "View details",
+    "hideDetails": "Hide details",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "This file is blocked by File Guard (sensitive file protection).",
       "OUTSIDE_WORKSPACE": "This file is outside the workspace scope. Enable \"Allow Console Preview Outside Workspace\" in Settings → Security → File Guard.",

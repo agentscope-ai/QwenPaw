@@ -2899,6 +2899,9 @@
     "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP."
   },
   "preview": {
+    "unavailable": "Pratinjau tidak tersedia",
+    "showDetails": "Lihat penyebab",
+    "hideDetails": "Sembunyikan detail",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "File diblokir oleh File Guard (perlindungan file sensitif).",
       "OUTSIDE_WORKSPACE": "File berada di luar cakupan workspace. Aktifkan \"Izinkan Pratinjau Konsol di Luar Workspace\" di Pengaturan → Keamanan → File Guard.",
