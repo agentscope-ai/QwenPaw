@@ -50,19 +50,18 @@ def test_mimo_standard_provider_config() -> None:
 
 def test_mimo_models_list() -> None:
     """Verify MiMo model definitions."""
-    tokenplan_ids = [m.id for m in MIMO_TOKENPLAN_MODELS]
-    assert "mimo-v2.5-pro" in tokenplan_ids
-    assert "mimo-v2.5" in tokenplan_ids
-    assert len(MIMO_TOKENPLAN_MODELS) == 2
-
-    standard_ids = [m.id for m in MIMO_MODELS]
-    assert "mimo-v2.5-pro" in standard_ids
-    assert "mimo-v2.5" in standard_ids
-    assert len(MIMO_MODELS) == 2
+    expected = [
+        f"mimo-v2.6-pro",
+        f"mimo-v2.6-flash",
+        f"mimo-v2.5-pro",
+        f"mimo-v2.5",
+    ]
+    assert [m.id for m in MIMO_TOKENPLAN_MODELS] == expected[:2]
+    assert [m.id for m in MIMO_MODELS] == expected
 
 
 def test_mimo_models_limits() -> None:
-    """MiMo V2.5 chat models: 1M context / 128K output, per official docs."""
+    """MiMo V2.5/V2.6 chat models have 1M context and 128K output."""
     for model in MIMO_TOKENPLAN_MODELS:
         assert model.max_input_length == 1024 * 1024
         assert model.max_output_length == 128 * 1024
@@ -73,21 +72,26 @@ def test_mimo_models_limits() -> None:
 
 def test_mimo_models_attributes() -> None:
     """Verify MiMo model attributes (multimodal flags per official docs)."""
-    for model in MIMO_TOKENPLAN_MODELS:
-        if model.id == "mimo-v2.5":
-            assert model.supports_image is True
-            assert model.supports_video is True
-        else:
-            assert model.supports_image is False
-            assert model.supports_video is False
-        assert model.probe_source == "documentation"
-    for model in MIMO_MODELS:
-        if model.id == "mimo-v2.5":
-            assert model.supports_image is True
-            assert model.supports_video is True
-        else:
-            assert model.supports_image is False
-            assert model.supports_video is False
+    expected = {
+        f"mimo-v2.6-pro": (True, True, True, f"documentation"),
+        f"mimo-v2.6-flash": (True, True, True, f"documentation"),
+        f"mimo-v2.5-pro": (False, False, None, f"documentation"),
+        f"mimo-v2.5": (True, True, None, f"documentation"),
+    }
+    for models in (MIMO_TOKENPLAN_MODELS, MIMO_MODELS):
+        assert {
+            model.id: (
+                model.supports_image,
+                model.supports_video,
+                model.supports_audio,
+                model.probe_source,
+            )
+            for model in models
+        } == {
+            key: value
+            for key, value in expected.items()
+            if models is MIMO_MODELS or key.startswith(f"mimo-v2.6")
+        }
 
 
 @pytest.fixture
@@ -125,8 +129,10 @@ def test_mimo_has_expected_models(isolated_secret_dir) -> None:
 
     assert provider is not None
     assert provider_standard is not None
-    assert provider.has_model("mimo-v2.5-pro")
-    assert provider.has_model("mimo-v2.5")
+    assert provider.has_model(f"mimo-v2.6-pro")
+    assert provider.has_model(f"mimo-v2.6-flash")
+    assert not provider.has_model(f"mimo-v2.5-pro")
+    assert not provider.has_model(f"mimo-v2.5")
     assert provider_standard.has_model("mimo-v2.5-pro")
     assert provider_standard.has_model("mimo-v2.5")
 

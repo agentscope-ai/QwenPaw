@@ -40,7 +40,7 @@ def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
     assert len(catalog) == 31
-    assert sum(len(models) for models in catalog.values()) == 197
+    assert sum(len(models) for models in catalog.values()) == 220
     assert catalog["dashscope"][0].id == "qwen3.8-max"
     assert catalog["dashscope"][0].supports_image is True
     assert catalog["dashscope"][0].thinking_enabled is True
@@ -48,8 +48,9 @@ def test_packaged_catalog_snapshot() -> None:
         "deepseek-v4-pro",
         "deepseek-flash",
     ]
-    assert catalog["gemini"][0].id == "gemini-3.1-pro-preview"
+    assert catalog[f"gemini"][0].id == f"gemini-4-argon"
     assert [model.id for model in catalog["minimax-cn"]] == [
+        f"MiniMax-M3.1-Flash",
         "MiniMax-M3",
         "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed",
@@ -71,11 +72,11 @@ def test_packaged_catalog_snapshot() -> None:
         ("dashscope", "qwen3.7-max"),
         ("openai", "gpt-5.2"),
         ("openai-response", "gpt-5.2"),
-        ("minimax", "MiniMax-M3"),
-        ("kimi-intl", "kimi-k3"),
-        ("minimax-cn", "MiniMax-M3"),
-        ("kimi-cn", "kimi-k3"),
-        ("gemini", "gemini-3.1-pro-preview"),
+        (f"minimax", f"MiniMax-M3.1-Flash"),
+        (f"kimi-intl", f"kimi-k3.1-pro"),
+        (f"minimax-cn", f"MiniMax-M3.1-Flash"),
+        (f"kimi-cn", f"kimi-k3.1-pro"),
+        (f"gemini", f"gemini-4-argon"),
     }
     assert {
         model.id: model.max_input_length for model in catalog["dashscope"]
@@ -120,6 +121,8 @@ def test_packaged_catalog_snapshot() -> None:
         "ark-code-latest": 262_144,
     }
     assert {model.id: model.max_input_length for model in catalog["mimo"]} == {
+        f"mimo-v2.6-pro": 1_048_576,
+        f"mimo-v2.6-flash": 1_048_576,
         "mimo-v2.5-pro": 1_048_576,
         "mimo-v2.5": 1_048_576,
     }
