@@ -231,7 +231,8 @@ def test_framework_preserves_large_dependency_timeout(
     monkeypatch.setattr(module, "_is_frozen", lambda: frozen)
     monkeypatch.setattr(module, "_desktop_python", lambda: "bundled-python")
 
-    def run(args, *, timeout, plugin_id):
+    def run(args, *, timeout, plugin_id, cancel=None):
+        assert cancel is None
         assert timeout == 1800
         assert plugin_id == "extension-contract"
         raise subprocess.TimeoutExpired(args, timeout)

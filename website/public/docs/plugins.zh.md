@@ -417,6 +417,9 @@ SDK 插件与旧插件共用框架的依赖检查、安装和复核流程，不�
 SDK 插件与旧插件均可通过 `meta.dependency_install_timeout` 设置安装及等待安装锁的
 超时秒数，范围为 300–3600，默认 300。本地 Whisper 配置为 1800 秒，以允许大包下载。
 
+后端关闭或安装请求被取消时，框架会停止等待安装锁或终止正在运行的依赖安装进程，
+确认安装操作停止后再释放锁。重新启动后可主动安装或修复；已写入的共享依赖不回滚。
+
 公开异常为 `SDKError`、`SDKAccessError`、`SDKCompatibilityError`、`SDKRestartRequiredError`、`StaleContextError`、
 `ResourceError`、`ToolInputError` 和兼容导出的 `PluginBusyError`。
 `reload/unload/update_config` 的非抛出失败须检查 `results` 中公开 DTO 的

@@ -19,13 +19,16 @@ rather than the mere existence of a lock file.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import errno
 import logging
 import os
 import time
+import threading
 from pathlib import Path
 from typing import Iterator
+
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +87,14 @@ def plugin_install_lock(
     lock_path: Path,
     *,
     timeout: float = 300.0,
+    cancel: threading.Event | None = None,
 ) -> Iterator[bool]:
     """Hold an inter-process lock for the duration of the ``with`` block.
 
     Args:
         lock_path: Path to the lock file. Parent dirs are created.
         timeout: Seconds to wait for the lock before yielding ``False``.
+        cancel: Optional installer stop signal; raises CancelledError when set.
 
     Yields:
         ``True`` if the lock was acquired, ``False`` on timeout or lock
@@ -124,6 +129,8 @@ def plugin_install_lock(
     deadline = time.monotonic() + max(timeout, 0.0)
     try:
         while True:
+            if cancel is not None and cancel.is_set():
+                raise asyncio.CancelledError
             try:
                 acquired = _acquire_os_lock(fd)
             except OSError:
@@ -136,7 +143,10 @@ def plugin_install_lock(
                 break
             if acquired or time.monotonic() >= deadline:
                 break
-            time.sleep(_RETRY_INTERVAL_SECONDS)
+            if cancel is None:
+                time.sleep(_RETRY_INTERVAL_SECONDS)
+            else:
+                cancel.wait(_RETRY_INTERVAL_SECONDS)
 
         if not acquired:
             logger.warning(

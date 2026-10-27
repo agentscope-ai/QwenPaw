@@ -28,6 +28,7 @@ from .dependency_gate import (
     combined_requirements,
     is_requirement_satisfied,
 )
+from .dependency_process import check_cancelled, run_install_command
 from .lifecycle import (
     PluginLifecycle,
     PluginState,
@@ -301,6 +302,22 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         # Distinct from the inter-process install-deps file lock.
         self._lifecycle_locks: Dict[str, asyncio.Lock] = {}
         self._lifecycle_locks_mu = threading.Lock()
+        self._dependency_installs: dict[asyncio.Task, threading.Event] = {}
+        self._closing = False
+
+    async def stop_dependency_installs(self) -> None:
+        """Cancel installers and await transaction cleanup before shutdown."""
+        from ..utils.io_utils import run_async_to_completion
+
+        self._closing = True
+        tasks = tuple(self._dependency_installs)
+        for task in tasks:
+            self._dependency_installs[task].set()
+            task.cancel()
+        if tasks:
+            await run_async_to_completion(
+                asyncio.gather(*tasks, return_exceptions=True),
+            )
 
     def _require_recovered(self, plugin_id: str) -> None:
         """Do not import or commit a version whose boot recovery failed."""
@@ -503,6 +520,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """
         from ..utils.io_utils import run_sync_io
 
+        if allow_install and self._closing:
+            raise RuntimeError(
+                "Backend is shutting down; retry installation after restart",
+            )
         _ensure_plugin_site_on_path()
         if not self.lifecycle.delegate.owns_dependency_env(plugin_id):
             return GateDecision(
@@ -565,12 +586,36 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             if requirements_file.parent != source_path
             else {}
         )
-        await run_sync_io(
-            self._install_requirements_locked,
-            requirements_file,
-            plugin_id,
-            **source,
+        if self._closing:
+            raise RuntimeError(
+                "Backend is shutting down; retry installation after restart",
+            )
+        owner = asyncio.current_task()
+        assert owner is not None
+        cancel = self._dependency_installs[owner] = threading.Event()
+        worker = asyncio.create_task(
+            run_sync_io(
+                self._install_requirements_locked,
+                requirements_file,
+                plugin_id,
+                cancel=cancel,
+                **source,
+            ),
         )
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            from ..utils.io_utils import run_async_to_completion
+
+            cancel.set()
+            # Cancellation must reach the worker immediately, but its file
+            # and lifecycle locks remain held until process cleanup finishes.
+            await run_async_to_completion(
+                asyncio.gather(worker, return_exceptions=True),
+            )
+            raise
+        finally:
+            self._dependency_installs.pop(owner, None)
         recheck = await run_sync_io(
             DependencyGate().evaluate,
             requirements_file,
@@ -593,6 +638,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         plugin_id: str,
         *,
         source_path: Path | None = None,
+        cancel: threading.Event | None = None,
     ) -> None:
         """Install deps under a per-plugin inter-process lock (blocking).
 
@@ -607,10 +653,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
         with plugin_install_lock(
             _install_lock_path(plugin_id),
+            cancel=cancel,
             timeout=self._dependency_install_timeout(
                 source_path or requirements_file.parent,
             ),
         ) as acquired:
+            check_cancelled(cancel)
             if not acquired:
                 raise RuntimeError(
                     "Dependency installer is busy or its lock is unavailable; "
@@ -639,12 +687,17 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             if not decision.allow_install:
                 raise RuntimeError(decision.reason)
             if source_path is None:
-                self._install_requirements(requirements_file, plugin_id)
+                self._install_requirements(
+                    requirements_file,
+                    plugin_id,
+                    cancel=cancel,
+                )
             else:
                 self._install_requirements(
                     requirements_file,
                     plugin_id,
                     source_path=source_path,
+                    cancel=cancel,
                 )
 
     def _validate_entry_points(
@@ -1430,54 +1483,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 return str(candidate)
         return None
 
-    @staticmethod
-    def _run_subprocess_with_streaming_log(
-        cmd: list[str],
-        *,
-        timeout: int,
-        plugin_id: str,
-    ) -> subprocess.CompletedProcess:
-        """Run *cmd*; stream stdout/stderr to debug logs in real time."""
-        logger.debug(
-            "Running install command for plugin '%s': %s",
-            plugin_id,
-            " ".join(cmd),
-        )
-        output_lines: List[str] = []
-        with subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        ) as proc:
-
-            def _read_output() -> None:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    stripped = line.rstrip("\n\r")
-                    if stripped:
-                        output_lines.append(stripped)
-                        logger.debug("[%s] %s", plugin_id, stripped)
-
-            reader = threading.Thread(target=_read_output, daemon=True)
-            reader.start()
-            try:
-                returncode = proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-                reader.join(timeout=2)
-                raise
-            reader.join(timeout=2)
-
-        combined = "\n".join(output_lines)
-        return subprocess.CompletedProcess(
-            args=cmd,
-            returncode=returncode,
-            stdout=combined,
-            stderr="",
-        )
+    _run_subprocess_with_streaming_log = staticmethod(run_install_command)
 
     @staticmethod
     def _dependency_install_timeout(source: Path) -> int:
@@ -1502,6 +1508,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         plugin_id: str,
         *,
         source_path: Path | None = None,
+        cancel: threading.Event | None = None,
     ) -> None:
         """Install Python dependencies for a plugin (blocking).
 
@@ -1538,7 +1545,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         # In a frozen desktop build ``sys.executable`` is the backend binary,
         # not a Python interpreter; install via the bundled runtime instead.
         if _is_frozen():
-            self._install_requirements_frozen(req, plugin_id, timeout)
+            self._install_requirements_frozen(
+                req,
+                plugin_id,
+                timeout,
+                cancel=cancel,
+            )
             return
 
         # ── Attempt 1: python -m pip ──────────────────────────────────
@@ -1555,6 +1567,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     req,
                 ],
                 timeout=timeout,
+                cancel=cancel,
                 plugin_id=plugin_id,
             )
         except subprocess.TimeoutExpired as exc:
@@ -1605,6 +1618,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     req,
                 ],
                 timeout=timeout,
+                cancel=cancel,
                 plugin_id=plugin_id,
             )
         except subprocess.TimeoutExpired as exc:
@@ -1627,6 +1641,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         req: str,
         plugin_id: str,
         timeout: int,
+        *,
+        cancel: threading.Event | None = None,
     ) -> None:
         """Install plugin deps in the frozen desktop build.
 
@@ -1660,6 +1676,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     req,
                 ],
                 timeout=timeout,
+                cancel=cancel,
                 plugin_id=plugin_id,
             )
         except subprocess.TimeoutExpired as exc:
@@ -2506,6 +2523,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             RuntimeError: If dependency installation fails
         """
         # pylint: disable=too-many-branches
+        if self._closing:
+            raise RuntimeError(
+                "Backend is shutting down; retry installation after restart",
+            )
         source_path = await asyncio.to_thread(Path(source_path).resolve)
         _manifest_path, manifest = await asyncio.to_thread(
             self._read_source_manifest,

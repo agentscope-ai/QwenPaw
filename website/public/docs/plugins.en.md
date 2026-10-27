@@ -2206,6 +2206,12 @@ installation timeout and the time limit for waiting for the installation lock.
 The value is in seconds, from 300 to 3600, with a default of 300. Local Whisper sets
 it to 1800 seconds to allow time for large package downloads.
 
+When the backend shuts down or an installation request is cancelled, the framework
+stops waiting for the installation lock or terminates the running dependency
+installer. It releases the lock after installation has stopped. After restarting,
+users can explicitly install or repair again; already written shared dependencies
+are not rolled back.
+
 #### Using Custom PyPI Index
 
 ```

@@ -102,10 +102,12 @@ async def _sync_scroll_history_on_startup() -> None:
 
 async def _shutdown_plugins(app: FastAPI) -> None:
     """Tear down plugin runtime resources before other services stop."""
+    plugin_loader = getattr(app.state, "plugin_loader", None)
+    if plugin_loader is not None:
+        await plugin_loader.stop_dependency_installs()
     transcription = getattr(app.state, "local_transcription", None)
     if transcription is not None:
         await transcription.close()
-    plugin_loader = getattr(app.state, "plugin_loader", None)
     if plugin_loader is not None:
         logger.info("Executing plugin shutdown (mode=shutdown)...")
         from ..plugins.lifecycle import UnloadMode
