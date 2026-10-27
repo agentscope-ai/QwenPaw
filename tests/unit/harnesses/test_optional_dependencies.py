@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 from qwenpaw.harnesses.base import MissingDependencyAdapter
 from qwenpaw.harnesses.registry import create_adapter
@@ -24,9 +25,13 @@ def test_codex_and_qoder_sdks_are_optional_and_in_full() -> None:
     assert not any("qoder-agent-sdk" in item for item in dependencies)
     assert extras["codex"] == ["openai-codex==0.144.4"]
     assert extras["qoder"] == ["qoder-agent-sdk==1.0.9"]
-    assert extras["full"] == [
-        "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",
-    ]
+    full_extras = {
+        extra
+        for requirement in map(Requirement, extras["full"])
+        if requirement.name.lower() == project["name"].lower()
+        for extra in requirement.extras
+    }
+    assert {"codex", "qoder"} <= full_extras
 
 
 @pytest.mark.asyncio

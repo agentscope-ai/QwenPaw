@@ -14,6 +14,7 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+from importlib.metadata import PackageNotFoundError
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,6 +32,7 @@ from qwenpaw.providers.ollama_provider import OllamaProvider
 from qwenpaw.providers.openai_provider import OpenAIProvider
 
 _MOD = "qwenpaw.agents.utils.audio_transcription"
+_LOCAL = "qwenpaw.plugins.local_transcription"
 
 
 # ---------------------------------------------------------------------------
@@ -234,18 +236,24 @@ class TestGetConfiguredTranscriptionProviderId:
 class TestCheckLocalWhisperAvailable:
     """Tests for check_local_whisper_available."""
 
-    @patch(f"{_MOD}.shutil")
+    @patch(f"{_LOCAL}.shutil")
     def test_neither_available(self, mock_shutil):
         mock_shutil.which.return_value = None
-        with patch.dict("sys.modules", {"whisper": None}):
+        with patch(
+            f"{_LOCAL}.metadata.version",
+            side_effect=PackageNotFoundError,
+        ):
             result = check_local_whisper_available()
             assert result["available"] is False
             assert result["ffmpeg_installed"] is False
 
-    @patch(f"{_MOD}.shutil")
+    @patch(f"{_LOCAL}.shutil")
     def test_ffmpeg_but_no_whisper(self, mock_shutil):
         mock_shutil.which.return_value = "/usr/bin/ffmpeg"
-        with patch.dict("sys.modules", {"whisper": None}):
+        with patch(
+            f"{_LOCAL}.metadata.version",
+            side_effect=PackageNotFoundError,
+        ):
             result = check_local_whisper_available()
             assert result["ffmpeg_installed"] is True
             assert result["whisper_installed"] is False
@@ -382,50 +390,27 @@ class TestTranscribeLocalWhisper:
             assert result is None
 
     @pytest.mark.asyncio
-    async def test_transcription_success(self):
-        mock_model = MagicMock()
-        mock_model.transcribe.return_value = {"text": "  hello  "}
+    @pytest.mark.parametrize(
+        "text,expected",
+        [("  hello  ", "hello"), ("   ", None)],
+    )
+    async def test_registered_backend_result(self, text, expected):
+        from qwenpaw.plugins.transcription import TranscriptionResult
+        from qwenpaw.agents.utils.audio_transcription import (
+            _transcribe_local_whisper,
+        )
 
+        backend = MagicMock()
+        backend.call = AsyncMock(return_value=TranscriptionResult(text))
         with patch(
-            f"{_MOD}.check_local_whisper_available",
-            return_value={
-                "available": True,
-                "ffmpeg_installed": True,
-                "whisper_installed": True,
-            },
-        ), patch(
-            f"{_MOD}._get_local_whisper_model",
-            return_value=mock_model,
+            "qwenpaw.plugins.registry.PluginRegistry."
+            "get_transcription_backend",
+            return_value=backend,
         ):
-            from qwenpaw.agents.utils.audio_transcription import (
-                _transcribe_local_whisper,
+            assert (
+                await _transcribe_local_whisper("/tmp/audio.wav") == expected
             )
-
-            result = await _transcribe_local_whisper("/tmp/audio.wav")
-            assert result == "hello"
-
-    @pytest.mark.asyncio
-    async def test_empty_text_returns_none(self):
-        mock_model = MagicMock()
-        mock_model.transcribe.return_value = {"text": "   "}
-
-        with patch(
-            f"{_MOD}.check_local_whisper_available",
-            return_value={
-                "available": True,
-                "ffmpeg_installed": True,
-                "whisper_installed": True,
-            },
-        ), patch(
-            f"{_MOD}._get_local_whisper_model",
-            return_value=mock_model,
-        ):
-            from qwenpaw.agents.utils.audio_transcription import (
-                _transcribe_local_whisper,
-            )
-
-            result = await _transcribe_local_whisper("/tmp/audio.wav")
-            assert result is None
+        assert backend.call.call_args.kwargs["file_path"] == "/tmp/audio.wav"
 
 
 # ---------------------------------------------------------------------------

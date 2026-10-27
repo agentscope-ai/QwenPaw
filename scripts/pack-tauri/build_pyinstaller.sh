@@ -160,6 +160,9 @@ fi
 "$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/verify_model_catalog.py" \
     "${BACKEND_DIR}/_internal/qwenpaw/providers/data"
 
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/verify_optional_audio.py" \
+    "${BACKEND_DIR}"
+
 echo "Backend bundle created: ${BACKEND_DIR}"
 
 # Get size

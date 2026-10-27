@@ -155,6 +155,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             return
 
         self._providers: Dict[str, ProviderRegistration] = {}
+        self._transcription_backends: Dict[str, Any] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._uninstall_hooks: List[HookRegistration] = []
@@ -337,6 +338,24 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             for r in self._http_router_registrations
             if r.plugin_id != plugin_id
         ]
+
+    def register_transcription_backend(self, backend_id: str, adapter) -> None:
+        """Reserve a backend ID until its owning plugin releases it."""
+        if backend_id in self._transcription_backends:
+            raise ValueError(
+                f"Transcription backend '{backend_id}' already registered",
+            )
+        self._transcription_backends[backend_id] = adapter
+
+    def get_transcription_backend(self, backend_id: str):
+        return self._transcription_backends.get(backend_id)
+
+    def get_transcription_backends(self) -> Dict[str, Any]:
+        return self._transcription_backends.copy()
+
+    def drop_transcription_backend(self, backend_id: str, expected) -> None:
+        if self._transcription_backends.get(backend_id) is expected:
+            del self._transcription_backends[backend_id]
 
     def register_provider(
         self,
@@ -1040,7 +1059,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
     def leftover_registrations(self, plugin_id: str) -> List[str]:
         """Ledgered rows that are still present after teardown."""
-        leftovers: List[str] = []
+        leftovers: List[str] = [
+            f"transcription:{key}"
+            for key, item in self._transcription_backends.items()
+            if item.plugin_id == plugin_id
+        ]
         leftovers.extend(
             f"http:{reg.prefix}"
             for reg in self._http_router_registrations
@@ -1183,6 +1206,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 exc_info=True,
             )
 
+        for key, item in tuple(self._transcription_backends.items()):
+            if item.plugin_id == plugin_id:
+                item.closed = True
+                self.drop_transcription_backend(key, item)
         self._plugin_manifests.pop(plugin_id, None)
 
         providers_to_remove = [

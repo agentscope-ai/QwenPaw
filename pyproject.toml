@@ -111,6 +111,8 @@ include-package-data = true
     "plugins/frontend/**",
     "plugins/py.typed",
     "plugins/templates/**",
+    "plugins/optional/*/plugin.json",
+    "plugins/optional/*/README.md",
     "docs/*.md",
     "app/channels/yuanbao/proto/**",
 ]
@@ -136,8 +138,8 @@ test = [
     "pytest-cov>=6.2.1",
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.5.0",
-    # SDK dependency-plan tests exercise the verified uv dry-run protocol.
-    "uv==0.8.15",
+    # Exercise the shared dependency installer's uv fallback path.
+    "uv>=0.13.4",
     "hypothesis>=6.0.0",
     "respx>=0.22.0",
     "qoder-agent-sdk==1.0.9",
@@ -167,7 +169,7 @@ qwenpaw-data = [
     "qwenpaw-data-skills>=0.3.3,<0.4",
 ]
 full = [
-    "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",
+    "qwenpaw[qwenpaw-data,hub,local,codex,qoder]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

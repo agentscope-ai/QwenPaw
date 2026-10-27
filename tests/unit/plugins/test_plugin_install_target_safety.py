@@ -290,7 +290,9 @@ async def test_pawport_plugin_failure_cleans_its_prepared_target(
     monkeypatch.setattr(
         loader,
         "_install_requirements_locked",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("install failed")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("install failed"),
+        ),
     )
 
     with pytest.raises(RuntimeError, match="install failed"):

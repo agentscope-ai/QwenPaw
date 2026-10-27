@@ -23,6 +23,7 @@ from .modes import ModeSpec
 from .skills import SkillSpec
 from .markets import MarketSpec
 from .providers import ProviderSpec
+from .transcription import TranscriptionSpec
 from .memory import MemorySpec
 from .events import EventSubscription
 from .apps import PawApp
@@ -1354,6 +1355,14 @@ class PluginContext:  # pylint: disable=protected-access
 
     def register_provider(self, spec: ProviderSpec) -> Registration:
         from ._providers import register
+
+        return register(self, spec)
+
+    def register_transcription_backend(
+        self,
+        spec: TranscriptionSpec,
+    ) -> Registration:
+        from ._transcription import register
 
         return register(self, spec)
 

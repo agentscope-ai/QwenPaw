@@ -19,13 +19,16 @@ rather than the mere existence of a lock file.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import errno
 import logging
 import os
 import time
+import threading
 from pathlib import Path
 from typing import Iterator
+
 
 logger = logging.getLogger(__name__)
 
@@ -84,26 +87,27 @@ def plugin_install_lock(
     lock_path: Path,
     *,
     timeout: float = 300.0,
+    cancel: threading.Event | None = None,
 ) -> Iterator[bool]:
     """Hold an inter-process lock for the duration of the ``with`` block.
 
     Args:
         lock_path: Path to the lock file. Parent dirs are created.
-        timeout: Seconds to wait for the lock before giving up. The block
-            still runs when the wait times out (the install proceeds
-            unlocked rather than being skipped), so a stuck peer can never
-            permanently block a plugin from installing its dependencies.
+        timeout: Seconds to wait for the lock before yielding ``False``.
+        cancel: Optional installer stop signal; raises CancelledError when set.
 
     Yields:
-        ``True`` if the lock was acquired, ``False`` if the wait timed out
-        and the body runs without the lock.
+        ``True`` if the lock was acquired, ``False`` on timeout or lock
+        errors. The block is entered in either case; callers must check
+        the result before writing. PluginLoader refuses to install when
+        the result is ``False``.
     """
     lock_path = Path(lock_path)
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError:
         logger.debug(
-            "Could not create lock dir for %s; proceeding without lock",
+            "Could not create lock dir for %s; lock not acquired",
             lock_path,
             exc_info=True,
         )
@@ -114,7 +118,7 @@ def plugin_install_lock(
         fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
     except OSError:
         logger.debug(
-            "Could not open lock file %s; proceeding without lock",
+            "Could not open lock file %s; lock not acquired",
             lock_path,
             exc_info=True,
         )
@@ -125,11 +129,13 @@ def plugin_install_lock(
     deadline = time.monotonic() + max(timeout, 0.0)
     try:
         while True:
+            if cancel is not None and cancel.is_set():
+                raise asyncio.CancelledError
             try:
                 acquired = _acquire_os_lock(fd)
             except OSError:
                 logger.debug(
-                    "Unexpected error locking %s; proceeding without lock",
+                    "Unexpected error locking %s; lock not acquired",
                     lock_path,
                     exc_info=True,
                 )
@@ -137,14 +143,17 @@ def plugin_install_lock(
                 break
             if acquired or time.monotonic() >= deadline:
                 break
-            time.sleep(_RETRY_INTERVAL_SECONDS)
+            if cancel is None:
+                time.sleep(_RETRY_INTERVAL_SECONDS)
+            else:
+                cancel.wait(_RETRY_INTERVAL_SECONDS)
 
         if not acquired:
             logger.warning(
-                "Timed out after %.0fs waiting for plugin install lock %s; "
-                "proceeding without it",
-                timeout,
+                "Could not acquire plugin install lock %s "
+                "(wait limit %.0fs)",
                 lock_path,
+                timeout,
             )
         yield acquired
     finally:

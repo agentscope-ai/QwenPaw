@@ -55,6 +55,11 @@ host does not migrate them automatically. Historical exports of `PluginApi`,
 `PluginLoader`, `PluginRegistry`, and `PluginLifecycle` remain for compatibility.
 New SDK plugins must not depend on those exports or underscore-prefixed internals.
 
+SDK and legacy plugins share the framework's dependency checks, installation, and
+post-install verification. The `sdk` declaration does not select a separate dependency
+installer or protection policy. See [Dependency Management](#dependency-management)
+for the shared installation rules and timeout configuration.
+
 ## Write a tool
 
 Save this as `hello-sdk/main.py`:
@@ -2173,12 +2178,39 @@ the check or dependency resolution. Prefer maintaining each dependency in one
 place to avoid duplicate declarations. These are Python package dependencies,
 not other plugin IDs or runtime service dependencies.
 
-Explicit installation, updates, and repairs check and install missing dependencies.
-Boot only checks dependencies; it does not install them. Missing dependencies fail
-that plugin's load. Call `POST /api/plugins/{plugin_id}/repair-dependencies` to repair
-them; disabled plugins stay disabled. Versions that conflict with protected host
-packages are refused; resolve the environment conflict first. Administrator-managed
-local runtimes require the administrator to install dependencies.
+SDK and legacy plugins use this same framework flow. Requirements whose environment
+markers do not apply are excluded; when all applicable requirements are already
+satisfied, the check returns without network access. Boot only checks dependencies;
+missing dependencies fail that plugin's load. Only explicit installation, updates,
+and repairs may install dependencies. Call
+`POST /api/plugins/{plugin_id}/repair-dependencies` to repair them; disabled plugins
+stay disabled. Administrator-managed local runtimes require the administrator to
+install dependencies.
+
+Directly declared requirements that conflict with protected host packages are refused,
+with a message to restart the backend and prepare the dependency environment. For SDK
+plugins, this is reported as the public `SDKRestartRequiredError` exception.
+After acquiring the installation lock, the framework rechecks requirements and host
+conflicts. If the lock cannot be acquired, installation stops and must be retried.
+Approved installations use the shared pip / uv flow. Desktop builds use the bundled
+Python interpreter to install into the shared plugin dependency directory. Requirements
+are checked again after installation; the plugin loads only if they are satisfied.
+
+The framework does not audit the entire environment for duplicate package versions,
+pin all installed versions, or preview the complete installation plan. It does not
+guarantee that replacements caused by transitive dependencies will be blocked, and
+does not provide atomic rollback of the shared dependency environment.
+
+Both SDK and legacy plugins can set `meta.dependency_install_timeout` to control the
+installation timeout and the time limit for waiting for the installation lock.
+The value is in seconds, from 300 to 3600, with a default of 300. Local Whisper sets
+it to 1800 seconds to allow time for large package downloads.
+
+When the backend shuts down or an installation request is cancelled, the framework
+stops waiting for the installation lock or terminates the running dependency
+installer. It releases the lock after installation has stopped. After restarting,
+users can explicitly install or repair again; already written shared dependencies
+are not rolled back.
 
 #### Using Custom PyPI Index
 

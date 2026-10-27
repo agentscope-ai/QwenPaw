@@ -872,7 +872,7 @@ async def test_index_url_preserves_dependency_policy(
     monkeypatch.setattr(
         loader,
         "_install_requirements_locked",
-        lambda path, plugin_id: installed.append((path, plugin_id)),
+        lambda path, plugin_id, **_kwargs: installed.append((path, plugin_id)),
     )
     boot = await loader._ensure_dependencies_installed(tmp_path, "indexed")
     assert not boot.unsupported

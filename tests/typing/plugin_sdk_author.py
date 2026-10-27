@@ -147,3 +147,19 @@ async def async_storage(call: ToolContext) -> None:
     await call.storage.awrite_json("state.json", {"count": 1})
     await call.storage.adelete("state.json")
     assert_type(await call.media.awrite("result.txt", b"result"), Attachment)
+
+
+async def transcription_contract(host: PluginTestHost) -> None:
+    from qwenpaw.plugins.transcription import (
+        TranscriptionResult,
+        TranscriptionStatus,
+    )
+
+    assert_type(
+        await host.transcribe("local_whisper", "/audio.wav"),
+        TranscriptionResult,
+    )
+    assert_type(
+        await host.transcription_status("local_whisper"),
+        TranscriptionStatus,
+    )
