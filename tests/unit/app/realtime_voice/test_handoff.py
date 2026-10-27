@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 import json
 from unittest.mock import AsyncMock
@@ -68,6 +69,8 @@ async def test_duplicate_call_reuses_one_admission_and_one_provider_receipt():
         event(arguments="not json"),
         event(arguments=json.dumps({"request_text": "ok", "extra": True})),
         event(arguments=json.dumps({"request_text": ""})),
+        event(name="update_response_style", arguments="not json"),
+        event(name="update_response_style", arguments='{"request_text":""}'),
     ],
 )
 def test_invalid_native_call_is_rejected_before_chat_admission(bad_event):
@@ -76,10 +79,23 @@ def test_invalid_native_call_is_rejected_before_chat_admission(bad_event):
 
 
 @pytest.mark.asyncio
+async def test_response_style_call_cannot_be_admitted_as_chat_work():
+    provider, bridge = AsyncMock(), AsyncMock()
+    controller = VoiceHandoffController(provider, bridge)
+    update = event(name="update_response_style")
+    assert controller.parse(update).action == "update_response_style"
+    with pytest.raises(VoiceHandoffError, match="not Chat work"):
+        await controller.handle(update)
+    bridge.enqueue_input.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_admission_failure_is_returned_to_native_model():
     provider = AsyncMock()
     bridge = AsyncMock()
-    bridge.enqueue_input.side_effect = OverflowError("too many pending requests")
+    bridge.enqueue_input.side_effect = OverflowError(
+        "too many pending requests",
+    )
     controller = VoiceHandoffController(provider, bridge)
 
     result = await controller.handle(event())

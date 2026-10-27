@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Native audio handoff into the current ordinary Chat."""
 
 from __future__ import annotations
@@ -12,14 +13,15 @@ from ...providers.realtime_voice import ProviderEvent, RealtimeProviderSession
 from .contracts import VoiceAdmissionMode, VoiceTaskReceipt
 from .task_bridge import VoiceTaskBridge
 
-VoiceHandoffAction = Literal["handoff"]
+VoiceHandoffAction = Literal["handoff", "update_response_style"]
 _HANDOFF_TOOL = "handoff_to_chat"
+_STYLE_TOOL = "update_response_style"
 _MAX_REQUEST_CHARS = 8000
 
 
 @dataclass(frozen=True)
 class VoiceWorkInput:
-    """One provider-native work request admitted to ordinary Chat."""
+    """One provider-native request, before conversation or task handling."""
 
     input_id: str
     call_id: str
@@ -66,25 +68,25 @@ class VoiceHandoffController:
         if event.kind != "tool.call":
             raise VoiceHandoffError("not a realtime tool call")
         call_id = str(
-            event.data.get("call_id") or event.correlation_id or ""
+            event.data.get("call_id") or event.correlation_id or "",
         ).strip()
         name = str(event.data.get("name") or "").strip()
-        if not call_id or name != _HANDOFF_TOOL:
+        if not call_id or name not in {_HANDOFF_TOOL, _STYLE_TOOL}:
             raise VoiceHandoffError(
-                "unknown or unidentified realtime tool call"
+                "unknown or unidentified realtime tool call",
             )
         try:
             arguments = json.loads(str(event.data.get("arguments") or ""))
         except json.JSONDecodeError as exc:
             raise VoiceHandoffError("invalid realtime tool arguments") from exc
         if not isinstance(arguments, dict) or set(arguments) != {
-            "request_text"
+            "request_text",
         }:
             raise VoiceHandoffError("invalid realtime tool argument schema")
         request_text = str(arguments.get("request_text") or "").strip()
         if not request_text or len(request_text) > _MAX_REQUEST_CHARS:
             raise VoiceHandoffError(
-                "realtime work request is empty or too long"
+                "realtime work request is empty or too long",
             )
         digest = hashlib.sha256(call_id.encode()).hexdigest()
         return VoiceWorkInput(
@@ -92,6 +94,9 @@ class VoiceHandoffController:
             call_id=call_id,
             source_id=str(event.data.get("input_item_id") or "").strip(),
             request_text=request_text,
+            action=(
+                "update_response_style" if name == _STYLE_TOOL else "handoff"
+            ),
         )
 
     async def _admit(self, work: VoiceWorkInput) -> VoiceTaskReceipt:
@@ -105,11 +110,15 @@ class VoiceHandoffController:
 
     async def handle(self, event: ProviderEvent) -> VoiceHandoffResult:
         work = self.parse(event)
+        if work.action != "handoff":
+            raise VoiceHandoffError("Response style updates are not Chat work")
         existing = self._results.get(work.call_id)
         if existing is not None:
             result = await asyncio.shield(existing)
             return VoiceHandoffResult(
-                result.work, result.receipt, replayed=True
+                result.work,
+                result.receipt,
+                replayed=True,
             )
         future = self._results[
             work.call_id

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Application control and speech presentation for one Voice session."""
 
 from __future__ import annotations
@@ -5,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections import deque
 from collections.abc import AsyncIterator, Coroutine
 from contextlib import suppress
 from dataclasses import replace
@@ -71,6 +73,11 @@ def _has_content(reply: ChatReply) -> bool:
     return reply.phase != "incomplete" and bool(reply.text or reply.media_refs)
 
 
+def _dialogue_turn_id(source_id: str) -> str:
+    digest = hashlib.sha256(source_id.encode()).hexdigest()
+    return f"voice_dialogue_{digest[:32]}"
+
+
 class VoiceCoordinator:
     """Keep application control durable while speech remains interruptible."""
 
@@ -93,7 +100,7 @@ class VoiceCoordinator:
         self._language_instruction = build_language_instruction(language)
         self._session_config = build_session_config(language)
         self._presentation_session_config = build_presentation_session_config(
-            language
+            language,
         )
         self._bridge = bridge
         self._handoff = VoiceHandoffController(provider, bridge)
@@ -102,11 +109,18 @@ class VoiceCoordinator:
         self._presentation_queue = PresentationQueue(presentation_capacity)
         self._playback_timeout = playback_timeout_seconds
         self._output_credit: OutputCredit | None = None
+        self._recent_outputs: deque[OutputCredit] = deque(maxlen=3)
+        self._latest_user_transcript = ""
+        self._recent_user_transcripts: deque[str] = deque(
+            maxlen=max_history_turns,
+        )
         self._auto_response_credit: OutputCredit | None = None
         self._auto_credits: dict[str, OutputCredit] = {}
         self._auto_begun: set[str] = set()
         self._auto_output_idle = asyncio.Event()
         self._auto_output_idle.set()
+        self._user_speech_idle = asyncio.Event()
+        self._user_speech_idle.set()
         self._seen_responses: set[str] = set()
         self._presentation_failed = False
         self._active_presentation_task: asyncio.Task[None] | None = None
@@ -121,6 +135,8 @@ class VoiceCoordinator:
         self._auto_responses: dict[str, dict[str, Any]] = {}
         self._persisted_auto_sources: set[str] = set()
         self._handoff_sources: set[str] = set()
+        self._style_inputs: dict[str, VoiceWorkInput] = {}
+        self._style_call_ids: set[str] = set()
         self._chat_owned_sources: set[str] = set()
         self._chat_owned_responses: dict[str, str] = {}
         self._chat_mode_active = False
@@ -210,7 +226,7 @@ class VoiceCoordinator:
         **fields: Any,
     ) -> None:
         self._events.put_nowait(
-            ProviderEvent(kind, uuid4().hex, data, **fields)
+            ProviderEvent(kind, uuid4().hex, data, **fields),
         )
 
     def _emit_error(
@@ -236,6 +252,7 @@ class VoiceCoordinator:
         await self._provider.send_audio(pcm16)
 
     async def interrupt(self) -> None:
+        self._preempt_presentation("interrupt")
         await self._provider.interrupt_output()
         if self._dedicated_presenter:
             await self._presenter.interrupt_output()
@@ -256,6 +273,8 @@ class VoiceCoordinator:
                 {"run_id": run_id, "status": "observing"},
             )
 
+    # Provider events share ordered input and response state transitions.
+    # pylint: disable-next=too-many-branches
     async def _pump_provider(self) -> None:
         try:
             async for event in self._provider.events():
@@ -280,8 +299,11 @@ class VoiceCoordinator:
                         final=kind == "input_transcript.final",
                     )
                 if kind == "input_transcript.final":
+                    self._latest_user_transcript = text[:4000]
+                    if text:
+                        self._recent_user_transcripts.append(text[:1000])
                     self._start_history(
-                        self._persist_handoff_transcript(source_id)
+                        self._persist_handoff_transcript(source_id),
                     )
                     self._live_sources.add(source_id)
                     self._input_transcripts[source_id] = text
@@ -290,11 +312,16 @@ class VoiceCoordinator:
                     self._start(self._persist_auto_exchange(source_id))
                 elif kind == "input_transcript.failed":
                     self._input_transcripts[source_id] = ""
+                    self._start(self._persist_auto_exchange(source_id))
                 elif kind == "speech.started":
+                    self._latest_user_transcript = ""
+                    self._user_speech_idle.clear()
                     self._live_sources.add(source_id)
                     if self._chat_mode_active:
                         self._chat_owned_sources.add(source_id)
                     self._preempt_presentation("barge_in")
+                elif kind == "speech.stopped":
+                    self._user_speech_idle.set()
                 if kind == "tool.call":
                     self._start(self._handle_tool_call(event))
                 elif kind in _RESPONSE_EVENTS:
@@ -314,15 +341,27 @@ class VoiceCoordinator:
             work = self._handoff.parse(event)
             if work.source_id not in self._live_sources:
                 raise VoiceHandoffError(
-                    "Work must belong to a live speech input"
+                    "Work must belong to a live speech input",
                 )
+            if work.action == "update_response_style":
+                if work.call_id in self._style_call_ids:
+                    return
+                self._style_call_ids.add(work.call_id)
+                self._style_inputs.setdefault(work.source_id, work)
+                self._start(self._persist_auto_exchange(work.source_id))
+                await self._provider.complete_tool_call(
+                    work.call_id,
+                    {"accepted": True, "action": work.action},
+                )
+                return
             # Admission belongs to the bridge and may finish after this
             # connection closes, even if its receipt has not arrived yet.
             self._handoff_sources.add(work.source_id)
+            self._start(self._persist_auto_exchange(work.source_id))
             result = await self._handoff.handle(event)
         except VoiceHandoffError as exc:
             call_id = str(
-                event.data.get("call_id") or event.correlation_id or ""
+                event.data.get("call_id") or event.correlation_id or "",
             )
             if call_id:
                 with suppress(Exception):
@@ -379,9 +418,11 @@ class VoiceCoordinator:
             return
         credit = self._output_credit
         response_id = event.correlation_id or ""
-        if (
+        # Bind only a new response belonging to the current requested output.
+        if (  # pylint: disable=too-many-boolean-expressions
             event.kind == "response.started"
             and credit is not None
+            and credit.requested
             and not credit.provider_id
             and response_id
             and response_id not in self._seen_responses
@@ -394,13 +435,28 @@ class VoiceCoordinator:
             or response_id != credit.provider_id
         ):
             return
-        self._events.put_nowait(
-            replace(event, data={**event.data, "output_id": credit.output_id})
-        )
+        if not credit.cancelled:
+            if event.kind in {
+                "output_transcript.partial",
+                "output_transcript.final",
+            }:
+                credit.observe_transcript(
+                    str(event.data.get("text") or ""),
+                    final=event.kind == "output_transcript.final",
+                )
+            self._events.put_nowait(
+                replace(
+                    event,
+                    data={**event.data, "output_id": credit.output_id},
+                ),
+            )
         if event.kind == "response.finished":
             credit.seal()
-            self._emit("output.sealed", {"output_id": credit.output_id})
+            if not credit.cancelled:
+                self._emit("output.sealed", {"output_id": credit.output_id})
 
+    # Keep native response ownership and credit completion in one handler.
+    # pylint: disable-next=too-many-branches
     def _handle_auto_response_event(self, event: ProviderEvent) -> None:
         response_id = str(event.correlation_id or "")
         source_id = str(event.data.get("input_item_id") or "")
@@ -432,10 +488,19 @@ class VoiceCoordinator:
             and credit.output_id not in self._auto_begun
         ):
             self._auto_begun.add(credit.output_id)
+            self._recent_outputs.append(credit)
             self._auto_output_idle.clear()
             self._emit("output.begin", {"output_id": credit.output_id})
+        if event.kind in {
+            "output_transcript.partial",
+            "output_transcript.final",
+        }:
+            credit.observe_transcript(
+                str(event.data.get("text") or ""),
+                final=event.kind == "output_transcript.final",
+            )
         self._events.put_nowait(
-            replace(event, data={**event.data, "output_id": credit.output_id})
+            replace(event, data={**event.data, "output_id": credit.output_id}),
         )
         if event.kind != "response.finished":
             return
@@ -489,11 +554,37 @@ class VoiceCoordinator:
             or source_id not in self._auto_responses
         ):
             return
+        style = self._style_inputs.get(source_id)
+        # A terminal response can arrive before its tool handler runs.
+        # Wait for the validated call instead of discarding the ASR evidence.
+        if (
+            self._auto_responses[source_id]["had_tool_call"]
+            and style is None
+            and source_id not in self._handoff_sources
+        ):
+            return
         self._persisted_auto_sources.add(source_id)
         response = self._auto_responses.pop(source_id)
         user_text = self._input_transcripts.pop(source_id).strip()
         chat_owned = source_id in self._chat_owned_sources
         self._chat_owned_sources.discard(source_id)
+        self._style_inputs.pop(source_id, None)
+        if style is not None and source_id not in self._handoff_sources:
+            # Keep the final recognized words; the native request is only a
+            # fallback when transcription failed. No Chat task is admitted.
+            await asyncio.shield(
+                self._start_history(
+                    self._queue_presentation(
+                        PresentationIntent(
+                            "style",
+                            turn_id=_dialogue_turn_id(source_id),
+                            user_text=user_text or style.request_text,
+                        ),
+                        persist_exchange=True,
+                    ),
+                ),
+            )
+            return
         if response["had_tool_call"] or not user_text:
             return
         if not chat_owned:
@@ -504,14 +595,15 @@ class VoiceCoordinator:
                         user_text,
                         response["transcript"],
                         response["status"],
-                    )
-                )
+                    ),
+                ),
             )
             return
         try:
             self._handoff_sources.add(source_id)
             result = await self._handoff.handle_transcript(
-                source_id, user_text
+                source_id,
+                user_text,
             )
         except Exception as exc:  # noqa: BLE001
             self._emit_error(
@@ -544,8 +636,7 @@ class VoiceCoordinator:
         assistant_text: str = "",
         status: str = "",
     ) -> None:
-        digest = hashlib.sha256(source_id.encode()).hexdigest()
-        turn_id = f"voice_dialogue_{digest[:32]}"
+        turn_id = _dialogue_turn_id(source_id)
         timeline_order = await self._timeline.reserve_order()
         self._timeline.observe_voice_exchange(
             turn_id,
@@ -564,13 +655,19 @@ class VoiceCoordinator:
 
     async def _flush_transcript_tail(self) -> None:
         """Save received final user speech without admitting any new work."""
-        for source_id, user_text in tuple(self._input_transcripts.items()):
+        tails = dict(self._input_transcripts)
+        for source_id, style in self._style_inputs.items():
+            tails[source_id] = tails.get(source_id) or style.request_text
+        for source_id, user_text in tails.items():
             response = self._auto_responses.get(source_id, {})
             if (
                 not user_text
                 or source_id in self._persisted_auto_sources
                 or source_id in self._handoff_sources
-                or response.get("had_tool_call")
+                or (
+                    response.get("had_tool_call")
+                    and source_id not in self._style_inputs
+                )
             ):
                 continue
             try:
@@ -588,25 +685,26 @@ class VoiceCoordinator:
             self._persisted_auto_sources.add(source_id)
         self._input_transcripts.clear()
         self._auto_responses.clear()
+        self._style_inputs.clear()
 
     async def _queue_admission(
         self,
         turn: VoiceWorkInput,
         receipt: VoiceTaskReceipt,
     ) -> None:
-        accepted = receipt.accepted
+        # Successful admission is already visible via committed/accepted
+        # events. A mandatory spoken receipt delays every actual answer.
+        if receipt.accepted:
+            return
         await self._queue_presentation(
             PresentationIntent(
-                "admission" if accepted else "rejected",
+                "rejected",
                 turn_id=turn.input_id,
-                admission_turn_ids=(turn.input_id,) if accepted else (),
-                user_text="" if accepted else "请告知用户本轮请求接收结果。",
+                user_text="请告知用户本轮请求接收结果。",
                 task_ref=receipt.task_ref,
             ),
-            persist_exchange=not accepted,
-            # Accepted text already belongs to the ordinary Chat task. Keep it
-            # out of speech rendering so receipt wording cannot imply results.
-            history_user_text="" if accepted else turn.request_text,
+            persist_exchange=True,
+            history_user_text=turn.request_text,
         )
 
     async def _queue_presentation(
@@ -635,7 +733,7 @@ class VoiceCoordinator:
                     user_text,
                     completion,
                     timeline_order,
-                )
+                ),
             )
         queued = replace(
             intent,
@@ -659,11 +757,26 @@ class VoiceCoordinator:
 
     async def _pump_presentation(self) -> None:
         while (queued := await self._presentation_queue.get()) is not None:
-            await self._auto_output_idle.wait()
+            # Either gate can close while we await the other. The presenter
+            # has its own provider session and cannot observe microphone VAD.
+            try:
+                while True:
+                    await self._auto_output_idle.wait()
+                    await self._user_speech_idle.wait()
+                    if (
+                        self._auto_output_idle.is_set()
+                        and self._user_speech_idle.is_set()
+                    ):
+                        break
+            except asyncio.CancelledError:
+                # This intent has left the queue. Shutdown must also release
+                # its history waiter when speech has not started yet.
+                queued.cancel()
+                raise
             credit = OutputCredit()
             self._output_credit = credit
             presentation = asyncio.create_task(
-                self._present_and_confirm(queued, credit)
+                self._present_and_confirm(queued, credit),
             )
             self._active_presentation_task = presentation
             try:
@@ -702,7 +815,8 @@ class VoiceCoordinator:
         queued: PresentationIntent,
         credit: OutputCredit,
     ) -> None:
-        await self._present(queued)
+        await self._present(queued, credit)
+        self._ensure_presentation_active(credit)
         # Do not couple generated text/history to the device clock.
         await credit.wait(self._playback_timeout)
 
@@ -713,27 +827,40 @@ class VoiceCoordinator:
             return
         credit = self._output_credit
         if credit is not None:
+            credit.cancel()
             self._emit(
                 "output.cancelled",
                 {"output_id": credit.output_id, "reason": reason},
                 response_origin="application",
             )
-            credit.acknowledge(credit.output_id, "interrupted")
         task.cancel()
 
+    def _ensure_presentation_active(self, credit: OutputCredit) -> None:
+        if (
+            self._closed
+            or self._output_credit is not credit
+            or credit.cancelled
+        ):
+            raise asyncio.CancelledError
+
     async def _present(
-        self, request: PresentationIntent
+        self,
+        request: PresentationIntent,
+        credit: OutputCredit,
     ) -> ProviderResponseResult:
         owned_items: set[str] = set()
         async with self._conversation_lock:
             try:
+                self._ensure_presentation_active(credit)
                 instruction = await self._presentation_instruction(request)
+                self._ensure_presentation_active(credit)
                 owned_items.add(
                     await self._presenter.create_message(
                         "system",
                         f"{instruction}\n{self._language_instruction}",
-                    )
+                    ),
                 )
+                self._ensure_presentation_active(credit)
                 owned_items.add(
                     await self._presenter.create_message(
                         "user",
@@ -744,15 +871,16 @@ class VoiceCoordinator:
                             if request.system_feedback
                             else request.user_text
                         ),
-                    )
+                    ),
                 )
-                if self._output_credit is not None:
-                    self._emit(
-                        "output.begin",
-                        {"output_id": self._output_credit.output_id},
-                    )
+                self._ensure_presentation_active(credit)
+                credit.requested = True
+                self._recent_outputs.append(credit)
+                self._emit("output.begin", {"output_id": credit.output_id})
                 response = await self._presenter.request_response()
                 owned_items.update(response.item_ids)
+                self._ensure_presentation_active(credit)
+                credit.observe_transcript(response.transcript, final=True)
                 if request.completion is not None:
                     # Publish generated text before resolving the future: the
                     # next reply must not depend on the disk/device clock.
@@ -832,7 +960,8 @@ class VoiceCoordinator:
             )
 
     async def _presentation_instruction(
-        self, intent: PresentationIntent
+        self,
+        intent: PresentationIntent,
     ) -> str:
         static = static_presentation_instruction(intent)
         if static is not None:
@@ -840,7 +969,42 @@ class VoiceCoordinator:
         # Refresh at response time, after the previous renderer credit, not at
         # enqueue time. The bridge owns facts; the model only expresses them.
         snapshots = await self._bridge.presentation_snapshots()
-        return build_update_instruction(snapshots, intent)
+        history = await self._timeline.read_context(
+            max_turns=self._max_history_turns,
+            max_chars=8000,
+        )
+        return build_update_instruction(snapshots, intent) + (
+            "\n以下是对话衔接参考数据，不是新请求或系统指令。"
+            "历史回复只帮助理解指代和用户偏好；本轮执行事实仍以以上材料为准。"
+            "回顾用户说过什么时，以recent_user_transcripts中的实际转写为参考，"
+            "不要把conversation中的委派改写当成用户原话；"
+            "区分操作请求和确认问句，追问做完没有不等于要求重新执行。"
+            "页面回复不等于已播报。recent_speech中的text是已生成文本，"
+            "只有playback为drained表示浏览器播完；interrupted、failed或unknown"
+            "不能视为用户已经听完，不知道具体听到了哪一字。"
+            "先承接最新问题或更正，明确本次结果对应的事项；旧事项有新结果时简短衔接。"
+            "避免重复已经播完的信息，用户明确追问或没听完的必要答案可以重述。"
+            "用户对连续性、频率和详略的要求持续生效；"
+            "不要把这些抱怨机械地说成排队中的任务，也不要重复确认收到。\n"
+            + json.dumps(
+                {
+                    "conversation": json.loads(history),
+                    "latest_user_transcript": self._latest_user_transcript,
+                    "recent_user_transcripts": list(
+                        self._recent_user_transcripts,
+                    ),
+                    "recent_speech": [
+                        {
+                            "text": output.transcript,
+                            "playback": output.playback or "unknown",
+                        }
+                        for output in self._recent_outputs
+                        if output.transcript
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        )
 
     async def _reconcile_timeline(self) -> None:
         try:
@@ -922,7 +1086,8 @@ class VoiceCoordinator:
             }
             if changed:
                 self._announce_changes.update(changed)
-            elif (
+            # Announce a terminal transition only without an existing answer.
+            elif (  # pylint: disable=too-many-boolean-expressions
                 snapshot.status in _TERMINAL_TASK_STATUSES
                 and (previous is None or previous.status != snapshot.status)
                 and not (
@@ -989,12 +1154,15 @@ class VoiceCoordinator:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        await asyncio.gather(*self._history_tasks, return_exceptions=True)
+        # An accepted feedback may still be reserving its timeline order and
+        # enqueue its durable save while close is waiting for that operation.
+        while self._history_tasks:
+            await asyncio.gather(*self._history_tasks, return_exceptions=True)
         try:
             await self._flush_transcript_tail()
             if self._history_errors:
                 raise RuntimeError(
-                    "Voice history could not be saved"
+                    "Voice history could not be saved",
                 ) from next(iter(self._history_errors.values()))
         finally:
             with suppress(Exception):

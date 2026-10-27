@@ -18,7 +18,11 @@ from agentscope.message import (
 from PIL import Image, UnidentifiedImageError
 
 from ...providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ...utils.image_resize import resize_base64_image
 from ...utils.io_utils import run_sync_io
+
+# Bound source reads separately from the size of the immutable inline preview.
+MAX_SOURCE_IMAGE_BYTES = 50 * 1024 * 1024
 
 _NATIVE_IMAGE_MEDIA_TYPES = frozenset(
     {
@@ -88,16 +92,17 @@ def freeze_image_bytes(
     image_bytes: bytes,
     display_name: str,
 ) -> tuple[DataBlock | None, str | None]:
-    """Validate image bytes and freeze them as immutable base64 content."""
-    if len(image_bytes) > MAX_INLINE_MEDIA_BYTES:
+    """Freeze an image, fitting oversized static previews to the byte cap."""
+    if len(image_bytes) > MAX_SOURCE_IMAGE_BYTES:
         return (
             None,
             f"Error: {display_name} exceeds the "
-            f"{MAX_INLINE_MEDIA_BYTES}-byte image limit.",
+            f"{MAX_SOURCE_IMAGE_BYTES}-byte source image limit.",
         )
 
     try:
         with Image.open(BytesIO(image_bytes)) as image:
+            pixels = image.width * image.height
             normalized_format = (image.format or "").upper()
             media_type = Image.MIME.get(normalized_format)
             if media_type in _NATIVE_IMAGE_MEDIA_TYPES:
@@ -130,15 +135,29 @@ def freeze_image_bytes(
     ) as exc:
         return None, f"Error: {display_name} is not a valid image: {exc}"
 
+    encoded = base64.b64encode(frozen_bytes).decode("ascii")
+    original_encoded = encoded
+    try:
+        while len(frozen_bytes) > MAX_INLINE_MEDIA_BYTES and pixels > 1:
+            # Resize from the original each time to avoid compounding loss.
+            ratio = min(
+                0.8,
+                MAX_INLINE_MEDIA_BYTES / len(frozen_bytes) * 0.9,
+            )
+            pixels = max(1, int(pixels * ratio))
+            encoded, _ = resize_base64_image(original_encoded, pixels)
+            frozen_bytes = base64.b64decode(encoded)
+    except ValueError as exc:
+        return None, f"Error: cannot prepare {display_name} preview: {exc}"
+
     if len(frozen_bytes) > MAX_INLINE_MEDIA_BYTES:
         return (
             None,
-            f"Error: converted {display_name} is "
+            f"Error: preview of {display_name} is "
             f"{len(frozen_bytes)} bytes and exceeds the "
             f"{MAX_INLINE_MEDIA_BYTES}-byte image limit.",
         )
 
-    encoded = base64.b64encode(frozen_bytes).decode("ascii")
     return (
         DataBlock(
             source=Base64Source(
@@ -156,14 +175,15 @@ def freeze_local_image(
     """Read, validate, and freeze one local image as immutable content."""
     try:
         file_size = image_path.stat().st_size
-        if file_size > MAX_INLINE_MEDIA_BYTES:
+        if file_size > MAX_SOURCE_IMAGE_BYTES:
             return (
                 None,
                 f"Error: {image_path.name} is {file_size} bytes and "
-                f"exceeds the {MAX_INLINE_MEDIA_BYTES}-byte image limit.",
+                f"exceeds the {MAX_SOURCE_IMAGE_BYTES}-byte "
+                "source image limit.",
             )
         with image_path.open("rb") as image_file:
-            image_bytes = image_file.read(MAX_INLINE_MEDIA_BYTES + 1)
+            image_bytes = image_file.read(MAX_SOURCE_IMAGE_BYTES + 1)
     except OSError as exc:
         return None, f"Error: {image_path.name} is not a valid image: {exc}"
 

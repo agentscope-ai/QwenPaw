@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Authenticated HTTP/WebSocket relay for native realtime voice sessions.
 
 Session business logic lives in ``qwenpaw.app.realtime_voice``.
@@ -9,7 +10,7 @@ import asyncio
 import json
 import logging
 from contextlib import suppress
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -26,6 +27,7 @@ from ..realtime_voice.contracts import (
     encode_audio_frame,
 )
 from ..realtime_voice.coordinator import VoiceCoordinator
+from ..realtime_voice.recording import VoiceRecording
 from ..realtime_voice.service import (
     LiveVoiceSession,
     RealtimeVoiceService,
@@ -38,7 +40,9 @@ router = APIRouter(prefix="/realtime-voice", tags=["realtime-voice"])
 
 def _service(request_or_websocket) -> RealtimeVoiceService:
     service = getattr(
-        request_or_websocket.app.state, "realtime_voice_service", None
+        request_or_websocket.app.state,
+        "realtime_voice_service",
+        None,
     )
     if service is None:
         raise RealtimeVoiceServiceError(
@@ -49,7 +53,7 @@ def _service(request_or_websocket) -> RealtimeVoiceService:
     return service
 
 
-def _raise_http(exc: RealtimeVoiceServiceError) -> None:
+def _raise_http(exc: RealtimeVoiceServiceError) -> NoReturn:
     raise HTTPException(
         status_code=exc.status_code,
         detail={"code": exc.code, "message": exc.message, **exc.details},
@@ -100,11 +104,14 @@ async def release_realtime_voice_session(
         _raise_http(exc)
 
 
+# Keep protocol validation and dispatch together for each incoming frame.
+# pylint: disable-next=too-many-branches
 async def _client_to_coordinator(
     websocket: WebSocket,
     send_lock: asyncio.Lock,
     live: LiveVoiceSession,
     coordinator: VoiceCoordinator,
+    recording: VoiceRecording | None = None,
 ) -> None:
     last_sequence: int | None = None
     while True:
@@ -121,7 +128,7 @@ async def _client_to_coordinator(
                 or frame.channels != live.media.channels
             ):
                 raise ValueError(
-                    "renderer audio format does not match session"
+                    "renderer audio format does not match session",
                 )
             expected = (
                 0 if last_sequence is None else (last_sequence + 1) % (2**32)
@@ -129,6 +136,8 @@ async def _client_to_coordinator(
             if frame.sequence != expected:
                 raise ValueError("renderer audio sequence is not contiguous")
             last_sequence = frame.sequence
+            if recording is not None:
+                recording.audio("client", frame)
             await coordinator.send_audio(frame.payload)
             continue
 
@@ -142,6 +151,13 @@ async def _client_to_coordinator(
         control_type = (
             control.get("type") if isinstance(control, dict) else None
         )
+        if recording is not None and control_type in (
+            "interrupt",
+            "output.playback",
+            "agent.observe",
+            "stop",
+        ):
+            recording.event("client", control)
         if control_type == "interrupt":
             await coordinator.interrupt()
         elif control_type == "output.playback":
@@ -164,7 +180,7 @@ async def _client_to_coordinator(
                         "type": "pong",
                         "generation": live.generation,
                         "nonce": control.get("nonce"),
-                    }
+                    },
                 )
         elif control_type == "stop":
             return
@@ -177,22 +193,22 @@ async def _coordinator_to_client(
     send_lock: asyncio.Lock,
     live: LiveVoiceSession,
     coordinator: VoiceCoordinator,
+    recording: VoiceRecording | None = None,
 ) -> dict[str, Any] | None:
     output_sequence = 0
     async for event in coordinator.events():
         if event.kind == "output.audio" and event.audio is not None:
+            frame = AudioFrame(
+                kind=AudioFrameKind.OUTPUT_PCM16,
+                sequence=output_sequence,
+                sample_rate=live.media.output_sample_rate,
+                channels=live.media.channels,
+                payload=event.audio,
+            )
             async with send_lock:
-                await websocket.send_bytes(
-                    encode_audio_frame(
-                        AudioFrame(
-                            kind=AudioFrameKind.OUTPUT_PCM16,
-                            sequence=output_sequence,
-                            sample_rate=live.media.output_sample_rate,
-                            channels=live.media.channels,
-                            payload=event.audio,
-                        )
-                    )
-                )
+                await websocket.send_bytes(encode_audio_frame(frame))
+            if recording is not None:
+                recording.audio("server", frame)
             output_sequence = (output_sequence + 1) % (2**32)
             continue
 
@@ -212,9 +228,14 @@ async def _coordinator_to_client(
             return client_event
         async with send_lock:
             await websocket.send_json(client_event)
+        if recording is not None:
+            recording.event("server", client_event)
+    return None
 
 
 @router.websocket("/sessions/{session_id}/stream")
+# Keep connection setup, relay and durable cleanup in one lifecycle owner.
+# pylint: disable-next=too-many-branches,too-many-statements
 async def realtime_voice_stream(
     websocket: WebSocket,
     session_id: str,
@@ -237,6 +258,7 @@ async def realtime_voice_stream(
     close_code = 1000
     session_ended = False
     send_lock = asyncio.Lock()
+    recording = VoiceRecording.from_environment(live)
     try:
         coordinator = await service.connect(live)
         async with send_lock:
@@ -245,10 +267,10 @@ async def realtime_voice_stream(
                     "type": "session.connected",
                     "generation": live.generation,
                     "protocol_version": PROTOCOL_VERSION,
-                }
+                },
             )
         timeout_task = asyncio.create_task(
-            asyncio.sleep(live.config.max_session_seconds)
+            asyncio.sleep(live.config.max_session_seconds),
         )
         client_task = asyncio.create_task(
             _client_to_coordinator(
@@ -256,7 +278,8 @@ async def realtime_voice_stream(
                 send_lock,
                 live,
                 coordinator,
-            )
+                recording,
+            ),
         )
         coordinator_task = asyncio.create_task(
             _coordinator_to_client(
@@ -264,7 +287,8 @@ async def realtime_voice_stream(
                 send_lock,
                 live,
                 coordinator,
-            )
+                recording,
+            ),
         )
         done, pending = await asyncio.wait(
             {client_task, coordinator_task, timeout_task},
@@ -286,6 +310,11 @@ async def realtime_voice_stream(
         await service.end_session(live)
         session_ended = True
         if terminal is not None:
+            if recording is not None:
+                recording.event(
+                    "server",
+                    {"type": "session.closed", **terminal},
+                )
             with suppress(Exception):
                 async with send_lock:
                     await websocket.send_json(
@@ -293,7 +322,7 @@ async def realtime_voice_stream(
                             "type": "session.closed",
                             "generation": live.generation,
                             **terminal,
-                        }
+                        },
                     )
     except WebSocketDisconnect:
         pass
@@ -314,6 +343,11 @@ async def realtime_voice_stream(
                 True,
             )
         code, message, recoverable = error
+        if recording is not None:
+            recording.event(
+                "server",
+                {"type": "error", "code": code, "message": message},
+            )
         with suppress(Exception):
             async with send_lock:
                 await websocket.send_json(
@@ -323,7 +357,7 @@ async def realtime_voice_stream(
                         "code": code,
                         "message": message,
                         "recoverable": recoverable,
-                    }
+                    },
                 )
     finally:
         if not session_ended:
@@ -333,6 +367,12 @@ async def realtime_voice_stream(
                 logger.warning("Realtime Voice cleanup failed", exc_info=True)
         with suppress(Exception):
             await websocket.close(code=close_code)
+        if recording is not None:
+            recording.event(
+                "server",
+                {"type": "recording.closed", "close_code": close_code},
+            )
+            recording.close()
 
 
 __all__ = ["router"]

@@ -568,21 +568,23 @@ class TestViewImage:
     async def test_oversized_local_image_is_rejected_before_decode(
         self,
         mock_support,
+        monkeypatch,
         tmp_path,
     ):
         mock_support.return_value = True
         img = tmp_path / "oversized.png"
-        img.write_bytes(b"x" * (MAX_INLINE_MEDIA_BYTES + 1))
+        monkeypatch.setattr(image_freezing, "MAX_SOURCE_IMAGE_BYTES", 4096)
+        img.write_bytes(b"x" * 4097)
 
         result = await view_image(str(img))
 
         assert len(result.content) == 1
         assert "exceeds" in result.content[0].text
-        assert str(MAX_INLINE_MEDIA_BYTES) in result.content[0].text
+        assert "4096-byte source image limit" in result.content[0].text
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
-    async def test_converted_png_must_fit_image_limit(
+    async def test_converted_png_preview_fits_image_limit(
         self,
         mock_support,
         monkeypatch,
@@ -602,6 +604,7 @@ class TestViewImage:
             converted = BytesIO()
             image.convert("RGB").save(converted, format="PNG")
         source_size = img.stat().st_size
+        original = img.read_bytes()
         converted_size = len(converted.getvalue())
         assert source_size < converted_size
         image_limit = (source_size + converted_size) // 2
@@ -613,9 +616,11 @@ class TestViewImage:
 
         result = await view_image(str(img))
 
-        assert len(result.content) == 1
-        assert "converted" in result.content[0].text
-        assert "exceeds" in result.content[0].text
+        image_block = next(b for b in result.content if b.type == "data")
+        preview = base64.b64decode(image_block.source.data)
+        assert len(preview) <= image_limit
+        assert image_block.source.media_type == "image/png"
+        assert img.read_bytes() == original
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
@@ -681,6 +686,22 @@ class TestViewImage:
 
 class TestFreezeImageBytes:
     """Tests for the shared local/remote image freezing path."""
+
+    def test_oversized_animation_is_not_silently_flattened(self, monkeypatch):
+        output = BytesIO()
+        frames = [Image.new("RGB", (20, 20), color=c) for c in ("red", "blue")]
+        frames[0].save(
+            output,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+        )
+        monkeypatch.setattr(image_freezing, "MAX_INLINE_MEDIA_BYTES", 100)
+
+        block, error = freeze_image_bytes(output.getvalue(), "animation.gif")
+
+        assert block is None
+        assert "animated images" in error
 
     @pytest.mark.parametrize(
         ("image_format", "media_type"),

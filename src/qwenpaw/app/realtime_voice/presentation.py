@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Bounded speech intents and one renderer-confirmed output credit."""
 
 from __future__ import annotations
@@ -13,30 +14,27 @@ from ...providers.realtime_voice import ProviderResponseResult
 
 @dataclass(frozen=True)
 class PresentationIntent:
-    kind: Literal["admission", "rejected", "update"]
+    kind: Literal["rejected", "update", "style"]
     turn_id: str = ""
     user_text: str = ""
     task_ref: str = ""
     completion: asyncio.Future[ProviderResponseResult] | None = None
     changed_ids: tuple[str, ...] = ()
-    admission_turn_ids: tuple[str, ...] = ()
     timeline_order: int = 0
     history_user_text: str = ""
 
     @property
     def cost(self) -> int:
-        return max(1, len(self.changed_ids), len(self.admission_turn_ids))
+        return max(1, len(self.changed_ids))
 
     @property
     def system_feedback(self) -> bool:
         """Return whether this intent presents an application-owned fact."""
-        return self.kind in {"admission", "update"}
+        return self.kind == "update"
 
     @property
     def coalescing_key(self) -> str:
         """Coalesce replaceable system feedback, never durable Chat input."""
-        if self.kind == "admission":
-            return "admission"
         return f"update:{self.task_ref}" if self.kind == "update" else ""
 
     def cancel(self) -> None:
@@ -63,27 +61,14 @@ class PresentationQueue:
         key = intent.coalescing_key
         previous = self._coalesced.get(key) if key else None
         if previous is not None:
-            if intent.kind == "admission":
-                intent = replace(
-                    intent,
-                    admission_turn_ids=tuple(
-                        dict.fromkeys(
-                            (
-                                *previous.admission_turn_ids,
-                                *intent.admission_turn_ids,
-                            )
-                        )
+            intent = replace(
+                intent,
+                changed_ids=tuple(
+                    dict.fromkeys(
+                        (*previous.changed_ids, *intent.changed_ids),
                     ),
-                )
-            else:
-                intent = replace(
-                    intent,
-                    changed_ids=tuple(
-                        dict.fromkeys(
-                            (*previous.changed_ids, *intent.changed_ids)
-                        )
-                    ),
-                )
+                ),
+            )
         occupied = sum(
             i.cost for i in (*self._direct, *self._coalesced.values())
         )
@@ -106,8 +91,6 @@ class PresentationQueue:
         while True:
             if self._direct:
                 return self._direct.popleft()
-            if "admission" in self._coalesced:
-                return self._coalesced.pop("admission")
             if self._coalesced:
                 return self._coalesced.popitem(last=False)[1]
             if self._closed:
@@ -134,10 +117,25 @@ class OutputCredit:
 
     output_id: str = field(default_factory=lambda: uuid4().hex)
     provider_id: str = ""
+    requested: bool = False
+    cancelled: bool = False
     sealed: bool = False
     playback: str = ""
+    transcript: str = ""
     terminal: asyncio.Event = field(default_factory=asyncio.Event)
     feedback: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def observe_transcript(self, text: str, *, final: bool) -> None:
+        """Keep bounded generated wording, separate from playback evidence."""
+        if not self.cancelled:
+            self.transcript = (text if final else self.transcript + text)[
+                :2000
+            ]
+
+    def cancel(self) -> None:
+        """Revoke speech even if an awaited operation swallows cancellation."""
+        self.cancelled = True
+        self.acknowledge(self.output_id, "interrupted")
 
     def seal(self) -> None:
         self.sealed = True

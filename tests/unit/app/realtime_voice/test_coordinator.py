@@ -1,5 +1,9 @@
+# -*- coding: utf-8 -*-
+# Lifecycle regressions intentionally inspect coordinator and queue internals.
+# pylint: disable=protected-access
 import asyncio
 import json
+from itertools import permutations
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -14,10 +18,17 @@ from qwenpaw.app.realtime_voice.contracts import (
     VoiceTaskSnapshot,
 )
 from qwenpaw.app.realtime_voice.coordinator import VoiceCoordinator
-from qwenpaw.app.realtime_voice.presentation import PresentationIntent
+from qwenpaw.app.realtime_voice.presentation import (
+    OutputCredit,
+    PresentationIntent,
+)
 from qwenpaw.app.realtime_voice.prompts import build_update_instruction
 from qwenpaw.app.realtime_voice.task_bridge import VoiceAdmissionHandle
-from qwenpaw.providers.realtime_voice import ProviderEvent, ProviderResponseResult
+from qwenpaw.providers.realtime_voice import (
+    ProviderEvent,
+    ProviderResponseResult,
+)
+from qwenpaw.providers.realtime_voice.dashscope import DashScopeRealtimeSession
 
 
 class Provider:
@@ -29,7 +40,11 @@ class Provider:
         self.close = AsyncMock()
         self.complete_tool_call = AsyncMock(return_value="tool-output-1")
         self.request_response = AsyncMock(
-            return_value=ProviderResponseResult("completed", ("assistant-1",), "好的。")
+            return_value=ProviderResponseResult(
+                "completed",
+                ("assistant-1",),
+                "好的。",
+            ),
         )
         self.delete_items = AsyncMock()
         self.created_messages: list[tuple[str, str, str]] = []
@@ -94,8 +109,8 @@ def build_coordinator(provider, bridge, **options):
     timeline = SimpleNamespace(
         read_context=AsyncMock(
             return_value=json.dumps(
-                {"available": True, "omitted": False, "messages": []}
-            )
+                {"available": True, "omitted": False, "messages": []},
+            ),
         ),
         reserve_order=AsyncMock(side_effect=range(1, 100)),
         append_voice_exchange=AsyncMock(return_value=[]),
@@ -127,7 +142,10 @@ def tool_call(
         {
             "call_id": call_id,
             "name": name,
-            "arguments": json.dumps({"request_text": text}, ensure_ascii=False),
+            "arguments": json.dumps(
+                {"request_text": text},
+                ensure_ascii=False,
+            ),
             "input_item_id": source_id,
         },
         correlation_id=call_id,
@@ -187,7 +205,8 @@ async def test_close_persists_final_transcript_without_starting_work(busy):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "kind", ["input_transcript.partial", "input_transcript.failed"]
+    "kind",
+    ["input_transcript.partial", "input_transcript.failed"],
 )
 async def test_close_never_persists_unconfirmed_transcription(kind):
     provider, bridge = Provider(), Bridge()
@@ -195,7 +214,12 @@ async def test_close_never_persists_unconfirmed_transcription(kind):
     await coordinator.start()
     events = coordinator.events()
     await provider.queue.put(
-        ProviderEvent(kind, "partial", {"text": "UNCONFIRMED"}, correlation_id="tail")
+        ProviderEvent(
+            kind,
+            "partial",
+            {"text": "UNCONFIRMED"},
+            correlation_id="tail",
+        ),
     )
     await next_kind(events, kind)
     await coordinator.close()
@@ -234,7 +258,12 @@ async def test_close_does_not_duplicate_handoff_with_late_asr(admitted):
     coordinator._queue_admission = AsyncMock()
     await coordinator.start()
     await provider.queue.put(
-        ProviderEvent("speech.started", "speech-tail", {}, correlation_id="tail")
+        ProviderEvent(
+            "speech.started",
+            "speech-tail",
+            {},
+            correlation_id="tail",
+        ),
     )
     await provider.queue.put(tool_call("tail-call", "执行任务", source_id="tail"))
     await eventually(lambda: bridge.enqueue_input.await_count == 1)
@@ -272,7 +301,7 @@ async def test_close_finishes_an_inflight_direct_history_write():
             {"input_item_id": "tail"},
             correlation_id="r",
             response_origin="provider_auto",
-        )
+        ),
     )
     await provider.queue.put(
         ProviderEvent(
@@ -286,7 +315,7 @@ async def test_close_finishes_an_inflight_direct_history_write():
             },
             correlation_id="r",
             response_origin="provider_auto",
-        )
+        ),
     )
     await asyncio.wait_for(entered.wait(), 1)
     closing = asyncio.create_task(coordinator.close())
@@ -314,7 +343,10 @@ async def test_close_tail_survives_journal_reload(tmp_path):
     from qwenpaw.app.task_tracker import TaskTracker
 
     chat = SimpleNamespace(
-        id="chat", session_id="session", user_id="user", channel="console"
+        id="chat",
+        session_id="session",
+        user_id="user",
+        channel="console",
     )
     owner = SimpleNamespace(
         session=SafeJSONSession(str(tmp_path)),
@@ -353,7 +385,12 @@ async def test_native_handoff_admits_exact_model_request_and_returns_receipt(
     events = coordinator.events()
     try:
         await provider.queue.put(
-            ProviderEvent("speech.started", "speech-1", {}, correlation_id="source-1")
+            ProviderEvent(
+                "speech.started",
+                "speech-1",
+                {},
+                correlation_id="source-1",
+            ),
         )
         await provider.queue.put(
             ProviderEvent(
@@ -361,13 +398,20 @@ async def test_native_handoff_admits_exact_model_request_and_returns_receipt(
                 "partial",
                 {"text": "截取桌面"},
                 correlation_id="source-1",
-            )
+            ),
         )
         if final_before_handoff:
             await provider.queue.put(transcript("source-1", "截取桌面并解释"))
         await provider.queue.put(tool_call("call-1", "截图桌面并说明重点"))
         committed = await next_kind(events, "input_turn.committed")
         await eventually(lambda: provider.complete_tool_call.await_count == 1)
+        await next_kind(events, "agent.input.accepted")
+        await provider.queue.put(
+            ProviderEvent("speech.stopped", "stop", correlation_id="source-1"),
+        )
+        await next_kind(events, "speech.stopped")
+        await asyncio.sleep(0.01)
+        provider.request_response.assert_not_awaited()
 
         call = bridge.enqueue_input.await_args
         assert call.args == ("截图桌面并说明重点",)
@@ -378,10 +422,14 @@ async def test_native_handoff_admits_exact_model_request_and_returns_receipt(
             await provider.queue.put(transcript("source-1", "截取桌面并解释"))
         await eventually(lambda: bridge.observe_transcript.call_count == 2)
         bridge.observe_transcript.assert_any_call(
-            "source-1", "截取桌面", final=False
+            "source-1",
+            "截取桌面",
+            final=False,
         )
         bridge.observe_transcript.assert_any_call(
-            "source-1", "截取桌面并解释", final=True
+            "source-1",
+            "截取桌面并解释",
+            final=True,
         )
         await eventually(lambda: bridge.persist_transcript.await_count == 1)
         bridge.persist_transcript.assert_awaited_once_with("source-1")
@@ -445,11 +493,18 @@ async def test_repeated_native_handoff_steers_current_chat_work():
     await coordinator.start()
     try:
         await provider.queue.put(
-            ProviderEvent("speech.started", "speech-1", {}, correlation_id="source-1")
+            ProviderEvent(
+                "speech.started",
+                "speech-1",
+                {},
+                correlation_id="source-1",
+            ),
         )
         await provider.queue.put(tool_call("call-2", "不要上传，只保存在桌面"))
         await eventually(lambda: bridge.enqueue_input.await_count == 1)
-        assert bridge.enqueue_input.await_args.kwargs["admission_mode"] == "steer"
+        assert (
+            bridge.enqueue_input.await_args.kwargs["admission_mode"] == "steer"
+        )
     finally:
         await coordinator.close()
 
@@ -462,7 +517,12 @@ async def test_duplicate_native_call_is_admitted_and_announced_once():
     await coordinator.start()
     try:
         await provider.queue.put(
-            ProviderEvent("speech.started", "speech-1", {}, correlation_id="source-1")
+            ProviderEvent(
+                "speech.started",
+                "speech-1",
+                {},
+                correlation_id="source-1",
+            ),
         )
         event = tool_call("same-call", "只执行一次")
         await provider.queue.put(event)
@@ -489,7 +549,7 @@ async def test_direct_realtime_answer_streams_and_persists_once(resumed):
                     {"role": "user", "source": "voice", "text": "你好"},
                     {"role": "assistant", "source": "voice", "text": "你好"},
                 ],
-            }
+            },
         )
     await coordinator.start()
     events = coordinator.events()
@@ -502,7 +562,7 @@ async def test_direct_realtime_answer_streams_and_persists_once(resumed):
                 {"input_item_id": "source-1"},
                 correlation_id="response-1",
                 response_origin="provider_auto",
-            )
+            ),
         )
         await provider.queue.put(
             ProviderEvent(
@@ -510,7 +570,7 @@ async def test_direct_realtime_answer_streams_and_persists_once(resumed):
                 "o-start",
                 correlation_id="response-1",
                 response_origin="provider_auto",
-            )
+            ),
         )
         await provider.queue.put(
             ProviderEvent(
@@ -519,7 +579,7 @@ async def test_direct_realtime_answer_streams_and_persists_once(resumed):
                 audio=b"pcm",
                 correlation_id="response-1",
                 response_origin="provider_auto",
-            )
+            ),
         )
         await provider.queue.put(
             ProviderEvent(
@@ -533,7 +593,7 @@ async def test_direct_realtime_answer_streams_and_persists_once(resumed):
                 },
                 correlation_id="response-1",
                 response_origin="provider_auto",
-            )
+            ),
         )
 
         begin = await next_kind(events, "output.begin")
@@ -542,7 +602,9 @@ async def test_direct_realtime_answer_streams_and_persists_once(resumed):
         assert audio.data["output_id"] == begin.data["output_id"]
         await next_kind(events, "output.sealed")
         coordinator.playback_feedback(begin.data["output_id"], "drained")
-        await eventually(lambda: timeline.append_voice_exchange.await_count == 1)
+        await eventually(
+            lambda: timeline.append_voice_exchange.await_count == 1,
+        )
         assert timeline.append_voice_exchange.await_args.args[1:3] == (
             "你好",
             "你好，需要我做什么？",
@@ -567,10 +629,15 @@ async def test_handoff_response_is_not_duplicated_as_direct_voice_history():
                 {"input_item_id": "source-1"},
                 correlation_id="response-1",
                 response_origin="provider_auto",
-            )
+            ),
         )
         await provider.queue.put(
-            ProviderEvent("speech.started", "speech-1", {}, correlation_id="source-1")
+            ProviderEvent(
+                "speech.started",
+                "speech-1",
+                {},
+                correlation_id="source-1",
+            ),
         )
         await provider.queue.put(tool_call("call-1", "执行长任务"))
         await provider.queue.put(
@@ -585,7 +652,7 @@ async def test_handoff_response_is_not_duplicated_as_direct_voice_history():
                 },
                 correlation_id="response-1",
                 response_origin="provider_auto",
-            )
+            ),
         )
         await eventually(lambda: bridge.enqueue_input.await_count == 1)
         await asyncio.sleep(0.01)
@@ -607,7 +674,7 @@ async def test_transcription_failure_is_visible_and_not_submitted():
                 "failed",
                 {"code": "voice_transcription_failed"},
                 correlation_id="source",
-            )
+            ),
         )
         failed = await next_kind(events, "input_transcript.failed")
         assert failed.data["code"] == "voice_transcription_failed"
@@ -624,7 +691,10 @@ async def test_configured_language_and_native_tools_reach_provider_session():
     try:
         config = provider.connect.call_args.args[0]
         assert '"en-US"' in config.instructions
-        assert [tool.name for tool in config.tools] == ["handoff_to_chat"]
+        assert [tool.name for tool in config.tools] == [
+            "handoff_to_chat",
+            "update_response_style",
+        ]
     finally:
         await coordinator.close()
 
@@ -640,7 +710,11 @@ async def test_application_speech_uses_isolated_presenter_session():
     )
     await coordinator.start()
     try:
-        result = await coordinator._present(PresentationIntent("rejected"))
+        credit = coordinator._output_credit = OutputCredit()
+        result = await coordinator._present(
+            PresentationIntent("rejected"),
+            credit,
+        )
 
         assert result.status == "completed"
         assert not provider.created_messages
@@ -679,16 +753,22 @@ async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat(
                         "persisted": True,
                     },
                 ],
-            }
+            },
         )
     else:
-        bridge.presentation_snapshots.return_value = (snapshot(status="responded"),)
+        bridge.presentation_snapshots.return_value = (
+            snapshot(status="responded"),
+        )
     coordinator._queue_admission = AsyncMock()
     await coordinator.start()
     try:
         bridge.enqueue_input.assert_not_awaited()
         await provider.queue.put(
-            ProviderEvent("speech.started", "speech", correlation_id="source-2")
+            ProviderEvent(
+                "speech.started",
+                "speech",
+                correlation_id="source-2",
+            ),
         )
         if not final_after_response:
             await provider.queue.put(transcript("source-2", "只告诉我实际结果"))
@@ -699,7 +779,7 @@ async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat(
                 {"input_item_id": "source-2"},
                 correlation_id="response-2",
                 response_origin="provider_auto",
-            )
+            ),
         )
         await provider.queue.put(
             ProviderEvent(
@@ -708,7 +788,7 @@ async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat(
                 {"text": "还在排队"},
                 correlation_id="response-2",
                 response_origin="provider_auto",
-            )
+            ),
         )
         await provider.queue.put(
             ProviderEvent(
@@ -722,7 +802,7 @@ async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat(
                 },
                 correlation_id="response-2",
                 response_origin="provider_auto",
-            )
+            ),
         )
         # Replayed final evidence must not execute the same live input twice.
         for _ in range(2 if final_after_response else 1):
@@ -731,9 +811,13 @@ async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat(
         await eventually(lambda: bridge.enqueue_input.await_count == 1)
         await eventually(lambda: bridge.persist_transcript.await_count == 2)
         assert bridge.enqueue_input.await_args.args == ("只告诉我实际结果",)
-        assert bridge.enqueue_input.await_args.kwargs["admission_mode"] == "steer"
-        assert bridge.enqueue_input.await_args.kwargs["idempotency_key"].startswith(
-            "voice_fallback_"
+        assert (
+            bridge.enqueue_input.await_args.kwargs["admission_mode"] == "steer"
+        )
+        assert bridge.enqueue_input.await_args.kwargs[
+            "idempotency_key"
+        ].startswith(
+            "voice_fallback_",
         )
         timeline.observe_voice_exchange.assert_not_called()
         forwarded = []
@@ -751,7 +835,9 @@ async def test_task_owned_turn_suppresses_native_answer_and_falls_back_to_chat(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("restored", [False, True])
-async def test_task_owned_native_tool_call_does_not_duplicate_asr_fallback(restored):
+async def test_task_owned_native_tool_call_does_not_duplicate_asr_fallback(
+    restored,
+):
     provider, bridge = Provider(), Bridge()
     bridge.enqueue_input.return_value = admission(receipt())
     coordinator, timeline = build_coordinator(provider, bridge)
@@ -768,15 +854,21 @@ async def test_task_owned_native_tool_call_does_not_duplicate_asr_fallback(resto
                         "persisted": True,
                     },
                 ],
-            }
+            },
         )
     else:
-        bridge.presentation_snapshots.return_value = (snapshot(status="processing"),)
+        bridge.presentation_snapshots.return_value = (
+            snapshot(status="processing"),
+        )
     coordinator._queue_admission = AsyncMock()
     await coordinator.start()
     try:
         await provider.queue.put(
-            ProviderEvent("speech.started", "speech", correlation_id="source-3")
+            ProviderEvent(
+                "speech.started",
+                "speech",
+                correlation_id="source-3",
+            ),
         )
         await provider.queue.put(transcript("source-3", "查询当前结果"))
         await provider.queue.put(
@@ -786,14 +878,14 @@ async def test_task_owned_native_tool_call_does_not_duplicate_asr_fallback(resto
                 {"input_item_id": "source-3"},
                 correlation_id="response-3",
                 response_origin="provider_auto",
-            )
+            ),
         )
         await provider.queue.put(
             tool_call(
                 "call-3",
                 "查询当前结果",
                 source_id="source-3",
-            )
+            ),
         )
         await provider.queue.put(
             ProviderEvent(
@@ -807,14 +899,18 @@ async def test_task_owned_native_tool_call_does_not_duplicate_asr_fallback(resto
                 },
                 correlation_id="response-3",
                 response_origin="provider_auto",
-            )
+            ),
         )
 
         await eventually(lambda: bridge.enqueue_input.await_count == 1)
         assert bridge.enqueue_input.await_args.args == ("查询当前结果",)
-        assert bridge.enqueue_input.await_args.kwargs["admission_mode"] == "steer"
-        assert not bridge.enqueue_input.await_args.kwargs["idempotency_key"].startswith(
-            "voice_fallback_"
+        assert (
+            bridge.enqueue_input.await_args.kwargs["admission_mode"] == "steer"
+        )
+        assert not bridge.enqueue_input.await_args.kwargs[
+            "idempotency_key"
+        ].startswith(
+            "voice_fallback_",
         )
     finally:
         await coordinator.close()
@@ -827,6 +923,185 @@ async def test_interrupt_only_cancels_current_speech_output():
     coordinator, _ = build_coordinator(provider, bridge)
     await coordinator.interrupt()
     provider.interrupt_output.assert_awaited_once()
+    bridge.enqueue_input.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restored", [False, True])
+@pytest.mark.parametrize("order", list(permutations(("tool", "asr", "done"))))
+async def test_style_feedback_saves_asr_and_responds_without_admitting_work(
+    restored,
+    order,
+):
+    provider, presenter, bridge = Provider(), Provider(), Bridge()
+    coordinator, timeline = build_coordinator(
+        provider,
+        bridge,
+        presentation_provider=presenter,
+    )
+    if restored:
+        timeline.read_context.return_value = json.dumps(
+            {
+                "available": True,
+                "omitted": False,
+                "messages": [
+                    {"role": "assistant", "source": "agent", "text": "任务仍在处理"},
+                ],
+            },
+        )
+    await coordinator.start()
+    events = coordinator.events()
+    await provider.queue.put(
+        ProviderEvent("speech.started", "s", correlation_id="feedback"),
+    )
+    await next_kind(events, "speech.started")
+    await provider.queue.put(
+        ProviderEvent("speech.stopped", "s", correlation_id="feedback"),
+    )
+    await provider.queue.put(
+        ProviderEvent(
+            "response.started",
+            "r",
+            {"input_item_id": "feedback"},
+            correlation_id="r",
+            response_origin="provider_auto",
+        ),
+    )
+    inputs = {
+        "tool": tool_call(
+            "style-call",
+            "简短回复",
+            name="update_response_style",
+            source_id="feedback",
+        ),
+        "asr": transcript("feedback", "别总重复确认，接着刚才的话说。"),
+        "done": ProviderEvent(
+            "response.finished",
+            "r",
+            {
+                "input_item_id": "feedback",
+                "status": "completed",
+                "had_tool_call": True,
+            },
+            correlation_id="r",
+            response_origin="provider_auto",
+        ),
+    }
+    try:
+        for name in order:
+            await provider.queue.put(inputs[name])
+            await asyncio.sleep(0)
+        await eventually(
+            lambda: timeline.append_voice_exchange.await_count == 2,
+        )
+        # Replayed ASR, terminal events and native calls cannot create another
+        # response or route the feedback through the Chat fallback.
+        for name in order:
+            await provider.queue.put(inputs[name])
+        await asyncio.sleep(0.01)
+        assert timeline.append_voice_exchange.await_count == 2
+        saved = timeline.append_voice_exchange.await_args_list
+        assert saved[0].args[1:3] == ("别总重复确认，接着刚才的话说。", "")
+        assert saved[1].args[1:3] == ("别总重复确认，接着刚才的话说。", "好的。")
+        assert saved[0].args[0] == saved[1].args[0]
+        provider.complete_tool_call.assert_awaited_once_with(
+            "style-call",
+            {"accepted": True, "action": "update_response_style"},
+        )
+        bridge.enqueue_input.assert_not_awaited()
+        presenter.request_response.assert_awaited_once()
+        assert not presenter.connect.call_args.args[0].tools
+        assert presenter.created_messages[-1][2] == "别总重复确认，接着刚才的话说。"
+        assert "本轮回应用户对说话方式的反馈" in presenter.created_messages[0][2]
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("final_asr", [False, True])
+async def test_close_saves_accepted_style_feedback_before_response_finishes(
+    final_asr,
+):
+    provider, bridge = Provider(), Bridge()
+    coordinator, timeline = build_coordinator(provider, bridge)
+    await coordinator.start()
+    events = coordinator.events()
+    await provider.queue.put(
+        ProviderEvent("speech.started", "s", correlation_id="feedback"),
+    )
+    await next_kind(events, "speech.started")
+    await provider.queue.put(
+        tool_call(
+            "style",
+            "简短一点",
+            name="update_response_style",
+            source_id="feedback",
+        ),
+    )
+    await eventually(lambda: provider.complete_tool_call.await_count == 1)
+    if final_asr:
+        await provider.queue.put(transcript("feedback", "别总重复确认。"))
+        await eventually(lambda: "feedback" in coordinator._input_transcripts)
+    await coordinator.close()
+    timeline.append_voice_exchange.assert_awaited_once()
+    assert timeline.append_voice_exchange.await_args.args[1:3] == (
+        "别总重复确认。" if final_asr else "简短一点",
+        "",
+    )
+    provider.request_response.assert_not_awaited()
+    bridge.enqueue_input.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_style_history_created_after_order_reservation():
+    provider, bridge = Provider(), Bridge()
+    coordinator, timeline = build_coordinator(provider, bridge)
+    reserved, release_order, saving, release_save = (
+        asyncio.Event() for _ in range(4)
+    )
+
+    async def reserve():
+        reserved.set()
+        await release_order.wait()
+        return 1
+
+    async def save(*_args, **_kwargs):
+        saving.set()
+        await release_save.wait()
+        return []
+
+    timeline.reserve_order.side_effect = reserve
+    timeline.append_voice_exchange.side_effect = save
+    await coordinator.start()
+    await provider.queue.put(transcript("feedback", "回答连贯些"))
+    await eventually(lambda: "feedback" in coordinator._live_sources)
+    await coordinator._handle_tool_call(
+        tool_call(
+            "style",
+            "回答连贯些",
+            name="update_response_style",
+            source_id="feedback",
+        ),
+    )
+    coordinator._record_auto_response(
+        "feedback",
+        "r",
+        ProviderEvent(
+            "response.finished",
+            "r",
+            {"had_tool_call": True, "status": "completed"},
+        ),
+    )
+    await asyncio.wait_for(reserved.wait(), 1)
+    closing = asyncio.create_task(coordinator.close())
+    await asyncio.sleep(0)
+    release_order.set()
+    await asyncio.wait_for(saving.wait(), 1)
+    assert not closing.done()
+    release_save.set()
+    await asyncio.wait_for(closing, 1)
+    timeline.append_voice_exchange.assert_awaited_once()
+    assert timeline.append_voice_exchange.await_args.args[1] == "回答连贯些"
     bridge.enqueue_input.assert_not_awaited()
 
 
@@ -849,10 +1124,18 @@ async def test_task_and_run_updates_still_reach_voice_ui():
 
 
 @pytest.mark.asyncio
-async def test_user_speech_preempts_application_presentation_and_pump_survives():
+@pytest.mark.parametrize("dedicated", [False, True])
+async def test_user_speech_preempts_application_presentation_and_pump_survives(
+    dedicated,
+):
     provider, bridge = Provider(), Bridge()
+    presenter = Provider() if dedicated else provider
     bridge.presentation_snapshots.return_value = (snapshot(),)
-    coordinator, _ = build_coordinator(provider, bridge)
+    coordinator, _ = build_coordinator(
+        provider,
+        bridge,
+        presentation_provider=presenter,
+    )
     await coordinator.start()
     events = coordinator.events()
     try:
@@ -866,7 +1149,7 @@ async def test_user_speech_preempts_application_presentation_and_pump_survives()
                 "speech.started",
                 "speech",
                 correlation_id="audio-input",
-            )
+            ),
         )
         cancelled = await next_kind(events, "output.cancelled")
         assert cancelled.data == {
@@ -878,9 +1161,303 @@ async def test_user_speech_preempts_application_presentation_and_pump_survives()
             PresentationIntent("update", changed_ids=("task:task-1",)),
             persist_exchange=False,
         )
+        await next_kind(events, "speech.started")
+        await eventually(lambda: coordinator._active_presentation_task is None)
+        await asyncio.sleep(0.01)
+        assert presenter.request_response.await_count == 1
+        assert not any(
+            e.kind == "output.begin" for e in coordinator._events._queue
+        )
+
+        # A short pause can wake the pump before a new speech-start event is
+        # processed in the same tick. Recheck the gate after the await.
+        await provider.queue.put(
+            ProviderEvent(
+                "speech.stopped",
+                "pause",
+                correlation_id="audio-input",
+            ),
+        )
+        await provider.queue.put(
+            ProviderEvent(
+                "speech.started",
+                "resume",
+                correlation_id="audio-input-2",
+            ),
+        )
+        await next_kind(events, "speech.started")
+        await asyncio.sleep(0.01)
+        assert presenter.request_response.await_count == 1
+
+        await provider.queue.put(
+            ProviderEvent(
+                "speech.stopped",
+                "stop",
+                correlation_id="audio-input-2",
+            ),
+        )
         second = await next_kind(events, "output.begin")
         assert second.data["output_id"] != first.data["output_id"]
     finally:
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_close_while_user_speaks_settles_dequeued_history_waiter():
+    provider, bridge = Provider(), Bridge()
+    coordinator, timeline = build_coordinator(provider, bridge)
+    await coordinator.start()
+    await provider.queue.put(
+        ProviderEvent("speech.started", "start", correlation_id="user-1"),
+    )
+    await next_kind(coordinator.events(), "speech.started")
+    await coordinator._queue_presentation(
+        PresentationIntent("rejected", user_text="not admitted"),
+        persist_exchange=True,
+    )
+    await eventually(lambda: not coordinator._presentation_queue._direct)
+    await asyncio.wait_for(coordinator.close(), 1)
+    timeline.append_voice_exchange.assert_awaited_once()
+    provider.request_response.assert_not_awaited()
+    assert not coordinator._history_tasks
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["application", "provider_auto"])
+@pytest.mark.parametrize("playback", ["drained", "interrupted"])
+async def test_update_uses_fresh_context_and_actual_playback_state(
+    origin,
+    playback,
+):
+    provider, bridge = Provider(), Bridge()
+    coordinator, timeline = build_coordinator(provider, bridge)
+    await coordinator.start()
+    events = coordinator.events()
+    try:
+        if origin == "application":
+            await coordinator._queue_presentation(
+                PresentationIntent("update"),
+                persist_exchange=False,
+            )
+            await next_kind(events, "output.begin")
+        for kind, data in (
+            ("response.started", {}),
+            ("output.started", {}),
+            ("output_transcript.partial", {"text": "截图"}),
+            ("output_transcript.final", {"text": "截图已经保存"}),
+        ):
+            coordinator._handle_response_event(
+                ProviderEvent(
+                    kind,
+                    kind,
+                    data,
+                    correlation_id="old-output",
+                    response_origin=origin,
+                ),
+            )
+        credit = coordinator._recent_outputs[-1]
+        if playback == "drained":
+            coordinator._handle_response_event(
+                ProviderEvent(
+                    "response.finished",
+                    "done",
+                    {},
+                    correlation_id="old-output",
+                    response_origin=origin,
+                ),
+            )
+            coordinator.playback_feedback(credit.output_id, playback)
+        else:
+            await provider.queue.put(
+                ProviderEvent("speech.started", "start", correlation_id="new"),
+            )
+            await next_kind(events, "speech.started")
+            coordinator.playback_feedback(credit.output_id, playback)
+
+        # Neither waiting for a final transcript nor reading context should
+        # require durable admission/save to finish first.
+        await provider.queue.put(transcript("original", "查看D盘并截图"))
+        await provider.queue.put(transcript("followup", "截图了吗？"))
+        await provider.queue.put(transcript("new", "别再重复确认，截图在哪？"))
+        await eventually(
+            lambda: coordinator._latest_user_transcript == "别再重复确认，截图在哪？",
+        )
+        timeline.read_context.return_value = json.dumps(
+            {
+                "available": True,
+                "omitted": False,
+                "messages": [{"role": "user", "text": "只说重点"}],
+            },
+            ensure_ascii=False,
+        )
+        bridge.presentation_snapshots.return_value = (
+            replace(
+                snapshot(),
+                replies=(
+                    ChatReply(
+                        "latest",
+                        "block",
+                        "run-1",
+                        ("input-1",),
+                        5,
+                        "final",
+                        "文件是 desktop.png",
+                    ),
+                ),
+            ),
+        )
+        instruction = await coordinator._presentation_instruction(
+            PresentationIntent("update", changed_ids=("latest:block",)),
+        )
+        assert "只说重点" in instruction
+        assert "别再重复确认，截图在哪？" in instruction
+        context = json.loads(instruction.split("\n")[-1])
+        assert context["recent_user_transcripts"] == [
+            "查看D盘并截图",
+            "截图了吗？",
+            "别再重复确认，截图在哪？",
+        ]
+        assert "desktop.png" in instruction
+        assert '"text": "截图已经保存"' in instruction
+        assert f'"playback": "{playback}"' in instruction
+        assert "不知道具体听到了哪一字" in instruction
+        assert "不能视为用户已经听完" in instruction
+        bridge.enqueue_input.assert_not_awaited()
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blocked_role", ["system", "user"])
+async def test_acknowledged_item_cannot_revive_cancelled_presentation(
+    blocked_role,
+):
+    provider, bridge = Provider(), Bridge()
+    presenter = DashScopeRealtimeSession(SimpleNamespace(), "unused-offline")
+    presenter.connect = AsyncMock()
+    presenter.close = AsyncMock()
+    presenter.delete_items = AsyncMock()
+    presenter.request_response = AsyncMock()
+    waiting = asyncio.Event()
+    pending_ack = None
+
+    async def send(kind, **payload):
+        nonlocal pending_ack
+        assert kind == "conversation.item.create"
+        item = payload["item"]
+        ack = presenter._pending_items[item["id"]]
+        if item["role"] == blocked_role:
+            pending_ack = ack
+            waiting.set()
+        else:
+            ack.set_result(None)
+
+    presenter._send = send
+    coordinator, _ = build_coordinator(
+        provider,
+        bridge,
+        presentation_provider=presenter,
+    )
+    await coordinator.start()
+    try:
+        await coordinator._queue_presentation(
+            PresentationIntent("update"),
+            persist_exchange=False,
+        )
+        await asyncio.wait_for(waiting.wait(), 1)
+        # Python 3.11 wait_for can consume cancellation when its inner ACK
+        # completes in the same tick. Exercise the real adapter's wait here.
+        pending_ack.set_result(None)
+        coordinator._preempt_presentation("barge_in")
+        await eventually(lambda: coordinator._active_presentation_task is None)
+        presenter.request_response.assert_not_awaited()
+        assert [e.kind for e in coordinator._events._queue] == [
+            "output.cancelled",
+        ]
+        assert not coordinator._presentation_failed
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_response_drops_late_media_but_tracks_terminal():
+    provider, presenter, bridge = Provider(), Provider(), Bridge()
+    release = asyncio.Event()
+
+    async def respond():
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            # Keep the provider running long enough to deliver late frames.
+            await release.wait()
+        return ProviderResponseResult("completed", (), "late answer")
+
+    presenter.request_response.side_effect = respond
+    coordinator, _ = build_coordinator(
+        provider,
+        bridge,
+        presentation_provider=presenter,
+    )
+    await coordinator.start()
+    events = coordinator.events()
+    try:
+        await coordinator._queue_presentation(
+            PresentationIntent("update"),
+            persist_exchange=False,
+        )
+        await next_kind(events, "output.begin")
+        credit = coordinator._output_credit
+        await provider.queue.put(
+            ProviderEvent("speech.started", "start", correlation_id="user-1"),
+        )
+        await next_kind(events, "output.cancelled")
+        await next_kind(events, "speech.started")
+        # The start ACK itself may arrive after the output was revoked.
+        for kind in (
+            "response.started",
+            "output.started",
+            "output.audio",
+            "output_transcript.final",
+            "response.finished",
+        ):
+            await presenter.queue.put(
+                ProviderEvent(
+                    kind,
+                    kind,
+                    {"text": "late"},
+                    correlation_id="old-response",
+                    response_origin="application",
+                ),
+            )
+        await asyncio.wait_for(credit.terminal.wait(), 1)
+        assert credit.cancelled
+        assert credit.provider_id == "old-response"
+        assert coordinator._events.empty()
+        release.set()
+        await eventually(lambda: coordinator._active_presentation_task is None)
+        await provider.queue.put(
+            ProviderEvent("speech.stopped", "stop", correlation_id="user-1"),
+        )
+        await coordinator._queue_presentation(
+            PresentationIntent("update"),
+            persist_exchange=False,
+        )
+        await next_kind(events, "output.begin")
+        for response_id in ("old-response", "new-response"):
+            await presenter.queue.put(
+                ProviderEvent(
+                    "response.started",
+                    response_id,
+                    correlation_id=response_id,
+                    response_origin="application",
+                ),
+            )
+        current = await next_kind(events, "response.started")
+        assert current.correlation_id == "new-response"
+        assert current.data["output_id"] != credit.output_id
+        assert not coordinator._presentation_failed
+    finally:
+        release.set()
         await coordinator.close()
 
 
@@ -904,7 +1481,7 @@ async def test_background_results_wait_for_playback_without_preempting(
     collector = asyncio.create_task(collect())
     try:
         await coordinator._queue_presentation(
-            PresentationIntent("admission"),
+            PresentationIntent("update"),
             persist_exchange=False,
         )
         await eventually(lambda: bool(events("output.begin")))
@@ -929,7 +1506,9 @@ async def test_background_results_wait_for_playback_without_preempting(
         bridge.presentation_snapshots.return_value = results
         for result in results:
             await bridge.queue.put(VoiceTaskEvent(result))
-        await eventually(lambda: len(events("agent.task.updated")) == result_count)
+        await eventually(
+            lambda: len(events("agent.task.updated")) == result_count,
+        )
         for kind in ("response.started", "response.finished"):
             await provider.queue.put(
                 ProviderEvent(
@@ -938,7 +1517,7 @@ async def test_background_results_wait_for_playback_without_preempting(
                     {},
                     correlation_id="response-1",
                     response_origin="application",
-                )
+                ),
             )
         await eventually(lambda: bool(events("output.sealed")))
         coordinator.playback_feedback("old-session-output", "drained")
@@ -988,8 +1567,14 @@ def test_update_instruction_replaces_stale_progress_with_latest_final_reply():
         request="运行命令",
         run_id="run-1",
         replies=(progress, final),
-        input_states=(("input-1", "completed"),),
-        input_requests=(("input-1", "运行命令"),),
+        input_states=(
+            ("input-1", "completed"),
+            ("followup", "queued"),
+        ),
+        input_requests=(
+            ("input-1", "运行命令"),
+            ("followup", "执行完了吗？"),
+        ),
     )
 
     instruction = build_update_instruction(
@@ -999,6 +1584,10 @@ def test_update_instruction_replaces_stale_progress_with_latest_final_reply():
 
     assert "实际输出是 301" in instruction
     assert "仍在排队" not in instruction
+    # A pending status question is not evidence that the operation is queued.
+    assert "other_requests_pending" not in instruction
+    assert "执行完了吗？" not in instruction
+    assert "运行命令" in instruction
 
 
 @pytest.mark.asyncio
@@ -1046,10 +1635,12 @@ async def test_history_failure_does_not_start_voice_without_context(failure):
 
     provider, bridge = Provider(), Bridge()
     coordinator, timeline = build_coordinator(
-        provider, bridge, history_timeout_seconds=0.01
+        provider,
+        bridge,
+        history_timeout_seconds=0.01,
     )
     timeline.read_context.return_value = json.dumps(
-        {"available": True, "messages": [{"role": "user", "text": "secret"}]}
+        {"available": True, "messages": [{"role": "user", "text": "secret"}]},
     )
     if failure == "read":
         timeline.read_context.side_effect = OSError("read failed")
@@ -1064,7 +1655,10 @@ async def test_history_failure_does_not_start_voice_without_context(failure):
             await asyncio.Event().wait()
 
         provider.create_message = stall
-    with pytest.raises(RealtimeVoiceServiceError, match="restore conversation history"):
+    with pytest.raises(
+        RealtimeVoiceServiceError,
+        match="restore conversation history",
+    ):
         await coordinator.start()
     assert not coordinator._tasks
     provider.request_response.assert_not_awaited()
@@ -1073,7 +1667,7 @@ async def test_history_failure_does_not_start_voice_without_context(failure):
 
 
 @pytest.mark.asyncio
-async def test_incomplete_history_routes_live_input_to_chat_instead_of_guessing():
+async def test_incomplete_history_routes_live_input_to_chat():
     provider, bridge = Provider(), Bridge()
     bridge.enqueue_input.return_value = admission(receipt())
     coordinator, timeline = build_coordinator(provider, bridge)
@@ -1083,17 +1677,21 @@ async def test_incomplete_history_routes_live_input_to_chat_instead_of_guessing(
     coordinator._queue_admission = AsyncMock()
     await coordinator.start()
     await provider.queue.put(
-        ProviderEvent("speech.started", "s", {}, correlation_id="live")
+        ProviderEvent("speech.started", "s", {}, correlation_id="live"),
     )
     await provider.queue.put(transcript("live", "刚才的暗号是什么"))
     await provider.queue.put(
         ProviderEvent(
             "response.finished",
             "r",
-            {"input_item_id": "live", "status": "completed", "transcript": "错误猜测"},
+            {
+                "input_item_id": "live",
+                "status": "completed",
+                "transcript": "错误猜测",
+            },
             correlation_id="r",
             response_origin="provider_auto",
-        )
+        ),
     )
     await eventually(lambda: bridge.enqueue_input.await_count == 1)
     assert bridge.enqueue_input.await_args.args[0] == "刚才的暗号是什么"
@@ -1117,11 +1715,11 @@ async def test_history_item_cannot_admit_work_without_live_speech():
                 {"role": "user", "source": "voice", "text": "重复旧任务"},
                 {"role": "assistant", "source": "agent", "text": "旧任务已完成"},
             ],
-        }
+        },
     )
     await coordinator.start()
     await provider.queue.put(
-        tool_call("history-call", "重复旧任务", source_id="message-1")
+        tool_call("history-call", "重复旧任务", source_id="message-1"),
     )
     await eventually(lambda: provider.complete_tool_call.await_count == 1)
     assert provider.complete_tool_call.await_args.args[1]["accepted"] is False
