@@ -993,7 +993,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
       opacity: 0.86;
     }
     @media (max-width: 600px), (any-pointer: coarse) {
-      --os-window-control-size: 44px;
+      --os-window-control-size: var(--app-hit-touch);
       height: 52px;
       flex-basis: 52px;
       padding: 0 4px;
