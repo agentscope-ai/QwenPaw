@@ -2082,6 +2082,7 @@
     "autoDiscoverModelsFailed": "Could not update models. The previous list is preserved.",
     "removeModel": "Удалить",
     "removeModelConfirm": "Удалить модель «{{name}}» из {{provider}}?",
+    "removeModelHint": "Удалённые модели не будут добавлены при последующем обнаружении. Для восстановления добавьте модель вручную.",
     "modelRemoved": "Модель «{{name}}» удалена",
     "modelRemoveFailed": "Не удалось удалить модель",
     "loadMore": "Загрузить ещё ({{count}})",
