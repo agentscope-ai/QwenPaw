@@ -690,6 +690,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
       (used for DashScope tracking headers, etc.).
     * ``extra_generate_kwargs`` — merged into every ``_call_api`` invocation
       (provider-level ``generate_kwargs`` that don't map to ``Parameters``).
+    * ``disable_thinking_kwargs`` — model-declared wire parameters used to
+      translate the internal ``disable_thinking`` request flag.
     """
 
     def __init__(
@@ -852,6 +854,9 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         if not call_kwargs.pop("disable_thinking", False):
             return
         translated = dict(self._disable_thinking_kwargs)
+        # This is an internal signal, never an OpenAI SDK parameter.  Keep
+        # the boundary defensive even if a provider supplies it by mistake.
+        translated.pop("disable_thinking", None)
         translated_body = translated.pop("extra_body", None)
         call_kwargs.update(translated)
         if not translated_body:

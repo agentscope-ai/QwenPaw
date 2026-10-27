@@ -710,6 +710,20 @@ class TestOpenAIChatModelCompatDisableThinking:
         compat._consume_disable_thinking(kwargs)
         assert kwargs == translated
 
+    def test_neutral_flag_is_never_reintroduced(self):
+        from qwenpaw.providers.openai_chat_model_compat import (
+            OpenAIChatModelCompat,
+        )
+
+        compat = _compat_instance(OpenAIChatModelCompat)
+        compat._disable_thinking_kwargs = {
+            "disable_thinking": True,
+            "reasoning_effort": "none",
+        }
+        kwargs = {"disable_thinking": True}
+        compat._consume_disable_thinking(kwargs)
+        assert kwargs == {"reasoning_effort": "none"}
+
     def test_noop_when_flag_absent(self):
         from qwenpaw.providers.openai_chat_model_compat import (
             OpenAIChatModelCompat,

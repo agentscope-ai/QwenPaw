@@ -54,7 +54,8 @@ def _make_provider(is_custom: bool = False) -> OpenAIProvider:
         ),
     ],
 )
-def test_chat_model_uses_declared_disable_thinking_wire(
+async def test_chat_model_uses_declared_disable_thinking_wire(
+    monkeypatch,
     control,
     expected,
 ) -> None:
@@ -67,9 +68,57 @@ def test_chat_model_uses_declared_disable_thinking_wire(
         ),
     ]
 
-    model = provider.get_chat_model_instance("strict-compat-model")
+    captured: dict = {}
 
-    assert model._disable_thinking_kwargs == expected
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("strict-compat-model")
+    result = await model._call_api(
+        "strict-compat-model",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured == expected
+
+
+@pytest.mark.parametrize("thinking_enabled", [False, True])
+async def test_gpt52_disable_signal_never_reaches_sdk(
+    monkeypatch,
+    thinking_enabled,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="gpt-5.2",
+            name="GPT-5.2",
+            thinking_enabled=thinking_enabled,
+            config_overrides=["thinking_enabled"],
+        ),
+    ]
+    captured: dict = {}
+
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("gpt-5.2")
+    result = await model._call_api(
+        "gpt-5.2",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert "disable_thinking" not in captured
+    assert captured.get("reasoning_effort") in {None, "none"}
 
 
 async def test_check_connection_success(monkeypatch) -> None:
