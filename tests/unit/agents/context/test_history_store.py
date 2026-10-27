@@ -647,6 +647,41 @@ def test_age_out_blocks_retains_null_created_at(store: HistoryStore):
     assert _blocks_of(store, "k") == "x"
 
 
+def test_age_out_blocks_exempts_inline_media(store: HistoryStore):
+    # flatten_output() leaves only a placeholder in the plain text, so the
+    # blocks column is the only durable copy of archived inline media:
+    # aging must skip those rows (they leave with the whole-row purge).
+    media_blocks = (
+        '[{"type":"tool_result","id":"tool_1","output":[{"type":"data",'
+        '"source":{"type":"base64","data":"aGVsbG8="}}]}]'
+    )
+    old = "2020-01-01T00:00:00+00:00"
+    store.append(
+        session_id="s",
+        dedup_key="old_media",
+        entry=_entry(
+            "screenshot saved",
+            kind="tool_result",
+            blocks=media_blocks,
+            created_at=old,
+        ),
+    )
+    store.append(
+        session_id="s",
+        dedup_key="old_plain",
+        entry=_entry(
+            "plain output",
+            kind="tool_result",
+            blocks="x" * 40,
+            created_at=old,
+        ),
+    )
+    out = store.age_out_blocks(before="2025-01-01T00:00:00+00:00")
+    assert out == {"rows": 1, "blocks_bytes": 40}
+    assert _blocks_of(store, "old_media") == media_blocks
+    assert _blocks_of(store, "old_plain") is None
+
+
 class _NoFTSConn:
     """Delegates to a real connection but fails the FTS5 table creation,
     simulating a SQLite build without the FTS5 module."""

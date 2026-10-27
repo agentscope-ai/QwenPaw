@@ -1249,13 +1249,25 @@ class HistoryStore:
         ``model_turn`` rows are never touched: their blocks carry the
         thinking stream, which resumed sessions replay.
 
+        Rows whose blocks still carry inline base64 media are also left
+        alone: :func:`flatten_output` reduces those outputs to
+        placeholders in the plain text, so the blocks column is the only
+        durable copy of the archived bytes. Such rows age out with the
+        whole-row purge instead.
+
         Idempotent: rows whose blocks are already NULL never match, so
         re-running is a no-op. FTS needs no maintenance here — nothing is
         deleted. Returns ``{"rows", "blocks_bytes"}`` for the affected
         rows (aged, or would-be with ``dry_run=True``).
         """
         where, params = self._purge_where(before, ("tool_result",))
-        where += " AND blocks IS NOT NULL"
+        # Exempt rows whose blocks still carry inline base64 media:
+        # flatten_output() reduces those outputs to placeholders in the
+        # plain text, so the blocks column is the only durable copy of the
+        # archived bytes. Leave them for the whole-row purge instead; the
+        # LIKE is a conservative over-match (a text output mentioning
+        # "base64" merely delays aging for that row).
+        where += " AND blocks IS NOT NULL AND blocks NOT LIKE '%base64%'"
         # CAST to BLOB so LENGTH counts bytes, not characters — blocks
         # is JSON text and the returned key/logs say "bytes".
         count_sql = (

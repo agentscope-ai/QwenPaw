@@ -864,6 +864,15 @@ def _sync_all_scroll_agents() -> None:
                 exc,
             )
             continue
+        retention_days = lcc.scroll_config.history_retention_days
+        # getattr (not attribute access): some callers construct lightweight
+        # mocks without this field (see test_sync.py scroll_config
+        # SimpleNamespaces); a missing field means "not configured" = off.
+        blocks_retention_days = getattr(
+            lcc.scroll_config,
+            "blocks_retention_days",
+            0,
+        )
         if not sessions_dir.is_dir():
             if db_path.is_file():
                 history = None
@@ -871,8 +880,9 @@ def _sync_all_scroll_agents() -> None:
                     history = HistoryStore(db_path)
                     _purge_old_history(
                         history,
-                        lcc.scroll_config.history_retention_days,
+                        retention_days,
                         agent_id,
+                        blocks_retention_days=blocks_retention_days,
                     )
                 except Exception:
                     logger.warning(
@@ -918,14 +928,6 @@ def _sync_all_scroll_agents() -> None:
                 )
 
         retention_days = lcc.scroll_config.history_retention_days
-        # getattr (not attribute access): some callers construct lightweight
-        # mocks without this field (see test_sync.py scroll_config
-        # SimpleNamespaces); a missing field means "not configured" = off.
-        blocks_retention_days = getattr(
-            lcc.scroll_config,
-            "blocks_retention_days",
-            0,
-        )
         history = HistoryStore(db_path)
         try:
             report = sync_sessions_to_history(
