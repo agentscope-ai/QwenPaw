@@ -135,6 +135,26 @@ async def test_first_message_persists_thinking_without_project_dirs(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_console_decision_approval_requires_enabled_model(enabled):
+    runtime = {"decision_enabled": enabled}
+    chat = SimpleNamespace(meta={"runtime_context": runtime})
+    workspace = SimpleNamespace(agent_id="agent")
+    body = {"meta": {"request_context": {"approval_level": "JEV"}}}
+    with (
+        patch("qwenpaw.app.routers.console.load_agent_config") as load,
+        patch("qwenpaw.app.routers.console.decision_settings") as settings,
+    ):
+        settings.return_value = {"enabled": enabled}
+        await _persist_pending_project_dirs(workspace, chat, body)
+    assert load.called
+    assert settings.call_args.args == (load.return_value, enabled)
+    assert body["meta"]["request_context"]["approval_level"] == (
+        "JEV" if enabled else "STRICT"
+    )
+
+
+@pytest.mark.asyncio
 async def test_invalid_setting_is_not_persisted():
     manager = SimpleNamespace(
         set_session_thinking=AsyncMock(),

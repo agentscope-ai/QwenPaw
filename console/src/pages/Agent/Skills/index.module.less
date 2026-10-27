@@ -653,6 +653,16 @@
   text-align: center;
 }
 
+.loadError {
+  padding: 32px 24px;
+
+  :global(.ant-alert),
+  :global(.qwenpaw-alert) {
+    max-width: 680px;
+    margin-inline: auto;
+  }
+}
+
 .emptyStateCompact {
   margin-block: 16px;
   padding-block: 24px;
@@ -714,6 +724,11 @@
 }
 
 @media (max-width: 768px) {
+  .skillsPage :global(.ant-btn),
+  .skillsPage :global(.qwenpaw-btn) {
+    min-height: var(--app-hit-touch);
+  }
+
   .header {
     flex-direction: column;
     align-items: stretch;

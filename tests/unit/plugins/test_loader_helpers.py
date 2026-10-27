@@ -161,13 +161,13 @@ class TestHubPluginLifecycle:
         expected,
     ):
         import json
-        from types import SimpleNamespace
+        from qwenpaw.config.config import Config
         from qwenpaw.plugins.registry import PluginRegistry
 
         monkeypatch.setattr(PluginRegistry, "_instance", None)
         monkeypatch.setattr(
             "qwenpaw.config.load_config",
-            lambda: SimpleNamespace(
+            lambda: Config(
                 plugins={"config-plugin": {"endpoint": "saved"}},
             ),
         )
@@ -458,4 +458,32 @@ class TestHubPluginLifecycle:
         with pytest.raises(RuntimeError, match="registration failed"):
             await loading
         assert "qwenpaw" not in market_registry.snapshot()
-        assert "broken-hub" not in loader.get_all_loaded_plugins()
+        record = loader.get_loaded_plugin("broken-hub")
+        assert record.status == "failed"
+        instance = loader.lifecycle.get_instance("broken-hub")
+        assert not instance.has_runtime_ledger()
+
+    @pytest.mark.asyncio
+    async def test_hub_config_rebuild_replaces_provider(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from qwenpaw.market import builtin, market_registry
+        from qwenpaw.plugins.registry import PluginRegistry
+
+        monkeypatch.setattr(PluginRegistry, "_instance", None)
+        monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+        loader = pl.PluginLoader([tmp_path / "plugins"])
+        source = builtin.get_builtin_hub_plugins_dir() / "qwenpaw-hub"
+        await loader.load_plugin_from_path(source)
+        original = market_registry.snapshot()["qwenpaw"]
+        try:
+            report = await loader.lifecycle.update_config("qwenpaw-hub", {})
+            assert report.ok
+            replacement = market_registry.snapshot()["qwenpaw"]
+            assert replacement is not original
+            assert replacement.key == original.key
+        finally:
+            await loader.unload_plugin("qwenpaw-hub")
+        assert "qwenpaw" not in market_registry.snapshot()

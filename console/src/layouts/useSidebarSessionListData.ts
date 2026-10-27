@@ -157,6 +157,8 @@ export function useSessionListData(
 
   /** Cache last polled sessions to skip no-op state updates */
   const lastSessionsRef = useRef<ExtendedChatSession[]>([]);
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
 
   const refreshSessions = useCallback(async () => {
     const owner = sessionApi.getActiveOwner();
@@ -276,6 +278,10 @@ export function useSessionListData(
       const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId);
       const backendId = session ? getBackendId(session) : null;
+      const originalCurrentSessionId = currentSessionIdRef.current;
+      const originalCurrentChatId = sessionApi.getSessionIdentity(
+        originalCurrentSessionId,
+      ).chatId;
       if (backendId) await chatApi.deleteChat(backendId);
 
       // Per-session cleanup is safe regardless of the active agent: it is
@@ -293,7 +299,30 @@ export function useSessionListData(
       // navigation). A delete that finished after an agent switch must not
       // touch the new agent's state.
       if (!sessionApi.isActiveOwner(owner)) return;
+      const latestCurrentSessionId = currentSessionIdRef.current;
+      const canonicalId = backendId ?? sessionId;
+      // Canonical IDs take precedence over shared runtime or display aliases.
+      // Polling can clear identity while DELETE is pending. Reuse the snapshot
+      // only for the unchanged route, without overriding a newly known identity.
+      const currentChatId =
+        sessionApi.getSessionIdentity(latestCurrentSessionId).chatId ??
+        (latestCurrentSessionId === originalCurrentSessionId
+          ? originalCurrentChatId
+          : undefined) ??
+        latestCurrentSessionId;
+      const isCurrentRouteRemoved =
+        !!latestCurrentSessionId && currentChatId === canonicalId;
+      sessionApi.markRouteRemoved(canonicalId);
+      if (isCurrentRouteRemoved && latestCurrentSessionId !== canonicalId) {
+        sessionApi.markCurrentRouteRemoved(latestCurrentSessionId);
+      }
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
+
+      // Leave the deleted route before publishing the refreshed list. Otherwise
+      // route resolution can request the removed Chat while navigation settles.
+      if (isCurrentRouteRemoved) {
+        window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+      }
 
       // Fetch fresh session list after deletion
       const freshList =
@@ -301,23 +330,8 @@ export function useSessionListData(
       if (!sessionApi.isActiveOwner(owner)) return;
       setSessions(freshList);
       syncSessionsGlobal(freshList);
-
-      // Post-deletion check: if the currently displayed session no longer
-      // exists in the refreshed list, navigate to a new blank chat.
-      // This avoids all ID-format mismatch issues between URL chatId,
-      // session.id, and session.realId.
-      if (currentSessionId) {
-        const stillExists = freshList.some(
-          (s) =>
-            s.id === currentSessionId ||
-            (s as ExtendedChatSession).realId === currentSessionId,
-        );
-        if (!stillExists) {
-          window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
-        }
-      }
     },
-    [sessions, currentSessionId, setSessions],
+    [sessions, setSessions],
   );
 
   const handleEditStart = useCallback(

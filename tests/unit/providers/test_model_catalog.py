@@ -11,6 +11,10 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.providers import model_catalog
+from qwenpaw.providers.model_metadata import (
+    model_metadata,
+    provider_catalog_models,
+)
 from qwenpaw.providers.provider import ModelInfo
 
 
@@ -40,7 +44,7 @@ def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
     assert len(catalog) == 31
-    assert sum(len(models) for models in catalog.values()) == 197
+    assert sum(len(models) for models in catalog.values()) == 205
     assert catalog["dashscope"][0].id == "qwen3.8-max"
     assert catalog["dashscope"][0].supports_image is True
     assert catalog["dashscope"][0].thinking_enabled is True
@@ -69,14 +73,44 @@ def test_packaged_catalog_snapshot() -> None:
     }
     assert recommended == {
         ("dashscope", "qwen3.7-max"),
-        ("openai", "gpt-5.2"),
-        ("openai-response", "gpt-5.2"),
+        ("openai", "gpt-5.6-sol"),
+        ("openai-response", "gpt-6.1-sol"),
         ("minimax", "MiniMax-M3"),
         ("kimi-intl", "kimi-k3"),
         ("minimax-cn", "MiniMax-M3"),
         ("kimi-cn", "kimi-k3"),
         ("gemini", "gemini-3.1-pro-preview"),
     }
+    chat = {model.id: model for model in catalog[f"openai"]}
+    responses = {model.id: model for model in catalog[f"openai-response"]}
+    sol = responses[f"gpt-6.1-sol"]
+    assert sol.max_input_length == 1_050_000
+    assert sol.input_token_limit == 922_000
+    assert sol.max_output_length == 128_000
+    assert sol.supports_image is True
+    assert sol.supports_video is False
+    assert sol.supports_tool_calling is True
+    assert chat[f"gpt-6.1-sol"].supports_tool_calling is False
+    for provider_id, expected in (
+        (f"openai", False),
+        (f"openai-response", True),
+    ):
+        endpoint = f"https://api.openai.com/v1"
+        matches = model_metadata(provider_id, endpoint, sol.id)
+        assert matches[0].model.supports_tool_calling is expected
+        pool = provider_catalog_models(provider_id, endpoint)
+        candidate = next(model for model in pool if model.id == sol.id)
+        assert candidate.supports_tool_calling is expected
+    assert sol.pricing == {
+        f"prompt": f"0.000002",
+        f"completion": f"0.00001",
+        f"input_cache_read": f"0.0000001",
+    }
+    assert (
+        sol.capability_provenance[f"pricing"][f"context_threshold"] == 272000
+    )
+    assert sol.thinking_control.supports_off is False
+    assert responses[f"gpt-6-luna"].thinking_control.supports_off is True
     assert {
         model.id: model.max_input_length for model in catalog["dashscope"]
     } == {
@@ -95,7 +129,7 @@ def test_packaged_catalog_snapshot() -> None:
         for model in catalog["openai"]
         if model.id in {"gpt-5.2", "gpt-4.1", "o4-mini"}
     } == {
-        "gpt-5.2": 272_000,
+        "gpt-5.2": 400_000,
         "gpt-4.1": 1_047_576,
         "o4-mini": 200_000,
     }

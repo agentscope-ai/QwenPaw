@@ -48,6 +48,9 @@ from services.media_files import (  # noqa: E402
     start_file_media_execution_services,
 )
 from services.media_files.motion_engine import ensure_vendor_libs  # noqa: E402
+from services.media_files.task_scratch import (
+    release_orphaned_scratch,
+)  # noqa: E402
 from services.observability import trace_event  # noqa: E402
 from services.project_files.facade import (  # noqa: E402
     CreatorFileServices,
@@ -153,6 +156,29 @@ app.include_router(creator_router)
 _file_services: CreatorFileServices | None = None
 
 
+async def _sweep_orphaned_scratch(services: CreatorFileServices) -> None:
+    """Collect scratch a killed process left behind, without gating startup.
+
+    A finished Task releases its own scratch through the execution store the
+    moment it turns terminal, so this is only a safety net for the window
+    between materialize and release; everything it cannot prove finished stays.
+    """
+
+    try:
+        sweep = await asyncio.to_thread(release_orphaned_scratch, services)
+    except Exception:  # noqa: BLE001 - cleanup must never gate startup
+        logger.warning("orphaned task scratch sweep failed", exc_info=True)
+        return
+    if sweep.released_directories:
+        logger.info(
+            "orphaned task scratch released: projects=%s dirs=%s files=%s bytes=%s",
+            sweep.projects,
+            sweep.released_directories,
+            sweep.removed_files,
+            sweep.removed_bytes,
+        )
+
+
 @app.hook("startup", priority=90)
 async def _startup() -> None:
     global _file_services
@@ -227,6 +253,7 @@ async def _startup() -> None:
         raise
     _file_services = services
     logger.info("QwenPaw Creator file runtime ready at %s", data_root)
+    await _sweep_orphaned_scratch(services)
     # Loud, not silent: explicitly set review env vars take full control
     # and the settings-center toggles are ignored — a field incident had
     # review running with the UI switched off because a stale env stayed

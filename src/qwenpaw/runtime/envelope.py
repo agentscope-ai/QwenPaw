@@ -796,26 +796,34 @@ class Envelope:
         """
         from ..schemas import ContentType, RunStatus, TextContent
 
-        cmd_text = cmd_msg.get_text_content() or ""
+        from ..plugins._replies import _SDKReply
+
+        if isinstance(cmd_msg, _SDKReply):
+            contents, metadata, identity = cmd_msg.runtime_content()
+            self._completed_message.sdk_message = identity
+            self._completed_message.name = identity["name"]
+        else:
+            cmd_text = cmd_msg.get_text_content() or ""
+            contents = [
+                TextContent(
+                    type=ContentType.TEXT,
+                    text=cmd_text,
+                    delta=False,
+                    index=0,
+                ),
+            ]
+            metadata = getattr(cmd_msg, "metadata", None) or {}
 
         if not self._message_started:
             yield self._tag_seq(self._completed_message)
             self._message_started = True
 
-        tc = TextContent(
-            type=ContentType.TEXT,
-            text=cmd_text,
-            delta=False,
-            index=0,
-        )
-        tc.msg_id = self._message_id
-        yield self._tag_seq(tc)
-
-        self._completed_message.content.append(tc)
+        for content in contents:
+            content.msg_id = self._message_id
+            yield self._tag_seq(content)
+            self._completed_message.content.append(content)
         self._completed_message.status = RunStatus.Completed
-        self._completed_message.metadata = (
-            getattr(cmd_msg, "metadata", None) or {}
-        )
+        self._completed_message.metadata = metadata
         self._response.output.append(self._completed_message)
         yield self._tag_seq(self._completed_message)
 

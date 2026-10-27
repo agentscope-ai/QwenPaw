@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "Chuyển đến nội dung chính"
+  },
   "common": {
     "save": "Lưu",
     "reset": "Đặt lại",
@@ -22,6 +25,7 @@
     "view": "Xem",
     "content": "Nội dung",
     "loading": "Đang tải...",
+    "loadMore": "Tải thêm",
     "saving": "Đang lưu...",
     "copy": "Sao chép",
     "copied": "Đã sao chép",
@@ -58,13 +62,26 @@
     "cliAuthenticated": "{{type}} CLI đã xác thực"
   },
   "desktop": {
+    "update": {
+      "title": "Cập nhật QwenPaw?",
+      "otherWindows": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_one": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_other": "Còn {{count}} cửa sổ khác đang mở.",
+      "description": "Cập nhật sẽ đóng tất cả cửa sổ QwenPaw và ngắt các tác vụ đang chạy.",
+      "confirm": "Đóng và cập nhật",
+      "preparing": "Đang đóng cửa sổ…"
+    },
     "closeWindow": {
-      "title": "Đóng cửa sổ",
-      "description": "Bạn muốn thực hiện thao tác nào khi đóng cửa sổ? Thoát ứng dụng sẽ dừng tất cả tác vụ đang chạy và tác vụ đã lên lịch.",
+      "title": "Đóng QwenPaw?",
+      "description": "Tiếp tục chạy nền để duy trì tác vụ. Thoát hoàn toàn sẽ kết thúc các tác vụ đang chạy.",
       "remember": "Ghi nhớ lựa chọn của tôi",
       "showWindow": "Hiển thị cửa sổ",
       "minimizeToTray": "Thu nhỏ xuống khay hệ thống",
       "quitApp": "Thoát ứng dụng",
+      "keepRunning": "Tiếp tục chạy nền",
+      "quitting": "Đang thoát…",
+      "stopService": "Thoát hoàn toàn",
+      "stopBlocked": "QwenPaw vẫn đang được sử dụng trong cửa sổ hoặc ứng dụng khác. Hãy đóng chúng trước khi thoát hoàn toàn.",
       "preference": "Đóng cửa sổ",
       "askEveryTime": "Hỏi mỗi lần"
     }
@@ -883,6 +900,9 @@
         "memberDefaultsHint": "Cuộc trò chuyện mới bắt đầu với mô hình này. Thành viên có thể chuyển sang mô hình khác được cấp quyền.",
         "settingsSaved": "Đã lưu cài đặt mô hình",
         "defaultModel": "Mô hình mặc định",
+        "gatewayTimeout": "Thời gian chờ cổng (giây)",
+        "gatewayTimeoutHelp": "Mặc định là 600 giây; tối thiểu 60. Áp dụng cho yêu cầu mới sau khi lưu, bao gồm phản hồi truyền trực tuyến. Thời gian chờ kết nối vẫn là 10 giây.",
+        "gatewayTimeoutInvalid": "Nhập số giây là số nguyên từ 60 trở lên.",
         "chooseDefault": "Chọn mô hình có sẵn cho mọi thành viên",
         "saveSettings": "Lưu cài đặt mô hình",
         "providers": "Nhà cung cấp",
@@ -1144,7 +1164,9 @@
       "asFile": "Đính kèm tệp",
       "characters": "{{count}} ký tự"
     },
-    "historyLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng mở lại.",
+    "historyLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng thử lại.",
+    "routeNotFound": "Cuộc trò chuyện này không khả dụng hoặc đã bị xóa.",
+    "routeAmbiguous": "Liên kết này khớp với nhiều cuộc trò chuyện. Hãy mở cuộc trò chuyện từ thanh bên.",
     "newTask": "Tác vụ mới",
     "newChat": "Cuộc trò chuyện mới",
     "groups": {
@@ -1170,6 +1192,11 @@
     "prompt1": "Hãy bắt đầu hành trình mới!",
     "prompt2": "Bạn có thể cho tôi biết những kỹ năng của mình không?",
     "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh",
+    "composer": {
+      "attach": "Đính kèm tệp",
+      "send": "Gửi tin nhắn",
+      "stop": "Dừng tạo"
+    },
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
     "commands": {
       "clear": {
@@ -1331,6 +1358,7 @@
     "createSuccess": "Tạo thu hoạch thành công",
     "emptyApprovals": "Không có phê duyệt nào đang chờ",
     "emptyPush": "Không có tin nhắn đẩy",
+    "loadFailed": "Không thể tải tin nhắn đẩy. Vui lòng thử lại.",
     "wobbleEnable": "Bật thông báo rung phê duyệt",
     "wobbleDisable": "Tắt thông báo rung phê duyệt",
     "emptyHarvests": "Chưa có thu hoạch nào",
@@ -1411,6 +1439,7 @@
   "acp": {
     "title": "Kết nối ACP",
     "loading": "Đang tải cấu hình ACP...",
+    "loadError": "Không thể tải cấu hình ACP.",
     "builtin": "Cấu hình sẵn",
     "custom": "Tùy chỉnh",
     "create": "Thêm kết nối ACP",
@@ -1469,6 +1498,7 @@
   "voiceTranscription": {
     "title": "Phiên âm giọng nói",
     "description": "Cấu hình cách xử lý tin nhắn âm thanh đến.",
+    "loadFailed": "Không thể tải cài đặt phiên âm giọng nói",
     "saveSuccess": "Đã lưu chế độ âm thanh",
     "saveFailed": "Lưu chế độ âm thanh thất bại",
     "audioModeLabel": "Chế độ âm thanh",
@@ -1966,10 +1996,6 @@
         "name": "Tìm tệp",
         "description": "Tìm tệp theo tên hoặc mẫu đường dẫn."
       },
-      "ast_search": {
-        "name": "Tìm cấu trúc mã",
-        "description": "Tìm mẫu mã dựa trên cú pháp."
-      },
       "desktop_screenshot": {
         "name": "Chụp màn hình",
         "description": "Chụp màn hình máy tính để tác tử kiểm tra."
@@ -2204,7 +2230,15 @@
     "currentModelProtected": "Switch the current model before removing it",
     "addToSelector": "Add to selector",
     "removeFromSelector": "Remove from selector",
-    "searchCandidates": "Search candidate models..."
+    "searchCandidates": "Search candidate models...",
+    "oauthTitle": "Kết nối {{provider}}",
+    "oauthDescription": "Một cửa sổ trình duyệt sẽ mở để cấp quyền truy cập {{provider}}. Khóa API sẽ được lưu tự động.",
+    "oauthContinue": "Tiếp tục",
+    "oauthWaiting": "Đang chờ cấp quyền…",
+    "oauthWaitingDescription": "Vui lòng hoàn tất cấp quyền trong trình duyệt.",
+    "oauthConnected": "Đã kết nối {{provider}}",
+    "oauthFailed": "Cấp quyền thất bại, vui lòng thử lại",
+    "oauthTimeout": "Đã hết thời gian cấp quyền, vui lòng thử lại"
   },
   "modelConfig": {
     "title": "Cấu hình mô hình",
@@ -2239,6 +2273,12 @@
     "byModel": "Theo mô hình"
   },
   "approval": {
+    "queue": {
+      "title": "Phê duyệt đang chờ",
+      "position": "{{current}} / {{total}}",
+      "previous": "Phê duyệt trước",
+      "next": "Phê duyệt tiếp theo"
+    },
     "title": "Yêu cầu phê duyệt bảo mật",
     "description": "Agent đang yêu cầu phê duyệt để thực thi hành động sau:",
     "approve": "Phê duyệt",
@@ -2477,9 +2517,6 @@
     "changeProjectDirectory": "Quản lý",
     "manageDefaultFolders": "Workspace mặc định",
     "projectDirectoryWorkspaceFallback": "Đang dùng thư mục cấu hình Agent",
-    "enhancedCodeCapability": "Tăng cường khả năng lập trình",
-    "enhancedCodeCapabilityTooltip": "Thêm công cụ mã mà không đổi thư mục dự án.",
-    "enhancedCodeCapabilityDescription": "Bật AST, LSP, prompt mã, ngữ cảnh Git và quản lý mã nguồn.",
     "description": "Cấu hình các tham số runtime của agent",
     "visualCompactCollapseLabel": "Nén trực quan",
     "visualCompactDescription": "Chuyển lịch sử hội thoại cũ thành ảnh để tiết kiệm token. Chỉ dẫn hệ thống và hội thoại gần đây vẫn là văn bản.",
@@ -2557,6 +2594,8 @@
       "defaultTab": "Tiêu chuẩn",
       "goalTab": "Mục tiêu",
       "missionTab": "Nhiệm vụ",
+      "advisorTab": "Cố vấn",
+      "advisorPipeline": "Quy trình cố vấn",
       "defaultDescription": "Loop ReAct được bảo vệ tiêu chuẩn ngoài chế độ cụ thể.",
       "goalDescription": "Loop liên tục có giới hạn cho mục tiêu có thể xác minh.",
       "missionDescription": "Pipeline liên tục cho nhiệm vụ dài và nhiều bước.",
@@ -2677,7 +2716,40 @@
       "safeTemplate": "Chạy an toàn",
       "researchTemplate": "Nghiên cứu có ngân sách",
       "qualityTemplate": "Ưu tiên chất lượng",
-      "blankTemplate": "Pipeline trống"
+      "blankTemplate": "Pipeline trống",
+      "advisor": "Chế độ cố vấn",
+      "advisorDescription": "Mô hình chính lập kế hoạch trước khi agent bắt đầu và can thiệp khi agent liên tục thất bại. Bản thân agent chạy trên mô hình sub-agent.",
+      "advisorEnableDescription": "Cho phép agent này dùng Chế độ cố vấn (thử nghiệm).",
+      "advisorModels": "Cố vấn: {{advisor}} · Worker: {{worker}}",
+      "advisorEnableHelp": "Cuộc trò chuyện vẫn bắt đầu ở vòng lặp mặc định. Khi bật, Cố vấn xuất hiện trong menu chế độ Loop của ô nhập và lệnh /advisor khả dụng. Mỗi cuộc trò chuyện tự chọn để bật. Trong kênh và prompt cron, gửi /advisor on.",
+      "advisorModelsTitle": "Mô hình cố vấn và worker",
+      "advisorModelsHelp": "Mặc định cố vấn dùng mô hình chính của agent và worker (chính agent) chạy trên mô hình sub-agent. Cả hai được đặt trong bộ chọn mô hình của chat, mô hình sub-agent nằm trong Định tuyến mô hình agent. Để cố định một vai trò vào mô hình khác, mở bảng Mô hình cố vấn từ menu chế độ Loop hoặc nút mô hình bên cạnh.",
+      "advisorSameAsAdvisor": "giống cố vấn",
+      "advisorThinking": "Suy nghĩ của cố vấn",
+      "advisorThinkingTooltip": "Mức suy nghĩ cho các lời gọi của chính cố vấn. Tắt giúp kế hoạch ra nhanh nhất. Mặc định của mô hình theo cài đặt của agent và mô hình.",
+      "advisorPlanTitle": "Kế hoạch mở đầu",
+      "advisorPlanDescription": "Cố vấn viết kế hoạch trước bước đầu tiên của agent.",
+      "advisorPlanHelp": "Kế hoạch được đưa vào ngữ cảnh của agent dưới dạng lời gọi consult_advisor và kết quả, và hiển thị trong chat ngay khi đang được viết.",
+      "advisorFollowupTitle": "Tự động can thiệp giữa chừng",
+      "advisorFollowupDescription": "QwenPaw theo dõi kết quả công cụ và gọi cố vấn khi agent liên tục thất bại.",
+      "advisorFollowupHelp": "Kích hoạt khi số lần thất bại liên tiếp, hoặc trong cửa sổ gần đây, đạt ngưỡng đặt bên dưới, tối đa số lần đã đặt mỗi lượt chạy. Bộ đếm được đặt lại sau mỗi lần can thiệp. Cố vấn trả lời CONTINUE, hoặc ADJUST kèm kế hoạch sửa đổi.",
+      "advisorOnDemandTitle": "Tham vấn theo yêu cầu",
+      "advisorOnDemandDescription": "Agent có thể tự hỏi cố vấn qua công cụ consult_advisor.",
+      "advisorOnDemandHelp": "Công cụ yêu cầu agent chỉ hỏi ở điểm quyết định thực sự. Vượt giới hạn bên dưới, công cụ trả về một thông báo ngắn và agent tiếp tục.",
+      "advisorMaxConsults": "Số lần tham vấn tối đa mỗi cuộc trò chuyện",
+      "advisorMaxConsultsTooltip": "Chỉ tính các lời gọi consult_advisor do agent tự thực hiện. Kế hoạch mở đầu và can thiệp tự động không tính.",
+      "advisorIntervention": {
+        "consecutive_failures": "Thất bại liên tiếp",
+        "consecutive_failuresTooltip": "Số lời gọi công cụ thất bại liên tiếp trước khi hỏi cố vấn.",
+        "window_failures": "Thất bại trong cửa sổ",
+        "window_failuresTooltip": "Số lời gọi công cụ thất bại trong cửa sổ trước khi hỏi cố vấn.",
+        "window_size": "Kích thước cửa sổ (bước)",
+        "window_sizeTooltip": "Cửa sổ thất bại bao gồm bao nhiêu lời gọi công cụ gần nhất.",
+        "max_interventions": "Số lần can thiệp tối đa mỗi lượt",
+        "max_interventionsTooltip": "Số lần can thiệp tự động cho phép trong một lượt chạy. 0 để tắt.",
+        "cooldown_steps": "Thời gian chờ (bước)",
+        "cooldown_stepsTooltip": "Số lời gọi công cụ cần chờ sau một lần can thiệp trước khi lần tiếp theo có thể kích hoạt."
+      }
     },
     "doomLoopEnabled": "Bảo vệ hành vi lặp lại",
     "doomLoopEnabledTooltip": "Tự động can thiệp khi agent bị kẹt lặp lại cùng một hành động",
@@ -2948,6 +3020,9 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "connect": "Xác thực OAuth",
+    "settings": "Cài đặt",
+    "disableBtn": "Vô hiệu hóa",
     "llmConfiguration": "Cấu hình LLM",
     "providersTitle": "Nhà cung cấp",
     "providersDescription": "Cấu hình API key và endpoint cho từng nhà cung cấp.",
@@ -2956,7 +3031,6 @@
     "defaultChatModel": "Mô hình hội thoại",
     "defaultDecisionModel": "Mô hình quyết định",
     "defaultLlm": "LLM mặc định",
-    "llmDescription": "Đặt mô hình LLM mặc định toàn cục. Bạn có thể chọn mô hình riêng cho từng Agent ở trang Trò chuyện.",
     "configureProvider": "Cấu hình {{name}}",
     "baseURL": "Base URL",
     "apiKey": "API Key",
@@ -3088,7 +3162,28 @@
       "free": "Free"
     },
     "manageModels": "Quản lý mô hình",
-    "localRuntimeSectionTitle": "Môi trường chạy mô hình cục bộ"
+    "localRuntimeSectionTitle": "Môi trường chạy mô hình cục bộ",
+    "chatgpt": {
+      "contextHelp": "Giới hạn tài khoản: {{maximum}} token; ngân sách phiên mặc định: {{default}} token.",
+      "localHelp": "Do chính sách OpenAI và yêu cầu gọi lại OAuth cục bộ, QwenPaw và trình duyệt phải chạy trên cùng một máy tính.",
+      "account": "Tài khoản ChatGPT",
+      "connected": "Đã kết nối gói ChatGPT",
+      "disconnected": "Chưa kết nối",
+      "permissionMissing": "Chưa cấp quyền sử dụng gói",
+      "failed": "Đăng nhập chưa hoàn tất. Vui lòng thử lại.",
+      "usage": "Quản lý mức sử dụng",
+      "reconnect": "Đăng nhập lại",
+      "changeAccount": "Đổi tài khoản",
+      "accountActions": "Thao tác tài khoản ChatGPT",
+      "connectedShort": "Đã kết nối",
+      "signOut": "Đăng xuất",
+      "revokeWarning": "Đã đăng xuất cục bộ. Chưa xác nhận việc thu hồi quyền; hãy ngắt kết nối QwenPaw trong cài đặt ChatGPT.",
+      "modelHelp": "Mô hình được lấy từ tài khoản ChatGPT hiện tại. Mức sử dụng được tính vào hạn mức gói hoặc tín dụng. Cách truy cập này không hỗ trợ cài đặt lấy mẫu và giới hạn token đầu ra.",
+      "oauthDescription": "Trình duyệt sẽ mở để cấp quyền sử dụng gói ChatGPT của bạn. Quay lại QwenPaw khi hoàn tất."
+    },
+    "providerVariants": {
+      "chatgpt": "Gói ChatGPT"
+    }
   },
   "security": {
     "parent": "Cài đặt",
@@ -3158,6 +3253,7 @@
     "title": "Kênh",
     "description": "Quản lý và cấu hình các kênh nhắn tin",
     "loading": "Đang tải kênh...",
+    "loadFailed": "Không thể tải kênh. Vui lòng thử lại.",
     "configSaved": "Đã lưu cấu hình",
     "configFailed": "Lưu cấu hình thất bại",
     "botConflictTitle": "Bot đang được sử dụng",
@@ -3979,6 +4075,8 @@
     "title": "Phiên làm việc",
     "description": "Xem và quản lý các phiên chat đang hoạt động",
     "loading": "Đang tải phiên...",
+    "selectSession": "Chọn {{name}}",
+    "loadFailed": "Không thể tải phiên. Vui lòng thử lại.",
     "confirmDelete": "Xác nhận xóa",
     "deleteConfirm": "Bạn có chắc muốn xóa phiên này không?",
     "batchDeleteConfirm": "Bạn có chắc muốn xóa {{count}} phiên đã chọn không?",
@@ -4047,7 +4145,21 @@
       "mission": {
         "name": "Nhiệm vụ",
         "description": "Chạy tác vụ nhiều bước có cấu trúc và liên tục."
+      },
+      "advisor": {
+        "name": "Cố vấn",
+        "description": "Để mô hình mạnh hơn lập kế hoạch và can thiệp trong khi mô hình rẻ hơn làm việc."
       }
+    },
+    "advisorSetup": {
+      "title": "Mô hình cố vấn",
+      "hint": "Mặc định theo mô hình chính của agent (cố vấn) và mô hình sub-agent (worker). Lựa chọn ở đây được lưu cho agent này.",
+      "advisorModel": "Mô hình cố vấn",
+      "workerModel": "Mô hình worker",
+      "subagentDefault": "{{model}} · mặc định: mô hình sub-agent",
+      "noSubagent": "Giống cố vấn · mặc định: chưa đặt mô hình sub-agent",
+      "pairTooltip": "Mô hình cố vấn → worker của cuộc trò chuyện này",
+      "primaryModelDefault": "{{model}} · mặc định: mô hình chính"
     }
   },
   "runtimeDesign": {

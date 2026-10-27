@@ -7,6 +7,32 @@ interface Listing extends DirectoryPage {
   pages: number;
 }
 
+function sameDirectoryEntry(
+  left: DirectoryPage["entries"][number],
+  right: DirectoryPage["entries"][number],
+) {
+  return (
+    left.name === right.name &&
+    left.path === right.path &&
+    left.kind === right.kind &&
+    left.size === right.size &&
+    left.modified_at === right.modified_at &&
+    left.preview_kind === right.preview_kind
+  );
+}
+
+function reuseUnchangedEntries(
+  entries: DirectoryPage["entries"],
+  previous: DirectoryPage["entries"] | undefined,
+) {
+  if (!previous) return entries;
+  const previousByPath = new Map(previous.map((entry) => [entry.path, entry]));
+  return entries.map((entry) => {
+    const existing = previousByPath.get(entry.path);
+    return existing && sameDirectoryEntry(existing, entry) ? existing : entry;
+  });
+}
+
 export function useDirectoryListing(
   path: string,
   root: WorkspaceRoot,
@@ -69,7 +95,7 @@ export function useDirectoryListing(
           entries.push(...page.entries);
           const next = {
             ...page,
-            entries,
+            entries: reuseUnchangedEntries(entries, previous?.entries),
             identity,
             pages: append ? previous!.pages + 1 : index + 1,
           };

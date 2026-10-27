@@ -78,7 +78,7 @@ def test_publish_jobs_load_infrastructure_from_workflow_revision(
     assert infrastructure_checkout["with"] == {
         "ref": "${{ github.workflow_sha }}",
         "path": ".release-infra",
-        "sparse-checkout": "scripts",
+        "sparse-checkout": "scripts\nsrc/qwenpaw/security\n",
         "persist-credentials": False,
     }
     assert job["env"]["RELEASE_INFRA"] == (

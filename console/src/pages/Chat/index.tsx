@@ -4,6 +4,8 @@ import {
   ReadyChatWelcome,
 } from "./components/ChatSessionTransition";
 import { ChatWelcome } from "./components/ChatWelcome";
+import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
+import { useAdvisorDecisionAvailability } from "./hooks/useAdvisorDecisionAvailability";
 import { loadSessionModel } from "../../features/session-settings/sessionModel";
 import {
   migratePendingSessionSettings,
@@ -49,9 +51,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import {
   getDraftStorageKey,
-  parseDraft,
-  serializeDraft,
-  type DraftState,
+  handoverDraftToSession,
+  useChatInputDraft,
 } from "./chatInputDraft";
 import {
   stopBackgroundQueue,
@@ -71,7 +72,11 @@ import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import type { SkillSpec } from "../../api/types";
+import {
+  AdvisorModelsPill,
+  useIsAdvisorConversation,
+} from "./ModelSelector/AdvisorModelsPill";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import {
@@ -256,6 +261,8 @@ import {
 } from "../../utils/sessionRoute";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import ChatSenderTabsPanel from "./components/ChatSenderTabsPanel";
+import ComposerAccessibilityLabels from "./components/ComposerAccessibilityLabels";
+import ApprovalQueueOverlay from "./components/ApprovalQueueOverlay";
 import {
   selectTasksForSession,
   useBackgroundTasksStore,
@@ -914,10 +921,10 @@ function useMultimodalCapabilities(
       return;
     }
     try {
-      const [providers, activeModels] = await Promise.all([
-        providerApi.listProviders(),
-        loadSessionModel(selectedAgent, { sessionId, chatId }),
-      ]);
+      const activeModels = await loadSessionModel(selectedAgent, {
+        sessionId,
+        chatId,
+      });
       if (revision !== capsRevision.current) return;
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
@@ -925,20 +932,17 @@ function useMultimodalCapabilities(
         updateCapsIfChanged(noCaps);
         return;
       }
-      const provider = (providers as ProviderInfo[]).find(
-        (p) => p.id === activeProviderId,
+      const model = await providerApi.previewModelInfo(
+        activeProviderId,
+        activeModelId,
       );
-      if (!provider) {
-        updateCapsIfChanged(noCaps);
-        return;
-      }
-      const allModels: ModelInfo[] = [
-        ...(provider.models ?? []),
-        ...(provider.extra_models ?? []),
-      ];
-      const model = allModels.find((m) => m.id === activeModelId);
+      if (revision !== capsRevision.current) return;
       updateCapsIfChanged({
-        supportsMultimodal: model?.supports_multimodal ?? false,
+        supportsMultimodal: Boolean(
+          model?.supports_multimodal ||
+            model?.supports_image ||
+            model?.supports_video,
+        ),
         supportsImage: model?.supports_image ?? false,
         supportsVideo: model?.supports_video ?? false,
       });
@@ -1126,88 +1130,6 @@ function useMessageHistoryNavigation(
   }, [isChatActive, isComposingRef, getUserMessagesWithText]);
 }
 
-// ---------------------------------------------------------------------------
-// Chat input draft persistence
-// ---------------------------------------------------------------------------
-
-function useChatInputDraft(active: boolean, agentId?: string) {
-  const storageKey = getDraftStorageKey(agentId);
-
-  useEffect(() => {
-    if (!active) return;
-
-    const getTextarea = (): HTMLTextAreaElement | null => {
-      const sender = document.querySelector('[class*="sender"]');
-      return sender?.querySelector("textarea") as HTMLTextAreaElement | null;
-    };
-
-    const saveDraft = (textarea: HTMLTextAreaElement) => {
-      const draft: DraftState = {
-        value: textarea.value,
-        selectionStart: textarea.selectionStart,
-        selectionEnd: textarea.selectionEnd,
-      };
-      const serialized = serializeDraft(draft);
-      if (serialized) {
-        localStorage.setItem(storageKey, serialized);
-      } else {
-        localStorage.removeItem(storageKey);
-      }
-    };
-
-    const handleInput = (e: Event) => {
-      const target = e.target as HTMLElement;
-      if (target?.tagName !== "TEXTAREA") return;
-      if (!target?.closest('[class*="sender"]')) return;
-
-      saveDraft(target as HTMLTextAreaElement);
-
-      // Minimal loop mode detection: sync indicator with availableModes
-      const val = (target as HTMLTextAreaElement).value.trimStart();
-      const modes = useLoopStore.getState().availableModes;
-      const match = modes.find((m) => {
-        if (!m.slash_command) return false;
-        const prefix = `/${m.slash_command}`;
-        // Match "/cmd" or "/cmd " exactly, avoid "/cmdxxx"
-        return val === prefix || val.startsWith(`${prefix} `);
-      });
-      if (match) useLoopStore.getState().setSelectedMode(match.id);
-    };
-
-    // Restore draft on mount with polling for textarea readiness
-    let restoreAttempts = 0;
-    const maxRestoreAttempts = 20;
-    const restoreInterval = setInterval(() => {
-      restoreAttempts++;
-      const textarea = getTextarea();
-      if (textarea) {
-        clearInterval(restoreInterval);
-        // parseDraft fails soft on missing/malformed/empty stored data
-        const draft = parseDraft(localStorage.getItem(storageKey));
-        if (draft) {
-          setTextareaValue(textarea, draft.value);
-          requestAnimationFrame(() => {
-            textarea.selectionStart = draft.selectionStart;
-            textarea.selectionEnd = draft.selectionEnd;
-          });
-        }
-      } else if (restoreAttempts >= maxRestoreAttempts) {
-        clearInterval(restoreInterval);
-      }
-    }, 100);
-
-    document.addEventListener("input", handleInput, true);
-
-    return () => {
-      clearInterval(restoreInterval);
-      document.removeEventListener("input", handleInput, true);
-
-      // Input events already saved the draft. Cleanup must not overwrite it
-      // with a cleared/remounted composer (including another browser tab).
-    };
-  }, [active, storageKey]);
-}
-
 function RuntimeLoadingBridge({
   bridgeRef,
   onLoadingChange,
@@ -1291,6 +1213,10 @@ export default function ChatPage() {
   const location = useLocation();
   const { isDark, previewTheme = {} } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
+  // useLocation().pathname is already basename-relative. React Router
+  // strips the basename before exposing it (Desktop `/console/chat/<id>`
+  // is `/chat/<id>` here). Do not strip again: a basename of `/chat`
+  // would erase the session id. Raw window.location stays in hostSdk.
   const routeChatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
@@ -1303,11 +1229,20 @@ export default function ChatPage() {
   const isAgentTransition =
     prevSelectedAgentRef.current !== selectedAgent ||
     agentTransitionTarget !== null;
-  // All host consumers, including Files and loop hooks, must wait for the
-  // target Agent's route. The raw URL still belongs to the previous Agent.
+  const routeResolution = useChatRouteResolution(
+    isAgentTransition ? undefined : routeChatId,
+    selectedAgent,
+  );
+  const { agentSwitchTarget, retry: retryRouteResolution } = routeResolution;
+  const isSessionTransition = isAgentTransition || routeResolution.blocked;
   const isAgentTransitionRef = useRef(isAgentTransition);
   isAgentTransitionRef.current = isAgentTransition;
-  const chatId = isAgentTransition ? undefined : routeChatId;
+  // All host consumers, including Files and loop hooks, must wait for the
+  // target Agent's route. The raw URL still belongs to the previous Agent.
+  const isSessionTransitionRef = useRef(isSessionTransition);
+  isSessionTransitionRef.current = isSessionTransition;
+  const chatId =
+    isSessionTransition || routeChatId === "new" ? undefined : routeChatId;
   // The explicit /chat route is a fresh draft, even if history remembers an
   // older active Chat. Storage identity must follow the same route as the SDK.
   const queueSessionId = chatId ?? "new";
@@ -1331,6 +1266,23 @@ export default function ChatPage() {
     confirmed: terminalCapabilityConfirmed,
   } = useTerminalEnabled(selectedAgent);
   const backendChatId = resolveBackendChatId(chatId);
+  const decisionScope = `${selectedAgent}:${queueSessionId}:${
+    backendChatId ?? ""
+  }`;
+  const [decisionAvailability, setDecisionAvailability] = useState<{
+    scope: string;
+    enabled: boolean | undefined;
+  }>();
+  const decisionModelEnabled =
+    decisionAvailability?.scope === decisionScope
+      ? decisionAvailability.enabled
+      : undefined;
+  const handleDecisionEnabledChange = useCallback(
+    (enabled: boolean | undefined) => {
+      setDecisionAvailability({ scope: decisionScope, enabled });
+    },
+    [decisionScope],
+  );
   useEffect(() => {
     sessionApi.setVisibleSession(
       queueSessionId === "new" ? null : queueSessionId,
@@ -1469,6 +1421,15 @@ export default function ChatPage() {
   const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
   const backendCapabilities = selectedAgentInfo?.backend_capabilities;
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
+  // An Advisor conversation runs two models, so its pill shows the pair.
+  const advisorConversation = useIsAdvisorConversation();
+  useAdvisorDecisionAvailability({
+    active: usesQwenPawBackend && advisorConversation && !isSessionTransition,
+    agentId: selectedAgent,
+    sessionId: queueSessionId,
+    chatId: backendChatId,
+    onChange: handleDecisionEnabledChange,
+  });
   const backendCommands = backendCapabilities?.commands ?? [];
   const approvalPresets = backendCapabilities?.approval_presets ?? [];
   const supportsAttachments = supportsAgentAttachments(
@@ -1479,6 +1440,10 @@ export default function ChatPage() {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
+  const retrySession = useCallback(() => {
+    retryRouteResolution();
+    setRefreshKey((version) => version + 1);
+  }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
@@ -1510,6 +1475,8 @@ export default function ChatPage() {
   const queueRunState = useMessageQueueStore((s) => s.runStates[queueKey]);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+  const decisionModelEnabledRef = useRef(decisionModelEnabled);
+  decisionModelEnabledRef.current = decisionModelEnabled;
   const backendControlsRef = useRef<Record<string, unknown>>({});
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
   const captureRequestContext = useCallback(
@@ -1518,7 +1485,11 @@ export default function ChatPage() {
       ...(usesQwenPawBackend
         ? {
             approval_level:
-              sessionApprovalLevelRef.current ?? runningConfigApprovalLevel,
+              decisionModelEnabledRef.current === false &&
+              (sessionApprovalLevelRef.current ??
+                runningConfigApprovalLevel) === "JEV"
+                ? "AUTO"
+                : sessionApprovalLevelRef.current ?? runningConfigApprovalLevel,
           }
         : Object.keys(backendControlsRef.current).length > 0
         ? { backend_controls: { ...backendControlsRef.current } }
@@ -1750,6 +1721,7 @@ export default function ChatPage() {
       if (
         requested ||
         ctrl.signal.aborted ||
+        isSessionTransition ||
         !sdkSessionAdapter.isReady(chatId)
       )
         return;
@@ -1780,10 +1752,10 @@ export default function ChatPage() {
       unsubscribe();
       clearTimeout(fallbackTimer);
     };
-  }, [chatId, queueKey, sdkSessionAdapter]);
+  }, [chatId, queueKey, sdkSessionAdapter, isSessionTransition]);
 
   const syncLoopModeStatus = useCallback(() => {
-    if (isAgentTransition) return Promise.resolve();
+    if (isSessionTransition) return Promise.resolve();
     const sessionReference =
       chatId ?? (queueSessionId !== "new" ? queueSessionId : undefined);
     const verifiedChatId = resolveBackendChatId(sessionReference);
@@ -1794,14 +1766,14 @@ export default function ChatPage() {
       chatId: verifiedChatId,
       sessionId: backendSessionId,
     });
-  }, [queueSessionId, chatId, isAgentTransition]);
+  }, [queueSessionId, chatId, isSessionTransition]);
 
   useEffect(() => {
     const controller = new AbortController();
     useLoopStore.getState().resetSessionMode();
     void fetchAvailableLoopModes(controller.signal);
     const verifiedChatId = resolveBackendChatId(chatId);
-    if (verifiedChatId && !isAgentTransition) {
+    if (verifiedChatId && !isSessionTransition) {
       void fetchActiveLoopMode({
         chatId: verifiedChatId,
         sessionId: sessionApi.getSessionIdentity(chatId).sessionId,
@@ -1809,7 +1781,7 @@ export default function ChatPage() {
       });
     }
     return () => controller.abort();
-  }, [chatId, isAgentTransition, selectedAgent]);
+  }, [chatId, isSessionTransition, selectedAgent]);
 
   // Whether this tab is confirmed to be a non-owner (queue-only) tab.
   // Stays false until ownership check completes, preventing a flash of
@@ -2067,7 +2039,7 @@ export default function ChatPage() {
 
   const isChatActiveRef = useRef(false);
   const isChatActivePage =
-    !isAgentTransition &&
+    !isSessionTransition &&
     (location.pathname === "/" || location.pathname.startsWith("/chat"));
   isChatActiveRef.current = isChatActivePage;
 
@@ -2130,7 +2102,7 @@ export default function ChatPage() {
         },
         selectedAgent,
         currentSessionId,
-        isAgentTransition,
+        isSessionTransition,
       ),
     );
 
@@ -2169,7 +2141,7 @@ export default function ChatPage() {
     }
 
     setApprovalRequests(newMap);
-  }, [approvals, chatId, isAgentTransition, selectedAgent]);
+  }, [approvals, chatId, isSessionTransition, selectedAgent]);
 
   const approvalRenderers = useMemo(() => {
     const renderers = new Map<
@@ -2216,7 +2188,7 @@ export default function ChatPage() {
           },
           selectedAgentRef.current,
           currentRootSessionId,
-          isAgentTransitionRef.current,
+          isSessionTransitionRef.current,
         )
       ) {
         console.warn("[Chat] Ignoring stale approval action target");
@@ -2280,7 +2252,7 @@ export default function ChatPage() {
           },
           selectedAgentRef.current,
           currentRootSessionId,
-          isAgentTransitionRef.current,
+          isSessionTransitionRef.current,
         )
       ) {
         console.warn("[Chat] Ignoring stale approval action target");
@@ -2385,7 +2357,7 @@ export default function ChatPage() {
   }, []);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
-  useChatInputDraft(isChatActiveRef.current, selectedAgent);
+  useChatInputDraft(isChatActiveRef.current, selectedAgent, routeChatId);
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
@@ -2473,7 +2445,7 @@ export default function ChatPage() {
     if (!isChatActivePage) return;
     const binding = bindChatSubmit((input) => {
       enqueuePluginSubmission(input, {
-        active: isChatActiveRef.current && !isAgentTransitionRef.current,
+        active: isChatActiveRef.current && !isSessionTransitionRef.current,
         ready: sdkSessionAdapter.isReady(chatIdRef.current),
         agentId: selectedAgent,
         currentSessionId: chatIdRef.current || "",
@@ -2507,7 +2479,7 @@ export default function ChatPage() {
   useEffect(() => {
     const handleEnterEnqueue = (e: KeyboardEvent) => {
       if (!isChatActive() || e.key !== "Enter" || e.shiftKey) return;
-      if (!sdkSessionAdapter.isReady(chatIdRef.current) || isAgentTransition)
+      if (!sdkSessionAdapter.isReady(chatIdRef.current) || isSessionTransition)
         return;
       const hasCtrl = e.ctrlKey || e.metaKey;
       const queueBusy =
@@ -2568,7 +2540,7 @@ export default function ChatPage() {
     captureRequestContext,
     queueKey,
     sdkSessionAdapter,
-    isAgentTransition,
+    isSessionTransition,
   ]);
 
   const handleQueueRemove = useCallback(
@@ -2887,7 +2859,7 @@ export default function ChatPage() {
   const safeLastStored = isLocalTimestampId(getLastChatId(selectedAgent))
     ? null
     : getLastChatId(selectedAgent);
-  const effectiveChatId = isAgentTransition
+  const effectiveChatId = isSessionTransition
     ? undefined
     : chatId || safeLastActive || safeLastStored;
   if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
@@ -2937,6 +2909,9 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       const agentId = selectedAgentRef.current;
       migrateSessionResources(agentId, tempId, realId);
+      // The first send stays on /chat until this id exists. Move the
+      // follow-up typed there onto the new session before the route changes.
+      handoverDraftToSession(agentId, realId);
       lastSessionIdRef.current = realId;
       sessionApi.trackNavigatedSession(
         realId,
@@ -3113,6 +3088,7 @@ export default function ChatPage() {
         removeLastChatIdRef.current(selectedAgentRef.current);
       } else {
         setLastChatIdRef.current(selectedAgentRef.current, sessionId);
+        handoverDraftToSession(agentId, sessionId);
       }
       navigateRef.current(
         isLocalTimestampId(sessionId)
@@ -3150,24 +3126,35 @@ export default function ChatPage() {
       // Save current chat ID for the agent we're leaving.
       // Skip temporary local timestamp ids — they are not real backend
       // sessions and should not be restored later.
-      const currentChatId =
-        routeChatId || lastSessionIdRef.current || undefined;
+      const currentChatId = lastSessionIdRef.current;
       if (currentChatId && prevAgent && !isLocalTimestampId(currentChatId)) {
         setLastChatId(prevAgent, currentChatId);
       }
 
-      // Start the new Agent on a blank composer. SDK 1.2 allocates the Chat
-      // on the first send, so switching Agents does not create empty Chats.
-      setAgentTransitionTarget({ agentId: selectedAgent });
-      sessionApi.preferredChatId = null;
-      sessionApi.lastActiveChatId = null;
-      navigateRef.current(CHAT_BASE_PATH, { replace: true });
+      // Deep-link resolution carries an explicit target. Manual switches
+      // continue to start on a blank composer without allocating a Chat.
+      const resolvedTarget = agentSwitchTarget.current;
+      const targetChatId =
+        resolvedTarget?.agentId === selectedAgent &&
+        resolvedTarget.referenceId === routeChatId
+          ? resolvedTarget.chatId
+          : undefined;
+      agentSwitchTarget.current = null;
+      setAgentTransitionTarget({
+        agentId: selectedAgent,
+        chatId: targetChatId,
+      });
+      sessionApi.preferredChatId = targetChatId ?? null;
+      sessionApi.lastActiveChatId = targetChatId ?? null;
+      navigateRef.current(
+        targetChatId ? buildChatPath(targetChatId) : CHAT_BASE_PATH,
+        { replace: true },
+      );
       // Mark the current session as stale so late-arriving onSessionSelected
       // callbacks from the OLD library instance are suppressed (Bug: after
       // agent switch, old library's in-flight getSession may complete and
       // trigger onSessionSelected for the wrong session).
-      staleAutoSelectedIdRef.current =
-        lastSessionIdRef.current || routeChatId || null;
+      staleAutoSelectedIdRef.current = lastSessionIdRef.current;
       lastSessionIdRef.current = null;
 
       setRefreshKey((prev) => prev + 1);
@@ -3178,7 +3165,7 @@ export default function ChatPage() {
     if (prevAgent === undefined) {
       prevSelectedAgentRef.current = selectedAgent;
     }
-  }, [selectedAgent, setLastChatId, getLastChatId]);
+  }, [selectedAgent, setLastChatId, getLastChatId, agentSwitchTarget]);
 
   useEffect(() => {
     if (
@@ -3251,10 +3238,15 @@ export default function ChatPage() {
       // Every turn goes through this fetch, including the SDK's own regenerate.
       // Clear only this session: another session may still have a stopped turn.
       clearTurnStopped(entrySnapshot.sessionId);
-      const approvalAtSubmission =
+      const requestedApprovalLevel =
         typeof entrySnapshot.context.approval_level === "string"
           ? normalizeLevel(entrySnapshot.context.approval_level)
           : sessionApprovalLevelRef.current ?? runningConfigApprovalLevel;
+      const approvalAtSubmission =
+        requestedApprovalLevel === "JEV" &&
+        decisionModelEnabledRef.current === false
+          ? "AUTO"
+          : requestedApprovalLevel;
       const controlsAtSubmission = entrySnapshot.context.backend_controls ?? {
         ...backendControlsRef.current,
       };
@@ -3605,7 +3597,7 @@ export default function ChatPage() {
     ): Promise<boolean | IAgentScopeRuntimeWebUISenderBeforeSubmitResult> => {
       if (
         isComposingRef.current ||
-        isAgentTransition ||
+        isSessionTransition ||
         !sdkSessionAdapter.isReady(chatIdRef.current)
       )
         return false;
@@ -3620,7 +3612,7 @@ export default function ChatPage() {
       const backendChatId = resolveBackendChatId(chatIdRef.current);
       const textarea = getActiveSenderTextarea();
       const val = data.query.trim() || textarea?.value.trim() || "";
-      const draftStorageKey = getDraftStorageKey(selectedAgent);
+      const draftStorageKey = getDraftStorageKey(selectedAgent, chatId);
       const submittedDraft = localStorage.getItem(draftStorageKey);
       const submittedFiles = new Set(pendingFileListRef.current);
       const submittedAttachments = getSubmissionAttachments(data);
@@ -3682,7 +3674,7 @@ export default function ChatPage() {
         });
         if (sameVisit) {
           pendingFileListRef.current = [];
-          localStorage.removeItem(getDraftStorageKey(selectedAgent));
+          localStorage.removeItem(getDraftStorageKey(selectedAgent, chatId));
         } else if (
           enqueueIdentity.sessionId &&
           backendChatId &&
@@ -3993,14 +3985,19 @@ export default function ChatPage() {
         rightHeader: (
           <>
             <ChatSessionInitializer />
-            <ChatSessionActivation sessionId={chatId} sdkRef={chatRef} />
+            <ChatSessionActivation
+              sessionId={chatId}
+              sdkRef={chatRef}
+              adapter={sdkSessionAdapter}
+            />
             <RuntimeLoadingBridge
               bridgeRef={runtimeLoadingBridgeRef}
               onLoadingChange={setChatLoading}
               sessionAdapter={sdkSessionAdapter}
               sessionId={chatId}
-              agentTransition={isAgentTransition}
+              agentTransition={isSessionTransition}
             />
+            <ComposerAccessibilityLabels />
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
             <ChatActionGroup
@@ -4018,7 +4015,7 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: extNick ?? "QwenPaw",
-        avatar: extAvatar ?? "/qwenpaw.png",
+        avatar: extAvatar ?? `${import.meta.env.BASE_URL}qwenpaw.png`,
         ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
         ...(extDescription !== undefined
           ? { description: extDescription }
@@ -4026,7 +4023,11 @@ export default function ChatPage() {
         ...(extPrompts !== undefined ? { prompts: extPrompts } : {}),
         // SDK uses `render` if present and ignores the other fields.
         render: (props: WelcomeRenderProps) => (
-          <ReadyChatWelcome adapter={sdkSessionAdapter} sessionId={chatId}>
+          <ReadyChatWelcome
+            adapter={sdkSessionAdapter}
+            sessionId={chatId}
+            pending={isSessionTransition}
+          >
             {wrappedWelcomeRender ? (
               wrappedWelcomeRender(props)
             ) : (
@@ -4076,14 +4077,21 @@ export default function ChatPage() {
               <LoopModeSelector
                 className={isMobile ? styles.mobileComposerControl : undefined}
                 compact={isMobile}
+                chatId={backendChatId}
+                agentId={selectedAgent}
               />
             )}
-            {usesQwenPawBackend ? (
-              <SessionThinking
-                agentId={selectedAgent}
-                sessionId={queueSessionId}
-                chatId={backendChatId}
-              />
+            {usesQwenPawBackend && !isSessionTransition ? (
+              advisorConversation ? (
+                <AdvisorModelsPill />
+              ) : (
+                <SessionThinking
+                  agentId={selectedAgent}
+                  sessionId={queueSessionId}
+                  chatId={backendChatId}
+                  onDecisionEnabledChange={handleDecisionEnabledChange}
+                />
+              )
             ) : backendCapabilities?.model_selection ? (
               <HarnessModelSelector providerId={selectedAgentBackend} />
             ) : null}
@@ -4104,7 +4112,7 @@ export default function ChatPage() {
                 />
               </span>
             )}
-            {usesQwenPawBackend && (
+            {usesQwenPawBackend && !isSessionTransition && (
               <SessionProjectDirectory
                 scope={sessionScope}
                 compact={isMobile || compactSender}
@@ -4122,6 +4130,7 @@ export default function ChatPage() {
               <ApprovalLevelToggle
                 sessionId={queueKey}
                 runningConfigApprovalLevel={runningConfigApprovalLevel}
+                decisionModelEnabled={decisionModelEnabled}
                 compact={isMobile || compactSender}
                 className={[
                   !isMobile && !compactSender
@@ -4174,6 +4183,7 @@ export default function ChatPage() {
                   return (
                     <Tooltip title={tooltipTitle}>
                       <IconButton
+                        aria-label={t("chat.composer.attach")}
                         disabled={props?.disabled}
                         icon={<SparkAttachmentLine size="1em" />}
                         bordered={false}
@@ -4498,6 +4508,10 @@ export default function ChatPage() {
     scheduleHistoryClear,
     consoleSkills,
     loopAvailableModes,
+    advisorConversation,
+    backendChatId,
+    decisionModelEnabled,
+    handleDecisionEnabledChange,
     selectedAgent,
     selectedAgentBackend,
     backendCapabilities,
@@ -4542,7 +4556,7 @@ export default function ChatPage() {
     chatId,
     sdkSessionApi,
     sdkSessionAdapter,
-    isAgentTransition,
+    isSessionTransition,
     queueKey,
   ]);
 
@@ -4557,7 +4571,7 @@ export default function ChatPage() {
     <TerminalDock
       scope={sessionScope}
       isDark={isDark}
-      open={terminalEnabled && terminalOpen}
+      open={!isSessionTransition && terminalEnabled && terminalOpen}
       setOpen={setTerminalOpen}
     >
       <div
@@ -4568,11 +4582,13 @@ export default function ChatPage() {
         <div className={styles.chatMainArea}>
           <div
             ref={chatMessagesAreaRef}
-            className={
-              isWideMode
-                ? `${styles.chatMessagesArea} ${styles.wideMode}`
-                : styles.chatMessagesArea
-            }
+            className={[
+              styles.chatMessagesArea,
+              isWideMode && styles.wideMode,
+              advisorConversation && styles.advisorComposer,
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
             <LongTextPasteProvider
               enabled={supportsAttachments}
@@ -4583,18 +4599,21 @@ export default function ChatPage() {
                   void openInlineFileReference(reference, trigger)
                 }
               >
-                {!isAgentTransition && (
-                  <ChatSessionTransition
-                    adapter={sdkSessionAdapter}
-                    sessionId={chatId}
-                  >
+                <ChatSessionTransition
+                  adapter={sdkSessionAdapter}
+                  sessionId={chatId}
+                  pending={isSessionTransition}
+                  error={routeResolution.error}
+                  onRetry={retrySession}
+                >
+                  {!isAgentTransition && (
                     <AgentScopeRuntimeWebUI
                       ref={chatRef}
                       key={refreshKey}
                       options={options}
                     />
-                  </ChatSessionTransition>
-                )}
+                  )}
+                </ChatSessionTransition>
               </RichFileReferenceInputProvider>
             </LongTextPasteProvider>
           </div>
@@ -4645,102 +4664,88 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Render approval cards as overlays */}
-          {Array.from(
-            chatId && !isAgentTransition ? approvalRequests.values() : [],
-          ).map((request) => {
-            const renderer = approvalRenderers.get(request.sourceType);
-            const CustomApprovalCard = renderer?.item.render;
-            const defaultApprovalCard = (
-              <ApprovalCard
-                requestId={request.requestId}
-                agentId={request.agentId}
-                toolName={request.toolName}
-                toolSource={request.toolSource}
-                severity={request.severity}
-                findingsCount={request.findingsCount}
-                findingsSummary={request.findingsSummary}
-                toolParams={request.toolParams}
-                reasoning={request.reasoning}
-                createdAt={request.createdAt}
-                timeoutSeconds={request.timeoutSeconds}
-                sessionId={request.sessionId}
-                rootSessionId={request.rootSessionId}
-                isGeneralized={request.isGeneralized}
-                exactTarget={request.exactTarget}
-                similarTarget={request.similarTarget}
-                onApprove={(reqId, scope) => handleApprove(reqId, scope)}
-                onDeny={handleDeny}
-                onCancel={() => {
-                  const routeChatId = chatIdRef.current;
-                  const routeIdentity =
-                    sessionApi.getSessionIdentity(routeChatId);
-                  const rootSessionId =
-                    request.rootSessionId || request.sessionId;
-                  const resolvedChatId = resolveBackendChatId(routeChatId);
+          <ApprovalQueueOverlay
+            items={Array.from(
+              chatId && !isSessionTransition ? approvalRequests.values() : [],
+            )}
+            renderItem={(request) => {
+              const renderer = approvalRenderers.get(request.sourceType);
+              const CustomApprovalCard = renderer?.item.render;
+              const defaultApprovalCard = (
+                <ApprovalCard
+                  requestId={request.requestId}
+                  agentId={request.agentId}
+                  toolName={request.toolName}
+                  toolSource={request.toolSource}
+                  severity={request.severity}
+                  findingsCount={request.findingsCount}
+                  findingsSummary={request.findingsSummary}
+                  toolParams={request.toolParams}
+                  reasoning={request.reasoning}
+                  createdAt={request.createdAt}
+                  timeoutSeconds={request.timeoutSeconds}
+                  sessionId={request.sessionId}
+                  rootSessionId={request.rootSessionId}
+                  isGeneralized={request.isGeneralized}
+                  exactTarget={request.exactTarget}
+                  similarTarget={request.similarTarget}
+                  onApprove={(reqId, scope) => handleApprove(reqId, scope)}
+                  onDeny={handleDeny}
+                  onCancel={() => {
+                    const routeChatId = chatIdRef.current;
+                    const routeIdentity =
+                      sessionApi.getSessionIdentity(routeChatId);
+                    const rootSessionId =
+                      request.rootSessionId || request.sessionId;
+                    const resolvedChatId = resolveBackendChatId(routeChatId);
 
-                  if (
-                    !isAgentTransitionRef.current &&
-                    rootSessionId &&
-                    routeIdentity.sessionId === rootSessionId &&
-                    resolvedChatId
-                  ) {
-                    console.log(
-                      "[Chat] Calling stopChat with:",
-                      resolvedChatId,
-                    );
-                    chatApi
-                      .stopChat(resolvedChatId)
-                      .then(() => {
-                        console.log("[Chat] stopChat succeeded");
-                        setApprovals((prev) =>
-                          prev.filter(
-                            (item) => item.root_session_id !== rootSessionId,
-                          ),
-                        );
-                      })
-                      .catch((err) => {
-                        console.error("[Chat] stopChat failed:", err);
-                      });
-                  } else {
-                    console.warn(
-                      "[Chat] Ignoring stale approval cancel target",
-                    );
-                  }
-                }}
-              />
-            );
-
-            return (
-              <div
-                key={request.requestId}
-                data-approval-id={request.requestId}
-                style={{
-                  position: "fixed",
-                  bottom: 80,
-                  right: 24,
-                  zIndex: 1000,
-                  maxWidth: 480,
-                  width: "calc(100vw - 48px)",
-                }}
-              >
-                {CustomApprovalCard ? (
-                  <PluginSlotBoundary
-                    slot={`approval:${request.sourceType}`}
-                    pluginId={renderer.pluginId}
-                    fallback={defaultApprovalCard}
-                  >
-                    <CustomApprovalCard
-                      approval={request}
-                      onResolved={() => dismissApproval(request.requestId)}
-                    />
-                  </PluginSlotBoundary>
-                ) : (
-                  defaultApprovalCard
-                )}
-              </div>
-            );
-          })}
+                    if (
+                      !isSessionTransitionRef.current &&
+                      rootSessionId &&
+                      routeIdentity.sessionId === rootSessionId &&
+                      resolvedChatId
+                    ) {
+                      console.log(
+                        "[Chat] Calling stopChat with:",
+                        resolvedChatId,
+                      );
+                      chatApi
+                        .stopChat(resolvedChatId)
+                        .then(() => {
+                          console.log("[Chat] stopChat succeeded");
+                          setApprovals((prev) =>
+                            prev.filter(
+                              (item) => item.root_session_id !== rootSessionId,
+                            ),
+                          );
+                        })
+                        .catch((err) => {
+                          console.error("[Chat] stopChat failed:", err);
+                        });
+                    } else {
+                      console.warn(
+                        "[Chat] Ignoring stale approval cancel target",
+                      );
+                    }
+                  }}
+                />
+              );
+              return CustomApprovalCard ? (
+                <PluginSlotBoundary
+                  slot={`approval:${request.sourceType}`}
+                  pluginId={renderer.pluginId}
+                  fallback={defaultApprovalCard}
+                >
+                  <CustomApprovalCard
+                    approval={request}
+                    onResolved={() => dismissApproval(request.requestId)}
+                  />
+                </PluginSlotBoundary>
+              ) : (
+                defaultApprovalCard
+              );
+            }}
+          />
 
           <Modal
             open={usesQwenPawBackend && showModelPrompt}
@@ -4802,7 +4807,7 @@ export default function ChatPage() {
         </div>
         {/* End of main chat area */}
         <AnimatePresence initial={false} mode="popLayout">
-          {filesDrawerState.kind !== "closed" ? (
+          {!isSessionTransition && filesDrawerState.kind !== "closed" ? (
             <FilesDrawer
               key="session-files-drawer"
               state={filesDrawerState}

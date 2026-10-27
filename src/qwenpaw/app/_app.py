@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
 import asyncio
-import hmac
 import inspect
 import mimetypes
 import os
@@ -12,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -56,8 +55,10 @@ from .migration import (
     migrate_legacy_skills_to_skill_pool,
     migrate_legacy_workspace_to_default_agent,
 )
+from .routers.runtime import router as runtime_router
 from .routers import create_agent_scoped_router
 from .routers import router as api_router
+from .routers.advisor_mode import router as advisor_mode_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
@@ -97,6 +98,42 @@ async def _sync_scroll_history_on_startup() -> None:
         await run_sync_io(sync_all_scroll_agents)
     except Exception:  # noqa: BLE001 - session sync must never block startup
         logger.warning("session-sync: import/launch failed", exc_info=True)
+
+
+async def _shutdown_plugins(app: FastAPI) -> None:
+    """Tear down plugin runtime resources before other services stop."""
+    plugin_loader = getattr(app.state, "plugin_loader", None)
+    if plugin_loader is not None:
+        logger.info("Executing plugin shutdown (mode=shutdown)...")
+        from ..plugins.lifecycle import UnloadMode
+
+        await plugin_loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+        return
+    plugin_registry = getattr(app.state, "plugin_registry", None)
+    if plugin_registry is None:
+        return
+    logger.info("Executing plugin shutdown hooks...")
+    for hook in plugin_registry.get_shutdown_hooks():
+        try:
+            logger.info(
+                f"Executing shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}' (priority"
+                f"={hook.priority})",
+            )
+            result = hook.callback()
+            if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                await result
+            logger.info(
+                f"✓ Completed shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}'",
+            )
+        except Exception as exc:
+            logger.error(
+                f"✗ Failed to execute shutdown hook "
+                f"'{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}': {exc}",
+                exc_info=True,
+            )
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
@@ -154,32 +191,7 @@ async def _stop_workspaces_after_dependents_impl(
         # released its workspace. The process watchdog is the cutoff.
         imports_quiesced = await import_jobs.drain()
 
-    plugin_registry = getattr(app.state, "plugin_registry", None)
-    if plugin_registry is not None:
-        logger.info("Executing plugin shutdown hooks...")
-        for hook in plugin_registry.get_shutdown_hooks():
-            try:
-                logger.info(
-                    f"Executing shutdown hook '{hook.hook_name}' "
-                    f"from plugin '{hook.plugin_id}' (priority"
-                    f"={hook.priority})",
-                )
-                result = hook.callback()
-                if inspect.iscoroutine(result) or inspect.isawaitable(result):
-                    await result
-                logger.info(
-                    f"✓ Completed shutdown hook '{hook.hook_name}' "
-                    f"from plugin '{hook.plugin_id}'",
-                )
-            except Exception as exc:
-                logger.error(
-                    "✗ Failed to execute shutdown hook '%s' "
-                    "from plugin '%s': %s",
-                    hook.hook_name,
-                    hook.plugin_id,
-                    exc,
-                    exc_info=True,
-                )
+    await _shutdown_plugins(app)
 
     # Hooks may access live workspaces. Stop them before unrelated cleanup
     # delays the memory drain, but only after their dependents have finished.
@@ -521,10 +533,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
-            # Phase 1: load startup-critical plugins before agents start
+            # Phase 1: register only; projection waits for activate_all
             await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
                 types=["channel", "memory", "hub"],
+                activate=False,
             )
             logger.debug("Phase 1: channel, memory and Hub plugins loaded")
             app.state.market_ready.set()
@@ -532,6 +545,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
                 core_elapsed = time.time() - startup_start_time
+                logger.info(f"Core agents ready in {core_elapsed:.3f}s")
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
@@ -565,6 +579,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # loaded — load_plugin skips them automatically)
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
+                activate=False,
             )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
 
@@ -576,84 +591,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 workspace_registry,
             )
 
-            for (
-                provider_id,
-                provider_reg,
-            ) in plugin_loader.registry.get_all_providers().items():
-                await provider_manager.register_plugin_provider_async(
-                    provider_id=provider_id,
-                    provider_class=provider_reg.provider_class,
-                    label=provider_reg.label,
-                    base_url=provider_reg.base_url,
-                    metadata=provider_reg.metadata,
-                )
-                logger.debug(
-                    f"Registered plugin provider: {provider_id}",
-                )
-
             app.state.plugin_loader = plugin_loader
             app.state.plugin_registry = plugin_loader.registry
 
-            # ---- Plugin Control Commands ----
-            logger.debug("Registering plugin control commands...")
-            from qwenpaw.runtime.commands.control import register_command
-
-            from ..app.channels.command_registry import CommandRegistry
-
-            command_registry = CommandRegistry()
-
-            control_commands = plugin_loader.registry.get_control_commands()
-            for cmd_reg in control_commands:
-                try:
-                    register_command(cmd_reg.handler)
-
-                    command_registry.register_command(
-                        f"/{cmd_reg.handler.command_name}",
-                        priority_level=cmd_reg.priority_level,
-                    )
-
-                    logger.debug(
-                        f"Registered plugin control command: "
-                        f"/{cmd_reg.handler.command_name} "
-                        f"from plugin '{cmd_reg.plugin_id}' (priority"
-                        f"={cmd_reg.priority_level})",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to register control command "
-                        f"'{cmd_reg.handler.command_name}' "
-                        f"from plugin '{cmd_reg.plugin_id}': {e}",
-                        exc_info=True,
-                    )
-
-            # ---- Startup Hooks ----
-            logger.debug("Executing plugin startup hooks...")
-            startup_hooks = plugin_loader.registry.get_startup_hooks()
-            for hook in startup_hooks:
-                try:
-                    logger.debug(
-                        f"Executing startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' "
-                        f"(priority={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(
-                        result,
-                    ) or inspect.isawaitable(result):
-                        await result
-
-                    logger.debug(
-                        f"Completed startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute startup hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
+            logger.debug("Activating loaded plugins...")
+            await plugin_loader.activate_all_loaded()
 
             # ---- Approval Service ----
             try:
@@ -931,39 +873,7 @@ def get_doctor_runtime():
     }
 
 
-@app.post("/api/desktop/shutdown")
-async def post_desktop_shutdown(
-    x_qwenpaw_desktop_shutdown_token: str | None = Header(default=None),
-):
-    """Gracefully stop the desktop sidecar before the Tauri app exits.
-
-    The Tauri shell calls this on quit so uvicorn performs a normal shutdown
-    (running the lifespan ``finally`` block that flushes memory/index) instead
-    of being force-killed. Only available when running as the desktop sidecar.
-    """
-    from ..tauri.env import DESKTOP_APP_ENV, DESKTOP_SHUTDOWN_TOKEN_ENV
-
-    expected_token = os.environ.get(DESKTOP_SHUTDOWN_TOKEN_ENV)
-    if (
-        os.environ.get(DESKTOP_APP_ENV) != "1"
-        or not expected_token
-        or x_qwenpaw_desktop_shutdown_token is None
-        or not hmac.compare_digest(
-            x_qwenpaw_desktop_shutdown_token,
-            expected_token,
-        )
-    ):
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    server = getattr(app.state, "uvicorn_server", None)
-    if server is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Desktop backend is not ready",
-        )
-
-    server.should_exit = True
-    return {"ok": True}
+app.include_router(runtime_router)
 
 
 app.include_router(api_router, prefix="/api")
@@ -997,6 +907,9 @@ app.include_router(approval_router, prefix="/api")
 
 # Coding Mode router: /api/coding-mode
 app.include_router(coding_mode_router, prefix="/api")
+
+# Advisor Mode router: /api/advisor-mode
+app.include_router(advisor_mode_router, prefix="/api")
 
 # Loops router: /api/loops
 app.include_router(loops_router, prefix="/api")

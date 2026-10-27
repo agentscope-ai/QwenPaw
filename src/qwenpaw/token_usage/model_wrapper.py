@@ -10,6 +10,7 @@ from agentscope.model._model_usage import ChatUsage
 
 from ..utils.model_response import safe_attr
 from .buffer import _UsageEvent
+from .counter import record_session_tokens
 from .manager import _usage_agent_id, get_token_usage_manager
 
 # AgentScope does not expose provider cache semantics through a public
@@ -197,6 +198,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
 
         session_id = get_current_session_id()
         if session_id and usage:
+            record_session_tokens(session_id, int(usage[f"total_tokens"]))
             previous = TokenRecordingModelWrapper._usage_by_session.get(
                 session_id,
             )

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from functools import partial
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
@@ -172,7 +173,18 @@ class AgentBuilder:
 
         # Final pass: cover workspace + extras + memory in one filter.
         tools = self.apply_subagent_tool_whitelist(tools, request_context)
+        coding = agent_config.coding_mode.enabled
         tools.sort(key=self._tool_name)
+        make_toolkit = partial(Toolkit, tools=tools)
+        if coding:
+            from ..modes.coding.code_mode import build_code_mode_toolkit
+
+            make_toolkit = partial(
+                build_code_mode_toolkit,
+                tools=tools,
+                governor=governor,
+                request_context=request_context,
+            )
 
         skills = await run_sync_io(
             self._load_runtime_skills,
@@ -181,7 +193,7 @@ class AgentBuilder:
             tools,
         )
         if ctx is None:
-            return Toolkit(tools=tools, skills_or_loaders=skills)
+            return make_toolkit(skills_or_loaders=skills)
 
         from ..agents.skill_system import (
             get_workspace_skills_dir,
@@ -216,7 +228,7 @@ class AgentBuilder:
             if skill.name not in preloaded_skills
         ]
         ctx.extras["preloaded_skills"] = list(preloaded_skills.values())
-        return Toolkit(tools=tools, skills_or_loaders=viewer_skills)
+        return make_toolkit(skills_or_loaders=viewer_skills)
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
@@ -347,6 +359,9 @@ class AgentBuilder:
             agent_config,
             request_context,
         )
+        if request_context.get(f"coding_mode") is True:
+            agent_config = agent_config.model_copy(deep=True)
+            agent_config.coding_mode.enabled = True
         agent_config = await apply_session_thinking(ctx, agent_config)
         ctx.agent_config = agent_config
 
@@ -424,20 +439,11 @@ class AgentBuilder:
             local_ws.set_governor(governor)
 
         # Toolkit.
-        extra_tools = self._collect_coding_mode_tools(
+        extra_tools = self._collect_context_recall_tools(
             agent_config,
-            workspace_dir,
             agent_id,
             request_context,
             governor,
-        )
-        extra_tools.extend(
-            self._collect_context_recall_tools(
-                agent_config,
-                agent_id,
-                request_context,
-                governor,
-            ),
         )
         (
             driver_tools,
@@ -566,6 +572,15 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+
+        if agent_config.coding_mode.enabled:
+            code_tool = await toolkit.get_tool("run_code")
+            code_tool.check_permission = (
+                agent._check_permission  # pylint: disable=protected-access
+            )
+            code_tool.acting = (
+                agent._acting  # pylint: disable=protected-access
+            )
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
@@ -929,24 +944,6 @@ class AgentBuilder:
             default_shell=_default_shell,
             project_dir=_project_dir,
             active_model_name=_model_name,
-        )
-
-    @staticmethod
-    def _collect_coding_mode_tools(
-        agent_config: Any,
-        workspace_dir: Any,
-        agent_id: str,
-        request_context: dict[str, Any],
-        governor: Any = None,
-    ) -> list[Any]:
-        from ..modes.coding import collect_coding_tools
-
-        return collect_coding_tools(
-            agent_config,
-            workspace_dir,
-            agent_id=agent_id,
-            request_context=request_context,
-            governor=governor,
         )
 
     @staticmethod
@@ -1339,7 +1336,9 @@ class AgentBuilder:
         1. ToolResultPruningMiddleware — tiered tool result pruning
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
-        4. VisualCompressionMiddleware — innermost pre-provider transform
+        4. VisualCompressionMiddleware — pre-provider transform
+        5. Mode-contributed middlewares — e.g. AdvisorMiddleware from
+           Advisor Mode (innermost)
         """
         mws: list[Any] = []
 
@@ -1419,12 +1418,18 @@ class AgentBuilder:
             try:
                 mw = reg.factory(ctx, agent_config)
                 if mw is not None:
-                    mws.append(mw)
-            except Exception:
+                    mws.append(_wrap_plugin_middleware(mw, reg.plugin_id))
+            except Exception as exc:
                 _logger.warning(
                     "plugin %s middleware factory failed",
                     reg.plugin_id,
                     exc_info=True,
+                )
+                from qwenpaw.plugins.lifecycle import note_plugin_diagnostic
+
+                note_plugin_diagnostic(
+                    reg.plugin_id,
+                    f"middleware factory: {exc}",
                 )
 
         # Visual compression is a request-boundary middleware. It reads the
@@ -1438,7 +1443,79 @@ class AgentBuilder:
         )
         mws.append(VisualCompressionMiddleware(visual_config))
 
+        # Mode-contributed middlewares (innermost).
+        mws.extend(AgentBuilder._collect_mode_middlewares(ctx, agent_config))
+
         return mws
+
+    @staticmethod
+    def _collect_mode_middlewares(
+        ctx: Any,
+        agent_config: Any,
+    ) -> list[Any]:
+        """Return the middlewares of every mode active for ``ctx``."""
+        plugins = getattr(getattr(ctx, "workspace", None), "plugins", None)
+        collected: list[Any] = []
+        for mode in getattr(plugins, "modes", None) or []:
+            name = getattr(mode, "name", "?")
+            try:
+                if not mode.is_active(ctx):
+                    continue
+                collected.extend(mode.middlewares(ctx, agent_config) or [])
+            except Exception:
+                _logger.warning(
+                    "mode '%s' middleware build failed",
+                    name,
+                    exc_info=True,
+                )
+        return collected
+
+
+def _wrap_plugin_middleware(mw: Any, plugin_id: str) -> Any:
+    """Keep plugin middleware faults in the plugin, not the request loop."""
+
+    from agentscope.middleware import MiddlewareBase
+    from .plugin_middleware import PluginMiddlewareGuard
+
+    if isinstance(mw, MiddlewareBase):
+        return PluginMiddlewareGuard(mw, plugin_id)
+
+    if callable(mw) and not hasattr(mw, "wrap"):
+
+        def _guarded(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return mw(*args, **kwargs)
+            except Exception:
+                _logger.exception(
+                    "Plugin '%s' middleware failed; skipping",
+                    plugin_id,
+                )
+                if args:
+                    return args[0]
+                return None
+
+        return _guarded
+
+    original_wrap = getattr(mw, "wrap", None)
+    if callable(original_wrap):
+
+        def _guarded_wrap(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return original_wrap(*args, **kwargs)
+            except Exception:
+                _logger.exception(
+                    "Plugin '%s' middleware wrap failed; skipping",
+                    plugin_id,
+                )
+                if args:
+                    return args[0]
+                return None
+
+        try:
+            object.__setattr__(mw, "wrap", _guarded_wrap)
+        except Exception:
+            setattr(mw, "wrap", _guarded_wrap)
+    return mw
 
 
 __all__ = ["AgentBuilder"]

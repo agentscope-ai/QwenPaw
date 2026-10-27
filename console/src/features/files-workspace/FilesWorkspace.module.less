@@ -220,6 +220,14 @@
   background: var(--files-bg);
 }
 
+.navigatorPane {
+  display: contents;
+}
+
+.mobilePaneSwitch {
+  display: none;
+}
+
 .activityRail {
   width: 46px;
   padding: 8px 6px;
@@ -892,6 +900,13 @@
   flex: 1;
   min-width: 360px;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  > :last-child {
+    min-height: 0;
+    flex: 1;
+  }
 }
 
 .sourcePanel {
@@ -904,7 +919,7 @@
 
   > header {
     height: auto;
-    min-height: max(42px, calc(42px * var(--app-font-scale)));
+    min-height: max(44px, calc(44px * var(--app-font-scale)));
     padding: 0 12px;
     display: flex;
     align-items: center;
@@ -958,7 +973,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .drawer,
   .drawerPreview,
   .drawerWorkspace,
@@ -976,32 +991,102 @@
   }
 
   .drawerTitle + .secondaryButton {
-    width: 34px;
+    width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
     padding: 0;
     font-size: 0;
   }
 
-  .navigator {
-    width: 42%;
-    min-width: 156px;
+  .navigatorPane {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
   }
 
-  .workspaceEmpty {
+  .navigatorPane {
     .navigator {
       width: 100%;
       min-width: 0;
+      flex: 1;
     }
+  }
 
+  .workspace[data-mobile-pane="document"] {
+    .navigatorPane,
+    .sourcePanel {
+      display: none;
+    }
+  }
+
+  .workspace[data-mobile-pane="navigator"],
+  .workspace[data-mobile-pane="source"] {
     .documentSurface {
       display: none;
     }
   }
 
+  .sourcePanel {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .mobilePaneSwitch {
+    width: 100%;
+    min-height: max(44px, calc(44px * var(--app-font-scale)));
+    padding: 0 12px;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    color: var(--files-muted);
+    border: 0;
+    border-bottom: 1px solid var(--files-line);
+    background: var(--files-bg);
+    font-size: var(--app-font-caption);
+    font-weight: 650;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--files-accent);
+      background: var(--files-accent-soft);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--files-accent);
+      outline-offset: -3px;
+    }
+  }
+
   .activityRail {
-    width: 42px;
+    box-sizing: border-box;
+    width: 57px;
+
+    button {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  .iconButton,
+  .sourceTabs button,
+  .treeRow {
+    min-height: var(--app-hit-touch);
+  }
+
+  .sourceTabs button {
+    min-width: var(--app-hit-touch);
+  }
+
+  .iconButton {
+    width: var(--app-hit-touch);
   }
 
   .documentSurface {
+    width: 100%;
     min-width: 0;
   }
 

@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "Skip to content"
+  },
   "terminal": {
     "authRequired": "To use the terminal, set QWENPAW_AUTH_ENABLED=true, restart the service, and sign in.",
     "dependencyMissing": "Terminal unavailable: install pywinpty in the backend Python environment and restart the service.",
@@ -30,6 +33,7 @@
     "download": "Download",
     "refresh": "Refresh",
     "retry": "Retry",
+    "switchError": "Could not switch modes. Please try again.",
     "search": "Search",
     "enable": "Enable",
     "disable": "Disable",
@@ -40,6 +44,7 @@
     "view": "View",
     "content": "Content",
     "loading": "Loading...",
+    "loadMore": "Load more",
     "saving": "Saving...",
     "copy": "Copy",
     "copied": "Copied to clipboard",
@@ -67,15 +72,36 @@
     "increase": "Increase"
   },
   "desktop": {
+    "update": {
+      "title": "Update QwenPaw?",
+      "otherWindows": "{{count}} other windows are open.",
+      "otherWindows_one": "{{count}} other window is open.",
+      "otherWindows_other": "{{count}} other windows are open.",
+      "description": "Updating will close all QwenPaw windows and interrupt running tasks.",
+      "confirm": "Close and update",
+      "preparing": "Closing windows…"
+    },
     "closeWindow": {
-      "title": "Close Window",
-      "description": "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
+      "title": "Close QwenPaw?",
+      "description": "Keep running in the background to continue your tasks. Quitting completely ends running tasks.",
       "remember": "Remember my choice",
       "showWindow": "Show Window",
       "minimizeToTray": "Minimize to Tray",
       "quitApp": "Quit App",
+      "keepRunning": "Run in background",
+      "quitting": "Quitting…",
+      "stopService": "Quit completely",
+      "stopBlocked": "QwenPaw is still in use in other windows or apps. Close them before quitting completely.",
       "preference": "Close Window",
       "askEveryTime": "Ask every time"
+    },
+    "host": {
+      "connecting": "Getting ready…",
+      "failed": "Something went wrong. Please try again.",
+      "details": "View details",
+      "retry": "Try again",
+      "theme": "Switch appearance",
+      "controls": "Desktop controls"
     }
   },
   "chunkError": {
@@ -587,6 +613,7 @@
     "createSuccess": "Harvest created successfully",
     "emptyApprovals": "No pending approvals",
     "emptyPush": "No push messages",
+    "loadFailed": "Unable to load push messages. Try again.",
     "wobbleEnable": "Enable approval wobble notification",
     "wobbleDisable": "Disable approval wobble notification",
     "emptyHarvests": "No harvests yet",
@@ -680,6 +707,7 @@
   "acp": {
     "title": "ACP integrations",
     "loading": "Loading ACP configuration...",
+    "loadError": "Failed to load ACP configuration.",
     "builtin": "Presets",
     "custom": "Custom",
     "create": "Add ACP integration",
@@ -750,6 +778,7 @@
   "voiceTranscription": {
     "title": "Voice Transcription",
     "description": "Configure how incoming audio and voice messages are handled.",
+    "loadFailed": "Failed to load voice transcription settings",
     "saveSuccess": "Audio mode saved",
     "saveFailed": "Failed to save audio mode",
     "audioModeLabel": "Audio Mode",
@@ -1963,6 +1992,7 @@
     "title": "Channels",
     "description": "Manage and configure message channels",
     "loading": "Loading channels...",
+    "loadFailed": "Failed to load channels. Try again.",
     "configSaved": "Configuration saved successfully",
     "configFailed": "Failed to save configuration",
     "botConflictTitle": "Bot already in use",
@@ -2252,6 +2282,8 @@
     "title": "Sessions",
     "description": "View and manage active chat sessions",
     "loading": "Loading sessions...",
+    "selectSession": "Select {{name}}",
+    "loadFailed": "Failed to load sessions. Try again.",
     "confirmDelete": "Confirm Delete",
     "deleteConfirm": "Are you sure you want to delete this session?",
     "batchDeleteConfirm": "Are you sure you want to delete selected {{count}} sessions?",
@@ -2562,9 +2594,8 @@
     "defaultModels": "Default models",
     "defaultChatModel": "Chat model",
     "defaultDecisionModel": "Decision model",
-    "defaultLlm": "Default LLM",
+    "defaultLlm": "Global default model",
     "notConfiguredYet": "Not configured",
-    "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "Base URL",
     "getApiKey": "Get API Key",
@@ -2684,9 +2715,26 @@
     "paidGroup": "Paid",
     "localCustomGroup": "Local & Custom",
     "cloudGroup": "Cloud Providers",
+    "providerVariants": {
+      "dashscope": "DashScope",
+      "chat_completions": "Chat Completions",
+      "responses": "Responses API",
+      "open_platform": "Open Platform",
+      "open_platform_cn": "Open Platform (China)",
+      "open_platform_intl": "Open Platform (International)",
+      "coding_plan": "Coding Plan",
+      "coding_plan_cn": "Coding (China)",
+      "coding_plan_intl": "Coding (International)",
+      "token_plan": "Token Plan",
+      "token_plan_intl": "Token (International)",
+      "china": "China",
+      "international": "International",
+      "chatgpt": "ChatGPT Subscription"
+    },
     "configuredGroup": "Configured",
     "configuredOnline": "providers online",
     "noConfigured": "No providers configured yet. Select one below to get started.",
+    "noSearchResults": "No providers match \"{{query}}\". Try another search.",
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
@@ -2986,9 +3034,40 @@
     },
     "includesFreeModels": "Includes free models",
     "agentDefaults": "Agent defaults",
+    "primaryModel": "Primary model",
+    "agentRuntimeHint": "Configure the primary, sub-agent, and backup models for this agent. Changes save automatically. Thinking effort applies to all of them and adapts to each model's capabilities.",
+    "agentRuntimeLoadFailed": "Failed to load model data. Please retry.",
     "scope": {
       "global": "Global models",
       "agent": "Current agent"
+    },
+    "apiPricing": {
+      "standard": "Standard · USD per 1M tokens",
+      "prompt": "Input",
+      "completion": "Output",
+      "input_cache_read": "Cached input",
+      "longContext": "Above {{threshold}} input tokens, the full request costs {{inputMultiplier}}× for input/cache reads and {{outputMultiplier}}× for output.",
+      "cacheWrite": "Cache writes: 30 minutes at {{shortMultiplier}}× input, 12 hours at {{longMultiplier}}× input.",
+      "exclusions": "API rates; excludes tools, regional premiums and ChatGPT plan usage.",
+      "checked": "Checked {{date}}"
+    },
+    "chatgpt": {
+      "contextHelp": "Account-reported limit: {{maximum}} tokens; default session budget: {{default}} tokens.",
+      "localHelp": "Due to OpenAI access policies and the local OAuth callback requirement, one-click sign-in is available only when QwenPaw and your browser run on the same computer.",
+      "account": "ChatGPT account",
+      "connected": "ChatGPT subscription connected",
+      "disconnected": "Not connected",
+      "permissionMissing": "Plan usage not authorized",
+      "failed": "Sign-in was not completed. Please try again.",
+      "usage": "Manage usage",
+      "reconnect": "Sign in again",
+      "changeAccount": "Switch account",
+      "accountActions": "ChatGPT account actions",
+      "connectedShort": "Connected",
+      "signOut": "Sign out",
+      "revokeWarning": "Signed out locally. Remote revocation was not confirmed; disconnect QwenPaw in ChatGPT Settings.",
+      "modelHelp": "Models come from this ChatGPT account. Usage counts against your plan or credits. Sampling and output-token settings are not supported by this access route.",
+      "oauthDescription": "A browser window will open to authorize use of your ChatGPT plan. Return to QwenPaw when you are done."
     }
   },
   "files": {
@@ -3140,9 +3219,6 @@
     "changeProjectDirectory": "Manage",
     "manageDefaultFolders": "Default workspace",
     "projectDirectoryWorkspaceFallback": "Using the Agent configuration directory",
-    "enhancedCodeCapability": "Enhanced code capability",
-    "enhancedCodeCapabilityTooltip": "Adds code-oriented tools without changing the project directory.",
-    "enhancedCodeCapabilityDescription": "Enable AST, LSP, code prompts, Git context and source control.",
     "description": "Configure agent runtime parameters",
     "reactAgentTitle": "ReAct Agent",
     "llmRetryTitle": "LLM Auto Retry",
@@ -3209,6 +3285,8 @@
       "defaultTab": "Standard",
       "goalTab": "Goal",
       "missionTab": "Mission",
+      "advisorTab": "Advisor",
+      "advisorPipeline": "Advisor pipeline",
       "defaultDescription": "The standard guarded ReAct loop used outside an explicit mode.",
       "goalDescription": "A bounded persistent loop for concrete, verifiable goals.",
       "missionDescription": "A persistent pipeline for longer-running, multi-step missions.",
@@ -3223,7 +3301,7 @@
       "goalTurnDescription": "Limit turns within one active goal.",
       "maxGoalTurns": "Maximum goal turns",
       "goalBudgetTitle": "Goal token budget",
-      "goalBudgetDescription": "Stop when the complete goal reaches its budget.",
+      "goalBudgetDescription": "Stop when the goal reaches its budget. -1 or 0 means unlimited.",
       "maxGoalTokens": "Maximum goal tokens",
       "goalCompletionTitle": "Goal completion check",
       "goalCompletionDescription": "Read the explicit goal status before stopping.",
@@ -3329,7 +3407,40 @@
       "safeTemplate": "Safe run",
       "researchTemplate": "Budgeted research",
       "qualityTemplate": "Quality first",
-      "blankTemplate": "Blank pipeline"
+      "blankTemplate": "Blank pipeline",
+      "advisor": "Advisor Mode",
+      "advisorDescription": "The primary model writes a plan before the agent starts and steps in when it keeps failing. The agent itself runs on the sub-agent model.",
+      "advisorEnableDescription": "Make Advisor Mode available for this agent (experimental).",
+      "advisorModels": "Advisor: {{advisor}} · Worker: {{worker}}",
+      "advisorEnableHelp": "Conversations still start in the default loop. With this on, Advisor appears in the Loop mode menu of the chat input and the /advisor command is available. Each conversation opts in by picking it. In channels and cron prompts, send /advisor on.",
+      "advisorModelsTitle": "Advisor and worker models",
+      "advisorModelsHelp": "By default the advisor uses the agent's primary model and the worker (the agent itself) runs on the sub-agent model. Both are set in the chat model selector, the sub-agent model under Agent model routing. To pin either role to another model, open the Advisor models panel from the Loop mode menu or the model pill next to it.",
+      "advisorSameAsAdvisor": "same as the advisor",
+      "advisorThinking": "Advisor thinking",
+      "advisorThinkingTooltip": "Thinking level for the advisor's own calls. Off keeps the plan fast. Model default follows the agent and model settings.",
+      "advisorPlanTitle": "Opening plan",
+      "advisorPlanDescription": "The advisor writes a plan before the agent's first step.",
+      "advisorPlanHelp": "The plan is injected into the agent's context as a consult_advisor call and result, and shown in the chat while it is being written.",
+      "advisorFollowupTitle": "Mid-run auto intervention",
+      "advisorFollowupDescription": "QwenPaw watches tool results and calls the advisor when the agent keeps failing.",
+      "advisorFollowupHelp": "Fires after several failures in a row, or several within the recent window (thresholds below), at most a set number of times per run. Counters reset after each intervention. The advisor answers CONTINUE, or ADJUST with a revised plan.",
+      "advisorOnDemandTitle": "On-demand consultation",
+      "advisorOnDemandDescription": "The agent may ask the advisor itself through the consult_advisor tool.",
+      "advisorOnDemandHelp": "The tool tells the agent to ask only at a real decision point. Past the cap below, it answers with a short notice and the agent carries on.",
+      "advisorMaxConsults": "Maximum consultations per conversation",
+      "advisorMaxConsultsTooltip": "Counts only the agent's own consult_advisor calls. The opening plan and automatic interventions are not counted.",
+      "advisorIntervention": {
+        "consecutive_failures": "Failures in a row",
+        "consecutive_failuresTooltip": "Failed tool calls in a row before the advisor is consulted.",
+        "window_failures": "Failures in the window",
+        "window_failuresTooltip": "Failed tool calls within the window before the advisor is consulted.",
+        "window_size": "Window size (steps)",
+        "window_sizeTooltip": "How many recent tool calls the failure window spans.",
+        "max_interventions": "Maximum interventions per run",
+        "max_interventionsTooltip": "Automatic interventions allowed in one run. 0 disables them.",
+        "cooldown_steps": "Cooldown (steps)",
+        "cooldown_stepsTooltip": "Tool calls to wait after an intervention before the next one can fire."
+      }
     },
     "doomLoopEnabled": "Repetition Protection",
     "doomLoopEnabledTooltip": "Automatically intervene when the agent gets stuck repeating the same actions",
@@ -3531,8 +3642,8 @@
     "embeddingBackendTooltip": "SDK type used to call the embedding model",
     "embeddingBackendPlaceholder": "Select an SDK type",
     "embeddingApiKey": "API Key",
-    "embeddingApiKeyTooltip": "API key for the embedding provider; leave blank if no authentication is required",
-    "embeddingApiKeyPlaceholder": "Leave blank if not required",
+    "embeddingApiKeyTooltip": "All current embedding backends except Ollama require an API key to enable vector search. Leaving it blank keeps BM25 keyword search only. For a compatible service without authentication, use the placeholder value required by that service.",
+    "embeddingApiKeyPlaceholder": "Enter an API key to enable vector search",
     "embeddingBaseUrl": "Base URL",
     "embeddingBaseUrlTooltip": "Base URL of the embedding API. For OpenAI-compatible backends, this custom endpoint is optional; API Key and Model Name are required.",
     "embeddingBaseUrlPlaceholder": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -3585,7 +3696,7 @@
     "embeddingCapabilityDisabled": "Disabled",
     "embeddingIndexTitle": "Index & Cache",
     "embeddingIndexDescription": "Control ReMe vector storage and batching behavior",
-    "memoryPageDescription": "Let the agent extract, organize, and recall useful information from past conversations. Everyday settings apply immediately; semantic search is optional.",
+    "memoryPageDescription": "Let the agent extract, organize, and recall useful information from past conversations. Settings apply after autosave; vector search is optional.",
     "memoryPoweredBy": "Powered by",
     "memoryDocumentation": "Documentation",
     "memoryOverviewTitle": "Long-term memory hub",
@@ -3615,7 +3726,7 @@
     },
     "memoryQueueSummary": "{{running}} running · {{pending}} waiting",
     "memoryQueueIdleSummary": "Idle · no pending jobs",
-    "memoryAutoRecordDisabledHint": "Automatic conversation memory is off",
+    "memoryAutoRecordDisabledHint": "Periodic auto-memory is off",
     "memoryAutoMemoryEnabledSummary": "Auto-memory enabled · runs every {{interval}} turns",
     "memoryRuntimeActivityDescription": "Auto-memory jobs from automatic and manual actions run sequentially without blocking the current conversation",
     "memoryLastError": "Most recent error",
@@ -3639,8 +3750,8 @@
     },
     "memoryResourceUsageDescription": "Estimated ReMe components and QwenPaw process memory",
     "memoryDiagnostics": "Resources and diagnostics",
-    "memoryComponentsMetric": "Components",
-    "memoryProcessMetric": "Process",
+    "memoryComponentsMetric": "Component memory",
+    "memoryProcessMetric": "Process memory",
     "memoryDiagnosticsHint": "View component usage and runtime details",
     "remeStatusComponent": {
       "embedding_store": "Embedding store",
@@ -3655,18 +3766,22 @@
     "memoryExternalSourcesDevelopingLabel": "More coming",
     "memoryExternalSourcesTitle": "External knowledge journals",
     "dailyPaperDocumentation": "View guide",
-    "memoryAutoRecordTitle": "Enable conversation memory",
-    "memoryAutoRecordDescription": "Continuously extract new memories at the chosen interval",
-    "memoryAutoRecordFrequency": "Recording frequency (conversation turns)",
+    "memoryAutoRecordTitle": "Enable periodic auto-memory",
+    "memoryAutoRecordDescription": "Extract long-term memories after replies at the chosen interval of user queries",
+    "memoryAutoRecordFrequency": "Extraction interval (user queries)",
+    "memoryImagesTitle": "Include images in auto-memory",
+    "memoryTagsTitle": "Generate memory tags",
+    "memoryTagsDescription": "Generate entity tags after auto-memory saves a note. Adds model calls. Discover tags with memory_list_tags and optionally filter memory_search by tags.",
+    "memoryImagesDescription": "Remember visual details when the agent's memory model is recognized as supporting image input. Confirm image support in model settings if it is unknown. Chat-specific model choices do not change the memory model.",
     "memoryNotifyTitle": "Inbox notifications",
-    "memoryNotifyDescription": "Notify the inbox only when the conversation journal changes or the job fails",
+    "memoryNotifyDescription": "Notify the inbox only when auto-memory creates or updates notes, or the job fails",
     "dailyPaperNotifyDescription": "Send Daily Paper results to the inbox",
     "autoDreamNotifyDescription": "Notify the inbox only when memory organization changes something or the job fails",
     "memoryOrganizeSectionTitle": "Memory organization",
     "memoryOrganizeSectionDescription": "Periodically summarize, merge, and improve existing long-term memories",
     "memoryOrganizeTitle": "Scheduled organization",
     "memoryScheduledOrganizeTitle": "Enable scheduled organization",
-    "memoryScheduledOrganizeDescription": "Use the Dream job to maintain memory quality in the background",
+    "memoryScheduledOrganizeDescription": "Use Auto-Dream to consolidate daily notes into long-term memory digests on a schedule",
     "memoryRecallTitle": "Memory search tool",
     "memorySearchSectionTitle": "Memory search",
     "memorySearchSectionDescription": "Control on-demand search and automatic memory recall before responses",
@@ -3681,7 +3796,7 @@
     "rerankerExpandDetails": "Expand Reranker Settings",
     "rerankerCollapseDetails": "Collapse Reranker Settings",
     "rerankerTitle": "Reranker Search",
-    "rerankerEnableHint": "When enabled, memory search over-fetches (N × multiplier), reranks candidates via a reranker API, then returns the top-N results. Improves relevance at the cost of an additional API call.",
+    "rerankerEnableHint": "Retrieve N × candidate multiplier results, then call the reranker API to select the top N. This can improve relevance but adds API calls and latency.",
     "rerankerEnabled": "Enable Reranker",
     "rerankerEnabledTooltip": "When enabled, memory search results will be re-ranked using an external reranker API",
     "rerankerBaseUrl": "API Base URL",
@@ -3713,6 +3828,13 @@
       "strictDesc": "Every tool call and external file access requires approval",
       "smart": "Smart Mode",
       "smartDesc": "Low-risk tool calls and external file access run automatically; medium- and high-risk operations require approval",
+      "jev": "Decision Model Mode",
+      "jevDesc": "Apply local safety rules first; the decision model assesses operations outside those rules",
+      "jevRequiresDecision": "Turn on Use decision model first",
+      "decisionModelPrivacy": "Tool name, operation, target and parameter names may be sent to the Decision Model Provider. No conversation or file contents are sent.",
+      "decisionModelConnected": "Decision Model Provider API Key configured",
+      "decisionModelNotConnected": "Decision Model Provider has no API Key. A previously saved decision model key may still work; configure the provider to manage it here.",
+      "decisionModelConfigure": "Configure Decision Model Provider",
       "auto": "Auto Mode",
       "autoDesc": "Only operations matching tool and file approval rules require approval (default)",
       "off": "Off Mode",
@@ -3803,6 +3925,7 @@
     "autoMemoryInterval": "Auto Memory Interval",
     "autoMemoryIntervalTooltip": "Trigger auto memory every N user queries. 0 disables periodic auto memory. 1 means auto memory after every query. Recommended: 2-5; setting 1 requires attention to high token usage.",
     "autoMemoryIntervalPlaceholder": "Enter 0 to disable periodic auto memory",
+    "memoryPositiveIntegerRequired": "Enter a whole number of at least 1",
     "autoMemoryIntervalRequired": "Auto memory interval is required",
     "autoMemoryIntervalMin": "Auto memory interval must be at least 0",
     "contextManagerBackend": "Context Manager Backend",
@@ -3810,7 +3933,27 @@
     "contextStrategy": "Context Strategy",
     "contextStrategyTooltip": "How the agent manages long context. Scroll (recommended) persists evicted turns to a durable history store and recalls them on demand; Native uses in-place compression. Restart QwenPaw for changes to take effect.",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native"
+    "contextStrategyNative": "Native",
+    "decisionCompactLabel": "Decision model compaction",
+    "decisionCompactEnabled": "Enable decision model compaction",
+    "decisionCompactDescription": "Off by default. Reuses the agent decision model, or the global default decision model. Configure it in Model settings. Under automatic context pressure, ReMe shortens low-relevance tool results with recovery references before normal compaction. Works with Scroll and native, independently of long-term memory and the chat decision toggle. Requires automatic context compaction. Decision requests send bounded conversation evidence to the configured provider.",
+    "decisionCompactAdvanced": "Request limits",
+    "decisionCompact_drop_threshold": "Low-relevance threshold",
+    "decisionCompact_drop_thresholdHelp": "Only results at or below this probability may be shortened. Lower values preserve more originals.",
+    "decisionCompact_preserve_recent_messages": "Recent messages to protect",
+    "decisionCompact_preserve_recent_messagesHelp": "Keep this many recent messages verbatim. The complete active turn is always protected.",
+    "decisionCompact_preview_chars": "Preview characters",
+    "decisionCompact_preview_charsHelp": "Maximum original-text preview length, excluding the recovery reference.",
+    "decisionCompact_total_timeout_seconds": "Total timeout (seconds)",
+    "decisionCompact_total_timeout_secondsHelp": "Maximum wait for the decision model compaction pass. Timeout continues normal compaction.",
+    "decisionCompact_max_state_tokens": "Decision state token limit",
+    "decisionCompact_max_state_tokensHelp": "ReMe estimate for bounded conversation state, separate from the chat model token counter.",
+    "decisionCompact_max_request_tokens": "Decision request token limit",
+    "decisionCompact_max_request_tokensHelp": "ReMe estimate for each decision request including its questions.",
+    "decisionCompact_evidence_chars": "Evidence characters per result",
+    "decisionCompact_evidence_charsHelp": "Maximum tool-result excerpt sent for relevance judgment.",
+    "decisionCompact_max_concurrency": "Concurrent decision requests",
+    "decisionCompact_max_concurrencyHelp": "Maximum concurrent requests during one compression pass."
   },
   "tools": {
     "search": "Search tools",
@@ -3884,10 +4027,6 @@
       "glob_search": {
         "name": "Find files",
         "description": "Locate files by name or path pattern."
-      },
-      "ast_search": {
-        "name": "Search code structure",
-        "description": "Find code patterns using syntax-aware search."
       },
       "desktop_screenshot": {
         "name": "Capture desktop",
@@ -4041,7 +4180,9 @@
       "asFile": "Attach as file",
       "characters": "{{count}} characters"
     },
-    "historyLoadFailed": "Could not load this conversation. Please reopen it.",
+    "historyLoadFailed": "Could not load this conversation. Try again.",
+    "routeNotFound": "This conversation is unavailable or has been deleted.",
+    "routeAmbiguous": "This link matches more than one conversation. Open a conversation from the sidebar.",
     "switchSession": "Switch conversation",
     "lastActive": "Last active · {{time}}",
     "fileReference": {
@@ -4067,6 +4208,11 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
+    "composer": {
+      "attach": "Attach files",
+      "send": "Send message",
+      "stop": "Stop generating"
+    },
     "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
       "clear": {
@@ -4431,7 +4577,6 @@
       "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
       "modeBlock": "Block",
       "modeWarn": "Warn Only",
-      "modeOff": "Off",
       "timeout": "Scan Timeout (seconds)",
       "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
       "saveSuccess": "Skill scanner settings saved",
@@ -4893,6 +5038,9 @@
         "memberDefaultsHint": "New conversations start with this model. Members can switch to other authorized models.",
         "settingsSaved": "Model settings saved",
         "defaultModel": "Default model",
+        "gatewayTimeout": "Gateway timeout (seconds)",
+        "gatewayTimeoutHelp": "Defaults to 600 seconds; minimum 60. Applies to new requests after saving, including streaming responses. Connection timeout stays at 10 seconds.",
+        "gatewayTimeoutInvalid": "Enter a whole number of at least 60 seconds.",
         "chooseDefault": "Choose a model available to all members",
         "saveSettings": "Save model settings",
         "providers": "Providers",
@@ -5183,6 +5331,12 @@
   },
   "approval": {
     "title": "Security Approval Required",
+    "queue": {
+      "title": "Pending approvals",
+      "position": "{{current}} / {{total}}",
+      "previous": "Previous approval",
+      "next": "Next approval"
+    },
     "agent": "Agent",
     "ownerAgent": "Owner Agent",
     "executingAgent": "Executing Agent",
@@ -5209,6 +5363,19 @@
     "details": "Details"
   },
   "pluginManager": {
+    "busyTitle": "Plugin tasks are running",
+    "busy": {
+      "update": {
+        "warning": "Forcing this update will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force update",
+        "cancel": "Not now"
+      },
+      "uninstall": {
+        "warning": "Forcing this uninstall will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force uninstall",
+        "cancel": "Not now"
+      }
+    },
     "title": "Plugin Manager",
     "description": "Install, manage, and remove plugins without restarting the service.",
     "installed": "Installed Plugins",
@@ -5239,6 +5406,7 @@
     "uninstalling": "Uninstalling...",
     "uninstallSuccess": "Plugin uninstalled successfully",
     "uninstallFailed": "Plugin uninstallation failed",
+    "statusError": "Error",
     "statusLoaded": "Running",
     "statusUnloaded": "Not loaded",
     "type": "Type",
@@ -5289,7 +5457,13 @@
     "compatWarningConfirm": "Install anyway"
   },
   "codingMode": {
-    "title": "Coding Mode",
+    "toolPresentationHelp": "When enabled, the agent uses a single code tool. It searches, processes files, and performs other tool operations by writing and running Python code.",
+    "loadFailed": "Could not load Code Mode. Try again.",
+    "updateFailed": "Could not save Code Mode. Try again.",
+    "runCode": "Run Python",
+    "script": "Script",
+    "output": "Output",
+    "title": "Code Mode",
     "experimental": "Experimental Feature",
     "experimentalDesc": "Coding Mode transforms QwenPaw into a lightweight Web IDE with a code editor, file tree, Git integration, and AI-powered coding assistance.",
     "experimentalNote": "This feature is experimental and still under active development. Some functionality may be limited or change in future updates.",
@@ -5625,13 +5799,28 @@
       "mission": {
         "name": "Mission",
         "description": "Run a structured, persistent multi-step task."
+      },
+      "advisor": {
+        "name": "Advisor",
+        "description": "Let a stronger model plan and step in while a cheaper one does the work."
       }
+    },
+    "advisorSetup": {
+      "title": "Advisor models",
+      "hint": "Defaults follow the agent's primary model (advisor) and sub-agent model (worker). A choice here is saved for this agent.",
+      "advisorModel": "Advisor model",
+      "workerModel": "Worker model",
+      "subagentDefault": "{{model}} · default: sub-agent model",
+      "noSubagent": "Same as the advisor · default: no sub-agent model set",
+      "pairTooltip": "Advisor → worker models of this conversation",
+      "primaryModelDefault": "{{model}} · default: primary model"
     }
   },
   "thinkingControl": {
     "default": "Default",
     "resetModel": "Restore default model",
     "title": "Thinking intensity",
+    "modelSettingHint": "Sets this model's default thinking intensity. Default follows model or provider settings; conversation and agent settings can override it. Saved changes apply to subsequent requests.",
     "reset": "Restore defaults",
     "inherit": "Use default",
     "off": "Off",
@@ -5679,7 +5868,7 @@
     "modelSource": {
       "session": "Conversation model",
       "agent": "Agent default",
-      "global": "Default LLM"
+      "global": "Use global model"
     }
   },
   "runtimeDesign": {

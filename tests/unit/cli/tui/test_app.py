@@ -1602,10 +1602,24 @@ async def test_messages_queue_while_busy_and_drain_on_turn_end():
             if not app._busy:
                 break
         # FakeTransport auto-ends each turn, so the second drains too.
-        for _ in range(10):
+        # ``FakeTransport.send`` records into ``transport.sent`` BEFORE it
+        # pushes that turn's events, so polling ``sent`` races the consume
+        # worker: the loop can exit while the second turn's events are still
+        # in flight, and tearing the app down then makes the worker mount
+        # into an already-unmounted screen (NoMatches on '#transcript').
+        # Poll the final observable state instead — the second tool panel is
+        # mounted and the second turn has ended, which the consume worker can
+        # only produce after dispatching that turn's last event. The bound is
+        # generous because a slow event loop needs more pauses to get there.
+        for _ in range(60):
             await pilot.pause()
-            if transport.sent == ["first queued", "second queued"]:
+            if len(app.query(ToolPanel)) == 2 and not app._busy:
                 break
+        else:
+            pytest.fail(
+                "second queued turn never drained; the consume worker would "
+                "still hold events when the app is torn down",
+            )
         assert transport.sent == ["first queued", "second queued"]
         assert app._queued == []
         assert len(list(app.query(QueuedMessage))) == 0

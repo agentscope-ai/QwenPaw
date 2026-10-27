@@ -108,6 +108,30 @@ class TestGetChannel:
 
 class TestReplaceChannel:
     @pytest.mark.asyncio
+    async def test_pending_boot_start_rejects_replacement(self):
+        old = _make_channel("dingtalk", uses_queue=False)
+        new = _make_channel("dingtalk", uses_queue=False)
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def start():
+            entered.set()
+            await release.wait()
+
+        old.start.side_effect = start
+        manager = _manager(old)
+        await manager.start_all()
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=1)
+            with pytest.raises(RuntimeError, match="still starting"):
+                await manager.replace_channel(new)
+            new.start.assert_not_awaited()
+            assert manager.channels == [old]
+        finally:
+            await manager.stop_all()
+        assert not manager._start_tasks
+        old.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_swap_stops_old_channel(self):
         old = _make_channel("dingtalk")
         new = _make_channel("dingtalk")
@@ -164,18 +188,21 @@ class TestReplaceChannel:
         assert manager.channels == [new]
 
     @pytest.mark.asyncio
-    async def test_enqueue_cb_set_before_start(self):
-        new = _make_channel("dingtalk")
+    @pytest.mark.parametrize("uses_queue", [True, False])
+    async def test_enqueue_callback_follows_queue_mode(self, uses_queue):
+        new = _make_channel("dingtalk", uses_queue=uses_queue)
         manager = _manager()
-        await manager.replace_channel(new)
-        new.set_enqueue.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_no_enqueue_cb_for_non_queue_channel(self):
-        new = _make_channel("console", uses_queue=False)
-        manager = _manager()
+        async def start():
+            if uses_queue:
+                new.set_enqueue.assert_called_once()
+            else:
+                new.set_enqueue.assert_not_called()
+
+        new.start.side_effect = start
         await manager.replace_channel(new)
-        new.set_enqueue.assert_not_called()
+        assert manager.channels == [new]
+        new.start.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

@@ -275,14 +275,32 @@ def _parse_project_json(payload: bytes | str) -> dict[str, Any]:
     return raw
 
 
+def load_project_json_with_source(
+    payload: bytes | str,
+) -> tuple[Project, str, dict[str, Any]]:
+    """Parse a Project, retaining its semantic ETag and source document.
+
+    The third element is the exact parsed on-disk representation that
+    :func:`project_document_etag` hashed. A commit boundary persists it as the
+    transaction ``base.json`` so recovery's
+    ``project_document_etag(base.json) == journal.base_etag`` holds even when a
+    load-time repair changed a *stored* field (e.g. muting an older overlapping
+    narration); the migrated ``model_dump`` would otherwise diverge from the
+    source the ETag was taken over and brick crash recovery.
+    """
+
+    raw = _parse_project_json(payload)
+    project = load_project_document(raw)
+    return project, project_document_etag(raw, project=project), raw
+
+
 def load_project_json_with_etag(
     payload: bytes | str,
 ) -> tuple[Project, str]:
     """Parse a Project and retain the persisted schema's semantic ETag."""
 
-    raw = _parse_project_json(payload)
-    project = load_project_document(raw)
-    return project, project_document_etag(raw, project=project)
+    project, etag, _source = load_project_json_with_source(payload)
+    return project, etag
 
 
 def load_project_json(payload: bytes | str) -> Project:
@@ -303,6 +321,7 @@ __all__ = [
     "load_project_document",
     "load_project_json",
     "load_project_json_with_etag",
+    "load_project_json_with_source",
     "project_document_etag",
     "project_etag",
     "project_file_bytes",

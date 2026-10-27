@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesNavigator from "./FilesNavigator";
-import type { DirectoryEntry, DirectoryPage } from "./types";
+import type { DirectoryEntry, DirectoryPage, FileTarget } from "./types";
 
 const mocks = vi.hoisted(() => ({
   getProjectDirectory: vi.fn(),
@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   listFiles: vi.fn(),
   listMemoryFiles: vi.fn(),
   setSystemPromptFiles: vi.fn(),
+  fileGlyphRender: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -69,6 +70,13 @@ vi.mock("../project-directory/SessionProjectDirectory", () => ({
   default: () => <span>Project</span>,
 }));
 
+vi.mock("./FileGlyph", () => ({
+  default: ({ name }: { name: string }) => {
+    mocks.fileGlyphRender(name);
+    return <span data-file-glyph={name} />;
+  },
+}));
+
 const mdFile = (filename: string) => ({
   filename,
   size: 10,
@@ -76,11 +84,17 @@ const mdFile = (filename: string) => ({
   modified_time: "2026-01-01T00:00:00Z",
 });
 
-function renderNavigator() {
+function renderNavigator({
+  onSelect = vi.fn(),
+  selectedPath = "",
+}: {
+  onSelect?: (target: FileTarget) => void;
+  selectedPath?: string;
+} = {}) {
   return render(
     <FilesNavigator
-      selectedPath=""
-      onSelect={vi.fn()}
+      selectedPath={selectedPath}
+      onSelect={onSelect}
       activeMemoryGraphRoot={null}
       onShowMemoryGraph={vi.fn()}
       onShowFiles={vi.fn()}
@@ -150,6 +164,7 @@ describe("FilesNavigator interactions", () => {
     mocks.listFiles.mockResolvedValue([]);
     mocks.getSystemPromptFiles.mockResolvedValue([]);
     mocks.setSystemPromptFiles.mockImplementation(async (files) => files);
+    mocks.fileGlyphRender.mockClear();
   });
 
   it("shows loading instead of an empty state while the root request is pending", async () => {
@@ -197,7 +212,7 @@ describe("FilesNavigator interactions", () => {
       return page([entry("folder/ready.txt")]);
     });
     renderNavigator();
-    fireEvent.click(await screen.findByRole("button", { name: "folder" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "folder" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("files.listFailed");
     fireEvent.click(
@@ -205,7 +220,7 @@ describe("FilesNavigator interactions", () => {
     );
     await screen.findByText("ready.txt");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "folder" })).toHaveAttribute(
+    expect(screen.getByRole("treeitem", { name: "folder" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -229,12 +244,14 @@ describe("FilesNavigator interactions", () => {
       );
       renderNavigator();
       if (directory)
-        fireEvent.click(await screen.findByRole("button", { name: "folder" }));
+        fireEvent.click(
+          await screen.findByRole("treeitem", { name: "folder" }),
+        );
       await screen.findByText("before.txt");
       fireEvent.click(screen.getByRole("button", { name: "files.loadMore" }));
       await screen.findByRole("alert");
       if (directory) {
-        const folder = screen.getByRole("button", { name: "folder" });
+        const folder = screen.getByRole("treeitem", { name: "folder" });
         fireEvent.click(folder);
         expect(screen.queryByRole("alert")).not.toBeInTheDocument();
         fireEvent.click(folder);
@@ -282,7 +299,9 @@ describe("FilesNavigator interactions", () => {
       );
       renderNavigator();
       if (directory)
-        fireEvent.click(await screen.findByRole("button", { name: "folder" }));
+        fireEvent.click(
+          await screen.findByRole("treeitem", { name: "folder" }),
+        );
       await screen.findByText("old-first.txt");
       fireEvent.click(screen.getByRole("button", { name: "files.loadMore" }));
       await screen.findByText("old-second.txt");
@@ -307,10 +326,9 @@ describe("FilesNavigator interactions", () => {
           .map(([, cursor]) => cursor),
       ).toEqual([undefined, "fresh-cursor", undefined, "fresh-cursor"]);
       if (directory)
-        expect(screen.getByRole("button", { name: "folder" })).toHaveAttribute(
-          "aria-expanded",
-          "true",
-        );
+        expect(
+          screen.getByRole("treeitem", { name: "folder" }),
+        ).toHaveAttribute("aria-expanded", "true");
     },
   );
 
@@ -328,8 +346,8 @@ describe("FilesNavigator interactions", () => {
       ]);
     });
     renderNavigator();
-    fireEvent.click(await screen.findByRole("button", { name: "folder" }));
-    fireEvent.click(await screen.findByRole("button", { name: "nested" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "folder" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "nested" }));
     await screen.findByText("old.txt");
     updated = true;
     refresh();
@@ -338,7 +356,7 @@ describe("FilesNavigator interactions", () => {
     expect(screen.queryByText("before.txt")).not.toBeInTheDocument();
     expect(screen.queryByText("old.txt")).not.toBeInTheDocument();
     for (const name of ["folder", "nested"]) {
-      expect(screen.getByRole("button", { name })).toHaveAttribute(
+      expect(screen.getByRole("treeitem", { name })).toHaveAttribute(
         "aria-expanded",
         "true",
       );
@@ -353,7 +371,7 @@ describe("FilesNavigator interactions", () => {
         : page([entry(updated ? "folder/after.txt" : "folder/before.txt")]),
     );
     renderNavigator();
-    const folder = await screen.findByRole("button", {
+    const folder = await screen.findByRole("treeitem", {
       name: "folder",
     });
     fireEvent.click(folder);
@@ -392,7 +410,7 @@ describe("FilesNavigator interactions", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "files.loadMore" }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "folder" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "folder" }));
     await screen.findByText("first.txt");
     fireEvent.click(screen.getByRole("button", { name: "files.loadMore" }));
     await screen.findByText("before.txt");
@@ -400,7 +418,7 @@ describe("FilesNavigator interactions", () => {
     mocks.listDirectory.mockClear();
     refresh();
     await screen.findByText("after.txt");
-    expect(screen.getByRole("button", { name: "folder" })).toHaveAttribute(
+    expect(screen.getByRole("treeitem", { name: "folder" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -450,7 +468,9 @@ describe("FilesNavigator interactions", () => {
       );
       renderNavigator();
       if (directory)
-        fireEvent.click(await screen.findByRole("button", { name: "folder" }));
+        fireEvent.click(
+          await screen.findByRole("treeitem", { name: "folder" }),
+        );
       await screen.findByText("before.txt");
       fireEvent.click(screen.getByRole("button", { name: "files.loadMore" }));
       updated = true;
@@ -477,19 +497,162 @@ describe("FilesNavigator interactions", () => {
       ]),
     );
     renderNavigator();
-    const folder = await screen.findByRole("button", {
+    const folder = await screen.findByRole("treeitem", {
       name: "folder",
     });
     fireEvent.click(folder);
-    fireEvent.click(await screen.findByRole("button", { name: "nested" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "nested" }));
     await screen.findByText("before.txt");
     fireEvent.click(folder);
     refresh();
     fireEvent.click(folder);
     await screen.findByText("before.txt");
-    expect(screen.getByRole("button", { name: "nested" })).toHaveAttribute(
+    expect(screen.getByRole("treeitem", { name: "nested" })).toHaveAttribute(
       "aria-expanded",
       "true",
+    );
+  });
+
+  it("exposes a roving ARIA tree and supports tree-view keyboard navigation", async () => {
+    const onSelect = vi.fn();
+    mocks.listDirectory.mockImplementation(async (path: string) => {
+      if (!path)
+        return page([entry("folder", "directory"), entry("sibling.txt")]);
+      if (path === "folder")
+        return page([
+          entry("folder/child.txt"),
+          entry("folder/nested", "directory"),
+        ]);
+      return page([entry("folder/nested/deep.txt")]);
+    });
+    renderNavigator({ onSelect, selectedPath: "sibling.txt" });
+
+    const folder = await screen.findByRole("treeitem", { name: "folder" });
+    const sibling = screen.getByRole("treeitem", { name: "sibling.txt" });
+    expect(folder).toHaveAttribute("aria-level", "1");
+    expect(folder).toHaveAttribute("aria-expanded", "false");
+    expect(folder).toHaveAttribute("aria-selected", "false");
+    expect(folder).toHaveAttribute("tabindex", "0");
+    expect(sibling).toHaveAttribute("aria-level", "1");
+    expect(sibling).not.toHaveAttribute("aria-expanded");
+    expect(sibling).toHaveAttribute("aria-selected", "true");
+    expect(sibling).toHaveAttribute("tabindex", "-1");
+
+    act(() => folder.focus());
+    fireEvent.keyDown(folder, { key: "ArrowRight" });
+    const child = await screen.findByRole("treeitem", { name: "child.txt" });
+    const nested = screen.getByRole("treeitem", { name: "nested" });
+    expect(folder).toHaveAttribute("aria-expanded", "true");
+    expect(child).toHaveAttribute("aria-level", "2");
+    expect(folder).toHaveFocus();
+
+    fireEvent.keyDown(folder, { key: "ArrowRight" });
+    expect(child).toHaveFocus();
+    fireEvent.keyDown(child, { key: "ArrowDown" });
+    expect(nested).toHaveFocus();
+    fireEvent.keyDown(nested, { key: "ArrowRight" });
+    const deep = await screen.findByRole("treeitem", { name: "deep.txt" });
+    fireEvent.keyDown(nested, { key: "ArrowRight" });
+    expect(deep).toHaveFocus();
+    fireEvent.keyDown(deep, { key: "ArrowLeft" });
+    expect(nested).toHaveFocus();
+    fireEvent.keyDown(nested, { key: "ArrowLeft" });
+    expect(nested).toHaveAttribute("aria-expanded", "false");
+    expect(nested).toHaveFocus();
+    fireEvent.keyDown(nested, { key: "ArrowLeft" });
+    expect(folder).toHaveFocus();
+
+    fireEvent.keyDown(folder, { key: "End" });
+    expect(sibling).toHaveFocus();
+    fireEvent.keyDown(sibling, { key: "Home" });
+    expect(folder).toHaveFocus();
+    fireEvent.keyDown(folder, { key: "ArrowDown" });
+    expect(child).toHaveFocus();
+    fireEvent.keyDown(child, { key: "ArrowUp" });
+    expect(folder).toHaveFocus();
+
+    fireEvent.keyDown(folder, { key: "Enter" });
+    expect(folder).toHaveAttribute("aria-expanded", "false");
+    act(() => sibling.focus());
+    fireEvent.keyDown(sibling, { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith({
+      source: "workspace",
+      path: "sibling.txt",
+      root: "project",
+    });
+  });
+
+  it("keeps exactly one tree item tabbable for a 72-node fixture", async () => {
+    mocks.listDirectory.mockResolvedValue(
+      page(
+        Array.from({ length: 72 }, (_, index) =>
+          entry(`file-${String(index).padStart(2, "0")}.txt`),
+        ),
+      ),
+    );
+    renderNavigator();
+
+    const items = await screen.findAllByRole("treeitem");
+    expect(items).toHaveLength(72);
+    expect(items.filter((item) => item.tabIndex === 0)).toHaveLength(1);
+    expect(items.filter((item) => item.tabIndex === -1)).toHaveLength(71);
+  });
+
+  it("isolates unchanged workspace leaves across refresh renders", async () => {
+    let modified = false;
+    mocks.listDirectory.mockImplementation(async () =>
+      page([
+        entry("stable.txt"),
+        {
+          ...entry("changed.txt"),
+          modified_at: modified
+            ? "2026-10-10T00:00:00Z"
+            : "2026-10-09T00:00:00Z",
+        },
+      ]),
+    );
+    renderNavigator();
+    await screen.findByRole("treeitem", { name: "stable.txt" });
+    await waitFor(() =>
+      expect(screen.getByRole("tree")).toHaveAttribute("aria-busy", "false"),
+    );
+    mocks.fileGlyphRender.mockClear();
+    modified = true;
+
+    refresh();
+    await waitFor(() => expect(mocks.listDirectory).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByRole("tree")).toHaveAttribute("aria-busy", "false"),
+    );
+
+    expect(mocks.fileGlyphRender.mock.calls).toEqual([["changed.txt"]]);
+  });
+
+  it("restores a tab stop when a focused nested file disappears", async () => {
+    let updated = false;
+    mocks.listDirectory.mockImplementation(async (path: string) =>
+      !path
+        ? page([entry("folder", "directory")])
+        : page([entry(updated ? "folder/after.txt" : "folder/before.txt")]),
+    );
+    renderNavigator();
+
+    const folder = await screen.findByRole("treeitem", { name: "folder" });
+    fireEvent.click(folder);
+    const before = await screen.findByRole("treeitem", {
+      name: "before.txt",
+    });
+    act(() => before.focus());
+    expect(before).toHaveAttribute("tabindex", "0");
+
+    updated = true;
+    refresh();
+    await screen.findByRole("treeitem", { name: "after.txt" });
+    expect(screen.queryByRole("treeitem", { name: "before.txt" })).toBeNull();
+    const items = screen.getAllByRole("treeitem");
+    expect(items.filter((item) => item.tabIndex === 0)).toHaveLength(1);
+    expect(items.filter((item) => item.tabIndex === -1)).toHaveLength(
+      items.length - 1,
     );
   });
 

@@ -1,8 +1,8 @@
 diff --git a/packages/datapaw-host-core/frontend/src/App.tsx b/packages/datapaw-host-core/frontend/src/App.tsx
-index 7a150a4..aceb2c3 100644
+index 66b7f6d..8e182f6 100644
 --- a/packages/datapaw-host-core/frontend/src/App.tsx
 +++ b/packages/datapaw-host-core/frontend/src/App.tsx
-@@ -3,19 +3,18 @@ import { useDataPawColorMode } from '@datapaw/ui-tokens';
+@@ -3,20 +3,19 @@ import { useDataPawColorMode } from '@datapaw/ui-tokens';
  import enUS from 'antd/locale/en_US';
  import zhCN from 'antd/locale/zh_CN';
  import { lazy, Suspense, useLayoutEffect, useMemo, type ReactNode } from 'react';
@@ -18,6 +18,7 @@ index 7a150a4..aceb2c3 100644
 -const McpSettingsPage = lazy(() => import('./pages/McpSettings'));
  const ConsolePage = lazy(() => import('./pages/Console'));
  const CronJobsPage = lazy(() => import('./pages/CronJobs'));
+ const SettlementCenterPage = lazy(() => import('./pages/SettlementCenter'));
  const SessionsPage = lazy(() => import('./pages/Sessions'));
 -const SkillsHubPage = lazy(() => import('./pages/SkillsHub'));
 +const SkillsHubPage = lazy(() => import('./pages/SkillsContribution'));
@@ -25,7 +26,7 @@ index 7a150a4..aceb2c3 100644
  
  function RedirectToConsole() {
    const location = useLocation();
-@@ -81,7 +80,7 @@ function LocalizedApp() {
+@@ -82,7 +81,7 @@ function LocalizedApp() {
        {...themeProviderProps}
        locale={language === 'zh' ? zhCN : enUS}
      >
@@ -34,7 +35,7 @@ index 7a150a4..aceb2c3 100644
          <Suspense fallback={<AppLoadingFallback label={t('common.loading')} />}>
            <Routes>
              <Route path="/console" element={<ConsoleLayout />}>
-@@ -106,18 +105,14 @@ function LocalizedApp() {
+@@ -111,18 +110,14 @@ function LocalizedApp() {
                  element={<InitialLoadingCleanup><AgentSettingsPage /></InitialLoadingCleanup>}
                />
                <Route
@@ -55,6 +56,32 @@ index 7a150a4..aceb2c3 100644
 +      </HashRouter>
      </ConfigProvider>
    );
+ }
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/api/modelConfig.ts b/packages/datapaw-host-core/frontend/src/features/console/api/modelConfig.ts
+index aaaa885..0350bc2 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/api/modelConfig.ts
++++ b/packages/datapaw-host-core/frontend/src/features/console/api/modelConfig.ts
+@@ -5,8 +5,8 @@ import type {
+   RebuildStarted, TestResult,
+ } from "./modelConfigTypes.js";
+ 
+-// Context is served at the origin root, independently of Host's /console API base.
+-const BASE = "/api/system/model-config";
++// Resolve Context requests through the authenticated PawApp gateway.
++const BASE = "/api/qwenpaw-data/context/api/system/model-config";
+ 
+ function jsonOptions(method: "POST" | "PUT", body: unknown, signal?: AbortSignal): RequestInit {
+   return { method, body: JSON.stringify(body), signal };
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/api/modelConfigTypes.ts b/packages/datapaw-host-core/frontend/src/features/console/api/modelConfigTypes.ts
+index 0fcb16f..a508162 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/api/modelConfigTypes.ts
++++ b/packages/datapaw-host-core/frontend/src/features/console/api/modelConfigTypes.ts
+@@ -93,5 +93,6 @@ export interface LLMUpdateResponse {
+ }
+ 
+ export interface EmbeddingUpdateResponse {
++  rebuild_required: boolean;
+   embedding: EmbeddingConfig; // Saved embedding configuration with masked credentials.
  }
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
 index ea5b698..d2d8d69 100644
@@ -101,10 +128,10 @@ index ea5b698..d2d8d69 100644
              }
            },
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
-index e868968..8d760a7 100644
+index 72ae315..0f8cf32 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
-@@ -314,7 +314,7 @@ export default function GlobalProductNav({
+@@ -347,7 +347,7 @@ export default function GlobalProductNav({
            workspaceIcon={<HomeOutlined />}
            usernameAriaLabel={`${t('nav.currentUser')}: ${username}`}
            workspaceAriaLabel={`${t('nav.currentWorkspace')}: ${activeWorkspaceName}`}
@@ -113,7 +140,7 @@ index e868968..8d760a7 100644
              <Dropdown
                getPopupContainer={getAccountCardPopupContainer}
                overlayClassName="datapaw-sider-account-dropdown"
-@@ -326,7 +326,7 @@ export default function GlobalProductNav({
+@@ -359,7 +359,7 @@ export default function GlobalProductNav({
              >
                {trigger}
              </Dropdown>
@@ -123,10 +150,10 @@ index e868968..8d760a7 100644
              <Dropdown
                getPopupContainer={getAccountCardPopupContainer}
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
-index 6b0fa9a..21b1ee2 100644
+index 14bcff8..d81cab2 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
-@@ -13,6 +13,7 @@ import type {
+@@ -20,6 +20,7 @@ import type {
    IAgentScopeRuntimeMessage,
  } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types';
  import {
@@ -134,7 +161,7 @@ index 6b0fa9a..21b1ee2 100644
    AgentScopeRuntimeMessageType,
  } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types';
  import {
-@@ -455,6 +456,17 @@ type RuntimeResponseSection = ChatTimelineSection | {
+@@ -482,6 +483,17 @@ type RuntimeResponseSection = ChatTimelineSection | {
    items: null;
  };
  
@@ -152,31 +179,31 @@ index 6b0fa9a..21b1ee2 100644
  function mergeRuntimeDisplayEntries(
    entries: RuntimeDisplayEntry[],
  ): RuntimeDisplayEntry[] {
-@@ -506,6 +518,7 @@ function RuntimeProcessTimeline({
-   timeline,
+@@ -539,6 +551,7 @@ function RuntimeProcessTimeline({
+   showConfidence,
    terminal,
    chatId,
 +  sessionId,
    initialHistoricalSegmentKeys,
+   lastSessionSegmentKey,
    onArtifactOpen,
-   onArtifactDownload,
-@@ -515,6 +528,7 @@ function RuntimeProcessTimeline({
-   timeline?: ChatTimelineItem[] | null;
+@@ -550,6 +563,7 @@ function RuntimeProcessTimeline({
+   showConfidence: boolean;
    terminal: boolean;
    chatId?: string | null;
 +  sessionId?: string;
    initialHistoricalSegmentKeys: ReadonlySet<string>;
+   lastSessionSegmentKey: string | null;
    onArtifactOpen?: (artifact: Artifact) => void;
-   onArtifactDownload?: (artifact: Artifact) => void;
-@@ -560,6 +574,7 @@ function RuntimeProcessTimeline({
-           return (
-             <RuntimeSegmentCard
-               data={projection.segment}
+@@ -600,6 +614,7 @@ function RuntimeProcessTimeline({
+               events={projection.events}
+               showTerminalEvent={Boolean(chatId && lastSessionSegmentKey ===
+                 segmentInstanceKey(chatId, projection.segment.segment_id))}
 +              sessionId={sessionId}
                defaultOpen={
                  !chatId
                  || !initialHistoricalSegmentKeys.has(
-@@ -587,7 +602,10 @@ function RuntimeProcessTimeline({
+@@ -627,7 +642,10 @@ function RuntimeProcessTimeline({
            return <RuntimeError data={runtimeMessage} key={runtimeMessage.id} />;
          }
          if (runtimeMessage.type === AgentScopeRuntimeMessageType.MESSAGE) {
@@ -188,43 +215,43 @@ index 6b0fa9a..21b1ee2 100644
          }
          return null;
        })}
-@@ -922,6 +940,7 @@ function RuntimeResponseMessage({
-   timeline,
+@@ -967,6 +985,7 @@ function RuntimeResponseMessage({
+   showConfidence,
    terminal,
    chatId,
 +  sessionId,
    initialHistoricalSegmentKeys,
+   lastSessionSegmentKey,
    running,
-   waitingForInput,
-@@ -936,6 +955,7 @@ function RuntimeResponseMessage({
-   timeline?: ChatTimelineItem[] | null;
+@@ -985,6 +1004,7 @@ function RuntimeResponseMessage({
+   showConfidence: boolean;
    terminal: boolean;
    chatId?: string | null;
 +  sessionId?: string;
    initialHistoricalSegmentKeys: ReadonlySet<string>;
+   lastSessionSegmentKey: string | null;
    running: boolean;
-   waitingForInput?: boolean;
-@@ -960,6 +980,7 @@ function RuntimeResponseMessage({
-               timeline={timeline}
+@@ -1013,6 +1033,7 @@ function RuntimeResponseMessage({
+               showConfidence={showConfidence}
                terminal={terminal}
                chatId={chatId}
 +              sessionId={sessionId}
                initialHistoricalSegmentKeys={initialHistoricalSegmentKeys}
+               lastSessionSegmentKey={lastSessionSegmentKey}
                onArtifactOpen={onArtifactOpen}
-               onArtifactDownload={onArtifactDownload}
-@@ -1784,6 +1805,7 @@ const RuntimeConversation = forwardRef<
-                 <RuntimeResponseMessage
-                   key={section.id}
-                   chatId={chatId}
+@@ -2128,6 +2149,7 @@ const RuntimeConversation = forwardRef<
+                   showConfidence={controller.session?.agent_id !== 'review'}
+                   failure={index === lastResponseIndex ? selectResponseFailure(projection?.chat, data) : null}
+                   readOnly={controller.readOnly}
 +                  sessionId={controller.session?.id}
                    messages={data.output}
                    timeline={section.items}
                    terminal={projection ? projection.chat.status !== 'running' : !running}
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
-index 781c181..d528bbc 100644
+index 437aa64..09d1967 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
-@@ -472,6 +472,65 @@
+@@ -519,6 +519,65 @@
    }
  }
  
@@ -290,7 +317,7 @@ index 781c181..d528bbc 100644
  .artifactGroupTitle {
    color: var(--console-primary-active);
    font-size: var(--text-micro);
-@@ -540,6 +599,7 @@
+@@ -587,6 +646,7 @@
  }
  
  :global(:root[data-datapaw-theme='dark']) .segmentSummaryGrid > div,
@@ -299,54 +326,61 @@ index 781c181..d528bbc 100644
    background: var(--datapaw-color-fill-tertiary);
  }
 diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
-index f2e8d85..eb42642 100644
+index 85a5e79..5804552 100644
 --- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
 +++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
-@@ -5,12 +5,14 @@ import { Badge } from 'antd';
+@@ -7,6 +7,7 @@ import { Badge, Tooltip } from 'antd';
  import VirtualList from 'rc-virtual-list';
  import type { ListRef } from 'rc-virtual-list';
- import { forwardRef, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
+ import { forwardRef, memo, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 +import type { CSSProperties } from 'react';
- import type { Segment, SegmentArtifact } from '../../api/types';
- import { formatSegmentDuration } from '../../model/runtime/runtimeProjection';
- import { formatSegmentMarkdown } from '../../model/artifacts/segmentMarkdown';
- import type { Artifact } from '../../types';
+ import type { BizEvent, Segment, SegmentArtifact } from '../../api/types';
+ import { segmentDurationSeconds } from '../../model/runtime/runtimeProjection';
+ import { readSegmentConfidence } from '../../model/runtime/segmentConfidence';
+@@ -15,6 +16,7 @@ import type { Artifact } from '../../types';
  import { useAppI18n } from '@/i18n';
  import ArtifactCard from '../ArtifactCard';
+ import RuntimeBizEventCard from '../RuntimeBizEventCard';
 +import ArtifactPreview from '../ArtifactPreview';
  import sharedStyles from '../../index.module.less';
  import { mergeStyleModules } from '../../styleModules';
  import ownerStyles from './index.module.less';
-@@ -23,11 +25,14 @@ const ARTIFACT_CARD_GAP = 6;
- const ARTIFACT_ITEM_HEIGHT = ARTIFACT_CARD_HEIGHT + ARTIFACT_CARD_GAP;
+@@ -28,6 +30,8 @@ const ARTIFACT_ITEM_HEIGHT = ARTIFACT_CARD_HEIGHT + ARTIFACT_CARD_GAP;
  const ARTIFACT_LIST_HEIGHT = ARTIFACT_ITEM_HEIGHT * ARTIFACT_BATCH_SIZE;
  const ARTIFACT_VIRTUAL_THRESHOLD = 50;
+ const EMPTY_BIZ_EVENTS: BizEvent[] = [];
 +const INLINE_REPORT_PEEK_HEIGHT = 320;
 +const INLINE_REPORT_EXPANDED_HEIGHT = 'min(680px, 72vh)';
  const EMPTY_SEGMENT_ARTIFACTS: SegmentArtifact[] = [];
  
  interface RuntimeSegmentCardProps {
-   data: Segment;
-   index: number;
+@@ -36,6 +40,7 @@ interface RuntimeSegmentCardProps {
+   events?: BizEvent[];
+   showConfidence?: boolean;
+   showTerminalEvent?: boolean;
 +  sessionId?: string;
    defaultOpen?: boolean;
    onArtifactOpen?: (artifact: Artifact) => void;
    onArtifactDownload?: (artifact: Artifact) => void;
-@@ -84,6 +89,7 @@ const ArtifactListItem = memo(forwardRef<HTMLDivElement, ArtifactListItemProps>(
- export default function RuntimeSegmentCard({
-   data,
-   index,
+@@ -95,6 +100,7 @@ export default function RuntimeSegmentCard({
+   events = EMPTY_BIZ_EVENTS,
+   showConfidence = true,
+   showTerminalEvent = false,
 +  sessionId,
    defaultOpen = true,
    onArtifactOpen,
    onArtifactDownload,
-@@ -94,15 +100,25 @@ export default function RuntimeSegmentCard({
-   const artifactScrollAnimationRef = useRef<number | null>(null);
+@@ -106,6 +112,7 @@ export default function RuntimeSegmentCard({
    const pendingArtifactScrollRef = useRef(false);
    const [open, setOpen] = useState(defaultOpen);
+   const { cardRef, preserveHeader } = useCardExpansionAnchor();
 +  const [reportExpanded, setReportExpanded] = useState(false);
    const [visibleArtifactLimit, setVisibleArtifactLimit] = useState(ARTIFACT_BATCH_SIZE);
-   const duration = formatSegmentDuration(data.started_at, data.ended_at);
+   const trajectoryId = useId();
+   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
+@@ -116,12 +123,21 @@ export default function RuntimeSegmentCard({
+     : t('runtime.workedFor', { minutes: Math.floor(duration / 60), seconds: duration % 60 });
+   const terminalEvent = showTerminalEvent ? events[events.length - 1] : undefined;
    const sourceArtifacts = data.artifact ?? EMPTY_SEGMENT_ARTIFACTS;
 +  const inlineReport = useMemo(() => {
 +    const htmlArtifacts = sourceArtifacts.filter((artifact) => /\.html?$/i.test(artifact.name));
@@ -366,7 +400,7 @@ index f2e8d85..eb42642 100644
    const shouldVirtualizeArtifacts = visibleArtifacts.length > ARTIFACT_VIRTUAL_THRESHOLD;
    const artifactListHeight = Math.min(
      ARTIFACT_LIST_HEIGHT,
-@@ -215,6 +231,39 @@ export default function RuntimeSegmentCard({
+@@ -253,6 +269,39 @@ export default function RuntimeSegmentCard({
                      baseLineHeight={1.6}
                    />
                  </div>
@@ -406,11 +440,132 @@ index f2e8d85..eb42642 100644
                  {sourceArtifacts.length ? (
                    <div className={styles.inlineArtifact}>
                      <span className={styles.artifactGroupTitle}>{t('runtime.keyArtifacts')}</span>
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/model/chat/useConsoleChat.ts b/packages/datapaw-host-core/frontend/src/features/console/model/chat/useConsoleChat.ts
+index ac815bd..b19dc1e 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/model/chat/useConsoleChat.ts
++++ b/packages/datapaw-host-core/frontend/src/features/console/model/chat/useConsoleChat.ts
+@@ -1,11 +1,11 @@
++import { requestAtUrl } from "@/services/request";
+ import { historyCursor, hydrateProjectionTrace, loadHistoryTraces, mergeHistoryPage } from './sessionHistory';
+-import { modelConfigApi } from '../../api/modelConfig';
+-import { checkModelConfiguration, ModelConfigurationRequiredError } from './modelConfigurationGate';
++import { ModelConfigurationRequiredError } from './modelConfigurationGate';
+ import type { IAgentScopeRuntimeWebUISession } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types';
+ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+ import { ApiRequestError } from '@/services/request';
+ import { getHostAuthContext, subscribeHostAuth } from '@/services/auth';
+-import { createCMModelConfigGate } from '@/services/cmModelConfig';
++import { createCMModelConfigGate, subscribeModelSettingsRefresh } from '@/services/cmModelConfig';
+ import { useAppI18n } from '@/i18n';
+ import { dataConsoleApi } from '../../api/client';
+ import { subscribeChatEvents } from '../../api/events';
+@@ -342,13 +342,7 @@ export function useConsoleChat(
+   useEffect(() => {
+     if (!auth.ready) return undefined;
+     void cmModelGate.check();
+-    const onVisibility = () => {
+-      if (document.visibilityState === 'visible') void cmModelGate.check();
+-    };
+-    document.addEventListener('visibilitychange', onVisibility);
+-    return () => {
+-      document.removeEventListener('visibilitychange', onVisibility);
+-    };
++    return subscribeModelSettingsRefresh(cmModelGate.refresh);
+   }, [auth.ready, cmModelGate]);
+
+   useEffect(() => {
+@@ -1006,11 +1000,10 @@ export function useConsoleChat(
+       if (signal?.aborted || epoch !== sessionEpochRef.current) throw new DOMException('Session changed', 'AbortError');
+     };
+     try {
+-      await checkModelConfiguration({
+-        active: async () => (await dataConsoleApi.getActiveModels()).active_models,
+-        providers: async () => (await dataConsoleApi.getModelProviders()).providers,
+-        context: () => modelConfigApi.get(signal),
+-      }, assertCurrent);
++      const models = await requestAtUrl<{effective: {analysis: {configured: boolean; source: string}; databridge: {configured: boolean; source: string}}}>("/api/qwenpaw-data/model-settings", {signal});
++      assertCurrent();
++      if (!models.effective.analysis.configured) throw new ModelConfigurationRequiredError(["workspace.model"]);
++      if (!models.effective.databridge.configured) throw new ModelConfigurationRequiredError(["workspace.model"]);
+       setModelConfigurationRequired(false);
+       setError(null);
+     } catch (cause) {
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/model/tests/modelConfigTransport.test.ts b/packages/datapaw-host-core/frontend/src/features/console/model/tests/modelConfigTransport.test.ts
+index 87627b1..e4a7828 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/model/tests/modelConfigTransport.test.ts
++++ b/packages/datapaw-host-core/frontend/src/features/console/model/tests/modelConfigTransport.test.ts
+@@ -12,7 +12,7 @@ async function withFetch(mock: typeof fetch, run: () => Promise<void>) {
+ test("Context uses its root route, cookie identity and abort signal", async () => {
+   const controller = new AbortController();
+   await withFetch(async (input, init) => {
+-    assert.equal(input, "/api/system/model-config/embedding/test");
++    assert.equal(input, "/api/qwenpaw-data/context/api/system/model-config/embedding/test");
+     assert.equal(init?.credentials, "include");
+     assert.equal(init?.signal, controller.signal);
+     assert.equal(new Headers(init?.headers).get("Content-Type"), "application/json");
+@@ -33,7 +33,7 @@ test("Context refresh retries the same root route once", async () => {
+       : Response.json({ configured: false });
+   }, async () => { await modelConfigApi.get(); });
+   assert.deepEqual(calls, [
+-    "/api/system/model-config/", "/api/auth/refresh", "/api/system/model-config/",
++    "/api/qwenpaw-data/context/api/system/model-config/", "/api/auth/refresh", "/api/qwenpaw-data/context/api/system/model-config/",
+   ]);
+ });
+ 
+@@ -61,17 +61,17 @@ test("Host JSON and file requests retain their existing API path and response be
+     assert.deepEqual(await request("/sessions"), { id: "session" });
+     assert.equal(await (await requestFile("/attachments/file")).text(), "file");
+   });
+-  assert.deepEqual(calls, ["/api/sessions", "/api/attachments/file"]);
++  assert.deepEqual(calls, ["/api/v1/sessions", "/api/v1/attachments/file"]);
+ });
+ 
+ test("Resolved URL requests support 204 and encode job IDs", async () => {
+   await withFetch(async (input) => {
+-    assert.equal(input, "/api/system/model-config/embedding/jobs/id%2Fwith%20space/retry");
++    assert.equal(input, "/api/qwenpaw-data/context/api/system/model-config/embedding/jobs/id%2Fwith%20space/retry");
+     return new Response(null, { status: 204 });
+   }, async () => {
+     assert.equal(await modelConfigApi.retryRebuildJob("id/with space"), undefined);
+   });
+   await withFetch(async () => new Response("plain text"), async () => {
+-    assert.equal(await requestAtUrl("/api/system/model-config/"), "plain text");
++    assert.equal(await requestAtUrl("/api/qwenpaw-data/context/api/system/model-config/"), "plain text");
+   });
+ });
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/model/tests/sessionAuth.test.ts b/packages/datapaw-host-core/frontend/src/features/console/model/tests/sessionAuth.test.ts
+index 1ba9272..c7a19d6 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/model/tests/sessionAuth.test.ts
++++ b/packages/datapaw-host-core/frontend/src/features/console/model/tests/sessionAuth.test.ts
+@@ -52,5 +52,5 @@ test('a failed switch reconfirms identity instead of restoring cached ownership'
+     assert.equal(getHostCurrentUser()?.active_workspace_id, 'confirmed');
+     assert.equal(getHostAuthContext().ready, true);
+   });
+-  assert.deepEqual(calls, ['/api/auth/switch-workspace', '/api/auth/status', '/api/auth/me']);
++  assert.deepEqual(calls, ['/api/auth/switch-workspace', '/api/v1/auth/status', '/api/auth/me']);
+ });
 diff --git a/packages/datapaw-host-core/frontend/src/i18n/locales.ts b/packages/datapaw-host-core/frontend/src/i18n/locales.ts
-index 21f77a0..84d0832 100644
+index 109c748..efb0088 100644
 --- a/packages/datapaw-host-core/frontend/src/i18n/locales.ts
 +++ b/packages/datapaw-host-core/frontend/src/i18n/locales.ts
-@@ -53,6 +53,7 @@ export const zhMessages = {
+@@ -17,14 +17,14 @@ export const zhMessages = {
+   "agent.cm.saveFailed": "以下配置保存失败，草稿已保留：{{items}}",
+   "agent.cm.rebuild": "重建图索引",
+   "agent.cm.rebuildConfirm": "确认重建图索引？",
+-  "agent.cm.rebuildHint": "使用当前已保存的 Embedding 配置重写本工作区向量。保存配置不会自动重建。",
++  "agent.cm.rebuildHint": "使用当前已保存的 Embedding 配置重写本工作区向量。保存 Embedding 更改将启动索引重建。",
+   "agent.cm.rebuildPending": "图索引任务等待执行",
+   "agent.cm.rebuildRunning": "正在重建图索引",
+   "agent.cm.rebuildSuccess": "图索引重建完成",
+   "agent.cm.rebuildFailed": "图索引重建失败",
+   "agent.cm.pollFailed": "任务状态刷新失败，将继续重试",
+   "agent.cm.back": "返回原会话",
+-  "agent.cm.gateMissing": "请先在智能体配置中补齐主智能体、DataBridge 与 Embedding 配置。",
++  "agent.cm.gateMissing": "请在数据设置中选择可用的工作区模型或单独指定模型。",
+   "agent.cm.gateError": "无法读取模型配置，请重试。输入内容已保留。",
+   'sessionShare.title': '分享会话',
+   'sessionShare.readOnly': '只读',
+@@ -141,6 +141,7 @@ export const zhMessages = {
    'settings.dataBridge': '数据语义配置中心',
    'settings.agentConfiguration': '智能体配置',
    'settings.channelConfiguration': '接入渠道配置',
@@ -418,17 +573,53 @@ index 21f77a0..84d0832 100644
    'settings.mcpConfiguration': '工具配置',
  
    'workspace.tasks': '任务',
-@@ -183,6 +184,9 @@ export const zhMessages = {
-   'runtime.output': '输出',
-   'runtime.execution': '执行',
-   'runtime.conclusion': '结论',
+@@ -243,7 +244,7 @@ export const zhMessages = {
+   'runtime.attachmentUploading': '附件还在上传，请稍候',
+   'runtime.attachmentUploadFailed': '附件上传失败',
+   'runtime.configureAgent': '去配置智能体',
+-  'runtime.configureDataBridgeModels': '去配置 Data Bridge 模型',
++  'runtime.configureDataBridgeModels': '配置模型',
+   'runtime.sessionNotLoaded': '会话尚未加载完成',
+   'runtime.chatNotLoaded': '当前 Chat 尚未加载完成',
+   'runtime.timeout': '等待用户输入超时',
+@@ -300,6 +301,9 @@ export const zhMessages = {
+   'runtime.confidence.high': '高置信度',
+   'runtime.confidence.medium': '中置信度',
+   'runtime.confidence.low': '低置信度',
 +  'runtime.inlineReport': '报告预览',
 +  'runtime.inlineReportExpand': '展开',
 +  'runtime.inlineReportCollapse': '收起',
    'runtime.keyArtifacts': '关键产物',
    'runtime.loadMoreArtifacts': '加载更多',
    'runtime.noInput': '无输入',
-@@ -781,6 +785,7 @@ export const enMessages: Record<MessageKey, string> = {
+@@ -370,7 +374,7 @@ export const zhMessages = {
+   'console.runningStreamEnded': 'SSE 在 Chat 仍运行时意外结束，请刷新 Snapshot 后重试。',
+   'console.idleStreamEnded': 'SSE 在 Chat 非运行态时意外结束，请刷新 Snapshot 后重试。',
+   'console.modelConfigurationRequired': '尚未配置可用模型，请先完成 Provider 和激活模型配置。',
+-  'console.cmModelConfigurationRequired': 'Data Bridge 尚未完成模型配置，请前往 Data Bridge 配置 LLM 与 Embedding 模型。',
++  'console.cmModelConfigurationRequired': 'Data 所选模型尚未配置，请检查工作区模型或单独指定模型。',
+   'console.chatNotAwaitingConfirmation': '当前 Chat 不在等待确认状态',
+   'console.clarificationChatMismatch': '确认回答返回了不同的 Chat',
+   'console.steerRequired': '请输入引导内容',
+@@ -743,7 +747,7 @@ export const zhMessages = {
+   'agent.toolTimeoutSeconds': '工具执行超时时长（秒）',
+   'agent.toolTimeoutInvalid': '请输入不小于 1 秒的超时时长',
+   'agent.toolTimeoutDescription': '限制单次工具执行时长，默认 1800 秒。保存后下一轮对话生效。',
+-  'agent.runtimeSettingsDescription': '控制单轮最大迭代次数、模型调用重试策略和单次工具执行超时。',
++  'agent.runtimeSettingsDescription': '控制单轮最大迭代次数和模型调用重试策略。',
+   'agent.reactMaxIterations': '最大 ReAct 迭代次数',
+   'agent.enableLlmRetry': '启用 LLM 重试',
+   'agent.maxRetries': '最大重试次数',
+@@ -906,7 +910,7 @@ export const enMessages: Record<MessageKey, string> = {
+   "agent.cm.rebuildFailed": "Graph index rebuild failed",
+   "agent.cm.pollFailed": "Unable to refresh job status; retrying",
+   "agent.cm.back": "Back to conversation",
+-  "agent.cm.gateMissing": "Complete the main agent, DataBridge and Embedding configuration in Agent Settings.",
++  "agent.cm.gateMissing": "Choose an available workspace model or an override in Data settings.",
+   "agent.cm.gateError": "Unable to read model configuration. Retry; your input has been retained.",
+   'sessionShare.title': 'Share session',
+   'sessionShare.readOnly': 'Read only',
+@@ -1023,6 +1027,7 @@ export const enMessages: Record<MessageKey, string> = {
    'settings.dataBridge': 'Data Bridge',
    'settings.agentConfiguration': 'Agent Configuration',
    'settings.channelConfiguration': 'Channel Configuration',
@@ -436,16 +627,1839 @@ index 21f77a0..84d0832 100644
    'settings.mcpConfiguration': 'Tool Configuration',
  
    'workspace.tasks': 'Tasks',
-@@ -911,6 +916,9 @@ export const enMessages: Record<MessageKey, string> = {
-   'runtime.output': 'Output',
-   'runtime.execution': 'Execution',
-   'runtime.conclusion': 'Conclusion',
+@@ -1125,7 +1130,7 @@ export const enMessages: Record<MessageKey, string> = {
+   'runtime.attachmentUploading': 'Attachments are still uploading',
+   'runtime.attachmentUploadFailed': 'Attachment upload failed',
+   'runtime.configureAgent': 'Configure Agent',
+-  'runtime.configureDataBridgeModels': 'Configure Data Bridge Models',
++  'runtime.configureDataBridgeModels': 'Configure models',
+   'runtime.sessionNotLoaded': 'The session has not loaded yet',
+   'runtime.chatNotLoaded': 'The current Chat has not loaded yet',
+   'runtime.timeout': 'Timed out waiting for user input',
+@@ -1182,6 +1187,9 @@ export const enMessages: Record<MessageKey, string> = {
+   'runtime.confidence.high': 'High confidence',
+   'runtime.confidence.medium': 'Medium confidence',
+   'runtime.confidence.low': 'Low confidence',
 +  'runtime.inlineReport': 'Report preview',
 +  'runtime.inlineReportExpand': 'Expand',
 +  'runtime.inlineReportCollapse': 'Collapse',
    'runtime.keyArtifacts': 'Key artifacts',
    'runtime.loadMoreArtifacts': 'Load more',
    'runtime.noInput': 'No input',
+@@ -1252,7 +1260,7 @@ export const enMessages: Record<MessageKey, string> = {
+   'console.runningStreamEnded': 'SSE ended unexpectedly while the Chat was still running. Refresh the Snapshot and try again.',
+   'console.idleStreamEnded': 'SSE ended unexpectedly while the Chat was not running. Refresh the Snapshot and try again.',
+   'console.modelConfigurationRequired': 'No model is available. Configure a Provider and activate a model first.',
+-  'console.cmModelConfigurationRequired': 'Data Bridge model configuration is incomplete. Configure the LLM and embedding models in Data Bridge first.',
++  'console.cmModelConfigurationRequired': 'The model selected for Data is not configured. Review your workspace model or choose an override.',
+   'console.chatNotAwaitingConfirmation': 'The current Chat is not waiting for confirmation',
+   'console.clarificationChatMismatch': 'The clarification response returned a different Chat',
+   'console.steerRequired': 'Enter guidance content',
+@@ -1625,7 +1633,7 @@ export const enMessages: Record<MessageKey, string> = {
+   'agent.toolTimeoutSeconds': 'Tool execution timeout (seconds)',
+   'agent.toolTimeoutInvalid': 'Enter a timeout of at least 1 second',
+   'agent.toolTimeoutDescription': 'Limit each tool execution. Defaults to 1800 seconds. Changes take effect on the next conversation turn.',
+-  'agent.runtimeSettingsDescription': 'Control the maximum iterations per turn, model-call retry policy, and tool execution timeout.',
++  'agent.runtimeSettingsDescription': 'Control the maximum iterations per turn and model-call retry policy.',
+   'agent.reactMaxIterations': 'Maximum ReAct iterations',
+   'agent.enableLlmRetry': 'Enable LLM retries',
+   'agent.maxRetries': 'Maximum retries',
+diff --git a/packages/datapaw-host-core/frontend/src/pages/AgentSettings/AgentBehavior.tsx b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/AgentBehavior.tsx
+new file mode 100644
+index 0000000..8dac4fc
+--- /dev/null
++++ b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/AgentBehavior.tsx
+@@ -0,0 +1,48 @@
++import { useEffect, useState, useSyncExternalStore } from 'react';
++import { Alert, Button, Form, InputNumber, Switch, message } from 'antd';
++import { dataConsoleApi } from '@/features/console/api/client';
++import { getHostAuthContext, subscribeHostAuth } from '@/services/auth';
++import type { RuntimeSettings } from '@/features/console/api/types';
++import { useAppI18n } from '@/i18n';
++import styles from './index.module.less';
++
++export default function AgentBehavior() {
++  const { t } = useAppI18n();
++  const auth = useSyncExternalStore(subscribeHostAuth, getHostAuthContext);
++  const [form] = Form.useForm<RuntimeSettings>();
++  const [saving, setSaving] = useState(false);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState('');
++  useEffect(() => {
++    let alive = true;
++    setLoading(true);
++    setError('');
++    if (auth.ready) void dataConsoleApi.getRuntimeSettings().then(r => {
++      if (alive) form.setFieldsValue(r.runtime_settings);
++    }).catch(e => { if (alive) setError(e.message); }).finally(() => { if (alive) setLoading(false); });
++    return () => { alive = false; };
++  }, [auth.ready, auth.revision, form]);
++  const save = async (values: RuntimeSettings) => {
++    const revision = auth.revision;
++    setSaving(true); setError('');
++    try {
++      // Only send the behavior fields supported by the standalone Engine.
++      await dataConsoleApi.updateRuntimeSettings({react_max_iters: values.react_max_iters, llm_retry_enabled: values.llm_retry_enabled, llm_max_retries: values.llm_max_retries});
++      if (getHostAuthContext().revision === revision) message.success(t('agent.runtimeSettingsSaved'));
++    } catch (e) {
++      if (getHostAuthContext().revision === revision) setError((e as Error).message);
++    } finally { setSaving(false); }
++  };
++  return <div className={styles.sections}>
++    {error && <Alert type="error" message={error} />}
++    <section className={`${styles.section} datapaw-card-primary`}>
++      <div className={styles.sectionHeading}><h3>{t('agent.runtimeSettings')}</h3><p>{t('agent.runtimeSettingsDescription')}</p></div>
++      <Form form={form} layout="vertical" className={`${styles.settingsForm} ${styles.runtimeForm}`} disabled={saving || loading} onFinish={save}>
++        <Form.Item className={styles.fullWidth} label={t('agent.reactMaxIterations')} name="react_max_iters" rules={[{required:true,type:'number',min:1}]}><InputNumber min={1} precision={0} /></Form.Item>
++        <Form.Item label={t('agent.enableLlmRetry')} name="llm_retry_enabled" valuePropName="checked"><Switch /></Form.Item>
++        <Form.Item label={t('agent.maxRetries')} name="llm_max_retries" rules={[{required:true,type:'number',min:0,max:20}]}><InputNumber min={0} max={20} precision={0} /></Form.Item>
++        <div className={`${styles.formActions} ${styles.fullWidth}`}><Button type="primary" htmlType="submit" loading={saving}>{t('agent.saveRuntimeSettings')}</Button></div>
++      </Form>
++    </section>
++  </div>;
++}
+diff --git a/packages/datapaw-host-core/frontend/src/pages/AgentSettings/AppLocalSettings.tsx b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/AppLocalSettings.tsx
+new file mode 100644
+index 0000000..db49875
+--- /dev/null
++++ b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/AppLocalSettings.tsx
+@@ -0,0 +1,778 @@
++import {
++  CheckCircleFilled,
++  CloseCircleOutlined,
++  PlusOutlined,
++  ReloadOutlined,
++} from '@ant-design/icons';
++import { Button, Input, Select } from '@agentscope-ai/design';
++import {
++  Alert,
++  Form,
++  InputNumber,
++  Modal,
++  Popconfirm,
++  Spin,
++  Switch,
++  Tag,
++  Tabs,
++  message,
++} from 'antd';
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { dataConsoleApi } from '@/features/console/api/client';
++import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
++import SecretInput from '@/features/console/components/SecretInput';
++import ContextCompressionSettings from './ContextCompressionSettings';
++import type {
++  ModelProvider,
++  ProviderModel,
++  RuntimeSettings,
++} from '@/features/console/api/types';
++import { useAppI18n } from '@/i18n';
++import styles from './index.module.less';
++import DataBridgeModelSettings from './DataBridgeModelSettings';
++import { modelConfigPayloads, useDataBridgeModelSettings, type ActiveModelFormValues } from './useDataBridgeModelSettings';
++import { modelConfigApi } from '@/features/console/api/modelConfig';
++import { getHostAuthContext } from '@/services/auth';
++import { useLocation, useNavigate } from 'react-router-dom';
++import { getAgentSettingsReturnPath } from '@/shared/navigation/sessionNavigation';
++
++interface ProviderCardProps {
++  provider: ModelProvider;
++  onChange: (provider: ModelProvider) => void;
++}
++
++interface ProviderModelsProps {
++  provider: ModelProvider;
++  onChange: (providerId: string, models: ProviderModel[]) => void;
++}
++
++function isExtraModelEditor(editing: ProviderModel | 'extra' | null): boolean {
++  return editing === 'extra'
++    || (typeof editing === 'object' && editing?.source === 'extra');
++}
++
++function supportsThinking(provider: ModelProvider, model?: ProviderModel): boolean {
++  return (model?.chat_model ?? provider.chat_model) === 'DashScopeChatModel';
++}
++
++function errorMessage(error: unknown): string {
++  return error instanceof Error ? error.message : String(error);
++}
++
++function modelSelection(providerId: string | null, modelId: string | null) {
++  return providerId && modelId ? `${providerId}/${modelId}` : undefined;
++}
++
++function parseModelSelection(value?: string): [string | null, string | null] {
++  if (!value) return [null, null];
++  const separator = value.indexOf('/');
++  if (separator < 1) return [null, null];
++  return [value.slice(0, separator), value.slice(separator + 1)];
++}
++
++function ProviderCard({ provider, onChange }: ProviderCardProps) {
++  const { t } = useAppI18n();
++  const [apiKey, setApiKey] = useState('');
++  const [baseUrl, setBaseUrl] = useState(provider.base_url);
++  const [saving, setSaving] = useState(false);
++  const [clearing, setClearing] = useState(false);
++
++  const save = async () => {
++    const trimmedKey = apiKey.trim();
++    if (!provider.configured && !trimmedKey) {
++      message.warning(t('agent.apiKeyRequired'));
++      return;
++    }
++    setSaving(true);
++    try {
++      const { provider: updated } = await dataConsoleApi.updateModelProvider(
++        provider.id,
++        {
++          ...(trimmedKey ? { api_key: trimmedKey } : {}),
++          base_url: baseUrl.trim() || null,
++        },
++      );
++      setApiKey('');
++      setBaseUrl(updated.base_url);
++      onChange(updated);
++      message.success(t('agent.providerSaved', { name: provider.name }));
++    } catch (error) {
++      message.error(t('common.saveFailed', { message: errorMessage(error) }));
++    } finally {
++      setSaving(false);
++    }
++  };
++
++  const clear = async () => {
++    setClearing(true);
++    try {
++      await dataConsoleApi.clearModelProvider(provider.id);
++      onChange({
++        ...provider,
++        configured: false,
++        api_key_masked: '',
++        base_url: provider.catalog_base_url,
++      });
++      setApiKey('');
++      setBaseUrl(provider.catalog_base_url);
++      message.success(t('agent.credentialsCleared', { name: provider.name }));
++    } catch (error) {
++      message.error(t('agent.clearFailed', { message: errorMessage(error) }));
++    } finally {
++      setClearing(false);
++    }
++  };
++
++  return (
++    <article className={styles.providerCard}>
++      <header>
++        <div className={styles.providerIdentity}>
++          <strong>{provider.name}</strong>
++          <span>{provider.chat_model}</span>
++        </div>
++        <Tag
++          className={styles.providerStatus}
++          color={provider.configured ? 'success' : 'default'}
++          icon={provider.configured ? <CheckCircleFilled /> : undefined}
++        >
++          {provider.configured ? t('common.configured') : t('common.notConfigured')}
++        </Tag>
++      </header>
++
++      <div className={styles.providerFields}>
++        <label>
++          <span>API Key</span>
++          <SecretInput
++            autoComplete="new-password"
++            value={apiKey}
++            placeholder={provider.configured
++              ? t('agent.savedSecretPlaceholder', { masked: provider.api_key_masked })
++              : t('agent.apiKeyPlaceholder', { prefix: provider.api_key_prefix })}
++            onChange={(event) => setApiKey(event.target.value)}
++          />
++        </label>
++        <label>
++          <span>Base URL</span>
++          <Input
++            value={baseUrl}
++            placeholder={provider.catalog_base_url || t('agent.baseUrlPlaceholder')}
++            onChange={(event) => setBaseUrl(event.target.value)}
++          />
++        </label>
++      </div>
++
++      <footer>
++        {provider.configured ? (
++          <Button
++            danger
++            type="text"
++            icon={<CloseCircleOutlined />}
++            loading={clearing}
++            onClick={() => void clear()}
++          >
++            {t('agent.clearCredentials')}
++          </Button>
++        ) : <span />}
++        <Button
++          type="primary"
++          loading={saving}
++          onClick={() => void save()}
++        >
++          {t('agent.saveProvider')}
++        </Button>
++      </footer>
++    </article>
++  );
++}
++
++function ProviderModels({ provider, onChange }: ProviderModelsProps) {
++  const { t } = useAppI18n();
++  const [editing, setEditing] = useState<ProviderModel | 'extra' | null>(null);
++  const [modelId, setModelId] = useState('');
++  const [name, setName] = useState('');
++  const [generateKwargs, setGenerateKwargs] = useState('{}');
++  const [saving, setSaving] = useState(false);
++  const [deletingId, setDeletingId] = useState<string | null>(null);
++  const [thinkingId, setThinkingId] = useState<string | null>(null);
++  const [thinkingEnabled, setThinkingEnabled] = useState(false);
++
++  const closeEditor = () => {
++    if (saving) return;
++    setEditing(null);
++  };
++
++  const openEditor = (model: ProviderModel | 'extra') => {
++    setEditing(model);
++    if (model === 'extra') {
++      setModelId('');
++      setName('');
++      setThinkingEnabled(false);
++      setGenerateKwargs('{}');
++      return;
++    }
++    setModelId(model.id);
++    setName(model.name);
++    setThinkingEnabled(model.thinking_enabled ?? false);
++    setGenerateKwargs(JSON.stringify(model.generate_kwargs ?? {}, null, 2));
++  };
++
++  const saveModel = async () => {
++    const trimmedModelId = modelId.trim();
++    const source = isExtraModelEditor(editing) ? 'extra' : 'override';
++    if (!trimmedModelId) {
++      message.warning(t('agent.modelIdRequired'));
++      return;
++    }
++    if (source === 'extra' && !name.trim()) {
++      message.warning(t('agent.modelNameRequired'));
++      return;
++    }
++
++    let parsedKwargs: Record<string, unknown>;
++    try {
++      const parsed = JSON.parse(generateKwargs || '{}') as unknown;
++      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
++        throw new Error('not an object');
++      }
++      parsedKwargs = parsed as Record<string, unknown>;
++    } catch {
++      message.error(t('agent.invalidGenerateParams'));
++      return;
++    }
++
++    setSaving(true);
++    try {
++      const { model } = await dataConsoleApi.upsertProviderModel(
++        provider.id,
++        trimmedModelId,
++        {
++          source,
++          name: source === 'extra' ? name.trim() : null,
++          thinking_enabled: supportsThinking(
++            provider,
++            editing !== null && typeof editing === 'object' ? editing : undefined,
++          )
++            ? thinkingEnabled
++            : null,
++          generate_kwargs: parsedKwargs,
++        },
++      );
++      const nextModels = provider.models.some((item) => item.id === model.id)
++        ? provider.models.map((item) => item.id === model.id ? model : item)
++        : [...provider.models, model];
++      onChange(provider.id, nextModels);
++      setEditing(null);
++      message.success(t('agent.modelSaved', { name: model.name }));
++    } catch (error) {
++      message.error(t('common.saveFailed', { message: errorMessage(error) }));
++    } finally {
++      setSaving(false);
++    }
++  };
++
++  const deleteModel = async (model: ProviderModel) => {
++    setDeletingId(model.id);
++    try {
++      await dataConsoleApi.deleteProviderModel(provider.id, model.id);
++      const { models } = await dataConsoleApi.getProviderModels(provider.id);
++      onChange(provider.id, models);
++      message.success(model.source === 'override' ? t('agent.modelRestored') : t('agent.extraModelDeleted'));
++    } catch (error) {
++      message.error(t('common.operationFailed', { message: errorMessage(error) }));
++    } finally {
++      setDeletingId(null);
++    }
++  };
++
++  const updateThinking = async (model: ProviderModel, enabled: boolean) => {
++    setThinkingId(model.id);
++    try {
++      const source = model.source === 'extra' ? 'extra' : 'override';
++      const { model: updated } = await dataConsoleApi.upsertProviderModel(
++        provider.id,
++        model.id,
++        {
++          source,
++          name: source === 'extra' ? model.name : null,
++          thinking_enabled: enabled,
++          generate_kwargs: model.generate_kwargs,
++        },
++      );
++      onChange(
++        provider.id,
++        provider.models.map((item) => item.id === updated.id ? updated : item),
++      );
++      message.success(t('agent.thinkingUpdated', { name: model.name }));
++    } catch (error) {
++      message.error(t('common.saveFailed', { message: errorMessage(error) }));
++    } finally {
++      setThinkingId(null);
++    }
++  };
++
++  return (
++    <article className={styles.modelProviderCard}>
++      <header>
++        <div>
++          <strong>{provider.name}</strong>
++          <span>{t('agent.availableModels', { count: provider.models.length })}</span>
++        </div>
++        <Button size="small" icon={<PlusOutlined />} onClick={() => openEditor('extra')}>
++          {t('agent.addModel')}
++        </Button>
++      </header>
++      <div className={styles.modelList}>
++        {provider.models.map((model) => (
++          <div className={styles.modelRow} key={model.id}>
++            <div className={styles.modelSummary}>
++              <div>
++                <strong>{model.name}</strong>
++                <code>{model.id}</code>
++              </div>
++              <div className={styles.modelTags}>
++                <Tag color={model.source === 'catalog' ? 'default' : 'blue'}>
++                  {model.source === 'catalog' ? t('agent.builtin') : model.source === 'extra' ? t('agent.extra') : t('agent.overridden')}
++                </Tag>
++              </div>
++            </div>
++            <div className={styles.modelActions}>
++              {supportsThinking(provider, model) ? (
++                <label className={styles.modelThinking}>
++                  <span>{t('agent.thinking')}</span>
++                  <Switch
++                    size="small"
++                    checked={model.thinking_enabled ?? false}
++                    loading={thinkingId === model.id}
++                    onChange={(enabled) => void updateThinking(model, enabled)}
++                  />
++                </label>
++              ) : null}
++              <div className={styles.modelActionButtons}>
++                <Button
++                  size="small"
++                  type="text"
++                  onClick={() => openEditor(model)}
++                >
++                  {t('agent.advancedConfig')}
++                </Button>
++                {model.source !== 'catalog' ? (
++                  <Popconfirm
++                    title={model.source === 'override' ? t('agent.restoreTitle') : t('agent.deleteExtraTitle')}
++                    okText={t('common.confirm')}
++                    cancelText={t('common.cancel')}
++                    onConfirm={() => void deleteModel(model)}
++                  >
++                    <Button
++                      danger
++                      size="small"
++                      type="text"
++                      loading={deletingId === model.id}
++                    >
++                      {model.source === 'override' ? t('agent.restoreBuiltin') : t('common.delete')}
++                    </Button>
++                  </Popconfirm>
++                ) : null}
++              </div>
++            </div>
++          </div>
++        ))}
++      </div>
++
++      <Modal
++        open={editing !== null}
++        title={editing === 'extra' ? t('agent.addModelFor', { name: provider.name }) : t('agent.editModel')}
++        okText={t('common.save')}
++        cancelText={t('common.cancel')}
++        confirmLoading={saving}
++        onCancel={closeEditor}
++        onOk={() => void saveModel()}
++      >
++        <div className={styles.modelEditor}>
++          <label>
++            <span>{t('agent.modelId')}</span>
++            <Input
++              value={modelId}
++              disabled={editing !== 'extra'}
++              placeholder={t('agent.modelIdPlaceholder')}
++              onChange={(event) => setModelId(event.target.value)}
++            />
++          </label>
++          {isExtraModelEditor(editing) ? (
++            <label>
++              <span>{t('agent.modelName')}</span>
++              <Input
++                value={name}
++                placeholder={t('agent.modelNamePlaceholder')}
++                onChange={(event) => setName(event.target.value)}
++              />
++            </label>
++          ) : null}
++          {supportsThinking(
++            provider,
++            editing !== null && typeof editing === 'object' ? editing : undefined,
++          ) ? (
++            <label className={styles.modelEditorSwitch}>
++              <span>{t('agent.thinking')}</span>
++              <Switch
++                checked={thinkingEnabled}
++                onChange={setThinkingEnabled}
++              />
++            </label>
++          ) : null}
++          <label>
++            <span>{t('agent.generateParams')}</span>
++            <Input.TextArea
++              rows={6}
++              value={generateKwargs}
++              spellCheck={false}
++              placeholder={'{\n  "temperature": 0.7\n}'}
++              onChange={(event) => setGenerateKwargs(event.target.value)}
++            />
++          </label>
++        </div>
++      </Modal>
++    </article>
++  );
++}
++
++export default function AgentSettingsPage() {
++  const { t } = useAppI18n();
++  const [activeForm] = Form.useForm<ActiveModelFormValues>();
++  const [runtimeForm] = Form.useForm<RuntimeSettings>();
++  const toolTimeoutEnabled = Form.useWatch('tool_timeout_enabled', runtimeForm);
++  const [providers, setProviders] = useState<ModelProvider[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [loadError, setLoadError] = useState<string | null>(null);
++  const [savingModels, setSavingModels] = useState(false);
++  const [savingRuntime, setSavingRuntime] = useState(false);
++  const cm = useDataBridgeModelSettings(activeForm, providers);
++  const navigate = useNavigate();
++  const location = useLocation();
++  const returnPath = getAgentSettingsReturnPath(location.search);
++  const alive = useRef(0);
++  const [saveError, setSaveError] = useState<string | null>(null);
++  const [contextSettings, setContextSettings] = useState<RuntimeSettings | null>(null);
++
++  const load = useCallback(async () => {
++    const generation = ++alive.current;
++    const revision = getHostAuthContext().revision;
++    const current = () => generation === alive.current && revision === getHostAuthContext().revision;
++    setLoading(true);
++    setLoadError(null);
++    try {
++      const [providerResponse, activeResponse, runtimeResponse] = await Promise.all([
++        dataConsoleApi.getModelProviders(),
++        dataConsoleApi.getActiveModels(),
++        dataConsoleApi.getRuntimeSettings(),
++      ]);
++      if (!current()) return;
++      setProviders(providerResponse.providers);
++      const active = activeResponse.active_models;
++      activeForm.setFieldsValue({
++        default_provider_id: active.default_provider_id ?? undefined,
++        default_model_id: active.default_model_id ?? undefined,
++        light_selection: modelSelection(
++          active.light_provider_id,
++          active.light_model_id,
++        ),
++      });
++      runtimeForm.setFieldsValue(runtimeResponse.runtime_settings);
++      setContextSettings(runtimeResponse.runtime_settings);
++    } catch (error) {
++      if (current()) setLoadError(errorMessage(error));
++    } finally {
++      if (current()) setLoading(false);
++    }
++  }, [activeForm, runtimeForm]);
++
++  useEffect(() => {
++    const previousTitle = document.title;
++    document.title = `${t('agent.title')} · QwenPaw Data`;
++    setSavingModels(false);
++    setSaveError(null);
++    if (cm.auth.ready) void load();
++    return () => {
++      alive.current += 1;
++      document.title = previousTitle;
++    };
++  }, [load, t, cm.auth.ready, cm.auth.revision]);
++
++  const configuredProviders = useMemo(
++    () => providers.filter((provider) => provider.configured),
++    [providers],
++  );
++  const defaultProviderId = Form.useWatch('default_provider_id', activeForm);
++  const defaultModelOptions = useMemo(
++    () => providers.find((provider) => provider.id === defaultProviderId)?.models
++      .map((model) => ({ value: model.id, label: model.name })) ?? [],
++    [defaultProviderId, providers],
++  );
++  const allModelOptions = useMemo(
++    () => configuredProviders.flatMap((provider) => provider.models.map((model) => ({
++      value: `${provider.id}/${model.id}`,
++      label: `${provider.name} · ${model.name}`,
++    }))),
++    [configuredProviders],
++  );
++
++  const updateProvider = useCallback((updated: ModelProvider) => {
++    cm.clearResults();
++    void cm.load(false);
++    setProviders((current) => current.map((provider) => (
++      provider.id === updated.id ? updated : provider
++    )));
++    if (!updated.configured) {
++      if (activeForm.getFieldValue('default_provider_id') === updated.id) {
++        activeForm.setFieldsValue({
++          default_provider_id: undefined,
++          default_model_id: undefined,
++        });
++      }
++      if (activeForm.getFieldValue('cm_provider_id') === updated.id) activeForm.setFieldValue('cm_provider_id', undefined);
++      if (activeForm.getFieldValue('embedding_provider_id') === updated.id) activeForm.setFieldValue('embedding_provider_id', undefined);
++      const lightSelection = activeForm.getFieldValue('light_selection');
++      if (lightSelection?.startsWith(`${updated.id}/`)) {
++        activeForm.setFieldValue('light_selection', undefined);
++      }
++    }
++  }, [activeForm, cm]);
++
++  const updateProviderModels = useCallback((providerId: string, models: ProviderModel[]) => {
++    setProviders((current) => current.map((provider) => (
++      provider.id === providerId ? { ...provider, models } : provider
++    )));
++  }, []);
++
++  const saveActiveModels = async (values: ActiveModelFormValues) => {
++    if (savingModels || cm.loading || cm.error || !cm.auth.ready) return;
++    const [lightProviderId, lightModelId] = parseModelSelection(values.light_selection);
++    const generation = alive.current;
++    const revision = cm.auth.revision;
++    const current = () => generation === alive.current && revision === getHostAuthContext().revision;
++    setSavingModels(true);
++    setSaveError(null);
++    try {
++      const payloads = modelConfigPayloads(values, providers);
++      const results = await Promise.allSettled([
++        dataConsoleApi.updateActiveModels({
++          default_provider_id: values.default_provider_id,
++          default_model_id: values.default_model_id,
++          light_provider_id: lightProviderId,
++          light_model_id: lightModelId,
++        }),
++        modelConfigApi.updateLLM(payloads.llm),
++        modelConfigApi.updateEmbedding(payloads.embedding),
++      ]);
++      if (!current()) return;
++      const labels = [t('agent.defaultModel'), 'DataBridge', 'Embedding'];
++      const failures = results.flatMap((result, index) => result.status === 'rejected'
++        ? [`${labels[index]}: ${errorMessage(result.reason)}`] : []);
++      if (failures.length) setSaveError(t('agent.cm.saveFailed', { items: failures.join('；') }));
++      else message.success(t('agent.activeModelsSaved'));
++      await cm.load(false);
++    } catch (error) {
++      if (current()) setSaveError(errorMessage(error));
++    } finally {
++      if (current()) setSavingModels(false);
++    }
++  };
++
++  const saveRuntimeSettings = async (values: RuntimeSettings) => {
++    setSavingRuntime(true);
++    try {
++      const { runtime_settings: saved } = await dataConsoleApi.updateRuntimeSettings(values);
++      runtimeForm.setFieldsValue(saved);
++      message.success(t('agent.runtimeSettingsSaved'));
++    } catch (error) {
++      message.error(t('common.saveFailed', { message: errorMessage(error) }));
++    } finally {
++      setSavingRuntime(false);
++    }
++  };
++
++  return (
++    <div className={styles.content}>
++      <ConsoleRouteHeader title={t('agent.title')} />
++
++      <main className={styles.main}>
++        {returnPath ? <Button className={styles.returnButton} onClick={() => navigate(returnPath)}>{t('agent.cm.back')}</Button> : null}
++        {loading ? (
++          <div className={styles.loading}><Spin /><span>{t('agent.loading')}</span></div>
++        ) : null}
++        {!loading && loadError ? (
++          <Alert
++            showIcon
++            type="error"
++            message={t('agent.loadFailed')}
++            description={loadError}
++            action={<Button size="small" onClick={() => void load()}>{t('common.retry')}</Button>}
++          />
++        ) : null}
++
++        {!loading && !loadError ? (
++          <Tabs
++            defaultActiveKey="models"
++            items={[
++              {
++                key: 'models',
++                label: t('agent.modelConfigTab'),
++                forceRender: true,
++                children: <div className={styles.sections}>
++                  <section className={`${styles.section} ${styles.modelConfigurationSection} datapaw-card-primary`}>
++                    <div className={styles.modelSetupGrid}>
++                      <div className={styles.modelSetupColumn}>
++                        <div className={styles.sectionHeading}>
++                          <h3>{t('agent.providerCredentials')}</h3>
++                          <p>{t('agent.providerCredentialsDescription')}</p>
++                        </div>
++                        <div className={styles.providerGrid}>
++                          {providers.map((provider) => (
++                            <ProviderCard
++                              key={provider.id}
++                              provider={provider}
++                              onChange={updateProvider}
++                            />
++                          ))}
++                        </div>
++                      </div>
++                      <div className={`${styles.modelSetupColumn} ${styles.modelListColumn}`}>
++                        <div className={`${styles.sectionHeading} ${styles.sectionHeadingWithAction}`}>
++                          <h3>{t('agent.providerModels')}</h3>
++                          <p>{t('agent.providerModelsDescription')}</p>
++                          <Button
++                            className={styles.sectionHeadingAction}
++                            aria-label={t('common.refresh')}
++                            title={t('common.refresh')}
++                            icon={<ReloadOutlined />}
++                            onClick={() => void load()}
++                          />
++                        </div>
++                        <div className={styles.modelProviderGrid}>
++                          {providers.map((provider) => (
++                            <ProviderModels
++                              key={provider.id}
++                              provider={provider}
++                              onChange={updateProviderModels}
++                            />
++                          ))}
++                        </div>
++                      </div>
++                    </div>
++                  </section>
++
++                  <section className={`${styles.section} datapaw-card-primary`}>
++                    {!configuredProviders.length ? (
++                      <Alert
++                        showIcon
++                        type="warning"
++                        message={t('agent.configureProviderFirst')}
++                      />
++                    ) : (
++                      <Form
++                        form={activeForm}
++                        layout="vertical"
++                        className={`${styles.settingsForm} ${styles.activeModelForm}`}
++                        disabled={savingModels}
++                        onFinish={(values) => void saveActiveModels(values)}
++                        onValuesChange={(changed) => {
++                          cm.clearResults();
++                          if ('cm_provider_id' in changed) activeForm.setFieldValue('cm_model_id', undefined);
++                          if ('default_provider_id' in changed) {
++                            activeForm.setFieldValue('default_model_id', undefined);
++                          }
++                        }}
++                      >
++                        <div className={styles.sessionModelSettings}>
++                          <div className={styles.sectionHeading}>
++                            <h3>{t('agent.activeModels')}</h3>
++                            <p>{t('agent.activeModelsDescription')}</p>
++                          </div>
++                          <Form.Item
++                            label={t('agent.defaultProvider')}
++                            name="default_provider_id"
++                            rules={[{ required: true, message: t('agent.defaultProviderRequired') }]}
++                          >
++                            <Select options={configuredProviders.map((provider) => ({
++                              value: provider.id,
++                              label: provider.name,
++                            }))} />
++                          </Form.Item>
++                          <Form.Item
++                            label={t('agent.defaultModel')}
++                            name="default_model_id"
++                            rules={[{ required: true, message: t('agent.defaultModelRequired') }]}
++                          >
++                            <Select disabled={!defaultProviderId} options={defaultModelOptions} />
++                          </Form.Item>
++                          <Form.Item label={t('agent.lightModel')} name="light_selection">
++                            <Select allowClear options={allModelOptions} placeholder={t('agent.lightModelPlaceholder')} />
++                          </Form.Item>
++                        </div>
++                        <DataBridgeModelSettings form={activeForm} providers={providers} settings={cm} saving={savingModels} />
++                        {saveError ? <Alert className={styles.fullWidth} type="error" showIcon message={saveError} /> : null}
++                        <div className={`${styles.formActions} ${styles.fullWidth}`}>
++                          <Button type="primary" htmlType="submit" loading={savingModels} disabled={cm.loading || !!cm.error || !!cm.testing}>
++                            {t('agent.saveActiveModels')}
++                          </Button>
++                        </div>
++                      </Form>
++                    )}
++                  </section>
++
++                </div>,
++              },
++              {
++                key: 'agent',
++                label: t('agent.agentConfigTab'),
++                forceRender: true,
++                children: <div className={styles.sections}>
++                  <section className={`${styles.section} datapaw-card-primary`}>
++                    <div className={styles.sectionHeading}>
++                      <h3>{t('agent.runtimeSettings')}</h3>
++                      <p>{t('agent.runtimeSettingsDescription')}</p>
++                    </div>
++                    <Form
++                      form={runtimeForm}
++                      layout="vertical"
++                      className={`${styles.settingsForm} ${styles.runtimeForm}`}
++                      initialValues={{ tool_timeout_enabled: true, tool_timeout_seconds: 1800 }}
++                      disabled={savingRuntime}
++                      onFinish={(values) => void saveRuntimeSettings(values)}
++                    >
++                      <Form.Item className={styles.fullWidth} label={t('agent.reactMaxIterations')} name="react_max_iters">
++                        <InputNumber min={1} precision={0} />
++                      </Form.Item>
++                      <Form.Item label={t('agent.enableLlmRetry')} name="llm_retry_enabled" valuePropName="checked">
++                        <Switch />
++                      </Form.Item>
++                      <Form.Item label={t('agent.maxRetries')} name="llm_max_retries">
++                        <InputNumber min={0} max={20} precision={0} />
++                      </Form.Item>
++                      <Form.Item label={t('agent.enableToolTimeout')} name="tool_timeout_enabled" valuePropName="checked">
++                        <Switch />
++                      </Form.Item>
++                      <Form.Item
++                        label={t('agent.toolTimeoutSeconds')}
++                        name="tool_timeout_seconds"
++                        rules={[{ required: true, type: 'number', min: 1, message: t('agent.toolTimeoutInvalid') }]}
++                        extra={t('agent.toolTimeoutDescription')}
++                      >
++                        <InputNumber min={1} disabled={savingRuntime || !toolTimeoutEnabled} />
++                      </Form.Item>
++                      <div className={`${styles.formActions} ${styles.fullWidth}`}>
++                        <Button type="primary" htmlType="submit" loading={savingRuntime}>
++                          {t('agent.saveRuntimeSettings')}
++                        </Button>
++                      </div>
++                    </Form>
++                  </section>
++                  {contextSettings ? <ContextCompressionSettings initialSettings={contextSettings} /> : null}
++                </div>,
++              },
++            ].filter(item => item.key === "models")}
++          />
++        ) : null}
++      </main>
++    </div>
++  );
++}
+diff --git a/packages/datapaw-host-core/frontend/src/pages/AgentSettings/WorkspaceModels.tsx b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/WorkspaceModels.tsx
+new file mode 100644
+index 0000000..a909da9
+--- /dev/null
++++ b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/WorkspaceModels.tsx
+@@ -0,0 +1,120 @@
++import { useEffect, useState, useSyncExternalStore } from 'react';
++import { Alert, Button, Collapse, Input, InputNumber, Select, Space, Spin, Tag, message } from 'antd';
++import { notifyModelSettingsChanged } from '@/services/cmModelConfig';
++import { requestAtUrl } from '@/services/request';
++import { getHostAuthContext, subscribeHostAuth } from '@/services/auth';
++import { modelConfigApi } from '@/features/console/api/modelConfig';
++import type { EmbeddingConfig } from '@/features/console/api/modelConfigTypes';
++import styles from './workspace.module.less';
++
++type Role = 'analysis' | 'lightweight' | 'databridge';
++type Choice = { source: 'inherit' | 'host' | 'local'; provider_id?: string | null; model_id?: string | null };
++type Settings = { revision: number } & Record<Role, Choice>;
++type Response = {
++  workspace_id: string; settings: Settings;
++  workspace_default: {model_id: string | null; configured: boolean; error: string | null};
++  effective: Record<Role, {model_id: string | null; source: string; configured: boolean; error: string | null}>;
++  providers: {id: string; name: string; models: {id: string; name: string}[]}[];
++};
++const endpoint = '/api/qwenpaw-data/model-settings';
++const roles: {id: Role; name: string; description: string; inherit: string}[] = [
++  {id: 'analysis', name: 'Analysis', description: 'Answers questions, reasons over data, and uses tools.', inherit: 'Use main chat model (default)'},
++  {id: 'lightweight', name: 'Summaries', description: 'Summarizes business traces and suggests follow-up questions.', inherit: 'Use analysis model'},
++  {id: 'databridge', name: 'DataBridge', description: 'Interprets semantic definitions and retrieves data context.', inherit: 'Use analysis model'},
++];
++
++export default function WorkspaceModels({onLocal}: {onLocal: () => void}) {
++  const auth = useSyncExternalStore(subscribeHostAuth, getHostAuthContext);
++  const [data, setData] = useState<Response>();
++  const [draft, setDraft] = useState<Settings>();
++  const [error, setError] = useState('');
++  const [saving, setSaving] = useState(false);
++  const [embedding, setEmbedding] = useState<EmbeddingConfig>({});
++  const [embeddingKey, setEmbeddingKey] = useState('');
++  const [embeddingError, setEmbeddingError] = useState('');
++  const [embeddingBusy, setEmbeddingBusy] = useState(false);
++  const [rebuildRequired, setRebuildRequired] = useState(false);
++  useEffect(() => {
++    if (!auth.ready) return;
++    const abort = new AbortController();
++    setData(undefined); setDraft(undefined); setError('');
++    void requestAtUrl<Response>(endpoint, {signal: abort.signal}).then(value => { setData(value); setDraft(value.settings); }).catch(e => { if (!abort.signal.aborted) setError(String(e.message)); });
++    void modelConfigApi.get(abort.signal).then(value => { setEmbedding(value.embedding); setEmbeddingError(''); }).catch(e => { if (!abort.signal.aborted) setEmbeddingError(String(e.message)); });
++    return () => abort.abort();
++  }, [auth.ready, auth.revision]);
++  const dirty = data && JSON.stringify(draft) !== JSON.stringify(data.settings);
++  const save = async () => {
++    if (!draft) return;
++    const revision = auth.revision;
++    setSaving(true); setError('');
++    try {
++      const value = await requestAtUrl<Response>(endpoint, {method: 'PUT', body: JSON.stringify(draft)});
++      if (getHostAuthContext().revision !== revision) return;
++      setData(value); setDraft(value.settings); notifyModelSettingsChanged(); message.success('Models saved. Applies to new tasks.');
++    } catch (e) { if (getHostAuthContext().revision === revision) setError((e as Error).message); }
++    finally { setSaving(false); }
++  };
++  const choose = (role: Role, choice: Choice) => setDraft(current => current ? {...current, [role]: choice} : current);
++  const embeddingAction = async (action: 'save' | 'test' | 'rebuild') => {
++    setEmbeddingBusy(true); setEmbeddingError('');
++    try {
++      const payload = {model: embedding.model, base_url: embedding.base_url, dim: embedding.dim, ...(embeddingKey ? {api_key: embeddingKey} : {})};
++      if (action === 'save') {
++        const result = await modelConfigApi.updateEmbedding(payload);
++        setEmbedding(result.embedding); setEmbeddingKey(''); setRebuildRequired(result.rebuild_required);
++        message.success('Embedding settings saved; index rebuild requested.');
++      } else if (action === 'test') {
++        const result = await modelConfigApi.testEmbedding(payload);
++        if (!result.success) throw new Error(result.message);
++        message.success(result.message);
++      } else {
++        await modelConfigApi.rebuildEmbeddings(); setRebuildRequired(false); message.success('Index rebuild started.');
++      }
++    } catch(e) { setEmbeddingError((e as Error).message); }
++    finally { setEmbeddingBusy(false); }
++  };
++  return <div className={styles.root}>
++    <section className={`${styles.hero} datapaw-card-primary`}>
++      <div><Tag color="blue">Main chat connection</Tag><h2>Models for Data</h2>
++        <p>Data uses your main chat model by default. Overrides below apply only to Data.</p>
++        {data && <p>Main chat default: <strong>{data.workspace_default.model_id || 'Not selected'}</strong>{!data.workspace_default.configured && <span className={styles.muted}> · Needs configuration in main chat</span>}</p>}
++        {data && <span className={styles.muted}>Workspace: {data.workspace_id} · New tasks use the latest settings; running tasks keep their model.</span>}
++      </div>
++      <a href={new URL("/models", window.location.origin).href} target="_top" className={styles.link}>Manage main chat models ↗</a>
++    </section>
++    {error && <Alert type="error" showIcon message={error} />}
++    {!data && !error && <Spin />}
++    {data && draft && <>
++      <section className={`${styles.roles} datapaw-card-primary`}>
++        {roles.map(role => {
++          const choice = draft[role.id]; const effective = data.effective[role.id];
++          const changed = JSON.stringify(choice) !== JSON.stringify(data.settings[role.id]);
++          const inheritedAnalysis = role.id !== 'analysis' && choice.source === 'inherit' && JSON.stringify(draft.analysis) !== JSON.stringify(data.settings.analysis);
++          return <div className={styles.role} key={role.id}>
++            <div><h3>{role.name}</h3><p>{role.description}</p></div>
++            <div className={styles.controls}>
++              <Select aria-label={`${role.name} model source`} value={choice.source} disabled={saving} onChange={source => choose(role.id, {source})} options={[
++                {value:'inherit', label:role.inherit}, {value:'host', label:'Use a different main chat model'}, {value:'local', label:'Use app-specific settings'},
++              ]} />
++              {choice.source === 'host' && <Select aria-label={`${role.name} model`} showSearch optionFilterProp="label" value={choice.provider_id && choice.model_id ? JSON.stringify([choice.provider_id, choice.model_id]) : undefined} placeholder="Select a model" disabled={saving} onChange={value => {const [provider_id, model_id] = JSON.parse(value); choose(role.id, {source:'host', provider_id, model_id});}} options={data.providers.flatMap(p => p.models.map(m => ({value: JSON.stringify([p.id,m.id]), label:`${p.name} / ${m.name || m.id}`})))} />}
++              <span className={styles.effective}>{changed || inheritedAnalysis ? 'Pending save' : <>{effective.model_id || 'App-specific model'} <span className={styles.muted}>· {effective.source}</span>{effective.error && <div className={styles.problem}>{effective.error}</div>}</>}</span>
++            </div>
++          </div>;
++        })}
++        <div className={styles.footer}><span className={styles.muted}>Provider credentials stay in main chat. Data access permissions are managed separately.</span><Space><Button disabled={!dirty || saving} onClick={() => setDraft(data.settings)}>Reset</Button><Button type="primary" loading={saving} disabled={!dirty || roles.some(r => draft[r.id].source === 'host' && !draft[r.id].model_id)} onClick={() => void save()}>Save model choices</Button></Space></div>
++      </section>
++      <Collapse items={[{key:'embedding', label: <Space><strong>Embedding & data index</strong><Tag>Shared data service</Tag><span className={styles.muted}>{embedding.model || 'Not configured'}</span></Space>, children:<div className={styles.embedding}>
++        <p>Embeddings use a separate model and vector dimension. Changing the chat model leaves the data index unchanged. Saving an embedding change starts an index rebuild.</p>
++        {embeddingError && <Alert type="error" showIcon message={embeddingError} />}
++        {rebuildRequired && <Alert type="warning" showIcon message="The embedding settings changed. An index rebuild is required before using semantic search." />}
++        <div className={styles.fields}>
++          <label>Endpoint<Input value={embedding.base_url} onChange={e => setEmbedding({...embedding, base_url:e.target.value})} /></label>
++          <label>Embedding model<Input value={embedding.model} onChange={e => setEmbedding({...embedding, model:e.target.value})} /></label>
++          <label>Vector dimension<InputNumber min={1} precision={0} value={embedding.dim} onChange={v => setEmbedding({...embedding, dim:v || undefined})} /></label>
++          <label>Connection key<Input.Password autoComplete="new-password" value={embeddingKey} placeholder={embedding.api_key ? 'Saved · leave blank to keep' : 'Enter connection key'} onChange={e => setEmbeddingKey(e.target.value)} /></label>
++        </div>
++        <Space wrap><Button disabled={embeddingBusy} onClick={() => void embeddingAction('test')}>Test connection</Button><Button disabled={embeddingBusy || !embedding.model || !embedding.base_url || !embedding.dim} onClick={() => void embeddingAction('save')}>Save & rebuild index</Button><Button disabled={embeddingBusy} onClick={() => void embeddingAction('rebuild')}>Rebuild index</Button></Space>
++      </div>}, {key:'local', label:'Advanced · app-specific connections', children:<><p>Keep a separate connection for a locally managed or external Data service. Select “Use app-specific settings” above to use it.</p><Button onClick={onLocal}>Open app-specific settings</Button></>}]} />
++    </>}
++  </div>;
++}
+diff --git a/packages/datapaw-host-core/frontend/src/pages/AgentSettings/index.tsx b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/index.tsx
+index 40f7302..0d6e344 100644
+--- a/packages/datapaw-host-core/frontend/src/pages/AgentSettings/index.tsx
++++ b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/index.tsx
+@@ -1,778 +1,17 @@
+-import {
+-  CheckCircleFilled,
+-  CloseCircleOutlined,
+-  PlusOutlined,
+-  ReloadOutlined,
+-} from '@ant-design/icons';
+-import { Button, Input, Select } from '@agentscope-ai/design';
+-import {
+-  Alert,
+-  Form,
+-  InputNumber,
+-  Modal,
+-  Popconfirm,
+-  Spin,
+-  Switch,
+-  Tag,
+-  Tabs,
+-  message,
+-} from 'antd';
+-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { dataConsoleApi } from '@/features/console/api/client';
+-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+-import SecretInput from '@/features/console/components/SecretInput';
+-import ContextCompressionSettings from './ContextCompressionSettings';
+-import type {
+-  ModelProvider,
+-  ProviderModel,
+-  RuntimeSettings,
+-} from '@/features/console/api/types';
+-import { useAppI18n } from '@/i18n';
+-import styles from './index.module.less';
+-import DataBridgeModelSettings from './DataBridgeModelSettings';
+-import { modelConfigPayloads, useDataBridgeModelSettings, type ActiveModelFormValues } from './useDataBridgeModelSettings';
+-import { modelConfigApi } from '@/features/console/api/modelConfig';
+-import { getHostAuthContext } from '@/services/auth';
++import { useState } from 'react';
++import { Button, Tabs } from 'antd';
+ import { useLocation, useNavigate } from 'react-router-dom';
+ import { getAgentSettingsReturnPath } from '@/shared/navigation/sessionNavigation';
+-
+-interface ProviderCardProps {
+-  provider: ModelProvider;
+-  onChange: (provider: ModelProvider) => void;
+-}
+-
+-interface ProviderModelsProps {
+-  provider: ModelProvider;
+-  onChange: (providerId: string, models: ProviderModel[]) => void;
+-}
+-
+-function isExtraModelEditor(editing: ProviderModel | 'extra' | null): boolean {
+-  return editing === 'extra'
+-    || (typeof editing === 'object' && editing?.source === 'extra');
+-}
+-
+-function supportsThinking(provider: ModelProvider, model?: ProviderModel): boolean {
+-  return (model?.chat_model ?? provider.chat_model) === 'DashScopeChatModel';
+-}
+-
+-function errorMessage(error: unknown): string {
+-  return error instanceof Error ? error.message : String(error);
+-}
+-
+-function modelSelection(providerId: string | null, modelId: string | null) {
+-  return providerId && modelId ? `${providerId}/${modelId}` : undefined;
+-}
+-
+-function parseModelSelection(value?: string): [string | null, string | null] {
+-  if (!value) return [null, null];
+-  const separator = value.indexOf('/');
+-  if (separator < 1) return [null, null];
+-  return [value.slice(0, separator), value.slice(separator + 1)];
+-}
+-
+-function ProviderCard({ provider, onChange }: ProviderCardProps) {
+-  const { t } = useAppI18n();
+-  const [apiKey, setApiKey] = useState('');
+-  const [baseUrl, setBaseUrl] = useState(provider.base_url);
+-  const [saving, setSaving] = useState(false);
+-  const [clearing, setClearing] = useState(false);
+-
+-  const save = async () => {
+-    const trimmedKey = apiKey.trim();
+-    if (!provider.configured && !trimmedKey) {
+-      message.warning(t('agent.apiKeyRequired'));
+-      return;
+-    }
+-    setSaving(true);
+-    try {
+-      const { provider: updated } = await dataConsoleApi.updateModelProvider(
+-        provider.id,
+-        {
+-          ...(trimmedKey ? { api_key: trimmedKey } : {}),
+-          base_url: baseUrl.trim() || null,
+-        },
+-      );
+-      setApiKey('');
+-      setBaseUrl(updated.base_url);
+-      onChange(updated);
+-      message.success(t('agent.providerSaved', { name: provider.name }));
+-    } catch (error) {
+-      message.error(t('common.saveFailed', { message: errorMessage(error) }));
+-    } finally {
+-      setSaving(false);
+-    }
+-  };
+-
+-  const clear = async () => {
+-    setClearing(true);
+-    try {
+-      await dataConsoleApi.clearModelProvider(provider.id);
+-      onChange({
+-        ...provider,
+-        configured: false,
+-        api_key_masked: '',
+-        base_url: provider.catalog_base_url,
+-      });
+-      setApiKey('');
+-      setBaseUrl(provider.catalog_base_url);
+-      message.success(t('agent.credentialsCleared', { name: provider.name }));
+-    } catch (error) {
+-      message.error(t('agent.clearFailed', { message: errorMessage(error) }));
+-    } finally {
+-      setClearing(false);
+-    }
+-  };
+-
+-  return (
+-    <article className={styles.providerCard}>
+-      <header>
+-        <div className={styles.providerIdentity}>
+-          <strong>{provider.name}</strong>
+-          <span>{provider.chat_model}</span>
+-        </div>
+-        <Tag
+-          className={styles.providerStatus}
+-          color={provider.configured ? 'success' : 'default'}
+-          icon={provider.configured ? <CheckCircleFilled /> : undefined}
+-        >
+-          {provider.configured ? t('common.configured') : t('common.notConfigured')}
+-        </Tag>
+-      </header>
+-
+-      <div className={styles.providerFields}>
+-        <label>
+-          <span>API Key</span>
+-          <SecretInput
+-            autoComplete="new-password"
+-            value={apiKey}
+-            placeholder={provider.configured
+-              ? t('agent.savedSecretPlaceholder', { masked: provider.api_key_masked })
+-              : t('agent.apiKeyPlaceholder', { prefix: provider.api_key_prefix })}
+-            onChange={(event) => setApiKey(event.target.value)}
+-          />
+-        </label>
+-        <label>
+-          <span>Base URL</span>
+-          <Input
+-            value={baseUrl}
+-            placeholder={provider.catalog_base_url || t('agent.baseUrlPlaceholder')}
+-            onChange={(event) => setBaseUrl(event.target.value)}
+-          />
+-        </label>
+-      </div>
+-
+-      <footer>
+-        {provider.configured ? (
+-          <Button
+-            danger
+-            type="text"
+-            icon={<CloseCircleOutlined />}
+-            loading={clearing}
+-            onClick={() => void clear()}
+-          >
+-            {t('agent.clearCredentials')}
+-          </Button>
+-        ) : <span />}
+-        <Button
+-          type="primary"
+-          loading={saving}
+-          onClick={() => void save()}
+-        >
+-          {t('agent.saveProvider')}
+-        </Button>
+-      </footer>
+-    </article>
+-  );
+-}
+-
+-function ProviderModels({ provider, onChange }: ProviderModelsProps) {
+-  const { t } = useAppI18n();
+-  const [editing, setEditing] = useState<ProviderModel | 'extra' | null>(null);
+-  const [modelId, setModelId] = useState('');
+-  const [name, setName] = useState('');
+-  const [generateKwargs, setGenerateKwargs] = useState('{}');
+-  const [saving, setSaving] = useState(false);
+-  const [deletingId, setDeletingId] = useState<string | null>(null);
+-  const [thinkingId, setThinkingId] = useState<string | null>(null);
+-  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+-
+-  const closeEditor = () => {
+-    if (saving) return;
+-    setEditing(null);
+-  };
+-
+-  const openEditor = (model: ProviderModel | 'extra') => {
+-    setEditing(model);
+-    if (model === 'extra') {
+-      setModelId('');
+-      setName('');
+-      setThinkingEnabled(false);
+-      setGenerateKwargs('{}');
+-      return;
+-    }
+-    setModelId(model.id);
+-    setName(model.name);
+-    setThinkingEnabled(model.thinking_enabled ?? false);
+-    setGenerateKwargs(JSON.stringify(model.generate_kwargs ?? {}, null, 2));
+-  };
+-
+-  const saveModel = async () => {
+-    const trimmedModelId = modelId.trim();
+-    const source = isExtraModelEditor(editing) ? 'extra' : 'override';
+-    if (!trimmedModelId) {
+-      message.warning(t('agent.modelIdRequired'));
+-      return;
+-    }
+-    if (source === 'extra' && !name.trim()) {
+-      message.warning(t('agent.modelNameRequired'));
+-      return;
+-    }
+-
+-    let parsedKwargs: Record<string, unknown>;
+-    try {
+-      const parsed = JSON.parse(generateKwargs || '{}') as unknown;
+-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+-        throw new Error('not an object');
+-      }
+-      parsedKwargs = parsed as Record<string, unknown>;
+-    } catch {
+-      message.error(t('agent.invalidGenerateParams'));
+-      return;
+-    }
+-
+-    setSaving(true);
+-    try {
+-      const { model } = await dataConsoleApi.upsertProviderModel(
+-        provider.id,
+-        trimmedModelId,
+-        {
+-          source,
+-          name: source === 'extra' ? name.trim() : null,
+-          thinking_enabled: supportsThinking(
+-            provider,
+-            editing !== null && typeof editing === 'object' ? editing : undefined,
+-          )
+-            ? thinkingEnabled
+-            : null,
+-          generate_kwargs: parsedKwargs,
+-        },
+-      );
+-      const nextModels = provider.models.some((item) => item.id === model.id)
+-        ? provider.models.map((item) => item.id === model.id ? model : item)
+-        : [...provider.models, model];
+-      onChange(provider.id, nextModels);
+-      setEditing(null);
+-      message.success(t('agent.modelSaved', { name: model.name }));
+-    } catch (error) {
+-      message.error(t('common.saveFailed', { message: errorMessage(error) }));
+-    } finally {
+-      setSaving(false);
+-    }
+-  };
+-
+-  const deleteModel = async (model: ProviderModel) => {
+-    setDeletingId(model.id);
+-    try {
+-      await dataConsoleApi.deleteProviderModel(provider.id, model.id);
+-      const { models } = await dataConsoleApi.getProviderModels(provider.id);
+-      onChange(provider.id, models);
+-      message.success(model.source === 'override' ? t('agent.modelRestored') : t('agent.extraModelDeleted'));
+-    } catch (error) {
+-      message.error(t('common.operationFailed', { message: errorMessage(error) }));
+-    } finally {
+-      setDeletingId(null);
+-    }
+-  };
+-
+-  const updateThinking = async (model: ProviderModel, enabled: boolean) => {
+-    setThinkingId(model.id);
+-    try {
+-      const source = model.source === 'extra' ? 'extra' : 'override';
+-      const { model: updated } = await dataConsoleApi.upsertProviderModel(
+-        provider.id,
+-        model.id,
+-        {
+-          source,
+-          name: source === 'extra' ? model.name : null,
+-          thinking_enabled: enabled,
+-          generate_kwargs: model.generate_kwargs,
+-        },
+-      );
+-      onChange(
+-        provider.id,
+-        provider.models.map((item) => item.id === updated.id ? updated : item),
+-      );
+-      message.success(t('agent.thinkingUpdated', { name: model.name }));
+-    } catch (error) {
+-      message.error(t('common.saveFailed', { message: errorMessage(error) }));
+-    } finally {
+-      setThinkingId(null);
+-    }
+-  };
+-
+-  return (
+-    <article className={styles.modelProviderCard}>
+-      <header>
+-        <div>
+-          <strong>{provider.name}</strong>
+-          <span>{t('agent.availableModels', { count: provider.models.length })}</span>
+-        </div>
+-        <Button size="small" icon={<PlusOutlined />} onClick={() => openEditor('extra')}>
+-          {t('agent.addModel')}
+-        </Button>
+-      </header>
+-      <div className={styles.modelList}>
+-        {provider.models.map((model) => (
+-          <div className={styles.modelRow} key={model.id}>
+-            <div className={styles.modelSummary}>
+-              <div>
+-                <strong>{model.name}</strong>
+-                <code>{model.id}</code>
+-              </div>
+-              <div className={styles.modelTags}>
+-                <Tag color={model.source === 'catalog' ? 'default' : 'blue'}>
+-                  {model.source === 'catalog' ? t('agent.builtin') : model.source === 'extra' ? t('agent.extra') : t('agent.overridden')}
+-                </Tag>
+-              </div>
+-            </div>
+-            <div className={styles.modelActions}>
+-              {supportsThinking(provider, model) ? (
+-                <label className={styles.modelThinking}>
+-                  <span>{t('agent.thinking')}</span>
+-                  <Switch
+-                    size="small"
+-                    checked={model.thinking_enabled ?? false}
+-                    loading={thinkingId === model.id}
+-                    onChange={(enabled) => void updateThinking(model, enabled)}
+-                  />
+-                </label>
+-              ) : null}
+-              <div className={styles.modelActionButtons}>
+-                <Button
+-                  size="small"
+-                  type="text"
+-                  onClick={() => openEditor(model)}
+-                >
+-                  {t('agent.advancedConfig')}
+-                </Button>
+-                {model.source !== 'catalog' ? (
+-                  <Popconfirm
+-                    title={model.source === 'override' ? t('agent.restoreTitle') : t('agent.deleteExtraTitle')}
+-                    okText={t('common.confirm')}
+-                    cancelText={t('common.cancel')}
+-                    onConfirm={() => void deleteModel(model)}
+-                  >
+-                    <Button
+-                      danger
+-                      size="small"
+-                      type="text"
+-                      loading={deletingId === model.id}
+-                    >
+-                      {model.source === 'override' ? t('agent.restoreBuiltin') : t('common.delete')}
+-                    </Button>
+-                  </Popconfirm>
+-                ) : null}
+-              </div>
+-            </div>
+-          </div>
+-        ))}
+-      </div>
+-
+-      <Modal
+-        open={editing !== null}
+-        title={editing === 'extra' ? t('agent.addModelFor', { name: provider.name }) : t('agent.editModel')}
+-        okText={t('common.save')}
+-        cancelText={t('common.cancel')}
+-        confirmLoading={saving}
+-        onCancel={closeEditor}
+-        onOk={() => void saveModel()}
+-      >
+-        <div className={styles.modelEditor}>
+-          <label>
+-            <span>{t('agent.modelId')}</span>
+-            <Input
+-              value={modelId}
+-              disabled={editing !== 'extra'}
+-              placeholder={t('agent.modelIdPlaceholder')}
+-              onChange={(event) => setModelId(event.target.value)}
+-            />
+-          </label>
+-          {isExtraModelEditor(editing) ? (
+-            <label>
+-              <span>{t('agent.modelName')}</span>
+-              <Input
+-                value={name}
+-                placeholder={t('agent.modelNamePlaceholder')}
+-                onChange={(event) => setName(event.target.value)}
+-              />
+-            </label>
+-          ) : null}
+-          {supportsThinking(
+-            provider,
+-            editing !== null && typeof editing === 'object' ? editing : undefined,
+-          ) ? (
+-            <label className={styles.modelEditorSwitch}>
+-              <span>{t('agent.thinking')}</span>
+-              <Switch
+-                checked={thinkingEnabled}
+-                onChange={setThinkingEnabled}
+-              />
+-            </label>
+-          ) : null}
+-          <label>
+-            <span>{t('agent.generateParams')}</span>
+-            <Input.TextArea
+-              rows={6}
+-              value={generateKwargs}
+-              spellCheck={false}
+-              placeholder={'{\n  "temperature": 0.7\n}'}
+-              onChange={(event) => setGenerateKwargs(event.target.value)}
+-            />
+-          </label>
+-        </div>
+-      </Modal>
+-    </article>
+-  );
+-}
+-
++import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
++import WorkspaceModels from './WorkspaceModels';
++import AgentBehavior from './AgentBehavior';
++import AppLocalSettings from './AppLocalSettings';
++import styles from './index.module.less';
+ export default function AgentSettingsPage() {
+-  const { t } = useAppI18n();
+-  const [activeForm] = Form.useForm<ActiveModelFormValues>();
+-  const [runtimeForm] = Form.useForm<RuntimeSettings>();
+-  const toolTimeoutEnabled = Form.useWatch('tool_timeout_enabled', runtimeForm);
+-  const [providers, setProviders] = useState<ModelProvider[]>([]);
+-  const [loading, setLoading] = useState(true);
+-  const [loadError, setLoadError] = useState<string | null>(null);
+-  const [savingModels, setSavingModels] = useState(false);
+-  const [savingRuntime, setSavingRuntime] = useState(false);
+-  const cm = useDataBridgeModelSettings(activeForm, providers);
++  const [local, setLocal] = useState(false);
+   const navigate = useNavigate();
+   const location = useLocation();
+   const returnPath = getAgentSettingsReturnPath(location.search);
+-  const alive = useRef(0);
+-  const [saveError, setSaveError] = useState<string | null>(null);
+-  const [contextSettings, setContextSettings] = useState<RuntimeSettings | null>(null);
+-
+-  const load = useCallback(async () => {
+-    const generation = ++alive.current;
+-    const revision = getHostAuthContext().revision;
+-    const current = () => generation === alive.current && revision === getHostAuthContext().revision;
+-    setLoading(true);
+-    setLoadError(null);
+-    try {
+-      const [providerResponse, activeResponse, runtimeResponse] = await Promise.all([
+-        dataConsoleApi.getModelProviders(),
+-        dataConsoleApi.getActiveModels(),
+-        dataConsoleApi.getRuntimeSettings(),
+-      ]);
+-      if (!current()) return;
+-      setProviders(providerResponse.providers);
+-      const active = activeResponse.active_models;
+-      activeForm.setFieldsValue({
+-        default_provider_id: active.default_provider_id ?? undefined,
+-        default_model_id: active.default_model_id ?? undefined,
+-        light_selection: modelSelection(
+-          active.light_provider_id,
+-          active.light_model_id,
+-        ),
+-      });
+-      runtimeForm.setFieldsValue(runtimeResponse.runtime_settings);
+-      setContextSettings(runtimeResponse.runtime_settings);
+-    } catch (error) {
+-      if (current()) setLoadError(errorMessage(error));
+-    } finally {
+-      if (current()) setLoading(false);
+-    }
+-  }, [activeForm, runtimeForm]);
+-
+-  useEffect(() => {
+-    const previousTitle = document.title;
+-    document.title = `${t('agent.title')} · QwenPaw Data`;
+-    setSavingModels(false);
+-    setSaveError(null);
+-    if (cm.auth.ready) void load();
+-    return () => {
+-      alive.current += 1;
+-      document.title = previousTitle;
+-    };
+-  }, [load, t, cm.auth.ready, cm.auth.revision]);
+-
+-  const configuredProviders = useMemo(
+-    () => providers.filter((provider) => provider.configured),
+-    [providers],
+-  );
+-  const defaultProviderId = Form.useWatch('default_provider_id', activeForm);
+-  const defaultModelOptions = useMemo(
+-    () => providers.find((provider) => provider.id === defaultProviderId)?.models
+-      .map((model) => ({ value: model.id, label: model.name })) ?? [],
+-    [defaultProviderId, providers],
+-  );
+-  const allModelOptions = useMemo(
+-    () => configuredProviders.flatMap((provider) => provider.models.map((model) => ({
+-      value: `${provider.id}/${model.id}`,
+-      label: `${provider.name} · ${model.name}`,
+-    }))),
+-    [configuredProviders],
+-  );
+-
+-  const updateProvider = useCallback((updated: ModelProvider) => {
+-    cm.clearResults();
+-    void cm.load(false);
+-    setProviders((current) => current.map((provider) => (
+-      provider.id === updated.id ? updated : provider
+-    )));
+-    if (!updated.configured) {
+-      if (activeForm.getFieldValue('default_provider_id') === updated.id) {
+-        activeForm.setFieldsValue({
+-          default_provider_id: undefined,
+-          default_model_id: undefined,
+-        });
+-      }
+-      if (activeForm.getFieldValue('cm_provider_id') === updated.id) activeForm.setFieldValue('cm_provider_id', undefined);
+-      if (activeForm.getFieldValue('embedding_provider_id') === updated.id) activeForm.setFieldValue('embedding_provider_id', undefined);
+-      const lightSelection = activeForm.getFieldValue('light_selection');
+-      if (lightSelection?.startsWith(`${updated.id}/`)) {
+-        activeForm.setFieldValue('light_selection', undefined);
+-      }
+-    }
+-  }, [activeForm, cm]);
+-
+-  const updateProviderModels = useCallback((providerId: string, models: ProviderModel[]) => {
+-    setProviders((current) => current.map((provider) => (
+-      provider.id === providerId ? { ...provider, models } : provider
+-    )));
+-  }, []);
+-
+-  const saveActiveModels = async (values: ActiveModelFormValues) => {
+-    if (savingModels || cm.loading || cm.error || !cm.auth.ready) return;
+-    const [lightProviderId, lightModelId] = parseModelSelection(values.light_selection);
+-    const generation = alive.current;
+-    const revision = cm.auth.revision;
+-    const current = () => generation === alive.current && revision === getHostAuthContext().revision;
+-    setSavingModels(true);
+-    setSaveError(null);
+-    try {
+-      const payloads = modelConfigPayloads(values, providers);
+-      const results = await Promise.allSettled([
+-        dataConsoleApi.updateActiveModels({
+-          default_provider_id: values.default_provider_id,
+-          default_model_id: values.default_model_id,
+-          light_provider_id: lightProviderId,
+-          light_model_id: lightModelId,
+-        }),
+-        modelConfigApi.updateLLM(payloads.llm),
+-        modelConfigApi.updateEmbedding(payloads.embedding),
+-      ]);
+-      if (!current()) return;
+-      const labels = [t('agent.defaultModel'), 'DataBridge', 'Embedding'];
+-      const failures = results.flatMap((result, index) => result.status === 'rejected'
+-        ? [`${labels[index]}: ${errorMessage(result.reason)}`] : []);
+-      if (failures.length) setSaveError(t('agent.cm.saveFailed', { items: failures.join('；') }));
+-      else message.success(t('agent.activeModelsSaved'));
+-      await cm.load(false);
+-    } catch (error) {
+-      if (current()) setSaveError(errorMessage(error));
+-    } finally {
+-      if (current()) setSavingModels(false);
+-    }
+-  };
+-
+-  const saveRuntimeSettings = async (values: RuntimeSettings) => {
+-    setSavingRuntime(true);
+-    try {
+-      const { runtime_settings: saved } = await dataConsoleApi.updateRuntimeSettings(values);
+-      runtimeForm.setFieldsValue(saved);
+-      message.success(t('agent.runtimeSettingsSaved'));
+-    } catch (error) {
+-      message.error(t('common.saveFailed', { message: errorMessage(error) }));
+-    } finally {
+-      setSavingRuntime(false);
+-    }
+-  };
+-
+-  return (
+-    <div className={styles.content}>
+-      <ConsoleRouteHeader title={t('agent.title')} />
+-
+-      <main className={styles.main}>
+-        {returnPath ? <Button className={styles.returnButton} onClick={() => navigate(returnPath)}>{t('agent.cm.back')}</Button> : null}
+-        {loading ? (
+-          <div className={styles.loading}><Spin /><span>{t('agent.loading')}</span></div>
+-        ) : null}
+-        {!loading && loadError ? (
+-          <Alert
+-            showIcon
+-            type="error"
+-            message={t('agent.loadFailed')}
+-            description={loadError}
+-            action={<Button size="small" onClick={() => void load()}>{t('common.retry')}</Button>}
+-          />
+-        ) : null}
+-
+-        {!loading && !loadError ? (
+-          <Tabs
+-            defaultActiveKey="models"
+-            items={[
+-              {
+-                key: 'models',
+-                label: t('agent.modelConfigTab'),
+-                forceRender: true,
+-                children: <div className={styles.sections}>
+-                  <section className={`${styles.section} ${styles.modelConfigurationSection} datapaw-card-primary`}>
+-                    <div className={styles.modelSetupGrid}>
+-                      <div className={styles.modelSetupColumn}>
+-                        <div className={styles.sectionHeading}>
+-                          <h3>{t('agent.providerCredentials')}</h3>
+-                          <p>{t('agent.providerCredentialsDescription')}</p>
+-                        </div>
+-                        <div className={styles.providerGrid}>
+-                          {providers.map((provider) => (
+-                            <ProviderCard
+-                              key={provider.id}
+-                              provider={provider}
+-                              onChange={updateProvider}
+-                            />
+-                          ))}
+-                        </div>
+-                      </div>
+-                      <div className={`${styles.modelSetupColumn} ${styles.modelListColumn}`}>
+-                        <div className={`${styles.sectionHeading} ${styles.sectionHeadingWithAction}`}>
+-                          <h3>{t('agent.providerModels')}</h3>
+-                          <p>{t('agent.providerModelsDescription')}</p>
+-                          <Button
+-                            className={styles.sectionHeadingAction}
+-                            aria-label={t('common.refresh')}
+-                            title={t('common.refresh')}
+-                            icon={<ReloadOutlined />}
+-                            onClick={() => void load()}
+-                          />
+-                        </div>
+-                        <div className={styles.modelProviderGrid}>
+-                          {providers.map((provider) => (
+-                            <ProviderModels
+-                              key={provider.id}
+-                              provider={provider}
+-                              onChange={updateProviderModels}
+-                            />
+-                          ))}
+-                        </div>
+-                      </div>
+-                    </div>
+-                  </section>
+-
+-                  <section className={`${styles.section} datapaw-card-primary`}>
+-                    {!configuredProviders.length ? (
+-                      <Alert
+-                        showIcon
+-                        type="warning"
+-                        message={t('agent.configureProviderFirst')}
+-                      />
+-                    ) : (
+-                      <Form
+-                        form={activeForm}
+-                        layout="vertical"
+-                        className={`${styles.settingsForm} ${styles.activeModelForm}`}
+-                        disabled={savingModels}
+-                        onFinish={(values) => void saveActiveModels(values)}
+-                        onValuesChange={(changed) => {
+-                          cm.clearResults();
+-                          if ('cm_provider_id' in changed) activeForm.setFieldValue('cm_model_id', undefined);
+-                          if ('default_provider_id' in changed) {
+-                            activeForm.setFieldValue('default_model_id', undefined);
+-                          }
+-                        }}
+-                      >
+-                        <div className={styles.sessionModelSettings}>
+-                          <div className={styles.sectionHeading}>
+-                            <h3>{t('agent.activeModels')}</h3>
+-                            <p>{t('agent.activeModelsDescription')}</p>
+-                          </div>
+-                          <Form.Item
+-                            label={t('agent.defaultProvider')}
+-                            name="default_provider_id"
+-                            rules={[{ required: true, message: t('agent.defaultProviderRequired') }]}
+-                          >
+-                            <Select options={configuredProviders.map((provider) => ({
+-                              value: provider.id,
+-                              label: provider.name,
+-                            }))} />
+-                          </Form.Item>
+-                          <Form.Item
+-                            label={t('agent.defaultModel')}
+-                            name="default_model_id"
+-                            rules={[{ required: true, message: t('agent.defaultModelRequired') }]}
+-                          >
+-                            <Select disabled={!defaultProviderId} options={defaultModelOptions} />
+-                          </Form.Item>
+-                          <Form.Item label={t('agent.lightModel')} name="light_selection">
+-                            <Select allowClear options={allModelOptions} placeholder={t('agent.lightModelPlaceholder')} />
+-                          </Form.Item>
+-                        </div>
+-                        <DataBridgeModelSettings form={activeForm} providers={providers} settings={cm} saving={savingModels} />
+-                        {saveError ? <Alert className={styles.fullWidth} type="error" showIcon message={saveError} /> : null}
+-                        <div className={`${styles.formActions} ${styles.fullWidth}`}>
+-                          <Button type="primary" htmlType="submit" loading={savingModels} disabled={cm.loading || !!cm.error || !!cm.testing}>
+-                            {t('agent.saveActiveModels')}
+-                          </Button>
+-                        </div>
+-                      </Form>
+-                    )}
+-                  </section>
+-
+-                </div>,
+-              },
+-              {
+-                key: 'agent',
+-                label: t('agent.agentConfigTab'),
+-                forceRender: true,
+-                children: <div className={styles.sections}>
+-                  <section className={`${styles.section} datapaw-card-primary`}>
+-                    <div className={styles.sectionHeading}>
+-                      <h3>{t('agent.runtimeSettings')}</h3>
+-                      <p>{t('agent.runtimeSettingsDescription')}</p>
+-                    </div>
+-                    <Form
+-                      form={runtimeForm}
+-                      layout="vertical"
+-                      className={`${styles.settingsForm} ${styles.runtimeForm}`}
+-                      initialValues={{ tool_timeout_enabled: true, tool_timeout_seconds: 1800 }}
+-                      disabled={savingRuntime}
+-                      onFinish={(values) => void saveRuntimeSettings(values)}
+-                    >
+-                      <Form.Item className={styles.fullWidth} label={t('agent.reactMaxIterations')} name="react_max_iters">
+-                        <InputNumber min={1} precision={0} />
+-                      </Form.Item>
+-                      <Form.Item label={t('agent.enableLlmRetry')} name="llm_retry_enabled" valuePropName="checked">
+-                        <Switch />
+-                      </Form.Item>
+-                      <Form.Item label={t('agent.maxRetries')} name="llm_max_retries">
+-                        <InputNumber min={0} max={20} precision={0} />
+-                      </Form.Item>
+-                      <Form.Item label={t('agent.enableToolTimeout')} name="tool_timeout_enabled" valuePropName="checked">
+-                        <Switch />
+-                      </Form.Item>
+-                      <Form.Item
+-                        label={t('agent.toolTimeoutSeconds')}
+-                        name="tool_timeout_seconds"
+-                        rules={[{ required: true, type: 'number', min: 1, message: t('agent.toolTimeoutInvalid') }]}
+-                        extra={t('agent.toolTimeoutDescription')}
+-                      >
+-                        <InputNumber min={1} disabled={savingRuntime || !toolTimeoutEnabled} />
+-                      </Form.Item>
+-                      <div className={`${styles.formActions} ${styles.fullWidth}`}>
+-                        <Button type="primary" htmlType="submit" loading={savingRuntime}>
+-                          {t('agent.saveRuntimeSettings')}
+-                        </Button>
+-                      </div>
+-                    </Form>
+-                  </section>
+-                  {contextSettings ? <ContextCompressionSettings initialSettings={contextSettings} /> : null}
+-                </div>,
+-              },
+-            ]}
+-          />
+-        ) : null}
+-      </main>
+-    </div>
+-  );
++  if (local) return <><Button onClick={() => setLocal(false)} style={{margin:16}}>← Workspace model settings</Button><AppLocalSettings /></>;
++  return <div className={styles.content}><ConsoleRouteHeader title="Data settings" description="Models follow your workspace. Tune Data’s behavior separately." /><main className={styles.main}><Button type="link" onClick={() => navigate(returnPath || "/console")}>← Back to analysis</Button><Tabs items={[{key:'models',label:'Models',children:<WorkspaceModels onLocal={() => setLocal(true)} />},{key:'behavior',label:'Agent behavior',children:<AgentBehavior />}]}/></main></div>;
+ }
+diff --git a/packages/datapaw-host-core/frontend/src/pages/AgentSettings/workspace.module.less b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/workspace.module.less
+new file mode 100644
+index 0000000..73d871d
+--- /dev/null
++++ b/packages/datapaw-host-core/frontend/src/pages/AgentSettings/workspace.module.less
+@@ -0,0 +1,12 @@
++.root { display:flex; flex-direction:column; gap:24px; max-width:1200px; margin:0 auto; padding:12px 0 40px; color:var(--datapaw-text-primary,#263348); h2 {font-size:24px;line-height:1.4;margin:12px 0 8px;} h3{font-size:17px;margin:0 0 7px;} p{color:var(--datapaw-text-secondary,#7b8ba3);line-height:1.65;margin:0 0 12px;} }
++.hero {display:flex;gap:24px;align-items:center;justify-content:space-between;padding:30px 32px;border-radius:20px;background:linear-gradient(115deg,#f1f6ff,#fff 75%);border:1px solid #e5ebf4;}
++.link {color:#1677ff;white-space:nowrap;}
++.muted {color:var(--datapaw-text-secondary,#7b8ba3);font-size:13px;line-height:1.6;}
++.roles {border:1px solid #e5ebf4;border-radius:20px;overflow:hidden;background:var(--datapaw-bg-primary,#fff);}
++.role {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:32px;padding:26px 32px;border-bottom:1px solid #edf0f5;}
++.controls {display:flex;flex-direction:column;gap:10px;min-width:0;}
++.effective {font-size:13px;overflow-wrap:anywhere;}
++.problem {color:#c25336;}
++.footer {display:flex;gap:24px;align-items:center;justify-content:space-between;padding:20px 32px;}
++.embedding {padding:8px;p{max-width:720px;}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:20px 0;}label{display:flex;flex-direction:column;gap:8px;}}
++@media(max-width:760px){.hero,.footer{flex-direction:column;align-items:flex-start;}.role{grid-template-columns:minmax(0,1fr);gap:12px;}.embedding .fields{grid-template-columns:minmax(0,1fr);}.root{padding:4px 0;}.hero,.role,.footer{padding:22px;}}
+diff --git a/packages/datapaw-host-core/frontend/src/pages/Console/index.tsx b/packages/datapaw-host-core/frontend/src/pages/Console/index.tsx
+index 35e9176..c6bf624 100644
+--- a/packages/datapaw-host-core/frontend/src/pages/Console/index.tsx
++++ b/packages/datapaw-host-core/frontend/src/pages/Console/index.tsx
+@@ -54,7 +54,6 @@ import {
+ import { isComparable, isHtml } from '@/features/console/model/compare/families';
+ import { defaultReportSelection } from '@/features/console/model/compare/selection';
+ import { buildAgentConfigurationPath, buildConsoleSessionPath } from '@/shared/navigation/sessionNavigation';
+-import { getContextFrontendUrl } from '@/services/config';
+ import { appendReviewPrompt, reviewReportFilename, selectReviewReport } from '@/features/console/model/chat/reviewSession';
+ import { cacheRuntimeInputAttachments, cacheRuntimeInputDraft, getRuntimeInputDraft } from '@/features/console/model/chat/runtimeInputCache';
+ import type { Artifact, ConversationTurn, WorkspaceTab } from '@/features/console/types';
+@@ -823,7 +822,7 @@ export default function ConsolePage() {
+             const returnTo = `/console${query.size ? `?${query}` : ''}`;
+             navigate(buildAgentConfigurationPath(returnTo));
+           }}
+-          onOpenDataBridgeModelConfig={() => window.location.assign(getContextFrontendUrl('/model-config'))}
++          onOpenDataBridgeModelConfig={() => navigate('/console/settings/agent')}
+           onOpenComment={handleOpenComment}
+           onConsumePendingComments={handleConsumePendingComments}
+           onRestorePendingComments={handleRestorePendingComments}
 diff --git a/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx b/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx
 new file mode 100644
 index 0000000..aaffa44
@@ -945,8 +2959,94 @@ index 0000000..a655dba
 +    />
 +  );
 +}
+diff --git a/packages/datapaw-host-core/frontend/src/services/__test__/cmModelConfig.test.ts b/packages/datapaw-host-core/frontend/src/services/__test__/cmModelConfig.test.ts
+index 3ad6c95..b4adcd2 100644
+--- a/packages/datapaw-host-core/frontend/src/services/__test__/cmModelConfig.test.ts
++++ b/packages/datapaw-host-core/frontend/src/services/__test__/cmModelConfig.test.ts
+@@ -1,6 +1,6 @@
+ import assert from 'node:assert/strict';
+ import test from 'node:test';
+-import { createCMModelConfigGate, fetchCMModelConfigStatus } from '../cmModelConfig.js';
++import { createCMModelConfigGate, fetchCMModelConfigStatus, notifyModelSettingsChanged, subscribeModelSettingsRefresh } from '../cmModelConfig.js';
+ import type { CMModelConfigStatus } from '../cmModelConfig.js';
+
+ test('未配置时拒绝发送，配置完成后重查可恢复，队列发送前重新检测', async () => {
+@@ -81,18 +81,70 @@ test('实际探测携带 Cookie；HTTP 或网络失败按不确定处理', async
+     if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+     else Reflect.deleteProperty(globalThis, 'window');
+   });
+-  let response = Response.json({ configured: false });
++  let response = Response.json({ effective: {analysis: {configured: false}} });
+   const mock = context.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, options?: RequestInit) => {
+-    assert.equal(url, '/api/system/model-config/');
++    assert.equal(url, '/api/qwenpaw-data/model-settings');
+     assert.equal(options?.credentials, 'include');
+     assert.ok(options?.signal instanceof AbortSignal);
+     return response;
+   });
+   assert.deepEqual(await fetchCMModelConfigStatus(), { determined: true, configured: false });
+-  response = Response.json({ configured: true });
++  response = Response.json({ effective: {analysis: {configured: true}} });
+   assert.deepEqual(await fetchCMModelConfigStatus(), { determined: true, configured: true });
+   response = new Response(null, { status: 401 });
+   assert.deepEqual(await fetchCMModelConfigStatus(), { determined: false, configured: false });
+   mock.mock.mockImplementation(async () => { throw new TypeError('network'); });
+   assert.deepEqual(await fetchCMModelConfigStatus(), { determined: false, configured: false });
+ });
++
++
++test('saving settings refreshes a mounted console without a page reload', async (context) => {
++  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
++  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
++  Object.defineProperty(globalThis, 'window', {configurable: true, value: new EventTarget()});
++  Object.defineProperty(globalThis, 'document', {configurable: true, value: Object.assign(new EventTarget(), {visibilityState: 'visible'})});
++  context.after(() => {
++    for (const [name, descriptor] of [['window', previousWindow], ['document', previousDocument]] as const) {
++      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
++      else Reflect.deleteProperty(globalThis, name);
++    }
++  });
++  let configured = false;
++  let calls = 0;
++  const gate = createCMModelConfigGate(async () => {calls++; return {determined: true, configured};});
++  const stop = subscribeModelSettingsRefresh(gate.refresh);
++  await gate.check();
++  assert.equal(gate.getSnapshot(), true);
++  configured = true;
++  notifyModelSettingsChanged();
++  await gate.check();
++  assert.equal(gate.getSnapshot(), false);
++  configured = false;
++  window.dispatchEvent(new Event('hashchange'));
++  await gate.check();
++  assert.equal(gate.getSnapshot(), true);
++  configured = true;
++  window.dispatchEvent(new Event('focus'));
++  await gate.check();
++  assert.equal(gate.getSnapshot(), false);
++  stop();
++  const before = calls;
++  notifyModelSettingsChanged();
++  window.dispatchEvent(new Event('hashchange'));
++  window.dispatchEvent(new Event('focus'));
++  assert.equal(calls, before);
++});
++
++test('a pre-save probe cannot restore the warning or clear the new in-flight probe', async () => {
++  const requests: ((status: CMModelConfigStatus) => void)[] = [];
++  const gate = createCMModelConfigGate(() => new Promise(resolve => requests.push(resolve)));
++  const beforeSave = gate.check();
++  const afterSave = gate.refresh();
++  requests[0]({determined: true, configured: false});
++  await beforeSave;
++  assert.equal(gate.getSnapshot(), false);
++  assert.equal(gate.check(), afterSave);
++  requests[1]({determined: true, configured: true});
++  await afterSave;
++  assert.equal(gate.getSnapshot(), false);
++});
 diff --git a/packages/datapaw-host-core/frontend/src/services/auth.ts b/packages/datapaw-host-core/frontend/src/services/auth.ts
-index 1e81bc4..6f0e81c 100644
+index 1a4d622..4ab69ba 100644
 --- a/packages/datapaw-host-core/frontend/src/services/auth.ts
 +++ b/packages/datapaw-host-core/frontend/src/services/auth.ts
 @@ -1,4 +1,4 @@
@@ -954,16 +3054,16 @@ index 1e81bc4..6f0e81c 100644
 +import { getApiUrl, getAuthApiUrl } from "./config.js";
  
  interface AuthStatusResponse {
-   enabled: boolean;
-@@ -24,7 +24,6 @@ export interface HostCurrentUser {
+   enabled: boolean; // 是否启用登录认证。
+@@ -26,7 +26,6 @@ export interface HostCurrentUser {
  }
  
  let refreshInFlight: Promise<boolean> | null = null;
 -let ssoLoginPath: string | null = null;
  let currentUser: HostCurrentUser | null = null;
  
- export function getHostCurrentUser(): HostCurrentUser | null {
-@@ -54,12 +53,9 @@ export function refreshAuthSession(): Promise<boolean> {
+ let authContext = { revision: 0, ready: false };
+@@ -72,12 +71,9 @@ export function refreshAuthSession(): Promise<boolean> {
  
  export function redirectToLogin(): void {
    if (typeof window === "undefined") return;
@@ -979,14 +3079,116 @@ index 1e81bc4..6f0e81c 100644
  }
  
  export async function fetchWithAuthRetry(
-@@ -96,7 +92,6 @@ export async function bootstrapHostAuth(): Promise<boolean> {
+@@ -115,7 +111,6 @@ export async function bootstrapHostAuth(): Promise<boolean> {
    }
  
    const status = await statusResponse.json() as AuthStatusResponse;
 -  ssoLoginPath = status.sso_enabled ? status.sso_login_path : null;
-   if (!status.enabled) return true;
+   if (revision !== authContext.revision) return false;
+   if (!status.enabled) {
+     publishAuthContext(true);
+diff --git a/packages/datapaw-host-core/frontend/src/services/cmModelConfig.ts b/packages/datapaw-host-core/frontend/src/services/cmModelConfig.ts
+index 1065ea7..b29b48c 100644
+--- a/packages/datapaw-host-core/frontend/src/services/cmModelConfig.ts
++++ b/packages/datapaw-host-core/frontend/src/services/cmModelConfig.ts
+@@ -1,8 +1,7 @@
+-import { getContextFrontendUrl } from './config.js';
  
-   const meResponse = await fetchWithAuthRetry(getAuthApiUrl("/me"));
+-// CM 侧 GET /api/system/model-config/ 返回体中的关键字段
++// Readiness for the effective Data model selected through main chat settings.
+ interface CMModelConfigResponse {
+-  configured?: unknown;
++  effective?: {analysis?: {configured?: boolean; source?: string}};
+ }
+ 
+ export interface CMModelConfigStatus {
+@@ -12,13 +11,13 @@ export interface CMModelConfigStatus {
+   configured: boolean;
+ }
+ 
+-const MODEL_CONFIG_PATH = '/api/system/model-config/';
++const MODEL_CONFIG_PATH = '/api/qwenpaw-data/model-settings';
+ const PROBE_TIMEOUT_MS = 5_000;
+ 
+-// 探测 CM 当前用户是否完成了 LLM + Embedding 配置；任意失败一律 fail-open。
++// A failed probe is unknown; request admission still validates configuration.
+ export async function fetchCMModelConfigStatus(): Promise<CMModelConfigStatus> {
+   if (typeof window === 'undefined') return { determined: false, configured: false };
+-  const url = getContextFrontendUrl(MODEL_CONFIG_PATH);
++  const url = MODEL_CONFIG_PATH;
+   const controller = new AbortController();
+   const timer = window.setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+   try {
+@@ -29,7 +28,7 @@ export async function fetchCMModelConfigStatus(): Promise<CMModelConfigStatus> {
+     });
+     if (!response.ok) return { determined: false, configured: false };
+     const payload = (await response.json()) as CMModelConfigResponse;
+-    return { determined: true, configured: payload?.configured === true };
++    return { determined: true, configured: payload?.effective?.analysis?.configured === true };
+   } catch {
+     return { determined: false, configured: false };
+   } finally {
+@@ -43,7 +42,8 @@ export function createCMModelConfigGate(probe = fetchCMModelConfigStatus) {
+   let required = false;
+   let inFlight: Promise<boolean> | null = null;
+   const listeners = new Set<() => void>();
+-  return {
++  let generation = 0;
++  const gate = {
+     getSnapshot: () => required,
+     subscribe: (listener: () => void) => {
+       listeners.add(listener);
+@@ -51,15 +51,48 @@ export function createCMModelConfigGate(probe = fetchCMModelConfigStatus) {
+     },
+     check: (): Promise<boolean> => {
+       if (!inFlight) {
++        const current = generation;
+         inFlight = probe().then((status) => {
+-          if (status.determined && required !== !status.configured) {
++          if (current === generation && status.determined && required !== !status.configured) {
+             required = !status.configured;
+             listeners.forEach((listener) => listener());
+           }
+           return !status.determined || status.configured;
+-        }).finally(() => { inFlight = null; });
++        }).finally(() => { if (current === generation) inFlight = null; });
+       }
+       return inFlight;
+     },
++    refresh: (): Promise<boolean> => {
++      generation += 1;
++      inFlight = null;
++      return gate.check();
++    },
+   };
++  return gate;
+ }
++
++const MODEL_SETTINGS_CHANGED = 'data-model-settings-changed';
++
++export function notifyModelSettingsChanged() {
++  window.dispatchEvent(new Event(MODEL_SETTINGS_CHANGED));
++}
++
++// The console controller survives settings navigation. Refresh on save and
++// return, including main chat settings changed in another tab.
++export function subscribeModelSettingsRefresh(refresh: () => Promise<boolean>) {
++  const onRefresh = () => { void refresh(); };
++  const onVisibility = () => {
++    if (document.visibilityState === 'visible') onRefresh();
++  };
++  window.addEventListener(MODEL_SETTINGS_CHANGED, onRefresh);
++  window.addEventListener('hashchange', onRefresh);
++  window.addEventListener('focus', onRefresh);
++  document.addEventListener('visibilitychange', onVisibility);
++  return () => {
++    window.removeEventListener(MODEL_SETTINGS_CHANGED, onRefresh);
++    window.removeEventListener('hashchange', onRefresh);
++    window.removeEventListener('focus', onRefresh);
++    document.removeEventListener('visibilitychange', onVisibility);
++  };
++}
++
 diff --git a/packages/datapaw-host-core/frontend/src/services/config.ts b/packages/datapaw-host-core/frontend/src/services/config.ts
 index d3ce27e..6a1bd30 100644
 --- a/packages/datapaw-host-core/frontend/src/services/config.ts
@@ -1000,3 +3202,25 @@ index d3ce27e..6a1bd30 100644
    return `${base}${prefixedPath}`;
  }
  
+diff --git a/packages/datapaw-host-core/frontend/vite.config.ts b/packages/datapaw-host-core/frontend/vite.config.ts
+index 9dc7d5e..b8ec3e4 100644
+--- a/packages/datapaw-host-core/frontend/vite.config.ts
++++ b/packages/datapaw-host-core/frontend/vite.config.ts
+@@ -70,8 +70,15 @@ export default defineConfig(({ mode }) => {
+       minify: 'terser',
+       rollupOptions: {
+         output: {
+-          entryFileNames: 'assets/[name]-[hash].js',
+-          assetFileNames: 'assets/[name]-[hash][extname]',
++          // The embedded snapshot verifier and host bridge address the entry
++          // assets by stable names; lazy chunks remain content-addressed.
++          entryFileNames: 'assets/index.js',
++          chunkFileNames: 'assets/[name]-[hash].js',
++          assetFileNames: (assetInfo) => (
++            assetInfo.name?.endsWith('.css')
++              ? 'assets/style.css'
++              : 'assets/[name]-[hash][extname]'
++          ),
+           // Let Rollup keep shared style initialization in dependency order.
+           // Isolating chat alone creates a cycle with the entry's antd-style exports.
+         },

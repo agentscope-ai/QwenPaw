@@ -49,6 +49,7 @@ install_plugin() {
   rsync -a --exclude '__pycache__' --exclude '*.pyc' \
     "$PLUGIN_DIR/backend/" "$STAGE_DIR/backend/"
   rsync -a "$PLUGIN_DIR/ui/dist/" "$STAGE_DIR/ui/dist/"
+  [ -d "$PLUGIN_DIR/templates" ] && rsync -a "$PLUGIN_DIR/templates/" "$STAGE_DIR/templates/"
   du -sh "$STAGE_DIR" | awk '{print "==> Staged package size: " $1}'
 
   echo "==> Installing via qwenpaw plugin install --force ..."

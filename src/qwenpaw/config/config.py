@@ -967,6 +967,19 @@ class ReMeLightMemoryConfig(BaseModel):
         "background task burden.",
     )
 
+    auto_memory_include_images: bool = Field(
+        default=False,
+        description=(
+            "Include conversation images in auto-memory when the memory "
+            "model has confirmed image-input support"
+        ),
+    )
+
+    auto_memory_generate_tags: bool = Field(
+        default=False,
+        description="Generate entity tags after auto-memory writes a note",
+    )
+
     dream_cron_enabled: bool = Field(
         default=True,
         description=(
@@ -1187,7 +1200,8 @@ class ToolResultPruningConfig(BaseModel):
         ge=1,
         le=365,
         description=(
-            "Number of days to retain complete archived tool result files. "
+            "Number of days to retain complete archived tool result files "
+            "after their latest publication or reuse. "
             "This lifetime is independent of Scroll history retention; after "
             "expiry, history may still contain the bounded preview but not "
             "the complete artifact."
@@ -1316,6 +1330,22 @@ class VisualCompactConfig(BaseModel):
     )
 
 
+class DecisionCompactConfig(BaseModel):
+    """Optional recoverable tool-result compaction with a decision model."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+    enabled: bool = False
+    drop_threshold: float = Field(default=0.1, ge=0, le=1)
+    preserve_recent_messages: int = Field(default=6, ge=0)
+    preview_chars: int = Field(default=300, ge=0)
+    total_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    max_state_tokens: int = Field(default=25000, gt=0)
+    max_request_tokens: int = Field(default=30000, gt=0)
+    evidence_chars: int = Field(default=2000, gt=0)
+    max_concurrency: int = Field(default=4, ge=1, le=32)
+
+
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
@@ -1353,6 +1383,9 @@ class LightContextConfig(BaseModel):
     )
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
+    )
+    decision_compact_config: DecisionCompactConfig = Field(
+        default_factory=DecisionCompactConfig,
     )
     visual_compact_config: VisualCompactConfig = Field(
         default_factory=VisualCompactConfig,
@@ -1610,7 +1643,7 @@ class GoalLoopModeConfig(BaseModel):
     """Editable values for the fixed built-in Goal pipeline."""
 
     max_iterations: int = Field(default=20, ge=1, le=500)
-    max_tokens: int = Field(default=300_000, ge=1)
+    max_tokens: int = Field(default=0, ge=-1)
 
 
 class MissionLoopModeConfig(BaseModel):
@@ -2095,7 +2128,126 @@ class CodingModeConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        description="Enable Coding Mode IDE layout and tools",
+        description=(
+            "Route enabled tools through sandboxed Python orchestration"
+        ),
+    )
+
+
+AdvisorThinkingLevel = Literal["inherit", "off", "low", "medium", "high"]
+
+
+class AdvisorInterventionConfig(BaseModel):
+    """When the advisor is called back in mid-run (Advisor Mode).
+
+    The trigger fires on ``consecutive_failures`` failed tool calls in a
+    row, or ``window_failures`` failures within the last ``window_size``
+    steps. Counters reset after each intervention.
+    """
+
+    consecutive_failures: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Failed tool calls in a row before the advisor is consulted"
+        ),
+    )
+    window_size: int = Field(
+        default=10,
+        ge=1,
+        description="Number of recent steps the failure window spans",
+    )
+    window_failures: int = Field(
+        default=4,
+        ge=1,
+        description=(
+            "Failed tool calls within the window before the advisor is "
+            "consulted"
+        ),
+    )
+    cooldown_steps: int = Field(
+        default=0,
+        ge=0,
+        description="Steps to wait after an intervention before the next",
+    )
+    max_interventions: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum automatic interventions per run",
+    )
+
+
+class AdvisorModeConfig(BaseModel):
+    """Configuration for Advisor Mode (stored in agent.json).
+
+    In Advisor Mode the agent's primary model acts as the advisor: it
+    writes a strategic plan before the agent's first step and is consulted
+    again when the agent keeps failing. The agent itself (the worker) runs
+    on the cheaper ``subagent_model`` when one is configured.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable Advisor Mode for this agent",
+    )
+    plan_enabled: bool = Field(
+        default=True,
+        description=(
+            "Ask the advisor for a plan before the agent's first step"
+        ),
+    )
+    followup_enabled: bool = Field(
+        default=True,
+        description=(
+            "Consult the advisor again mid-run when repeated tool "
+            "failures are detected"
+        ),
+    )
+    on_demand_enabled: bool = Field(
+        default=True,
+        description=(
+            "Expose a consult_advisor tool so the agent can ask the "
+            "advisor on its own"
+        ),
+    )
+    max_consults: int = Field(
+        default=32,
+        ge=0,
+        description="Maximum on-demand consultations per conversation",
+    )
+    recent_messages: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "How many of the agent's latest messages the advisor sees at "
+            "each intervention or consultation. Every text, tool call and "
+            "tool result counts as one"
+        ),
+    )
+    intervention: AdvisorInterventionConfig = Field(
+        default_factory=AdvisorInterventionConfig,
+        description="Thresholds for the mid-run auto intervention",
+    )
+    advisor_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Model that answers as the advisor. None means the agent's "
+            "primary model"
+        ),
+    )
+    worker_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Model the agent runs on while Advisor Mode is on. None means "
+            "the sub-agent model, or the primary model when none is set"
+        ),
+    )
+    advisor_thinking: AdvisorThinkingLevel = Field(
+        default="off",
+        description=(
+            "Thinking level for the advisor's own calls. 'inherit' "
+            "follows the agent and model defaults"
+        ),
     )
 
 
@@ -2451,6 +2603,10 @@ class AgentProfileConfig(BaseModel):
     coding_mode: CodingModeConfig = Field(
         default_factory=CodingModeConfig,
         description="Coding Mode configuration for this agent",
+    )
+    advisor_mode: AdvisorModeConfig = Field(
+        default_factory=AdvisorModeConfig,
+        description="Advisor Mode configuration for this agent",
     )
     mail: Optional[AgentMailConfig] = Field(
         default=None,
@@ -2871,6 +3027,9 @@ class ToolsConfig(BaseModel):
         icon value.
         """
         defaults = _default_builtin_tools()
+        # Retired built-ins must not remain as nonfunctional settings.
+        for name in (f"lsp", f"ast_search"):
+            self.builtin_tools.pop(name, None)
         # Keep persisted configurations from the former stable-track name
         # compatible with the unified browser identity.
         legacy = self.builtin_tools.pop("browser_use", None)

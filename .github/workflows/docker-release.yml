@@ -102,7 +102,7 @@ jobs:
           if [ "${IS_PRERELEASE}" != "true" ]; then
             TAGS="${TAGS} -t ${ACR_REGISTRY}/${IMAGE}:latest -t docker.io/${IMAGE}:latest"
           fi
-          docker buildx build --platform linux/amd64,linux/arm64 \
+          docker buildx build --pull --no-cache --platform linux/amd64,linux/arm64 \
             -f deploy/Dockerfile \
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
             --build-arg \

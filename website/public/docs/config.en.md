@@ -514,6 +514,25 @@ and PowerContext plugin configurations.
 | `compact_threshold_ratio` | float | `0.8`   | Threshold ratio (relative to `max_input_length`) that triggers compaction |
 | `reserve_threshold_ratio` | float | `0.1`   | Ratio of recent context to preserve after compaction for continuity       |
 
+**Decision model compaction (`light_context_config.decision_compact_config` object):**
+
+Optional enhancement for both Scroll and native compression. Uses the agent decision model, falling back to the global
+default decision model. Independent of long-term memory and the chat decision toggle; requires automatic context compaction.
+
+| Field                      | Type  | Default | Description                                                      |
+| -------------------------- | ----- | ------- | ---------------------------------------------------------------- |
+| `enabled`                  | bool  | `false` | Enable relevance-based tool-result previews                      |
+| `drop_threshold`           | float | `0.1`   | Maximum relevance probability for shortening a result, 0–1       |
+| `preserve_recent_messages` | int   | `6`     | Recent messages to preserve; the active turn is always protected |
+| `preview_chars`            | int   | `300`   | Preview characters, excluding recovery instructions              |
+| `total_timeout_seconds`    | float | `30`    | Total pass timeout, greater than 0 and at most 300 seconds       |
+| `max_state_tokens`         | int   | `25000` | Positive ReMe estimate for decision state                        |
+| `max_request_tokens`       | int   | `30000` | Positive ReMe estimate for each complete request                 |
+| `evidence_chars`           | int   | `2000`  | Positive excerpt character limit per tool result                 |
+| `max_concurrency`          | int   | `4`     | Concurrent decision requests, 1–32                               |
+
+See [Decision model compaction](./context#optional-decision-model-compaction) for recovery and fallback behavior.
+
 **Light Tool Result Pruning (`light_context_config.tool_result_pruning_config` object):**
 
 | Field                          | Type | Default | Description                                                                                                 |
@@ -539,6 +558,8 @@ and PowerContext plugin configurations.
 | `daily_paper_inbox_push_enabled` | bool        | `true`                           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
 | `auto_fin_inbox_push_enabled`    | bool        | `true`                           | Whether to push generated Auto Fin reports or failures to the inbox; successful skips are not pushed                                                                             |
 | `auto_memory_interval`           | int \| null | `5`                              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
+| `auto_memory_include_images`     | bool        | `false`                          | Include conversation images in Auto-Memory when the memory model has confirmed image-input support                                                                               |
+| `auto_memory_generate_tags`      | bool        | `false`                          | Generate entity tags after Auto-Memory saves a note; adds model calls. Applies to subsequent memory jobs without a restart                                                       |
 | `dream_cron_enabled`             | bool        | `true`                           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
 | `dream_cron`                     | string      | `"0 23 * * *"`                   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
 | `daily_paper_cron_enabled`       | bool        | `false`                          | Whether to enable the scheduled Daily Paper job                                                                                                                                  |
@@ -553,6 +574,13 @@ and PowerContext plugin configurations.
 | `auto_memory_search_config`      | object      | _(see below)_                    | Auto memory search configuration                                                                                                                                                 |
 | `embedding_model_config`         | object      | _(see below)_                    | Embedding model configuration                                                                                                                                                    |
 | `needs_reindex`                  | bool        | `false`                          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
+
+Enable **Include images in auto-memory** in the Agent's memory settings to remember visual details. ReMe uses the Agent's
+configured model, or the global model when inherited; a chat session's temporary model selection does not change it.
+Image support must be recognized (`supports_image: true`); unknown capability leaves images disabled. Image jobs retain
+only fallback models with confirmed image support. The default ReMe
+wrapper limit is **5 images per Auto-Memory invocation**, including all conversation turns submitted together.
+LLM-backed memory jobs run sequentially, so a long Dream or Daily Paper job can delay Auto-Memory; memory searches remain independent.
 
 > `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
 > maintenance API described in [Rebuilding the Memory Search Index](./memory#runtime-status-and-rebuilding-the-index).
