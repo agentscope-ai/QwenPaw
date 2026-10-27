@@ -65,6 +65,7 @@ import {
 } from "./auth/gate";
 import type { AuthStatusResponse } from "./api/modules/auth";
 import { hubApi, type HubHealth } from "./api/modules/hub";
+import { chatDisplayApi } from "./api/modules/chatDisplay";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
@@ -76,6 +77,7 @@ import {
   subscribeUiFontSize,
   UI_FONT_SIZE_DEFAULT,
 } from "./utils/uiFontSizePreference";
+import { setAssistantMessageDisplayServerDefault } from "./utils/chatDisplayPreference";
 import type { ThemeConfig } from "./api/modules/theme";
 import "./styles/tokens.css";
 import "./styles/layout.css";
@@ -428,6 +430,20 @@ function AppInner({
         );
     }
     useUploadLimitStore.getState().fetch();
+
+    // Sync the server-provided default for assistant message display.
+    // An explicit per-browser choice in localStorage always wins; this
+    // only fills the fallback for browsers without a stored choice.
+    chatDisplayApi
+      .get()
+      .then((chatDisplay) => {
+        setAssistantMessageDisplayServerDefault(
+          chatDisplay.assistant_message_display_mode ?? null,
+        );
+      })
+      .catch(() => {
+        // Optional default; keep localStorage-only behavior on failure.
+      });
   }, []);
 
   useEffect(() => {

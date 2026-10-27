@@ -32,6 +32,7 @@ from qwenpaw.app.routers.config import router as config_router
 from qwenpaw.config import get_available_channels, load_config
 from qwenpaw.config.config import (
     ChannelConfig,
+    ChatDisplayConfig,
     ConsoleConfig,
     HeartbeatConfig,
     OneBotConfig,
@@ -828,6 +829,123 @@ def test_delete_theme_clears_persisted_config(client):
     assert response.status_code == 204
     assert calls == [fake_cfg]
     assert fake_cfg.theme is None
+
+
+# ---------------------------------------------------------------------------
+# /config/chat-display
+# ---------------------------------------------------------------------------
+
+
+def test_get_chat_display_returns_sparse_defaults(client):
+    fake_cfg = MagicMock()
+    fake_cfg.chat_display = None
+    read_config = AsyncMock(return_value=fake_cfg)
+
+    with patch(
+        "qwenpaw.app.routers.config.run_sync_io",
+        new=read_config,
+    ):
+        response = client.get("/api/config/chat-display")
+
+    assert response.status_code == 200
+    assert response.json() == {}
+    read_config.assert_awaited_once_with(load_config)
+
+
+def test_get_chat_display_returns_stored_section(client):
+    fake_cfg = MagicMock()
+    fake_cfg.chat_display = ChatDisplayConfig(
+        assistant_message_display_mode="process-collapsed",
+    )
+    read_config = AsyncMock(return_value=fake_cfg)
+
+    with patch(
+        "qwenpaw.app.routers.config.run_sync_io",
+        new=read_config,
+    ):
+        response = client.get("/api/config/chat-display")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "assistant_message_display_mode": "process-collapsed",
+    }
+    read_config.assert_awaited_once_with(load_config)
+
+
+def test_put_chat_display_persists_without_agent_reload(client):
+    fake_cfg = MagicMock()
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.put(
+            "/api/config/chat-display",
+            json={"assistant_message_display_mode": "process-collapsed"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "assistant_message_display_mode": "process-collapsed",
+    }
+    assert calls == [fake_cfg]
+    assert (
+        fake_cfg.chat_display.assistant_message_display_mode
+        == "process-collapsed"
+    )
+
+
+def test_put_chat_display_empty_body_clears_section(client):
+    fake_cfg = MagicMock()
+    fake_cfg.chat_display = ChatDisplayConfig(
+        assistant_message_display_mode="process-collapsed",
+    )
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.put("/api/config/chat-display", json={})
+
+    assert response.status_code == 200
+    assert response.json() == {}
+    assert calls == [fake_cfg]
+    assert fake_cfg.chat_display is None
+
+
+def test_put_chat_display_rejects_unknown_mode(client):
+    response = client.put(
+        "/api/config/chat-display",
+        json={"assistant_message_display_mode": "show-everything"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_chat_display_config_accepts_known_modes():
+    for mode in ("expanded", "process-collapsed", "result-collapsed"):
+        config = ChatDisplayConfig(assistant_message_display_mode=mode)
+        assert config.assistant_message_display_mode == mode
+
+
+def test_delete_chat_display_clears_persisted_config(client):
+    fake_cfg = MagicMock()
+    fake_cfg.chat_display = ChatDisplayConfig(
+        assistant_message_display_mode="process-collapsed",
+    )
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.delete("/api/config/chat-display")
+
+    assert response.status_code == 204
+    assert calls == [fake_cfg]
+    assert fake_cfg.chat_display is None
 
 
 # ---------------------------------------------------------------------------

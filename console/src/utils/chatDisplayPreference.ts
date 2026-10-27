@@ -13,6 +13,15 @@ export type AssistantMessageDisplayPreference =
 
 export type ToolDisplayPreference = "current" | "raw-input-output";
 
+type AssistantDisplayServerDefault = AssistantMessageDisplayPreference | null;
+
+/**
+ * Server-provided fallback for the assistant message display mode.
+ * An explicit per-browser choice in localStorage always wins; this value
+ * only applies when the browser has never stored a choice.
+ */
+let assistantDisplayServerDefault: AssistantDisplayServerDefault = null;
+
 export function subscribeChatDisplayPreference(
   onStoreChange: () => void,
 ): () => void {
@@ -30,6 +39,30 @@ function notifyChatDisplayPreferenceChange(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(CHAT_DISPLAY_PREFERENCE_CHANGE_EVENT));
   }
+}
+
+function isAssistantMessageDisplayPreference(
+  value: unknown,
+): value is AssistantMessageDisplayPreference {
+  return (
+    value === "expanded" ||
+    value === "process-collapsed" ||
+    value === "result-collapsed"
+  );
+}
+
+/**
+ * Apply the server-provided default for the assistant message display
+ * mode. Pass null to clear it (e.g. on fetch failure). An explicit
+ * per-browser choice in localStorage always wins over this default.
+ */
+export function setAssistantMessageDisplayServerDefault(
+  mode: AssistantMessageDisplayPreference | null | undefined,
+): void {
+  assistantDisplayServerDefault = isAssistantMessageDisplayPreference(mode)
+    ? mode
+    : null;
+  notifyChatDisplayPreferenceChange();
 }
 
 export function getShowThinkingPreference(): boolean {
@@ -81,11 +114,17 @@ export function setToolDisplayPreference(mode: ToolDisplayPreference): void {
 export function getAssistantMessageDisplayPreference(): AssistantMessageDisplayPreference {
   try {
     const stored = localStorage.getItem(ASSISTANT_DISPLAY_MODE_STORAGE_KEY);
-    if (stored === "expanded" || stored === "process-collapsed") {
+    if (isAssistantMessageDisplayPreference(stored)) {
       return stored;
     }
   } catch {
     // storage unavailable
+  }
+  if (
+    assistantDisplayServerDefault === "expanded" ||
+    assistantDisplayServerDefault === "process-collapsed"
+  ) {
+    return assistantDisplayServerDefault;
   }
   return "result-collapsed";
 }
@@ -94,11 +133,9 @@ export function setAssistantMessageDisplayPreference(
   mode: AssistantMessageDisplayPreference,
 ): void {
   try {
-    if (mode === "result-collapsed") {
-      localStorage.removeItem(ASSISTANT_DISPLAY_MODE_STORAGE_KEY);
-    } else {
-      localStorage.setItem(ASSISTANT_DISPLAY_MODE_STORAGE_KEY, mode);
-    }
+    // Store every mode explicitly (including the built-in default) so a
+    // per-browser choice stays expressible when a server default exists.
+    localStorage.setItem(ASSISTANT_DISPLAY_MODE_STORAGE_KEY, mode);
   } catch {
     // storage unavailable
   }
