@@ -1822,6 +1822,8 @@
     "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
+    "customFieldJsonArray": "请输入有效的 JSON 数组。",
+    "customFieldJsonObject": "请输入有效的 JSON 对象。",
     "manualCredentials": "手动填写凭据",
     "deliverySettings": "发送方式",
     "presentationSettings": "消息呈现",

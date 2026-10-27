@@ -1631,6 +1631,8 @@
     "selectAtLeastOneDay": "Selecione pelo menos um dia."
   },
   "channels": {
+    "customFieldJsonArray": "Insira um array JSON válido.",
+    "customFieldJsonObject": "Insira um objeto JSON válido.",
     "title": "Canais",
     "description": "Manage and configure message channels",
     "loading": "Carregando channels...",

@@ -693,6 +693,174 @@ describe("ChannelDrawer plugin schema rendering", () => {
     expect(screen.queryByText("Custom Fields")).toBeNull();
   });
 
+  it("renders nested custom arrays and objects as formatted JSON", () => {
+    const instances = [{ name: "my-bot", ws_url: "ws://127.0.0.1:3001" }];
+    const routing = { rules: [{ match: { group_id: 123 }, enabled: true }] };
+    renderDrawer({
+      activeKey: "legacy",
+      isBuiltin: false,
+      initialValues: { instances, routing, empty_array: [], empty_object: {} },
+    });
+    for (const [name, value] of Object.entries({
+      instances,
+      routing,
+      empty_array: [],
+      empty_object: {},
+    })) {
+      const input = screen.getByLabelText(name);
+      expect(input.tagName).toBe("TEXTAREA");
+      expect(input).toHaveValue(JSON.stringify(value, null, 2));
+    }
+  });
+
+  it("submits edited JSON as structured values while preserving other field types", async () => {
+    const onSubmit = vi.fn();
+    const unchanged = [{ nested: { enabled: false }, values: [1, null, "x"] }];
+    renderDrawer({
+      activeKey: "legacy",
+      isBuiltin: false,
+      initialValues: {
+        instances: [],
+        options: {},
+        unchanged,
+        custom_num: 5,
+        custom_bool: false,
+        custom_string: '{"keep":"as text"}',
+        custom_null: null,
+      },
+      onSubmit,
+    });
+    const instances = [{ name: "edited", ids: [1, 2], enabled: true }];
+    const options = { retries: 3, nested: { value: null } };
+    fireEvent.change(screen.getByLabelText("instances"), {
+      target: { value: JSON.stringify(instances) },
+    });
+    fireEvent.change(screen.getByLabelText("options"), {
+      target: { value: JSON.stringify(options) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      instances,
+      options,
+      unchanged,
+      custom_num: 5,
+      custom_bool: false,
+      custom_string: '{"keep":"as text"}',
+      custom_null: null,
+    });
+  });
+
+  it.each([
+    [[], "{}"],
+    [[], "null"],
+    [[], "[broken"],
+    [{}, "[]"],
+  ])(
+    "does not save invalid JSON when the drawer unmounts (%j → %s)",
+    async (initial, draft) => {
+      const onSubmit = vi.fn();
+      const view = renderDrawer({
+        activeKey: "legacy",
+        isBuiltin: false,
+        initialValues: { instances: initial },
+        onSubmit,
+      });
+      fireEvent.change(screen.getByLabelText("instances"), {
+        target: { value: draft },
+      });
+      view.unmount();
+      await act(async () => {});
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("excludes another channel's preserved credentials from an unmount save", async () => {
+    const onSubmit = vi.fn();
+    const view = renderDrawer({
+      activeKey: "slack",
+      initialValues: { bot_token: "slack-token", app_token: "slack-app" },
+      onSubmit,
+    });
+    act(() => view.form.setFieldsValue({ access_token: "old-matrix-secret" }));
+    fireEvent.change(document.querySelector("input#bot_prefix")!, {
+      target: { value: "@edited" },
+    });
+    view.unmount();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      bot_prefix: "@edited",
+      bot_token: "slack-token",
+    });
+    expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("access_token");
+  });
+
+  it("saves valid JSON as a structured value when the drawer unmounts", async () => {
+    const onSubmit = vi.fn();
+    const view = renderDrawer({
+      activeKey: "legacy",
+      isBuiltin: false,
+      initialValues: { instances: [] },
+      onSubmit,
+    });
+    const instances = [{ name: "pending", enabled: true }];
+    fireEvent.change(screen.getByLabelText("instances"), {
+      target: { value: JSON.stringify(instances) },
+    });
+    view.unmount();
+    await act(async () => {});
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][0].instances).toEqual(instances);
+  });
+
+  it.each([
+    [[], "[", "array"],
+    [[], "", "array"],
+    [[], "{}", "array"],
+    [[], "null", "array"],
+    [{}, "[]", "object"],
+    [{}, '"plain text"', "object"],
+    [{}, "42", "object"],
+  ])(
+    "blocks invalid JSON or a changed container type (%j → %s)",
+    async (initial, draft, kind) => {
+      const onSubmit = vi.fn();
+      const onClose = vi.fn();
+      renderDrawer({
+        activeKey: "legacy",
+        isBuiltin: false,
+        initialValues: { config: initial },
+        onSubmit,
+        onClose,
+      });
+      fireEvent.change(screen.getByLabelText("config"), {
+        target: { value: draft },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalledOnce());
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("config")).toHaveValue(draft);
+      expect(
+        await screen.findByText(
+          kind === "array"
+            ? "channels.customFieldJsonArray"
+            : "channels.customFieldJsonObject",
+        ),
+      ).toBeTruthy();
+
+      await act(async () => mockConfirm.mock.calls[0][0].onCancel());
+      const corrected = kind === "array" ? [{ value: true }] : { value: true };
+      fireEvent.change(screen.getByLabelText("config"), {
+        target: { value: JSON.stringify(corrected) },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+      expect(onSubmit.mock.calls[0][0].config).toEqual(corrected);
+      expect(onClose).toHaveBeenCalledOnce();
+    },
+  );
+
   it("validates the wechat message merge delay validator", async () => {
     // valid integer passes
     const ok = renderDrawer({

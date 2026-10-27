@@ -1397,6 +1397,8 @@
     "selectAtLeastOneDay": "Выберите хотя бы один день."
   },
   "channels": {
+    "customFieldJsonArray": "Введите корректный JSON-массив.",
+    "customFieldJsonObject": "Введите корректный JSON-объект.",
     "title": "Каналы",
     "description": "Управление и настройка каналов сообщений",
     "loading": "Загрузка каналов...",

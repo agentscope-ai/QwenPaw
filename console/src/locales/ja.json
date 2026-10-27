@@ -1395,6 +1395,8 @@
     "selectAtLeastOneDay": "曜日を少なくとも1つ選択してください。"
   },
   "channels": {
+    "customFieldJsonArray": "有効な JSON 配列を入力してください。",
+    "customFieldJsonObject": "有効な JSON オブジェクトを入力してください。",
     "title": "チャンネル",
     "description": "メッセージチャンネルの管理と設定",
     "loading": "チャンネルを読み込み中...",

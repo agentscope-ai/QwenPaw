@@ -1983,6 +1983,8 @@
     "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "customFieldJsonArray": "Please enter a valid JSON array.",
+    "customFieldJsonObject": "Please enter a valid JSON object.",
     "manualCredentials": "Manual credentials",
     "deliverySettings": "Delivery options",
     "presentationSettings": "Message presentation",

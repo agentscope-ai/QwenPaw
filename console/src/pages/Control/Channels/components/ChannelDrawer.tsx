@@ -13,7 +13,7 @@ import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Alert, Collapse, ConfigProvider } from "antd";
 import { Link as LinkOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormInstance } from "antd";
 import { getChannelLabel, isLoopbackHost, type ChannelKey } from "./constants";
 import { QrcodeAuthBlock } from "./QrcodeAuthBlock";
@@ -102,6 +102,18 @@ const BASE_FIELDS = [
   "show_thinking",
   "isBuiltin",
 ];
+
+function parseCustomJsonValue(value: unknown, isArray: boolean): unknown {
+  const parsed: unknown = typeof value === "string" ? JSON.parse(value) : value;
+  if (
+    isArray
+      ? !Array.isArray(parsed)
+      : parsed === null || typeof parsed !== "object" || Array.isArray(parsed)
+  ) {
+    throw new Error("Invalid JSON field type");
+  }
+  return parsed;
+}
 
 // Resolve a plugin-provided localized text (a plain string or a
 // locale->string dict) against the given UI language, with graceful
@@ -1602,6 +1614,18 @@ export function ChannelDrawer({
 
   // ── Custom channel fields (key-value editor) ─────────────────────────────
 
+  const customJsonFieldKeys =
+    !isBuiltin && !channelSchema?.config_fields.length
+      ? Object.keys(initialValues ?? {}).filter((key) => {
+          const value = initialValues?.[key];
+          return (
+            !BASE_FIELDS.includes(key) &&
+            value !== null &&
+            typeof value === "object"
+          );
+        })
+      : [];
+
   const renderCustomExtraFields = (
     values: Record<string, unknown> | undefined,
   ) => {
@@ -1719,6 +1743,41 @@ export function ChannelDrawer({
         <div style={{ marginBottom: 8, fontWeight: 500 }}>Custom Fields</div>
         {extraKeys.map((fieldKey) => {
           const value = values[fieldKey];
+          if (customJsonFieldKeys.includes(fieldKey)) {
+            const isArray = Array.isArray(value);
+            return (
+              <Form.Item
+                key={fieldKey}
+                name={fieldKey}
+                label={fieldKey}
+                getValueProps={(current: unknown) => ({
+                  value:
+                    typeof current === "string"
+                      ? current
+                      : JSON.stringify(current, null, 2),
+                })}
+                rules={[
+                  {
+                    validator: async (_, current: unknown) => {
+                      try {
+                        parseCustomJsonValue(current, isArray);
+                      } catch {
+                        throw new Error(
+                          t(
+                            isArray
+                              ? "channels.customFieldJsonArray"
+                              : "channels.customFieldJsonObject",
+                          ),
+                        );
+                      }
+                    },
+                  },
+                ]}
+              >
+                <Input.TextArea autoSize={{ minRows: 3, maxRows: 12 }} />
+              </Form.Item>
+            );
+          }
           return (
             <Form.Item key={fieldKey} name={fieldKey} label={fieldKey}>
               {typeof value === "boolean" ? (
@@ -1809,11 +1868,26 @@ export function ChannelDrawer({
 
   // ── Render ───────────────────────────────────────────────────────────────
 
+  const pendingValues = useRef<Record<string, unknown>>({});
   const { schedule, flush, requestClose } = useAutoSave(async () => {
-    // Only currently registered fields belong to this channel's payload.
-    const values = form.getFieldsValue();
+    // Registered fields exclude credentials preserved from another channel.
+    // Keep the last edited payload for the navigation/unmount flush.
+    const registeredValues = form.getFieldsValue();
+    const values = {
+      ...(Object.keys(registeredValues).length
+        ? registeredValues
+        : pendingValues.current),
+    };
     try {
       await form.validateFields();
+      // Also validate on unmount, after Form.Item rules are unregistered.
+      // Keep text drafts in the form and restore their API types only here.
+      for (const fieldKey of customJsonFieldKeys) {
+        values[fieldKey] = parseCustomJsonValue(
+          values[fieldKey],
+          Array.isArray(initialValues?.[fieldKey]),
+        );
+      }
     } catch {
       return false;
     }
@@ -1853,7 +1927,10 @@ export function ChannelDrawer({
               "advanced",
             ])
           }
-          onValuesChange={schedule}
+          onValuesChange={() => {
+            pendingValues.current = { ...form.getFieldsValue() };
+            schedule();
+          }}
           onFinish={() => void flush()}
         >
           <Form.Item

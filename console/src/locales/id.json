@@ -1782,6 +1782,8 @@
     "updateFailed": "Pembaruan gagal"
   },
   "channels": {
+    "customFieldJsonArray": "Masukkan array JSON yang valid.",
+    "customFieldJsonObject": "Masukkan objek JSON yang valid.",
     "title": "Saluran",
     "description": "Kelola dan konfigurasi saluran pesan",
     "loading": "Memuat saluran...",
