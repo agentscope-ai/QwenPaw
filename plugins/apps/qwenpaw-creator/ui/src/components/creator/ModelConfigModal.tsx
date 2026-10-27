@@ -53,6 +53,7 @@ import type {
   ModelConfigItem,
 } from "@/contracts/creator";
 import ModelSetupGuide from "@/components/onboarding/ModelSetupGuide";
+import SkillsConfigPane from "@/components/creator/SkillsConfigPane";
 
 export const LLM_PROTOCOLS = [
   "Anthropic Claude",
@@ -671,6 +672,7 @@ type SettingsPane =
   | "media"
   | "mode"
   | "review"
+  | "skills"
   | "guide";
 
 const PANE_MODELS: Record<"lang" | "perception" | "media", TabType[]> = {
@@ -3640,7 +3642,7 @@ export default function ModelConfigModal({
         style={{
           display: "flex",
           height: "calc(80vh - 130px)",
-          minHeight: 440,
+          minHeight: 0,
         }}
       >
         <nav
@@ -3721,6 +3723,12 @@ export default function ModelConfigModal({
                 : t("modelConfig.reviewOff")}
             </span>,
           )}
+          {navGroupLabel(t("modelConfig.groupExtensions"))}
+          {navButton(
+            "skills",
+            <ReadOutlined style={{ fontSize: 14 }} />,
+            t("modelConfig.paneSkills"),
+          )}
           {navGroupLabel(t("modelConfig.groupHelp"))}
           {navButton(
             "guide",
@@ -3739,6 +3747,7 @@ export default function ModelConfigModal({
             gap: 12,
           }}
         >
+          {activePane === "skills" && <SkillsConfigPane />}
           {(activePane === "lang" ||
             activePane === "perception" ||
             activePane === "media") &&
@@ -4863,7 +4872,7 @@ export default function ModelConfigModal({
       </div>
 
       {/* Footer */}
-      <div className="action-bar">
+      <div className="action-bar" style={{ flexShrink: 0 }}>
         <div />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Button onClick={handleCancel}>{t("modelConfig.close")}</Button>

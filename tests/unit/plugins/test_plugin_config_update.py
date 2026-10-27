@@ -26,6 +26,8 @@ from qwenpaw.plugins.settings import (
 from qwenpaw.plugins.workspace_projector import WorkspaceProjector
 from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 
+from .timing import WAIT_TIMEOUT
+
 
 def _write_plugin(
     root: Path,
@@ -115,7 +117,7 @@ async def test_config_update_flushes_real_kanban_unsaved_issue(
     loader = PluginLoader([installed.parent])
     loader.registry = fresh_registry
     manifest = PluginManifest.from_dict(
-        json.loads((installed / "plugin.json").read_text()),
+        json.loads((installed / "plugin.json").read_text(encoding="utf-8")),
     )
     await loader.load_plugin(manifest, installed)
     module = sys.modules["plugin_agent_kanban"]
@@ -140,7 +142,7 @@ async def test_config_update_flushes_real_kanban_unsaved_issue(
         )
         assert report.ok is not save_fails
         assert any(item["id"] == issue["id"] for item in module._read_all())
-        persisted = json.loads(module._DATA_FILE.read_text())
+        persisted = json.loads(module._DATA_FILE.read_text(encoding="utf-8"))
         assert any(item["id"] == issue["id"] for item in persisted)
     finally:
         await loader.lifecycle.unload(manifest.id, UnloadMode.UNLOAD)
@@ -271,7 +273,7 @@ async def test_cancel_config_shutdown_retains_original_hooks_for_retry(
         loader.lifecycle.update_config("cancel-stop", {"value": "new"}),
     )
     try:
-        await asyncio.wait_for(plugin.entered.wait(), timeout=1)
+        await asyncio.wait_for(plugin.entered.wait(), timeout=WAIT_TIMEOUT)
         updating.cancel()
         with pytest.raises(asyncio.CancelledError):
             await updating
@@ -355,9 +357,9 @@ async def test_config_write_failure_restores_runtime_and_allows_retry(
     assert report.ok
     assert loader.lifecycle.get_instance("cfg").config == {"cmd": "retry"}
     assert workspace.plugins.slash_command_registry.names() == ["retry"]
-    assert json.loads(config_path.read_text())["plugins"]["cfg"]["cmd"] == (
-        "retry"
-    )
+    assert json.loads(config_path.read_text(encoding="utf-8"))["plugins"][
+        "cfg"
+    ]["cmd"] == ("retry")
 
 
 @pytest.mark.asyncio
@@ -391,7 +393,7 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
 
     def blocked_save(*args, **kwargs):
         loop.call_soon_threadsafe(started.set)
-        if not release.wait(timeout=5):
+        if not release.wait(timeout=WAIT_TIMEOUT * 2):
             raise TimeoutError("test did not release config writer")
         if not save_succeeds:
             raise OSError("disk write failed")
@@ -405,7 +407,7 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
         loader.lifecycle.update_config("cfg", {"cmd": "new"}),
     )
     try:
-        await asyncio.wait_for(started.wait(), timeout=5)
+        await asyncio.wait_for(started.wait(), timeout=WAIT_TIMEOUT)
         task.cancel()
         await asyncio.sleep(0)
         assert not task.done()
@@ -416,9 +418,9 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
     expected = "new" if save_succeeds else "old"
     assert loader.lifecycle.get_instance("cfg").config == {"cmd": expected}
     assert workspace.plugins.slash_command_registry.names() == [expected]
-    assert json.loads(config_path.read_text())["plugins"]["cfg"]["cmd"] == (
-        expected
-    )
+    assert json.loads(config_path.read_text(encoding="utf-8"))["plugins"][
+        "cfg"
+    ]["cmd"] == (expected)
     # A cancelled update must also release the lifecycle lock for a retry.
     monkeypatch.setattr(
         "qwenpaw.plugins.settings.persist_plugin_settings",
@@ -426,7 +428,7 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
     )
     report = await asyncio.wait_for(
         loader.lifecycle.update_config("cfg", {"cmd": "retry"}),
-        timeout=5,
+        timeout=WAIT_TIMEOUT,
     )
     assert report.ok
 

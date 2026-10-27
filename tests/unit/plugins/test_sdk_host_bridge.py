@@ -9,6 +9,8 @@ import pytest
 from .test_sdk_author_host import make_plugin
 from .test_sdk_entry_contract import write_plugin
 
+from .timing import WAIT_TIMEOUT, wait_for_thread_progress
+
 
 async def test_published_runtime_tool_stream_remains_busy_until_closed(
     tmp_path,
@@ -558,7 +560,8 @@ async def test_provider_discovery_deadline_cancels_actual_callback(
 
     callback = """
         async def callback(call, timeout):
-            assert 0 < call.deadline - time.monotonic() <= timeout
+            now = time.monotonic()
+            assert now < call.deadline <= now + timeout
             try:
                 await asyncio.sleep(100)
             finally:
@@ -567,7 +570,8 @@ async def test_provider_discovery_deadline_cancels_actual_callback(
     if synchronous:
         callback = """
         def callback(call, timeout):
-            assert 0 < call.deadline - time.monotonic() <= timeout
+            now = time.monotonic()
+            assert now < call.deadline <= now + timeout
             safety_deadline = time.monotonic() + 2
             try:
                 while (
@@ -818,7 +822,7 @@ async def test_cancel_at_tracker_terminal_lock_does_not_leak_async_generator_con
                     },
                 )
                 assert started.status == 200
-                await asyncio.wait_for(entered.wait(), 3)
+                await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
                 response = await host.request(
                     "POST",
                     f'/api/sdk-app/tasks/{started.json()["run_id"]}/cancel',
@@ -1107,7 +1111,7 @@ async def test_official_async_template_keeps_loop_responsive(  # pylint: disable
 
         def slow_fsync(fd):
             before = len(ticks)
-            time.sleep(0.15)
+            wait_for_thread_progress(lambda: len(ticks) > before)
             observations.append(
                 (threading.current_thread().name, len(ticks) - before),
             )
@@ -1206,7 +1210,7 @@ plugin = Plugin()
         observations.append(threading.current_thread().name)
         entered.set()
         assert release.wait(
-            15,
+            WAIT_TIMEOUT * 2,
         ), "Test did not release the actual filesystem operation"
         result = original(fd)
         finished.set()
@@ -1231,7 +1235,7 @@ plugin = Plugin()
                         {"version": 1},
                     )
                 task = asyncio.create_task(operation)
-                async with asyncio.timeout(3):
+                async with asyncio.timeout(WAIT_TIMEOUT):
                     while not entered.is_set():
                         await asyncio.sleep(0.005)
                 task.cancel()
@@ -1253,7 +1257,7 @@ plugin = Plugin()
                 if owner != "tool-storage":
                     assert not task.done()
                 release.set()
-                assert await asyncio.to_thread(finished.wait, 2)
+                assert await asyncio.to_thread(finished.wait, WAIT_TIMEOUT)
                 with pytest.raises(asyncio.CancelledError):
                     await task
             assert finished.is_set() and observations
@@ -1280,10 +1284,10 @@ plugin = Plugin()
                     "state.txt",
                     b"version-two",
                 )
-                from urllib.parse import unquote, urlparse
+                from qwenpaw.utils.media_paths import file_url_to_path
 
                 assert (
-                    Path(unquote(urlparse(attachment.url).path)).read_bytes()
+                    Path(file_url_to_path(attachment.url)).read_bytes()
                     == b"version-two"
                 )
             assert (
@@ -1579,14 +1583,14 @@ plugin = Plugin()
         stop = "/api/cleanup-probe/stop/" + run_id
         status = "/api/cleanup-probe/tasks/" + run_id
         try:
-            await asyncio.wait_for(probe.ready.wait(), 3)
+            await asyncio.wait_for(probe.ready.wait(), WAIT_TIMEOUT)
             assert not (await host.request("POST", stop)).json()["stopped"]
             probe.finish.set()
-            await asyncio.wait_for(entered.wait(), 3)
+            await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
             assert not (await host.request("POST", stop)).json()["stopped"]
             release.set()
             # No further stop request may be needed once cleanup can finish.
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while (await host.request("GET", status)).json()[
                     "status"
                 ] == "running":

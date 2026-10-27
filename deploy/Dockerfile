@@ -9,6 +9,7 @@ ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:0.
 FROM ${NODE_IMAGE} AS console-builder
 WORKDIR /app
 COPY console /app/console
+COPY src/qwenpaw/plugins/frontend /app/src/qwenpaw/plugins/frontend
 RUN cd /app/console && npm ci --include=dev && npm run build
 
 # Alias for uv binary so COPY --from can reference a build-arg image.

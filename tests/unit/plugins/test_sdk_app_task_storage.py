@@ -11,6 +11,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT, wait_for_thread_progress
+
 pytestmark = pytest.mark.p1
 
 SOURCE = """
@@ -57,7 +59,7 @@ async def start(host, session="disk"):
 
 
 async def terminal(host, path):
-    async with asyncio.timeout(4):
+    async with asyncio.timeout(WAIT_TIMEOUT):
         while True:
             response = await host.request("GET", path, user_id="alice")
             assert response.status == 200
@@ -88,7 +90,7 @@ async def test_task_storage_real_io_keeps_http_loop_responsive(
 
         def delay():
             before = len(ticks)
-            time.sleep(0.15)
+            wait_for_thread_progress(lambda: len(ticks) > before)
             observations.append(
                 (threading.current_thread().name, len(ticks) - before),
             )
@@ -192,7 +194,9 @@ class DiskGate:
                 return fsync(fd)
             self.threads.append(threading.current_thread().name)
             self.entered.set()
-            assert self.release.wait(15), "Test must release real fsync"
+            assert self.release.wait(
+                WAIT_TIMEOUT * 2,
+            ), "Test must release real fsync"
             result = fsync(fd)
             self.finished.set()
             return result
@@ -201,7 +205,7 @@ class DiskGate:
         monkeypatch.setattr(os, "fsync", gated_fsync)
 
     async def wait(self):
-        async with asyncio.timeout(3):
+        async with asyncio.timeout(WAIT_TIMEOUT):
             while not self.entered.is_set():
                 await asyncio.sleep(0.005)
 
@@ -243,7 +247,7 @@ async def test_initial_save_serializes_duplicate_start_and_recovery_read(
                 read_result.status == 200
                 and read_result.json()["status"] == "running"
             )
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while (
                     await host.request("GET", "/api/task-disk/calls")
                 ).json()["calls"] < 1:
@@ -319,7 +323,7 @@ async def test_task_disk_write_retains_owner_through_cancel_and_reload(
                 > 0
             )
             gate.release.set()
-            assert await asyncio.to_thread(gate.finished.wait, 2)
+            assert await asyncio.to_thread(gate.finished.wait, WAIT_TIMEOUT)
             await asyncio.gather(starting, return_exceptions=True)
             assert all(name != "MainThread" for name in gate.threads)
             assert (

@@ -65,6 +65,8 @@ from qwenpaw.plugins.workspace_projector import WorkspaceProjector
 from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 from qwenpaw.runtime.tool_registry import ToolRegistry
 
+from .timing import WAIT_TIMEOUT, assert_loop_progress
+
 
 def _write_plugin(
     root: Path,
@@ -408,7 +410,7 @@ async def _load_busy_command(tmp_path, registry, kind, *, ignore_cancel=False):
     command = asyncio.create_task(
         dispatch("/aliasprobe" if kind == "slash" else "/busyprobe", ctx),
     )
-    await asyncio.wait_for(entered.wait(), 1)
+    await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
     return loader, installed, command, release, cancelled, calls
 
 
@@ -445,7 +447,7 @@ async def test_commands_wait_for_initial_activation(
     )
     activate = asyncio.create_task(loader.lifecycle.activate("initial"))
     try:
-        await asyncio.wait_for(entered.wait(), 1)
+        await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
         with pytest.raises(RuntimeError):
             await workspace.plugins.slash_command_registry.dispatch(
                 "/probe",
@@ -549,10 +551,6 @@ async def test_interrupt_waits_for_actual_command_exit(
     from qwenpaw.runtime.commands.control import handle_control_command
 
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    monkeypatch.setattr(
-        "qwenpaw.plugins.activity.INTERRUPT_TIMEOUT_SECONDS",
-        0.01,
-    )
     (
         loader,
         installed,
@@ -576,7 +574,7 @@ async def test_interrupt_waits_for_actual_command_exit(
             ),
         )
         if ignore_cancel:
-            await asyncio.wait_for(cancelled.wait(), 0.5)
+            await asyncio.wait_for(cancelled.wait(), 10)
             workspace = fresh_registry.get_workspace_manager().agents["talk"]
             dispatch = (
                 handle_control_command
@@ -590,7 +588,9 @@ async def test_interrupt_waits_for_actual_command_exit(
                 with pytest.raises(PluginBusyError):
                     await dispatch("/busyprobe", SimpleNamespace())
             with pytest.raises(PluginBusyError) as caught:
-                await asyncio.wait_for(unload, 0.5)
+                # Let the real interrupt deadline expire before this
+                # outer deadlock guard cancels the unload operation.
+                await asyncio.wait_for(unload, 10)
             assert caught.value.detail["can_interrupt"] is False
             assert cancelled.is_set()
             assert not command.done()
@@ -615,7 +615,9 @@ async def test_interrupt_waits_for_actual_command_exit(
                 delete_files=True,
             )
         else:
-            report = await asyncio.wait_for(unload, 0.5)
+            # This also removes files and persists config; the timeout is a
+            # deadlock guard, not a half-second filesystem performance target.
+            report = await asyncio.wait_for(unload, 10)
             assert command.cancelled()
         assert report.clean and report.quiescent
         assert calls == ["command-exit", "teardown"]
@@ -729,23 +731,16 @@ async def test_startup_failure_restores_old_projection(
 
 @pytest.mark.asyncio
 async def test_sync_close_does_not_block_event_loop():
-    beats: list[float] = []
-
-    async def _heart() -> None:
-        for _ in range(8):
-            beats.append(time.monotonic())
-            await asyncio.sleep(0.01)
+    loop = asyncio.get_running_loop()
+    progress = []
 
     class _SlowClose:
         def close(self) -> None:
-            time.sleep(0.12)
+            assert_loop_progress(loop)
+            progress.append(True)
 
-    heart = asyncio.create_task(_heart())
     await close_connection(_SlowClose(), "slow")
-    await heart
-    gaps = [later - earlier for earlier, later in zip(beats, beats[1:])]
-    assert gaps
-    assert min(gaps) < 0.05
+    assert progress
 
 
 def test_empty_update_paths_are_noop(tmp_path: Path, monkeypatch):
@@ -1114,7 +1109,9 @@ async def test_reload_generation_keeps_new_task(
         "gen",
         body,
     )
-    await asyncio.sleep(0.05)
+    async with asyncio.timeout(WAIT_TIMEOUT):
+        while not marker.exists() or marker.read_text() != "ran":
+            await asyncio.sleep(0.01)
     assert marker.read_text() == "ran"
     inst = loader.lifecycle.get_instance("gen")
     assert inst is not None
@@ -1133,7 +1130,9 @@ async def test_reload_generation_keeps_new_task(
     report = await loader.lifecycle.reload("gen")
     assert report.ok
     assert report.generation == first_gen + 1
-    await asyncio.sleep(0.05)
+    async with asyncio.timeout(WAIT_TIMEOUT):
+        while marker.read_text() != "ran2":
+            await asyncio.sleep(0.01)
     assert marker.read_text() == "ran2"
 
 
@@ -1581,9 +1580,14 @@ async def test_install_cancel_waits_for_copy_before_next_load(
     loader.registry = fresh_registry
     finished = {"done": False}
     real_copy = shutil.copytree
+    started = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
 
     def _slow_copy(src, dst, *args, **kwargs):
-        time.sleep(0.12)
+        loop.call_soon_threadsafe(started.set)
+        if not release.wait(WAIT_TIMEOUT * 2):
+            raise TimeoutError("test did not release plugin copy")
         result = real_copy(src, dst, *args, **kwargs)
         finished["done"] = True
         return result
@@ -1592,10 +1596,15 @@ async def test_install_cancel_waits_for_copy_before_next_load(
     task = asyncio.create_task(
         loader.load_plugin_from_path(source, install_dir=install_dir),
     )
-    await asyncio.sleep(0.02)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        await asyncio.wait_for(started.wait(), 10)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 10)
     assert finished["done"]
     record = await loader.load_plugin_from_path(
         source,
@@ -1763,7 +1772,9 @@ async def test_workspace_skill_copy_cannot_outlive_uninstall(
 
     def blocked_copy(*args):
         started.set()
-        assert release.wait(5), "test did not release skill copy"
+        assert release.wait(
+            WAIT_TIMEOUT * 2,
+        ), "test did not release skill copy"
         return real_copy(*args)
 
     monkeypatch.setattr(
@@ -1778,7 +1789,7 @@ async def test_workspace_skill_copy_cannot_outlive_uninstall(
     copying = None
     if copy_started:
         copying = asyncio.create_task(callback(info))
-        assert await asyncio.to_thread(started.wait, 2)
+        assert await asyncio.to_thread(started.wait, WAIT_TIMEOUT)
     uninstall = asyncio.create_task(
         loader.lifecycle.unload("skiller", mode=UnloadMode.UNINSTALL),
     )
@@ -1810,19 +1821,16 @@ async def test_activate_skill_copy_does_not_block_event_loop(
 
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
 
+    loop = asyncio.get_running_loop()
+    progress = []
+
     def _slow(self, *_args, **_kwargs):
         del self
-        time.sleep(0.12)
+        assert_loop_progress(loop)
+        progress.append(True)
 
     monkeypatch.setattr(PluginApi, "_do_install_skills", _slow)
-    beats: list[float] = []
 
-    async def _heart() -> None:
-        for _ in range(8):
-            beats.append(time.monotonic())
-            await asyncio.sleep(0.01)
-
-    heart = asyncio.create_task(_heart())
     await _load(
         tmp_path,
         fresh_registry,
@@ -1830,10 +1838,7 @@ async def test_activate_skill_copy_does_not_block_event_loop(
         "from pathlib import Path\n"
         "        api.register_skill_provider(Path('.'))",
     )
-    await heart
-    gaps = [later - earlier for earlier, later in zip(beats, beats[1:])]
-    assert gaps
-    assert min(gaps) < 0.05
+    assert progress
 
 
 @pytest.mark.asyncio
@@ -1846,28 +1851,22 @@ async def test_activate_tool_config_write_does_not_block_event_loop(
     _patch_agent_tools(monkeypatch)
     _clear_tool_owners()
 
+    loop = asyncio.get_running_loop()
+    progress = []
+
     def _slow(*_args, **_kwargs):
-        time.sleep(0.12)
+        assert_loop_progress(loop)
+        progress.append(True)
 
     monkeypatch.setattr("qwenpaw.plugins.api._write_tool_config", _slow)
-    beats: list[float] = []
 
-    async def _heart() -> None:
-        for _ in range(8):
-            beats.append(time.monotonic())
-            await asyncio.sleep(0.01)
-
-    heart = asyncio.create_task(_heart())
     await _load(
         tmp_path,
         fresh_registry,
         "tool-io",
         _tool_body("io_tool"),
     )
-    await heart
-    gaps = [later - earlier for earlier, later in zip(beats, beats[1:])]
-    assert gaps
-    assert min(gaps) < 0.05
+    assert progress
     _clear_tool_owners()
 
 
@@ -2807,7 +2806,7 @@ async def test_teardown_runtime_cancel_keeps_ledger():
 
     inst.record_runtime("slow", teardown=_slow)
     task = asyncio.create_task(inst.teardown_runtime())
-    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=WAIT_TIMEOUT)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -2832,7 +2831,7 @@ async def test_dispose_cancel_does_not_mark_disposed():
 
     inst.record_runtime("slow", teardown=_slow, kind="custody")
     task = asyncio.create_task(inst.dispose(UnloadMode.UNLOAD))
-    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=WAIT_TIMEOUT)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -2855,7 +2854,7 @@ async def test_stop_task_reraises_parent_cancel():
         await asyncio.Event().wait()
 
     hosted = asyncio.create_task(_work())
-    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=WAIT_TIMEOUT)
 
     async def _stop():
         await stop_task(hosted, "work")
@@ -3470,10 +3469,11 @@ async def test_register_cancel_records_failed_and_refuses_setup(
 
     monkeypatch.setattr(loader, "_invoke_plugin_register", _count)
     task = asyncio.create_task(loader.load_plugin(manifest, installed))
-    for _ in range(50):
-        if marker.is_file():
-            break
-        await asyncio.sleep(0.02)
+    async with asyncio.timeout(WAIT_TIMEOUT):
+        while True:
+            if marker.is_file():
+                break
+            await asyncio.sleep(0.02)
     assert marker.is_file()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -4036,7 +4036,7 @@ async def test_failed_register_unquiescent_keeps_this_txn_create(
     assert "needs_restart" in inst.diagnostics
     assert loader.lifecycle.get_instance("sticky-create") is inst
     flag.write_text("stop\n", encoding="utf-8")
-    deadline = time.monotonic() + 2
+    deadline = time.monotonic() + WAIT_TIMEOUT
     while time.monotonic() < deadline:
         if not any(
             thread.is_alive() and thread.name.endswith(":sticky")
@@ -4443,17 +4443,15 @@ async def test_activate_rollback_does_not_block_event_loop(
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
     real = plugin_api.rollback_activate_install
 
+    loop = asyncio.get_running_loop()
+    progress = []
+
     def _slow(*args, **kwargs):
-        time.sleep(0.12)
+        assert_loop_progress(loop)
+        progress.append(True)
         return real(*args, **kwargs)
 
     monkeypatch.setattr(plugin_api, "rollback_activate_install", _slow)
-    beats: list[float] = []
-
-    async def _heart() -> None:
-        for _ in range(8):
-            beats.append(time.monotonic())
-            await asyncio.sleep(0.01)
 
     installed = _write_plugin(
         tmp_path / "plugins" / "roll-io",
@@ -4469,13 +4467,9 @@ async def test_activate_rollback_does_not_block_event_loop(
     manifest = PluginManifest.from_dict(
         json.loads((installed / "plugin.json").read_text(encoding="utf-8")),
     )
-    heart = asyncio.create_task(_heart())
     record = await loader.load_plugin(manifest, installed)
-    await heart
     assert record.status == "failed"
-    gaps = [later - earlier for later, earlier in zip(beats[1:], beats)]
-    assert gaps
-    assert min(gaps) < 0.05
+    assert progress
 
 
 @pytest.mark.asyncio
@@ -4489,8 +4483,12 @@ async def test_uninstall_teardown_does_not_block_event_loop(
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
     real = provision_mod.teardown_created_locations
 
+    loop = asyncio.get_running_loop()
+    progress = []
+
     def _slow(plugin_id):
-        time.sleep(0.12)
+        assert_loop_progress(loop)
+        progress.append(True)
         return real(plugin_id)
 
     monkeypatch.setattr(provision_mod, "teardown_created_locations", _slow)
@@ -4508,23 +4506,13 @@ async def test_uninstall_teardown_does_not_block_event_loop(
             f"Path({str(dest)!r}), '1.0.0')"
         ),
     )
-    beats: list[float] = []
 
-    async def _heart() -> None:
-        for _ in range(8):
-            beats.append(time.monotonic())
-            await asyncio.sleep(0.01)
-
-    heart = asyncio.create_task(_heart())
     await loader.unload_plugin(
         "slow-un",
         delete_files=True,
         mode=UnloadMode.UNINSTALL,
     )
-    await heart
-    gaps = [later - earlier for later, earlier in zip(beats[1:], beats)]
-    assert gaps
-    assert min(gaps) < 0.05
+    assert progress
     assert not dest.exists()
 
 

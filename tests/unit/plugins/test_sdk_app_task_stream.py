@@ -8,6 +8,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 SOURCE = """
 import asyncio
 from pathlib import Path
@@ -45,7 +47,9 @@ plugin = Plugin()
 async def read_status(chunks):
     buffer = ""
     for _ in range(20):
-        buffer += (await asyncio.wait_for(anext(chunks), 3)).decode()
+        buffer += (
+            await asyncio.wait_for(anext(chunks), WAIT_TIMEOUT)
+        ).decode()
         for part in buffer.split("\n\n")[:-1]:
             for line in part.splitlines():
                 if line.startswith("data:"):
@@ -82,10 +86,11 @@ async def test_app_task_status_disconnect_reconnect_and_cold_terminal(
         run_id = started.json()["run_id"]
         path = f"/api/status-app/tasks/{run_id}"
         try:
-            for _ in range(100):
-                if ctx.storage.read_json("started.json", False):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if ctx.storage.read_json("started.json", False):
+                        break
+                    await asyncio.sleep(0.01)
             assert ctx.storage.read_json("started.json", False)
             async with host.open_http(
                 "GET",
@@ -120,22 +125,23 @@ async def test_app_task_status_disconnect_reconnect_and_cold_terminal(
                 assert terminal["result"] == "task result:retained"
                 assert terminal["result_truncated"] is False
                 with pytest.raises(StopAsyncIteration):
-                    await asyncio.wait_for(anext(chunks), 2)
+                    await asyncio.wait_for(anext(chunks), WAIT_TIMEOUT)
             assert (await host.reload("extension-contract")).ok
             assert (await host.request("GET", path, user_id="alice")).json()[
                 "result"
             ] == "task result:retained"
         finally:
             release.touch()
-            for _ in range(200):
-                if (
-                    host.resource_snapshot("extension-contract")[
-                        "active_calls"
-                    ]
-                    == 0
-                ):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (
+                        host.resource_snapshot("extension-contract")[
+                            "active_calls"
+                        ]
+                        == 0
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
     async with PluginTestHost(root) as fresh:
         await fresh.load(package, config={"release": str(release)})
         terminal = await fresh.request("GET", path, user_id="alice")
@@ -210,13 +216,14 @@ async def test_task_status_storage_failure_does_not_orphan_real_run(
                 assert response.status == 200
                 path = "/api/status-app/tasks/" + response.json()["run_id"]
                 release.touch()
-                for _ in range(200):
-                    current = (
-                        await host.request("GET", path, user_id="alice")
-                    ).json()
-                    if current["status"] != "running":
-                        break
-                    await asyncio.sleep(0.01)
+                async with asyncio.timeout(WAIT_TIMEOUT):
+                    while True:
+                        current = (
+                            await host.request("GET", path, user_id="alice")
+                        ).json()
+                        if current["status"] != "running":
+                            break
+                        await asyncio.sleep(0.01)
                 assert faults == ["completed"]
                 assert current["status"] == "failed"
                 assert (
@@ -226,15 +233,16 @@ async def test_task_status_storage_failure_does_not_orphan_real_run(
         finally:
             monkeypatch.setattr(ctx.storage, "write_json", write)
             release.touch()
-            for _ in range(200):
-                if (
-                    host.resource_snapshot("extension-contract")[
-                        "active_calls"
-                    ]
-                    == 0
-                ):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (
+                        host.resource_snapshot("extension-contract")[
+                            "active_calls"
+                        ]
+                        == 0
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
 
 
 async def test_cancel_does_not_report_stopped_while_provider_is_still_running(
@@ -352,7 +360,7 @@ plugin = Plugin()
         other_path = "/api/cancel-probe/tasks/" + other.json()["run_id"]
         other_release = tmp_path / "release-other"
         try:
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not all(
                     ctx.storage.read_json(key, False)
                     for key in (
@@ -376,7 +384,7 @@ plugin = Plugin()
                 await host.request("GET", other_path, user_id="bob")
             ).json()["status"] == "running"
             other_release.touch()
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while (
                     await host.request("GET", other_path, user_id="bob")
                 ).json()["status"] == "running":
@@ -393,7 +401,7 @@ plugin = Plugin()
             status_path = "/api/cancel-probe/tasks/" + started.json()["run_id"]
             # Provider exit precedes resource cleanup and terminal persistence.
             # Wait for the entire run without sending another cancellation.
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while (
                     await host.request("GET", status_path, user_id="alice")
                 ).json()["status"] == "running":
@@ -411,7 +419,7 @@ plugin = Plugin()
         finally:
             release.touch()
             other_release.touch()
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while host.resource_snapshot("extension-contract")[
                     "active_calls"
                 ]:
@@ -526,7 +534,7 @@ plugin = Plugin()
         run_id = started.json()["run_id"]
         stop = "/api/scope-probe/stop/" + run_id
         try:
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not ctx.storage.read_json("waiting.json", False):
                     await asyncio.sleep(0.01)
             assert (await host.request("POST", stop, user_id="alice")).json()[
@@ -536,8 +544,10 @@ plugin = Plugin()
             await asyncio.sleep(5.5)
             assert ctx.storage.read_json("handler-stopped.json") is True
             before = ctx.storage.read_json("ticks.json")
-            await asyncio.sleep(0.06)
-            assert ctx.storage.read_json("ticks.json") > before
+            # Disk flushes and thread scheduling have no 60 ms guarantee.
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while ctx.storage.read_json("ticks.json") <= before:
+                    await asyncio.sleep(0.01)
             assert ctx.storage.read_json("thread-stopped.json", False) is False
             assert (await host.request("POST", stop, user_id="alice")).json()[
                 "stopped"
@@ -562,7 +572,7 @@ plugin = Plugin()
             )
             assert other.status == 200
             other_path = "/api/scope-probe/tasks/" + other.json()["run_id"]
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while (
                     await host.request("GET", other_path, user_id="bob")
                 ).json()["status"] == "running":
@@ -574,10 +584,10 @@ plugin = Plugin()
                 await host.reload("extension-contract")
         finally:
             release.touch()
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not ctx.storage.read_json("thread-stopped.json", False):
                     await asyncio.sleep(0.01)
-            async with asyncio.timeout(8):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not (
                     await host.request("POST", stop, user_id="alice")
                 ).json()["stopped"]:

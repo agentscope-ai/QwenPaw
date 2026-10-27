@@ -10,6 +10,8 @@ import json
 
 import pytest
 
+from .timing import WAIT_TIMEOUT
+
 SOURCE = """
 import asyncio
 from pathlib import Path
@@ -170,7 +172,7 @@ async def test_stream_consumer_cancellation_closes_plugin_generator(tmp_path):
                 entered.set()
 
         task = asyncio.create_task(consume())
-        await asyncio.wait_for(entered.wait(), 2)
+        await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -299,10 +301,11 @@ plugin = Plugin()
         )
         invocation = asyncio.create_task(host.call_tool("sdk_sync_cancel", {}))
         try:
-            for _ in range(200):
-                if (tmp_path / "started").exists() or invocation.done():
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (tmp_path / "started").exists() or invocation.done():
+                        break
+                    await asyncio.sleep(0.01)
             assert (tmp_path / "started").exists(), (
                 invocation.exception()
                 if invocation.done()
@@ -310,7 +313,7 @@ plugin = Plugin()
             )
             invocation.cancel()
             with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(invocation, 2)
+                await asyncio.wait_for(invocation, WAIT_TIMEOUT)
             assert (tmp_path / "exited").exists()
             assert (
                 host.resource_snapshot("author-contract")["active_calls"] == 0
@@ -372,11 +375,12 @@ async def test_approval_gates_handler_execution(tmp_path, approved):
         )
         try:
             requests = []
-            for _ in range(200):
-                requests = await host.approval_requests(session_id="test")
-                if requests or invocation.done():
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    requests = await host.approval_requests(session_id="test")
+                    if requests or invocation.done():
+                        break
+                    await asyncio.sleep(0.01)
             assert len(requests) == 1
             assert requests[0].tool_name == "sdk_contract_echo"
             assert not marker.exists() and not invocation.done()
@@ -385,11 +389,11 @@ async def test_approval_gates_handler_execution(tmp_path, approved):
                 approved=approved,
             )
             if approved:
-                result = await asyncio.wait_for(invocation, 2)
+                result = await asyncio.wait_for(invocation, WAIT_TIMEOUT)
                 assert result.content[0].text == "approved" and marker.exists()
             else:
                 with pytest.raises(SDKError):
-                    await asyncio.wait_for(invocation, 2)
+                    await asyncio.wait_for(invocation, WAIT_TIMEOUT)
                 assert not marker.exists()
         finally:
             if not invocation.done():
@@ -452,11 +456,8 @@ class Plugin:
     def register(self, ctx):
         async def slow(call, args):
             assert call.deadline is not None
-            assert (
-                0
-                < call.deadline - asyncio.get_running_loop().time()
-                <= 0.05
-            )
+            now = asyncio.get_running_loop().time()
+            assert now < call.deadline <= now + 0.05
             try:
                 await asyncio.sleep(10)
                 return ToolResult.text("must not finish")
@@ -482,7 +483,10 @@ plugin = Plugin()
     async with PluginTestHost(tmp_path / "host") as host:
         ctx = await host.load(make_plugin(tmp_path, source=source))
         with pytest.raises(SDKError, match="deadline"):
-            await asyncio.wait_for(host.call_tool("deadline_tool", {}), 2)
+            await asyncio.wait_for(
+                host.call_tool("deadline_tool", {}),
+                WAIT_TIMEOUT,
+            )
         assert ctx.storage.read_json("deadline-cancelled.json") is True
         assert host.resource_snapshot("author-contract")["active_calls"] == 0
         assert (await host.reload("author-contract")).ok

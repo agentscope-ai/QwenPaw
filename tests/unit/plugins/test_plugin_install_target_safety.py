@@ -20,6 +20,8 @@ from qwenpaw.plugins.updates import (
     write_updating_marker,
 )
 
+from .timing import WAIT_TIMEOUT
+
 
 def _snapshot(root):
     return {
@@ -154,7 +156,7 @@ async def test_force_install_failure_restores_residual_without_loading_it(
             result = move(src, dest, *args, **kwargs)
             if Path(src).name.endswith(".staging") and Path(dest) == target:
                 loop.call_soon_threadsafe(cancel)
-                assert cancelled.wait(5)
+                assert cancelled.wait(WAIT_TIMEOUT * 2)
             return result
 
         monkeypatch.setattr(shutil, "move", move_then_cancel)

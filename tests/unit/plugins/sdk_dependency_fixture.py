@@ -34,7 +34,7 @@ def dependency_python(root, *, installer="pip"):
                 str(python),
                 "-I",
                 "-c",
-                "import site; print(site.getsitepackages()[0])",
+                "import sysconfig; print(sysconfig.get_path('purelib'))",
             ],
             text=True,
         ).strip(),
@@ -43,7 +43,10 @@ def dependency_python(root, *, installer="pip"):
     # and editable .pth files would defeat this interpreter's isolation.
     for directory in site.getsitepackages():
         for entry in Path(directory).iterdir():
-            if entry.suffix == ".pth" or entry.name == "__pycache__":
+            # pywin32's bootstrap exposes win32/lib and its DLLs on Windows.
+            if (
+                entry.suffix == ".pth" and entry.name != "pywin32.pth"
+            ) or entry.name == "__pycache__":
                 continue
             if installer == "uv" and (
                 entry.name == "pip" or entry.name.startswith("pip-")

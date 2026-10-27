@@ -918,7 +918,7 @@ class PluginTestHost:
         root = get_workspace_skills_dir(workspace.workspace_dir)
         return tuple(
             sorted(
-                str(path.relative_to(root))
+                path.relative_to(root).as_posix()
                 for path in root.rglob("*")
                 if path.is_file()
             ),

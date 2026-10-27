@@ -49,10 +49,9 @@ def bundled_environment(tmp_path):
     vendor = host / "sdk_owner_tool" / "_vendor"
     bundled = distribution(vendor, "sdk-audit-probe", "0.9")
     with (owner / "RECORD").open("a", encoding="utf-8") as record:
-        record.write(f"{bundled.relative_to(host)}/METADATA,,\n")
-        record.write(
-            f"{(vendor / 'sdk_audit_probe.py').relative_to(host)},,\n",
-        )
+        record.write(f"{bundled.relative_to(host).as_posix()}/METADATA,,\n")
+        module = (vendor / "sdk_audit_probe.py").relative_to(host).as_posix()
+        record.write(f"{module},,\n")
     return host, vendor
 
 
@@ -76,11 +75,13 @@ def test_bundled_only_dependency_remains_protected(tmp_path, monkeypatch):
     assert dependencies._installed_versions()["sdk-audit-probe"] == "0.9"
 
 
+@pytest.mark.parametrize("host_name", ["host", "host\\with-backslash"])
 def test_vendor_named_directory_without_owner_is_not_exempt(
     tmp_path,
     monkeypatch,
+    host_name,
 ):
-    host = tmp_path / "host"
+    host = tmp_path / host_name
     other = tmp_path / "not-a-tool" / "_vendor"
     distribution(host, "sdk-audit-probe", "1.0")
     distribution(other, "sdk-audit-probe", "2.0")

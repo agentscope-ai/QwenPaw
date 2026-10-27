@@ -34,7 +34,11 @@ def prepare_author_tests(source: Path, root: Path) -> list[str]:
     suite = root / "author_tests"
     suite.mkdir()
     (suite / "__init__.py").touch()
-    for fixture in ("sdk_author_fixture.py", "sdk_dependency_fixture.py"):
+    for fixture in (
+        "sdk_author_fixture.py",
+        "sdk_dependency_fixture.py",
+        "timing.py",
+    ):
         shutil.copy2(source / "tests/unit/plugins" / fixture, suite)
     tests = []
     for file in sorted((source / "tests/unit/plugins").glob("test_sdk_*.py")):

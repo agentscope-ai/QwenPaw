@@ -251,7 +251,9 @@ def load_skills() -> list[LoadedSkill]:
     try:
         config_entries = load_skills_config()
         configured_names = {entry.name for entry in config_entries}
-        entries = [item for item in config_entries if item.enabled]
+        # Disabled user skills stay listed so the UI can show and re-enable
+        # them; agent-facing consumers filter on entry.enabled themselves.
+        entries = list(config_entries)
         entries.extend(_builtin_entries(configured_names))
         issues = load_skills_config_issues()
         signature = (
@@ -333,7 +335,11 @@ def render_external_skills_context(
     try:
         if skills is None:
             skills = load_skills()
-        available = [skill for skill in skills if skill.available]
+        available = [
+            skill
+            for skill in skills
+            if skill.available and skill.entry.enabled
+        ]
         if not available:
             return ""
         parts = [_CONTEXT_HEADER]
@@ -388,6 +394,10 @@ def find_skill(name: str) -> LoadedSkill:
 
 def _require_available(name: str) -> LoadedSkill:
     skill = find_skill(name)
+    if not skill.entry.enabled:
+        # A skill disabled mid-run must not stay readable through a stale
+        # tool manifest; the management UI uses read_skill_content instead.
+        raise SkillExecutionError(f"skill is disabled: {name}")
     if not skill.available:
         raise SkillExecutionError(
             f"skill {name} is unavailable: {skill.reason}",
@@ -419,6 +429,29 @@ def view_skill(*, skill_name: str) -> dict[str, Any]:
     }
 
 
+def read_skill_content(*, skill_name: str) -> dict[str, Any]:
+    """Management-side raw SKILL.md reader for the configuration UI.
+
+    Unlike the agent-facing :func:`view_skill`, this bypasses the
+    ``available``/``enabled`` gates and the viewer byte cap so the editor
+    always round-trips the whole file: a disabled or unavailable skill can
+    still be read (and fixed) instead of being silently truncated on save.
+    """
+
+    skill = find_skill(skill_name)
+    markdown_path = skill.root / "SKILL.md"
+    if not markdown_path.is_file():
+        raise SkillExecutionError(
+            f"SKILL.md not found for skill: {skill_name}",
+        )
+    return {
+        "ok": True,
+        "skill": skill.entry.name,
+        "content": markdown_path.read_text(encoding="utf-8"),
+        "truncated": False,
+    }
+
+
 # ── Main-Agent tool manifests ────────────────────────────────────────────────
 
 
@@ -445,7 +478,11 @@ def external_skill_tool_manifests(
 ) -> list[dict[str, Any]]:
     """Tool manifests for the main Agent when any skill is available."""
 
-    names = sorted(skill.entry.name for skill in skills if skill.available)
+    names = sorted(
+        skill.entry.name
+        for skill in skills
+        if skill.available and skill.entry.enabled
+    )
     if not names:
         return []
     skill_property = {
@@ -483,6 +520,7 @@ __all__ = [
     "find_skill",
     "load_skills",
     "parse_skill_md",
+    "read_skill_content",
     "render_external_skills_context",
     "view_skill",
 ]
