@@ -572,7 +572,7 @@ async def test_interrupt_waits_for_actual_command_exit(
             ),
         )
         if ignore_cancel:
-            await asyncio.wait_for(cancelled.wait(), 0.5)
+            await asyncio.wait_for(cancelled.wait(), 10)
             workspace = fresh_registry.get_workspace_manager().agents["talk"]
             dispatch = (
                 handle_control_command
@@ -586,7 +586,9 @@ async def test_interrupt_waits_for_actual_command_exit(
                 with pytest.raises(PluginBusyError):
                     await dispatch("/busyprobe", SimpleNamespace())
             with pytest.raises(PluginBusyError) as caught:
-                await asyncio.wait_for(unload, 0.5)
+                # Let the real interrupt deadline expire before this
+                # outer deadlock guard cancels the unload operation.
+                await asyncio.wait_for(unload, 10)
             assert caught.value.detail["can_interrupt"] is False
             assert cancelled.is_set()
             assert not command.done()
