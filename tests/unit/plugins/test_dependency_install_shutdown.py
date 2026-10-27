@@ -180,7 +180,8 @@ async def test_shutdown_cancels_dependency_install(
 
 @pytest.mark.parametrize("stop", ["cancel", "timeout"])
 @pytest.mark.parametrize(
-    "enumeration_error", [None, "permission", "access_denied"]
+    "enumeration_error",
+    [None, "permission", "access_denied"],
 )
 async def test_installer_reaps_stubborn_child_after_parent_exits(
     tmp_path,
