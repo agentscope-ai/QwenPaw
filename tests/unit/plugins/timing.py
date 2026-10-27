@@ -17,7 +17,7 @@ def wait_for_thread_progress(predicate):
     while not predicate():
         if time.monotonic() >= deadline:
             raise AssertionError(
-                "Event loop made no progress during worker I/O"
+                "Event loop made no progress during worker I/O",
             )
         time.sleep(0.005)
 
@@ -27,5 +27,5 @@ def assert_loop_progress(loop):
     progressed = threading.Event()
     loop.call_soon_threadsafe(progressed.set)
     assert progressed.wait(
-        WAIT_TIMEOUT
+        WAIT_TIMEOUT,
     ), "Synchronous work blocked the event loop"
