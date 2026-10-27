@@ -287,6 +287,14 @@ def test_framework_preserves_large_dependency_timeout(
     loader = PluginLoader([tmp_path])
     monkeypatch.setattr(module, "_is_frozen", lambda: frozen)
     monkeypatch.setattr(module, "_desktop_python", lambda: "bundled-python")
+    if frozen:
+        # Isolate the timeout test from the bundled interpreter's pip probe.
+        monkeypatch.setattr(
+            module,
+            "require_pip",
+            lambda _python: True,
+            raising=False,
+        )
 
     def run(args, *, timeout, plugin_id, cancel=None):
         assert cancel is None
