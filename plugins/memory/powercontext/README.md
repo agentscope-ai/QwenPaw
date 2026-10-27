@@ -84,15 +84,21 @@ does not execute those lifecycle operations.
 
 ### 1. Start a PowerContext server
 
-Install the pinned PowerContext v1.4.0 release for a local server:
+Install the pinned PowerContext v1.4.1 release for a new local server:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.4.0"
-powercontext server run
+uv tool install "powercontext[cli,server]==1.4.1"
+POWERCONTEXT_HOME="$HOME/.powercontext-qwenpaw-1.4.1" powercontext server run
 ```
 
 The default local endpoint is `http://127.0.0.1:8000`. QwenPaw does not install
 or start the PowerContext server automatically.
+
+PowerContext v1.4.1 supports new databases only: its
+[release notes](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.4.1)
+state that upgrade acceptance was skipped and existing-database upgrades are
+unsupported. Use a separate `POWERCONTEXT_HOME` for a new database; do not point
+this release at an existing server's database.
 
 ### 2. Build the configuration UI
 
@@ -211,7 +217,7 @@ server URL, token, and server availability in the QwenPaw logs.
 
 ## Requirements
 
-- A reachable PowerContext server; v1.4.0 is the recommended release.
+- A reachable PowerContext server; v1.4.1 is recommended for new databases.
 - QwenPaw with memory-backend plugin support.
 - The Python packages in `requirements.txt`; the plugin installer installs
   these automatically.
@@ -225,10 +231,14 @@ After changing the frontend, rebuild it and reinstall the plugin:
 qwenpaw plugin install plugins/memory/powercontext --force
 ```
 
-Real HTTP tests against separate SQLite databases passed on PowerContext
-[v1.4.0 (`cab054db`)](https://github.com/oceanbase/powercontext/commit/cab054dbf6d86e2311b079388e5158178257def2)
-and [master (`fe50f894`)](https://github.com/oceanbase/powercontext/commit/fe50f89406153121883d278c7fe89ea272cd894b),
-with 13 tests passing per version. The four legacy memory tests also passed on
+All 13 real HTTP tests passed against the published
+[PowerContext v1.4.1 package](https://pypi.org/project/powercontext/1.4.1/), using
+a fresh, isolated SQLite database with authentication and inference models
+disabled. The 249 non-integration plugin tests and six host memory-backend
+contract tests also passed. This verifies adapter compatibility with a new
+server database, not migration of an existing database.
+
+The four legacy memory tests also passed on
 [v0.2 (`685b31dd`)](https://github.com/oceanbase/powercontext/commit/685b31dd2961df5e31daa565f87d004755ebd2cf)
 with `mode="memory"`.
 

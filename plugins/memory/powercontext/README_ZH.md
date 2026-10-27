@@ -73,14 +73,19 @@ Candidate。`artifact_replace` 必须使用读取时取得的 ETag，版本冲�
 
 ### 1. 启动 PowerContext 服务
 
-以下命令安装固定的 PowerContext v1.4.0 正式版，并启动本地服务：
+以下命令安装固定的 PowerContext v1.4.1 正式版，并启动新的本地服务：
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.4.0"
-powercontext server run
+uv tool install "powercontext[cli,server]==1.4.1"
+POWERCONTEXT_HOME="$HOME/.powercontext-qwenpaw-1.4.1" powercontext server run
 ```
 
 默认本地地址为 `http://127.0.0.1:8000`。QwenPaw 不会自动安装或启动 PowerContext 服务。
+
+PowerContext v1.4.1 仅支持新数据库：其
+[发布说明](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.4.1)
+明确指出本次跳过了升级验收，不支持现有数据库升级。请使用独立的 `POWERCONTEXT_HOME`
+创建新数据库，不要让此版本连接现有服务的数据库。
 
 ### 2. 构建配置界面
 
@@ -184,7 +189,7 @@ qwenpaw plugin list
 
 ## 运行要求
 
-- 可访问的 PowerContext 服务，推荐使用 v1.4.0 正式版。
+- 可访问的 PowerContext 服务；使用新数据库时，推荐 v1.4.1 正式版。
 - QwenPaw 支持 memory backend 插件。
 - `requirements.txt` 中的 Python 包；QwenPaw 插件安装器会自动安装。
 
@@ -196,10 +201,12 @@ qwenpaw plugin list
 qwenpaw plugin install plugins/memory/powercontext --force
 ```
 
-已使用独立 SQLite 数据库，通过真实 HTTP 在 PowerContext
-[v1.4.0（`cab054db`）](https://github.com/oceanbase/powercontext/commit/cab054dbf6d86e2311b079388e5158178257def2)
-和 [master（`fe50f894`）](https://github.com/oceanbase/powercontext/commit/fe50f89406153121883d278c7fe89ea272cd894b)
-上完成验证，每个版本 13 项测试通过。旧版
+已使用正式发布的 [PowerContext v1.4.1 包](https://pypi.org/project/powercontext/1.4.1/)，
+在全新、隔离的 SQLite 数据库上通过全部 13 项真实 HTTP 测试，测试服务关闭认证且未配置
+推理模型。249 项非集成插件测试和 6 项宿主 memory-backend 契约测试也全部通过。
+该结果验证适配器与新建服务数据库的兼容性，不代表现有数据库迁移通过验收。
+
+旧版
 [v0.2（`685b31dd`）](https://github.com/oceanbase/powercontext/commit/685b31dd2961df5e31daa565f87d004755ebd2cf)
 使用 `mode="memory"`，4 项旧版记忆测试通过。
 
