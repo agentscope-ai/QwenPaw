@@ -81,7 +81,7 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
    | **QA_source_index**           | QwenPaw 自身源码与文档的快速索引技能，用于把关键词映射到本地源码路径和文档。                                                  | 自建                                                       |
    | **cron**                      | 定时任务管理。通过 `qwenpaw cron` 或控制台定时任务创建、查询、暂停、恢复、删除定时任务。                                      | 自建                                                       |
    | **dingtalk_channel**          | 通过可视浏览器辅助完成钉钉频道接入流程，并提示用户完成必要手动步骤。                                                          | 自建                                                       |
-   | **docx**                      | Word 文档（.docx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                                            | https://github.com/anthropics/skills/tree/main/skills/docx |
+   | **docx**                      | Word 文档（.docx、.dotx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                                            | https://github.com/anthropics/skills/tree/main/skills/docx |
    | **file_reader**               | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由专用 Skill 处理。                            | 自建                                                       |
    | **guidance**                  | 回答 QwenPaw 安装与配置问题，优先查本地文档。                                                                                 | 自建                                                       |
    | **mailbox**                   | 通过 qwenpawmail MCP 连接邮箱，收发、搜索、整理邮件，安全自动处理新邮件并学习可复用流程。详见 [邮箱管理与自动化](./mailbox)。 | 自建                                                       |
