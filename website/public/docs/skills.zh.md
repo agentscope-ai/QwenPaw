@@ -89,7 +89,7 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
    | **news**                      | 从指定新闻站点查询最新新闻，支持政治、财经、社会、国际、科技、体育、娱乐等分类，并做摘要。                                    | 自建                                                       |
    | **pdf**                       | PDF 相关操作：阅读、提取文字/表格、合并/拆分、旋转、水印、创建、填表、加密/解密、OCR 等。                                     | https://github.com/anthropics/skills/tree/main/skills/pdf  |
    | **pptx**                      | PPT（.pptx）的创建、阅读、编辑，含模板、版式、备注与批注等。                                                                  | https://github.com/anthropics/skills/tree/main/skills/pptx |
-   | **xlsx**                      | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                                            | https://github.com/anthropics/skills/tree/main/skills/xlsx |
+   | **xlsx**                      | 表格（.xlsx、.xlsm、.xltx、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                                            | https://github.com/anthropics/skills/tree/main/skills/xlsx |
 
    在技能池页面里，内置技能可能显示 **最新** / **已过期** 之类状态。
    用 **更新内置技能** 可以补回缺失内置技能或将已过期的内置技能刷新到当前
