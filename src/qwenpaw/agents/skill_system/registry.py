@@ -905,25 +905,38 @@ def ensure_skill_pool_initialized() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _discover_pool_skill_dirs() -> dict[str, Path]:
+def _discover_pool_skill_dirs(
+    existing_skills: dict[str, Any] | None = None,
+) -> dict[str, Path]:
     """Scan pool roots in priority order, mapping skill name to its dir.
 
     The primary pool is scanned first, then configured read-only roots in
-    order. The first occurrence of a name wins (the pool wins over extras);
-    shadowed duplicates are skipped with a warning.
+    order. Manifest ``rel_path`` entries are seeded first so the copy the
+    user has been using keeps winning when the same leaf name exists under
+    several categories; other duplicates are skipped with a warning.
     """
     discovered: dict[str, Path] = {}
+    primary_root = get_skill_pool_dir()
+    for skill_name, raw_entry in sorted((existing_skills or {}).items()):
+        entry = normalize_skill_manifest_entry(raw_entry)
+        rel_path = str(entry.get("rel_path") or "")
+        if not rel_path:
+            continue
+        candidate = primary_root / rel_path
+        if (candidate / "SKILL.md").is_file():
+            discovered[skill_name] = candidate
     for root in get_skill_pool_dirs():
         if not root.is_dir():
             continue
         for path in iter_skill_dirs(root):
             if path.name in discovered:
-                logger.warning(
-                    "Skill '%s' in '%s' is shadowed by '%s'; skipping",
-                    path.name,
-                    root,
-                    discovered[path.name].parent,
-                )
+                if discovered[path.name] != path:
+                    logger.warning(
+                        "Skill '%s' in '%s' is shadowed by '%s'; skipping",
+                        path.name,
+                        root,
+                        discovered[path.name].parent,
+                    )
                 continue
             discovered[path.name] = path
     return discovered
@@ -1017,7 +1030,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
         payload.setdefault("builtin_skill_names", [])
         skills = payload["skills"]
 
-        discovered = _discover_pool_skill_dirs()
+        discovered = _discover_pool_skill_dirs(skills)
         for skill_name, skill_dir in sorted(discovered.items()):
             raw_existing = skills.get(skill_name)
             existing = normalize_skill_manifest_entry(raw_existing)
@@ -1090,17 +1103,29 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         skills = payload["skills"]
 
         discovered: dict[str, Path] = {}
+        # Manifest ``rel_path`` is authoritative: when the same leaf name
+        # exists under several categories, the copy the user/agent has been
+        # using keeps winning instead of whichever path sorts first on disk.
+        for skill_name, raw_entry in sorted(skills.items()):
+            entry = normalize_skill_manifest_entry(raw_entry)
+            rel_path = str(entry.get("rel_path") or "")
+            if not rel_path:
+                continue
+            candidate = workspace_skills_dir / rel_path
+            if (candidate / "SKILL.md").is_file():
+                discovered[skill_name] = candidate
         for path in iter_skill_dirs(workspace_skills_dir):
             if path.name in discovered:
-                logger.warning(
-                    (
-                        "Workspace skill '%s' in '%s' is shadowed by '%s'; "
-                        "skipping"
-                    ),
-                    path.name,
-                    path.parent,
-                    discovered[path.name].parent,
-                )
+                if discovered[path.name] != path:
+                    logger.warning(
+                        (
+                            "Workspace skill '%s' in '%s' is shadowed by "
+                            "'%s'; skipping"
+                        ),
+                        path.name,
+                        path.parent,
+                        discovered[path.name].parent,
+                    )
                 continue
             discovered[path.name] = path
 

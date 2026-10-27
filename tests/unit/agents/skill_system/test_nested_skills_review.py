@@ -26,7 +26,10 @@ from pathlib import Path
 import pytest
 from qwenpaw.agents.skill_system import pool_service as skill_pool_service
 from qwenpaw.agents.skill_system import registry as skill_registry
-from qwenpaw.agents.skill_system.pool_service import SkillPoolService
+from qwenpaw.agents.skill_system.pool_service import (
+    SkillPoolService,
+    run_pool_auto_sync,
+)
 from qwenpaw.agents.skill_system.registry import (
     reconcile_workspace_manifest,
     resolve_workspace_skill_dir,
@@ -469,4 +472,175 @@ def test_pool_resolution_prefers_manifest_rel_path(pool_env) -> None:
         encoding="utf-8",
     )
 
+    assert resolve_pool_skill_dir("dup") == pool_dir / "b/dup"
+
+
+# ---------------------------------------------------------------------------
+# Claim 7 — same identity at different rel_paths: overwrite updates in place
+# ---------------------------------------------------------------------------
+
+
+def test_download_overwrite_updates_existing_identity_in_place(
+    pool_env,
+) -> None:
+    """Pool ``writing/foo`` must overwrite workspace ``research/foo`` in place.
+
+    The workspace layout and ``rel_path`` stay put; no second copy appears
+    under the Pool's category, so reconcile cannot switch the selected copy.
+    """
+    service, pool_dir, workspace = pool_env
+    _mk_skill(pool_dir, "writing/foo", "foo", body="POOL-V2")
+    skill_registry.reconcile_pool_manifest()
+
+    workspace_skills = workspace / "skills"
+    _mk_skill(workspace_skills, "research/foo", "foo", body="WS-OLD")
+    _write_manifest(
+        workspace,
+        {
+            "foo": {
+                "enabled": True,
+                "channels": ["qq"],
+                "source": "customized",
+                "rel_path": "research/foo",
+                "config": {"k": "v"},
+            },
+        },
+    )
+
+    result = service.download_to_workspace(
+        "foo",
+        workspace,
+        overwrite=True,
+    )
+
+    assert result["success"] is True
+    assert "POOL-V2" in (
+        workspace_skills / "research/foo" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    # No duplicate under the Pool's own category.
+    assert not (workspace_skills / "writing").exists()
+    entry = _read_manifest(workspace)["skills"]["foo"]
+    assert entry["rel_path"] == "research/foo"
+    assert entry["enabled"] is True
+    assert entry["channels"] == ["qq"]
+    assert entry["config"] == {"k": "v"}
+
+    # A refresh/restart reconcile keeps the same selected copy and content.
+    reconcile_workspace_manifest(workspace)
+    assert _read_manifest(workspace)["skills"]["foo"]["rel_path"] == (
+        "research/foo"
+    )
+    resolved = resolve_workspace_skill_dir(workspace, "foo")
+    assert resolved == workspace_skills / "research/foo"
+    assert "POOL-V2" in resolved.joinpath("SKILL.md").read_text(
+        encoding="utf-8",
+    )
+
+
+def test_auto_sync_updates_existing_identity_in_place(
+    pool_env,
+    monkeypatch,
+) -> None:
+    """Auto Sync uses the same in-place policy as a manual overwrite."""
+    service, pool_dir, workspace = pool_env
+    _mk_skill(pool_dir, "writing/foo", "foo", body="POOL-V2")
+    skill_registry.reconcile_pool_manifest()
+
+    workspace_skills = workspace / "skills"
+    _mk_skill(workspace_skills, "research/foo", "foo", body="WS-OLD")
+    _write_manifest(
+        workspace,
+        {
+            "foo": {
+                "enabled": True,
+                "channels": ["all"],
+                "source": "customized",
+                "rel_path": "research/foo",
+            },
+        },
+    )
+
+    manifest = json.loads(
+        (pool_dir / "skill.json").read_text(encoding="utf-8"),
+    )
+    manifest["skills"]["foo"]["automation"] = {
+        "auto_sync": {"enabled": True},
+    }
+    (pool_dir / "skill.json").write_text(
+        json.dumps(manifest, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        skill_pool_service,
+        "list_workspaces",
+        lambda: [
+            {
+                "agent_id": "agent_x",
+                "agent_name": "Agent X",
+                "workspace_dir": str(workspace),
+            },
+        ],
+    )
+
+    result = run_pool_auto_sync()
+
+    assert result["failed"] == []
+    assert result["synced"][0]["skill"] == "foo"
+    assert "POOL-V2" in (
+        workspace_skills / "research/foo" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert not (workspace_skills / "writing").exists()
+    assert _read_manifest(workspace)["skills"]["foo"]["rel_path"] == (
+        "research/foo"
+    )
+
+
+def test_reconcile_keeps_manifest_copy_when_duplicate_remains(
+    tmp_path: Path,
+) -> None:
+    """If duplicates remain, the copy recorded in ``rel_path`` still loads."""
+    skills = tmp_path / "skills"
+    _mk_skill(skills, "a/foo", "foo", body="A")
+    _mk_skill(skills, "z/foo", "foo", body="Z")
+    _write_manifest(
+        tmp_path,
+        {
+            "foo": {
+                "enabled": True,
+                "source": "customized",
+                "rel_path": "z/foo",
+            },
+        },
+    )
+
+    reconcile_workspace_manifest(tmp_path)
+
+    entry = _read_manifest(tmp_path)["skills"]["foo"]
+    assert entry["rel_path"] == "z/foo"
+    assert resolve_workspace_skill_dir(tmp_path, "foo") == skills / "z/foo"
+
+
+def test_pool_reconcile_keeps_manifest_copy_when_duplicate_remains(
+    pool_env,
+) -> None:
+    """Pool reconcile also keeps the manifest-selected nested copy."""
+    _service, pool_dir, _workspace = pool_env
+    _mk_skill(pool_dir, "a/dup", "dup", body="A")
+    _mk_skill(pool_dir, "b/dup", "dup", body="B")
+    skill_registry.reconcile_pool_manifest()
+
+    manifest = json.loads(
+        (pool_dir / "skill.json").read_text(encoding="utf-8"),
+    )
+    manifest["skills"]["dup"]["rel_path"] = "b/dup"
+    (pool_dir / "skill.json").write_text(
+        json.dumps(manifest, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    skill_registry.reconcile_pool_manifest()
+
+    manifest = json.loads(
+        (pool_dir / "skill.json").read_text(encoding="utf-8"),
+    )
+    assert manifest["skills"]["dup"]["rel_path"] == "b/dup"
     assert resolve_pool_skill_dir("dup") == pool_dir / "b/dup"

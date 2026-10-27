@@ -1206,12 +1206,28 @@ class SkillPoolService:
                     break
             except ValueError:
                 pass
-        target_dir = safe_nested_skill_dir(
-            get_workspace_skills_dir(workspace_dir),
-            rel_path or final_name,
-        )
         workspace_manifest = read_skill_manifest(workspace_dir)
         existing = workspace_manifest.get("skills", {}).get(final_name)
+        ws_skills_root = get_workspace_skills_dir(workspace_dir)
+        if existing:
+            # Overwriting an existing identity updates it in place: the
+            # workspace keeps its own layout (e.g. ``research/foo``) instead
+            # of gaining a second copy under the Pool's category, which would
+            # otherwise be shadowed or shadow the copy in use on reconcile.
+            existing_rel = str(existing.get("rel_path") or "")
+            target_dir = resolve_skill_dir_checked(
+                ws_skills_root,
+                final_name,
+                existing_rel,
+            ) or safe_nested_skill_dir(
+                ws_skills_root,
+                existing_rel or rel_path or final_name,
+            )
+        else:
+            target_dir = safe_nested_skill_dir(
+                ws_skills_root,
+                rel_path or final_name,
+            )
         workspace_identity = get_workspace_identity(workspace_dir)
         if not overwrite:
             conflict = self._check_download_conflict(
@@ -1260,6 +1276,7 @@ class SkillPoolService:
                 "channels": prior.get("channels") or ["all"],
                 "preload": prior.get("preload") is True,
                 "source": metadata["source"],
+                "rel_path": rel_path_of(ws_skills_root, target_dir),
                 "installed_from": pool_installed_from,
                 "config": (
                     prior["config"] if "config" in prior else pool_config
