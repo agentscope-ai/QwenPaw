@@ -6,7 +6,9 @@ from __future__ import annotations
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import  # noqa: E501
 
 import asyncio
+import gc
 import time
+import weakref
 from typing import Any
 
 import pytest
@@ -184,6 +186,75 @@ class TestStartStop:
         assert not state.consumer_task.done()
         await manager.stop_all()
         assert state.consumer_task.cancelled() or state.consumer_task.done()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cancel_cleanup", [False, True])
+    async def test_shutdown_keeps_slow_cleanup_alive_after_manager_release(
+        self,
+        cancel_cleanup: bool,
+    ):
+        """Hot reload must not garbage-collect a still-cancelling consumer."""
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        loop_errors: list[str] = []
+        started = asyncio.Event()
+        cleanup_refs: list[weakref.ReferenceType[asyncio.Future[None]]] = []
+
+        def on_loop_error(_loop, context):
+            loop_errors.append(context["message"])
+
+        async def slow_cleanup(queue, *_args):
+            await queue.get()
+            started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                cleanup = loop.create_future()
+                cleanup_refs.append(weakref.ref(cleanup))
+                await cleanup
+
+        loop.set_exception_handler(on_loop_error)
+        try:
+            manager = UnifiedQueueManager(consumer_fn=slow_cleanup)
+            await manager.enqueue("feishu", "ca3443e8", 10, "hello")
+            await started.wait()
+            consumer_ref = weakref.ref(
+                manager._queues[("feishu", "ca3443e8", 10)].consumer_task,
+            )
+            manager_ref = weakref.ref(manager)
+
+            # Use the real five-second shutdown grace period. The consumer
+            # is still cleaning up when a hot reload releases its manager.
+            await manager.stop_all()
+            del manager
+            gc.collect()
+
+            assert "Task was destroyed but it is pending!" not in loop_errors
+            assert consumer_ref() is not None
+            assert not consumer_ref().done()
+            assert manager_ref() is not None
+
+            cleanup = cleanup_refs[0]()
+            assert cleanup is not None
+            if cancel_cleanup:
+                cleanup.cancel()
+            else:
+                cleanup.set_result(None)
+            del cleanup
+            # Run the consumer and its completion callback before GC.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            gc.collect()
+            assert consumer_ref() is None
+            assert manager_ref() is None
+            assert loop_errors == []
+        finally:
+            cleanup = cleanup_refs[0]() if cleanup_refs else None
+            if cleanup is not None:
+                cleanup.cancel()
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+            loop.set_exception_handler(previous_handler)
 
 
 # ---------------------------------------------------------------------------
