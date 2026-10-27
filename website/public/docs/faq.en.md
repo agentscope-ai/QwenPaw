@@ -73,6 +73,19 @@ docker run -p 127.0.0.1:8088:8088 \
 > - **Re-run the installation**: Open a new terminal and execute the installation script again to complete the `QwenPaw` installation.
 > - **Configure the `QwenPaw` environment variable**: Add `%USERPROFILE%\.qwenpaw\bin` to your system's `Path` variable.
 
+### Windows desktop installer cannot prepare installation or removal
+
+The installer checks processes in the target directory before installing,
+upgrading, or uninstalling. Preparation can also fail when PowerShell cannot
+start, a system process query fails, or a file cannot be accessed.
+
+Check the result and details in the dialog. If processes are listed, close the
+corresponding QwenPaw or terminal sessions and retry. If it still fails, report
+the installer version, installation directory, and diagnostic log shown in the
+dialog or installation details. Logs are normally saved as
+`%TEMP%\qwenpaw-installer-<process-id>.log` and remain after cancellation or exit.
+If the temporary directory is not writable, provide the full dialog text instead.
+
 ### How to update QwenPaw
 
 To update QwenPaw, use the method matching your installation type:

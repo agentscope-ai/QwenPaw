@@ -3,15 +3,57 @@
 
 Var QwenPawCliPathCheckbox
 Var QwenPawCliPathState
+Var QwenPawInstallLog
 
 Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
+
+; Keep diagnostics outside $PLUGINSDIR so they survive cancellation/uninstall,
+; including failures before PowerShell can start. Logging must not block setup.
+!macro QWENPAW_WRITE_INSTALL_LOG TEXT
+  Push $9
+  ${If} $QwenPawInstallLog != ""
+    ClearErrors
+    FileOpen $9 "$QwenPawInstallLog" a
+    ${IfNot} ${Errors}
+      FileSeek $9 0 END
+      FileWriteUTF16LE $9 `${TEXT}$\r$\n`
+      FileClose $9
+    ${EndIf}
+  ${EndIf}
+  Pop $9
+!macroend
+
+!macro QWENPAW_EXEC_POWERSHELL SCRIPT ARGUMENTS
+  ${If} $QwenPawInstallLog == ""
+    Push $9
+    System::Call 'kernel32::GetCurrentProcessId() i .r0'
+    StrCpy $QwenPawInstallLog "$TEMP\qwenpaw-installer-$0.log"
+    ClearErrors
+    FileOpen $9 "$QwenPawInstallLog" w
+    ${If} ${Errors}
+      DetailPrint "Cannot create installer log: $QwenPawInstallLog"
+      StrCpy $QwenPawInstallLog ""
+    ${Else}
+      FileWriteWord $9 0xFEFF
+      FileClose $9
+      DetailPrint "$(qwenpawInstallLogLocation)"
+    ${EndIf}
+    Pop $9
+  ${EndIf}
+  !insertmacro QWENPAW_WRITE_INSTALL_LOG `PowerShell: $SYSDIR\WindowsPowerShell\v1.0\powershell.exe`
+  !insertmacro QWENPAW_WRITE_INSTALL_LOG `Script: ${SCRIPT}; install directory: $INSTDIR`
+  !insertmacro QWENPAW_WRITE_INSTALL_LOG `Arguments: ${ARGUMENTS}`
+  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\${SCRIPT}" ${ARGUMENTS}`
+  Pop $0
+  Pop $1
+  !insertmacro QWENPAW_WRITE_INSTALL_LOG `Result: $0$\r$\n$1`
+  DetailPrint "${SCRIPT}: $0"
+!macroend
 
 !macro QWENPAW_UPDATE_CLI_PATH ACTION
   InitPluginsDir
   File /oname=$PLUGINSDIR\qwenpaw-update-path.ps1 "..\..\..\..\nsis\update-qwenpaw-path.ps1"
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-update-path.ps1" -Action "${ACTION}" -Path "$INSTDIR\binaries\qwenpaw-backend"`
-  Pop $0
-  Pop $1
+  !insertmacro QWENPAW_EXEC_POWERSHELL "qwenpaw-update-path.ps1" `-Action "${ACTION}" -Path "$INSTDIR\binaries\qwenpaw-backend"`
 !macroend
 
 !macro QWENPAW_ADD_CLI_PATH_IF_SELECTED
@@ -102,9 +144,7 @@ Function ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
   Push $0
   Push $1
   IfFileExists "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" 0 qwenpaw_restore_done
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action Restore`
-  Pop $0
-  Pop $1
+  !insertmacro QWENPAW_EXEC_POWERSHELL "qwenpaw-manage-install-processes.ps1" `-InstallDir "$INSTDIR" -Action Restore -LogPath "$QwenPawInstallLog"`
   ${If} $0 != 0
     DetailPrint "$(qwenpawRestoreInstallStateFailed)"
     DetailPrint "$1"
@@ -118,25 +158,31 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   Push $0
   Push $1
   Push $2
+  Push $3
   InitPluginsDir
   File /oname=$PLUGINSDIR\qwenpaw-manage-install-processes.ps1 "..\..\..\..\nsis\manage-install-processes.ps1"
   System::Call 'kernel32::GetCurrentProcessId() i .r2'
 
   qwenpaw_prepare_retry:
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2`
-  Pop $0
-  Pop $1
+  !insertmacro QWENPAW_EXEC_POWERSHELL "qwenpaw-manage-install-processes.ps1" `-InstallDir "$INSTDIR" -NsisProcessId $2 -LogPath "$QwenPawInstallLog"`
   ${If} $0 == 0
     Goto qwenpaw_prepare_done
   ${Else}
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawStopProcessesPrompt)$\n$\n$1" /SD IDCANCEL IDRETRY qwenpaw_prepare_retry IDCANCEL qwenpaw_prepare_cancel
+    StrCpy $3 "$(qwenpawPrepareInstallFailed)$\n$\n$(qwenpawInstallResult)"
+    ${If} $QwenPawInstallLog != ""
+      StrCpy $3 "$3$\n$\n$(qwenpawInstallLogLocation)"
+    ${EndIf}
+    StrCpy $3 "$3$\n$\n$1"
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$3" /SD IDCANCEL IDRETRY qwenpaw_prepare_retry IDCANCEL qwenpaw_prepare_cancel
   ${EndIf}
 
   qwenpaw_prepare_cancel:
   Call ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
+  SetErrorLevel 1
   Quit
 
   qwenpaw_prepare_done:
+  Pop $3
   Pop $2
   Pop $1
   Pop $0
