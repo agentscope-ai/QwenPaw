@@ -1145,6 +1145,9 @@ class QwenPawAgent(Agent):
 
         pending_stop = check_pending_gates(self)
         if pending_stop is not None:
+            from ..runtime.run_outcome import record_run_outcome_from_stop
+
+            record_run_outcome_from_stop(self, pending_stop)
             stop_text = pending_stop.reason or "Stopped by loop gate."
             block_id = uuid.uuid4().hex
             yield TextBlockStartEvent(
@@ -1409,6 +1412,11 @@ class QwenPawAgent(Agent):
                 ),
             )
             return  # outer loop continues
+
+        if stop_result.action == StopAction.TERMINATE:
+            from ..runtime.run_outcome import record_run_outcome_from_stop
+
+            record_run_outcome_from_stop(self, stop_result)
 
         outgoing_msg = stop_result.final_message or final_msg
         self._attach_fallback_notices(outgoing_msg, fallback_sink)
