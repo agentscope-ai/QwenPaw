@@ -278,6 +278,11 @@ The app creates `~/.qwenpaw` on first launch and initializes a default workspace
 - `~/.qwenpaw.secret/` — credentials
 - `~/.qwenpaw.log` / `~/.qwenpaw/desktop.log` — logs
 
+### Known Limitations (Linux)
+
+- **Blurry UI under fractional display scaling.** The desktop window is a GTK 3 webview, and GTK 3 has no fractional scaling: at 125% or 150% the compositor renders the window at 1x and scales it up, so text looks soft. Other GTK 3 applications on the same desktop show the same effect. Set the display to an integer scale (100% or 200%) when sharp text matters.
+- **Scrolling and window resizing can feel slower than in a browser.** The same Console UI rendered in a browser uses a different engine; WebKitGTK's compositing path is slower on some GPU/Wayland combinations. This is a rendering-path limitation, not a packaging one.
+
 ### Updates and Uninstall
 
 - **Updates**: download and install the newer package, or replace the AppImage file
