@@ -257,9 +257,8 @@ export const OPENCODE_MODELS: OpenCodeModelPreset[] = [
   { id: "deepseek-v4-flash-vision-exp", vision: true },
   { id: "qwen3.6-plus", vision: true },
   { id: "qwen3.5-plus", vision: true },
+  { id: "minimax-m3.1-flash-free", free: true, vision: true },
   { id: "minimax-m3", vision: true },
-  { id: "minimax-m2.7" },
-  { id: "minimax-m2.5" },
   { id: "gpt-5.6-luna", vision: true },
 ];
 

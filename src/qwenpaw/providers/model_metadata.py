@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from .model_catalog import catalog_documents, matching_catalog_keys
 from .model_info import ModelInfo
+from .provider_discovery_policy import is_legacy_minimax_text
 
 
 @dataclass(frozen=True)
@@ -81,10 +82,12 @@ def model_metadata(
 def list_model_templates() -> list[dict[str, str]]:
     """List original-owner templates without importing service settings."""
     templates = {}
-    for document, _ in catalog_documents():
+    for document, source in catalog_documents():
         for key, provider in document.providers.items():
             if provider.template_owner:
                 for model in provider.models:
+                    if source != f"user" and is_legacy_minimax_text(model.id):
+                        continue
                     if (
                         provider.template_model_ids is not None
                         and model.id not in provider.template_model_ids
@@ -108,12 +111,13 @@ def provider_catalog_models(
     endpoint = base_url.rstrip(f"/")
     keys = matching_catalog_keys(provider_id, endpoint, f"", None)
     models = {}
-    for document, _ in catalog_documents(keys):
+    for document, source in catalog_documents(keys):
         for key, entry in document.providers.items():
             if key != provider_id and endpoint not in {
                 url.rstrip(f"/") for url in entry.api_urls
             }:
                 continue
             for model in entry.models:
-                models[model.id] = model
+                if source == f"user" or not is_legacy_minimax_text(model.id):
+                    models[model.id] = model
     return list(models.values())

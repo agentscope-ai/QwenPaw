@@ -27,7 +27,9 @@ def _anthropic_model_limits() -> dict[str, int]:
 
 def known_anthropic_output_limit(model_name: str) -> int | None:
     """Read installed model capabilities, including dated Claude aliases."""
-    # MiniMax's Anthropic protocol documents a maximum of 204800 tokens:
+    if model_name.casefold() in {"minimax-m3.1-flash", "minimax-m3"}:
+        return 524288
+    # Preserve output limits for explicitly configured legacy MiniMax models:
     # https://platform.minimax.io/docs/api-reference/text-chat-anthropic
     if re.fullmatch(
         r"MiniMax-M2(?:\.[157])?(?:-highspeed)?",

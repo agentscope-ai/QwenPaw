@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..constant import EnvVarLoader, WORKING_DIR
 from .model_info import ModelInfo, release_date
+from .provider_discovery_policy import is_legacy_minimax_text
 
 CATALOG_SCHEMA_VERSION = 2
 PACKAGED_CATALOG_PATH = Path(__file__).parent / f"data" / f"index.json"
@@ -199,6 +200,8 @@ def _with_output_source(
     for provider_id, entry in document.providers.items():
         providers[provider_id] = []
         for model in entry.models:
+            if source != f"user" and is_legacy_minimax_text(model.id):
+                continue
             if (
                 entry.default_model_ids is not None
                 and model.id not in entry.default_model_ids

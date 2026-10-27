@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import get_args, Literal
+import re
+from typing import get_args, Literal, TYPE_CHECKING
 
-from .provider import Provider
+if TYPE_CHECKING:
+    from .provider import Provider
 
 DiscoveryStrategy = Literal[
     "openai_models",
@@ -121,6 +123,14 @@ CUSTOM_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "AnthropicChatModel": ProviderDiscoveryPolicy("anthropic_models"),
 }
 CUSTOM_CHAT_MODEL_NAMES = frozenset(get_args(CustomChatModelName))
+
+
+def is_legacy_minimax_text(model_id: str) -> bool:
+    """Exclude retired text presets, retaining exact-ID compatibility data."""
+    name = model_id.casefold().rsplit(f"/", 1)[-1]
+    return bool(
+        re.fullmatch(r"minimax-(?:m[12](?:[.:-].*|-.*)?|(?:text-)?01)", name),
+    )
 
 
 def apply_discovery_policy(provider: Provider) -> None:
