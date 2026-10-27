@@ -12,6 +12,7 @@ Covers:
 # pylint: disable=protected-access,unused-argument
 
 import asyncio
+import codecs
 from codecs import BOM_UTF8
 import os
 import stat
@@ -375,3 +376,91 @@ class TestAppendFile:
 
         assert max_active == 1
         assert len(f.read_text(encoding="utf-8-sig").splitlines()) == 8
+
+
+# ---------------------------------------------------------------------------
+# edit_file byte preservation (#8414, #8415)
+# ---------------------------------------------------------------------------
+
+
+class TestEditFilePreservesBytes:
+    """edit_file must round-trip the file byte for byte outside the edit.
+
+    The old path read through read_file_safe (CRLF normalized, lossy decode)
+    and rewrote through a text-mode atomic writer (newline='\n', UTF-8), so a
+    one-line edit of a CRLF build.bat converted every line ending and an edit
+    of an ISO-8859-1 file dropped its é/ü — both while reporting success.
+    """
+
+    @pytest.mark.asyncio
+    async def test_crlf_endings_survive_a_one_line_edit(self, tmp_path):
+        f = tmp_path / "build.bat"
+        original = (
+            "@echo off\r\n"
+            "set TARGET=staging\r\n"
+            "set OUTPUT=bin\r\n"
+            "echo done\r\n"
+        )
+        f.write_bytes(original.encode("utf-8"))
+
+        result = await edit_file(
+            str(f), "set TARGET=staging", "set TARGET=production"
+        )
+
+        assert "Successfully replaced" in result.content[0].text
+        expected = original.replace(
+            "set TARGET=staging", "set TARGET=production"
+        )
+        assert f.read_bytes() == expected.encode("utf-8")
+
+    @pytest.mark.asyncio
+    async def test_lf_file_is_unchanged_in_shape(self, tmp_path):
+        f = tmp_path / "plain.txt"
+        original = "alpha\nbeta\ngamma\n"
+        f.write_bytes(original.encode("utf-8"))
+
+        result = await edit_file(str(f), "beta", "BETA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\ngamma\n"
+
+    @pytest.mark.asyncio
+    async def test_iso_8859_1_bytes_are_not_destroyed(self, tmp_path):
+        f = tmp_path / "legacy.ini"
+        original = "owner = José Müller\ncity = Zürich\ntimeout = 30\n"
+        raw = original.encode("iso-8859-1")
+        f.write_bytes(raw)
+
+        result = await edit_file(str(f), "timeout = 30", "timeout = 60")
+
+        assert "Successfully replaced" in result.content[0].text
+        expected = raw.replace(b"timeout = 30", b"timeout = 60")
+        assert f.read_bytes() == expected
+        # The non-ASCII bytes are exactly where they were.
+        assert f.read_bytes().decode("iso-8859-1") == (
+            "owner = José Müller\ncity = Zürich\ntimeout = 60\n"
+        )
+
+    @pytest.mark.asyncio
+    async def test_utf8_bom_is_preserved(self, tmp_path):
+        f = tmp_path / "bom.csv"
+        raw = codecs.BOM_UTF8 + "name,value\na,b\n".encode("utf-8")
+        f.write_bytes(raw)
+
+        result = await edit_file(str(f), "a,b", "a,c")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == codecs.BOM_UTF8 + b"name,value\na,c\n"
+
+    @pytest.mark.asyncio
+    async def test_new_lines_in_new_text_follow_the_file_ending(
+        self, tmp_path
+    ):
+        f = tmp_path / "crlf.txt"
+        original = "one\r\ntwo\r\nthree\r\n"
+        f.write_bytes(original.encode("utf-8"))
+
+        result = await edit_file(str(f), "two", "two\nextra")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"one\r\ntwo\r\nextra\r\nthree\r\n"
