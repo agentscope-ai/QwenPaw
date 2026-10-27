@@ -2903,8 +2903,8 @@
       "prompt": "输入",
       "completion": "输出",
       "input_cache_read": "缓存读取",
-      "longContext": "输入超过 272K token 时，整次请求的输入及缓存读取费率为 2 倍，输出为 1.5 倍。",
-      "cacheWrite": "缓存写入：30 分钟按输入价的 1.25 倍，12 小时按 2.5 倍计费。",
+      "longContext": "输入超过 {{threshold}} token 时，整次请求的输入及缓存读取费率为 {{inputMultiplier}} 倍，输出为 {{outputMultiplier}} 倍。",
+      "cacheWrite": "缓存写入：30 分钟按输入价的 {{shortMultiplier}} 倍，12 小时按 {{longMultiplier}} 倍计费。",
       "exclusions": "API 费率；不含工具、区域附加费用及 ChatGPT 订阅用量。",
       "checked": "核对日期：{{date}}"
     },

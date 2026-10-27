@@ -76,6 +76,10 @@ def test_loopback_registration_identity_refresh_and_signout(
         assert form[f"client_id"] == f"oaiapp_test"
         assert form[f"redirect_uri"] == attempt.redirect
         assert form[f"code_verifier"] == attempt.verifier
+        with accounts._lock().acquire(timeout=0):
+            data = accounts._read()
+            data[f"accounts"][f"oaiapp_other"] = {}
+            accounts._save(data)
         return {
             f"access_token": f"secret-access",
             f"refresh_token": f"secret-refresh",
@@ -101,6 +105,7 @@ def test_loopback_registration_identity_refresh_and_signout(
     assert response.headers[f"content-type"].startswith(f"text/html")
     assert response.text == auth_module.oauth_success_html(f"openai-chatgpt")
     assert accounts.status()[f"sharing"]
+    assert f"oaiapp_other" in accounts._read()[f"accounts"]
     assert f"secret-access" not in accounts.path.read_text()
 
     def renew(form):
@@ -124,11 +129,15 @@ def test_loopback_registration_identity_refresh_and_signout(
     assert again_query[f"client_id"] == [f"oaiapp_test"]
     assert f"agent_name_hint" not in again_query
     accounts.cancel(again[f"state"])
-    monkeypatch.setattr(
-        accounts,
-        f"_discovery",
-        lambda: {f"revocation_endpoint": f"https://auth.example/revoke"},
-    )
+
+    def revocation_discovery():
+        with accounts._lock().acquire(timeout=0):
+            assert not accounts._read()[f"accounts"][f"oaiapp_test"].get(
+                f"refresh_token",
+            )
+        return {f"revocation_endpoint": f"https://auth.example/revoke"}
+
+    monkeypatch.setattr(accounts, f"_discovery", revocation_discovery)
     monkeypatch.setattr(
         auth_module.httpx,
         f"post",

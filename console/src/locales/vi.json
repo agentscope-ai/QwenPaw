@@ -3027,6 +3027,8 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "connect": "Xác thực OAuth",
+    "settings": "Cài đặt",
     "disableBtn": "Vô hiệu hóa",
     "llmConfiguration": "Cấu hình LLM",
     "providersTitle": "Nhà cung cấp",

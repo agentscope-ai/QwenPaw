@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import threading
 import time
@@ -26,6 +27,7 @@ from .base import generate_code_challenge, generate_code_verifier
 ISSUER = f"https://auth.openai.com"
 RESOURCE = f"https://api.openai.com/v1"
 PLAN_SCOPE = f"chatgpt.tokens.use.direct"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -261,22 +263,25 @@ class ChatGPTAccounts:
                     raise ValueError(f"Invalid account registration.")
                 with self._lock():
                     data = self._read()
-                    previous = data[f"accounts"].setdefault(client_id, {})
+                    data[f"accounts"].setdefault(client_id, {})
                     self._save(data)
-                    token = self._token(
-                        {
-                            f"grant_type": f"authorization_code",
-                            f"client_id": client_id,
-                            f"code": query[f"code"],
-                            f"code_verifier": attempt.verifier,
-                            f"redirect_uri": attempt.redirect,
-                        },
-                    )
-                    claims = self._identity(
-                        token[f"id_token"],
-                        client_id,
-                        attempt.nonce,
-                    )
+                token = self._token(
+                    {
+                        f"grant_type": f"authorization_code",
+                        f"client_id": client_id,
+                        f"code": query[f"code"],
+                        f"code_verifier": attempt.verifier,
+                        f"redirect_uri": attempt.redirect,
+                    },
+                )
+                claims = self._identity(
+                    token[f"id_token"],
+                    client_id,
+                    attempt.nonce,
+                )
+                with self._lock():
+                    data = self._read()
+                    previous = data[f"accounts"].get(client_id, {})
                     if previous.get(f"sub", claims[f"sub"]) != claims[f"sub"]:
                         raise ValueError(f"The ChatGPT account changed.")
                     data[f"accounts"][client_id] = self._credentials(
@@ -290,7 +295,8 @@ class ChatGPTAccounts:
                     self._save(data)
                 attempt.status = f"completed"
                 return True
-            except Exception:
+            except Exception as exc:
+                logger.warning(f"ChatGPT sign-in failed: {type(exc).__name__}")
                 attempt.status = f"failed"
                 return False
 
@@ -335,22 +341,28 @@ class ChatGPTAccounts:
             return account[f"access_token"]
 
     def sign_out(self) -> bool:
-        with self._guard, self._lock():
+        with self._guard:
             if self.attempt and self.attempt.status == f"pending":
                 self.attempt.status = f"cancelled"
-            data = self._read()
-            client_id = data[f"active"]
-            account = data[f"accounts"].get(client_id, {})
+            with self._lock():
+                data = self._read()
+                client_id = data[f"active"]
+                account = data[f"accounts"].get(client_id, {})
+                refresh_token = account.get(f"refresh_token")
+                for key in (f"access_token", f"refresh_token", f"id_token"):
+                    account.pop(key, None)
+                self._save(data)
             revoked = True
-            if account.get(f"refresh_token"):
+            if refresh_token:
                 try:
                     endpoint = self._discovery()[f"revocation_endpoint"]
                     for delay in (0, 0.5, 1):
-                        time.sleep(delay)
+                        if delay:
+                            time.sleep(delay)
                         response = httpx.post(
                             endpoint,
                             data={
-                                f"token": account[f"refresh_token"],
+                                f"token": refresh_token,
                                 f"token_type_hint": f"refresh_token",
                                 f"client_id": client_id,
                             },
@@ -361,9 +373,6 @@ class ChatGPTAccounts:
                     revoked = response.status_code == 200
                 except httpx.HTTPError:
                     revoked = False
-            for key in (f"access_token", f"refresh_token", f"id_token"):
-                account.pop(key, None)
-            self._save(data)
             return revoked
 
 

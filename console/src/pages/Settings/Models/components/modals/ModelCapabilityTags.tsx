@@ -219,12 +219,26 @@ export function BillingTag({
                 </div>
               ),
           )}
-          {source?.context_threshold === 272000 && (
-            <p>{t("models.apiPricing.longContext")}</p>
-          )}
-          {source?.cache_write_30m_multiplier === 1.25 && (
-            <p>{t("models.apiPricing.cacheWrite")}</p>
-          )}
+          {typeof source?.context_threshold === "number" &&
+            typeof source.long_context_input_multiplier === "number" &&
+            typeof source.long_context_output_multiplier === "number" && (
+              <p>
+                {t("models.apiPricing.longContext", {
+                  threshold: source.context_threshold.toLocaleString(),
+                  inputMultiplier: source.long_context_input_multiplier,
+                  outputMultiplier: source.long_context_output_multiplier,
+                })}
+              </p>
+            )}
+          {typeof source?.cache_write_30m_multiplier === "number" &&
+            typeof source.cache_write_12h_multiplier === "number" && (
+              <p>
+                {t("models.apiPricing.cacheWrite", {
+                  shortMultiplier: source.cache_write_30m_multiplier,
+                  longMultiplier: source.cache_write_12h_multiplier,
+                })}
+              </p>
+            )}
           <div>{t("models.apiPricing.exclusions")}</div>
           {typeof source?.updated_at === "string" && (
             <div>

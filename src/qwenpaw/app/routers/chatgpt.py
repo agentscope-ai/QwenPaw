@@ -131,13 +131,6 @@ async def select(
         return await session()
 
 
-@router.post(f"/refresh-models")
-async def refresh(manager: ProviderManager = Depends(get_provider_manager)):
-    async with account_lock:
-        await sync_models(manager)
-        return await session()
-
-
 @router.post(f"/sign-out")
 async def sign_out(manager: ProviderManager = Depends(get_provider_manager)):
     async with account_lock:

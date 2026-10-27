@@ -316,6 +316,6 @@ class ChatGPTProvider(Provider):
         model = self.resolve_model_info(model_id)
         return ChatGPTModel(
             model_id,
-            context_size=model.max_input_length if model else 200000,
+            context_size=model.max_input_length,
             extra_generate_kwargs=self.get_effective_generate_kwargs(model_id),
         )

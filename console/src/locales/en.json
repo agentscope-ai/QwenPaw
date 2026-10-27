@@ -3044,8 +3044,8 @@
       "prompt": "Input",
       "completion": "Output",
       "input_cache_read": "Cached input",
-      "longContext": "Above 272K input tokens, the full request costs 2× for input/cache reads and 1.5× for output.",
-      "cacheWrite": "Cache writes: 30 minutes at 1.25× input, 12 hours at 2.5× input.",
+      "longContext": "Above {{threshold}} input tokens, the full request costs {{inputMultiplier}}× for input/cache reads and {{outputMultiplier}}× for output.",
+      "cacheWrite": "Cache writes: 30 minutes at {{shortMultiplier}}× input, 12 hours at {{longMultiplier}}× input.",
       "exclusions": "API rates; excludes tools, regional premiums and ChatGPT plan usage.",
       "checked": "Checked {{date}}"
     },
