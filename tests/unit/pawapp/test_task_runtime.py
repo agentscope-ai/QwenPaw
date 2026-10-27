@@ -1340,6 +1340,104 @@ async def test_recovery_rechecks_revoked_policy_before_readiness_or_send(host):
 
 
 @pytest.mark.asyncio
+async def test_revoked_grant_exposes_only_scoped_control_status(host):
+    from tests.unit.pawapp.test_approvals import PROPOSAL
+
+    origin = await host.app.state.pawapp_task_origins.resolve(
+        SCOPE,
+        "delegated",
+        "main",
+    )
+    submission = await host.store.create(
+        SCOPE,
+        ACTION,
+        request_id="revoked-control",
+        inputs=BODY["inputs"],
+        origin=origin,
+    )
+    task_id = submission.handle.task_id
+    await host.store.begin_submission(SCOPE, task_id)
+    ref = ExecutorRunRef(
+        executor_id="engine",
+        session_id="revoked-session",
+        run_id="revoked-run",
+    )
+    await host.store.record_accepted(SCOPE, task_id, ref)
+    await host.store.apply_event(
+        SCOPE,
+        task_id,
+        ExecutorEvent(
+            run_ref=ref,
+            sequence=0,
+            cursor="0",
+            status="waiting_for_approval",
+            approval_request=PROPOSAL,
+        ),
+    )
+    host.policy_path.unlink()
+    response = await host.client.get(PREFIX + f"/tasks/{task_id}")
+    assert response.status_code == 200
+    handle = response.json()["task"]
+    assert handle["status"] == "waiting_for_approval"
+    assert handle["approval_request"] is None
+    assert handle["recovery_reason"] == "action_forbidden"
+    assert (
+        await host.client.get(PREFIX + f"/tasks/{task_id}/events")
+    ).status_code == 403
+    assert (
+        await host.client.get(
+            PREFIX + f"/tasks/{task_id}",
+            headers={"Authorization": "Bearer bob-token"},
+        )
+    ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_external_app_approval_is_observed_after_scan_backoff(host):
+    from tests.unit.pawapp.test_approvals import PROPOSAL
+
+    app_decided = asyncio.Event()
+
+    async def attach(submission):
+        ref = submission.handle.executor_run_ref
+        if app_decided.is_set():
+            yield ExecutorEvent(
+                run_ref=ref,
+                sequence=1,
+                cursor="1",
+                status="succeeded",
+                text_result="App completed the approved work",
+            )
+        elif submission.handle.executor_sequence is None:
+            yield ExecutorEvent(
+                run_ref=ref,
+                sequence=0,
+                cursor="0",
+                status="waiting_for_approval",
+                approval_request=PROPOSAL,
+            )
+
+    host.adapters[0].attach = attach
+    response = await host.client.post(
+        PREFIX + "/actions/analyze/tasks",
+        json=BODY,
+    )
+    assert response.status_code == 202
+    task_id = response.json()["task"]["task_id"]
+    async with asyncio.timeout(8):
+        while (
+            await host.store.get(SCOPE, task_id)
+        ).handle.status != "waiting_for_approval":
+            await asyncio.sleep(0.02)
+        # Simulate a decision made inside the App, with no Host command/wake.
+        app_decided.set()
+        while (
+            await host.store.get(SCOPE, task_id)
+        ).handle.status != "succeeded":
+            await asyncio.sleep(0.02)
+
+
+@pytest.mark.asyncio
 async def test_readiness_rechecked_before_engine_submission(host):
     probes = []
 

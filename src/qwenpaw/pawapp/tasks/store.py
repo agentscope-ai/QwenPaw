@@ -168,6 +168,12 @@ class TaskStore:
 
             for statement in managed_schema:
                 connection.execute(statement)
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS task_recovery_schedule (
+                    task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
+                    next_attempt REAL NOT NULL
+                )""",
+            )
             connection.commit()
         except BaseException:
             connection.rollback()
@@ -641,6 +647,8 @@ class TaskStore:
         self,
         scope: TaskScope,
         task_id: str,
+        *,
+        kind: str | None = None,
     ) -> TaskCommand | None:
         def operation(connection):
             self._get(connection, scope, task_id)
@@ -648,8 +656,9 @@ class TaskStore:
                 """SELECT command_json FROM task_commands WHERE task_id = ?
                 AND json_extract(command_json, '$.state')
                 IN ('prepared', 'in_flight', 'unknown')
+                AND (? IS NULL OR json_extract(command_json, '$.kind') = ?)
                 ORDER BY json_extract(command_json, '$.created_at') LIMIT 1""",
-                (task_id,),
+                (task_id, kind, kind),
             ).fetchone()
             return TaskCommand.model_validate_json(row[0]) if row else None
 
@@ -694,6 +703,11 @@ class TaskStore:
                 """SELECT submission_json FROM tasks WHERE task_id > ?
                 AND json_extract(submission_json, '$.handle.status')
                 NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+                AND NOT EXISTS (
+                    SELECT 1 FROM task_recovery_schedule schedule
+                    WHERE schedule.task_id = tasks.task_id
+                    AND schedule.next_attempt > ?
+                )
                 AND (
                     json_extract(submission_json, '$.handle.status')
                         != 'waiting_for_input'
@@ -707,11 +721,32 @@ class TaskStore:
                     )
                 )
                 ORDER BY task_id LIMIT ?""",
-                (after, limit),
+                (after, time.time(), limit),
             ).fetchall()
             return [TaskSubmission.model_validate_json(row[0]) for row in rows]
 
         return await self._run(operation)
+
+    async def defer_recovery(self, task_id: str, delay: float) -> None:
+        """Bound recovery scans without inventing executor terminal state."""
+        await self._run(
+            lambda connection: connection.execute(
+                """INSERT INTO task_recovery_schedule(task_id, next_attempt)
+                VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET
+                next_attempt=excluded.next_attempt""",
+                (task_id, time.time() + delay),
+            ),
+            write=True,
+        )
+
+    async def reset_recovery_schedule(self) -> None:
+        """Reconcile immediately on Host startup, then apply normal backoff."""
+        await self._run(
+            lambda connection: connection.execute(
+                "DELETE FROM task_recovery_schedule",
+            ),
+            write=True,
+        )
 
     async def audit(
         self,

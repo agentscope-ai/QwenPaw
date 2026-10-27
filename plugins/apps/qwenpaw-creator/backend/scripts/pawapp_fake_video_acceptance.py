@@ -1585,9 +1585,10 @@ def configure_model_in_creator(
             "() => new Promise(resolve => requestAnimationFrame(() => "
             "requestAnimationFrame(resolve)))",
         )
-    require(
-        enabled.is_checked(),
-        f"local connectivity check did not enable {card_name}",
+    wait_until(
+        f"local connectivity check enables {card_name}",
+        lambda: enabled if enabled.is_checked() else None,
+        timeout=15.0,
     )
 
     save = visible_locator(frame, "Save Config", timeout=45.0)

@@ -47,7 +47,7 @@ class ScopedTasks:
         return await self.runtime.open_app(self.scope, task_id)
 
     async def events(self, task_id, *, after=0, limit=100):
-        await self.get(task_id)
+        await self.runtime.get_authorized(self.scope, task_id)
         return await self.runtime.store.events(
             self.scope,
             task_id,
@@ -72,7 +72,7 @@ class ScopedArtifacts:
         return await self._store().read(self.scope, artifact_id, version)
 
     async def publish(self, task_id, source, content):
-        submission = await self.runtime.get(self.scope, task_id)
+        submission = await self.runtime.get_authorized(self.scope, task_id)
         return await self._store().publish(submission, source, content)
 
 

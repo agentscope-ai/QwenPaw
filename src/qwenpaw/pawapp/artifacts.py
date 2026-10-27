@@ -258,7 +258,9 @@ class ArtifactStore:
             raise TaskStoreError("invalid_artifact_metadata") from None
         if len(content) != publication.size_bytes:
             raise TaskStoreError("artifact_size_mismatch")
-        digest = "sha256:" + hashlib.sha256(content).hexdigest()
+        digest = "sha256:" + await asyncio.to_thread(
+            lambda: hashlib.sha256(content).hexdigest(),
+        )
         if digest != publication.digest:
             raise TaskStoreError("artifact_digest_mismatch")
         handle = submission.handle

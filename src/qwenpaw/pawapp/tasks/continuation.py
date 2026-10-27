@@ -265,7 +265,10 @@ class ContinuationWorker:
             logger.error("PawApp continuation delivery failed")
 
     async def _authorize(self, claim):
-        submission = await self.runtime.get(claim.scope, claim.task_id)
+        submission = await self.runtime.get_authorized(
+            claim.scope,
+            claim.task_id,
+        )
         await self.origins(claim.scope, claim.origin)
         workspace = await self.origins.manager.get_agent(
             claim.scope.workspace_id,
@@ -310,7 +313,7 @@ class ContinuationWorker:
     async def _committed_events(self, claim, workspace):
         await self.queue.renew(claim)
         prepared = claim.prepared
-        current = await self.runtime.get(claim.scope, claim.task_id)
+        current = await self.runtime.get_authorized(claim.scope, claim.task_id)
         superseded = (
             claim.summary["status"] in WAITING_STATUSES
             and current.handle.status != claim.summary["status"]

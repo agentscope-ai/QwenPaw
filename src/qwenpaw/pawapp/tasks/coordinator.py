@@ -112,9 +112,16 @@ class TaskCoordinator:
     Successful dispatch identities and subsequent changes are durable events.
     """
 
-    def __init__(self, store: TaskStore, *, authorize: AuthorizeAction):
+    def __init__(
+        self,
+        store: TaskStore,
+        *,
+        authorize: AuthorizeAction,
+        authorize_control=None,
+    ):
         self.store = store
         self._authorize = authorize
+        self._authorize_control = authorize_control
         self._bindings: dict[tuple[str, str], _Binding] = {}
 
     def register(
@@ -253,19 +260,22 @@ class TaskCoordinator:
     ) -> TaskCommand:
         """Deliver or reconcile one durable command using its original ID."""
         submission = await self.store.get(scope, task_id)
+        command = await self.store.command(scope, task_id, command_id)
         binding = self._binding(scope.app_id, submission.handle.action_id)
         if (
             binding.action.descriptor_digest
             != submission.handle.descriptor_digest
         ):
             raise TaskStoreError("descriptor_changed")
-        await self._authorize(
-            scope,
-            self.describe(scope.app_id, submission.handle.action_id),
-            submission.handle.origin,
-            deepcopy(submission.inputs),
-        )
-        command = await self.store.command(scope, task_id, command_id)
+        if command.kind == "cancel" and self._authorize_control is not None:
+            await self._authorize_control(scope, submission.handle.origin)
+        else:
+            await self._authorize(
+                scope,
+                self.describe(scope.app_id, submission.handle.action_id),
+                submission.handle.origin,
+                deepcopy(submission.inputs),
+            )
         if command.state in {"accepted", "rejected"}:
             return command
         if submission.handle.status in TERMINAL_STATUSES:
@@ -281,6 +291,14 @@ class TaskCoordinator:
                 ),
             )
         if submission.handle.executor_run_ref is None:
+            if command.kind == "cancel":
+                return await self.store.mark_command(
+                    scope,
+                    task_id,
+                    command_id,
+                    state="unknown",
+                    reason="submission_unknown",
+                )
             submission = await self.reconcile(scope, task_id)
         if submission.handle.status in TERMINAL_STATUSES:
             return await self.store.mark_command(
@@ -380,6 +398,7 @@ class TaskCoordinator:
         task_id: str,
         *,
         commit_event: CommitEvent | None = None,
+        control_only: bool = False,
     ) -> TaskSubmission:
         """Attach/replay an accepted run. EOF leaves task facts intact."""
         submission = await self.store.get(scope, task_id)
@@ -391,14 +410,22 @@ class TaskCoordinator:
         binding = self._binding(scope.app_id, handle.action_id)
         if binding.action.descriptor_digest != handle.descriptor_digest:
             raise TaskStoreError("descriptor_changed")
-        await self._authorize(
-            scope,
-            self.describe(scope.app_id, handle.action_id),
-            handle.origin,
-            deepcopy(submission.inputs),
-        )
+        if control_only and self._authorize_control:
+            await self._authorize_control(scope, handle.origin)
+        else:
+            await self._authorize(
+                scope,
+                self.describe(scope.app_id, handle.action_id),
+                handle.origin,
+                deepcopy(submission.inputs),
+            )
         try:
-            async with aclosing(binding.adapter.attach(submission)) as stream:
+            attach = (
+                getattr(binding.adapter, "observe", binding.adapter.attach)
+                if control_only
+                else binding.adapter.attach
+            )
+            async with aclosing(attach(submission)) as stream:
                 async for event in stream:
                     if commit_event is None:
                         submission = await self.store.apply_event(
@@ -420,6 +447,8 @@ class TaskCoordinator:
                 reason="stream_disconnected",
             )
             raise
+        if control_only:
+            return await self.store.get(scope, task_id)
         return await self.store.mark_recovery(
             scope,
             task_id,

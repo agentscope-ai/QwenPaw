@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import threading
 
 import pytest
 
@@ -71,6 +72,29 @@ def source(content: bytes, *, source_id="source-1"):
         "size_bytes": len(content),
         "digest": "sha256:" + hashlib.sha256(content).hexdigest(),
     }
+
+
+async def test_publication_hashes_content_off_event_loop(
+    tmp_path,
+    monkeypatch,
+):
+    _, submission, _ = await accepted_submission(tmp_path)
+    artifacts = await ArtifactStore.open(tmp_path / "artifacts")
+    content = b"large-content" * 1024
+    metadata = source(content)
+    event_loop_thread = threading.get_ident()
+    hash_threads = []
+    real_sha256 = hashlib.sha256
+
+    def tracking_sha256(value=b""):
+        if value is content:
+            hash_threads.append(threading.get_ident())
+        return real_sha256(value)
+
+    monkeypatch.setattr(hashlib, "sha256", tracking_sha256)
+    await artifacts.publish(submission, metadata, content)
+    assert hash_threads
+    assert all(thread_id != event_loop_thread for thread_id in hash_threads)
 
 
 async def test_publication_is_immutable_versioned_and_scoped(tmp_path):

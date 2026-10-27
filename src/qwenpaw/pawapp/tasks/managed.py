@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import hashlib
+import time
 from dataclasses import dataclass
 from typing import Any, NoReturn
 
@@ -124,7 +125,10 @@ class TaskExecution:
         approval: bool = False,
     ) -> tuple[TaskAnswer, ...]:
         request = TaskInputRequest.model_validate(request)
+        wake = self._adapter._waiter(self.submission.handle.task_id)
+        emitted = False
         while True:
+            wake.clear()
             record = await self._adapter.record(self.submission)
             answer = json.loads(record["answers_json"]).get(request.request_id)
             if answer is not None:
@@ -133,15 +137,19 @@ class TaskExecution:
                 return tuple(
                     TaskAnswer.model_validate(a) for a in answer["answers"]
                 )
-            await self._adapter.emit(
-                self.submission,
-                "input:" + request.request_id,
-                status=(
-                    "waiting_for_approval" if approval else "waiting_for_input"
-                ),
-                input_request=request,
-            )
-            await asyncio.sleep(0.1)
+            if not emitted:
+                await self._adapter.emit(
+                    self.submission,
+                    "input:" + request.request_id,
+                    status=(
+                        "waiting_for_approval"
+                        if approval
+                        else "waiting_for_input"
+                    ),
+                    input_request=request,
+                )
+                emitted = True
+            await self._adapter._wait(wake)
 
     async def request_approval(
         self,
@@ -149,20 +157,32 @@ class TaskExecution:
     ) -> ApprovalDecision:
         """Wait for a user decision. Handlers must honor rejection."""
         request = ApprovalRequest.model_validate(request)
+        wake = self._adapter._waiter(self.submission.handle.task_id)
+        emitted = False
         while True:
+            wake.clear()
             record = await self._adapter.record(self.submission)
             answer = json.loads(record["answers_json"]).get(request.request_id)
             if answer is not None:
                 if answer["request"] != request.model_dump(mode="json"):
                     raise TaskStoreError("managed_input_conflict")
                 return ApprovalDecision.model_validate(answer["decision"])
-            await self._adapter.emit(
-                self.submission,
-                "approval:" + request.request_id,
-                status="waiting_for_approval",
-                approval_request=request,
+            remaining = (
+                request.expires_at - time.time()
+                if request.expires_at is not None
+                else None
             )
-            await asyncio.sleep(0.1)
+            if remaining is not None and remaining <= 0:
+                raise TaskStoreError("approval_expired")
+            if not emitted:
+                await self._adapter.emit(
+                    self.submission,
+                    "approval:" + request.request_id,
+                    status="waiting_for_approval",
+                    approval_request=request,
+                )
+                emitted = True
+            await self._adapter._wait(wake, remaining)
 
     async def publish(
         self,
@@ -181,7 +201,10 @@ class TaskExecution:
             "path": name,
             "media_type": media_type,
             "size_bytes": len(content),
-            "digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+            "digest": "sha256:"
+            + await asyncio.to_thread(
+                lambda: hashlib.sha256(content).hexdigest(),
+            ),
             "presentation": presentation,
         }
         ref = await self._adapter.artifacts.publish(
@@ -200,12 +223,27 @@ class TaskExecution:
 class ManagedHandlerAdapter:
     submission_protocol_version = 1
 
-    def __init__(self, store, registration, artifacts=None):
+    def __init__(self, store, registration, artifacts=None, on_terminal=None):
         self.store = store
         self.registration = registration
         self.artifacts = artifacts
         self._jobs = {}
         self._lock = asyncio.Lock()
+        self._waiters = {}
+        self._on_terminal = on_terminal
+
+    def _waiter(self, task_id):
+        return self._waiters.setdefault(task_id, asyncio.Event())
+
+    @staticmethod
+    async def _wait(wake, remaining=None):
+        # Durable answers can also be written by another Host process.
+        timeout = min(2.0, remaining) if remaining is not None else 2.0
+        try:
+            async with asyncio.timeout(max(0, timeout)):
+                await wake.wait()
+        except asyncio.TimeoutError:
+            pass
 
     async def readiness(self, scope, inputs):
         if self.registration.readiness is not None:
@@ -319,10 +357,13 @@ class ManagedHandlerAdapter:
         return event
 
     async def emit(self, submission, key, **fields):
-        return await self.store._run(
+        event = await self.store._run(
             lambda c: self._append(c, submission, key, fields),
             write=True,
         )
+        if event.status in TERMINAL_STATUSES and self._on_terminal is not None:
+            self._on_terminal(submission)
+        return event
 
     async def _execute(self, submission):
         try:
@@ -386,12 +427,20 @@ class ManagedHandlerAdapter:
             await self.emit(submission, "started", status="running")
             job = asyncio.create_task(self._execute(submission))
             self._jobs[task_id] = job
-            job.add_done_callback(
-                lambda finished: self._jobs.pop(task_id, None),
-            )
+
+            def finished(_job):
+                self._jobs.pop(task_id, None)
+                self._waiters.pop(task_id, None)
+
+            job.add_done_callback(finished)
 
     async def attach(self, submission):
         await self._ensure_job(submission)
+        async for event in self.observe(submission):
+            yield event
+
+    async def observe(self, submission):
+        """Replay existing work without starting or restarting a handler."""
         after = submission.handle.executor_sequence
         after = -1 if after is None else after
         while True:
@@ -438,6 +487,14 @@ class ManagedHandlerAdapter:
                 if latest is not None:
                     yield ExecutorEvent.model_validate_json(latest[0])
                     return
+            job = self._jobs.get(submission.handle.task_id)
+            if job is None or job.done():
+                # The job may have committed after the event snapshot but
+                # before its completion callback removed it from _jobs.
+                latest_record = await self.record(submission)
+                if latest_record["state"] in TERMINAL_STATUSES:
+                    continue
+                return
             await asyncio.sleep(0.05)
 
     async def command(self, submission, command):
@@ -476,16 +533,27 @@ class ManagedHandlerAdapter:
                         {"status": "cancelled"},
                     )
             else:
-                event = connection.execute(
+                events = connection.execute(
                     (
                         "SELECT event_json FROM managed_events WHERE "
-                        "task_id=? ORDER BY sequence DESC LIMIT 1"
+                        "task_id=? ORDER BY sequence DESC"
                     ),
                     (task_id,),
-                ).fetchone()
+                ).fetchall()
+                event = next(
+                    (
+                        candidate
+                        for (raw,) in events
+                        if (
+                            candidate := ExecutorEvent.model_validate_json(raw)
+                        ).status
+                        is not None
+                    ),
+                    None,
+                )
                 pending = (
                     getattr(
-                        ExecutorEvent.model_validate_json(event[0]),
+                        event,
                         "approval_request"
                         if command.kind == "decide"
                         else "input_request",
@@ -552,6 +620,10 @@ class ManagedHandlerAdapter:
             if job is not None:
                 job.cancel()
                 await asyncio.gather(job, return_exceptions=True)
+        else:
+            wake = self._waiters.get(task_id)
+            if wake is not None:
+                wake.set()
         return receipt
 
     async def query_command(self, submission, command):

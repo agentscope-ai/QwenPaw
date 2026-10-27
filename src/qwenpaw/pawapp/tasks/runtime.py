@@ -55,7 +55,19 @@ class _ReadyAdapter:
         return await self.adapter.query(submission)
 
     async def attach(self, submission):
-        async for event in self.adapter.attach(submission):
+        async for event in self._events(
+            self.adapter.attach(submission),
+            submission,
+        ):
+            yield event
+
+    async def observe(self, submission):
+        observe = getattr(self.adapter, "observe", self.adapter.attach)
+        async for event in self._events(observe(submission), submission):
+            yield event
+
+    async def _events(self, stream, submission):
+        async for event in stream:
             from .binding import ArtifactMaterializingAdapter
 
             if isinstance(self.adapter, ArtifactMaterializingAdapter):
@@ -123,6 +135,7 @@ class HostTaskRuntime:
         if self.setup is not None:
             self.setup.set_task_waker(self._wake_setup_task)
         if self._supervisor is None:
+            await self.store.reset_recovery_schedule()
             self._supervisor = asyncio.create_task(self._supervise())
 
     async def aclose(self):
@@ -166,12 +179,17 @@ class HostTaskRuntime:
                             self.store,
                             registration,
                             self.artifacts,
+                            on_terminal=lambda submission: self._wake(
+                                submission,
+                                force=True,
+                            ),
                         )
                     else:
                         adapter = registration.factory()
                     coordinator = TaskCoordinator(
                         self.store,
                         authorize=self._authorize,
+                        authorize_control=self._authorize_origin,
                     )
                     try:
                         coordinator.register(
@@ -196,7 +214,15 @@ class HostTaskRuntime:
                         coordinator,
                     )
 
-    async def _authorize(self, scope, action, origin, inputs):
+    async def _authorize(
+        self,
+        scope,
+        action,
+        origin,
+        inputs,
+        *,
+        audit_failure=True,
+    ):
         registration = self._registrations().get(
             (scope.app_id, action.action_id),
         )
@@ -208,12 +234,13 @@ class HostTaskRuntime:
             await self.policy.check(scope, action, inputs)
             await self._authorize_origin(scope, origin)
         except TaskStoreError as exc:
-            await self.store.audit(
-                scope,
-                action.action_id,
-                "authorize",
-                exc.code,
-            )
+            if audit_failure:
+                await self.store.audit(
+                    scope,
+                    action.action_id,
+                    "authorize",
+                    exc.code,
+                )
             raise
 
     async def _authorize_action(self, scope, action, origin):
@@ -793,6 +820,47 @@ class HostTaskRuntime:
 
     async def get(self, scope, task_id):
         submission = await self.store.get(scope, task_id)
+        await self._authorize_origin(scope, submission.handle.origin)
+        try:
+            await self._authorize(
+                scope,
+                submission.action,
+                submission.handle.origin,
+                submission.inputs,
+                audit_failure=False,
+            )
+        except TaskStoreError as exc:
+            if exc.code not in {
+                "action_forbidden",
+                "descriptor_changed",
+                "action_not_found",
+            }:
+                raise
+            # Task control remains available, but revoked action access must
+            # not expose prompts, results, approval details or artifact refs.
+            handle = submission.handle.model_copy(
+                update={
+                    "text_result": None,
+                    "result_data": None,
+                    "output_refs": (),
+                    "project_ref": None,
+                    "experience": None,
+                    "input_request": None,
+                    "approval_request": None,
+                    "approval_receipt": None,
+                    "approval_progress": None,
+                    "setup_request_id": None,
+                    "recovery_state": "unresolved",
+                    "recovery_reason": exc.code,
+                },
+            )
+            return submission.model_copy(
+                update={"handle": handle, "inputs": {}},
+            )
+        return submission
+
+    async def get_authorized(self, scope, task_id):
+        submission = await self.store.get(scope, task_id)
         await self._authorize(
             scope,
             submission.action,
@@ -805,7 +873,7 @@ class HostTaskRuntime:
         """Issue an authenticated handoff for the task's App-owned project."""
         if self.handoffs is None:
             raise TaskStoreError("handoff_store_unavailable")
-        submission = await self.get(scope, task_id)
+        submission = await self.get_authorized(scope, task_id)
         project = submission.handle.project_ref
         if project is None:
             raise TaskStoreError("project_unavailable")
@@ -842,7 +910,7 @@ class HostTaskRuntime:
         user_interface=False,
     ):
         await self._sync()
-        submission = await self.get(scope, task_id)
+        submission = await self.get_authorized(scope, task_id)
         if (
             submission.handle.status == "waiting_for_approval"
             and not user_interface
@@ -877,7 +945,7 @@ class HostTaskRuntime:
         from .approvals import prepare_decision
 
         await self._sync()
-        submission = await self.get(scope, task_id)
+        submission = await self.get_authorized(scope, task_id)
         command = await prepare_decision(
             self.store,
             scope,
@@ -911,12 +979,23 @@ class HostTaskRuntime:
             reason=reason,
         )
         if command.state not in {"accepted", "rejected"}:
-            binding = self._binding(scope, submission.handle.action_id)
-            command = await binding.coordinator.deliver_command(
-                scope,
-                task_id,
-                command.command_id,
-            )
+            try:
+                binding = self._binding(scope, submission.handle.action_id)
+                command = await binding.coordinator.deliver_command(
+                    scope,
+                    task_id,
+                    command.command_id,
+                )
+            except TaskStoreError as exc:
+                if exc.code not in {"action_not_found", "descriptor_changed"}:
+                    raise
+                command = await self.store.mark_command(
+                    scope,
+                    task_id,
+                    command.command_id,
+                    state="unknown",
+                    reason=exc.code,
+                )
         await self.store.audit(
             scope,
             submission.handle.action_id,
@@ -1137,15 +1216,57 @@ class HostTaskRuntime:
             logger.error("PawApp task recovery persistence failed")
 
     async def _drive(self, scope, task_id):
+        delay = max(self._interval, 5)
         try:
             submission = await self.store.get(scope, task_id)
             binding = self._binding(scope, submission.handle.action_id)
-            await self._authorize(
-                scope,
-                submission.action,
-                submission.handle.origin,
-                submission.inputs,
-            )
+            if submission.handle.cancel_requested:
+                command = await self.store.pending_command(
+                    scope,
+                    task_id,
+                    kind="cancel",
+                )
+                if command is not None:
+                    await binding.coordinator.deliver_command(
+                        scope,
+                        task_id,
+                        command.command_id,
+                    )
+                if submission.handle.executor_run_ref is not None:
+                    await binding.coordinator.consume(
+                        scope,
+                        task_id,
+                        commit_event=partial(self._commit_event, binding),
+                        control_only=True,
+                    )
+                return
+            try:
+                await self._authorize(
+                    scope,
+                    submission.action,
+                    submission.handle.origin,
+                    submission.inputs,
+                )
+            except TaskStoreError as exc:
+                if (
+                    exc.code != "action_forbidden"
+                    or submission.handle.executor_run_ref is None
+                ):
+                    raise
+                delay = max(delay, 60)
+                await self.store.mark_recovery(
+                    scope,
+                    task_id,
+                    state="unresolved",
+                    reason=exc.code,
+                )
+                await binding.coordinator.consume(
+                    scope,
+                    task_id,
+                    commit_event=partial(self._commit_event, binding),
+                    control_only=True,
+                )
+                return
             submission, waiting_for_setup = await self._reconcile_setup(
                 binding,
                 submission,
@@ -1178,6 +1299,12 @@ class HostTaskRuntime:
                 if isinstance(exc, TaskStoreError)
                 else "recovery_error"
             )
+            if code in {
+                "action_forbidden",
+                "descriptor_changed",
+                "action_not_found",
+            }:
+                delay = max(delay, 60)
             await self.store.mark_recovery(
                 scope,
                 task_id,
@@ -1185,7 +1312,8 @@ class HostTaskRuntime:
                 reason=code,
             )
         finally:
-            self._retry_at[task_id] = time.monotonic() + max(self._interval, 5)
+            self._retry_at[task_id] = time.monotonic() + delay
+            await self.store.defer_recovery(task_id, delay)
 
     async def _supervise(self):
         while True:
@@ -1205,6 +1333,19 @@ class HostTaskRuntime:
                 while True:
                     page = await self.store.recoverable(after=cursor)
                     for submission in page:
+                        handle = submission.handle
+                        if (
+                            handle.scope.app_id,
+                            handle.action_id,
+                        ) not in self._bindings:
+                            await self.store.mark_recovery(
+                                handle.scope,
+                                handle.task_id,
+                                state="unresolved",
+                                reason="action_not_found",
+                            )
+                            await self.store.defer_recovery(handle.task_id, 60)
+                            continue
                         self._wake(submission)
                     if len(page) < 100:
                         break

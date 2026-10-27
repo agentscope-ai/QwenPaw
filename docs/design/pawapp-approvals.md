@@ -83,6 +83,16 @@ expired, superseded, or cancelled proposals cannot authorize new work. The Host
 checks scope and the action grant again before delivering a command. Policy
 changes therefore cannot be bypassed using an old pending card.
 
+Expiry does not by itself prove that an external task stopped. External Apps
+own expiry handling and must publish their resulting state. In managed handlers,
+`ctx.request_approval()` raises `TaskStoreError("approval_expired")` when the
+deadline passes; catch it to request a new proposal or end the action explicitly.
+If uncaught, the managed handler fails normally. A user can request cancellation
+after revocation; the Host records the intent and confirms cancellation only
+when the executor reports it. When action access is revoked, task control status
+is available to its owner while detailed events, results and artifacts retain
+their own access checks.
+
 The original task remains pending during approval. App events clear the request
 when work resumes, finishes, or is cancelled; replacing a pending proposal
 updates the card and wakes the delegated chat. Decisions never create a second

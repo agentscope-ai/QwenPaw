@@ -445,7 +445,7 @@ async def get_task_events(
 ):
     runtime = request.app.state.pawapp_tasks
     try:
-        await runtime.get(scope, task_id)
+        await runtime.get_authorized(scope, task_id)
         return {
             "events": await runtime.store.events(
                 scope,

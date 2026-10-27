@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Approval is a scoped user decision, not an agent-generated answer."""
-# pylint: disable=redefined-outer-name
+# pylint: disable=redefined-outer-name,protected-access
 import asyncio
 import time
 
@@ -126,14 +126,226 @@ async def test_scope_expiry_and_changed_proposal_cannot_authorize(harness):
 
 async def test_expired_proposal_is_never_executed(harness):
     expired = PROPOSAL.model_copy(update={"expires_at": time.time() - 1})
-    runtime, task, executed = await waiting(harness, expired)
+    from qwenpaw.pawapp.tasks.approvals import validate_decision
+
     with pytest.raises(TaskStoreError, match="approval_expired"):
+        validate_decision(expired, decision(expired))
+
+    async def handler(ctx):
+        try:
+            await ctx.request_approval(expired)
+        except TaskStoreError as exc:
+            return ActionResult("Expired", {"answer": exc.code})
+        raise AssertionError("expired approval returned a decision")
+
+    runtime = await harness.start(handler)
+    task = await dispatch(runtime)
+    result = await status(harness, task.task_id, "succeeded")
+    assert result.result_data == {"answer": "approval_expired"}
+
+
+async def test_revoked_grant_still_allows_scoped_cancel(harness):
+    runtime, task, executed = await waiting(harness)
+    harness.policy.unlink()
+    control = await runtime.get(SCOPE, task.task_id)
+    assert control.handle.task_id == task.task_id
+    assert control.handle.status == "waiting_for_approval"
+    assert control.handle.approval_request is None
+    assert control.handle.recovery_reason == "action_forbidden"
+    with pytest.raises(TaskStoreError, match="action_forbidden"):
         await runtime.decide(
             SCOPE,
             task.task_id,
-            command_id="late",
-            decision=decision(expired),
+            command_id="blocked",
+            decision=decision(),
         )
+    with pytest.raises(TaskStoreError, match="task_not_found"):
+        await runtime.cancel(
+            SCOPE.model_copy(update={"principal_id": "bob"}),
+            task.task_id,
+        )
+    command = await asyncio.wait_for(runtime.cancel(SCOPE, task.task_id), 3)
+    assert command.state == "accepted"
+    await status(harness, task.task_id, "cancelled")
+    assert not executed
+
+
+async def test_cancel_with_changed_descriptor_preserves_unknown_intent(
+    harness,
+):
+    from unittest.mock import AsyncMock
+    from qwenpaw.pawapp.tasks import ActionRegistration
+    from tests.unit.pawapp.test_managed_actions import ACTION
+
+    runtime, task, _ = await waiting(harness)
+    changed = ACTION.model_copy(update={"summary": "Changed action"})
+    registration = ActionRegistration(action=changed, handler=AsyncMock())
+    runtime._registrations = lambda: {
+        (SCOPE.app_id, changed.action_id): registration,
+    }
+    command = await runtime.cancel(SCOPE, task.task_id)
+    assert command.state == "unknown"
+    assert command.reason == "descriptor_changed"
+    handle = (await harness.store.get(SCOPE, task.task_id)).handle
+    assert handle.cancel_requested
+    assert handle.status == "waiting_for_approval"
+
+
+async def test_removed_action_is_deferred_and_cancel_remains_unconfirmed(
+    harness,
+):
+    runtime, task, _ = await waiting(harness)
+    runtime._registrations = lambda: {}
+    await runtime._sync()
+    await harness.store.reset_recovery_schedule()
+    async with asyncio.timeout(3):
+        while True:
+            handle = (await harness.store.get(SCOPE, task.task_id)).handle
+            scheduled = await harness.store.recoverable()
+            if handle.recovery_reason == "action_not_found" and all(
+                item.handle.task_id != task.task_id for item in scheduled
+            ):
+                break
+            await asyncio.sleep(0.01)
+    assert task.task_id not in [
+        item.handle.task_id for item in await harness.store.recoverable()
+    ]
+    command = await runtime.cancel(SCOPE, task.task_id)
+    assert command.state == "unknown"
+    assert command.reason == "action_not_found"
+    assert (
+        await harness.store.get(SCOPE, task.task_id)
+    ).handle.cancel_requested
+
+
+async def test_expiry_wakes_handler_without_authorizing(harness):
+    proposal = PROPOSAL.model_copy(update={"expires_at": time.time() + 0.5})
+    outcomes = []
+
+    async def handler(ctx):
+        try:
+            await ctx.request_approval(proposal)
+        except TaskStoreError as exc:
+            outcomes.append(exc.code)
+            return ActionResult("Approval expired", {"answer": exc.code})
+        raise AssertionError("expired proposal was approved")
+
+    runtime = await harness.start(handler, recovery="replay_safe")
+    task = await dispatch(runtime)
+    await status(harness, task.task_id, "waiting_for_approval")
+    result = await status(harness, task.task_id, "succeeded")
+    assert result.result_data == {"answer": "approval_expired"}
+    assert outcomes == ["approval_expired"]
+
+
+async def test_expiry_is_observed_after_host_restart(harness):
+    proposal = PROPOSAL.model_copy(update={"expires_at": time.time() + 0.6})
+    outcomes = []
+
+    async def handler(ctx):
+        try:
+            await ctx.request_approval(proposal)
+        except TaskStoreError as exc:
+            outcomes.append(exc.code)
+            return ActionResult("Approval expired", {"answer": exc.code})
+        raise AssertionError("expired proposal was approved")
+
+    runtime = await harness.start(handler, recovery="replay_safe")
+    task = await dispatch(runtime)
+    await status(harness, task.task_id, "waiting_for_approval")
+    await runtime.aclose()
+    await asyncio.sleep(0.7)
+    await harness.start(handler, recovery="replay_safe")
+    result = await status(harness, task.task_id, "succeeded")
+    assert result.result_data == {"answer": "approval_expired"}
+    assert outcomes == ["approval_expired"]
+
+
+async def test_progress_only_event_does_not_stale_managed_approval(harness):
+    from qwenpaw.pawapp.tasks import ApprovalProgress
+
+    runtime, task, executed = await waiting(harness)
+    submission = await harness.store.get(SCOPE, task.task_id)
+    adapter = runtime._binding(SCOPE, task.action_id).adapter
+    event = await adapter.emit(
+        submission,
+        "progress-only",
+        approval_progress=ApprovalProgress(completed=1, pending=1),
+    )
+    await harness.store.apply_event(SCOPE, task.task_id, event)
+    command = await runtime.decide(
+        SCOPE,
+        task.task_id,
+        command_id="progress-decision",
+        decision=decision(),
+    )
+    assert command.state == "accepted"
+    await status(harness, task.task_id, "succeeded")
+    assert executed == [PROPOSAL.subject_digest]
+
+
+async def test_blocked_recovery_is_deferred_without_terminal_state(harness):
+    runtime, task, _ = await waiting(harness)
+    await harness.store.mark_recovery(
+        SCOPE,
+        task.task_id,
+        state="unresolved",
+        reason="descriptor_changed",
+    )
+    await harness.store.defer_recovery(task.task_id, 60)
+    assert task.task_id not in [
+        item.handle.task_id for item in await harness.store.recoverable()
+    ]
+    handle = (await harness.store.get(SCOPE, task.task_id)).handle
+    assert handle.status == "waiting_for_approval"
+    assert handle.recovery_reason == "descriptor_changed"
+    # An explicit user action bypasses the background scan delay.
+    command = await runtime.cancel(SCOPE, task.task_id)
+    assert command.state == "accepted"
+    await status(harness, task.task_id, "cancelled")
+
+
+async def test_approval_wait_does_not_reemit_journal_events(
+    harness,
+    monkeypatch,
+):
+    runtime, task, _ = await waiting(harness)
+    adapter = runtime._binding(SCOPE, task.action_id).adapter
+    emitted = []
+    original = adapter.emit
+
+    async def record_emit(*args, **kwargs):
+        emitted.append(args[1])
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(adapter, "emit", record_emit)
+    await asyncio.sleep(0.35)
+    assert not emitted
+    await runtime.cancel(SCOPE, task.task_id)
+
+
+async def test_cancel_recovery_takes_priority_over_old_decision(harness):
+    runtime, task, executed = await waiting(harness)
+    await prepare_decision(
+        harness.store,
+        SCOPE,
+        task.task_id,
+        command_id="old-decision",
+        decision=decision(),
+    )
+    cancel = await harness.store.prepare_cancel(
+        SCOPE,
+        task.task_id,
+        reason="cancel before delivery",
+    )
+    await runtime._drive(SCOPE, task.task_id)
+    result = await harness.store.command(
+        SCOPE,
+        task.task_id,
+        cancel.command_id,
+    )
+    assert result.state == "accepted"
+    await status(harness, task.task_id, "cancelled")
     assert not executed
 
 

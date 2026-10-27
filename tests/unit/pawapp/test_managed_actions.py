@@ -168,7 +168,7 @@ async def test_terminal_commit_between_stream_reads(harness, monkeypatch):
         nonlocal committed
         result = await original_run(operation, **kwargs)
         if (
-            operation.__qualname__.endswith("attach.<locals>.read")
+            operation.__qualname__.endswith("observe.<locals>.read")
             and not committed
         ):
             committed = True
@@ -360,6 +360,62 @@ async def test_default_recovery_interrupts_unknown_effects(harness):
     await runtime.aclose()
     await harness.start(handler)
     await status(harness, task.task_id, "interrupted")
+    assert len(calls) == 1
+
+
+async def test_revoked_grant_observes_running_task_without_resubmission(
+    harness,
+):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = []
+
+    async def handler(ctx):
+        calls.append(ctx.submission_id)
+        started.set()
+        await release.wait()
+        return ActionResult("Finished", {"answer": "done"})
+
+    runtime = await harness.start(handler, recovery="replay_safe")
+    task = await dispatch(runtime)
+    await started.wait()
+    await status(harness, task.task_id, "running")
+    worker = runtime._workers.get(task.task_id)
+    if worker is not None:
+        worker[1].cancel()
+        await asyncio.gather(worker[1], return_exceptions=True)
+    harness.policy.unlink()
+    observer = asyncio.create_task(runtime._drive(SCOPE, task.task_id))
+    await asyncio.sleep(0.1)
+    release.set()
+    await asyncio.wait_for(observer, 3)
+    await status(harness, task.task_id, "succeeded")
+    assert len(calls) == 1
+
+
+async def test_revoked_grant_never_restarts_managed_handler(harness):
+    started = asyncio.Event()
+    calls = []
+
+    async def handler(ctx):
+        calls.append(ctx.submission_id)
+        started.set()
+        await asyncio.Event().wait()
+
+    runtime = await harness.start(handler, recovery="replay_safe")
+    task = await dispatch(runtime)
+    await started.wait()
+    await status(harness, task.task_id, "running")
+    await runtime.aclose()
+    harness.policy.unlink()
+    await harness.start(handler, recovery="replay_safe")
+    async with asyncio.timeout(3):
+        while True:
+            handle = (await harness.store.get(SCOPE, task.task_id)).handle
+            if handle.recovery_reason == "action_forbidden":
+                break
+            await asyncio.sleep(0.01)
+    assert handle.status == "running"
     assert len(calls) == 1
 
 
