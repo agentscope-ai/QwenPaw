@@ -2113,6 +2113,11 @@ def _resolve_model_slot_override(model_slot_override: Any):
     return slot
 
 
+def _is_usable_model_slot(slot: Any) -> bool:
+    """Return True when a slot names both a provider and a model."""
+    return bool(slot is not None and slot.provider_id and slot.model)
+
+
 def _bind_provider_id_to_model(
     model: ChatModelBase,
     provider_id: str,
@@ -2415,7 +2420,7 @@ def create_model_and_formatter(
     settings = _load_agent_model_settings(agent_id, agent_config)
     model_slot = settings.model_slot
     slot = _resolve_model_slot_override(model_slot_override)
-    if slot is not None and slot.provider_id and slot.model:
+    if _is_usable_model_slot(slot):
         model_slot = slot
 
     if hub_mode() and model_slot is None:

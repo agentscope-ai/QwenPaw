@@ -7,9 +7,10 @@ correctly in a multi-agent environment.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterator
 
 if TYPE_CHECKING:
     from agentscope.state import AgentState
@@ -240,6 +241,30 @@ def set_current_session_id(session_id: str | None) -> None:
         session_id: Session ID to store in context.
     """
     current_session_id.set(session_id)
+
+
+# Context variable to store the model slot serving the current tool call.
+# Prompt and capability helpers prefer it over the persisted agent model,
+# because a session can select a different model for one conversation.
+current_effective_model: ContextVar[Any | None] = ContextVar(
+    "current_effective_model",
+    default=None,
+)
+
+
+def get_current_effective_model() -> Any | None:
+    """Return the model slot resolved for the current turn, if any."""
+    return current_effective_model.get()
+
+
+@contextmanager
+def scoped_effective_model(model_slot: Any | None) -> Iterator[None]:
+    """Scope the effective model slot to one tool invocation."""
+    token = current_effective_model.set(model_slot)
+    try:
+        yield
+    finally:
+        current_effective_model.reset(token)
 
 
 # Context variable to store the current agent's Toolkit instance

@@ -512,30 +512,20 @@ async def _probe_multimodal_if_needed(
     or None if no probe was needed or the probe failed.
     """
     try:
-        from ..prompt import _get_active_model_info
+        from ..prompt import _get_active_model_info, _resolve_active_model_slot
         from ...providers.provider_manager import ProviderManager
 
         model_info, _ = await run_sync_io(_get_active_model_info)
         if model_info is None or model_info.supports_multimodal is not None:
             return None
 
-        # Resolve agent-specific active model (mirrors _get_active_model_info)
-        manager = ProviderManager.get_instance()
-        active = None
-        try:
-            from ...app.agent_context import get_current_agent_id
-            from ...config.config import load_agent_config
-
-            agent_id = get_current_agent_id()
-            agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
-                active = agent_config.active_model
-        except Exception:
-            pass
-        if not active:
-            active = await run_sync_io(manager.get_active_model)
+        # Same resolution order as _get_active_model_info so that the
+        # session's model is probed instead of the persisted agent pointer.
+        active = await run_sync_io(_resolve_active_model_slot)
         if not active:
             return None
+
+        manager = ProviderManager.get_instance()
 
         if media_type == "image":
             logger.info(
@@ -556,7 +546,9 @@ async def _probe_multimodal_if_needed(
                 active.model,
                 supports,
             )
-            # Fire full probe in background to persist video support too
+            # Fire full probe in background to persist video support too.
+            # The task inherits the tool's capability scope; the probe
+            # receives provider/model explicitly and does not read it.
             asyncio.create_task(
                 manager.probe_model_multimodal(
                     active.provider_id,

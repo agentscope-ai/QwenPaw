@@ -5,6 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+from qwenpaw.providers.model_info import ModelInfo
+from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.runtime.builder import AgentBuilder
 from qwenpaw.runtime.prompt_contributors import (
     WorkspacePromptFilesContributor,
     build_default_prompt_manager,
@@ -108,3 +112,108 @@ def test_workspace_prompt_files_skips_symlink_escape(tmp_path):
     )
 
     assert fragment is None
+
+
+TEXT_ONLY = ModelInfo(
+    id="legacy-text",
+    name="Legacy Text",
+    supports_multimodal=False,
+    supports_image=False,
+    supports_video=False,
+)
+VISION = ModelInfo(
+    id="vision-pro",
+    name="Vision Pro",
+    supports_multimodal=True,
+    supports_image=True,
+    supports_video=False,
+)
+TEXT_ONLY_SLOT = ModelSlotConfig(provider_id="p", model=TEXT_ONLY.id)
+VISION_SLOT = ModelSlotConfig(provider_id="p", model=VISION.id)
+
+STALE_HINT = "You can only understand text content"
+
+
+def _stub_capabilities(monkeypatch):
+    """Disk pointer is text-only; the provider serves both models."""
+    provider = SimpleNamespace(id="p", all_models=lambda: [TEXT_ONLY, VISION])
+    monkeypatch.setattr(
+        ProviderManager,
+        "_instance",
+        SimpleNamespace(
+            get_provider=lambda provider_id: (
+                provider if provider_id == "p" else None
+            ),
+            get_active_model=lambda: None,
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _agent_id: SimpleNamespace(active_model=TEXT_ONLY_SLOT),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_agent_id",
+        lambda: "agent",
+    )
+
+
+def _prompt_ctx(tmp_path, effective_model):
+    """Mirror the namespace AgentBuilder.build_prompt constructs."""
+    return SimpleNamespace(
+        workspace_dir=str(tmp_path),
+        agent_id="agent",
+        session_id="s1",
+        extras={
+            "effective_model": effective_model,
+            "preloaded_skills": (),
+        },
+        request=SimpleNamespace(
+            channel="console",
+            user_id="u",
+            request_context={},
+        ),
+    )
+
+
+def _session_config(slot):
+    return AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        active_model=slot,
+    )
+
+
+def test_build_prompt_prefers_effective_model(monkeypatch, tmp_path):
+    """A request-level override wins over the passed agent config."""
+    _stub_capabilities(monkeypatch)
+
+    prompt = AgentBuilder().build_prompt(
+        _prompt_ctx(tmp_path, VISION_SLOT),
+        _session_config(TEXT_ONLY_SLOT),
+    )
+
+    assert STALE_HINT not in prompt
+
+
+def test_build_prompt_uses_passed_config_over_disk(monkeypatch, tmp_path):
+    """The session-resolved config is authoritative over agent.json."""
+    _stub_capabilities(monkeypatch)
+
+    prompt = AgentBuilder().build_prompt(
+        _prompt_ctx(tmp_path, None),
+        _session_config(VISION_SLOT),
+    )
+
+    assert STALE_HINT not in prompt
+
+
+def test_build_prompt_reports_text_only_config(monkeypatch, tmp_path):
+    """Control: a text-only turn still gets the capability warning."""
+    _stub_capabilities(monkeypatch)
+
+    prompt = AgentBuilder().build_prompt(
+        _prompt_ctx(tmp_path, None),
+        _session_config(TEXT_ONLY_SLOT),
+    )
+
+    assert STALE_HINT in prompt
