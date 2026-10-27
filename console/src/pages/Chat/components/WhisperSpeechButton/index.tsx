@@ -219,19 +219,16 @@ const WhisperSpeechButton = forwardRef<
   );
 
   const isDisabled = disabled || loading;
+  const accessibleLabel = loading
+    ? t("chat.speech.transcribing")
+    : recording
+    ? t("chat.speech.stopRecording")
+    : t("chat.speech.startRecording");
 
   return (
-    <Tooltip
-      title={
-        loading
-          ? t("chat.speech.transcribing")
-          : recording
-          ? t("chat.speech.stopRecording")
-          : t("chat.speech.startRecording")
-      }
-      mouseEnterDelay={0.5}
-    >
+    <Tooltip title={accessibleLabel} mouseEnterDelay={0.5}>
       <IconButton
+        aria-label={accessibleLabel}
         bordered={false}
         icon={
           loading ? (

@@ -51,6 +51,11 @@ def test_builtin_credential_ref_with_provider() -> None:
     assert ref == "tool/web_search/anysearch"
 
 
+def test_builtin_credential_ref_firecrawl() -> None:
+    ref = _builtin_credential_ref("web_search", {"provider": "firecrawl"})
+    assert ref == "tool/web_search/firecrawl"
+
+
 def test_builtin_credential_ref_blank_provider_returns_empty() -> None:
     assert _builtin_credential_ref("web_search", {}) == ""
     assert _builtin_credential_ref("web_search", {"provider": ""}) == ""

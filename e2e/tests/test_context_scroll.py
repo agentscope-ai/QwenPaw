@@ -14,6 +14,8 @@ Run: pytest tests/test_context_scroll.py -v
 from __future__ import annotations
 
 import logging
+import re
+
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
 
@@ -26,6 +28,62 @@ from utils.helpers import (
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Answer-body extraction for the compression follow-up assertion
+# ---------------------------------------------------------------------------
+# The bubble renders a fixed scaffold around the model's answer:
+#
+#   'QwenPaw\nCompleted 1 steps\n\nThe first number ... was 1.\n\n16:04:05'
+#    ^brand   ^step counter                            ^answer  ^render stamp
+#
+# Asserting on the raw inner_text() therefore matched the scaffold instead of
+# the answer: "Completed 1 steps" alone contains the character "1", and so does
+# the trailing HH:MM:SS stamp. Proven mechanically on fork run 39074114725 --
+# of the 27 bubble texts captured inside the case's window, all 27 still
+# satisfied `"1" in text or "one" in text.lower()` after the answer body was
+# deleted and only the scaffold left behind; and rewriting the real answer to
+# "The first number was 7" also kept it true. The case could lose the whole
+# context and still PASS.
+#
+# These patterns strip the scaffold so the assertion reads the answer only.
+# The step counter has a cancelled variant ("Canceled · 1 steps", U+00B7 middle
+# dot, per console/src/locales/en.json chat.messageDisplay.stepsCanceled) which
+# must be stripped too: it carries its own digit, so a round the queue
+# stabiliser cancelled (upstream #7382; see the note on the send loop below)
+# would otherwise satisfy the assertion with no answer present at all.
+_STEPS_DONE_RE = re.compile(r"Completed\s+\d+\s+steps", re.IGNORECASE)
+_STEPS_CANCELED_RE = re.compile(r"Canceled\s*\u00b7?\s*\d+\s+steps", re.IGNORECASE)
+# The rendered stamp trails the bubble. The answer body may itself quote a
+# time, so this is a scaffold pattern only because chat_page.py's JS reader
+# already treats the LAST HH:MM:SS match as the stamp; keep the two in sync.
+_TIME_STAMP_RE = re.compile(r"\d{1,2}:\d{2}:\d{2}")
+_PLACEHOLDER_RE = re.compile(r"Thinking|Loading", re.IGNORECASE)
+_BRAND = "QwenPaw"
+
+
+def extract_answer_body(text: str) -> str:
+    """Return the model's answer with the bubble scaffold stripped away.
+
+    Removes, in order: the step counter in both its terminal states
+    (``Completed N steps`` / ``Canceled · N steps``), the rendered HH:MM:SS
+    stamp, the product brand line, and the Thinking/Loading placeholders that
+    ``chat_page.py``'s JS reader strips too. Whitespace is collapsed so an
+    answer-less bubble yields the empty string rather than stray newlines.
+
+    Args:
+        text: raw ``inner_text()`` of an AI bubble.
+
+    Returns:
+        The answer body only. Empty when the bubble carried no answer.
+    """
+    body = _STEPS_DONE_RE.sub(" ", text)
+    body = _STEPS_CANCELED_RE.sub(" ", body)
+    body = _TIME_STAMP_RE.sub(" ", body)
+    body = body.replace(_BRAND, " ")
+    body = _PLACEHOLDER_RE.sub(" ", body)
+    return re.sub(r"\s+", " ", body).strip()
 
 
 # ============================================================================
@@ -129,9 +187,26 @@ class TestLongConversationCompression:
         last_ai_msg = clean_chat_page.get_last_ai_message()
         if last_ai_msg is not None:
             response_text = last_ai_msg.inner_text()
+            # Strip the bubble scaffold before matching: the raw text always
+            # carries "Completed 1 steps" and an HH:MM:SS stamp, both of which
+            # contain "1", so asserting on it was true no matter what the model
+            # answered (see extract_answer_body for the proof and the cancelled
+            # variant, which made a queue-stabiliser cancellation pass too).
+            answer_body = extract_answer_body(response_text)
+            logger.info(
+                "compression follow-up: raw=%r answer_body=%r",
+                response_text[:200], answer_body[:200],
+            )
+            # An answer-less body is its own failure: it means the bubble the
+            # reader resolved carried nothing but scaffold, which is exactly the
+            # case the old assertion silently accepted.
+            assert answer_body, (
+                "AI bubble carried no answer body after stripping the "
+                f"step counter, timestamp and brand: raw={response_text[:200]!r}"
+            )
             # AI should remember the first message asked to count to 1
-            assert "1" in response_text or "one" in response_text.lower(), \
-                "AI lost context after compression"
+            assert "1" in answer_body or "one" in answer_body.lower(), \
+                f"AI lost context after compression: answer={answer_body[:200]!r}"
         else:
             logger.warning("Could not get last AI message")
 

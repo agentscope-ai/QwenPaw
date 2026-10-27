@@ -33,7 +33,9 @@ const mocks = vi.hoisted(() => ({
   routes: [] as unknown[],
   authStatus: { enabled: false, mode: "normal" },
   inboxEvents: [] as unknown[],
-  pushMessages: { pending_approvals: [] as unknown[] },
+  approvals: [] as Array<{ request_id: string }>,
+  getInboxEvents: vi.fn(),
+  getPushMessages: vi.fn(),
   sessionList: [] as unknown[],
   updateProfile: vi.fn().mockResolvedValue({}),
   changePassword: vi.fn().mockResolvedValue({}),
@@ -41,6 +43,7 @@ const mocks = vi.hoisted(() => ({
   setSelectedAgent: vi.fn(),
   refreshAgents: vi.fn().mockResolvedValue(undefined),
   language: "en",
+  renderActualSettingsPanel: false,
 }));
 
 vi.mock("react-i18next", () => ({
@@ -58,7 +61,11 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("../contexts/ThemeContext", () => ({
-  useTheme: () => ({ isDark: false }),
+  useTheme: () => ({
+    isDark: false,
+    themeMode: "light",
+    setThemeMode: vi.fn(),
+  }),
 }));
 
 vi.mock("../stores/sidebarStore", () => ({
@@ -102,6 +109,13 @@ vi.mock("../hooks/useInboxWobble", () => ({
   useInboxWobble: () => [true, vi.fn()],
 }));
 
+vi.mock("../contexts/ApprovalContext", () => ({
+  useApprovalContext: () => ({
+    approvals: mocks.approvals,
+    setApprovals: vi.fn(),
+  }),
+}));
+
 vi.mock("../hooks/useAppMessage", () => ({
   useAppMessage: () => ({
     message: {
@@ -116,8 +130,8 @@ vi.mock("../hooks/useAppMessage", () => ({
 vi.mock("../api", () => ({
   default: {
     getVersion: () => Promise.resolve({ version: "2.2.0b3" }),
-    getInboxEvents: () => Promise.resolve({ events: mocks.inboxEvents }),
-    getPushMessages: () => Promise.resolve(mocks.pushMessages),
+    getInboxEvents: (...args: unknown[]) => mocks.getInboxEvents(...args),
+    getPushMessages: (...args: unknown[]) => mocks.getPushMessages(...args),
     getUserTimezone: () => Promise.resolve({ timezone: "UTC" }),
   },
 }));
@@ -190,20 +204,24 @@ vi.mock("./SidebarSessionList", () => ({
   ),
 }));
 
-vi.mock("./SidebarSettingsPanel", () => ({
-  default: ({
-    onOpenAccount,
-    onLogout,
-  }: {
-    onOpenAccount?: () => void;
-    onLogout?: () => void;
-  }) => (
-    <div data-testid="settings-panel">
-      <button onClick={onOpenAccount}>account.title</button>
-      <button onClick={onLogout}>login.logout</button>
-    </div>
-  ),
-}));
+vi.mock("./SidebarSettingsPanel", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("./SidebarSettingsPanel")
+  >();
+  return {
+    default: (props: React.ComponentProps<typeof actual.default>) => {
+      if (mocks.renderActualSettingsPanel) {
+        return React.createElement(actual.default, props);
+      }
+      return (
+        <div data-testid="settings-panel">
+          <button onClick={props.onOpenAccount}>account.title</button>
+          <button onClick={props.onLogout}>login.logout</button>
+        </div>
+      );
+    },
+  };
+});
 
 const iconStubs = vi.hoisted(() => {
   const make = (name: string) => {
@@ -343,6 +361,12 @@ const workspaceItem = {
   label: "Workspace",
   route: "core.workspace",
 };
+const marketplaceItem = {
+  id: "core.marketplace",
+  location: "primary.agentScoped",
+  label: "Marketplace",
+  route: "core.marketplace",
+};
 const modelsItem = {
   id: "core.models",
   location: "primary.settings",
@@ -351,12 +375,38 @@ const modelsItem = {
 };
 
 describe("Sidebar", () => {
+  it("opens deferred quick settings without deprecated Tooltip props", async () => {
+    mocks.renderActualSettingsPanel = true;
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      renderWithProviders(<Sidebar selectedKey="core.chat" />);
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      expect(
+        await screen.findByRole("button", { name: "Appearance" }),
+      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(
+          consoleError.mock.calls.filter(([message]) =>
+            String(message).includes(
+              "[antd: Tooltip] `overlayClassName` is deprecated",
+            ),
+          ),
+        ).toHaveLength(0);
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("shows a local identity capsule when authentication is disabled", () => {
     renderWithProviders(<Sidebar selectedKey="core.chat" />);
     const label = screen.getByText("sidebar.localWorkspace");
     expect(label.closest("button")).toHaveAttribute("aria-haspopup", "menu");
     expect(screen.getByText("sidebar.localMode")).toBeInTheDocument();
   });
+
   beforeEach(() => {
     mockMobileViewport(false);
     localStorage.removeItem("qwenpaw_sidebar_collapsed");
@@ -372,7 +422,13 @@ describe("Sidebar", () => {
     ];
     mocks.authStatus = { enabled: false, mode: "normal" };
     mocks.inboxEvents = [];
-    mocks.pushMessages = { pending_approvals: [] };
+    mocks.approvals = [];
+    mocks.getInboxEvents
+      .mockReset()
+      .mockImplementation(() => Promise.resolve({ events: mocks.inboxEvents }));
+    mocks.getPushMessages.mockReset().mockResolvedValue({
+      pending_approvals: [],
+    });
     mocks.sessionList = [];
     mocks.updateProfile.mockClear().mockResolvedValue({});
     mocks.changePassword.mockClear().mockResolvedValue({});
@@ -380,6 +436,7 @@ describe("Sidebar", () => {
     mocks.setSelectedAgent.mockClear();
     mocks.refreshAgents.mockClear().mockResolvedValue(undefined);
     mocks.language = "en";
+    mocks.renderActualSettingsPanel = false;
   });
 
   it("keeps plugin fills and navigation alive through floating and docking", async () => {
@@ -437,6 +494,27 @@ describe("Sidebar", () => {
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Workspace" }));
 
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Workspace");
+  });
+
+  it("keeps compact navigation tooltips from blocking adjacent items", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "1");
+    mocks.sidebar.focusItemIds = ["core.marketplace", "core.inbox"];
+    mocks.menuItems = [marketplaceItem, inboxItem, modelsItem];
+    mocks.routes = [
+      { id: "core.marketplace", path: "/market" },
+      { id: "core.inbox", path: "/inbox" },
+      { id: "core.models", path: "/models" },
+      { id: "core.chat", path: "/chat" },
+    ];
+    renderSidebar({ selectedKey: "core.marketplace" });
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Marketplace" }));
+    expect(await screen.findByRole("tooltip")).toHaveStyle({
+      pointerEvents: "none",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Inbox" }));
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/inbox");
   });
 
   it("collapses tools when the open header blank area is clicked", async () => {
@@ -600,6 +678,10 @@ describe("Sidebar", () => {
       // Collapsed nav has no menu labels, only tooltips/buttons
       expect(screen.queryByText("Workspace")).toBeNull();
     });
+    expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(screen.getByTestId("app-brand")).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     await waitFor(() => {
@@ -893,9 +975,7 @@ describe("Sidebar", () => {
   });
 
   it("lights the inbox badge when there are pending approvals", async () => {
-    mocks.pushMessages = {
-      pending_approvals: [{ request_id: "req-1" }],
-    };
+    mocks.approvals = [{ request_id: "req-1" }];
     renderSidebar();
     await waitFor(() => {
       expect(screen.getByText("Workspace")).toBeTruthy();
@@ -903,6 +983,18 @@ describe("Sidebar", () => {
     // The inbox label is wrapped in a Badge span with a ref callback
     const inboxSpans = screen.getAllByText("Inbox");
     expect(inboxSpans.length).toBeGreaterThan(0);
+  });
+
+  it("polls inbox events without starting a second push-message chain", async () => {
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(mocks.getInboxEvents).toHaveBeenCalledWith({
+        unread_only: true,
+        limit: 1,
+      });
+    });
+    expect(mocks.getPushMessages).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -916,9 +1008,7 @@ describe("Sidebar", () => {
       if (collapsed) {
         localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
       }
-      mocks.pushMessages = {
-        pending_approvals: pending ? [{ request_id: "req-1" }] : [],
-      };
+      mocks.approvals = pending ? [{ request_id: "req-1" }] : [];
       await act(async () => {
         renderSidebar();
       });

@@ -3,10 +3,17 @@
 
 # pylint: disable=protected-access
 
+import json
 from types import SimpleNamespace
 
-import httpx
+import httpx2
 import pytest
+from agentscope.classifier import (
+    BinaryAnswer,
+    ChoiceAnswer,
+    ClassifierResponse,
+    RefusalAnswer,
+)
 
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.typesafe_provider import TypeSafeProvider
@@ -25,7 +32,7 @@ def configured_typesafe_provider(monkeypatch):
     provider = TypeSafeProvider(
         id="typesafe",
         name="TypeSafe",
-        base_url="https://api.typesafe.ai/v1",
+        base_url="https://api.typesafe.ai",
         api_key="test-key",
     )
     manager = SimpleNamespace(
@@ -38,14 +45,39 @@ def configured_typesafe_provider(monkeypatch):
     return provider
 
 
-def _response(*, choice="routine", confidence=0.95, risk=0.01):
-    other_probabilities = {
+def _probabilities(choice):
+    probabilities = {
         "read_only": 0.02,
         "routine": 0.02,
         "risky": 0.02,
         "unclear": 0.01,
     }
-    other_probabilities[choice] = 0.95
+    probabilities[choice] = 0.95
+    return probabilities
+
+
+_RISK_QUESTIONS = ("destructive", "secret_exposure", "privilege_change")
+
+
+def _response(*, choice="routine", confidence=0.95, risk=0.01):
+    return ClassifierResponse(
+        model="jev-1",
+        content={
+            "impact": ChoiceAnswer(
+                choice=choice,
+                confidence=confidence,
+                probabilities=_probabilities(choice),
+            ),
+            **{
+                name: BinaryAnswer(probability=risk)
+                for name in _RISK_QUESTIONS
+            },
+        },
+    )
+
+
+def _wire_response(*, choice="routine", confidence=0.95, risk=0.01):
+    """The System One JSON body equivalent to :func:`_response`."""
     return {
         "model": "jev-1",
         "usage": {"input_tokens": 10, "output_tokens": 2},
@@ -54,15 +86,11 @@ def _response(*, choice="routine", confidence=0.95, risk=0.01):
                 "type": "choice",
                 "choice": choice,
                 "confidence": confidence,
-                "probabilities": other_probabilities,
+                "probabilities": _probabilities(choice),
             },
             **{
                 name: {"type": "noul", "noul": risk}
-                for name in (
-                    "destructive",
-                    "secret_exposure",
-                    "privilege_change",
-                )
+                for name in _RISK_QUESTIONS
             },
         },
     }
@@ -88,6 +116,10 @@ def test_selected_decision_model_comes_from_provider_manager(
     )
     monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
     assert _decision_provider() == (typesafe_provider, "jev-2")
+
+
+def test_unselected_approval_model_retains_default(typesafe_provider):
+    assert _decision_provider() == (typesafe_provider, "jev-latest")
 
 
 def test_agent_decision_model_takes_priority_over_global(
@@ -130,8 +162,17 @@ def test_only_confident_low_risk_response_skips_approval():
 
 
 def test_malformed_response_fails_closed():
+    refused = _response()
+    refused.content["destructive"] = RefusalAnswer()
     with pytest.raises(ValueError):
-        _interpret({"answers": {"impact": {"type": "choice"}}})
+        _interpret(refused)
+    partial = _response()
+    partial.content["impact"].probabilities.pop("unclear")
+    with pytest.raises(ValueError):
+        _interpret(partial)
+    out_of_range = _response(risk=1.5)
+    with pytest.raises(ValueError):
+        _interpret(out_of_range)
 
 
 def test_narrow_read_only_shell_listing():
@@ -158,7 +199,7 @@ def test_narrow_read_only_shell_listing():
 async def test_read_only_listing_skips_model_but_not_existing_ask(
     monkeypatch,
 ):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError(
             "verified read-only listing should not call decision model",
         )
@@ -200,7 +241,7 @@ async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
         is True
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("target-free read must not call decision model")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -225,6 +266,22 @@ async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
             tool_func=make_recall_context_tool(),
         )
     ).needs_approval
+    assert not (
+        await assess_tool_call(
+            "MemoryListTags",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_list_tags,
+        )
+    ).needs_approval
+    assert (
+        await assess_tool_call(
+            "MemoryListTags",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_list_tags,
+            baseline_ask=True,
+        )
+    ).needs_approval
+    assert (await assess_tool_call("MemoryListTags", "")).needs_approval
     assert (
         await assess_tool_call(
             "GetCurrentTime",
@@ -265,7 +322,7 @@ async def test_declared_local_media_read_skips_decision_model(
         is True
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("local media read should not call decision model")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -302,11 +359,16 @@ async def test_sips_existing_output_requires_approval_without_decision_model(
 ):
     output = tmp_path / "small.jpg"
     output.write_bytes(b"existing")
+    # as_posix() keeps the rendered command platform-neutral: shlex.split()
+    # runs in POSIX mode, so a Windows-style backslash path is eaten as an
+    # escape sequence and the --out token loses every separator, which makes
+    # os.path.isabs() reject it and the preflight silently return None.
     command = (
-        f"sips -Z 1600 -s format jpeg {tmp_path}/input.png --out {output}"
+        f"sips -Z 1600 -s format jpeg {tmp_path.as_posix()}/input.png"
+        f" --out {output.as_posix()}"
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError(
             "verified overwrite should not call decision model",
         )
@@ -324,8 +386,13 @@ async def test_sips_existing_output_requires_approval_without_decision_model(
 @pytest.mark.asyncio
 async def test_sips_new_output_supplies_verified_fact(monkeypatch, tmp_path):
     output = tmp_path / "small.jpg"
+    # as_posix() keeps the rendered command platform-neutral: shlex.split()
+    # runs in POSIX mode, so a Windows-style backslash path is eaten as an
+    # escape sequence and the --out token loses every separator, which makes
+    # os.path.isabs() reject it and the preflight silently return None.
     command = (
-        f"sips -Z 1600 -s format jpeg {tmp_path}/input.png --out {output}"
+        f"sips -Z 1600 -s format jpeg {tmp_path.as_posix()}/input.png"
+        f" --out {output.as_posix()}"
     )
     seen = []
 
@@ -382,9 +449,9 @@ async def test_shell_syntax_reaches_model_instead_of_immediate_approval(
     assert not result.needs_approval
     assert len(seen) == 1
     assert seen[0]["state"]["target"] == command
-    assert "read_only" in seen[0]["questions"]["impact"]["criteria"]
+    assert "read_only" in seen[0]["questions"]["impact"].criteria
     assert "Listing filenames or file metadata alone does not count" in (
-        seen[0]["questions"]["secret_exposure"]["instructions"]
+        seen[0]["questions"]["secret_exposure"].instructions
     )
 
 
@@ -448,7 +515,7 @@ async def test_shell_write_is_available_to_decision_model(
 
 @pytest.mark.asyncio
 async def test_literal_secret_is_not_sent_to_decision_model(monkeypatch):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("secret must not reach service")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -458,7 +525,7 @@ async def test_literal_secret_is_not_sent_to_decision_model(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sensitive_target_never_reaches_service(monkeypatch):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("service should not be contacted")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -471,12 +538,9 @@ async def test_sensitive_target_never_reaches_service(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_unconfigured_effectful_call_requires_approval(
-    monkeypatch,
+    typesafe_provider,
 ):
-    async def no_key(_provider):
-        return None
-
-    monkeypatch.setattr(TypeSafeProvider, "_evaluation_api_key", no_key)
+    typesafe_provider.api_key = ""
     result = await assess_tool_call("Write", "notes.txt")
     assert result.needs_approval
     assert result.error_type == "not_configured"
@@ -487,14 +551,10 @@ async def test_unconfigured_effectful_call_requires_approval(
 
 
 @pytest.mark.asyncio
-async def test_typed_request_and_response(monkeypatch):
-    original_client = httpx.AsyncClient
-
+async def test_typed_request_and_response(mock_typesafe):
     def handler(request):
         assert request.url.path == "/v1/systemone"
         assert request.headers["Authorization"] == "Bearer test-key"
-        import json
-
         body = json.loads(request.content)
         assert body["model"] == "jev-latest"
         assert set(body["questions"]) == {
@@ -506,16 +566,9 @@ async def test_typed_request_and_response(monkeypatch):
         assert body["state"]["parameter_names"] == ["content"]
         assert body["state"]["target"] == "notes.txt"
         assert "private content" not in str(body)
-        return httpx.Response(200, json=_response())
+        return httpx2.Response(200, json=_wire_response())
 
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: original_client(
-            transport=httpx.MockTransport(handler),
-            **kwargs,
-        ),
-    )
+    mock_typesafe(handler)
     result = await assess_tool_call(
         "Write",
         "notes.txt",

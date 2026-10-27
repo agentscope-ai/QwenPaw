@@ -36,7 +36,6 @@ import {
   Rocket,
   Gauge,
   Wallet,
-  Lock,
   GripVertical,
   Wrench,
   ListChecks,
@@ -222,6 +221,7 @@ function DoomLoopSection() {
                     </SettingsField>
 
                     <Button
+                      className={loopStyles.removeRule}
                       type="text"
                       danger
                       icon={<Trash2 size={14} />}
@@ -419,14 +419,14 @@ function GoalModeTab() {
         title={t("agentConfig.loopMode.goalBudgetTitle", "Goal token budget")}
         description={t(
           "agentConfig.loopMode.goalBudgetDescription",
-          "Stop when the complete goal reaches its budget.",
+          "Stop when the goal reaches its budget. -1 or 0 means unlimited.",
         )}
       >
         <SettingsField
           name={["loop", "goal", "max_tokens"]}
           label={t("agentConfig.loopMode.maxGoalTokens", "Maximum goal tokens")}
         >
-          <InputNumber min={1} style={{ width: 220 }} />
+          <InputNumber min={-1} style={{ width: 220 }} />
         </SettingsField>
       </LockedGateCard>
       <LockedGateCard
@@ -787,6 +787,7 @@ function GateParamsEditor({
                     <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} />
                   </SettingsField>
                   <Button
+                    className={loopStyles.removeRule}
                     type="text"
                     danger
                     icon={<Trash2 size={14} />}
@@ -1339,7 +1340,6 @@ export function AgentLoopCard() {
       key: "default",
       label: (
         <span className={loopStyles.builtInTab}>
-          <Lock size={12} />
           {t("agentConfig.loopMode.defaultTab", "Standard")}
         </span>
       ),
@@ -1349,7 +1349,6 @@ export function AgentLoopCard() {
       key: "goal",
       label: (
         <span className={loopStyles.builtInTab}>
-          <Lock size={12} />
           {t("agentConfig.loopMode.goalTab", "Goal")}
         </span>
       ),
@@ -1359,7 +1358,6 @@ export function AgentLoopCard() {
       key: "mission",
       label: (
         <span className={loopStyles.builtInTab}>
-          <Lock size={12} />
           {t("agentConfig.loopMode.missionTab", "Mission")}
         </span>
       ),
@@ -1369,7 +1367,6 @@ export function AgentLoopCard() {
       key: "advisor",
       label: (
         <span className={loopStyles.builtInTab}>
-          <Lock size={12} />
           {t("agentConfig.loopMode.advisorTab", "Advisor")}
         </span>
       ),

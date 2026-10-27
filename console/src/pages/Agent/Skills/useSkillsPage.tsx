@@ -56,6 +56,8 @@ export function useSkillsPage() {
     skills,
     providerSkills,
     loading,
+    error,
+    ready,
     uploading,
     importing,
     createSkill,
@@ -64,6 +66,8 @@ export function useSkillsPage() {
     cancelImport,
     toggleEnabled,
     deleteSkill,
+    captureMutationOwner,
+    ownsMutationOwner,
     refreshSkills,
     hardRefresh,
   } = useSkills();
@@ -77,8 +81,11 @@ export function useSkillsPage() {
     filteredSkills,
   } = useSkillFilter(skills);
 
-  const { showConflictRenameModal, conflictRenameModal } =
-    useConflictRenameModal();
+  const {
+    showConflictRenameModal,
+    cancelConflictRenameModal,
+    conflictRenameModal,
+  } = useConflictRenameModal();
 
   // ── Local state ─────────────────────────────────────────────────────────
 
@@ -89,7 +96,12 @@ export function useSkillsPage() {
   const [editingSkillName, setEditingSkillName] = useState("");
   const [drawerLoading, setDrawerLoading] = useState(false);
   const detailRequestIdRef = useRef(0);
+  const pageGenerationRef = useRef(0);
+  const selectedAgentRef = useRef(selectedAgent || "default");
+  selectedAgentRef.current = selectedAgent || "default";
   const [form] = Form.useForm<SkillDrawerFormValues>();
+  const formRef = useRef(form);
+  formRef.current = form;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
   const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(
@@ -97,6 +109,7 @@ export function useSkillsPage() {
   );
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [batchModeEnabled, setBatchModeEnabled] = useState(false);
+  const selectionOwnerRef = useRef(selectedAgent || "default");
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const [filterOpen, setFilterOpen] = useState(false);
 
@@ -141,6 +154,8 @@ export function useSkillsPage() {
   }, []);
 
   useEffect(() => {
+    pageGenerationRef.current += 1;
+    cancelConflictRenameModal();
     setChannelTypes([]);
     setChannelSchemas({});
     setChannelsLoaded(false);
@@ -148,7 +163,24 @@ export function useSkillsPage() {
     return () => {
       channelRequestIdRef.current += 1;
     };
-  }, [selectedAgent, refreshChannelOptions]);
+  }, [cancelConflictRenameModal, selectedAgent, refreshChannelOptions]);
+
+  useEffect(() => {
+    detailRequestIdRef.current += 1;
+    savedEdit.current = null;
+    setDrawerOpen(false);
+    setDrawerLoading(false);
+    setEditingSkill(null);
+    setEditingSkillName("");
+    setImportModalOpen(false);
+    setPoolModal(null);
+    setPoolSkills([]);
+    formRef.current.resetFields();
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    selectionOwnerRef.current = selectedAgent || "default";
+    setSelectedSkills(new Set());
+    setBatchModeEnabled(false);
+  }, [cancelConflictRenameModal, selectedAgent]);
 
   useEffect(() => {
     if (drawerOpen) refreshChannelOptions();
@@ -275,6 +307,13 @@ export function useSkillsPage() {
   // ── File upload ─────────────────────────────────────────────────────────
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const operation = {
+      agentId: selectedAgent || "default",
+      generation: pageGenerationRef.current,
+    };
+    const isCurrentOperation = () =>
+      operation.generation === pageGenerationRef.current &&
+      operation.agentId === selectedAgentRef.current;
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
@@ -295,7 +334,9 @@ export function useSkillsPage() {
     }
     let renameMap: Record<string, string> | undefined;
     while (true) {
+      if (!isCurrentOperation()) return;
       const result = await uploadSkill(file, undefined, renameMap);
+      if (!isCurrentOperation()) return;
       if (result.success || !result.conflict) break;
       const conflicts = Array.isArray(result.conflict.conflicts)
         ? result.conflict.conflicts
@@ -312,6 +353,7 @@ export function useSkillsPage() {
             suggested_name: c.suggested_name,
           })),
       );
+      if (!isCurrentOperation()) return;
       if (!newRenames) break;
       renameMap = { ...renameMap, ...newRenames };
     }
@@ -339,8 +381,20 @@ export function useSkillsPage() {
     setImportModalOpen(false);
   };
 
-  const handleConfirmImport = async (url: string, targetName?: string) => {
+  const handleConfirmImport = async (
+    url: string,
+    targetName?: string,
+    operation = {
+      agentId: selectedAgent || "default",
+      generation: pageGenerationRef.current,
+    },
+  ): Promise<void> => {
+    const isCurrentOperation = () =>
+      operation.generation === pageGenerationRef.current &&
+      operation.agentId === selectedAgentRef.current;
+    if (!isCurrentOperation()) return;
     const result = await importFromHub(url, targetName);
+    if (!isCurrentOperation()) return;
     if (result.success) {
       closeImportModal();
     } else if (result.conflict) {
@@ -357,15 +411,20 @@ export function useSkillsPage() {
             suggested_name: String(suggested),
           },
         ]);
+        if (!isCurrentOperation()) return;
         if (renameMap) {
           const newName = Object.values(renameMap)[0];
-          if (newName) await handleConfirmImport(url, newName);
+          if (newName) {
+            await handleConfirmImport(url, newName, operation);
+            if (!isCurrentOperation()) return;
+          }
         }
       }
     }
   };
 
   const handleEdit = async (skill: SkillSpec) => {
+    const requestedAgent = selectedAgent || "default";
     const requestId = detailRequestIdRef.current + 1;
     detailRequestIdRef.current = requestId;
     setEditingSkill(null);
@@ -374,19 +433,32 @@ export function useSkillsPage() {
     form.resetFields();
     setDrawerOpen(true);
     try {
-      const detail = await api.getSkill(skill.name, selectedAgent);
-      if (detailRequestIdRef.current !== requestId) return;
+      const detail = await api.getSkill(skill.name, requestedAgent);
+      if (
+        detailRequestIdRef.current !== requestId ||
+        selectedAgentRef.current !== requestedAgent
+      ) {
+        return;
+      }
       savedEdit.current = detail;
       setEditingSkill(detail);
     } catch (error) {
-      if (detailRequestIdRef.current !== requestId) return;
+      if (
+        detailRequestIdRef.current !== requestId ||
+        selectedAgentRef.current !== requestedAgent
+      ) {
+        return;
+      }
       message.error(
         error instanceof Error ? error.message : t("skills.loadFailed"),
       );
       setDrawerOpen(false);
       setEditingSkillName("");
     } finally {
-      if (detailRequestIdRef.current === requestId) {
+      if (
+        detailRequestIdRef.current === requestId &&
+        selectedAgentRef.current === requestedAgent
+      ) {
         setDrawerLoading(false);
       }
     }
@@ -758,6 +830,14 @@ export function useSkillsPage() {
   // ── Batch delete ────────────────────────────────────────────────────────
 
   const handleBatchDelete = async () => {
+    const owner = captureMutationOwner();
+    if (
+      !owner ||
+      selectionOwnerRef.current !== owner.agentId ||
+      owner.agentId !== (selectedAgent || "default")
+    ) {
+      return;
+    }
     const names = Array.from(selectedSkills);
     if (names.length === 0) return;
     const confirmed = await new Promise<boolean>((resolve) => {
@@ -773,13 +853,14 @@ export function useSkillsPage() {
         okText: t("common.delete"),
         okType: "danger",
         cancelText: t("common.cancel"),
-        onOk: () => resolve(true),
+        onOk: () => resolve(ownsMutationOwner(owner)),
         onCancel: () => resolve(false),
       });
     });
-    if (!confirmed) return;
+    if (!confirmed || !ownsMutationOwner(owner)) return;
     try {
-      const { results } = await api.batchDeleteSkills(names);
+      const { results } = await api.batchDeleteSkills(names, owner.agentId);
+      if (!ownsMutationOwner(owner)) return;
       const failed = Object.entries(results).filter(([, r]) => !r.success);
       if (failed.length > 0) {
         message.warning(
@@ -794,9 +875,11 @@ export function useSkillsPage() {
         );
       }
       clearSelection();
-      invalidateSkillCache({ agentId: selectedAgent });
+      invalidateSkillCache({ agentId: owner.agentId });
       await refreshSkills();
+      if (!ownsMutationOwner(owner)) return;
     } catch (error) {
+      if (!ownsMutationOwner(owner)) return;
       message.error(
         error instanceof Error ? error.message : t("skills.batchDeleteFailed"),
       );
@@ -817,6 +900,8 @@ export function useSkillsPage() {
     filteredSkills,
     conflictRenameModal,
     loading,
+    error,
+    ready,
     uploading,
     importing,
     drawerOpen,

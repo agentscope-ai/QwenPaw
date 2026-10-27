@@ -1,4 +1,5 @@
 import { ChatSessionActivation } from "./components/ChatSessionActivation";
+import { ChatSessionTransition } from "./components/ChatSessionTransition";
 import SdkRef from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Ref";
 /**
  * Installed-SDK protocol integration, NOT browser/backend/model E2E.
@@ -16,8 +17,9 @@ import SdkRef from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Ref";
  * Observed-path regression tests independently require loading=false.
  * Run: npm run test:run -- src/pages/Chat/sdkSessionLifecycle.integration.test.tsx
  */
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useContextSelector } from "use-context-selector";
@@ -46,7 +48,6 @@ import { ApiError } from "../../api/request";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
 import { useCreateNewSession } from "./hooks/useCreateNewSession";
 import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
-import { ChatSessionTransition } from "./components/ChatSessionTransition";
 import { menuRegistry } from "../../plugins/registry/store";
 import sessionApi from "./sessionApi";
 import { createSdkSessionAdapter } from "./sdkSessionAdapter";
@@ -169,6 +170,7 @@ function mountHost(
   fixture: Fixture,
   creationGate?: ReturnType<typeof deferred>,
   observeIdle = false,
+  withRetryTransition = false,
 ) {
   let probe!: Probe;
   const sdkRef = {
@@ -255,12 +257,13 @@ function mountHost(
         controller,
       };
     });
-    return null;
+    return withRetryTransition ? <div data-testid="sdk-loader-probe" /> : null;
   }
 
   function RouterHost() {
     const { pathname } = useLocation();
     const navigate = useNavigate();
+    const [refreshKey, setRefreshKey] = useState(0);
     const currentSessionId = pathname.split("/")[2] || undefined;
     useLayoutEffect(() => {
       sessionApi.invalidateSessionCreation();
@@ -306,7 +309,17 @@ function mountHost(
           sdkRef={sdkRef}
           adapter={adapter}
         />
-        <ProbeView />
+        {withRetryTransition ? (
+          <ChatSessionTransition
+            adapter={adapter}
+            sessionId={currentSessionId}
+            onRetry={() => setRefreshKey((current) => current + 1)}
+          >
+            <ProbeView key={refreshKey} />
+          </ChatSessionTransition>
+        ) : (
+          <ProbeView />
+        )}
         <SdkRef ref={sdkRef} />
       </ComposedProvider>
     );
@@ -837,6 +850,59 @@ describe("installed SDK activation after route ownership resolution", () => {
 });
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
+  it("retries the real SDK loader and commits recovered history", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    fixture.history
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(new Error("still offline"))
+      .mockResolvedValueOnce({
+        status: "idle",
+        messages: [
+          {
+            id: "recovered-message",
+            role: "assistant",
+            type: "message",
+            content: "Recovered history",
+            metadata: null,
+          },
+        ],
+      });
+    const host = mountHost(fixture, undefined, false, true);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
+    let surface = screen.getByTestId("sdk-loader-probe").parentElement!;
+    expect(surface.inert).toBe(true);
+    expect(surface).not.toBeVisible();
+    expect(host.current().sessions.currentSessionId).toBe(A);
+
+    await user.click(screen.getByRole("button", { name: "common.retry" }));
+    await waitFor(() => expect(fixture.history).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("alert")).toBeVisible();
+    surface = screen.getByTestId("sdk-loader-probe").parentElement!;
+    expect(surface.inert).toBe(true);
+    expect(surface).not.toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "common.retry" }));
+    await waitFor(() =>
+      expect(
+        JSON.stringify(host.current().messages.getSessionMessages(A)),
+      ).toContain("Recovered history"),
+    );
+    expect(fixture.history).toHaveBeenCalledTimes(3);
+    expect(host.current().sessions.currentSessionId).toBe(A);
+    expect(host.adapter.isReady(A)).toBe(true);
+    expect(fixture.create).not.toHaveBeenCalled();
+    expect(fixture.transport).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    surface = screen.getByTestId("sdk-loader-probe").parentElement!;
+    expect(surface.inert).toBe(false);
+    await waitFor(() => expect(surface).toBeVisible());
+    consoleError.mockRestore();
+  });
+
   it("lets the original SDK clear the target while the host waits for readiness", async () => {
     const host = mountHost(fixture);
     await waitFor(() =>

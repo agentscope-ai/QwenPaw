@@ -69,8 +69,9 @@ def inline_media_size(source: Any) -> int | None:
     if isinstance(source, URLSource):
         return None
     if isinstance(source, Base64Source):
-        # base64 length -> approximate raw byte count.
-        return len(source.data or "") * 3 // 4
+        data = source.data or ""
+        padding = int(data.endswith("=")) + int(data.endswith("=="))
+        return len(data) * 3 // 4 - padding
     return None
 
 
@@ -83,6 +84,7 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
     """
 
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
+    resize_images_to_max_bytes: bool = Field(default=False, exclude=True)
     relay_reasoning_content: bool = Field(default=True)
     enable_prompt_cache_breakpoint: bool = Field(default=False)
 

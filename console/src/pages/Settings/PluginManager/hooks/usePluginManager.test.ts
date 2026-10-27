@@ -23,7 +23,8 @@ vi.mock("@/hooks/useAppMessage", () => ({
   useAppMessage: () => ({ message: hoisted.messageMock }),
 }));
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({ t: hoisted.stableT }),
 }));
 

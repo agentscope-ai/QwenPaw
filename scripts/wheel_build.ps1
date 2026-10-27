@@ -36,6 +36,10 @@ New-Item -ItemType Directory -Force -Path $DocsDest | Out-Null
 Copy-Item -Path (Join-Path $DocsSrc "*.md") -Destination $DocsDest -Force
 
 Write-Host "[wheel_build] Building wheel + sdist..."
+python -m pip install --upgrade "pip>=26.2.2"
+if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
+python -m pip install --upgrade "certifi>=2026.10.19"
+if ($LASTEXITCODE -ne 0) { throw "certifi upgrade failed" }
 python -m pip install --quiet build
 $DistDir = Join-Path $RepoRoot "dist"
 if (Test-Path $DistDir) {

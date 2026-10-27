@@ -108,6 +108,27 @@
   color: var(--app-text-tertiary);
 }
 
+.loadError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 180px;
+  padding: 24px;
+  color: var(--app-error-text);
+
+  > span {
+    max-width: 440px;
+  }
+}
+
+@media (max-width: 600px) {
+  .loadError {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
 .channelsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(346px, 1fr));
@@ -230,6 +251,17 @@
 }
 
 @media (max-width: 768px) {
+  .channelsPage :global(.ant-btn),
+  .channelsPage :global(.qwenpaw-btn),
+  .filterTab {
+    min-height: var(--app-hit-touch);
+  }
+
+  .channelsPage :global(.ant-btn-icon-only),
+  .channelsPage :global(.qwenpaw-btn-icon-only) {
+    min-width: var(--app-hit-touch);
+  }
+
   .channelsPage .pageHeader {
     padding: 12px 16px;
     flex-direction: column;
@@ -621,6 +653,23 @@
     border: 0;
     margin-top: 8px;
   }
+
+  .noTextDebounceItem:has(button[role="switch"]) {
+    > :global(.qwenpaw-form-item-row) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      width: 100%;
+      min-width: 0;
+      gap: 16px;
+    }
+    :global(.qwenpaw-form-item-label) {
+      min-width: 0;
+    }
+    :global(.qwenpaw-form-item-control) {
+      width: auto !important;
+      min-width: 0;
+    }
+  }
 }
 
 .channelsPage .channelSurface {
@@ -702,6 +751,12 @@
 }
 .filterTab {
   min-height: 40px;
+}
+
+@media (max-width: 768px) {
+  .filterTab {
+    min-height: var(--app-hit-touch);
+  }
 }
 .channelsPage .pageHeader {
   flex-wrap: wrap;

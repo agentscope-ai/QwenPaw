@@ -125,6 +125,12 @@ class PolicyGuardedTool:
         from agentscope.tool import FunctionTool
 
         if cls is PolicyGuardedTool:
+            sdk_methods = {}
+            func = args[0] if args else kwargs.get("func")
+            if hasattr(func, "_qwenpaw_sdk_schema"):
+                from ..plugins._tool_adapter import sdk_function_call
+
+                sdk_methods["call"] = sdk_function_call
             real_cls = type(
                 "PolicyGuardedTool",
                 (FunctionTool,),
@@ -134,6 +140,7 @@ class PolicyGuardedTool:
                     "check_permissions": _policy_tool_check_permissions,
                     "__call__": _policy_tool_call,
                     "__doc__": cls.__doc__,
+                    **sdk_methods,
                 },
             )
             return real_cls(*args, **kwargs)
@@ -150,6 +157,8 @@ def _policy_tool_init(
 ) -> None:
     from agentscope.tool import FunctionTool
 
+    if hasattr(func, "_qwenpaw_sdk_schema"):
+        kwargs.setdefault("input_schema", func._qwenpaw_sdk_schema)
     FunctionTool.__init__(self, func, **kwargs)
     self._qp_governor = governor
     self._qp_request_context = request_context or {}

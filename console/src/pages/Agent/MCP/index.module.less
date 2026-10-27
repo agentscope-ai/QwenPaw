@@ -419,6 +419,10 @@
   color: var(--app-text-tertiary);
 }
 
+.loadWarning {
+  margin: 0 16px 16px;
+}
+
 .modalFooter {
   text-align: right;
 }
@@ -980,6 +984,16 @@
 }
 
 @media (max-width: 768px) {
+  .mcpPage :global(.ant-btn),
+  .mcpPage :global(.qwenpaw-btn) {
+    min-height: var(--app-hit-touch);
+  }
+
+  .mcpPage :global(.ant-btn-icon-only),
+  .mcpPage :global(.qwenpaw-btn-icon-only) {
+    min-width: var(--app-hit-touch);
+  }
+
   .pageHeader {
     flex-direction: column;
     align-items: flex-start;

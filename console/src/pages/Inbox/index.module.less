@@ -47,6 +47,11 @@
   color: var(--app-accent) !important;
 }
 
+.mailAclButton,
+.wobbleToggle {
+  flex-shrink: 0;
+}
+
 .tabContent {
   padding-bottom: 8px;
 
@@ -76,6 +81,53 @@
 .selectedCountText {
   font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
+}
+
+.messagesError,
+.messagesLoading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+}
+
+.messagesError {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-error-border);
+  background: var(--app-error-bg);
+  color: var(--app-error-text);
+
+  > span {
+    flex: 1;
+  }
+
+  :global(.ant-btn) {
+    flex-shrink: 0;
+    min-height: 44px;
+  }
+}
+
+.messagesLoading {
+  justify-content: center;
+  min-height: 120px;
+  color: var(--app-text-secondary);
+}
+
+.messagesLoadingIcon {
+  animation: messagesLoadingSpin 1s linear infinite;
+}
+
+@keyframes messagesLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .messagesLoadingIcon {
+    animation: none;
+  }
 }
 
 .cardList {
@@ -473,6 +525,10 @@
     padding: 14px;
   }
 
+  .messagesToolbar {
+    flex-wrap: wrap;
+  }
+
   .inboxTabs {
     padding: 0;
   }
@@ -536,12 +592,45 @@
     flex-wrap: wrap;
     width: 100%;
 
-    :global(.ant-select) {
+    :global(.ant-select),
+    :global(.qwenpaw-select) {
       width: 100% !important;
     }
 
-    :global(.ant-btn) {
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
       flex-shrink: 0;
+      min-height: var(--app-hit-touch);
+    }
+
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
+      min-height: var(--app-hit-touch) !important;
+    }
+
+    :global(.ant-select-selection-search-input),
+    :global(.qwenpaw-select-selection-search-input) {
+      height: var(--app-hit-touch) !important;
+    }
+  }
+
+  .mailAclButton,
+  .wobbleToggle,
+  .inboxTabs :global(.ant-tabs-tab-btn),
+  .inboxTabs :global(.qwenpaw-tabs-tab-btn),
+  .messageDetailTitle > button {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .messagesError {
+    align-items: flex-start;
+    flex-wrap: wrap;
+
+    > span {
+      min-width: calc(100% - 30px);
     }
   }
 

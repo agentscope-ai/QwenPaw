@@ -24,8 +24,17 @@ fn open_devtools(window: WebviewWindow) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-/// Build the desktop app, wire native plugins/commands, and stop the backend on exit.
+/// Build the desktop app, wire native plugins/commands, and attach to the shared runtime.
 pub fn run() {
+    let context = tauri::generate_context!();
+    let registration = match updates::coordination::register_desktop(&context.config().identifier) {
+        Ok(Some(registration)) => registration,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("[QwenPaw Desktop] Cannot register this window: {error}");
+            std::process::exit(1);
+        }
+    };
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -37,12 +46,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_devtools,
             backend_download::download_backend_file,
-            backend_download::read_workspace_binary_file,
-            backend::backend_port,
-            backend::backend_startup_error,
+            backend::agent_host_state,
             backend::restart_backend,
             external_link::open_external_link,
             external_link::open_workspace_html,
+            updates::coordination::confirm_desktop_update,
             updates::check_desktop_update,
             updates::install_desktop_update,
             updates::download_desktop_update,
@@ -50,13 +58,19 @@ pub fn run() {
             updates::check_cached_update,
             tray::minimize_to_tray,
             tray::quit_app,
+            tray::stop_service,
             tray::set_tray_labels,
             tray::ack_close,
+            tray::set_close_action,
+            tray::get_close_action,
         ])
+        .manage(registration)
+        .manage(updates::coordination::Confirmation::default())
         .manage(backend::BackendState::default())
         .manage(computer_use_runtime::ComputerUseRuntimeState::default())
         .manage(tray::TrayState::default())
         .setup(|app| {
+            updates::coordination::setup(app.handle())?;
             backend::setup(app)?;
             tray::setup(app)?;
             #[cfg(windows)]
@@ -73,39 +87,27 @@ pub fn run() {
                 tray::request_close(window.app_handle());
             }
         })
-        .build(tauri::generate_context!());
+        .build(context);
 
     match build_result {
         Ok(app) => {
             app.run(|app_handle, event| match event {
-                // `code` is `None` only for OS-initiated quits (e.g. macOS
-                // Cmd+Q / app menu Quit). On macOS we route those through the
-                // same close prompt as the window's red button, so the choice
-                // (minimize-to-tray vs. quit) stays consistent with Windows
-                // Alt+F4. Programmatic exits from `quit_app` carry a `code` and
-                // fall through to the normal shutdown path below.
                 RunEvent::ExitRequested { api, code, .. } => {
                     #[cfg(windows)]
                     if code.is_none() && webview_recovery::is_active() {
                         api.prevent_exit();
-                        log::warn!("[webview] keeping the app alive while the main window recovers");
                         return;
                     }
                     #[cfg(target_os = "macos")]
-                    if code.is_none() {
+                    if code.is_none() && !tray::is_quitting(app_handle) {
                         api.prevent_exit();
-                        // The window may be hidden in the tray; bring it back so
-                        // the close prompt is actually visible before asking.
-                        tray::show_main_window(app_handle);
-                        tray::request_close(app_handle);
+                        tray::request_quit(app_handle);
                         return;
                     }
-                    #[cfg(not(target_os = "macos"))]
-                    let _ = (&api, &code);
-                    if let Err(err) = tauri::async_runtime::block_on(backend::stop_and_wait(app_handle)) {
-                        log::warn!("[backend] graceful shutdown did not complete: {err}");
+                    if !tray::shutdown_complete(app_handle) {
+                        api.prevent_exit();
+                        tray::exit_app(app_handle, code.unwrap_or(0));
                     }
-                    computer_use_runtime::stop(app_handle);
                 }
                 // macOS emits this when the user clicks the Dock icon. Without
                 // it, a window hidden via "minimize to tray" can only be
@@ -122,4 +124,9 @@ pub fn run() {
             std::process::exit(1);
         }
     }
+}
+
+/// Run the detached desktop supervisor without constructing a WebView.
+pub fn run_agent_host() -> Result<(), String> {
+    backend::daemon::run()
 }

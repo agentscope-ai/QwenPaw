@@ -147,6 +147,7 @@ export async function checkScanWarnings(
   fetchAlerts: () => Promise<BlockedSkillRecord[]>,
   fetchScannerCfg: () => Promise<SkillScannerConfig>,
   t: TFunction,
+  shouldShow: () => boolean = () => true,
 ): Promise<void> {
   try {
     const [alerts, scannerCfg] = await Promise.all([
@@ -165,6 +166,7 @@ export async function checkScanWarnings(
       .filter((a) => a.skill_name === skillName && a.action === "warned")
       .pop();
     if (!latestForSkill) return;
+    if (!shouldShow()) return;
     showScanWarnModal(latestForSkill.findings || [], t);
   } catch {
     // best-effort; don't break the caller on failure

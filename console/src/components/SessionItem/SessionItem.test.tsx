@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SessionItem from ".";
 
@@ -58,6 +59,25 @@ describe("SessionItem status indicator", () => {
 });
 
 describe("SessionItem keyboard selection", () => {
+  it("exposes only the primary row and more actions in tab order", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <SessionItem sessionId="chat-tab-order" name="Tab order" />,
+    );
+
+    const row = screen.getByRole("button", { name: "Tab order" });
+    const more = screen.getByRole("button", { name: "More actions" });
+    expect(row.querySelector("button, [role='button']")).toBeNull();
+    expect(container.querySelectorAll('[tabindex="0"], button')).toHaveLength(
+      2,
+    );
+
+    await user.tab();
+    expect(row).toHaveFocus();
+    await user.tab();
+    expect(more).toHaveFocus();
+  });
+
   it.each(["Enter", " "])("selects the focused session with %s", (key) => {
     const onClick = vi.fn();
     render(
@@ -110,6 +130,15 @@ describe("SessionItem keyboard selection", () => {
     expect(row).toHaveAttribute("aria-disabled", "true");
     fireEvent.keyDown(row, { key: "Enter" });
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("exposes the active conversation as the current page", () => {
+    render(<SessionItem sessionId="chat-active" name="Active chat" active />);
+
+    expect(screen.getByRole("button", { name: "Active chat" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 });
 

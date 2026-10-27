@@ -120,12 +120,13 @@ def test_plugins_upload_non_zip_rejected(app_server) -> None:
 def test_plugins_uninstall_unknown(app_server) -> None:
     """Test purpose:
     - Verify DELETE /api/agents/{agentId}/plugins/{plugin_id} with
-      an unknown plugin returns 404 ``not loaded``.
+      an unknown plugin returns 404 ``not installed``.
+      Installed plugins may be uninstalled even when they are not loaded.
 
     Test flow:
     1. Wait for plugin loader readiness.
     2. DELETE agent-scoped plugins/<nonexistent_id>.
-    3. Assert 404 and detail mentions ``not loaded``.
+    3. Assert 404 and detail mentions ``not installed``.
 
     API endpoints:
     - DELETE /api/agents/{agentId}/plugins/{plugin_id}
@@ -137,7 +138,7 @@ def test_plugins_uninstall_unknown(app_server) -> None:
         timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 404, app_server.logs_tail()
-    assert "not loaded" in resp.json().get("detail", "")
+    assert "not installed" in resp.json().get("detail", "")
 
 
 @pytest.mark.integration

@@ -42,7 +42,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
 
       - name: Build app plugin frontends
         shell: bash
@@ -63,6 +63,11 @@ jobs:
               npm --prefix "$app_dir/ui" run build
             fi
           done
+
+      - name: Build OpenUI plugin
+        run: |
+          npm --prefix plugins/bundle/qwenpaw-openui/frontend ci
+          npm --prefix plugins/bundle/qwenpaw-openui/frontend test
 
       - name: Build memory plugin frontends
         shell: bash

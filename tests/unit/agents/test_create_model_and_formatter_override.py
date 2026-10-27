@@ -814,6 +814,114 @@ def test_invalid_fallback_slots_are_skipped(monkeypatch):
     assert not fallback_calls
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("require_images", [False, True])
+@pytest.mark.parametrize("primary_support", [False, True])
+async def test_image_memory_filters_fallbacks_and_fits_every_formatter(
+    monkeypatch,
+    require_images,
+    primary_support,
+):
+    """Image jobs keep visual evidence; text jobs retain ordinary routing."""
+    import base64
+    from io import BytesIO
+    import random
+
+    from PIL import Image
+    from agentscope.message import Base64Source, DataBlock, UserMsg
+    from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+
+    config = _patched_load_agent_config("agent-1")
+    config.fallback_models = [
+        ModelSlotConfig(provider_id="default-provider", model=name)
+        for name in ("text", "unknown", "vision")
+    ]
+    config.fallback_policy = SimpleNamespace(enabled=True, target_scope="any")
+    capabilities = {
+        "default-model": primary_support,
+        "text": False,
+        "unknown": None,
+        "vision": True,
+    }
+
+    def make_model(name):
+        model = _FakeChatModel(name)
+        model.formatter = _CappingOpenAIFormatter(max_bytes=1000)
+        return model
+
+    provider = _FakeProvider(
+        id="default-provider",
+        enabled=True,
+        get_model_info=lambda name: provider_module.ModelInfo(
+            id=name,
+            name=name,
+            supports_image=capabilities[name],
+        ),
+        get_chat_model_instance=make_model,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "ProviderManager",
+        SimpleNamespace(
+            get_instance=lambda: SimpleNamespace(
+                get_provider=lambda _provider_id: provider,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_install_model_formatter",
+        _REAL_INSTALL_MODEL_FORMATTER,
+    )
+    monkeypatch.setattr(
+        fallback_chat_model,
+        "FallbackChatModel",
+        lambda models: SimpleNamespace(models=models),
+    )
+    model, formatter = model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        agent_config=config,
+        require_image_support=require_images,
+        resize_images_to_max_bytes=True,
+    )
+    expected = (
+        ["default-model", "vision"]
+        if require_images and primary_support
+        else ["default-model", "text", "unknown", "vision"]
+    )
+    assert [candidate.identifier for candidate in model.models] == expected
+    assert all(
+        candidate.formatter.resize_images_to_max_bytes
+        for candidate in model.models
+    )
+    assert model.models[0].formatter is formatter
+    image = Image.frombytes(
+        "RGB",
+        (32, 32),
+        random.Random(8347).randbytes(3072),
+    )
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    original = base64.b64encode(buffer.getvalue()).decode()
+    message = UserMsg(
+        name="user",
+        content=[
+            DataBlock(
+                source=Base64Source(data=original, media_type="image/png"),
+            ),
+        ],
+    )
+    assert len(buffer.getvalue()) > 1000
+    for candidate in model.models:
+        if capabilities[candidate.identifier] is not True:
+            continue
+        formatted = await candidate.formatter.format([message])
+        url = formatted[0]["content"][0]["image_url"]["url"]
+        assert url.startswith("data:image/png;base64,")
+        assert len(base64.b64decode(url.split(",", 1)[1])) <= 1000
+    assert message.content[0].source.data == original
+
+
 @pytest.mark.parametrize(
     "formatter_class",
     [

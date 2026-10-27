@@ -133,6 +133,9 @@ datas.append(
     ),
 )
 
+# The native Code Mode worker runs under the bundled standalone CPython.
+datas.append((str(SRC / "modes/coding/_worker.py"), "qwenpaw/modes/coding"))
+
 # Collect package metadata for packages that use importlib.metadata at runtime.
 # Keep this allowlist in sync when adding runtime dependencies that query
 # importlib.metadata, otherwise packaged sidecars may fail only after install.

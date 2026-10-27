@@ -400,9 +400,9 @@
 }
 
 .agentToggleButton {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
+  flex: 0 0 var(--app-hit-desktop);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -422,12 +422,26 @@
     color: var(--app-accent);
     background: var(--app-accent-soft);
     border-color: var(--app-accent-border);
-    outline: none;
+  }
+
+  &:focus-visible {
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
   }
 
   &:disabled {
     cursor: not-allowed;
-    opacity: 0.35;
+    color: var(--app-disabled-text);
+    background: var(--app-disabled-bg);
+    opacity: var(--app-disabled-opacity);
+  }
+}
+
+@media (any-pointer: coarse) {
+  .agentToggleButton {
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+    flex-basis: var(--app-hit-touch);
   }
 }
 

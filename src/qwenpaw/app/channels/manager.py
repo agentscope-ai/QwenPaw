@@ -9,6 +9,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from dataclasses import dataclass
 from typing import (
     Any,
     Awaitable,
@@ -36,6 +37,100 @@ OnLastDispatch = Optional[Callable[[str, str, str], Awaitable[None]]]
 
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000
+_CHANNEL_START_STOP_TIMEOUT = 3.0
+
+
+@dataclass
+class ChannelHandle:
+    """Opaque start result. Today the live object is a ``BaseChannel``."""
+
+    key: str
+    channel: Any
+
+
+@dataclass
+class StopReceipt:
+    """Result of ``ChannelManager.stop_one``."""
+
+    key: str
+    stopped: bool
+    detail: str = ""
+
+
+def channel_cfg_for_key(workspace_config: Any, key: str) -> Any | None:
+    """Return the config section for *key*, or ``None`` if absent."""
+    channels = getattr(workspace_config, "channels", None)
+    if channels is None:
+        return None
+    extra = getattr(channels, "__pydantic_extra__", None) or {}
+    ch_cfg = getattr(channels, key, None)
+    if ch_cfg is None and key in extra:
+        ch_cfg = extra[key]
+    if ch_cfg is None:
+        return None
+    if isinstance(ch_cfg, dict):
+        from types import SimpleNamespace
+
+        from ...config.config import BaseChannelConfig
+
+        defaults = BaseChannelConfig().model_dump()
+        defaults.update(ch_cfg)
+        return SimpleNamespace(**defaults)
+    return ch_cfg
+
+
+def channel_enabled(ch_cfg: Any) -> bool:
+    if isinstance(ch_cfg, dict):
+        return bool(ch_cfg.get("enabled", False))
+    return bool(getattr(ch_cfg, "enabled", False))
+
+
+def instantiate_channel(
+    key: str,
+    workspace_config: Any,
+    *,
+    process: ProcessHandler,
+    on_last_dispatch: OnLastDispatch = None,
+    workspace_dir: Path | None = None,
+) -> BaseChannel:
+    """Build one channel instance from workspace config (three-gate caller)."""
+    registry = get_channel_registry()
+    ch_cls = registry.get(key)
+    if ch_cls is None:
+        raise RuntimeError(f"Channel '{key}' is not in the registry")
+    ch_cfg = channel_cfg_for_key(workspace_config, key)
+    if ch_cfg is None:
+        raise RuntimeError(f"No config found for channel '{key}'")
+    show_tool_details = getattr(
+        workspace_config,
+        "show_tool_details",
+        True,
+    )
+    no_text_debounce = getattr(ch_cfg, "no_text_debounce", True)
+    from_config_kwargs: dict[str, Any] = {
+        "process": process,
+        "config": ch_cfg,
+        "on_reply_sent": on_last_dispatch,
+        "display_config": ChannelDisplayConfig.from_config(
+            ch_cfg,
+            show_tool_details=show_tool_details,
+        ),
+        "no_text_debounce": no_text_debounce,
+        "workspace_dir": workspace_dir,
+    }
+    import inspect
+
+    sig = inspect.signature(ch_cls.from_config)
+    if any(
+        p.kind == inspect.Parameter.VAR_KEYWORD
+        for p in sig.parameters.values()
+    ):
+        filtered_kwargs = from_config_kwargs
+    else:
+        filtered_kwargs = {
+            k: v for k, v in from_config_kwargs.items() if k in sig.parameters
+        }
+    return ch_cls.from_config(**filtered_kwargs)
 
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
@@ -75,7 +170,15 @@ class ChannelManager:
     def __init__(self, channels: List[BaseChannel]):
         self.channels = channels
         self._lock = asyncio.Lock()
+        self._channel_lifecycle_locks: dict[str, asyncio.Lock] = {}
+        self._failed_channels: set[str] = set()
+        self._retained_channels: dict[str, list[BaseChannel]] = {}
+        self._stopping = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._process: ProcessHandler | None = None
+        self._on_last_dispatch: OnLastDispatch = None
+        self._workspace_dir: Path | None = None
+        self._workspace_config: Any = None
 
         # New unified queue system
         self._command_registry = CommandRegistry()
@@ -90,6 +193,37 @@ class ChannelManager:
 
         # Track channel-start tasks for graceful shutdown
         self._start_tasks: set[asyncio.Task] = set()
+        self._start_task_channels: dict[asyncio.Task, BaseChannel] = {}
+
+    def register_control_command(
+        self,
+        prefix: str,
+        *,
+        priority_level: int | None = None,
+        owner: str | None = None,
+    ) -> None:
+        """Register a control command on this workspace's live registry."""
+        self._command_registry.register_command(
+            prefix,
+            priority_level=10 if priority_level is None else priority_level,
+            owner=owner,
+        )
+
+    def unregister_control_command(
+        self,
+        prefix: str,
+        *,
+        owner: str | None = None,
+    ) -> bool:
+        """Drop one command this *owner* previously registered here."""
+        return self._command_registry.unregister_command(
+            prefix,
+            owner=owner,
+        )
+
+    def is_control_command(self, query: str) -> bool:
+        """Whether *query* matches a command on this workspace."""
+        return self._command_registry.is_control_command(query)
 
     @classmethod
     def from_env(
@@ -110,10 +244,12 @@ class ChannelManager:
             for key, ch_cls in registry.items()
             if key in available
         ]
-        return cls(channels)
+        manager = cls(channels)
+        manager._process = process
+        manager._on_last_dispatch = on_last_dispatch
+        return manager
 
     @classmethod
-    # pylint: disable=too-many-branches,too-many-statements
     def from_config(
         cls,
         process: ProcessHandler,
@@ -130,72 +266,23 @@ class ChannelManager:
             workspace_dir: Agent workspace directory for channel state files
         """
         available = get_available_channels()
-        ch = config.channels
-        show_tool_details = getattr(config, "show_tool_details", True)
-        extra = getattr(ch, "__pydantic_extra__", None) or {}
-
         channels: list[BaseChannel] = []
-        for key, ch_cls in get_channel_registry().items():
+        for key in get_channel_registry():
             if key not in available:
                 continue
-            ch_cfg = getattr(ch, key, None)
-            if ch_cfg is None and key in extra:
-                ch_cfg = extra[key]
-            if ch_cfg is None:
+            ch_cfg = channel_cfg_for_key(config, key)
+            if ch_cfg is None or not channel_enabled(ch_cfg):
                 continue
-            if isinstance(ch_cfg, dict):
-                from types import SimpleNamespace
-                from ...config.config import BaseChannelConfig
-
-                defaults = BaseChannelConfig().model_dump()
-                defaults.update(ch_cfg)
-                ch_cfg = SimpleNamespace(**defaults)
-
-            # Check if channel is enabled
-            # Handle both Pydantic objects (built-in)
-            # and dicts (customchannels)
-            if isinstance(ch_cfg, dict):
-                enabled = ch_cfg.get("enabled", False)
-            else:
-                enabled = getattr(ch_cfg, "enabled", False)
-            if not enabled:
-                continue
-
-            no_text_debounce = getattr(ch_cfg, "no_text_debounce", True)
-
-            # Channel classes may expose different plugin-specific factory
-            # signatures, so this mapping is intentionally dynamic.
-            from_config_kwargs: dict[str, Any] = {
-                "process": process,
-                "config": ch_cfg,
-                "on_reply_sent": on_last_dispatch,
-                "display_config": ChannelDisplayConfig.from_config(
-                    ch_cfg,
-                    show_tool_details=show_tool_details,
-                ),
-                "no_text_debounce": no_text_debounce,
-                "workspace_dir": workspace_dir,
-            }
-
-            # Only pass kwargs that the channel's from_config accepts
-            import inspect
-
-            sig = inspect.signature(ch_cls.from_config)
-            filtered_kwargs: dict[str, Any]
-            if any(
-                p.kind == inspect.Parameter.VAR_KEYWORD
-                for p in sig.parameters.values()
-            ):
-                filtered_kwargs = from_config_kwargs
-            else:
-                filtered_kwargs = {
-                    k: v
-                    for k, v in from_config_kwargs.items()
-                    if k in sig.parameters
-                }
-
             try:
-                channels.append(ch_cls.from_config(**filtered_kwargs))
+                channels.append(
+                    instantiate_channel(
+                        key,
+                        config,
+                        process=process,
+                        on_last_dispatch=on_last_dispatch,
+                        workspace_dir=workspace_dir,
+                    ),
+                )
             except Exception as e:
                 logger.warning(
                     "Failed to initialize channel '%s', skipping: %s",
@@ -204,7 +291,12 @@ class ChannelManager:
                 )
                 continue
 
-        return cls(channels)
+        manager = cls(channels)
+        manager._process = process
+        manager._on_last_dispatch = on_last_dispatch
+        manager._workspace_dir = workspace_dir
+        manager._workspace_config = config
+        return manager
 
     def _make_enqueue_cb(self, channel_id: str) -> Callable[[Any], None]:
         """Return a callback that enqueues payload for the given channel."""
@@ -453,6 +545,7 @@ class ChannelManager:
     async def start_all(self) -> None:
         """Start all channels and queue manager."""
         self._loop = asyncio.get_running_loop()
+        self._stopping = False
 
         # Initialize UnifiedQueueManager with consumer function
         self._queue_manager = UnifiedQueueManager(
@@ -486,21 +579,50 @@ class ChannelManager:
                 )
 
         for g in snapshot:
-            task = asyncio.create_task(_start_channel(g))
-            self._start_tasks.add(task)
-            task.add_done_callback(self._start_tasks.discard)
+            lock = self._channel_lifecycle_locks.setdefault(
+                g.channel,
+                asyncio.Lock(),
+            )
+            async with lock, self._lock:
+                if (
+                    not any(ch is g for ch in self.channels)
+                    or self._pending_channel_starts(g)
+                    or g.channel in self._failed_channels
+                    or self._retained_channels.get(g.channel)
+                    or self._stopping
+                ):
+                    continue
+                task = asyncio.create_task(_start_channel(g))
+                self._start_tasks.add(task)
+                self._start_task_channels[task] = g
+                task.add_done_callback(self._forget_start_task)
+
+    def _forget_start_task(self, task: asyncio.Task) -> None:
+        self._start_tasks.discard(task)
+        self._start_task_channels.pop(task, None)
+
+    def _pending_channel_starts(
+        self,
+        channel: BaseChannel,
+    ) -> set[asyncio.Task]:
+        return {
+            task
+            for task, owner in self._start_task_channels.items()
+            if owner is channel and not task.done()
+        }
 
     async def stop_all(self) -> None:
         """Stop all channels and queue manager."""
+        self._stopping = True
         # Cancel in-progress channel-start tasks
         if self._start_tasks:
             for task in self._start_tasks:
                 task.cancel()
-            await asyncio.wait(
+            done, _ = await asyncio.wait(
                 self._start_tasks,
-                timeout=3.0,
+                timeout=_CHANNEL_START_STOP_TIMEOUT,
             )
-            self._start_tasks.clear()
+            self._start_tasks.difference_update(done)
 
         # Cancel all pending enqueue tasks
         if self._enqueue_tasks:
@@ -529,24 +651,183 @@ class ChannelManager:
             await self._queue_manager.stop_all()
             self._queue_manager = None
 
-        # Stop channels
+        # Include replacements that have not joined the active list.
         async with self._lock:
             snapshot = list(self.channels)
+            for retained in self._retained_channels.values():
+                snapshot.extend(retained)
 
         for ch in snapshot:
             ch.set_enqueue(None)
 
         async def _stop(ch):
-            try:
-                await ch.stop()
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.exception(f"failed to stop channels={ch.channel}")
+            lock = self._channel_lifecycle_locks.setdefault(
+                ch.channel,
+                asyncio.Lock(),
+            )
+            async with lock:
+                retained = self._retained_channels.get(ch.channel, [])
+                if not any(item is ch for item in [*self.channels, *retained]):
+                    return
+                if self._pending_channel_starts(ch):
+                    self._failed_channels.add(ch.channel)
+                    logger.warning(
+                        "Channel '%s' startup is still pending; "
+                        "retaining handle",
+                        ch.channel,
+                    )
+                    return
+                try:
+                    await ch.stop()
+                    retained[:] = [item for item in retained if item is not ch]
+                    if not retained:
+                        self._retained_channels.pop(ch.channel, None)
+                except asyncio.CancelledError:
+                    self._failed_channels.add(ch.channel)
+                except Exception:
+                    self._failed_channels.add(ch.channel)
+                    logger.exception(f"failed to stop channels={ch.channel}")
 
         await asyncio.gather(*[_stop(g) for g in reversed(snapshot)])
 
         logger.info("ChannelManager stopped")
+
+    def _find_channel(self, key: str) -> BaseChannel | None:
+        return next((c for c in self.channels if c.channel == key), None)
+
+    async def start_one(
+        self,
+        key: str,
+        workspace_config: Any,
+    ) -> ChannelHandle:
+        """Start one channel on this manager. Idempotent if already running.
+
+        The returned handle is not guaranteed to be a local
+        ``BaseChannel`` — callers must treat it as opaque.
+        """
+        lock = self._channel_lifecycle_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            return await self._start_one_unlocked(key, workspace_config)
+
+    async def _start_one_unlocked(
+        self,
+        key: str,
+        workspace_config: Any,
+    ) -> ChannelHandle:
+        if self._stopping or self._retained_channels.get(key):
+            raise RuntimeError(f"Channel '{key}' is stopping or replacing")
+        existing = self._find_channel(key)
+        if existing is not None:
+            if key in self._failed_channels:
+                exc = RuntimeError(f"Channel '{key}' has not stopped")
+                exc.binding = ChannelHandle(key=key, channel=existing)
+                raise exc
+            return ChannelHandle(key=key, channel=existing)
+
+        process = self._process
+        if process is None and self._workspace is not None:
+            process = getattr(self._workspace, "stream_query", None)
+        if process is None:
+            raise RuntimeError(
+                f"Cannot start channel '{key}': no process handler",
+            )
+        workspace_dir = self._workspace_dir
+        if workspace_dir is None and self._workspace is not None:
+            workspace_dir = getattr(self._workspace, "workspace_dir", None)
+        config = workspace_config or self._workspace_config
+        channel = instantiate_channel(
+            key,
+            config,
+            process=process,
+            on_last_dispatch=self._on_last_dispatch,
+            workspace_dir=workspace_dir,
+        )
+        if self._workspace is not None:
+            channel.set_workspace(self._workspace, self._command_registry)
+        if getattr(channel, "uses_manager_queue", True):
+            channel.set_enqueue(self._make_enqueue_cb(key))
+        # Retain the handle before start can establish an external connection.
+        async with self._lock:
+            self.channels.append(channel)
+        self._failed_channels.add(key)
+        try:
+            await channel.start()
+        except BaseException as exc:
+            from ...utils.io_utils import run_async_to_completion
+
+            try:
+                receipt = await run_async_to_completion(
+                    self._stop_one_unlocked(key),
+                )
+            except BaseException as cleanup_exc:
+                exc.binding = ChannelHandle(key=key, channel=channel)
+                raise exc from cleanup_exc
+            if not receipt.stopped:
+                exc.binding = ChannelHandle(key=key, channel=channel)
+            raise
+        self._failed_channels.discard(key)
+        return ChannelHandle(key=key, channel=channel)
+
+    async def stop_one(self, key: str) -> StopReceipt:
+        """Stop one channel, retaining its handle until stop succeeds."""
+        lock = self._channel_lifecycle_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            return await self._stop_one_unlocked(key)
+
+    async def _stop_one_unlocked(self, key: str) -> StopReceipt:
+        async with self._lock:
+            channels = [ch for ch in self.channels if ch.channel == key]
+            channels.extend(self._retained_channels.get(key, []))
+        if not channels:
+            return StopReceipt(key=key, stopped=False, detail="not running")
+        self._failed_channels.add(key)
+        tasks = set().union(
+            *(self._pending_channel_starts(ch) for ch in channels),
+        )
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            _, pending = await asyncio.wait(
+                tasks,
+                timeout=_CHANNEL_START_STOP_TIMEOUT,
+            )
+            if pending:
+                return StopReceipt(
+                    key=key,
+                    stopped=False,
+                    detail="channel startup is still pending",
+                )
+        errors = []
+        for channel in channels:
+            error = await self._stop_channel_unlocked(channel)
+            if error is not None:
+                errors.append(error)
+        if errors:
+            return StopReceipt(
+                key=key,
+                stopped=False,
+                detail="; ".join(errors),
+            )
+        self._failed_channels.discard(key)
+        return StopReceipt(key=key, stopped=True)
+
+    async def _stop_channel_unlocked(self, channel: BaseChannel) -> str | None:
+        channel.set_enqueue(None)
+        try:
+            await channel.stop()
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to stop channel '%s'", channel.channel)
+            self._failed_channels.add(channel.channel)
+            return str(exc)
+        async with self._lock:
+            self.channels = [
+                item for item in self.channels if item is not channel
+            ]
+            retained = self._retained_channels.get(channel.channel, [])
+            retained[:] = [item for item in retained if item is not channel]
+            if not retained:
+                self._retained_channels.pop(channel.channel, None)
+        return None
 
     async def get_channel(self, channel: str) -> Optional[BaseChannel]:
         async with self._lock:
@@ -661,7 +942,7 @@ class ChannelManager:
                     self._workspace,
                     self._command_registry,
                 )
-            await self.replace_channel(new_channel)
+            await self._replace_channel(new_channel, expected=channel_instance)
 
             logger.info(
                 "Channel restarted successfully: %s",
@@ -710,64 +991,92 @@ class ChannelManager:
             priority_level,
         )
 
-    async def replace_channel(
+    async def replace_channel(self, new_channel: BaseChannel) -> None:
+        """Start a replacement, then swap it while coordinating with stop."""
+        await self._replace_channel(new_channel)
+
+    async def _replace_channel(
         self,
         new_channel: BaseChannel,
+        *,
+        expected: BaseChannel | None = None,
     ) -> None:
-        """Replace a single channel by name.
-
-        Flow: set enqueue callback → start new (outside lock)
-        → swap + stop old (inside lock). Lock only guards the swap+stop.
-
-        Args:
-            new_channel: New channel instance to replace with
-
-        Note:
-            Queue and consumer are created on-demand by UnifiedQueueManager
-        """
-        new_channel_name = new_channel.channel
-
-        # 1) Set enqueue callback before start() so the channel
-        #    (e.g. DingTalk) can register its handler
-        if getattr(new_channel, "uses_manager_queue", True):
-            new_channel.set_enqueue(self._make_enqueue_cb(new_channel_name))
-
-        # 2) Start new channel outside lock (may be slow, e.g. DingTalk)
-        logger.info(f"Pre-starting new channel: {new_channel_name}")
+        key = new_channel.channel
+        lock = self._channel_lifecycle_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            old_channel = self._find_channel(key)
+            if expected is not None and old_channel is not expected:
+                raise RuntimeError(f"Channel '{key}' was stopped")
+            if old_channel is not None and self._pending_channel_starts(
+                old_channel,
+            ):
+                raise RuntimeError(f"Channel '{key}' is still starting")
+            if (
+                self._stopping
+                or key in self._failed_channels
+                or self._retained_channels.get(key)
+            ):
+                raise RuntimeError(f"Channel '{key}' is stopping or replacing")
+            if getattr(new_channel, "uses_manager_queue", True):
+                new_channel.set_enqueue(self._make_enqueue_cb(key))
+            self._retained_channels[key] = [new_channel]
+            task = asyncio.create_task(new_channel.start())
+            self._start_tasks.add(task)
+            self._start_task_channels[task] = new_channel
+            task.add_done_callback(self._forget_start_task)
         try:
-            await new_channel.start()
-        except Exception:
-            logger.exception(
-                f"Failed to start new channel: {new_channel_name}",
-            )
-            try:
-                await new_channel.stop()
-            except Exception:
-                pass
-            raise
-
-        # 3) Swap + stop old inside lock
-        async with self._lock:
-            old_channel = None
-            for i, ch in enumerate(self.channels):
-                if ch.channel == new_channel_name:
-                    old_channel = ch
-                    self.channels[i] = new_channel
-                    break
-
-            if old_channel is None:
-                logger.info(f"Adding new channel: {new_channel_name}")
-                self.channels.append(new_channel)
-            else:
-                logger.info(f"Stopping old channel: {old_channel.channel}")
-                try:
-                    await old_channel.stop()
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    logger.exception(
-                        f"Failed to stop old channel: {old_channel.channel}",
+            # Stop can cancel this worker without waiting for this coroutine.
+            await asyncio.shield(task)
+            async with lock:
+                if (
+                    self._stopping
+                    or key in self._failed_channels
+                    or not any(
+                        ch is new_channel
+                        for ch in self._retained_channels.get(key, [])
                     )
+                ):
+                    raise RuntimeError(
+                        f"Channel '{key}' replacement was stopped",
+                    )
+                old_channel = self._find_channel(key)
+                if old_channel is not None:
+                    try:
+                        error = await self._stop_channel_unlocked(old_channel)
+                    except asyncio.CancelledError:
+                        error = "old channel stop was cancelled"
+                    if error is not None:
+                        self._retained_channels[key].append(old_channel)
+                        self._failed_channels.add(key)
+                        self.channels = [
+                            ch for ch in self.channels if ch is not old_channel
+                        ]
+                self.channels.append(new_channel)
+                self._retained_channels[key].remove(new_channel)
+                if not self._retained_channels[key]:
+                    self._retained_channels.pop(key)
+        except BaseException:
+            from ...utils.io_utils import run_async_to_completion
+
+            async def cleanup() -> None:
+                async with lock:
+                    if not any(
+                        ch is new_channel
+                        for ch in self._retained_channels.get(key, [])
+                    ):
+                        return
+                    task.cancel()
+                    _, pending = await asyncio.wait(
+                        {task},
+                        timeout=_CHANNEL_START_STOP_TIMEOUT,
+                    )
+                    if pending:
+                        self._failed_channels.add(key)
+                    else:
+                        await self._stop_channel_unlocked(new_channel)
+
+            await run_async_to_completion(cleanup())
+            raise
 
     async def send_event(
         self,

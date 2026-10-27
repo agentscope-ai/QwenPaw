@@ -65,7 +65,7 @@ export function PushMessageCard(props: PushMessageCardProps) {
     <Card
       className={`${styles.messageCard} ${!message.read ? styles.unread : ""}`}
       hoverable
-      bodyStyle={{ padding: 14 }}
+      styles={{ body: { padding: 14 } }}
       onClick={() => onView(message.id)}
     >
       <div className={styles.cardHeader}>

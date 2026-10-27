@@ -109,7 +109,7 @@ class ChatPage(BasePage):
     # ``[class*="chatSessionItem"]`` is kept as a fallback for builds older than
     # the v2.0.0 redesign.
     SESSION_ITEM = (
-        'div[role="button"][class*="sessionItem-module__item"], '
+        'div[class*="sessionItem-module__item"], '
         '[class*=chatSessionItem]'
     )
     # Active item: ``.active`` is nested (``&.active``) inside ``.item`` in the
@@ -118,7 +118,7 @@ class ChatPage(BasePage):
     # ``[class*=active]`` keeps the selector from latching onto unrelated
     # active-looking classes.
     SESSION_ACTIVE = (
-        'div[role="button"][class*="sessionItem-module__item"]'
+        'div[class*="sessionItem-module__item"]'
         '[class*="sessionItem-module__active"], '
         '[class*=chatSessionItem][class*=active]'
     )
@@ -127,7 +127,7 @@ class ChatPage(BasePage):
     # matches the sibling ``styles.renameInput`` element ("re**name**Input"),
     # which would return the edit box instead of the title.
     SESSION_NAME = (
-        'div[role="button"][class*="sessionItem-module__item"] '
+        'div[class*="sessionItem-module__item"] '
         '[class*="sessionItem-module__name"], '
         '[class*=chatSessionItem] [class*=name]'
     )
@@ -184,6 +184,17 @@ class ChatPage(BasePage):
         '.qwenpaw-dropdown-menu-item:has-text("搜索对话"), '
         '.ant-dropdown-menu-item:has-text("搜索对话")'
     )
+    # Pinned marker on a session row. Post-#7956 SessionItem renders
+    # ``<span class="...pinMark" title={t("chat.group.pinned")}>`` with a
+    # lucide Pin icon when the session is pinned (SessionItem/index.tsx).
+    # This is the product's own visible pin indicator and the primary
+    # anchor for verification; the menu round-trip is only a fallback.
+    SESSION_PIN_MARK = (
+        'div[role="button"][class*="sessionItem-module__item"] '
+        'span[class*="pinMark"], '
+        '[class*=chatSessionItem] span[class*="pinMark"], '
+        'span[title="Pinned"], span[title="置顶"]'
+    )
     # Legacy hover-button selectors (kept for older builds / fallbacks).
     SESSION_PIN_BTN = 'button:has(.spark-icon-spark-mark-line), button:has(.anticon-pushpin)'
     SESSION_EDIT_BTN = 'button:has(.spark-icon-spark-edit-line), button:has(.anticon-edit)'
@@ -221,6 +232,51 @@ class ChatPage(BasePage):
     )
 
     # Settings and model
+    # --- Model selector, post-#7899 (upstream d7afd981, merged 2026-09-21) ---
+    # #7899 ("unify model discovery, pricing, selection and thinking
+    # controls") moved the model picker OUT of the chat right-header and
+    # INTO the sender prefix, wrapped by the new ``SessionThinking``
+    # feature component (console/src/features/thinking/SessionThinking.tsx,
+    # added by the same PR). Two consequences for us:
+    #   1. The container ``.qwenpaw-chat-anywhere-layout-right-header`` no
+    #      longer holds the trigger (the right header now only renders
+    #      ChatHeaderTitle / ChatActionGroup / plugin slots).
+    #   2. The trigger is no longer an antd Dropdown trigger: it is a plain
+    #      ``<button class="...trigger">`` inside an antd *Popover*, so the
+    #      runtime class ``qwenpaw-dropdown-trigger`` never appears.
+    # The stable handles are the i18n-derived accessible names:
+    #   * outer trigger: ``aria-label = t("thinkingControl.title")``
+    #     ("Thinking intensity" / "思考强度")
+    #   * inner "change model" button inside the opened panel:
+    #     ``ThinkingControl`` renders ``button.<css-module modelChoice>``
+    #     whose accessible name falls back to ``t("modelSelector.selectModel")``
+    #     ("Select model" / "选择模型") when the model lacks thinking support,
+    #     and whose visible text is the active model name otherwise.
+    #   * embedded picker rows: ``button.<css-module modelSelectButton>``
+    #     (ModelSelector ``embedded`` branch, index.tsx:1291).
+    MODEL_THINKING_TRIGGER = (
+        'button[aria-label="Thinking intensity"], '
+        'button[aria-label="思考强度"], '
+        # i18n cold-start arm: before the locale bundle resolves, the
+        # trigger renders the RAW key as its aria-label (live-probe DOM
+        # 2026-10-15: aria-label="thinkingControl.title"). Without this
+        # arm the first case of a cold CI run times out at hop 1 while
+        # every later case passes (the bundle is then cached) — exactly
+        # the split seen in fork run 38557785191 (attempt 1 died at hop 1
+        # with the trigger plainly on screen, attempt 2 reached hop 2).
+        'button[aria-label="thinkingControl.title"]'
+    )
+    MODEL_CHOICE_BTN = (
+        'div[role="dialog"] button[class*="modelChoice"], '
+        'button[class*="modelChoice"]'
+    )
+    MODEL_SELECT_EMBEDDED_BTN = (
+        'div[role="dialog"] button[class*="modelSelectButton"], '
+        'button[class*="modelSelectButton"]'
+    )
+    # Legacy anchors, kept ONLY as last-resort fallbacks for builds older
+    # than #7899 (the pre-#7899 header Dropdown). They are dead on current
+    # main; do not add new uses.
     MODEL_SELECTOR = '.qwenpaw-dropdown-trigger'
     MODEL_OPTION = '.qwenpaw-dropdown-menu-item'
     AGENT_SELECTOR = '.qwenpaw-select-selector'
@@ -323,10 +379,152 @@ class ChatPage(BasePage):
         return true;
     }"""
 
+    # ========== "Which AI bubble carries this round's answer" ==========
+    #
+    # Fork run 38788391872's FAIL-moment DOM snapshot settles what the render
+    # order actually is (two attempts, same shape; quoted verbatim):
+    #
+    #   idx0   'QwenPaw\nCompleted 1 steps\n\n1, 2, ... 10, 11\n\n02:59:31'
+    #   idx1   ...                                              02:59:27
+    #   ...
+    #   idx9   'QwenPaw\nCompleted 1 steps\n\n1, 2\n\n02:58:29'
+    #   idx10  ''
+    #
+    # Two facts, each fatal to ``get_ai_messages()[-1]``: the list renders
+    # NEWEST-FIRST, so the DOM end is the OLDEST bubble; and context
+    # compression empties the OLDEST bubbles, so the DOM end is precisely the
+    # bubble that loses its text first. ``[-1]`` therefore yields an empty
+    # string, which is how
+    # tests/test_context_scroll.py::TestLongConversationCompression failed
+    # with ``assert ('1' in '' or 'one' in '')`` while the step screenshot
+    # showed the answer fully rendered.
+    #
+    # The rendered per-bubble timestamp is the only order-independent
+    # freshness signal the DOM carries, so that is what this reads. It returns
+    # an INDEX plus the tier that produced it. -1 means "cannot tell", and the
+    # caller must then fall back to DOM order (a visible false red) rather than
+    # guess: guessing here means handing the PREVIOUS round's answer to an
+    # assertion, which passes for the wrong reason and hides the defect.
+    #
+    # Tiers, in order:
+    #   1 fresh_after_send        baseline present: newest bubble rendered
+    #                             AFTER the send. This is the tier that rules
+    #                             out a false green.
+    #   2 pathe_fresh_single      baseline present but no usable timestamp:
+    #                             the single index the release path recorded
+    #                             as carrying fresh text (an ambiguous count
+    #                             is refused). Defensive: keeps this correct
+    #                             if a build stops rendering timestamps.
+    #   3 newest_with_ts          no baseline: newest by timestamp.
+    #   4 last_nonempty_dom_order no baseline and no timestamps: walk back from
+    #                             the DOM end to the first non-empty bubble
+    #                             (correct on a forward list, and still better
+    #                             than '' on a reverse one).
+    _JS_LATEST_AI_BUBBLE = """(args) => {
+        const baselineTs = (args && typeof args.baselineTs === 'number')
+            ? args.baselineTs : -1;
+        const pathEFreshIdx = (args && Array.isArray(args.pathEFreshIdx))
+            ? args.pathEFreshIdx : [];
+        const els = document.querySelectorAll(
+            '.qwenpaw-bubble.qwenpaw-bubble-start'
+        );
+        const rows = [];
+        let tsCount = 0;
+        for (let i = 0; i < els.length; i++) {
+            const raw = (els[i].innerText || '').trim();
+            const stripped = raw
+                .replace(/Thinking/gi, '')
+                .replace(/Loading/gi, '')
+                .trim();
+            // Take the LAST HH:MM:SS in the text: the answer body itself may
+            // quote a time, and the rendered stamp is what trails the bubble.
+            let ts = -1;
+            const hits = raw.match(/\\d{1,2}:\\d{2}:\\d{2}/g);
+            if (hits && hits.length > 0) {
+                const p = hits[hits.length - 1].split(':');
+                ts = (+p[0]) * 3600 + (+p[1]) * 60 + (+p[2]);
+                tsCount++;
+            }
+            rows.push({ idx: i, ok: stripped.length >= 2, ts: ts });
+        }
+        // Stamps carry no date, so a round crossing midnight would otherwise
+        // look 24h older than the baseline.
+        const adjust = (t) => {
+            if (baselineTs >= 0 && t >= 0 && t < baselineTs - 43200) {
+                return t + 86400;
+            }
+            return t;
+        };
+
+        if (baselineTs >= 0) {
+            let best = null;
+            for (let i = 0; i < rows.length; i++) {
+                if (!rows[i].ok || rows[i].ts < 0) continue;
+                const t = adjust(rows[i].ts);
+                if (t <= baselineTs) continue;
+                if (!best || t > best.t) best = { idx: rows[i].idx, t: t };
+            }
+            if (best) {
+                return {
+                    idx: best.idx, why: 'fresh_after_send', ts: best.t,
+                    count: rows.length, tsCount: tsCount,
+                };
+            }
+            if (pathEFreshIdx.length === 1) {
+                const cand = pathEFreshIdx[0];
+                if (cand >= 0 && cand < rows.length && rows[cand].ok) {
+                    return {
+                        idx: cand, why: 'pathe_fresh_single',
+                        ts: rows[cand].ts, count: rows.length,
+                        tsCount: tsCount,
+                    };
+                }
+            }
+            // Refuse to guess: fall back to today's behaviour so a wrong read
+            // stays a visible RED instead of a silent pass on stale text.
+            return {
+                idx: -1, why: 'no_bubble_newer_than_baseline',
+                count: rows.length, tsCount: tsCount,
+            };
+        }
+
+        let best3 = null;
+        for (let i = 0; i < rows.length; i++) {
+            if (!rows[i].ok || rows[i].ts < 0) continue;
+            if (!best3 || rows[i].ts > best3.t) {
+                best3 = { idx: rows[i].idx, t: rows[i].ts };
+            }
+        }
+        if (best3) {
+            return {
+                idx: best3.idx, why: 'newest_with_ts', ts: best3.t,
+                count: rows.length, tsCount: tsCount,
+            };
+        }
+        for (let i = rows.length - 1; i >= 0; i--) {
+            if (rows[i].ok) {
+                return {
+                    idx: rows[i].idx, why: 'last_nonempty_dom_order',
+                    ts: rows[i].ts, count: rows.length, tsCount: tsCount,
+                };
+            }
+        }
+        return {
+            idx: -1, why: 'no_nonempty_bubble',
+            count: rows.length, tsCount: tsCount,
+        };
+    }"""
+
     # ========== Initialization ==========
     
     def __init__(self, page: Page):
         super().__init__(page)
+        # Read-path state, both written by send_message / wait_for_ai_response
+        # and read by _resolve_latest_ai_index. Declared here so the resolver
+        # never depends on attribute-existence luck.
+        self._ai_stamp_before_send = -1
+        self._ai_texts_before_send: List[str] = []
+        self._last_round_fresh_idx: List[int] = []
         logger.info("ChatPage initialized")
     
     # ========== Page navigation ==========
@@ -462,9 +660,75 @@ class ChatPage(BasePage):
         # ---- Before a new round: record the baseline (must be before any fill / click) ----
         self._ai_count_before_send = self.page.locator(self.AI_MESSAGE).count()
         user_count_before = self.page.locator(self.USER_MESSAGE).count()
+        # Retained but NO LONGER READ by any release path. It used to guard
+        # Path D on the theory that compression rebuilds the bubble list and
+        # the user count proves the request still reached the server. Fork
+        # run 38788391872 falsified that theory: the FAIL-moment DOM
+        # snapshot recorded ZERO bubble attachments during the whole wait
+        # window, so nothing was rebuilt or unloaded - this round's answer
+        # sat in the list the entire time and the release paths simply read
+        # the wrong end of it. Kept (rather than dropped) because Path D's
+        # comment quotes the old condition to explain why a count-based
+        # guard cannot work here.
+        self._user_count_before_send = user_count_before
+        # Text baseline for wait_for_ai_response's Path E. Taken HERE, before
+        # the fill/click, because by the time that wait starts gate-1 has
+        # already seen this round's own bubble and its text may already be
+        # rendered - a snapshot taken at wait start then cannot tell this
+        # round's answer apart from history. Normalised the same way the
+        # release path normalises (Thinking/Loading stripped, trimmed) so the
+        # two sides compare like for like; a bubble that still said
+        # "Thinking" at snapshot time would otherwise count as fresh text.
+        #
+        # The same snapshot also records the NEWEST rendered bubble stamp
+        # (``_ai_stamp_before_send``), which is the baseline the read path
+        # uses to tell this round's answer apart from history: only a bubble
+        # stamped AFTER it can be this round's. Both sides read the stamps the
+        # frontend paints, so no clock outside the page is involved.
+        try:
+            baseline = self.page.evaluate(
+                """() => {
+                    const out = [];
+                    let maxTs = -1;
+                    document.querySelectorAll(
+                        '.qwenpaw-bubble.qwenpaw-bubble-start'
+                    ).forEach((el) => {
+                        const raw = (el.innerText || '').trim();
+                        const s = raw
+                            .replace(/Thinking/gi, '')
+                            .replace(/Loading/gi, '')
+                            .trim();
+                        out.push(s);
+                        // Newest pre-existing render stamp, read from the same
+                        // clock the bubbles are painted with. Using the test
+                        // runner's wall clock here instead would compare
+                        // against a different clock and could be skewed.
+                        const hits = raw.match(/\\d{1,2}:\\d{2}:\\d{2}/g);
+                        if (hits && hits.length > 0) {
+                            const p = hits[hits.length - 1].split(':');
+                            const t = (+p[0]) * 3600
+                                + (+p[1]) * 60
+                                + (+p[2]);
+                            if (t > maxTs) maxTs = t;
+                        }
+                    });
+                    return { texts: out, maxTs: maxTs };
+                }"""
+            ) or {}
+            self._ai_texts_before_send = list(baseline.get("texts") or [])
+            self._ai_stamp_before_send = baseline.get("maxTs", -1)
+        except Exception as e:  # baseline is best-effort; Path E degrades safely
+            self._ai_texts_before_send = []
+            self._ai_stamp_before_send = -1
+            logger.warning(
+                f"[send_message] pre-send AI text baseline unavailable: "
+                f"{type(e).__name__}"
+            )
         logger.info(
             f"[send_message] baseline: ai={self._ai_count_before_send}, "
-            f"user={user_count_before}"
+            f"user={user_count_before}, "
+            f"ai_texts={len(self._ai_texts_before_send)}, "
+            f"newest_stamp={self._ai_stamp_before_send}"
         )
 
         # ---- Wait for the previous round to truly finish (dual signal: button recovered OR content stable >= 1.5s) ----
@@ -622,9 +886,113 @@ class ChatPage(BasePage):
         return self.page.locator(self.MESSAGE_CONTAINER).all()
 
     def get_last_ai_message(self) -> Optional[Locator]:
-        """Get the last AI message."""
+        """
+        Get the most recent AI message.
+
+        NOT ``get_ai_messages()[-1]``: fork run 38788391872's FAIL-moment
+        snapshot proved this page renders the bubble list NEWEST-FIRST and
+        that context compression empties the OLDEST bubbles, so the DOM end is
+        the one bubble guaranteed to lose its text. ``[-1]`` returned an empty
+        string there, failing
+        ``TestLongConversationCompression`` with
+        ``assert ('1' in '' or 'one' in '')`` while the step screenshot showed
+        the answer fully rendered.
+
+        Resolution is order-independent (rendered bubble stamps, then the
+        release path's fresh-text index, then DOM order) and refuses to guess:
+        when it cannot identify this round's answer it falls back to the
+        DOM-end bubble, i.e. today's behaviour - a visible false red rather
+        than a silent pass on the previous round's text.
+        """
+        return self._latest_ai_locator("get_last_ai_message")
+
+    def _resolve_latest_ai_index(self, use_round_baseline: bool = True) -> Tuple[int, str]:
+        """
+        Locate the AI bubble that carries the current round's answer.
+
+        Returns ``(index, why)``. ``index == -1`` means "cannot tell" and the
+        caller must fall back to DOM order rather than guess, because guessing
+        means handing the PREVIOUS round's answer to an assertion - which
+        passes for the wrong reason and hides the defect.
+
+        ``_JS_LATEST_AI_BUBBLE`` documents the tiers and the evidence. The
+        baseline is the newest render stamp recorded by ``send_message``
+        BEFORE the click, so it is only available when this wait belongs to a
+        round; ``use_round_baseline=False`` asks for "the latest AI message"
+        outside any round (tiers 3/4).
+        """
+        baseline_ts = -1
+        if use_round_baseline:
+            raw_baseline = getattr(self, "_ai_stamp_before_send", None)
+            if isinstance(raw_baseline, int) and raw_baseline >= 0:
+                baseline_ts = raw_baseline
+        fresh_idx: List[int] = []
+        if use_round_baseline:
+            recorded = getattr(self, "_last_round_fresh_idx", None) or []
+            fresh_idx = [i for i in recorded if isinstance(i, int)]
+        try:
+            result = self.page.evaluate(
+                self._JS_LATEST_AI_BUBBLE,
+                {"baselineTs": baseline_ts, "pathEFreshIdx": fresh_idx},
+            ) or {}
+            idx = result.get("idx", -1)
+            why = result.get("why", "unavailable")
+            if not isinstance(idx, int):
+                idx = -1
+                why = "bad_idx_type"
+            logger.info(
+                f"[read_ai] latest bubble idx={idx} why='{why}' "
+                f"(baselineTs={baseline_ts}, freshIdx={fresh_idx}, "
+                f"count={result.get('count')}, tsCount={result.get('tsCount')})"
+            )
+            return idx, why
+        except Exception as e:
+            logger.warning(
+                f"[read_ai] latest-bubble resolution failed "
+                f"({type(e).__name__}); falling back to DOM order"
+            )
+            return -1, f"evaluate_failed:{type(e).__name__}"
+
+    def _read_newest_ai_text(self) -> str:
+        """Text of the newest non-empty AI bubble (diagnostics only)."""
+        idx, _why = self._resolve_latest_ai_index(use_round_baseline=False)
+        locator = self.page.locator(self.AI_MESSAGE)
+        target = locator.nth(idx) if idx >= 0 else locator.last
+        return target.inner_text()
+
+    def _latest_ai_locator(self, caller: str) -> Optional[Locator]:
+        """
+        Shared read-path resolution for ``get_last_ai_message`` and
+        ``wait_for_ai_response``'s return value.
+
+        Logs the resolved index, the tier that produced it AND the text it
+        reads, so a future red states which of the two was wrong instead of
+        leaving the next reader to guess: an empty text with a plausible index
+        means the bubble itself is empty, while a stale answer means the tier
+        picked the wrong bubble.
+        """
         messages = self.get_ai_messages()
-        return messages[-1] if messages else None
+        if not messages:
+            logger.warning(f"[read_ai] {caller}: no AI bubble in the DOM")
+            return None
+        idx, why = self._resolve_latest_ai_index()
+        if idx < 0:
+            logger.warning(
+                f"[read_ai] {caller}: unresolved (why='{why}'); falling back "
+                f"to DOM order messages[-1] = idx{len(messages) - 1}"
+            )
+            target = messages[-1]
+        else:
+            target = messages[idx]
+        try:
+            sample = target.inner_text().strip()[:120]
+        except Exception:
+            sample = "<unreadable>"
+        logger.info(
+            f"[read_ai] {caller}: idx={idx} why='{why}' "
+            f"count={len(messages)} text={sample!r}"
+        )
+        return target
 
     def wait_for_ai_response(
         self,
@@ -710,10 +1078,107 @@ class ChatPage(BasePage):
         #     to this round (index >= expectedCount); the index guard prevents
         #     misreading the previous round's content as this round's reply.
         stability_timeout = min(timeout, stability_cap_ms)
+        user_count_before = getattr(self, "_user_count_before_send", None)
+        if user_count_before is None:
+            user_count_before = self.page.locator(self.USER_MESSAGE).count()
+        # Path D (revised 2026-10-16) needs wait-start evidence, not the
+        # pre-send baseline: this round's own user bubble has already
+        # landed by the time gate-2/3 begins (send_message waits for it),
+        # so the pre-send user-count equality can never hold - fork run
+        # 38719913840 shows Path D never released once since 2026-10-13.
+        # Snapshot the pre-wait AI texts and start a MutationObserver so
+        # Path D can release on "a bubble node carrying NEW text was
+        # attached after wait start" (the shape a mid-round context
+        # compression / virtualised re-render leaves behind).
+        #
+        # UPDATE, same day, after fork run 38788391872: the rebuild
+        # shape described above did NOT occur - the FAIL-moment snapshot
+        # recorded an EMPTY attach log on both attempts, so no bubble node
+        # was attached during the wait window at all. Path D's premise is
+        # falsified and it is retained only as instrumentation. What the
+        # snapshot did show is that the list renders newest-first and
+        # compression empties the OLDEST bubbles, which is what wedges
+        # Paths B and C (both read the last node). Path E below is the
+        # release path the evidence supports. The observer and its log stay
+        # because "zero attachments" is precisely the negative evidence
+        # that ruled the rebuild theory out.
+        #
+        # Path E needs a PRE-SEND text baseline, which send_message
+        # captured before the click. This wait-start snapshot cannot serve
+        # that purpose: gate-1 has already seen this round's bubble by
+        # here, so its text may already be present and would not count as
+        # fresh. Fall back to the wait-start snapshot only when the
+        # pre-send baseline is missing (e.g. wait_for_ai_response called
+        # without send_message), which degrades Path E to "text not seen at
+        # wait start" - still order-independent, just a weaker notion of
+        # new.
+        pre_send_texts: List[str] = list(
+            getattr(self, "_ai_texts_before_send", None) or []
+        )
+        pre_wait_texts: List[str] = []
+        try:
+            snapshot = self.page.evaluate(
+                """() => {
+                    if (window.__qwenpaw_ai_attach_obs__) {
+                        try { window.__qwenpaw_ai_attach_obs__.disconnect(); }
+                        catch (e) {}
+                    }
+                    window.__qwenpaw_ai_attach_log__ = [];
+                    const texts = [];
+                    document.querySelectorAll(
+                        '.qwenpaw-bubble.qwenpaw-bubble-start'
+                    ).forEach((el) => texts.push((el.innerText || '').trim()));
+                    const obs = new MutationObserver((muts) => {
+                        const now = Date.now();
+                        const log = window.__qwenpaw_ai_attach_log__;
+                        for (const m of muts) {
+                            for (const n of m.addedNodes) {
+                                if (!n || n.nodeType !== 1) continue;
+                                const hits = [];
+                                if (
+                                    n.classList
+                                    && n.classList.contains('qwenpaw-bubble')
+                                ) {
+                                    hits.push(n);
+                                }
+                                if (n.querySelectorAll) {
+                                    n.querySelectorAll('.qwenpaw-bubble')
+                                        .forEach((el) => hits.push(el));
+                                }
+                                for (const el of hits) {
+                                    // Keep the element reference: the text
+                                    // at attach time is empty for a
+                                    // streaming bubble, so Path D must read
+                                    // innerText live at poll time.
+                                    log.push({
+                                        t: now,
+                                        cls: String(el.className).slice(0, 120),
+                                        el: el,
+                                    });
+                                }
+                            }
+                        }
+                    });
+                    obs.observe(document.body, {childList: true, subtree: true});
+                    window.__qwenpaw_ai_attach_obs__ = obs;
+                    window.__qwenpaw_ai_wait_start__ = Date.now();
+                    return texts;
+                }"""
+            )
+            pre_wait_texts = list(snapshot or [])
+            if not pre_send_texts:
+                # No pre-send baseline (wait_for_ai_response used without
+                # send_message): degrade Path E to the wait-start snapshot
+                # rather than disabling it.
+                pre_send_texts = list(pre_wait_texts)
+        except Exception as e:  # observer is best-effort diagnostics only
+            logger.warning(
+                f"[wait_ai] attach-observer install failed: {type(e).__name__}"
+            )
         passed_via = None
         try:
             self.page.wait_for_function(
-                """(expectedCount) => {
+                """({expectedCount, expectedUserCount, preWaitTexts, preSendTexts}) => {
                     // Path A: button transitioned from disabled back to enabled -> streaming really ended
                     const btn = document.querySelector(
                         'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary'
@@ -811,9 +1276,168 @@ class ChatPage(BasePage):
                             return true;
                         }
                     }
+
+                    // Path D (revised 2026-10-16): the bubble list can be
+                    // REBUILT mid-round (context compression / virtualised
+                    // re-render), which drops the round's own bubble below
+                    // `expectedCount` or empties it. Then Paths A/B/C can
+                    // never release even though the answer is fully
+                    // rendered - evidence: nightly 2026-10-07..12 and fork
+                    // run 38719913840, the 25-round compression case failed
+                    // at rounds 11-13 every night with "Last bubble text:
+                    // ''" while the FAIL-moment screenshot showed the
+                    // round's answer complete ("Completed 1 steps" + full
+                    // text) and the send button enabled.
+                    // The 2026-10-13 version guarded with
+                    // userMsgs.length === expectedUserCount, but that
+                    // baseline is taken BEFORE the click while this round's
+                    // own user bubble has already landed by wait start, so
+                    // the equality can never hold and the path is dead.
+                    // Release when: the send button is enabled AND a bubble
+                    // node carrying text that did NOT exist at wait start
+                    // was attached after wait start (MutationObserver
+                    // log). The fresh-text guard is what keeps this from
+                    // releasing on the pre-wait history state.
+                    const attachLog = window.__qwenpaw_ai_attach_log__ || [];
+                    let freshReal = false;
+                    for (let i = 0; i < attachLog.length; i++) {
+                        const el = attachLog[i].el;
+                        if (!el || !el.isConnected) continue;
+                        // AI bubbles only: this round's own user bubble is
+                        // also attached after wait start and its text is
+                        // not in the AI-text snapshot, so without the class
+                        // guard a user-bubble re-attach would release.
+                        if (!el.classList.contains('qwenpaw-bubble-start')) {
+                            continue;
+                        }
+                        const s = (el.innerText || '')
+                            .replace(/Thinking/gi, '')
+                            .replace(/Loading/gi, '')
+                            .trim();
+                        if (s.length >= 2 && preWaitTexts.indexOf(s) === -1) {
+                            freshReal = true;
+                            break;
+                        }
+                    }
+                    if (btnEnabled && freshReal) {
+                        window.__qwenpaw_wait_passed_via__ =
+                            'btn_enabled_post_rebuild';
+                        return true;
+                    }
+
+                    // Path E (2026-10-16, second revision): release on
+                    // "some bubble carries text that did not exist before
+                    // the send", scanning the WHOLE list.
+                    //
+                    // This is the path the evidence actually supports. Fork
+                    // run 38788391872's FAIL-moment DOM snapshot recorded,
+                    // on both attempts: the bubble timestamps strictly
+                    // DECREASING by index (02:59:31 at idx0 down to
+                    // 02:58:29 at idx9) i.e. the newest bubble is at index
+                    // 0 and the OLDEST sits at the end of the NodeList;
+                    // this round's answer fully rendered at idx0
+                    // ("Completed 1 steps" + the whole reply); the five
+                    // oldest bubbles emptied to ''; btnEnabled false; and
+                    // the attach log EMPTY.
+                    //
+                    // Three consequences, each fatal to one of the paths
+                    // above:
+                    //  - Paths B and C both read aiMsgs[length-1], which is
+                    //    the OLDEST bubble, and Path C's `i >= expectedCount`
+                    //    guard covers exactly that one index - so once
+                    //    compression empties the old bubbles both paths read
+                    //    '' forever. That also explains why earlier rounds
+                    //    passed: before compression kicked in the oldest
+                    //    bubble still had stable text, so Path B released on
+                    //    it. It was releasing on the WRONG bubble, which was
+                    //    merely harmless while that bubble had content.
+                    //  - Paths A and D both require btnEnabled, which the
+                    //    snapshot shows is false throughout (the known
+                    //    lost-streaming-end-signal behaviour this function
+                    //    was written to tolerate in the first place).
+                    //  - Path D additionally requires a freshly attached
+                    //    node, and the attach log was empty: nothing was
+                    //    rebuilt or unloaded. The mid-round-rebuild theory
+                    //    Path D was written for is falsified by this run.
+                    //
+                    // So Path E deliberately depends on NONE of: render
+                    // order, list index, the send button, or node
+                    // attachment. It scans every bubble and asks only
+                    // whether some bubble carries real text absent from the
+                    // pre-send baseline (`preSendTexts`, captured in
+                    // send_message BEFORE the click - the wait-start
+                    // snapshot is too late, since gate-1 has already seen
+                    // this round's bubble and its text may already be
+                    // rendered there). Emptied old bubbles cannot trigger
+                    // it: they normalise to length 0 and are skipped.
+                    //
+                    // Order-independence is required, not cosmetic: the
+                    // snapshot proves the list is newest-first on the
+                    // failing round, and nothing establishes that this order
+                    // is constant across rounds, builds, or view modes.
+                    // Taking an endpoint (first or last) or an index guard
+                    // would re-introduce exactly the bug being fixed here.
+                    //
+                    // The 1500 ms stability window keeps this from
+                    // releasing on a half-streamed answer: text that is
+                    // still growing is by definition not yet stable. The
+                    // key is the SORTED join of all fresh texts, so a
+                    // re-order of the same content does not reset it.
+                    const preSend = preSendTexts || [];
+                    // Guard: with no pre-send baseline there is no way to
+                    // tell this round's answer apart from history, so
+                    // every existing bubble would look "fresh" and Path E
+                    // would release on the PREVIOUS round's content. That
+                    // can happen when the pre-send snapshot threw (see the
+                    // warning in send_message) or when this wait is reached
+                    // without send_message. Refuse to guess: skip Path E
+                    // whenever the baseline is missing and there IS history
+                    // to be confused by. A genuine first round has no
+                    // history (expectedCount === 0), so "any stable text is
+                    // new" is safe there and the path still works.
+                    if (preSend.length === 0 && expectedCount > 0) {
+                        window.__qwenpaw_wait_pathE_skipped__ =
+                            'no_presend_baseline';
+                        return false;
+                    }
+                    const fresh = [];
+                    const freshIdx = [];
+                    for (let i = 0; i < aiMsgs.length; i++) {
+                        const s = (aiMsgs[i].innerText || '')
+                            .replace(/Thinking/gi, '')
+                            .replace(/Loading/gi, '')
+                            .trim();
+                        if (s.length >= 2 && preSend.indexOf(s) === -1) {
+                            fresh.push(s);
+                            freshIdx.push(i);
+                        }
+                    }
+                    // Recorded for the READ path: when no bubble carries a
+                    // usable render stamp, get_last_ai_message falls back to
+                    // this index (only when it is unambiguous).
+                    window.__qwenpaw_ai_fresh_idx__ = freshIdx;
+                    if (fresh.length > 0) {
+                        const keyE = '__qwenpaw_ai_fresh_cache__';
+                        const nowE = Date.now();
+                        const sigE = fresh.slice().sort().join('\u0000');
+                        const cacheE = window[keyE] || {};
+                        if (cacheE.sig !== sigE) {
+                            window[keyE] = { sig: sigE, since: nowE };
+                        } else if (nowE - cacheE.since >= 1500) {
+                            window.__qwenpaw_wait_passed_via__ =
+                                'fresh_text_stable';
+                            window.__qwenpaw_ai_fresh_count__ = fresh.length;
+                            return true;
+                        }
+                    }
                     return false;
                 }""",
-                arg=count_before_send,
+                arg={
+                    "expectedCount": count_before_send,
+                    "expectedUserCount": user_count_before,
+                    "preWaitTexts": pre_wait_texts,
+                    "preSendTexts": pre_send_texts,
+                },
                 timeout=stability_timeout,
             )
             try:
@@ -822,15 +1446,168 @@ class ChatPage(BasePage):
                 )
             except Exception:
                 passed_via = "unknown"
+            # Read the fresh-text indices BEFORE the finally block deletes the
+            # window caches; the read path uses them as its fallback tier.
+            try:
+                fresh_idx = list(
+                    self.page.evaluate(
+                        "() => window.__qwenpaw_ai_fresh_idx__ || []"
+                    )
+                    or []
+                )
+            except Exception:
+                fresh_idx = []
+            self._last_round_fresh_idx = fresh_idx
             logger.info(
                 f"[wait_ai] gate-2/3 PASS via '{passed_via}' "
-                f"(streaming considered done)"
+                f"(streaming considered done), fresh_idx={fresh_idx}"
             )
         except (TimeoutError, AssertionError, Exception) as e:
+            self._last_round_fresh_idx = []
             try:
-                last_text = ai_locator.last.inner_text()[:200]
+                # Report the newest non-empty bubble, not the DOM end: on a
+                # reverse-ordered list the DOM end is the OLDEST bubble and
+                # compression empties it first, so `.last` prints '' and the
+                # log tells the next reader nothing (that is exactly how
+                # nightly 2026-10-07..15 read "Last bubble text: ''" while the
+                # screenshot showed the answer complete).
+                last_text = self._read_newest_ai_text()[:200]
             except Exception:
                 last_text = "<unreadable>"
+            # FAIL-moment DOM snapshot: the four release-path components
+            # plus the bubble inventory and the MutationObserver attach
+            # log. Nightly 2026-10-07..15 and fork run 38719913840 failed
+            # here with the answer visibly rendered, so the screenshot
+            # alone cannot tell which component vetoed the release.
+            try:
+                diag = self.page.evaluate(
+                    """({expectedCount, preSendTexts}) => {
+                        const btn = document.querySelector(
+                            'button.qwenpaw-sender-actions-btn'
+                            + '.qwenpaw-btn-primary'
+                        );
+                        let btnEnabled = false;
+                        if (btn) {
+                            const cls = btn.className || '';
+                            const disCls = /qwenpaw-btn-disabled/
+                                .test(cls)
+                                || /qwenpaw-btn-loading/.test(cls)
+                                || /is-disabled/.test(cls)
+                                || /is-loading/.test(cls);
+                            const disAttr = btn.disabled === true
+                                || btn.hasAttribute('disabled')
+                                || btn.getAttribute('aria-disabled')
+                                    === 'true';
+                            btnEnabled = !disAttr && !disCls;
+                        }
+                        const aiMsgs = document.querySelectorAll(
+                            '.qwenpaw-bubble.qwenpaw-bubble-start'
+                        );
+                        const bubbles = [];
+                        for (let i = 0; i < aiMsgs.length; i++) {
+                            const el = aiMsgs[i];
+                            bubbles.push({
+                                idx: i,
+                                txt: (el.innerText || '').trim().slice(0, 80),
+                                cls: String(el.className).slice(0, 120),
+                            });
+                        }
+                        return {
+                            btnFound: !!btn,
+                            btnEnabled: btnEnabled,
+                            aiCount: aiMsgs.length,
+                            expectedCount: expectedCount,
+                            userCount: document.querySelectorAll(
+                                '.qwenpaw-bubble.qwenpaw-bubble-end'
+                            ).length,
+                            bubbles: bubbles,
+                            // Path E's own view, so a future red can say
+                            // WHICH of its two conditions failed: no fresh
+                            // text at all, or fresh text found but never
+                            // stable for 1500ms. Without this the next
+                            // reader is back to guessing which path vetoed.
+                            pathE: (() => {
+                                const pre = preSendTexts || [];
+                                const fr = [];
+                                for (let i = 0; i < aiMsgs.length; i++) {
+                                    const s = (aiMsgs[i].innerText || '')
+                                        .replace(/Thinking/gi, '')
+                                        .replace(/Loading/gi, '')
+                                        .trim();
+                                    if (s.length >= 2 && pre.indexOf(s) === -1) {
+                                        fr.push({ idx: i, txt: s.slice(0, 80) });
+                                    }
+                                }
+                                const cE = window.__qwenpaw_ai_fresh_cache__;
+                                return {
+                                    preSendCount: pre.length,
+                                    freshCount: fr.length,
+                                    freshIdx: fr.map((r) => r.idx),
+                                    freshSample: fr.slice(0, 3),
+                                    stableCacheSigLen: cE && cE.sig
+                                        ? cE.sig.length : 0,
+                                    stableAgeMs: cE && cE.since
+                                        ? (Date.now() - cE.since) : -1,
+                                };
+                            })(),
+                            attachLog: (
+                                window.__qwenpaw_ai_attach_log__ || []
+                            ).slice(-12).map((r) => ({
+                                t: r.t,
+                                cls: r.cls,
+                                connected: !!(r.el && r.el.isConnected),
+                                txt: r.el
+                                    ? (r.el.innerText || '')
+                                        .trim().slice(0, 80)
+                                    : '',
+                            })),
+                        };
+                    }""",
+                    {
+                        "expectedCount": count_before_send,
+                        "preSendTexts": pre_send_texts,
+                    },
+                )
+                # Read-path view, evaluated from the SAME constant the read
+                # path uses (an inlined copy here would drift from it). Tells
+                # the next reader which bubble a red assertion would have
+                # read, and by which tier, without re-deriving anything.
+                try:
+                    stamp = getattr(self, "_ai_stamp_before_send", -1)
+                    answer = self.page.evaluate(
+                        self._JS_LATEST_AI_BUBBLE,
+                        {
+                            "baselineTs": stamp if isinstance(stamp, int) else -1,
+                            "pathEFreshIdx": [],
+                        },
+                    ) or {}
+                    ans_idx = answer.get("idx", -1)
+                    ans_txt = ""
+                    if isinstance(ans_idx, int) and ans_idx >= 0:
+                        try:
+                            ans_txt = self.page.locator(
+                                self.AI_MESSAGE
+                            ).nth(ans_idx).inner_text().strip()[:120]
+                        except Exception:
+                            ans_txt = "<unreadable>"
+                    elif isinstance(diag, dict):
+                        ans_txt = "<unresolved: DOM end would be read>"
+                    answer["text"] = ans_txt
+                    if isinstance(diag, dict):
+                        diag["roundAnswer"] = answer
+                except Exception as ra_e:
+                    if isinstance(diag, dict):
+                        diag["roundAnswer"] = {
+                            "error": type(ra_e).__name__,
+                        }
+                logger.error(
+                    f"[wait_ai] gate-2/3 FAIL DIAG: {diag!r}"
+                )
+            except Exception as diag_e:
+                logger.error(
+                    f"[wait_ai] gate-2/3 FAIL DIAG unavailable: "
+                    f"{type(diag_e).__name__}"
+                )
             logger.error(
                 f"[wait_ai] gate-2/3 FAIL within {stability_timeout}ms "
                 f"({type(e).__name__}). Neither button re-enabled nor content stabilized. "
@@ -845,7 +1622,15 @@ class ChatPage(BasePage):
                 self.page.evaluate(
                     "() => { try { "
                     "delete window.__qwenpaw_ai_stable_cache__; "
+                    "delete window.__qwenpaw_ai_stable_cache_c__; "
+                    "delete window.__qwenpaw_ai_fresh_cache__; "
+                    "delete window.__qwenpaw_ai_fresh_count__; "
+                    "delete window.__qwenpaw_ai_fresh_idx__; "
                     "delete window.__qwenpaw_wait_passed_via__; "
+                    "if (window.__qwenpaw_ai_attach_obs__) "
+                    "window.__qwenpaw_ai_attach_obs__.disconnect(); "
+                    "delete window.__qwenpaw_ai_attach_obs__; "
+                    "delete window.__qwenpaw_ai_attach_log__; "
                     "} catch(e) {} }"
                 )
             except Exception:
@@ -853,7 +1638,12 @@ class ChatPage(BasePage):
 
         # Screenshot: final state after AI fully replied
         self.step_shot(f"ai_response_complete_{passed_via or 'unknown'}")
-        return ai_locator.last
+        # Return THIS ROUND'S bubble, not the DOM end. On a reverse-ordered
+        # list the DOM end is the oldest bubble and compression empties it
+        # first, so `.last` hands callers an empty string - the failure mode
+        # tests/test_context_scroll.py hit (assert ('1' in '' or 'one' in '')).
+        resolved = self._latest_ai_locator("wait_for_ai_response")
+        return resolved if resolved is not None else ai_locator.last
 
     # ========== Message actions ==========
     
@@ -1187,10 +1977,19 @@ class ChatPage(BasePage):
             return self
 
         rename_item = self.page.locator(self.SESSION_MENU_RENAME).first
-        if rename_item.count() == 0 or not rename_item.is_visible():
-            logger.warning("Rename menu item not found, skipping rename")
+        # The menu items enter with a staggered framer-motion animation
+        # (SessionActions.tsx: delay = index * 0.02s), so an instant
+        # count()/is_visible() probe right after the menu opened can race
+        # the entrance. Wait explicitly; fail loudly if it never shows.
+        try:
+            rename_item.wait_for(state="visible", timeout=5000)
+        except Exception:
+            names = self._visible_menuitem_names()
             self.page.keyboard.press("Escape")
-            return self
+            raise AssertionError(
+                f"Rename item never became visible in the session menu of "
+                f"session {index}. Visible menu items: {names}"
+            )
         rename_item.click()
         self.wait(500)
 
@@ -1216,14 +2015,32 @@ class ChatPage(BasePage):
 
     
     def pin_session(self, index: int) -> "ChatPage":
-        """Pin a session via more-menu → Pin."""
+        """Pin a session via more-menu → Pin.
+
+        The menu items enter with a staggered framer-motion animation
+        (``SessionActions.tsx``: ``delay = index * 0.02s``), and Pin sits at
+        index 1 while Rename sits at 0 — an instant ``count()``/
+        ``is_visible()`` probe right after the menu opened therefore races
+        the entrance for Pin more often than for Rename. The old code
+        treated "not found yet" as "already pinned" and returned silently,
+        which turned a timing miss into a mystery assertion failure one
+        step later ("Pinned marker not shown", nightly 2026-10). Now we
+        wait explicitly, and only take the already-pinned branch when the
+        *Unpin* item is positively visible.
+        """
         logger.info(f"Pinning session at index {index}")
         if not self._open_session_menu(index):
             self.step_shot(f"pin_session_{index}_menu_failed")
-            return self
+            raise AssertionError(
+                f"Could not open the session menu for session {index}"
+            )
 
         pin_item = self.page.locator(self.SESSION_MENU_PIN).first
         if pin_item.count() == 0 or not pin_item.is_visible():
+            # #8247: the label lives in a nested span, so the scoped
+            # :has(span:text-is(...)) selector above is the reliable
+            # probe; a pinned row shows "Unpin" instead and the row
+            # carries data-pinned="true".
             target = self.page.locator(self.SESSION_ITEM).nth(index)
             if target.get_attribute("data-pinned") == "true":
                 logger.info("Session is already pinned")
@@ -1237,6 +2054,22 @@ class ChatPage(BasePage):
         self.step_shot(f"pin_session_{index}_done")
         return self
 
+    def _visible_menuitem_names(self, limit: int = 12) -> List[str]:
+        """Visible role=menuitem labels (failure context for menu races)."""
+        try:
+            items = self.page.locator(
+                'div[role="menu"] button[role="menuitem"]'
+            ).all()[:limit]
+            names = []
+            for it in items:
+                try:
+                    names.append((it.inner_text() or "").strip())
+                except Exception:
+                    names.append("<unreadable>")
+            return names
+        except Exception:
+            return ["<unreadable>"]
+
     def delete_session(self, index: int) -> "ChatPage":
         """Delete a session via more-menu → Delete (confirm modal if shown)."""
         logger.info(f"Deleting session at index {index}")
@@ -1247,11 +2080,20 @@ class ChatPage(BasePage):
             return self
 
         del_item = self.page.locator(self.SESSION_MENU_DELETE).first
-        if del_item.count() == 0 or not del_item.is_visible():
-            logger.warning("Delete menu item not found")
+        # Same staggered-entrance race as pin/rename: wait explicitly.
+        # Callers that treat deletion as best-effort (cleanup paths) wrap
+        # this in try/except; test paths get a loud failure instead of a
+        # silently skipped delete.
+        try:
+            del_item.wait_for(state="visible", timeout=5000)
+        except Exception:
+            names = self._visible_menuitem_names()
             self.page.keyboard.press("Escape")
             self.step_shot(f"delete_session_{index}_item_missing")
-            return self
+            raise AssertionError(
+                f"Delete item never became visible in the session menu of "
+                f"session {index}. Visible menu items: {names}"
+            )
         del_item.click()
         self.wait(800)
 
@@ -1276,20 +2118,53 @@ class ChatPage(BasePage):
         self.step_shot(f"delete_session_{index}_done")
         return self
 
-    def verify_pinned_session(self) -> bool:
-        """Verify the first session exposes its pinned state."""
-        first_session = self.page.locator(self.SESSION_ITEM).first
-        if first_session.count() == 0:
-            return False
+    def verify_pinned_session(self, index: int = 0) -> bool:
+        """Verify the session at ``index`` shows the pinned marker.
+
+        Primary anchor: the product's own visible pin indicator —
+        ``SessionItem`` renders ``span[class*="pinMark"]`` with
+        ``title="Pinned"``/``title="置顶"`` on pinned rows. This needs no
+        menu round-trip and therefore no race with the menu's staggered
+        entrance animation.
+
+        Fallback (pre-#7956 builds without the marker): re-open the
+        session's more-menu and look for the "Unpin" item.
+        """
+        mark = self.page.locator(self.SESSION_PIN_MARK)
         try:
-            expect(first_session).to_have_attribute(
-                "data-pinned",
-                "true",
-                timeout=5000,
+            # Any pinned row proves the pin action landed; when several
+            # sessions exist we still accept the row-scoped match first.
+            scoped = self.page.locator(self.SESSION_ITEM).nth(index).locator(
+                'span[class*="pinMark"], [title="Pinned"], [title="置顶"]'
             )
-        except AssertionError:
+            if scoped.count() > 0:
+                try:
+                    scoped.first.wait_for(state="visible", timeout=5000)
+                    logger.info(f"Pinned marker visible on session {index}")
+                    return True
+                except Exception:
+                    pass
+            if mark.count() > 0 and mark.first.is_visible():
+                logger.info("Pinned marker visible (any row)")
+                return True
+        except Exception as exc:
+            logger.warning(f"[verify_pinned_session] marker probe: {exc}")
+
+        # Fallback: menu round-trip (Unpin item present == pinned).
+        if not self._open_session_menu(index):
             return False
-        return True
+        unpin = self.page.locator(self.SESSION_MENU_UNPIN).first
+        try:
+            unpin.wait_for(state="visible", timeout=5000)
+            result = True
+        except Exception:
+            result = False
+        try:
+            self.page.keyboard.press("Escape")
+        except Exception:
+            pass
+        self.wait(300)
+        return result
 
     def open_session_search(self) -> "ChatPage":
         """Reveal the conversation search box in the sidebar session list.
@@ -1436,7 +2311,7 @@ class ChatPage(BasePage):
         under the sidebar group list (sibling of ``groupLabel`` buttons).
         """
         return self.page.locator(
-            f'div[role="button"][class*="item"]:has-text("{name}")'
+            f'div[class*="sessionItem-module__item"]:has-text("{name}")'
         ).first
 
     # ========== Non-owner tab banner (upstream #5664) ==========
@@ -1450,14 +2325,190 @@ class ChatPage(BasePage):
     # ========== Model and Agent switching ==========
     
     def open_model_selector(self) -> "ChatPage":
-        """Open the model selector."""
+        """Open the model picker panel.
+
+        Post-#7899 the picker is reached in two hops from the sender area:
+        the ``SessionThinking`` trigger (``aria-label`` = "Thinking
+        intensity" / "思考强度") opens a Popover; inside it, when a model is
+        already bound to the session, ``ThinkingControl`` shows a
+        ``modelChoice`` button that flips the panel into the embedded
+        ``ModelSelector``. When no model is bound yet the embedded picker
+        is shown straight away, so hop 2 is skipped.
+
+        Fail-fast: if neither hop materialises we raise with the visible
+        button names instead of silently returning — the old silent
+        ``return self`` turned a missing element into a mystery failure
+        several steps later (see the 2026-10 nightly post-mortem).
+        """
         logger.info("Opening model selector")
-        # The model selector lives in the right-side area of the header
-        header = self.page.locator('.qwenpaw-chat-anywhere-layout-right-header')
-        model_btn = header.locator(self.MODEL_SELECTOR).first
-        model_btn.click()
+        trigger = self.page.locator(self.MODEL_THINKING_TRIGGER).first
+        try:
+            trigger.wait_for(state="visible", timeout=10000)
+        except Exception:
+            # Pre-#7899 builds: header Dropdown trigger.
+            legacy = self.page.locator(
+                '.qwenpaw-chat-anywhere-layout-right-header'
+            ).locator(self.MODEL_SELECTOR).first
+            if legacy.count() > 0 and legacy.is_visible():
+                legacy.click()
+                self.wait(500)
+                return self
+            names = self._visible_button_names()
+            raise AssertionError(
+                "Model selector trigger not found in 10s. Looked for "
+                f"{self.MODEL_THINKING_TRIGGER!r} and the pre-#7899 header "
+                f"dropdown. Visible buttons: {names}"
+            )
+        trigger.click()
         self.wait(500)
-        return self
+
+        # Hop 2: the panel may already be the embedded picker (no model
+        # bound yet) or the ThinkingControl with a modelChoice button.
+        # Third terminal state: the embedded picker rendered its EMPTY
+        # tip (role="status" with the add-provider action) — the panel IS
+        # open but no eligible provider reached the selector. That is a
+        # distinct failure from "the panel never opened" and must be
+        # reported as such instead of burning the full 8s wait (live
+        # probe 2026-10-15: the empty tip carries class emptyTip and a
+        # role=status wrapper).
+        # Fourth terminal state (live probe 2026-10-15 against a
+        # version-aligned local build, frontend+backend both at the CI
+        # head): the panel IS open and the provider group headers render
+        # (Ollama / LM Studio / Kilo Code ...) but EVERY provider carries
+        # zero models, so no modelSelectButton row and no emptyTip exist
+        # either — the picker shows "No matching models found" under the
+        # group headers. The loading state is told apart by its
+        # role="status" spin wrapper, which the fourth state lacks. This
+        # is an environment condition (nothing selectable configured on
+        # the instance under test), not a broken picker: return normally
+        # with a loud log and let the caller's existing "no switchable
+        # model" branch decide (every family-A case already has one).
+        for _ in range(20):
+            state, detail = self._picker_terminal_state()
+            if state == "embedded":
+                logger.info("Model picker panel open (embedded picker)")
+                return self
+            if state == "empty":
+                logger.info(
+                    "Model picker panel open but the visible tab rendered "
+                    "the empty tip (no selectable row on this tab); "
+                    "leaving the switch decision to the caller's "
+                    "no-switch branch (%s)",
+                    detail,
+                )
+                return self
+            if state == "choice":
+                self.page.locator(self.MODEL_CHOICE_BTN).first.click()
+                self.wait(500)
+                break
+            if state == "rowless":
+                logger.info(
+                    "Model picker panel open but no selectable model rows "
+                    "(provider groups rendered with zero models); leaving "
+                    "the switch decision to the caller's no-switch branch "
+                    "(%s)",
+                    detail,
+                )
+                return self
+            self.wait(250)
+        # Post-hop settle: after the modelChoice click the panel must be
+        # re-classified. 6d810e0e only waited for embedded rows here, so a
+        # rowless panel behind the hop burned the full 8s and raised
+        # "did not open" (fork run 38707190848: four family-A cases, 9.5s
+        # each, loop broke on the visible choice button in round 1 and the
+        # rowless terminal state was never evaluated again).
+        for _ in range(32):
+            state, detail = self._picker_terminal_state()
+            if state == "embedded":
+                logger.info("Model picker panel open (via modelChoice hop)")
+                return self
+            if state == "empty":
+                logger.info(
+                    "Model picker panel open after the modelChoice hop but "
+                    "the visible tab rendered the empty tip; leaving the "
+                    "switch decision to the caller's no-switch branch (%s)",
+                    detail,
+                )
+                return self
+            if state == "rowless":
+                logger.info(
+                    "Model picker panel open after the modelChoice hop but "
+                    "no selectable model rows; leaving the switch decision "
+                    "to the caller's no-switch branch (%s)",
+                    detail,
+                )
+                return self
+            self.wait(250)
+        state, detail = self._picker_terminal_state()
+        names = self._visible_button_names()
+        raise AssertionError(
+            "Model picker panel did not open: neither the embedded "
+            "modelSelectButton rows nor the modelChoice hop appeared. "
+            f"last state: {state} ({detail}). Visible buttons: {names}"
+        )
+
+    def _picker_terminal_state(self):
+        """Classify the model picker panel into one terminal state.
+
+        Returns ``(state, detail)``. Priority mirrors the render branches
+        of ``console/src/pages/Chat/ModelSelector/index.tsx``:
+
+        - ``embedded``: ``modelSelectButton`` rows visible (models listed)
+        - ``empty``: ``emptyTip`` visible (no eligible provider at all)
+        - ``choice``: the ThinkingControl ``modelChoice`` hop button
+          visible (a model is bound; one click flips to the embedded view)
+        - ``loading``: a ``role="status"`` spinner inside the dialog
+        - ``rowless``: dialog visible with no spinner, no rows and no
+          emptyTip — the provider group headers / configure entries render
+          while every provider carries zero models (the fourth terminal
+          state probed live on 2026-10-15)
+        - ``none``: no visible ``role="dialog"`` at all
+
+        Visibility (not mere presence) decides: leftover hidden DOM from
+        inactive panes must not veto a terminal state (same lesson as the
+        family-C pane-id scoping fix).
+        """
+        dialog = self.page.locator('div[role="dialog"]').first
+        if not (dialog.count() > 0 and dialog.first.is_visible()):
+            return "none", "no visible role=dialog"
+        embedded = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).first
+        if embedded.count() > 0 and embedded.first.is_visible():
+            return "embedded", "modelSelectButton rows visible"
+        empty_tip = self.page.locator(
+            'div[role="dialog"] div[class*="emptyTip"], '
+            'div[role="dialog"] [class*="emptyTip"]'
+        ).first
+        if empty_tip.count() > 0 and empty_tip.first.is_visible():
+            return "empty", "emptyTip visible"
+        choice = self.page.locator(self.MODEL_CHOICE_BTN).first
+        if choice.count() > 0 and choice.first.is_visible():
+            return "choice", "modelChoice hop button visible"
+        if dialog.locator('[role="status"]').count() > 0:
+            return "loading", "role=status spinner inside dialog"
+        try:
+            n_dialogs = self.page.locator('div[role="dialog"]').count()
+            text = (dialog.first.inner_text() or "").strip()[:200]
+        except Exception:
+            n_dialogs, text = -1, "<unreadable>"
+        return "rowless", f"dialogs={n_dialogs} text={text!r}"
+
+    def _visible_button_names(self, limit: int = 25) -> List[str]:
+        """Accessible names of currently visible buttons (failure context)."""
+        try:
+            btns = self.page.locator("button:visible").all()[:limit]
+            names = []
+            for b in btns:
+                try:
+                    label = b.get_attribute("aria-label")
+                    if not label:
+                        lines = (b.inner_text() or "").strip().splitlines()
+                        label = lines[0] if lines else ""
+                    names.append(label or "<no-text>")
+                except Exception:
+                    names.append("<unreadable>")
+            return names
+        except Exception:
+            return ["<unreadable>"]
 
     def select_model(self, model_name: str) -> "ChatPage":
         """
@@ -1471,19 +2522,39 @@ class ChatPage(BasePage):
         """
         logger.info(f"Selecting model: {model_name}")
 
-        # Find and select the model
-        model_option = self.page.locator(self.MODEL_OPTION).filter(has_text=model_name).first
-        if model_option.count() > 0:
-            model_option.click()
-            self.wait(1000)
-            logger.info(f"Model selected: {model_name}")
-
+        # Post-#7899 the picker rows are ``modelSelectButton`` buttons whose
+        # visible text is the model name; pre-#7899 builds used antd
+        # dropdown menu items. Try the new anchor first, fall back once.
+        option = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).filter(
+            has_text=model_name
+        ).first
+        if option.count() == 0 or not option.is_visible():
+            option = self.page.locator(self.MODEL_OPTION).filter(
+                has_text=model_name
+            ).first
+        if option.count() == 0 or not option.is_visible():
+            available = self.get_available_models()
+            raise AssertionError(
+                f"Model option {model_name!r} not visible in the open "
+                f"picker. Available rows: {available}"
+            )
+        option.click()
+        self.wait(1000)
+        logger.info(f"Model selected: {model_name}")
         return self
 
     def get_available_models(self) -> List[str]:
-        """Get the list of available models."""
-        options = self.page.locator(self.MODEL_OPTION).all()
-        models = [opt.inner_text() for opt in options]
+        """Get the list of available models shown in the open picker."""
+        rows = self.page.locator(self.MODEL_SELECT_EMBEDDED_BTN).all()
+        models = []
+        for opt in rows:
+            try:
+                models.append(opt.inner_text().strip())
+            except Exception:
+                continue
+        if not models:
+            legacy = self.page.locator(self.MODEL_OPTION).all()
+            models = [opt.inner_text() for opt in legacy]
         return models
 
     def open_agent_selector(self) -> "ChatPage":

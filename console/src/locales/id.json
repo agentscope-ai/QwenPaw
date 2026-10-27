@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "Lompat ke konten utama"
+  },
   "common": {
     "save": "Simpan",
     "reset": "Atur ulang",
@@ -22,6 +25,7 @@
     "view": "Lihat",
     "content": "Konten",
     "loading": "Memuat...",
+    "loadMore": "Muat lebih banyak",
     "saving": "Menyimpan...",
     "copy": "Salin",
     "copied": "Disalin ke papan klip",
@@ -58,13 +62,26 @@
     "cliAuthenticated": "{{type}} CLI telah diautentikasi"
   },
   "desktop": {
+    "update": {
+      "title": "Perbarui QwenPaw?",
+      "otherWindows": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_one": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_other": "Ada {{count}} jendela lain yang terbuka.",
+      "description": "Pembaruan akan menutup semua jendela QwenPaw dan menghentikan tugas yang sedang berjalan.",
+      "confirm": "Tutup dan perbarui",
+      "preparing": "Menutup jendela…"
+    },
     "closeWindow": {
-      "title": "Tutup Jendela",
-      "description": "Apa yang ingin Anda lakukan saat menutup jendela? Keluar dari aplikasi akan menghentikan semua tugas yang sedang berjalan dan tugas terjadwal.",
+      "title": "Tutup QwenPaw?",
+      "description": "Tetap berjalan di latar belakang untuk melanjutkan tugas. Keluar sepenuhnya akan mengakhiri tugas yang sedang berjalan.",
       "remember": "Ingat pilihan saya",
       "showWindow": "Tampilkan Jendela",
       "minimizeToTray": "Minimalkan ke baki sistem",
       "quitApp": "Keluar dari Aplikasi",
+      "keepRunning": "Jalankan di latar belakang",
+      "quitting": "Keluar…",
+      "stopService": "Keluar sepenuhnya",
+      "stopBlocked": "QwenPaw masih digunakan di jendela atau aplikasi lain. Tutup semuanya sebelum keluar sepenuhnya.",
       "preference": "Tutup Jendela",
       "askEveryTime": "Tanya setiap saat"
     }
@@ -897,6 +914,9 @@
         "memberDefaultsHint": "Percakapan baru dimulai dengan model ini. Anggota dapat beralih ke model lain yang diizinkan.",
         "settingsSaved": "Pengaturan model disimpan",
         "defaultModel": "Model default",
+        "gatewayTimeout": "Batas waktu gateway (detik)",
+        "gatewayTimeoutHelp": "Default 600 detik; minimum 60. Berlaku untuk permintaan baru setelah disimpan, termasuk respons streaming. Batas waktu koneksi tetap 10 detik.",
+        "gatewayTimeoutInvalid": "Masukkan bilangan bulat minimal 60 detik.",
         "chooseDefault": "Pilih model yang tersedia untuk semua anggota",
         "saveSettings": "Simpan pengaturan model",
         "providers": "Penyedia",
@@ -1156,6 +1176,11 @@
     "prompt1": "Mari mulai perjalanan baru!",
     "prompt2": "Bisa jelaskan skill apa saja yang Anda miliki?",
     "inputPlaceholder": "\"↑↓\" untuk navigasi pesan · \"/\" untuk perintah cepat",
+    "composer": {
+      "attach": "Lampirkan file",
+      "send": "Kirim pesan",
+      "stop": "Hentikan pembuatan"
+    },
     "emptyOutputError": "Asisten mengembalikan respons kosong.",
     "commands": {
       "clear": {
@@ -1760,6 +1785,7 @@
     "title": "Saluran",
     "description": "Kelola dan konfigurasi saluran pesan",
     "loading": "Memuat saluran...",
+    "loadFailed": "Gagal memuat saluran. Coba lagi.",
     "configSaved": "Konfigurasi berhasil disimpan",
     "configFailed": "Gagal menyimpan konfigurasi",
     "botConflictTitle": "Bot sudah digunakan",
@@ -2118,10 +2144,6 @@
       "glob_search": {
         "name": "Temukan berkas",
         "description": "Temukan berkas berdasarkan nama atau pola jalur."
-      },
-      "ast_search": {
-        "name": "Cari struktur kode",
-        "description": "Cari pola kode dengan memahami sintaks."
       },
       "desktop_screenshot": {
         "name": "Ambil tangkapan layar",
@@ -3118,6 +3140,7 @@
     "createSuccess": "Panen berhasil dibuat",
     "emptyApprovals": "Tidak ada persetujuan yang tertunda",
     "emptyPush": "Tidak ada pesan push",
+    "loadFailed": "Gagal memuat pesan push. Silakan coba lagi.",
     "wobbleEnable": "Aktifkan notifikasi getar persetujuan",
     "wobbleDisable": "Nonaktifkan notifikasi getar persetujuan",
     "emptyHarvests": "Belum ada panen",
@@ -3198,6 +3221,7 @@
   "acp": {
     "title": "Integrasi ACP",
     "loading": "Memuat konfigurasi ACP...",
+    "loadError": "Gagal memuat konfigurasi ACP.",
     "builtin": "Prasetel",
     "custom": "Kustom",
     "create": "Tambah integrasi ACP",
@@ -3269,6 +3293,8 @@
     "title": "Sesi",
     "description": "Lihat dan kelola sesi chat yang aktif",
     "loading": "Memuat sesi...",
+    "selectSession": "Pilih {{name}}",
+    "loadFailed": "Gagal memuat sesi. Silakan coba lagi.",
     "confirmDelete": "Konfirmasi Hapus",
     "deleteConfirm": "Apakah Anda yakin ingin menghapus sesi ini?",
     "batchDeleteConfirm": "Apakah Anda yakin ingin menghapus {{count}} sesi yang dipilih?",
@@ -3454,6 +3480,12 @@
     "retry": "Coba Lagi"
   },
   "approval": {
+    "queue": {
+      "title": "Persetujuan tertunda",
+      "position": "{{current}} / {{total}}",
+      "previous": "Persetujuan sebelumnya",
+      "next": "Persetujuan berikutnya"
+    },
     "title": "Persetujuan Keamanan Diperlukan",
     "ownerAgent": "Agen Pemilik",
     "executingAgent": "Agen yang Mengeksekusi",
@@ -3510,6 +3542,7 @@
   "voiceTranscription": {
     "title": "Transkripsi Suara",
     "description": "Konfigurasi cara pesan audio dan suara yang masuk ditangani.",
+    "loadFailed": "Gagal memuat pengaturan transkripsi suara",
     "saveSuccess": "Mode audio tersimpan",
     "saveFailed": "Gagal menyimpan mode audio",
     "audioModeLabel": "Mode Audio",
@@ -4186,9 +4219,6 @@
     "changeProjectDirectory": "Kelola",
     "manageDefaultFolders": "Workspace bawaan",
     "projectDirectoryWorkspaceFallback": "Menggunakan direktori konfigurasi Agent",
-    "enhancedCodeCapability": "Kemampuan kode lanjutan",
-    "enhancedCodeCapabilityTooltip": "Menambahkan alat kode tanpa mengubah direktori proyek.",
-    "enhancedCodeCapabilityDescription": "Aktifkan AST, LSP, prompt kode, konteks Git, dan kontrol sumber.",
     "description": "Konfigurasi parameter runtime agen",
     "reactAgentTitle": "Agen ReAct",
     "llmRetryTitle": "Coba Ulang LLM Otomatis",

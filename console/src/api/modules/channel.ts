@@ -40,12 +40,20 @@ export interface ChannelConflictResponse {
 }
 
 export const channelApi = {
-  listChannelTypes: () => request<string[]>("/config/channels/types"),
+  listChannelTypes: (agentId?: string) =>
+    request<string[]>("/config/channels/types", {
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+    }),
 
-  listChannels: () => request<ChannelConfig>("/config/channels"),
+  listChannels: (agentId?: string) =>
+    request<ChannelConfig>("/config/channels", {
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+    }),
 
-  listChannelSchemas: () =>
-    request<Record<string, ChannelSchema>>("/config/channels/schemas"),
+  listChannelSchemas: (agentId?: string) =>
+    request<Record<string, ChannelSchema>>("/config/channels/schemas", {
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+    }),
 
   updateChannels: (body: ChannelConfig) =>
     request<ChannelConfig>("/config/channels", {

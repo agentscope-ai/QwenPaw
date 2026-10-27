@@ -1568,6 +1568,7 @@
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
+  min-height: var(--app-control-md);
   padding: 8px;
   border: 0;
   border-radius: 8px;
@@ -1576,6 +1577,12 @@
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+
+@media (max-width: 768px), (any-pointer: coarse) {
+  .modelChoiceButton {
+    min-height: var(--app-hit-touch);
+  }
 }
 .modelChoiceButton span {
   overflow: hidden;

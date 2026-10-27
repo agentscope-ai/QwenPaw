@@ -137,7 +137,8 @@ export default function SettingsApp() {
         {items.map((i) => {
           const Icon = i.Icon;
           return (
-            <div
+            <button
+              type="button"
               key={i.routeId}
               className={cx(
                 styles.settingsNavItem,
@@ -147,7 +148,7 @@ export default function SettingsApp() {
             >
               <Icon size={16} />
               <span>{t(i.labelKey, i.fallback)}</span>
-            </div>
+            </button>
           );
         })}
       </div>
