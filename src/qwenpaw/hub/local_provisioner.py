@@ -360,6 +360,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         environment["QWENPAW_WORKING_DIR"] = str(record.working_dir)
         environment["QWENPAW_SECRET_DIR"] = str(record.secret_dir)
         environment["QWENPAW_DISABLE_KEYRING"] = "1"
+        environment["QWENPAW_AUTH_ENABLED"] = "true"
         environment["QWENPAW_BACKUP_DIR"] = str(record.backup_dir)
         environment[
             "QWENPAW_KEYRING_ACCOUNT"
@@ -368,6 +369,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         if ":" in host:
             host = f"[{host}]"
         environment["QWENPAW_RUNTIME_API_URL"] = f"http://{host}:{record.port}"
+        environment["QWENPAW_RUNTIME_MODE"] = "hub"
         environment["QWENPAW_RUNTIME_ID"] = record.runtime_id
         environment["QWENPAW_TENANT_ID"] = record.tenant_id
         runtime_token = credentials.get("QWENPAW_RUNTIME_INTERNAL_TOKEN")

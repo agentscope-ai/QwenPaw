@@ -48,7 +48,14 @@ export async function checkCachedUpdate(): Promise<string | null> {
   return invoke<string | null>("check_cached_update");
 }
 
+export interface UpdateConfirmationRequest {
+  requestId: string;
+  otherWindows: number;
+}
+
 export interface UpdateEventHandlers {
+  onConfirmation?: (request: UpdateConfirmationRequest) => void;
+  onCancelled?: () => void;
   onCheckStart?: () => void;
   onDownloadProgress?: (progress: UpdateProgress) => void;
   onInstallStart?: () => void;
@@ -77,6 +84,8 @@ export async function onUpdateEvent(
     handler ? () => handler() : undefined;
 
   await Promise.all([
+    addListener("update:confirmation", handlers.onConfirmation),
+    addListener("update:cancelled", withoutPayload(handlers.onCancelled)),
     addListener("update:check-start", withoutPayload(handlers.onCheckStart)),
     addListener("update:download-progress", handlers.onDownloadProgress),
     addListener(

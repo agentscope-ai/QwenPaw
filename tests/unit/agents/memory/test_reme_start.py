@@ -9,6 +9,7 @@ import pytest
 
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
+    _load_validated_reme_app,
 )
 from qwenpaw.exceptions import ProviderError
 
@@ -45,3 +46,18 @@ async def test_start_propagates_unexpected_model_injection_failure() -> None:
         await manager.start()
 
     reme.start.assert_not_awaited()
+
+
+def test_reme_rejects_build_without_watch_mode(monkeypatch) -> None:
+    """The unpatched package must not silently ignore watch_mode in kwargs."""
+    import reme
+    from reme.steps.index.watch_changes import WatchChangesStep
+
+    monkeypatch.setattr(reme, "__version__", "0.4.2.0")
+
+    def old_init(_self, **_kwargs):
+        pass
+
+    monkeypatch.setattr(WatchChangesStep, "__init__", old_init)
+    with pytest.raises(RuntimeError, match="requires ReMe with watch_mode"):
+        _load_validated_reme_app()

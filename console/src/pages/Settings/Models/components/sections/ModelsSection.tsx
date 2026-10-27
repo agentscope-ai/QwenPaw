@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { SaveOutlined } from "@ant-design/icons";
+import { Save as SaveOutlined } from "lucide-react";
 import { Select, Button } from "@agentscope-ai/design";
 import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
@@ -62,13 +62,13 @@ export const ModelsSection = React.memo(function ModelsSection({
     [providers],
   );
 
+  const slotProvider = currentSlot?.provider_id;
+  const slotModel = currentSlot?.model;
   useEffect(() => {
-    if (currentSlot) {
-      setSelectedProviderId(currentSlot.provider_id || undefined);
-      setSelectedModel(currentSlot.model || undefined);
-    }
+    setSelectedProviderId(slotProvider || undefined);
+    setSelectedModel(slotModel || undefined);
     setDirty(false);
-  }, [currentSlot?.provider_id, currentSlot?.model]);
+  }, [slotProvider, slotModel]);
 
   const chosenProvider = providers.find((p) => p.id === selectedProviderId);
   const modelOptions = [
@@ -135,7 +135,6 @@ export const ModelsSection = React.memo(function ModelsSection({
 
   return (
     <div className={styles.defaultLlmBody}>
-      <p className={styles.llmDescription}>{t("models.llmDescription")}</p>
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
           <label className={styles.slotLabel}>{t("models.provider")}</label>
@@ -185,7 +184,7 @@ export const ModelsSection = React.memo(function ModelsSection({
             disabled={!canSave}
             onClick={handleSave}
             block
-            icon={<SaveOutlined />}
+            icon={<SaveOutlined size="1em" />}
           >
             {isActive ? t("models.saved") : t("models.save")}
           </Button>

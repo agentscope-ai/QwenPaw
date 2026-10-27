@@ -69,8 +69,10 @@ def test_app_initializes_only_local_hub_runtime(monkeypatch, provisioner):
     monkeypatch.setenv("QWENPAW_RUNTIME_PROVISIONER", provisioner)
     monkeypatch.setenv("QWENPAW_RUNTIME_ID", "test-runtime")
     initialize = Mock()
+    # app_cmd imports this lazily at call time, so patch it at its source
+    # module instead of the app_cmd namespace.
     monkeypatch.setattr(
-        app_module,
+        module,
         "ensure_local_runtime_initialized",
         initialize,
     )

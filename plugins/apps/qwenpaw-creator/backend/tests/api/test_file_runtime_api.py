@@ -12,8 +12,11 @@ from fastapi import FastAPI
 from api.dependencies import creator_error_handler, project_file_services
 from api.file_execution_routes import router as execution_router
 from api.file_session_routes import router as session_router, stream_events
+from api.project_file_routes import router as project_router
 from domain.enums import SpecialistRole, TaskKind, TaskStatus
 from domain.errors import CreatorError
+from services.project_files import frontend_edit_hold
+from services.project_files.json_pointer import hash_json_value
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import Project
 from services.runtime_files.execution_models import (
@@ -24,6 +27,7 @@ from services.runtime_files.execution_models import (
 )
 from services.runtime_files.execution_store import ProjectExecutionStore
 from services.runtime_files.session_store import ProjectRuntimeSessionStore
+from services.runtime_files.models import ReviewBoundary
 
 
 def _app(tmp_path):
@@ -41,6 +45,7 @@ def _app(tmp_path):
     app.add_exception_handler(CreatorError, creator_error_handler)
     app.include_router(session_router)
     app.include_router(execution_router)
+    app.include_router(project_router)
     app.dependency_overrides[project_file_services] = lambda: services
     return app, services, snapshot, bootstrap
 
@@ -494,3 +499,484 @@ def test_file_execution_authorization_can_be_polled_and_approved(
         "authorization-1",
     )
     assert record.status is ExecutionAuthorizationStatus.APPROVED
+    assert record.decision == {
+        "provider": "creator-image",
+        "model": "configured-image-model",
+        "maxCost": 0,
+        "maxCandidates": 1,
+    }
+
+
+def test_legacy_specialist_uses_saved_prompt_instead_of_old_tool_argument(
+    tmp_path,
+    run_scenario,
+):
+    from domain.errors import ConflictError
+    from services.project_files.approved_prompt import (
+        approved_specialist_arguments,
+    )
+    from services.project_files.models import TimelineElement
+
+    app, services, snapshot, _ = _app(tmp_path)
+    candidate = snapshot.project.model_dump(mode="json")
+    candidate["timelines"]["items"]["timeline:main"]["elements_by_id"][
+        "e"
+    ] = TimelineElement.model_validate(
+        {
+            "element_id": "e",
+            "span": {"start_tick": 0, "duration_tick": 4000},
+            "location": {},
+            "creation": {
+                "type": "r2v",
+                "narrative": "猫走到窗边。",
+                "storyboard_prompt": "用户保存的提示词B",
+            },
+        },
+    ).model_dump(
+        mode="json",
+    )
+    current = services.commits.commit(
+        base=snapshot,
+        candidate=candidate,
+        origin="frontend_edit",
+    ).snapshot
+    executions = ProjectExecutionStore(services.root)
+    authorization = executions.create_execution_authorization(
+        ExecutionAuthorizationRecord(
+            authorization_id="legacy-prompt",
+            project_id="project-1",
+            round_id="round-1",
+            run_id="run-1",
+            execution_request_id="legacy-request",
+            operation="image_generation",
+            target_scope=["element:e"],
+            authorization_token="token",
+            requested_provider="provider",
+            requested_model="model",
+            requested_candidates=1,
+            summary="Generate the saved storyboard prompt",
+            scope={
+                "operation": "image_generation",
+                "parameters": {"prompt": "旧工具参数A", "ratio": "16:9"},
+            },
+        ),
+    )
+
+    async def scenario(client):
+        result = await client.post(
+            "/projects/project-1/execution-authorizations/legacy-prompt/approve",
+            headers={"Idempotency-Key": "approve-legacy"},
+            json={
+                "authorizationToken": authorization.authorization_token,
+                "provider": "provider",
+                "model": "model",
+                "maxCost": 0,
+                "maxCandidates": 1,
+                "projectEtag": f'"{current.etag}"',
+                "promptPointer": (
+                    "/timelines/items/timeline:main/elements_by_id/e"
+                    "/creation/storyboard_prompt"
+                ),
+            },
+        )
+        assert result.status_code == 200, result.text
+        approved = executions.get_execution_authorization(
+            "project-1",
+            "legacy-prompt",
+        )
+        arguments = {
+            "targetRef": "element:e",
+            "arguments": {"prompt": "旧工具参数A", "ratio": "16:9"},
+        }
+        rebound = approved_specialist_arguments(current, approved, arguments)
+        assert rebound["arguments"] == {"prompt": "用户保存的提示词B", "ratio": "16:9"}
+        assert arguments["arguments"]["prompt"] == "旧工具参数A"
+        # An unrelated write moves the ETag but not the approved prompt: the
+        # approval stays usable instead of re-asking the user.
+        changed = current.project.model_dump(mode="json")
+        changed["name"] = "changed"
+        newer = services.commits.commit(
+            base=current,
+            candidate=changed,
+            origin="frontend_edit",
+        ).snapshot
+        assert newer.etag != current.etag
+        assert approved_specialist_arguments(newer, approved, arguments)[
+            "arguments"
+        ] == {"prompt": "用户保存的提示词B", "ratio": "16:9"}
+        edited = newer.project.model_dump(mode="json")
+        edited["timelines"]["items"]["timeline:main"]["elements_by_id"]["e"][
+            "creation"
+        ]["storyboard_prompt"] = "用户又改了的提示词C"
+        rewritten = services.commits.commit(
+            base=newer,
+            candidate=edited,
+            origin="frontend_edit",
+        ).snapshot
+        with pytest.raises(ConflictError):
+            approved_specialist_arguments(rewritten, approved, arguments)
+
+    run_scenario(app, scenario)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "prompt",
+        "unchanged",
+        "quoted-etag",
+        "weak-etag",
+        "stale-etag",
+        "not-ready",
+        "review",
+        "duration",
+        "ratio",
+        "resolution",
+        "provider",
+        "model",
+        "extra-parameter",
+        "missing-scope",
+        "missing-node",
+        "bad-node",
+        "wrong-node",
+        "wrong-target",
+        "wrong-operation",
+        "bad-fingerprint",
+        "wrong-scope-provider",
+        "unsupported-node",
+        "client-fingerprint",
+        "empty-etag",
+        "non-string-etag",
+    ],
+)
+def test_workgraph_saved_snapshot_approval_fails_closed(
+    tmp_path,
+    run_scenario,
+    monkeypatch,
+    change,
+):
+    # Keep the parameterized fail-closed matrix and its assertions together.
+    # pylint: disable=too-many-statements
+    from services.file_agent_runtime import driver as dm
+    from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
+    from services.file_agent_runtime.workgraph_execution import (
+        ready_request_context,
+        requested_work_node,
+    )
+    from services.project_files.models import TimelineElement
+
+    app, services, _, _ = _app(tmp_path)
+    executions = ProjectExecutionStore(services.root)
+    monkeypatch.setattr(frontend_edit_hold, "_holds", {})
+    monkeypatch.setattr(
+        dm,
+        "_execution_provider_model",
+        lambda *_: ("provider", "model"),
+    )
+
+    async def scenario(client):
+        # Each branch exercises a distinct authorization rejection condition.
+        # pylint: disable=too-many-branches,too-many-statements
+        base = services.projects.read("project-1")
+        project = base.project.model_copy(deep=True)
+        project.timelines.items["timeline:main"].elements_by_id[
+            "e1"
+        ] = TimelineElement.model_validate(
+            {
+                "element_id": "e1",
+                "label": "Sunset",
+                "span": {"start_tick": 0, "duration_tick": 4000},
+                "location": {},
+                "creation": {
+                    "type": "t2v",
+                    "video_prompt": "A quiet sunset.",
+                },
+            },
+        )
+        elements = project.timelines.items["timeline:main"].elements_by_id
+        elements["e2"] = elements["e1"].model_copy(
+            deep=True,
+            update={"element_id": "e2"},
+        )
+        await services.commit_candidate(
+            base=base,
+            candidate=project.model_dump(mode="json"),
+            origin="frontend_edit",
+            review_policy="auto_fix",
+            caused_by_request_id="setup",
+        )
+        snapshot, _, graph, _ = await ready_request_context(
+            services,
+            executions,
+            "project-1",
+            check_media_budget=False,
+        )
+        node = next(
+            n
+            for n in graph.nodes
+            if n.kind == "video" and n.target_ref == "element:e1"
+        )
+        plan = requested_work_node(snapshot, node)
+        scope = {
+            "operation": plan.spec.name,
+            "targetRefs": [node.target_ref],
+            "parameters": dict(plan.parameters),
+            "workGraph": {
+                "nodeId": node.node_id,
+                "fingerprint": plan.fingerprint,
+                "provider": "provider",
+                "model": "model",
+            },
+        }
+        target = node.target_ref
+        operation = plan.spec.name
+        if change == "missing-scope":
+            scope.pop("workGraph")
+        elif change == "missing-node":
+            scope["workGraph"].pop("nodeId")
+        elif change == "bad-node":
+            scope["workGraph"]["nodeId"] = [node.node_id]
+        elif change == "wrong-node":
+            scope["workGraph"]["nodeId"] = "video:missing"
+        elif change == "wrong-target":
+            target = "element:other"
+            scope["targetRefs"] = [target]
+        elif change == "wrong-operation":
+            operation = scope["operation"] = "image_generation"
+        elif change == "bad-fingerprint":
+            scope["workGraph"]["fingerprint"] = "not-a-server-fingerprint"
+        elif change == "wrong-scope-provider":
+            scope["workGraph"]["provider"] = "other-provider"
+        elif change == "unsupported-node":
+            scope["workGraph"]["nodeId"] = next(
+                n.node_id for n in graph.nodes if n.kind == "compose"
+            )
+        elif change == "extra-parameter":
+            scope["parameters"]["seed"] = 42
+        record = executions.create_execution_authorization(
+            ExecutionAuthorizationRecord(
+                authorization_id="saved-auth",
+                project_id="project-1",
+                round_id="round-1",
+                run_id="run-1",
+                execution_request_id="request-1",
+                operation=operation,
+                target_scope=[target],
+                authorization_token="exact-token",
+                scope=scope,
+                summary="Generate the authorized video.",
+                requested_provider="provider",
+                requested_model="model",
+                requested_candidates=1,
+            ),
+        )
+        candidate = snapshot.project.model_dump(mode="json")
+        element = candidate["timelines"]["items"]["timeline:main"][
+            "elements_by_id"
+        ]["e1"]
+        element["creation"]["video_prompt"] += " Warm golden lighting."
+        candidate["timelines"]["items"]["timeline:main"]["elements_by_id"][
+            "e2"
+        ]["creation"]["video_prompt"] += " Another edit."
+        if change == "not-ready":
+            element["creation"]["video_prompt"] = ""
+        elif change == "duration":
+            element["span"]["duration_tick"] = 6000
+        elif change == "ratio":
+            candidate["settings"]["aspect_ratio"] = "9:16"
+        elif change == "resolution":
+            candidate["settings"]["resolution"] = "1080p"
+        elif change in {"provider", "model"}:
+            monkeypatch.setattr(
+                dm,
+                "_execution_provider_model",
+                lambda *_: (
+                    ("other-provider", "model")
+                    if change == "provider"
+                    else ("provider", "other-model")
+                ),
+            )
+        pointers = [
+            "/timelines/items/timeline:main/elements_by_id/e1/creation/video_prompt",
+            "/timelines/items/timeline:main/elements_by_id/e2/creation/video_prompt",
+        ]
+        if change == "duration":
+            pointers.append(
+                "/timelines/items/timeline:main/elements_by_id/e1/span/duration_tick",
+            )
+        elif change in {"ratio", "resolution"}:
+            field = "aspect_ratio" if change == "ratio" else "resolution"
+            pointers.append(f"/settings/{field}")
+        operations = []
+        for pointer in pointers:
+            before = snapshot.project.model_dump(mode="json")
+            after = candidate
+            for part in pointer.strip("/").split("/"):
+                before, after = before[part], after[part]
+            operations.append(
+                {
+                    "op": "replace",
+                    "path": pointer,
+                    "value": after,
+                    "expectedValueHash": hash_json_value(before),
+                },
+            )
+        if change != "unchanged":
+            saved = await client.patch(
+                "/projects/project-1/project",
+                json={
+                    "clientCommandId": "save-prompt",
+                    "editSessionId": "prompt-editor",
+                    "baseGeneration": snapshot.generation,
+                    "baseEtag": snapshot.etag,
+                    "operations": operations,
+                },
+            )
+            assert saved.status_code == 200, saved.text
+            assert frontend_edit_hold.hold_remaining("project-1", "e1") > 0
+            assert frontend_edit_hold.hold_remaining("project-1", "e2") > 0
+        if change == "review":
+            review_base = services.projects.read("project-1")
+            review_candidate = review_base.project.model_dump(mode="json")
+            review_candidate["description"] = "Awaiting human review."
+            await services.commit_candidate(
+                base=review_base,
+                candidate=review_candidate,
+                origin="agentdock_idle_goal",
+                review_policy="require_review",
+                review_boundary=ReviewBoundary(
+                    request_message_seq=2,
+                    request_id="pending-review",
+                    accepted_generation=review_base.generation,
+                    accepted_etag=review_base.etag,
+                ),
+                caused_by_request_id="pending-review",
+                caused_by_message_seq=2,
+            )
+        fresh, _, current_graph, blocked = await ready_request_context(
+            services,
+            executions,
+            "project-1",
+            check_media_budget=False,
+        )
+        if change not in {"unchanged", "review"}:
+            assert blocked[node.node_id] == "EDIT_IN_PROGRESS"
+        if change == "prompt":
+            # Both fields were PATCHed, but only the exact node and snapshot
+            # may ignore grace; ordinary/unattended reads remain blocked.
+            for confirmation in (
+                {},
+                {"confirmed_project_etag": fresh.etag},
+                {"confirmed_node_id": node.node_id},
+                {
+                    "confirmed_project_etag": snapshot.etag,
+                    "confirmed_node_id": node.node_id,
+                },
+                {
+                    "confirmed_project_etag": fresh.etag,
+                    "confirmed_node_id": "video:missing",
+                },
+                {
+                    "confirmed_project_etag": fresh.etag,
+                    "confirmed_node_id": node.node_id,
+                },
+            ):
+                _, _, _, gates = await ready_request_context(
+                    services,
+                    executions,
+                    "project-1",
+                    check_media_budget=False,
+                    **confirmation,
+                )
+                matches = confirmation == {
+                    "confirmed_project_etag": fresh.etag,
+                    "confirmed_node_id": node.node_id,
+                }
+                assert (node.node_id not in gates) is matches
+                other = next(
+                    n
+                    for n in current_graph.nodes
+                    if n.kind == "video" and n.target_ref == "element:e2"
+                )
+                assert gates[other.node_id] == "EDIT_IN_PROGRESS"
+            assert frontend_edit_hold.hold_remaining("project-1", "e1") > 0
+            assert frontend_edit_hold.hold_remaining("project-1", "e2") > 0
+        payload = {
+            "authorizationToken": record.authorization_token,
+            "provider": "provider",
+            "model": "model",
+            "maxCost": 0,
+            "maxCandidates": 1,
+            "projectEtag": (
+                snapshot.etag if change == "stale-etag" else fresh.etag
+            ),
+        }
+        if change == "client-fingerprint":
+            payload["workGraph"] = {"fingerprint": plan.fingerprint}
+        elif change == "empty-etag":
+            payload["projectEtag"] = ""
+        elif change == "non-string-etag":
+            payload["projectEtag"] = 123
+        elif change in {"quoted-etag", "weak-etag"}:
+            # Use the public HTTP snapshot representation, including a 304.
+            fetched = await client.get("/projects/project-1/project")
+            conditional = await client.get(
+                "/projects/project-1/project",
+                headers={"If-None-Match": fetched.headers["etag"]},
+            )
+            assert conditional.status_code == 304
+            payload["projectEtag"] = (
+                "W/" if change == "weak-etag" else ""
+            ) + conditional.headers["etag"]
+        response = await client.post(
+            "/projects/project-1/execution-authorizations/saved-auth/approve",
+            headers={"Idempotency-Key": "saved-approval"},
+            json=payload,
+        )
+        current = executions.get_execution_authorization(
+            "project-1",
+            "saved-auth",
+        )
+        if change in {"prompt", "unchanged", "quoted-etag", "weak-etag"}:
+            assert response.status_code == 200, response.text
+            current_node = current_graph.by_id[node.node_id]
+            approved_plan = requested_work_node(fresh, current_node)
+            assert current.decision["workGraph"] == {
+                "nodeId": node.node_id,
+                "etag": fresh.etag,
+                "fingerprint": approved_plan.fingerprint,
+                # pylint: disable-next=protected-access
+                "ledgerFingerprint": WorkGraphScheduler._ledger_fingerprint(
+                    current_node,
+                ),
+            }
+            assert (approved_plan.fingerprint == plan.fingerprint) is (
+                change == "unchanged"
+            )
+        else:
+            assert response.status_code == (
+                422
+                if change
+                in {"client-fingerprint", "empty-etag", "non-string-etag"}
+                else 409
+            ), response.text
+            assert current.status is ExecutionAuthorizationStatus.PENDING
+            assert current.decision is None
+            if change == "stale-etag":
+                payload["projectEtag"] = fresh.etag
+                retried = await client.post(
+                    "/projects/project-1/execution-authorizations/saved-auth/approve",
+                    headers={"Idempotency-Key": "fresh-approval"},
+                    json=payload,
+                )
+                assert retried.status_code == 200, retried.text
+                assert (
+                    executions.get_execution_authorization(
+                        "project-1",
+                        "saved-auth",
+                    ).decision["workGraph"]["etag"]
+                    == fresh.etag
+                )
+        assert executions.list_tasks("project-1") == []
+
+    run_scenario(app, scenario)

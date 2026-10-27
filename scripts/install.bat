@@ -10,7 +10,7 @@ REM Users do NOT need Python pre-installed -- uv handles everything.
 REM
 REM uv is obtained automatically (no action required from the user):
 REM   1. Found on PATH or in common locations
-REM   2. Downloaded via https://astral.sh/uv/install.ps1
+REM   2. Downloaded via https://astral.sh/uv/0.13.4/install.ps1
 REM   3. Downloaded via GitHub Releases if astral.sh is unreachable (e.g. in China)
 
 REM ── Defaults ──────────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
 ) else (
     set "_DL_ARCH=x86_64"
 )
-set "_DL_URL=https://github.com/astral-sh/uv/releases/latest/download/uv-!_DL_ARCH!-pc-windows-msvc.zip"
+set "_DL_URL=https://github.com/astral-sh/uv/releases/download/0.13.4/uv-!_DL_ARCH!-pc-windows-msvc.zip"
 set "_DL_DEST=%LOCALAPPDATA%\uv"
 set "_DL_ZIP=%TEMP%\uv-gh-%RANDOM%.zip"
 
@@ -201,7 +201,7 @@ for %%c in ("%USERPROFILE%\.local\bin\uv.exe" "%USERPROFILE%\.cargo\bin\uv.exe" 
 
 REM 3. Try astral.sh (standard installer, fast outside China)
 echo [qwenpaw] Installing uv via astral.sh...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 -TimeoutSec 15 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/0.13.4/install.ps1 -TimeoutSec 15 | iex"
 if not errorlevel 1 goto :ensure_uv_refresh
 
 REM 4. astral.sh failed -- fall back to GitHub Releases (works in China)
@@ -230,6 +230,11 @@ if errorlevel 1 (
 echo [qwenpaw] uv installed via astral.sh
 
 :ensure_uv_done
+powershell -NoProfile -Command "$v = (uv --version | Out-String).Trim(); if ($LASTEXITCODE -ne 0 -or $v -notmatch '^uv (\d+\.\d+\.\d+)(?: |$)') { exit 1 }; if ([version]$Matches[1] -lt [version]'0.13.4') { exit 1 }"
+if errorlevel 1 (
+    echo [qwenpaw] ERROR: uv 0.13.4 or newer is required. Update uv from the official release and retry.
+    exit /b 1
+)
 exit /b 0
 
 REM ──── Prepare console frontend ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -391,7 +396,7 @@ if not errorlevel 1 (
 rem === End Security Validation ===
 
 rem The input has now been verified as safe and can proceed with installation.
-uv pip install "%ARG_SOURCE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%"
+uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "%ARG_SOURCE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%"
 set "_INST_ERR=%errorlevel%"
 call :cleanup_console "%ARG_SOURCE_DIR%"
 if %_INST_ERR% neq 0 (
@@ -418,7 +423,7 @@ if errorlevel 1 (
 )
 call :prepare_console "%CLONE_DIR%"
 echo [qwenpaw] Installing package from source...
-uv pip install "%CLONE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%"
+uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "%CLONE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%"
 set "_INST_ERR=%errorlevel%"
 if exist "%CLONE_DIR%" rd /s /q "%CLONE_DIR%"
 if %_INST_ERR% neq 0 (
@@ -454,7 +459,7 @@ rem If ARG_EXTRAS is passed globally, it is recommended to validate it uniformly
 set "PRERELEASE_ARG="
 if "%ARG_PRERELEASE%"=="1" set "PRERELEASE_ARG=--prerelease=allow"
 
-uv pip install "%_PACKAGE%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --quiet --refresh-package qwenpaw %PRERELEASE_ARG%
+uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "%_PACKAGE%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --quiet --refresh-package qwenpaw %PRERELEASE_ARG%
 if errorlevel 1 (
     echo [qwenpaw] ERROR: Installation failed
     exit /b 1

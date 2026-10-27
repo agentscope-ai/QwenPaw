@@ -532,7 +532,7 @@ export function MailAccessControlDrawer({
           marginBottom: 12,
         }}
       >
-        <Text strong style={{ fontSize: 15 }}>
+        <Text strong style={{ fontSize: "calc(15px * var(--app-font-scale))" }}>
           {t("inbox.pendingSenders")}
         </Text>
         <Select
@@ -613,7 +613,7 @@ export function MailAccessControlDrawer({
           marginBottom: 12,
         }}
       >
-        <Text strong style={{ fontSize: 15 }}>
+        <Text strong style={{ fontSize: "calc(15px * var(--app-font-scale))" }}>
           {t("inbox.senderLists")}
         </Text>
       </div>
@@ -708,7 +708,10 @@ export function MailAccessControlDrawer({
               value={newAddress}
               onChange={(e) => setNewAddress(e.target.value)}
             />
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Text
+              type="secondary"
+              style={{ fontSize: "var(--app-font-caption)" }}
+            >
               {t("inbox.domainWildcardHint")}
             </Text>
           </div>

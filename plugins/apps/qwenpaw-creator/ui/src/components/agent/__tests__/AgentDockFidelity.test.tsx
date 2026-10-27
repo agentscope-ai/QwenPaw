@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import AgentDock from "@/components/agent/AgentDock";
+import AgentDock, { simplifyErrorMessage } from "@/components/agent/AgentDock";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
@@ -141,6 +141,30 @@ const seedSession = (status: string, patch: Record<string, unknown> = {}) =>
 describe("AgentDock public output and interactions", () => {
   beforeEach(() => {
     seedCreatorSession();
+  });
+
+  it("shows a durable auto-resume pause once without creating a user review", async () => {
+    useAgentDockUiStore.getState().setOpen(false);
+    renderDock();
+    const notice = asst({
+      messageId: "execution-pause-1",
+      source: "creator_execution_notice",
+      text: "自动创作已暂停，作品尚未完成。已连续自动处理 5 轮，仍待处理序章剧本。",
+      metadata: {
+        executionPause: { reason: "consecutive_resume_limit" },
+      },
+    });
+    act(() => useCreatorSessionStore.setState({ messages: [notice] }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-agent-dock]")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/自动创作已暂停，作品尚未完成/),
+    ).toBeInTheDocument();
+    expect(useExecutionAuthorizationStore.getState().items).toHaveLength(0);
+    act(() => useAgentDockUiStore.getState().setOpen(false));
+    act(() => useCreatorSessionStore.setState({ messages: [{ ...notice }] }));
+    expect(document.querySelector("[data-agent-dock]")).not.toBeInTheDocument();
   });
 
   it("pops the dock open with the inline tray when a production confirmation arrives live", async () => {
@@ -1136,5 +1160,44 @@ describe("AgentDock public output and interactions", () => {
       });
     }
     expect(row.textContent).toContain("随时可以继续创作");
+  });
+});
+
+describe("safe provider failure messages", () => {
+  it("explains unsupported temperature without exposing provider details", () => {
+    const message = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3; secret-token /private/path",
+    );
+    expect(message).toContain("temperature");
+    expect(message).not.toContain("secret-token");
+    expect(message).not.toContain("/private/path");
+    expect(message).not.toBe(simplifyErrorMessage("unknown provider failure"));
+  });
+
+  it("also classifies a Moonshot invalid-temperature refusal", () => {
+    // Moonshot direct calls phrase the refusal as an invalid temperature;
+    // it must map to the same safe hint as the DashScope wording.
+    const invalid = simplifyErrorMessage(
+      "Invalid temperature: this model uses a fixed sampling temperature",
+    );
+    const notSupported = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3",
+    );
+    expect(invalid).toBe(notSupported);
+    expect(invalid).not.toBe(simplifyErrorMessage("unknown provider failure"));
+  });
+
+  it("does not misread a generic invalid_request_error as a refusal", () => {
+    // Gateways wrap unrelated 400s as ``invalid_request_error``; one that
+    // merely echoes ``temperature`` must fall back to the generic hint, or a
+    // real config error would be masked as an unsupported-temperature refusal.
+    const generic = simplifyErrorMessage(
+      '{"error": {"type": "invalid_request_error", "message": "temperature must be <= 2.0"}}',
+    );
+    const refusal = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3",
+    );
+    expect(generic).not.toBe(refusal);
+    expect(generic).toBe(simplifyErrorMessage("unknown provider failure"));
   });
 });

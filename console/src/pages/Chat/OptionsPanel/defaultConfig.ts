@@ -19,17 +19,15 @@ const defaultConfig = {
   },
   sender: {
     attachments: true,
-    maxLength: 10000,
-    longTextUpload: {
-      enabled: true,
-    },
+    // The host handles long pastes without replacing or truncating drafts.
+    longTextUpload: false,
     disclaimer: "Works for you, grows with you",
   },
   welcome: {
     greeting: "Hello, how can I help you today?",
     description:
       "I am a helpful assistant that can help you with your questions.",
-    avatar: "/online.svg",
+    avatar: `${import.meta.env.BASE_URL}online.svg`,
     prompts: [
       {
         value: "Let's start a new journey!",

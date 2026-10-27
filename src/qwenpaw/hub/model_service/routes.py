@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..api_models import PasswordChangeBody
 from .analytics import usage_details
-from .provider_setup import discover_models, provider_presets
+from .provider_setup import discover_models, provider_presets, preview_model
 from .api_models import (
     BudgetBody,
     ConnectionBody,
@@ -87,6 +87,18 @@ def governance_router(
     @router.get("/admin/model-connections")
     def connections(_admin=Depends(require_admin)):
         return catalog.connections()
+
+    @router.get(f"/admin/model-connections/{{connection_id}}/model-info")
+    def model_info(
+        connection_id: str,
+        model_id: str,
+        template_id: str | None = None,
+        _admin=Depends(require_admin),
+    ):
+        try:
+            return preview_model(catalog, connection_id, model_id, template_id)
+        except KeyError as exc:
+            raise HTTPException(404, f"Connection not found") from exc
 
     @router.post("/admin/model-connections")
     async def create_connection(
@@ -278,11 +290,13 @@ def runtime_model_router(catalog, gateway):
         prefix = "Bearer "
         try:
             return catalog.authenticate(
-                authorization[len(prefix) :]
-                if authorization.startswith(
-                    prefix,
-                )
-                else "",
+                (
+                    authorization[len(prefix) :]
+                    if authorization.startswith(
+                        prefix,
+                    )
+                    else ""
+                ),
             )
         except PermissionError as exc:
             raise HTTPException(401, "Invalid model credential") from exc
@@ -305,6 +319,9 @@ def runtime_model_router(catalog, gateway):
             body = json.loads(data)
         except (ValueError, UnicodeError) as exc:
             raise HTTPException(422, "Invalid JSON") from exc
-        return await gateway.call(identity, body)
+        session_id = request.headers.get(f"x-qwenpaw-session")
+        if session_id and len(session_id) > 256:
+            raise HTTPException(422, f"Session ID is too long")
+        return await gateway.call(identity, body, session_id=session_id)
 
     return router

@@ -87,6 +87,7 @@ from services.runtime_files.execution_models import (
 from services.runtime_files.execution_store import ProjectExecutionStore
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.models import ChangeOrigin, ReviewPolicy
+from services.runtime_files.path_safety import is_link_stat
 from services.runtime_files.media_probe import (
     MediaProbeError,
     MediaProbeUnavailable,
@@ -227,7 +228,7 @@ def _require_real_directory(path: Path, *, label: str) -> Path:
         value = path.lstat()
     except FileNotFoundError as error:
         raise StorageIntegrityError(f"{label} 不存在") from error
-    if stat.S_ISLNK(value.st_mode) or not stat.S_ISDIR(value.st_mode):
+    if is_link_stat(value) or not stat.S_ISDIR(value.st_mode):
         raise StorageIntegrityError(f"{label} 必须是真实的非 symlink 目录")
     return path
 

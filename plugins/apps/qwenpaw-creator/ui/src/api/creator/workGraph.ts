@@ -10,6 +10,16 @@ export function getWorkGraph(projectId: string): Promise<WorkGraphView> {
   return creatorRequest(`${project(projectId)}/work-graph`);
 }
 
+export function resumeWorkGraph(
+  projectId: string,
+  revision: number,
+): Promise<{ ok: true }> {
+  return creatorRequest(`${project(projectId)}/work-graph/resume`, {
+    method: "POST",
+    body: JSON.stringify({ revision }),
+  });
+}
+
 export function dispatchWorkGraphNode(
   projectId: string,
   nodeId: string,

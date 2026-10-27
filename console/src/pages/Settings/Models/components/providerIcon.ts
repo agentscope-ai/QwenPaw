@@ -1,5 +1,9 @@
+import agentscopePlatformLogo from "./agentscope-platform.png";
+
 export const providerIcon = (provider: string) => {
   switch (provider) {
+    case "agentscope-platform":
+      return agentscopePlatformLogo;
     case "modelscope":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01exenB61EAwhgY4pmA_!!6000000000312-2-tps-400-400.png";
     case "aliyun-codingplan":
@@ -45,8 +49,6 @@ export const providerIcon = (provider: string) => {
       return "https://gw.alicdn.com/imgextra/i1/O1CN01d3RfoB28G5dbN4i97_!!6000000007904-2-tps-30-30.png";
     case "kilo":
       return "https://kilo.ai/favicon/android-chrome-192x192.png";
-    case "github-models":
-      return "https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png";
     case "volcengine-cn":
     case "volcengine-cn-codingplan":
     case "volcengine-cn-agentplan":

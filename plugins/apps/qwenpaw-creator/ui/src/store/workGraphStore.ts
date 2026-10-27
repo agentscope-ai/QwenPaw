@@ -1,6 +1,11 @@
 import { create } from "zustand";
 
-import { dispatchWorkGraphNode, getWorkGraph } from "@/api/creator/workGraph";
+import { CreatorHttpError } from "@/api/creator/client";
+import {
+  dispatchWorkGraphNode,
+  getWorkGraph,
+  resumeWorkGraph,
+} from "@/api/creator/workGraph";
 import type { WorkGraphView } from "@/contracts/creator/workGraph";
 
 interface WorkGraphState {
@@ -9,8 +14,10 @@ interface WorkGraphState {
   loading: boolean;
   error: string | null;
   dispatching: Record<string, boolean>;
+  resuming: boolean;
   refresh: (projectId: string) => Promise<void>;
   dispatchNode: (projectId: string, nodeId: string) => Promise<void>;
+  resume: (projectId: string, revision: number) => Promise<void>;
   reset: () => void;
 }
 
@@ -28,6 +35,7 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
   loading: false,
   error: null,
   dispatching: {},
+  resuming: false,
   refresh: async (projectId) => {
     const generation = ++refreshGeneration;
     if (get().projectId !== projectId) projectGeneration += 1;
@@ -40,6 +48,7 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
             loading: true,
             error: null,
             dispatching: {},
+            resuming: false,
           },
     );
     try {
@@ -78,6 +87,32 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
       }
     }
   },
+  resume: async (projectId, revision) => {
+    if (
+      get().projectId !== projectId ||
+      get().resuming ||
+      !get().graph?.manualHold?.nodeIds.length
+    )
+      return;
+    const generation = projectGeneration;
+    const isCurrent = () =>
+      generation === projectGeneration && get().projectId === projectId;
+    set({ resuming: true });
+    try {
+      // Never substitute a newer revision for the one the user confirmed.
+      await resumeWorkGraph(projectId, revision);
+      if (isCurrent()) await get().refresh(projectId);
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (error instanceof CreatorHttpError && error.status === 409) {
+        await get().refresh(projectId);
+      }
+      if (isCurrent()) throw error;
+    } finally {
+      // Only a graph response may clear the hold, never an optimistic update.
+      if (isCurrent()) set({ resuming: false });
+    }
+  },
   reset: () => {
     refreshGeneration += 1;
     projectGeneration += 1;
@@ -87,6 +122,7 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
       loading: false,
       error: null,
       dispatching: {},
+      resuming: false,
     });
   },
 }));

@@ -1,12 +1,12 @@
 import { Badge, message, Popover, Spin, Tooltip } from "antd";
 import {
-  CheckCircleOutlined,
-  CheckOutlined,
-  CopyOutlined,
-  ExclamationCircleOutlined,
-  SyncOutlined,
-  TagOutlined,
-} from "@ant-design/icons";
+  CircleCheck as CheckCircleOutlined,
+  Check as CheckOutlined,
+  Copy as CopyOutlined,
+  CircleAlert as ExclamationCircleOutlined,
+  RefreshCw as SyncOutlined,
+  Tag as TagOutlined,
+} from "lucide-react";
 import { Button, Modal } from "@agentscope-ai/design";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -14,6 +14,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import api from "../api";
 import { ExternalMarkdownLink } from "../components/Markdown/externalLinkComponents";
 import { useDesktopUpdate } from "../contexts/DesktopUpdateContext";
@@ -51,7 +53,7 @@ function UpdateCodeBlock({ code }: { code: string }) {
         onClick={handleCopy}
         title="Copy"
       >
-        {copied ? <CheckOutlined /> : <CopyOutlined />}
+        {copied ? <CheckOutlined size="1em" /> : <CopyOutlined size="1em" />}
       </button>
     </div>
   );
@@ -239,7 +241,11 @@ export default function AppBrand({
       )}
       {isBackgroundActive && (
         <Tooltip title={backgroundDownloadTitle}>
-          <SyncOutlined spin className={styles.appBrandUpdateIcon} />
+          <SyncOutlined
+            size="1em"
+            data-spinning={true}
+            className={styles.appBrandUpdateIcon}
+          />
         </Tooltip>
       )}
       {isReady && (
@@ -265,13 +271,17 @@ export default function AppBrand({
           trigger="click"
         >
           <Tooltip title={t("sidebar.updateModal.readyToInstall")}>
-            <CheckCircleOutlined className={styles.appBrandReadyIcon} />
+            <CheckCircleOutlined
+              size="1em"
+              className={styles.appBrandReadyIcon}
+            />
           </Tooltip>
         </Popover>
       )}
       {isBackgroundFailed && (
         <Tooltip title={backgroundFailureTitle}>
           <ExclamationCircleOutlined
+            size="1em"
             className={styles.appBrandFailedIcon}
             onClick={() => void desktop.startBackgroundDownload()}
           />
@@ -286,7 +296,9 @@ export default function AppBrand({
         <span className={styles.appBrandLogo} onClick={handleLogoClick}>
           <Slot name="header.logo" kind="replace">
             <img
-              src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
+              src={`${import.meta.env.BASE_URL}${
+                isDark ? "logo-dark.svg" : "logo-light.svg"
+              }`}
               alt="QwenPaw"
               className={styles.logoImg}
             />
@@ -347,7 +359,7 @@ export default function AppBrand({
         <div className={styles.updateModalBanner}>
           <div className={styles.updateModalBannerLeft}>
             <span className={styles.updateModalVersionTag}>
-              <TagOutlined />
+              <TagOutlined size="1em" />
               Version {modalVersion || version}
             </span>
             <div className={styles.updateModalBannerTitle}>
@@ -361,10 +373,11 @@ export default function AppBrand({
         <div className={styles.updateModalBody}>
           {updateMarkdown ? (
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
               components={{
                 a: ExternalMarkdownLink,
-                code({ node, className, children, ...props }: any) {
+                code({ node, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || "");
                   const isBlock =
                     node?.position?.start?.line !== node?.position?.end?.line ||

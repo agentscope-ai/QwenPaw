@@ -141,6 +141,8 @@ async def test_update_model_slot_selection(
         factory.assert_awaited_once_with(
             "default",
             agent_config=agent_config,
+            require_image_support=False,
+            resize_images_to_max_bytes=True,
         )
         expected_model = main_model
         fallback_factory.assert_not_called()
@@ -148,11 +150,15 @@ async def test_update_model_slot_selection(
         assert factory.await_args_list[0].args == ("default",)
         assert factory.await_args_list[0].kwargs == {
             "agent_config": agent_config,
+            "require_image_support": False,
+            "resize_images_to_max_bytes": True,
         }
         assert factory.await_args_list[1].args == ("default",)
         assert factory.await_args_list[1].kwargs == {
             "model_slot_override": expected_override,
             "agent_config": agent_config,
+            "require_image_support": False,
+            "resize_images_to_max_bytes": True,
         }
         expected_model = fallback_factory.return_value
         fallback_factory.assert_called_once_with(
@@ -190,10 +196,70 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
     assert factory.await_count == 2
     assert factory.await_args_list[0].kwargs == {
         "agent_config": factory.await_args_list[1].kwargs["agent_config"],
+        "require_image_support": False,
+        "resize_images_to_max_bytes": True,
     }
     assert factory.await_args_list[1].kwargs["model_slot_override"] == slot
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",
         model=main_model,
+    )
+
+
+@pytest.mark.parametrize(
+    ("main_supports_images", "memory_supports_images", "expect_fallback"),
+    [
+        (True, True, True),
+        (False, True, False),
+        (None, True, False),
+        (True, False, True),
+    ],
+)
+async def test_image_jobs_exclude_unsafe_main_model_fallback(
+    monkeypatch,
+    main_supports_images,
+    memory_supports_images,
+    expect_fallback,
+):
+    """Only confirmed image-capable main models can receive memory images."""
+    main_model = SimpleNamespace(name="main")
+    memory_model = SimpleNamespace(name="memory")
+    factory = AsyncMock(side_effect=[(main_model, None), (memory_model, None)])
+    fallback_factory = _patch_deps(
+        monkeypatch,
+        agent_config=_agent_config(
+            memory_model=ModelSlotConfig(provider_id="custom", model="vision"),
+        ),
+        factory=factory,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.prompt.get_model_supports_image",
+        lambda model: (
+            memory_supports_images
+            if model is memory_model
+            else main_supports_images
+        ),
+    )
+    manager = _build_manager()
+
+    actual_model = await manager._update_qwenpaw_model(
+        require_image_support=True,
+    )
+
+    for call in factory.await_args_list:
+        assert call.kwargs["require_image_support"] is True
+        assert call.kwargs["resize_images_to_max_bytes"] is True
+    if expect_fallback:
+        fallback_factory.assert_called_once_with(
+            [memory_model, main_model],
+            fallback_on_any_error=True,
+        )
+        assert actual_model is fallback_factory.return_value
+    else:
+        fallback_factory.assert_not_called()
+        assert actual_model is memory_model
+    assert (
+        manager._reme.update_component.await_args.kwargs["model"]
+        is actual_model
     )

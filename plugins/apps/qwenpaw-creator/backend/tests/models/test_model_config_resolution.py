@@ -82,6 +82,84 @@ def test_explicit_image_backend_still_wins(monkeypatch) -> None:
     assert image_models.get_image_backend() == "OPENAI"
 
 
+def test_saved_minimax_image_protocol_outranks_image_model_env(
+    monkeypatch,
+) -> None:
+    """A saved MiniMax config must survive an ``IMAGE_MODEL`` deploy var.
+
+    This drives ``request_tool_configs``, the writer behind the highest
+    priority selector. It carried its own copy of the protocol rule, so
+    adding MiniMax left this path returning nothing and the env var
+    below picked OpenAI, which sent the MiniMax key and model to
+    ``/v1/images/generations``. The connection test still passed because
+    it reads the protocol through a separate branch, so the failure only
+    surfaced at generation time.
+    """
+    from api import model_routes
+    from api.model_routes import _defaults
+    from schemas.models import ImageConfig
+
+    monkeypatch.setenv("IMAGE_MODEL", "OPENAI")
+    defaults = _defaults()
+    monkeypatch.setattr(
+        model_routes,
+        "load_model_config",
+        lambda: defaults.model_copy(
+            update={
+                "image": ImageConfig(
+                    enabled=True,
+                    protocol="MiniMax（国内站）",
+                    model_name="image-01",
+                    api_key="sk-minimax",
+                    base_url="https://api.minimax.cn",
+                ),
+            },
+        ),
+    )
+
+    configs = model_routes.request_tool_configs()
+
+    tool_cfg = configs[config.CREATOR_IMAGE_CONFIG_TOOL]
+    assert tool_cfg["_image_backend"] == "MINIMAX"
+    with _tool_configs(configs):
+        assert isinstance(
+            image_models.get_image_model(),
+            image_models.MiniMaxImageModel,
+        )
+
+
+def test_every_image_protocol_resolves_to_a_registered_provider() -> None:
+    """Keep the protocol list and the provider registry from drifting.
+
+    An unmapped label makes ``request_tool_configs`` omit the selector
+    and lets ``IMAGE_MODEL`` win; a label mapped to an unregistered key
+    falls back to OpenAI. Neither shows up in a connection test, so the
+    whole list is asserted here.
+    """
+    # Mirrors IMAGE_PROTOCOLS in ui/.../creator/ModelConfigModal.tsx.
+    from models.image import _PROVIDERS
+
+    image_protocols = (
+        "OpenAI 协议",
+        "DashScope（百炼）",
+        "Google Gemini",
+        "Volcano Engine（火山引擎）",
+        "Black Forest Labs（FLUX）",
+        "Ideogram",
+        "MiniMax（国内站）",
+        "MiniMax（国际站）",
+        "Aliyun Token Plan",
+    )
+
+    unresolved = {
+        label: image_models.image_backend_for_protocol(label)
+        for label in image_protocols
+        if image_models.image_backend_for_protocol(label) not in _PROVIDERS
+    }
+
+    assert unresolved == {}
+
+
 def test_persisted_image_backend_log_never_contains_api_key(
     monkeypatch,
 ) -> None:
@@ -456,3 +534,64 @@ def test_live_operation_defaults_on_and_persisted_disable_wins(
         assert config.get_live_operation_enabled() is False
     finally:
         config._clear_user_config_cache()
+
+
+def test_chat_temperature_drops_seeded_and_learned_models() -> None:
+    """A seeded model omits temperature up front; any other model omits it
+    only after a provider refusal has been learned at runtime."""
+    # pylint: disable=protected-access
+    from models.model_capability_cache import get_capability_cache
+
+    cache = get_capability_cache()
+    key = config._temperature_capability_key("brand-new-model")
+    cache.clear(key)
+    try:
+        # Seeded: the whole Kimi K2/K3 family is dropped without any prior
+        # request, and the match tolerates whitespace and letter case.
+        for seeded in (
+            "kimi-k3",
+            "kimi-k2.6",
+            "kimi-k2.7",
+            "kimi-k2.7-code",
+            " Kimi-K2.5 ",
+        ):
+            assert config.chat_temperature(seeded, 0.2) is None, seeded
+        # An unknown model keeps the sampling default until it is learned.
+        assert config.chat_temperature("brand-new-model", 0.2) == 0.2
+        config.learn_temperature_unsupported("brand-new-model")
+        assert config.chat_temperature("brand-new-model", 0.2) is None
+        # Learning is per-model: an unrelated model is untouched.
+        assert config.chat_temperature("qwen3.7-plus", 0.2) == 0.2
+    finally:
+        cache.clear(key)
+
+
+def test_is_temperature_unsupported_error_matches_provider_refusals() -> None:
+    assert config.is_temperature_unsupported_error(
+        "Parameter 'temperature'=0.2 is not supported for kimi-k3 model",
+    )
+    assert config.is_temperature_unsupported_error(
+        "temperature is unsupported by this endpoint",
+    )
+    # Moonshot direct calls phrase the refusal as an invalid temperature.
+    assert config.is_temperature_unsupported_error(
+        "Invalid temperature: this model uses a fixed sampling temperature",
+    )
+    # Mentions temperature but is not a refusal of the parameter itself.
+    assert not config.is_temperature_unsupported_error(
+        "temperature must be a positive number",
+    )
+    # Unrelated failures must not be misclassified.
+    assert not config.is_temperature_unsupported_error(
+        "429 Too Many Requests: rate limit exceeded",
+    )
+    # ``invalid_request_error`` is a generic 400 wrapper: one that merely
+    # echoes ``temperature`` (or pairs it with an unrelated ``invalid``) must
+    # not be learned as a refusal, or the model silently loses temperature.
+    assert not config.is_temperature_unsupported_error(
+        '{"error": {"type": "invalid_request_error", '
+        '"message": "temperature must be <= 2.0"}}',
+    )
+    assert not config.is_temperature_unsupported_error(
+        "temperature is fine but your max_tokens is invalid",
+    )

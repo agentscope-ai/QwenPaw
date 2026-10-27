@@ -108,7 +108,7 @@ class QwenPawDriverApprovalGate:
             },
         )
         decision = await svc.wait_for_approval(
-            pending.request_id,
+            pending,
             TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         )
         if decision == ApprovalDecision.APPROVED:

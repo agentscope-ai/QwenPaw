@@ -125,6 +125,12 @@ class PolicyGuardedTool:
         from agentscope.tool import FunctionTool
 
         if cls is PolicyGuardedTool:
+            sdk_methods = {}
+            func = args[0] if args else kwargs.get("func")
+            if hasattr(func, "_qwenpaw_sdk_schema"):
+                from ..plugins._tool_adapter import sdk_function_call
+
+                sdk_methods["call"] = sdk_function_call
             real_cls = type(
                 "PolicyGuardedTool",
                 (FunctionTool,),
@@ -134,6 +140,7 @@ class PolicyGuardedTool:
                     "check_permissions": _policy_tool_check_permissions,
                     "__call__": _policy_tool_call,
                     "__doc__": cls.__doc__,
+                    **sdk_methods,
                 },
             )
             return real_cls(*args, **kwargs)
@@ -150,6 +157,8 @@ def _policy_tool_init(
 ) -> None:
     from agentscope.tool import FunctionTool
 
+    if hasattr(func, "_qwenpaw_sdk_schema"):
+        kwargs.setdefault("input_schema", func._qwenpaw_sdk_schema)
     FunctionTool.__init__(self, func, **kwargs)
     self._qp_governor = governor
     self._qp_request_context = request_context or {}
@@ -157,6 +166,7 @@ def _policy_tool_init(
     # more precise governance identity. Remote searches can therefore opt into
     # a network policy while local backends keep the internal policy identity.
     self._qp_policy_name = getattr(func, "_qwenpaw_policy_name", "")
+    self._qp_tool_func = func
     self._qp_policy_decision = None  # Pre-evaluation result
     self._qp_sandbox_mode = False  # Whether to execute in sandbox
     self._qp_raw_params = {}  # Set per-call by check_permissions
@@ -268,6 +278,7 @@ def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
 
 
 # pylint: disable=too-many-return-statements,too-many-branches
+# pylint: disable=too-many-statements
 async def _policy_tool_check_permissions(
     self: Any,
     input_data: dict[str, Any] | None = None,
@@ -310,6 +321,13 @@ async def _policy_tool_check_permissions(
     f1_active = is_f1_active_for_session(_f1_session_id)
     if f1_active:
         effective_level = ToolExecutionLevel.STRICT
+
+    if (
+        effective_level is None
+        and governor is not None
+        and getattr(governor.policy, "execution_level", None) == "jev"
+    ):
+        effective_level = ToolExecutionLevel.JEV
 
     if effective_level is not None and effective_level.is_disabled():
         # OFF means "never ask the user" — it does NOT mean "skip the
@@ -370,12 +388,93 @@ async def _policy_tool_check_permissions(
             governor.policy.execution_level = prev_level
     else:
         decision = governor.assert_policy(tc_spec)
+    baseline_action = decision.action
+    soft_ask = (
+        decision.action is GovernanceAction.ASK
+        and decision.approval_origin == "soft_risk"
+    )
+    soft_ask_shell = (
+        soft_ask and DEFAULT_REGISTRY.get_type(tc_spec.tool_name) == "shell"
+    )
+    if effective_level is ToolExecutionLevel.JEV and soft_ask_shell:
+        # A severity-driven shell ASK has no compiled sandbox yet. Never
+        # turn it into an unsandboxed ALLOW based on model confidence.
+        if not getattr(governor, "sandbox_usable", False):
+            soft_ask = False
+        else:
+            try:
+                decision.sandbox_config = governor.compile_sandbox_config(
+                    tc_spec,
+                )
+            except Exception:
+                logger.exception(
+                    "Decision model soft-ASK sandbox preparation failed",
+                )
+                soft_ask = False
+    if effective_level is ToolExecutionLevel.JEV and (
+        decision.action
+        in (GovernanceAction.ALLOW, GovernanceAction.SANDBOX_FALLBACK)
+        or soft_ask
+    ):
+        from ..security.decision_model import assess_tool_call
+
+        assessment = await assess_tool_call(
+            tc_spec.tool_name,
+            tc_spec.target,
+            params=tc_spec.raw_params,
+            sandboxed=(
+                baseline_action is GovernanceAction.SANDBOX_FALLBACK
+                or (soft_ask and soft_ask_shell)
+            ),
+            baseline_ask=soft_ask,
+            risk_signals=(
+                [
+                    {
+                        "id": str(getattr(finding, "rule_id", ""))[:80],
+                        "severity": str(getattr(finding, "severity", ""))[:20],
+                    }
+                    for finding in (decision.findings or [])[:10]
+                ]
+                if soft_ask
+                else None
+            ),
+            agent_id=tc_spec.agent_id,
+            tool_func=getattr(self, "_qp_tool_func", None),
+        )
+        if assessment.needs_approval:
+            decision = GovernanceDecision(
+                action=GovernanceAction.ASK,
+                reason=assessment.reason,
+                sandbox_config=decision.sandbox_config,
+                findings=decision.findings,
+                source="decision_model",
+            )
+        elif soft_ask:
+            decision = GovernanceDecision(
+                action=GovernanceAction.ALLOW,
+                reason=assessment.reason,
+                sandbox_config=decision.sandbox_config,
+                findings=decision.findings,
+                source="decision_model",
+            )
     governor.audit(tc_spec, decision)
 
     # Cache the decision + tc_spec for __call__ to use
     self._qp_policy_decision = decision
     self._qp_tc_spec = tc_spec
-    self._qp_sandbox_mode = False
+    self._qp_sandbox_mode = (
+        baseline_action is GovernanceAction.SANDBOX_FALLBACK
+        or (
+            effective_level is ToolExecutionLevel.JEV
+            and soft_ask
+            and soft_ask_shell
+        )
+    )
+    self._qp_decision_model_sandbox_required = (
+        decision.source == "decision_model" and self._qp_sandbox_mode
+    )
+    if self._qp_sandbox_mode:
+        self._qp_sandbox_config = decision.sandbox_config
 
     if decision.action is GovernanceAction.ALLOW:
         return PermissionDecision(
@@ -443,6 +542,11 @@ async def _policy_tool_call(
         isinstance(result, ToolChunk)
         and result.state == ToolResultState.DENIED
     ):
+        return result
+
+    # Model approval authorizes only the original sandboxed call, not a retry
+    # with broader host access.
+    if getattr(self, "_qp_decision_model_sandbox_required", False):
         return result
 
     # Extract violation message from metadata or content
@@ -597,11 +701,15 @@ async def _ask_user_approval(
 
     from .generalize import generalize_target_for_approval
 
-    generalized_target = await generalize_target_for_approval(
-        tool_name,
-        target,
-        source,
-        agent_id=agent_id,
+    generalized_target = (
+        target
+        if source in {"jev", "decision_model"}
+        else await generalize_target_for_approval(
+            tool_name,
+            target,
+            source,
+            agent_id=agent_id,
+        )
     )
     display_target = generalized_target or target
 
@@ -657,7 +765,11 @@ async def _ask_user_approval(
                     title=(
                         "Sandbox Violation — Approve Unsandboxed Execution?"
                         if violation_msg
-                        else "Policy Approval Required"
+                        else (
+                            "Decision model assessment requires approval"
+                            if source in {"jev", "decision_model"}
+                            else "Policy Approval Required"
+                        )
                     ),
                     description=(
                         (
@@ -699,6 +811,21 @@ async def _ask_user_approval(
                 ),
             ],
             guardians_used=["governance_policy"],
+        )
+
+    if source in {"jev", "decision_model"} and policy_findings:
+        guard_result.findings.append(
+            GuardFinding(
+                id=uuid.uuid4().hex[:8],
+                rule_id="decision_model_assessment",
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.INFO,
+                title="Decision model assessment requires approval",
+                description=governance_reason
+                or "Decision model assessment was uncertain",
+                tool_name=tool_name,
+                guardian="decision_model",
+            ),
         )
 
     svc = get_approval_service()
@@ -751,7 +878,7 @@ async def _ask_user_approval(
 
     try:
         decision = await svc.wait_for_approval(
-            pending.request_id,
+            pending,
             TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         )
     except Exception as exc:
@@ -776,16 +903,17 @@ async def _ask_user_approval(
 
     summary = format_findings_summary(guard_result)
     if decision == ApprovalDecision.APPROVED:
-        # ── Record approved rule (skip for builtin ask) ──
-        # SIMILAR → the generalized pattern; EXACT (default) → the literal
-        # target the user actually approved. Widening is opt-in.
-        rule_target = (
-            generalized_target if scope == ApprovalScope.SIMILAR else target
-        )
-        await governor.add_approved_rule(
-            tc_spec,
-            generalized_target=rule_target,
-        )
+        if source not in {"jev", "decision_model"}:
+            # A decision-model approval applies to this call only.
+            rule_target = (
+                generalized_target
+                if scope == ApprovalScope.SIMILAR
+                else target
+            )
+            await governor.add_approved_rule(
+                tc_spec,
+                generalized_target=rule_target,
+            )
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message=f"Approved by user ({scope_label}).\n{summary}",

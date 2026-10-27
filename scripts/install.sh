@@ -122,7 +122,7 @@ ensure_uv() {
     done
 
     info "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf https://astral.sh/uv/0.13.4/install.sh | sh
 
     # Source the env file uv's installer creates, or add common paths
     if [ -f "$HOME/.local/bin/env" ]; then
@@ -136,6 +136,15 @@ ensure_uv() {
 }
 
 ensure_uv
+# Reject old/custom executables before any package download.
+uv_version=$(uv --version | awk '{print $2}')
+if [[ ! "$uv_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    die "Cannot verify uv version: $uv_version"
+fi
+if ! (( 10#${BASH_REMATCH[1]} > 0 || 10#${BASH_REMATCH[2]} > 13 ||
+        (10#${BASH_REMATCH[2]} == 13 && 10#${BASH_REMATCH[3]} >= 4) )); then
+    die "uv >= 0.13.4 is required; update uv from the official release and retry"
+fi
 
 # ── Step 2: Create / update virtual environment ──────────────────────────────
 if [ -d "$QWENPAW_VENV" ]; then
@@ -248,7 +257,7 @@ if [ "$FROM_SOURCE" = true ]; then
         prepare_console "$SOURCE_DIR"
         prepare_docs "$SOURCE_DIR"
         info "Installing package from source..."
-        uv pip install "${SOURCE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --index-url "$PYPI_MIRROR"
+        uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "${SOURCE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --index-url "$PYPI_MIRROR"
         cleanup_console "$SOURCE_DIR"
         cleanup_docs "$SOURCE_DIR"
     else
@@ -259,7 +268,7 @@ if [ "$FROM_SOURCE" = true ]; then
         prepare_console "$CLONE_DIR"
         prepare_docs "$CLONE_DIR"
         info "Installing package from source..."
-        uv pip install "${CLONE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --index-url "$PYPI_MIRROR"
+        uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "${CLONE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --index-url "$PYPI_MIRROR"
         # CLONE_DIR is cleaned up by trap; no need for cleanup_console/cleanup_docs
     fi
 else
@@ -274,7 +283,7 @@ else
     fi
 
     info "Installing ${PACKAGE}${EXTRAS_SUFFIX} from PyPI..."
-    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --quiet --index-url "$PYPI_MIRROR" --refresh-package qwenpaw ${PRERELEASE_ARGS[@]+"${PRERELEASE_ARGS[@]}"}
+    uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "${PACKAGE}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --quiet --index-url "$PYPI_MIRROR" --refresh-package qwenpaw ${PRERELEASE_ARGS[@]+"${PRERELEASE_ARGS[@]}"}
 fi
 
 # Verify the CLI entry point exists

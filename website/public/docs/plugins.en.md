@@ -1,8 +1,262 @@
-# Plugin System
+# Plugin Development and the Public SDK
+
+New plugins use the public `qwenpaw.plugins` SDK. The host supplies capabilities through
+contexts; authors do not import `qwenpaw.app.*`, internal registries, or managers.
+Existing `PluginApi` plugins remain compatible. The legacy reference below is separate
+from the stable contract for new SDK plugins.
+
+## Start from a template
+
+Install a QwenPaw release containing the SDK in an isolated Python environment:
+
+```bash
+python -m venv .venv
+# macOS/Linux: source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install qwenpaw
+```
+
+```bash
+python -m qwenpaw.plugins.check --template ./hello-sdk
+python -m qwenpaw.plugins.check ./hello-sdk
+python -m qwenpaw.plugins.check ./hello-sdk --runtime
+```
+
+`--template` exports a runnable plugin matching the installed SDK. The default check
+only reads source. `--runtime` executes loading, activation, and cleanup: use it only
+with trusted plugins. It does not invoke every business handler; test uncovered paths
+separately. The checker is neither a security sandbox nor a full permission audit.
+
+## Declare a version and capabilities
+
+`hello-sdk/plugin.json`:
+
+```json
+{
+  "id": "hello-sdk",
+  "name": "Hello SDK",
+  "version": "1.0.0",
+  "entry": { "backend": "main.py" },
+  "sdk": { "version": "1.0.0", "capabilities": ["tools", "storage"] }
+}
+```
+
+`plugin.json.version` is the plugin version; `sdk.version` is the minimum SDK version
+required by the plugin. The host accepts only the same major version and a requirement
+no newer than its own version. Unknown capabilities are rejected before plugin import.
+The SDK follows semantic versioning: public contracts remain compatible within a major
+version, new APIs require their corresponding minimum version, and breaking changes
+require a new major version. `qwenpaw.plugins.compliance.PUBLIC_API` lists exact public
+modules and symbols; `API_EXPORTS` records version and stability. Importability alone
+does not make an interface a stable SDK contract.
+
+Plugins without an `sdk` declaration still receive the old `PluginApi`; upgrading the
+host does not migrate them automatically. Historical exports of `PluginApi`,
+`PluginLoader`, `PluginRegistry`, and `PluginLifecycle` remain for compatibility.
+New SDK plugins must not depend on those exports or underscore-prefixed internals.
+
+## Write a tool
+
+Save this as `hello-sdk/main.py`:
+
+```python
+from qwenpaw.plugins import PluginContext
+from qwenpaw.plugins.tools import ToolContext, ToolResult, ToolSpec
+
+async def greet(call: ToolContext, arguments: dict) -> ToolResult:
+    await call.storage.awrite_json("last-greeting.json", arguments["name"])
+    return ToolResult.text(f"Hello {arguments['name']}")
+
+class Plugin:
+    def register(self, context: PluginContext) -> None:
+        context.register_tool(ToolSpec(
+            name="hello_sdk",
+            description="Greet someone",
+            input_schema={
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+            handler=greet,
+            enabled=True,
+        ))
+
+plugin = Plugin()
+```
+
+`register()` declares contributions. Open connections and launch background work in
+`context.on_activate(callback)`, and manage them through `context.resources`.
+The host supplies configuration, logging, models, and storage in the call context.
+Registration and activation callbacks are not generally moved to worker threads; avoid
+blocking work there and await storage operations from async activation callbacks.
+
+## Asynchronous storage and ownership
+
+Async handlers use `await storage.aread_bytes/awrite_bytes/aread_json/awrite_json/adelete`
+and `await media.awrite(...)`. Synchronous methods such as `read_json/write_json` remain
+available for synchronous handlers or explicit worker-thread code. Calling blocking file
+operations directly inside an async function still blocks its event loop.
+
+The SDK moves the entire file operation to a worker thread. Cancelling the await does
+not stop that thread: reload waits for actual completion, or reports busy and retains
+ownership. It cannot report a successful replacement while an old worker is still writing.
+An individual write uses a temporary file and atomic replacement; separate read/modify/write
+calls are not an atomic transaction. Protect the complete sequence with an `asyncio.Lock`
+shared by calls to the same workspace, as the exported hello template does. Locking only
+the write or creating a fresh lock for every call does not prevent lost updates. Reload
+creates new plugin-owned locks while retaining persistent data.
+
+`PluginContext.storage/media` is plugin-wide. Tool and other call contexts are scoped to
+the actual workspace ID, with additional App/Channel identity where applicable. Directory
+names are not workspace identities. Media writes return a public `Attachment`; paths must
+remain within the plugin's data scope. Normal reload preserves persistent data.
+
+Register tasks, connections, threads, and processes with `context.resources`. Lifecycle
+protection covers managed resources, not arbitrary global threads or external services
+that the author never registered.
+
+## Build Channels and PawApps using only the SDK
+
+Declare the `channels` capability. This backend logs outgoing events to demonstrate the
+protocol; the plugin implements its own platform transport without inheriting the host's
+internal `BaseChannel`:
+
+```python
+from qwenpaw.plugins import PluginContext
+from qwenpaw.plugins.channels import ChannelContext, ChannelSpec, OutgoingMessage
+
+class LogChannel:
+    async def start(self, context: ChannelContext) -> None:
+        context.logger.info("Channel started")
+
+    async def send(self, context: ChannelContext, message: OutgoingMessage) -> None:
+        context.logger.info("Outgoing message", fields={"target": message.target})
+
+    async def stop(self, context: ChannelContext) -> bool:
+        return True
+
+class Plugin:
+    def register(self, context: PluginContext) -> None:
+        context.register_channel(ChannelSpec("log_channel", "Log channel", LogChannel))
+
+plugin = Plugin()
+```
+
+Deliver inbound messages through `context.receive(ChannelMessage(...))`. The host owns
+workspace queues, access checks, and model execution. Platform threads should dispatch
+callbacks onto the event loop captured at startup. Manage connections/tasks through the
+resource scope and return `True` from `stop()` only after stopping. Streaming backends
+set `streaming=True` and implement `on_stream`; implement `on_run` for run completion
+notifications. Interrupting a reload still waits for existing requests' terminal notifications.
+
+For an application, declare `apps` and use public routes and contexts:
+
+```python
+from qwenpaw.plugins import PluginContext
+from qwenpaw.plugins.apps import PawApp, AppContext, HttpRequest
+
+app = PawApp("Notes", app_id="notes")
+
+@app.route("/status")
+async def status(context: AppContext, request: HttpRequest):
+    return {"workspace_id": context.workspace_id, "ready": True}
+
+class Plugin:
+    def register(self, context: PluginContext) -> None:
+        app.register(context)
+
+plugin = Plugin()
+```
+
+Handlers receive public `AppContext/HttpRequest` values. Use context methods for models,
+chat, tasks, approvals, and scoped workspace delegation. Call `app.enable_standard_capabilities()`
+before registration when the app needs the standard frontend capabilities.
+
+## Test independently and reload safely
+
+The test host uses real loading and lifecycle paths without requiring internal registries:
+
+```python
+import asyncio
+import tempfile
+from pathlib import Path
+from qwenpaw.plugins import StaleContextError
+from qwenpaw.plugins.testing import PluginTestHost
+
+async def main():
+    with tempfile.TemporaryDirectory() as directory:
+        async with PluginTestHost(Path(directory)) as host:
+            old = await host.load(Path("hello-sdk"))
+            result = await host.call_tool("hello_sdk", {"name": "SDK"})
+            assert not result.is_error
+            assert (await host.reload(old.plugin_id)).ok
+            try:
+                await old.storage.awrite_json("stale.json", True)
+            except StaleContextError:
+                pass
+            else:
+                raise AssertionError("Old context remained writable")
+            result = await host.unload(old.plugin_id)
+            assert result.clean and result.quiescent
+
+asyncio.run(main())
+```
+
+`PluginTestHost.load()` loads an author directory. Use `install/update_config/set_enabled/uninstall`
+to test installation and upgrade transactions, and inspect `ok/clean/quiescent/errors` in
+results. `inject_failure("before_commit")` and `inject_failure("post_commit_cleanup")`
+exercise recovery. Channel tests also call `start_channel`; an AI reply requires a
+configured model or a test model.
+
+Ordinary reload raises `PluginBusyError` while calls are active. Explicitly request
+interruption with `reload(plugin_id, interrupt_tasks=True)` when needed. A timeout or
+unreleased resource still prevents replacement; retry public lifecycle operations after
+the fault is resolved. Old contexts cannot write or register resources for a new generation.
+
+## Public capabilities
+
+| Capability                                          | Public entry                                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Declaration and versions                            | `PluginContext`, `SDK_VERSION`, `SDK_CAPABILITIES`                                         |
+| Tools and configuration fields                      | `qwenpaw.plugins.tools`                                                                    |
+| Configuration, persistence, media                   | `qwenpaw.plugins.storage`; instances come from contexts                                    |
+| Logging and configured models                       | `qwenpaw.plugins.logging`, `qwenpaw.plugins.models`                                        |
+| Messages, attachments, run and approval observation | `qwenpaw.plugins.messages`, `qwenpaw.plugins.events`                                       |
+| Commands, hooks, modes, prompts                     | `commands`, `hooks`, `modes`, `prompts`                                                    |
+| Channels and applications                           | `channels`, `apps`                                                                         |
+| Model providers, memory, markets, skills            | `providers`, `memory`, `markets`, `skills`                                                 |
+| Resources, results, testing                         | `resources`, `results`, `testing`                                                          |
+| Exceptions                                          | Import public exceptions such as `SDKError` and `StaleContextError` from `qwenpaw.plugins` |
+
+Short module names in this table are under `qwenpaw.plugins`; use the allowlist for exact symbols.
+
+Export the frontend package with `python -m qwenpaw.plugins.check --frontend ./frontend-sdk`,
+then install the local `@qwenpaw/plugin-sdk` npm package. It includes runtime entry points
+and type declarations; do not copy internal host types. Query optional backend capabilities
+before using features such as tasks rather than assuming support from the frontend version.
+
+## Install and validate your supported platforms
+
+```bash
+qwenpaw plugin install ./hello-sdk
+qwenpaw plugin list
+qwenpaw plugin info hello-sdk
+qwenpaw plugin uninstall hello-sdk
+```
+
+Test first installation, updates preserving data, recovery, and uninstall on each platform
+you claim to support. Path unit tests and successful Mac runs are not native Windows
+acceptance; record unavailable platforms as unverified. SDK checks do not replace real
+IM, desktop-window, or external-model integration tests.
+
+## Legacy plugin compatibility reference
+
+The following preserves the existing PluginApi development and management reference for maintaining older plugins. Internal host types shown here are not public SDK APIs. Existing frontend Host APIs remain available; new authors should use the public type package above.
 
 QwenPaw provides a plugin system that allows users to extend QwenPaw's functionality.
 
-## Overview
+### Overview
 
 The plugin system supports the following extension capabilities:
 
@@ -15,9 +269,9 @@ The plugin system supports the following extension capabilities:
 - **Channel Plugins**: Register custom messaging channels (e.g. Slack, LINE)
 - **Memory Plugins**: Register long-term-memory backends, their per-Agent configuration schema, governed tools, and optional Console configuration UI
 
-## Plugin Management
+### Plugin Management
 
-### Install Plugin
+#### Install Plugin
 
 Install from local directory:
 
@@ -40,7 +294,7 @@ qwenpaw plugin install /path/to/plugin --force
 When QwenPaw is running, the CLI delegates installation to the hot-install API.
 When it is stopped, files are installed for loading on the next startup.
 
-### List Installed Plugins
+#### List Installed Plugins
 
 ```bash
 qwenpaw plugin list
@@ -58,23 +312,23 @@ my-provider (v1.0.0)
   Path: /Users/user/.qwenpaw/plugins/my-provider
 ```
 
-### View Plugin Details
+#### View Plugin Details
 
 ```bash
 qwenpaw plugin info <plugin-id>
 ```
 
-### Uninstall Plugin
+#### Uninstall Plugin
 
 ```bash
 qwenpaw plugin uninstall <plugin-id>
 ```
 
-## Plugin Development
+### Plugin Development
 
-### Backend Plugins
+#### Backend Plugins
 
-#### Basic Structure
+##### Basic Structure
 
 Each plugin requires at least two files:
 
@@ -85,7 +339,7 @@ my-plugin/
 └── README.md        # Documentation (recommended)
 ```
 
-#### plugin.json
+##### plugin.json
 
 ```json
 {
@@ -107,7 +361,7 @@ my-plugin/
 }
 ```
 
-#### Manifest Field Reference
+##### Manifest Field Reference
 
 | Field             | Type               | Required | Description                                                                                                                                                                                          |
 | ----------------- | ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -119,7 +373,7 @@ my-plugin/
 | `author`          | `string`           | no       | Author or organisation name.                                                                                                                                                                         |
 | `entry.backend`   | `string`           | no\*     | Path (relative to plugin dir) of the Python entry file that exports `plugin`.                                                                                                                        |
 | `entry.frontend`  | `string`           | no\*     | Path of the built frontend bundle (e.g. `dist/index.js`).                                                                                                                                            |
-| `dependencies`    | `string[]`         | no       | Python package requirements installed via pip/uv at install time.                                                                                                                                    |
+| `dependencies`    | `string[]`         | no       | Python package requirements combined with `requirements.txt`; explicit install, update, or repair installs missing packages, while startup only checks them.                                         |
 | `qwenpaw_version` | `object`           | no       | QwenPaw version constraint (recommended). Contains `min` (inclusive) and `max` (exclusive, optional) sub-fields. Semantics: `>=min, <max`. When `max` is omitted, defaults to `{major}.{minor+1}.0`. |
 | `min_version`     | `string`           | no       | **Legacy.** Minimum QwenPaw version required. Ignored when `qwenpaw_version` is present. Retained only for backward compatibility with third-party plugins.                                          |
 | `max_version`     | `string`           | no       | **Legacy.** First incompatible QwenPaw version (exclusive). Used with `min_version`; when omitted, derived from `min_version`.                                                                       |
@@ -128,7 +382,7 @@ my-plugin/
 
 \* At least one of `entry.backend` / `entry.frontend` (or legacy `entry_point`) must be provided.
 
-#### `type` values
+##### `type` values
 
 | Value      | When to use                                                            |
 | ---------- | ---------------------------------------------------------------------- |
@@ -141,7 +395,7 @@ my-plugin/
 | `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.               |
 | `general`  | Fallback for plugins that combine multiple capabilities or don't fit.  |
 
-#### plugin.py
+##### plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -176,7 +430,26 @@ class MyPlugin:
 plugin = MyPlugin()
 ```
 
-### Memory Backend Plugins
+##### Registration and Cleanup Contract
+
+- `register(api)` must be synchronous. Put asynchronous initialization in a startup hook.
+- Use `api.spawn_task()` for background tasks and `api.effect()` for process-local
+  effects. Teardown must be idempotent and safe after incomplete setup.
+- Prefer `api.declare_provision_files(src, dest, version)` during registration.
+  It only records a declaration and returns no creation result. Activation prepares
+  the files in a worker before startup hooks; do not read these files in register.
+- In startup hooks, use `await api.provision_files_async(src, dest, version)` when
+  files are needed immediately. It returns the actual `create`, `keep`, etc. result.
+  Both APIs preserve ownership and rollback rules. The existing
+  `api.provision_files()` remains synchronous for compatibility and can still block
+  the event loop; migrate to the new APIs where possible.
+- For custom persistent resources, use `api.provision()` with
+  `teardown_ref="module:function"` so cleanup works without a live instance.
+  Setup must be synchronous.
+- Use `api.register_*()` instead of changing host registries directly. The framework
+  records their cleanup.
+
+#### Memory Backend Plugins
 
 A memory plugin owns its remote client, configuration model, prompts, tools,
 and backend-specific retrieval behavior. QwenPaw core owns the shared lifecycle,
@@ -189,7 +462,7 @@ Agents and workspaces are created. This ensures a backend selected in
 unavailable backend fails explicitly; QwenPaw never redirects memory to another
 backend as an implicit fallback.
 
-#### Manifest
+##### Manifest
 
 ```json
 {
@@ -207,7 +480,7 @@ backend as an implicit fallback.
 }
 ```
 
-#### Python Backend Registration
+##### Python Backend Registration
 
 Import the stable contracts from `qwenpaw.memory`, not from the internal
 `qwenpaw.agents.memory` package. A backend factory receives one
@@ -278,7 +551,7 @@ secrets are returned as `"***"`, and submitting that mask preserves the current
 value. A plugin can also declare per-tool governance metadata under
 `metadata.tools`.
 
-#### Console Configuration Registration
+##### Console Configuration Registration
 
 If the plugin has a custom configuration UI, register it with the frontend
 memory namespace. Form paths should point into the generic per-Agent config
@@ -316,7 +589,7 @@ marks unavailable selections, and renders the selected plugin's configuration
 component. Frontend registrations are removed automatically during plugin
 cleanup.
 
-#### Runtime and Uninstall Rules
+##### Runtime and Uninstall Rules
 
 - Backend selection or backend configuration changes rebuild the workspace
   manager; they are not applied to an existing remote client in place.
@@ -328,7 +601,7 @@ cleanup.
 - Plugin cleanup unregisters backend ownership and plugin-owned governance
   entries.
 
-### Frontend Plugins
+#### Frontend Plugins
 
 Frontend plugins are JavaScript extensions that run in the browser. Unlike backend plugins that register capabilities via the Python `PluginApi`, frontend plugins declaratively extend the Console UI through the global `window.QwenPaw.*` API.
 
@@ -375,7 +648,7 @@ removed during plugin cleanup.
 | `memoryBackends`                  | Memory backend configuration UI                       | Register backend labels, tabs, and React configuration forms    |
 | `audit`                           | Audit & debugging                                     | View all extension registration records                         |
 
-#### Basic Structure
+##### Basic Structure
 
 ```
 my-plugin/
@@ -387,7 +660,7 @@ my-plugin/
 └── vite.config.ts   # Build config
 ```
 
-#### plugin.json
+##### plugin.json
 
 ```json
 {
@@ -400,7 +673,7 @@ my-plugin/
 }
 ```
 
-#### src/index.tsx
+##### src/index.tsx
 
 The plugin entry file executes on load and registers extensions via `window.QwenPaw.*` API:
 
@@ -412,7 +685,7 @@ const pluginId = "my-plugin";
 // See "Frontend Extension API" below for details
 ```
 
-#### Build Toolchain
+##### Build Toolchain
 
 **package.json**:
 
@@ -465,7 +738,7 @@ export default defineConfig({
 
 `jsxRuntime: "classic"` compiles JSX to `React.createElement`, using the host-provided `React`; `external` avoids bundling React, using the version already loaded by the application.
 
-#### Build and Install
+##### Build and Install
 
 ```bash
 npm install && npm run build
@@ -475,11 +748,11 @@ qwenpaw app
 
 You can copy `console/src/plugins/types/qwenpaw.d.ts` into your plugin project as `qwenpaw-host.d.ts` for full type hints.
 
-## Frontend Extension API
+### Frontend Extension API
 
 Frontend plugins extend the Console UI through the `window.QwenPaw.*` API without modifying host code. All registration methods take `pluginId` as the first argument, and every registration returns a `{ dispose() }` object for revocation.
 
-### Host SDK — `window.QwenPaw.host`
+#### Host SDK — `window.QwenPaw.host`
 
 Shared dependencies — plugins do not need to bundle these libraries:
 
@@ -520,7 +793,7 @@ const resp = await window.QwenPaw.host.fetch("/api/v1/my-endpoint", {
 const data = await resp.json();
 ```
 
-### Sidebar Menu — `window.QwenPaw.menu`
+#### Sidebar Menu — `window.QwenPaw.menu`
 
 | Method     | Signature                                | Description                          |
 | ---------- | ---------------------------------------- | ------------------------------------ |
@@ -548,7 +821,7 @@ const data = await resp.json();
 }
 ```
 
-### Page Routes — `window.QwenPaw.route`
+#### Page Routes — `window.QwenPaw.route`
 
 | Method    | Signature                                     | Description                            |
 | --------- | --------------------------------------------- | -------------------------------------- |
@@ -582,7 +855,7 @@ window.QwenPaw.route.wrap("my-plugin", "core.chat", (Inner) => {
 });
 ```
 
-### General UI Slots — `window.QwenPaw.slot`
+#### General UI Slots — `window.QwenPaw.slot`
 
 | Method     | Signature                                     | Description                                             |
 | ---------- | --------------------------------------------- | ------------------------------------------------------- |
@@ -611,7 +884,7 @@ window.QwenPaw.slot.replace("my-plugin", "header.logo", (defaultLogo) => {
 });
 ```
 
-### Chat Welcome Screen — `chat.welcome`
+#### Chat Welcome Screen — `chat.welcome`
 
 ```tsx
 window.QwenPaw.chat.welcome.set("my-plugin", {
@@ -631,7 +904,7 @@ window.QwenPaw.chat.welcome.render("my-plugin", (props) => {
 });
 ```
 
-### Chat Theme — `chat.theme`
+#### Chat Theme — `chat.theme`
 
 ```ts
 window.QwenPaw.chat.theme.set("my-plugin", {
@@ -639,7 +912,7 @@ window.QwenPaw.chat.theme.set("my-plugin", {
 });
 ```
 
-### Chat Header — `chat.leftHeader` / `chat.rightHeader`
+#### Chat Header — `chat.leftHeader` / `chat.rightHeader`
 
 ```tsx
 // Set the left header title
@@ -661,7 +934,7 @@ window.QwenPaw.chat.rightHeader.add(
 );
 ```
 
-### Input Box — `chat.sender`
+#### Input Box — `chat.sender`
 
 ```ts
 // Custom placeholder
@@ -680,7 +953,7 @@ window.QwenPaw.chat.sender.addSuggestion("my-plugin", {
 });
 ```
 
-### Message Action Buttons — `chat.actions` / `chat.requestActions`
+#### Message Action Buttons — `chat.actions` / `chat.requestActions`
 
 ```tsx
 // Add action button below AI responses
@@ -698,7 +971,7 @@ window.QwenPaw.chat.requestActions.add("my-plugin", {
 });
 ```
 
-### Request Payload Transform — `chat.requestPayload`
+#### Request Payload Transform — `chat.requestPayload`
 
 Use `chat.requestPayload.add` to modify the outgoing chat request body before the Console sends it to the backend. Transforms run in ascending `order` and receive the current payload plus the resolved `sessionId` and `selectedAgent`.
 
@@ -719,7 +992,7 @@ window.QwenPaw.chat.requestPayload.add(
 
 The transform may return a new object to replace the payload. Returning `undefined` leaves the payload unchanged. Use a globally unique `id` so the registration can be audited and disposed cleanly.
 
-### Message Bubble Customization — `chat.request` / `chat.response`
+#### Message Bubble Customization — `chat.request` / `chat.response`
 
 ```tsx
 // Set the default assistant response avatar and nickname
@@ -761,7 +1034,19 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 });
 ```
 
-### Tool-Call Rendering — `chat.toolRender`
+#### Assistant Code Blocks and Message Submission
+
+`chat.codeBlock(pluginId, language, Component)` lets you display code blocks in assistant replies as interactive components. For example, registering `openui-lang` sends code blocks marked with that language to your component for rendering.
+
+The component receives the current source in `source` and uses `isStreaming` to check whether the code block is still being generated. The host preserves local component state during streaming updates; use a stable component type and handle incomplete content in your component. Other props include `language`, `messageId`, `blockId`, `agentId`, `sessionId`, and `fallback()`, which displays the default code view.
+
+The latest registration for a language takes precedence. Calling the returned `dispose()` restores the previous registration. Use `chat.disposeAll(pluginId)` to remove all chat extensions registered by the plugin.
+
+`await chat.submit(pluginId, { query, agentId, sessionId })` submits the user's choices as a new message. Pass the `agentId` and `sessionId` received by your component. The message joins the originating conversation's send queue, preserving drafts and attachments in the composer. The promise resolves when the message is queued and rejects if Chat is not ready, the user has switched conversations or Agents, or the queue is full.
+
+`host.openExternalLink(url)` opens an external link in the browser or desktop app.
+
+#### Tool-Call Rendering — `chat.toolRender`
 
 ```tsx
 // Register a custom tool result renderer (props include result, sessionId, messageId)
@@ -775,13 +1060,13 @@ window.QwenPaw.chat.toolRender("my-plugin", "get_weather", ({ result }) => {
 });
 ```
 
-### Custom Cards — `chat.card`
+#### Custom Cards — `chat.card`
 
 ```ts
 window.QwenPaw.chat.card("my-plugin", "my-card", MyCardComponent);
 ```
 
-### Memory Backend UI — `window.QwenPaw.memoryBackends`
+#### Memory Backend UI — `window.QwenPaw.memoryBackends`
 
 ```ts
 const registration = window.QwenPaw.memoryBackends.register("my-plugin", {
@@ -799,7 +1084,7 @@ registration.dispose();
 without it, the backend can still appear in the selector but has no custom
 configuration tab.
 
-### Audit & Debugging
+#### Audit & Debugging
 
 ```ts
 // View extension registration records
@@ -809,7 +1094,7 @@ console.table(window.QwenPaw.audit.overrides());
 window.QwenPaw.chat.disposeAll("my-plugin");
 ```
 
-### Internationalization
+#### Internationalization
 
 All fields that support the `Localized<T>` type accept a function that returns different values per locale:
 
@@ -819,7 +1104,7 @@ window.QwenPaw.chat.welcome.set("my-plugin", {
 });
 ```
 
-### Common Errors
+#### Common Errors
 
 | Error                             | Cause                                         | Solution                                                            |
 | --------------------------------- | --------------------------------------------- | ------------------------------------------------------------------- |
@@ -827,20 +1112,20 @@ window.QwenPaw.chat.welcome.set("my-plugin", {
 | `duplicate id`                    | Two `add` calls used the same id              | Use globally unique ids (recommended format: `pluginId.xxx`)        |
 | Hook called outside component     | `useTheme()` etc. used outside React context  | Use imperative APIs like `getSelectedAgentId()` instead             |
 
-## Usage Examples
+### Usage Examples
 
-### Example 1: Add Custom Provider
+#### Example 1: Add Custom Provider
 
 Let's say you want to connect to an enterprise internal LLM service.
 
-#### 1. Create Plugin Directory
+##### 1. Create Plugin Directory
 
 ```bash
 mkdir my-llm-provider
 cd my-llm-provider
 ```
 
-#### 2. Create plugin.json
+##### 2. Create plugin.json
 
 ```json
 {
@@ -865,7 +1150,7 @@ cd my-llm-provider
 }
 ```
 
-#### 3. Create provider.py
+##### 3. Create provider.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -904,7 +1189,7 @@ class MyLLMProvider(OpenAIProvider):
         ]
 ```
 
-#### 4. Create plugin.py
+##### 4. Create plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -957,7 +1242,7 @@ class MyLLMProviderPlugin:
 plugin = MyLLMProviderPlugin()
 ```
 
-#### 5. Install and Use
+##### 5. Install and Use
 
 ```bash
 # Install plugin
@@ -967,18 +1252,18 @@ qwenpaw plugin install my-llm-provider
 qwenpaw app
 ```
 
-### Example 2: Add Startup Hook
+#### Example 2: Add Startup Hook
 
 Let's say you want to initialize a monitoring service when QwenPaw starts.
 
-#### 1. Create Plugin
+##### 1. Create Plugin
 
 ```bash
 mkdir monitoring-hook
 cd monitoring-hook
 ```
 
-#### 2. Create plugin.json
+##### 2. Create plugin.json
 
 ```json
 {
@@ -999,7 +1284,7 @@ cd monitoring-hook
 }
 ```
 
-#### 3. Create plugin.py
+##### 3. Create plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -1053,25 +1338,25 @@ class MonitoringHookPlugin:
 plugin = MonitoringHookPlugin()
 ```
 
-#### 4. Install
+##### 4. Install
 
 ```bash
 qwenpaw plugin install monitoring-hook
 qwenpaw app
 ```
 
-### Example 3: Add Custom Command
+#### Example 3: Add Custom Command
 
 Let's say you want to add a `/status` command to check system status.
 
-#### 1. Create Plugin
+##### 1. Create Plugin
 
 ```bash
 mkdir status-command
 cd status-command
 ```
 
-#### 2. Create plugin.json
+##### 2. Create plugin.json
 
 ```json
 {
@@ -1092,7 +1377,7 @@ cd status-command
 }
 ```
 
-#### 3. Create plugin.py
+##### 3. Create plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -1137,7 +1422,7 @@ class StatusCommandPlugin:
 plugin = StatusCommandPlugin()
 ```
 
-#### 4. Install and Use
+##### 4. Install and Use
 
 ```bash
 qwenpaw plugin install status-command
@@ -1147,7 +1432,7 @@ qwenpaw app
 /status
 ```
 
-### Example 4: Add a Custom Frontend Page
+#### Example 4: Add a Custom Frontend Page
 
 Add a welcome page to the sidebar. Build toolchain files (`package.json`, `tsconfig.json`, `vite.config.ts`) follow the "Frontend Plugins > Build Toolchain" section above.
 
@@ -1208,7 +1493,7 @@ cp -r . ~/.qwenpaw/plugins/welcome-plugin/
 qwenpaw app
 ```
 
-### Example 5: Custom Tool-Call Renderer
+#### Example 5: Custom Tool-Call Renderer
 
 Customize how Agent tool-call results are displayed. Project structure follows Example 4, only `src/index.tsx` differs.
 
@@ -1239,7 +1524,7 @@ window.QwenPaw.chat.toolRender(pluginId, "get_weather", ({ result }) => {
 });
 ```
 
-### Example 6: Customize Chat Welcome
+#### Example 6: Customize Chat Welcome
 
 Customize the chat page greeting, description, and suggested prompts. Project structure follows Example 4, only `src/index.tsx` differs.
 
@@ -1262,7 +1547,7 @@ window.QwenPaw.chat.welcome.set(pluginId, {
 });
 ```
 
-### Example 7: Expose a FastAPI Endpoint
+#### Example 7: Expose a FastAPI Endpoint
 
 Backend plugins can expose their own HTTP endpoints by registering a
 `fastapi.APIRouter`. The router is mounted under `/api` + your prefix
@@ -1273,13 +1558,13 @@ shares CORS settings, the auth layer, and is included in
 In this example we add a small `/api/pets` endpoint that returns a
 list of pets and lets the user add new ones.
 
-#### 1. Create plugin directory
+##### 1. Create plugin directory
 
 ```bash
 mkdir pet-api-plugin && cd pet-api-plugin
 ```
 
-#### 2. Create plugin.json
+##### 2. Create plugin.json
 
 ```json
 {
@@ -1300,7 +1585,7 @@ mkdir pet-api-plugin && cd pet-api-plugin
 }
 ```
 
-#### 3. Create plugin.py
+##### 3. Create plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -1395,7 +1680,7 @@ class PetApiPlugin:
 plugin = PetApiPlugin()
 ```
 
-#### 4. Install and try it out
+##### 4. Install and try it out
 
 ```bash
 qwenpaw plugin install pet-api-plugin
@@ -1428,7 +1713,7 @@ curl -X POST http://127.0.0.1:8088/api/pets \
 - Routes are unmounted automatically when the plugin is uninstalled
   or disabled.
 
-### Example 8: Tracing Middleware (Tool Call Tracing)
+#### Example 8: Tracing Middleware (Tool Call Tracing)
 
 This example demonstrates how to register an `on_acting` middleware that logs every tool call with timing information when the `QWENPAW_TRACE` environment variable is set.
 
@@ -1521,7 +1806,7 @@ plugin = TracingPlugin()
 
 ---
 
-### Example 9: Thinking Log Middleware (Reasoning Process Logger)
+#### Example 9: Thinking Log Middleware (Reasoning Process Logger)
 
 This example demonstrates how to register an `on_reasoning` middleware that captures and prints the model's chain-of-thought.
 
@@ -1596,19 +1881,19 @@ plugin = ThinkingLogPlugin()
 
 ---
 
-### Example 10: Register a Custom Channel
+#### Example 10: Register a Custom Channel
 
 Channel plugins let you add new messaging platforms to QwenPaw. The channel
 appears in the Console UI alongside built-in channels (DingTalk, Telegram,
 etc.) and can be configured, enabled, and disabled the same way.
 
-#### 1. Create Plugin Directory
+##### 1. Create Plugin Directory
 
 ```bash
 mkdir sample-channel-plugin && cd sample-channel-plugin
 ```
 
-#### 2. Create plugin.json
+##### 2. Create plugin.json
 
 ```json
 {
@@ -1629,7 +1914,7 @@ mkdir sample-channel-plugin && cd sample-channel-plugin
 }
 ```
 
-#### 3. Create channel.py — BaseChannel subclass
+##### 3. Create channel.py — BaseChannel subclass
 
 Your channel class must implement the `BaseChannel` contract. The key
 methods are:
@@ -1733,7 +2018,7 @@ class SampleChannel(BaseChannel):
 > passing it. Always use `getattr(config, "field", default)` to read
 > fields safely.
 
-#### 4. Create plugin.py — Plugin entry point
+##### 4. Create plugin.py — Plugin entry point
 
 ```python
 # -*- coding: utf-8 -*-
@@ -1795,7 +2080,7 @@ class SampleChannelPlugin:
 plugin = SampleChannelPlugin()
 ```
 
-#### 5. Install and Use
+##### 5. Install and Use
 
 ```bash
 qwenpaw plugin install sample-channel-plugin
@@ -1806,7 +2091,7 @@ After starting, go to **Control → Channels** in the Console. The sample
 channel card will appear alongside built-in channels. Click it to fill in
 credentials and enable it.
 
-#### 6. Adding Webhook Endpoints (Optional)
+##### 6. Adding Webhook Endpoints (Optional)
 
 If your channel needs to receive HTTP callbacks (e.g. your platform's
 events API), register a FastAPI router in the same plugin:
@@ -1862,34 +2147,61 @@ def register(self, api: PluginApi):
 - For webhook-based channels, combine `register_channel` with
   `register_http_router` in the same plugin.
 
-## Dependency Management
+### Dependency Management
 
-### Using requirements.txt
+#### Declaring Python Package Dependencies
 
-If your plugin requires additional Python packages, create `requirements.txt`:
+Declare dependencies in `plugin.json` without also creating `requirements.txt`:
+
+```json
+{
+  "dependencies": ["httpx>=0.24.0", "pydantic>=2.0.0"]
+}
+```
+
+Alternatively, use `requirements.txt`:
 
 ```
 httpx>=0.24.0
 pydantic>=2.0.0
 ```
 
-Dependencies will be automatically installed when the plugin is installed.
+Both declarations are combined into the same dependency check and installation
+flow; neither takes precedence. For example, `example-package>=1.0` in the manifest
+and `example-package<2.0` in the file must both hold. Conflicting constraints fail
+the check or dependency resolution. Prefer maintaining each dependency in one
+place to avoid duplicate declarations. These are Python package dependencies,
+not other plugin IDs or runtime service dependencies.
 
-### Using Custom PyPI Index
+Explicit installation, updates, and repairs check and install missing dependencies.
+Boot only checks dependencies; it does not install them. Missing dependencies fail
+that plugin's load. Call `POST /api/plugins/{plugin_id}/repair-dependencies` to repair
+them; disabled plugins stay disabled. Versions that conflict with protected host
+packages are refused; resolve the environment conflict first. Administrator-managed
+local runtimes require the administrator to install dependencies.
+
+#### Using Custom PyPI Index
 
 ```
 --index-url https://custom-pypi.example.com/simple
 my-package>=1.0.0
 ```
 
-## Best Practices
+Use `--index-url URL` or `--index-url=URL` on its own line. pip / uv receives the
+index setting; package version and host-package checks still apply. Other options,
+nested `-r` files, extras, and direct URL requirements are not supported yet.
+Index settings belong only in `requirements.txt`. Each manifest dependency must
+be a single package requirement with optional version constraints and environment
+markers; installer options and multiline strings are not allowed.
 
-### 1. Naming Conventions
+### Best Practices
+
+#### 1. Naming Conventions
 
 - **Plugin ID**: Use lowercase letters and hyphens, e.g., `my-plugin`
 - **Version**: Follow semantic versioning (1.0.0, 1.1.0, 2.0.0)
 
-### 2. Error Handling
+#### 2. Error Handling
 
 Hook callbacks should handle errors gracefully to avoid blocking application startup:
 
@@ -1903,7 +2215,7 @@ def startup_hook():
         # Don't raise, let the application continue
 ```
 
-### 3. Logging
+#### 3. Logging
 
 Use Python logging to record plugin behavior:
 
@@ -1917,7 +2229,7 @@ logger.debug("Debug information")
 logger.error("Error occurred", exc_info=True)
 ```
 
-### 4. Documentation
+#### 4. Documentation
 
 Provide clear README.md documentation including:
 
@@ -1927,9 +2239,9 @@ Provide clear README.md documentation including:
 - Configuration instructions
 - Troubleshooting
 
-## Priority System
+### Priority System
 
-### Hook Priority
+#### Hook Priority
 
 Hooks are executed in priority order:
 
@@ -1951,9 +2263,9 @@ api.register_startup_hook("normal", callback, priority=100)
 api.register_startup_hook("late", callback, priority=200)
 ```
 
-## Troubleshooting
+### Troubleshooting
 
-### Plugin Not Loading
+#### Plugin Not Loading
 
 1. Check if plugin is installed:
 
@@ -1972,7 +2284,7 @@ api.register_startup_hook("late", callback, priority=200)
    qwenpaw plugin info <plugin-id>
    ```
 
-### Dependency Installation Failed
+#### Dependency Installation Failed
 
 1. Check `requirements.txt` format
 2. Manually test dependency installation:
@@ -1981,28 +2293,28 @@ api.register_startup_hook("late", callback, priority=200)
    ```
 3. Reinstall plugin with `--force` flag
 
-### Provider Not Showing
+#### Provider Not Showing
 
 1. Confirm plugin is installed and restart QwenPaw
 2. Check the model management page in Web UI
 3. Review provider registration info in logs
 
-### Command Not Responding
+#### Command Not Responding
 
 1. Confirm plugin is installed
 2. Check if the command handler was registered successfully in logs
 3. Verify the command name matches (e.g. `/status`)
 
-## Security Considerations
+### Security Considerations
 
 1. **Only install trusted plugins**: Plugin code executes in the QwenPaw process
 2. **Check dependencies**: Ensure plugin dependencies come from trusted sources
 3. **Review code**: Review plugin source code before installation
 4. **Hot-loading awareness**: The current version supports hot-installing/uninstalling plugins via API while the app is running. Be mindful of state consistency during hot-loading
 
-## PluginApi Reference
+### PluginApi Reference
 
-### register_memory_backend
+#### register_memory_backend
 
 Register a plugin-owned memory backend. Memory plugins should call this during
 their normal `register()` method and declare `type: "memory"` in the manifest so
@@ -2024,7 +2336,7 @@ Supported metadata used by core includes `description`, `network_access`,
 `policy_name`, `tool_type`, `target_param`, and `sandbox_required` for governance
 registration.
 
-### register_provider
+#### register_provider
 
 Register a custom LLM provider.
 
@@ -2038,7 +2350,7 @@ api.register_provider(
 )
 ```
 
-### register_startup_hook
+#### register_startup_hook
 
 Register a startup hook.
 
@@ -2050,7 +2362,7 @@ api.register_startup_hook(
 )
 ```
 
-### register_shutdown_hook
+#### register_shutdown_hook
 
 Register a shutdown hook.
 
@@ -2062,7 +2374,7 @@ api.register_shutdown_hook(
 )
 ```
 
-### register_http_router
+#### register_http_router
 
 Mount a `fastapi.APIRouter` under `/api` + _prefix_.
 
@@ -2078,7 +2390,7 @@ api.register_http_router(
 See [Example 7](#example-7-expose-a-fastapi-endpoint) for a full
 walkthrough.
 
-### register_control_command
+#### register_control_command
 
 Register a custom `/slash` control command.
 
@@ -2091,7 +2403,7 @@ api.register_control_command(
 
 The handler must inherit from `qwenpaw.runtime.commands.control.base.BaseControlCommandHandler` and implement `command_name`, `help_text`, and `async handle(self, ctx, args)`.
 
-### register_tool
+#### register_tool
 
 Register a tool function into the Agent's toolkit.
 
@@ -2105,7 +2417,7 @@ api.register_tool(
 )
 ```
 
-### register_uninstall_hook
+#### register_uninstall_hook
 
 Register a hook that runs only when the plugin is explicitly uninstalled.
 
@@ -2117,7 +2429,7 @@ api.register_uninstall_hook(
 )
 ```
 
-### register_workspace_created_hook
+#### register_workspace_created_hook
 
 Register a hook that fires when a new workspace is created.
 
@@ -2129,7 +2441,7 @@ api.register_workspace_created_hook(
 )
 ```
 
-### get_tool_config / set_tool_config
+#### get_tool_config / set_tool_config
 
 Get or save per-agent tool configuration.
 
@@ -2138,7 +2450,7 @@ config = api.get_tool_config(tool_name: str, agent_id: str)  # Returns dict
 api.set_tool_config(tool_name: str, agent_id: str, config: dict)
 ```
 
-### register_middleware
+#### register_middleware
 
 Register an AgentScope `MiddlewareBase` factory.
 
@@ -2160,9 +2472,9 @@ The factory is called during `AgentBuilder.build()` for each request. The return
 
 See [Example 8](#example-8-tracing-middleware) and [Example 9](#example-9-thinking-log-middleware) above for full walkthroughs.
 
-## Advanced Features
+### Advanced Features
 
-### Modifying Agent Behavior
+#### Modifying Agent Behavior
 
 To intercept or enhance agent request processing, use one of these approaches:
 
@@ -2172,7 +2484,7 @@ To intercept or enhance agent request processing, use one of these approaches:
 
 The current request flow is `Runtime.run()` → `AgentBuilder.build()` → `AgentExecutor.run()`.
 
-### Custom Commands
+#### Custom Commands
 
 In 2.0, the recommended way to add custom `/slash` commands is via `api.register_control_command()`. This replaces the old monkey patching approach:
 
@@ -2197,7 +2509,7 @@ api.register_control_command(
 )
 ```
 
-### Access Runtime Information
+#### Access Runtime Information
 
 Access runtime information through `api.runtime`:
 
@@ -2210,7 +2522,7 @@ def my_hook():
     providers = provider_manager.list_provider_info()
 ```
 
-## Plugin Packaging
+### Plugin Packaging
 
 Package your plugin as a ZIP file for distribution:
 
@@ -2225,9 +2537,9 @@ Users can install via URL:
 qwenpaw plugin install https://example.com/my-plugin-1.0.0.zip
 ```
 
-## FAQ
+### FAQ
 
-### Q: What QwenPaw APIs can plugins access?
+#### Q: What QwenPaw APIs can plugins access?
 
 A: Plugins access core functionality through `PluginApi`, including:
 
@@ -2238,17 +2550,17 @@ A: Plugins access core functionality through `PluginApi`, including:
 - HTTP router registration (`register_http_router`)
 - Runtime helpers (provider_manager, etc.)
 
-### Q: Can plugins modify QwenPaw's core behavior?
+#### Q: Can plugins modify QwenPaw's core behavior?
 
 A: Yes, through `register_middleware` (inject AgentScope middlewares), `register_control_command`, `register_tool`, runtime hooks, and other PluginApi methods. Use with caution to avoid breaking core functionality.
 
-### Q: Will plugins conflict with each other?
+#### Q: Will plugins conflict with each other?
 
 A: If multiple plugins register the same provider_id or command_name, the later one will override the earlier one. Use unique IDs.
 
-## Example Plugins
+### Example Plugins
 
-### GPT Image 2 Tool Plugin
+#### GPT Image 2 Tool Plugin
 
 A tool plugin that adds OpenAI's GPT Image 2 image generation capability to QwenPaw agents.
 

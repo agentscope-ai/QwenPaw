@@ -3,15 +3,19 @@
 
 from collections.abc import AsyncIterator, Iterator, Mapping
 import asyncio
+from contextlib import closing
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 import gzip
 import json
 from pathlib import Path
 import sqlite3
 import threading
 import time
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 from unittest.mock import patch
+import uuid
 
 import httpx
 import pytest
@@ -33,9 +37,11 @@ from qwenpaw.hub.config import (
 )
 from qwenpaw.hub.control_app import create_hub_app, run_hub_app
 from qwenpaw.hub.credentials import TenantCredentialVault
+from qwenpaw.hub.invitations import InvitationError, InvitationService
 from qwenpaw.hub.model_service.api_models import ConnectionBody
 from qwenpaw.hub.model_service.gateway import ModelGateway
 from qwenpaw.hub.model_service.listener import ModelListener
+from qwenpaw.hub.model_service.storage import GovernanceStore
 from qwenpaw.hub.provisioner import (
     RuntimeModelNetwork,
     RuntimeProvisioner,
@@ -1533,11 +1539,12 @@ def test_deleted_runtime_owner_returns_no_username(tmp_path: Path) -> None:
             json={"runtime_id": "orphaned-runtime"},
             headers=_headers(member_token),
         )
-        with sqlite3.connect(auth.database_path) as connection:
-            connection.execute(
-                "UPDATE hub_users SET deleted_at = ? WHERE user_id = ?",
-                ("2026-01-01T00:00:00Z", member.user_id),
-            )
+        with closing(sqlite3.connect(auth.database_path)) as connection:
+            with connection:
+                connection.execute(
+                    "UPDATE hub_users SET deleted_at = ? WHERE user_id = ?",
+                    ("2026-01-01T00:00:00Z", member.user_id),
+                )
         runtimes = client.get(
             "/api/hub/runtimes?q=orphaned-runtime",
             headers=_headers(admin_token),
@@ -1670,6 +1677,129 @@ def test_rejected_registration_is_audited(tmp_path: Path) -> None:
         )
         assert denied["actor_username"] == "owner"
         assert denied["detail"]["reason"]
+
+
+def test_invitation_failures_map_to_distinct_statuses(
+    tmp_path: Path,
+) -> None:
+    """Each invitation rejection reason keeps its own HTTP semantics."""
+    config = HubConfig(
+        control_plane=ControlPlaneConfig(
+            security=AccessSecurityConfig(
+                registration_rate_limit=RateLimitConfig(
+                    max_attempts=100,
+                    window_seconds=3600,
+                    block_seconds=3600,
+                ),
+            ),
+        ),
+    )
+    with _client(tmp_path, hub_config=config) as client:
+        admin_token = _register(client, "owner")
+        database = tmp_path / "control.db"
+        with closing(sqlite3.connect(database)) as connection:
+            with connection:
+                connection.execute(
+                    "UPDATE hub_settings SET value_json = ? WHERE key = ?",
+                    ('"invite"', "registration_mode"),
+                )
+        invitations = InvitationService(
+            GovernanceStore(database),
+            client.app.state.auth_service,
+        )
+
+        def issue(**overrides) -> dict:
+            values = {
+                "valid_days": 7,
+                "request_id": uuid.uuid4().hex,
+                "model_ids": [],
+                "count": 1,
+                "note": "support batch",
+                "token_limit": None,
+                "inherit_budget": True,
+            }
+            values.update(overrides)
+            return invitations.create(
+                "owner",
+                SimpleNamespace(**values),
+            )
+
+        def attempt(username: str, code: str):
+            return client.post(
+                "/api/auth/register",
+                json={
+                    "username": username,
+                    "password": "safe-password",
+                    "invite_code": code,
+                },
+            )
+
+        missing = attempt("u-missing", "forged-code")
+        assert missing.status_code == 404
+        assert missing.json()["detail"] == ("Invitation code not found")
+
+        revoked_batch = issue()
+        invitations.revoke(revoked_batch["id"])
+        revoked = attempt(
+            "u-revoked",
+            revoked_batch["codes"][0]["code"],
+        )
+        assert revoked.status_code == 410
+        assert revoked.json()["detail"] == "Invitation revoked"
+
+        used_code = issue()["codes"][0]["code"]
+        assert attempt("u-first", used_code).status_code == 200
+        replay = attempt("u-replay", used_code)
+        assert replay.status_code == 409
+        assert replay.json()["detail"] == "Invitation already used"
+
+        expired_batch = issue()
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        with closing(sqlite3.connect(database)) as connection:
+            with connection:
+                connection.execute(
+                    "UPDATE hub_invites SET expires_at = ? WHERE id = ?",
+                    (past, expired_batch["codes"][0]["id"]),
+                )
+        expired = attempt(
+            "u-expired",
+            expired_batch["codes"][0]["code"],
+        )
+        assert expired.status_code == 410
+        assert expired.json()["detail"] == "Invitation expired"
+
+        # The endpoint short-circuits non-invite modes, so the
+        # registration_closed branch is only reachable through a
+        # mode flip racing the request; force it deterministically.
+        race_batch = issue()
+        with patch.object(
+            InvitationService,
+            "redeem",
+            side_effect=InvitationError("registration_closed"),
+        ):
+            race = attempt(
+                "u-race",
+                race_batch["codes"][0]["code"],
+            )
+        assert race.status_code == 403
+        assert race.json()["detail"] == ("Invitation registration disabled")
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=auth.register",
+            headers=_headers(admin_token),
+        )
+        reasons = [
+            event["detail"]["reason"]
+            for event in audit.json()["items"]
+            if event["outcome"] == "failure"
+        ]
+        assert set(reasons) == {
+            "invitation.not_found",
+            "invitation.revoked",
+            "invitation.already_used",
+            "invitation.expired",
+            "invitation.registration_closed",
+        }
 
 
 def test_failed_runtime_creation_is_audited(tmp_path: Path) -> None:
@@ -1855,6 +1985,87 @@ def test_regular_runtime_callback_still_requires_login(
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize(f"protocol", [f"responses", f"anthropic"])
+def test_hub_native_provider_dispatch_and_settlement(admin_client, protocol):
+    client, token = admin_client
+    headers = _headers(token)
+    received = []
+
+    def upstream(request):
+        received.append(request)
+        body = json.loads(request.content)
+        if protocol == f"anthropic":
+            assert request.url.path.endswith(f"/messages")
+            assert request.headers[f"x-api-key"] == f"isolated-key"
+            assert body[f"max_tokens"] == 16
+            payload = {
+                f"id": f"msg-1",
+                f"content": [{f"type": f"text", f"text": f"OK"}],
+                f"stop_reason": f"end_turn",
+                f"usage": {
+                    f"input_tokens": 3,
+                    f"output_tokens": 1,
+                    f"cache_read_input_tokens": 10,
+                },
+            }
+        else:
+            assert request.url.path.endswith(f"/responses")
+            assert request.headers[f"authorization"] == f"Bearer isolated-key"
+            assert body[f"max_output_tokens"] == 16
+            payload = {
+                f"id": f"resp-1",
+                f"status": f"completed",
+                f"output": [
+                    {
+                        f"type": f"message",
+                        f"content": [
+                            {f"type": f"output_text", f"text": f"OK"},
+                        ],
+                    },
+                ],
+                f"usage": {f"input_tokens": 13, f"output_tokens": 1},
+            }
+        return httpx.Response(200, json=payload)
+
+    client.app.state.model_gateway.transport = httpx.MockTransport(upstream)
+    connection = client.post(
+        f"/api/hub/admin/model-connections",
+        headers=headers,
+        json={
+            f"name": f"Custom",
+            f"protocol": protocol,
+            f"base_url": f"https://custom.example/v1",
+            f"api_key": f"isolated-key",
+            f"quota_scope": f"custom",
+        },
+    )
+    assert connection.status_code == 200, connection.text
+    model = client.post(
+        f"/api/hub/admin/models",
+        headers=headers,
+        json={
+            f"connection_id": connection.json()[f"id"],
+            f"upstream_model": f"private-model",
+            f"name": f"Shared model",
+            f"input_token_limit": 4000,
+            f"output_token_limit": 128,
+            f"budget_verified": True,
+        },
+    )
+    assert model.status_code == 200, model.text
+    response = client.post(
+        f"/api/hub/admin/models/{model.json()['id']}/test",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()[f"usage"][f"total_tokens"] == 14
+    assert response.json()[f"choices"][0][f"message"][f"content"] == f"OK"
+    assert len(received) == 1
+    with client.app.state.model_catalog.store.connect() as db:
+        row = db.execute(f"SELECT status FROM hub_model_requests").fetchone()
+        assert row[f"status"] != f"dispatched"
+
+
 def test_pawapp_cleanup_cors_uses_explicit_origins(tmp_path):
     origin = "http://localhost:5173"
     with patch("qwenpaw.hub.control_app.CORS_ORIGINS", origin):
@@ -1953,3 +2164,59 @@ def test_legacy_pawapp_grant_is_static_only(tmp_path):
             ).status_code
             == 401
         )
+
+
+def test_hub_avatar_identity_is_scoped_to_authenticated_user(hub_client):
+    """Avatar storage belongs to the Hub account, not its runtime."""
+    owner_token = _register(hub_client, "avatar-owner")
+    _, member_token = _create_user(hub_client, "avatar-member")
+    endpoint = "/api/profile/avatars"
+    data = (
+        Path(__file__).resolve().parents[3]
+        / "console/public/qwenpaw-avatar.gif"
+    ).read_bytes()
+    assert hub_client.get(endpoint).status_code == 401
+    uploaded = hub_client.post(
+        endpoint,
+        content=data,
+        headers=_headers(owner_token),
+    )
+    assert uploaded.status_code == 200
+    identifier = uploaded.json()["selected"]
+    assert (
+        hub_client.get(
+            f"{endpoint}/{identifier}",
+            headers=_headers(owner_token),
+        ).content
+        == data
+    )
+    assert (
+        hub_client.get(
+            f"{endpoint}/{identifier}",
+            headers=_headers(member_token),
+        ).status_code
+        == 404
+    )
+    assert (
+        hub_client.put(
+            f"{endpoint}/selection",
+            json={"image_id": identifier},
+            headers=_headers(member_token),
+        ).status_code
+        == 404
+    )
+    assert (
+        hub_client.get(
+            endpoint,
+            headers=_headers(member_token),
+        ).json()["history"]
+        == []
+    )
+    assert (
+        hub_client.put(
+            f"{endpoint}/selection",
+            json={"image_id": None},
+            headers=_headers(owner_token),
+        ).json()["selected"]
+        is None
+    )

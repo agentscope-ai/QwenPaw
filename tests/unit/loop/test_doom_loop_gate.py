@@ -96,12 +96,14 @@ def test_reset_clears_counters(gate):
     state = gate._ensure_state()
     state.consecutive_hits = 5
     state.prompt = "some warning"
-    state.last_recorded_iter = 10
+    state.last_recorded_msg_id = f"message-{state.consecutive_hits}"
+    state.history_dirty = True
     gate.reset_turn()
     state = gate._ensure_state()
     assert state.consecutive_hits == 0
     assert state.prompt == ""
-    assert state.last_recorded_iter == -1
+    assert state.last_recorded_msg_id is None
+    assert state.history_dirty is False
 
 
 def test_reset_keeps_gate_active(gate):

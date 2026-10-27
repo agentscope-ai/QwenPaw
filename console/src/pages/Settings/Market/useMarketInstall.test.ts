@@ -97,6 +97,9 @@ describe("useMarketInstall — pool installs", () => {
     expect(result.current.queue[0].installedName).toBe("cool-skill");
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(mocks.invalidateSkillCache).toHaveBeenCalledWith({ pool: true });
+    expect(mocks.importPoolSkillFromHub).toHaveBeenCalledWith(
+      expect.objectContaining({ provider_key: skillResult.source }),
+    );
   });
 
   it("marks a failed pool install with the server message", async () => {
@@ -329,6 +332,10 @@ describe("useMarketInstall — workspace installs (polling)", () => {
     expect(result.current.queue[0].status).toBe("completed");
     expect(result.current.queue[0].installedName).toBe("cool-skill");
     expect(mocks.notifySkillChange).toHaveBeenCalledWith("agent-1");
+    expect(mocks.startHubSkillInstall).toHaveBeenCalledWith(
+      expect.objectContaining({ provider_key: skillResult.source }),
+      "agent-1",
+    );
     expect(mocks.invalidateSkillCache).toHaveBeenCalledWith({
       agentId: "agent-1",
       workspaces: true,

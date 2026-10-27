@@ -35,6 +35,16 @@ A backup ID has the format `qwenpaw-<version>-<timestamp>-<short8>`, which makes
 
 > **Tip**: An LLM provider's API key belongs to **Secrets**, **not Global settings**. If you only back up the global settings without the secrets, you will need to re-enter your model API keys in the Console after restoring.
 
+### Conversation history protection
+
+Instance backup preserves a complete, consistent copy of every selected
+agent's conversation history without requiring you to stop the service. If
+history cannot be saved completely, the backup fails with an error rather than
+reporting success for an archive that silently omitted conversations.
+
+During restore, QwenPaw checks conversation history again before replacing the
+workspace. If the check fails, the existing workspace remains unchanged.
+
 ---
 
 ## Creating a Backup

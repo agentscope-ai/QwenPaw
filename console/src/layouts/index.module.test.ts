@@ -6,6 +6,10 @@ const stylesSource = readFileSync(
   join(process.cwd(), "src/layouts/index.module.less"),
   "utf8",
 );
+const sidebarAStylesSource = readFileSync(
+  join(process.cwd(), "src/layouts/sidebarA.module.less"),
+  "utf8",
+);
 const sidebarSource = readFileSync(
   join(process.cwd(), "src/layouts/Sidebar.tsx"),
   "utf8",
@@ -20,10 +24,6 @@ const appBrandSource = readFileSync(
 );
 const mainLayoutSource = readFileSync(
   join(process.cwd(), "src/layouts/MainLayout/index.tsx"),
-  "utf8",
-);
-const sessionListSource = readFileSync(
-  join(process.cwd(), "src/layouts/SidebarSessionList.tsx"),
   "utf8",
 );
 const sessionListStylesSource = readFileSync(
@@ -96,32 +96,6 @@ describe("Sidebar overflow layout", () => {
     expect(sidebarSource).not.toContain("sidebar.collapseShortcuts");
   });
 
-  it("renders inbox and all other shortcuts in one scroll region", () => {
-    const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
-    const scrollRegion = sidebarSource.slice(
-      scrollStart,
-      sidebarSource.indexOf("{/* Session list", scrollStart),
-    );
-
-    expect(scrollStart).toBeGreaterThanOrEqual(0);
-    expect(scrollRegion).toContain("inboxEntry &&");
-    expect(scrollRegion).toContain("visibleSidebarNav.map(renderNavItem)");
-  });
-
-  it("pins the expanded new-task button directly above inbox shortcuts", () => {
-    const taskStart = sidebarSource.indexOf("className={styles.newTask}");
-    const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
-    const inboxStart = sidebarSource.indexOf("inboxEntry &&", scrollStart);
-
-    expect(taskStart).toBeGreaterThanOrEqual(0);
-    expect(taskStart).toBeLessThan(scrollStart);
-    expect(scrollStart).toBeLessThan(inboxStart);
-    expect(sidebarSource.slice(taskStart, scrollStart)).toContain(
-      't("chat.newTask", "New task")',
-    );
-    expect(stylesSource).toContain(".newTask");
-  });
-
   it("uses the configured accent tokens for the new-task button", () => {
     const taskStart = stylesSource.indexOf(".newTask {");
     const taskRule = stylesSource.slice(
@@ -135,20 +109,118 @@ describe("Sidebar overflow layout", () => {
     expect(taskRule).not.toContain("#ff7f16");
   });
 
-  it("pins more settings below shortcuts and preserves the return path", () => {
-    const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
-    const moreSettingsStart = sidebarSource.indexOf(
-      "className={styles.moreSettings}",
+  it("maps expanded navigation interaction states to semantic tokens", () => {
+    const itemStart = stylesSource.indexOf("\n.navigationItem {") + 1;
+    const itemRule = stylesSource.slice(
+      itemStart,
+      stylesSource.indexOf(".navigationItemActive {", itemStart),
     );
-    const sessionsStart = sidebarSource.indexOf("{/* Session list");
+    const activeStart = stylesSource.indexOf(".navigationItemActive {");
+    const activeRule = stylesSource.slice(
+      activeStart,
+      stylesSource.indexOf("/* Collapsed nav", activeStart),
+    );
 
-    expect(scrollStart).toBeGreaterThanOrEqual(0);
-    expect(moreSettingsStart).toBeGreaterThan(scrollStart);
-    expect(moreSettingsStart).toBeLessThan(sessionsStart);
-    expect(sidebarSource).toContain('t("nav.moreSettings", "More settings")');
-    expect(sidebarSource).toContain('navigate("/settings/general"');
-    expect(sidebarSource).toContain("settingsReturnTo:");
-    expect(stylesSource).toContain(".moreSettings");
+    expect(itemRule).toContain("color: var(--app-text-secondary);");
+    expect(itemRule).toContain(
+      '&:hover:not(:disabled):not([aria-disabled="true"])',
+    );
+    expect(itemRule).toContain("background: var(--app-fill-subtle);");
+    expect(itemRule).toContain(
+      '&:active:not(:disabled):not([aria-disabled="true"])',
+    );
+    expect(itemRule).toContain("background: var(--app-fill-strong);");
+    expect(itemRule).toContain('&[aria-disabled="true"]');
+    expect(itemRule).not.toContain("rgba(");
+    expect(activeRule).toContain("background: var(--app-nav-selected-bg);");
+    expect(activeRule).toContain("color: var(--app-nav-selected-text);");
+    expect(activeRule).toContain(
+      "background: var(--app-nav-selected-bg-hover);",
+    );
+  });
+
+  it("uses the selected navigation token for Sidebar A active routes", () => {
+    const navGridStart = sidebarAStylesSource.indexOf(".navGrid {");
+    const activeStart = sidebarAStylesSource.indexOf(
+      '&[aria-current="page"] {',
+      navGridStart,
+    );
+    const activeEnd = sidebarAStylesSource.indexOf("\n    }", activeStart);
+    const activeRule = sidebarAStylesSource.slice(activeStart, activeEnd);
+
+    expect(navGridStart).toBeGreaterThanOrEqual(0);
+    expect(activeStart).toBeGreaterThan(navGridStart);
+    expect(activeEnd).toBeGreaterThan(activeStart);
+    expect(activeRule).toContain("color: var(--app-nav-selected-text);");
+    expect(activeRule).not.toContain("color: var(--app-accent-text);");
+  });
+
+  it("keeps collapsed open and route-active states distinct", () => {
+    const itemStart = stylesSource.indexOf(".collapsedNavItem {");
+    const itemRule = stylesSource.slice(
+      itemStart,
+      stylesSource.indexOf(".collapsedNavItemActive {", itemStart),
+    );
+    const activeStart = stylesSource.indexOf(".collapsedNavItemActive {");
+    const activeRule = stylesSource.slice(
+      activeStart,
+      stylesSource.indexOf("@media (max-width: 768px)", activeStart),
+    );
+
+    const siderStart = stylesSource.indexOf(".sider {");
+    const siderRule = stylesSource.slice(
+      siderStart,
+      stylesSource.indexOf(".siderDark {", siderStart),
+    );
+
+    expect(siderRule).toContain('button[aria-expanded="true"]');
+    expect(siderRule).toContain("color: var(--app-accent-text) !important;");
+    expect(siderRule).not.toContain(
+      "background: var(--app-accent-soft) !important;",
+    );
+    expect(siderRule).not.toContain(
+      "box-shadow: inset 0 0 0 1px var(--app-accent-border) !important;",
+    );
+    expect(itemRule).toContain('&[aria-disabled="true"]');
+    expect(itemRule).not.toContain("rgba(");
+    expect(activeRule).toContain(
+      "background: var(--app-nav-selected-bg) !important;",
+    );
+    expect(activeRule).toContain(
+      "color: var(--app-nav-selected-text) !important;",
+    );
+    expect(activeRule).not.toContain('button[aria-expanded="true"]');
+  });
+
+  it("uses the same semantic feedback for sidebar utility buttons", () => {
+    const brandStart = stylesSource.indexOf(".brandCollapseToggle {");
+    const brandRule = stylesSource.slice(
+      brandStart,
+      stylesSource.indexOf(".appBrandUpdateIcon", brandStart),
+    );
+    const toggleStart = stylesSource.indexOf(".collapseToggle {");
+    const toggleRule = stylesSource.slice(
+      toggleStart,
+      stylesSource.indexOf(".quickSettingsPopover", toggleStart),
+    );
+
+    for (const rule of [brandRule, toggleRule]) {
+      expect(rule).toContain("color: var(--app-text-secondary)");
+      expect(rule).toContain("background: var(--app-fill-subtle)");
+      expect(rule).toContain("background: var(--app-fill-strong)");
+      expect(rule).toContain("&:disabled");
+    }
+    const darkStart = stylesSource.indexOf(":global(.dark-mode) {");
+    const darkRule = stylesSource.slice(
+      darkStart,
+      stylesSource.indexOf("// Primary navigation", darkStart),
+    );
+    expect(darkRule).not.toContain(".brandCollapseToggle");
+    expect(darkRule).not.toContain(".collapseToggle {");
+    expect(darkRule).not.toContain(".collapsedNavItem {");
+    expect(darkRule).not.toContain(".collapsedNavItemActive {");
+    expect(darkRule).not.toContain(".navigationItem {");
+    expect(darkRule).not.toContain(".navigationItemActive {");
   });
 
   it("separates conversation history from the shortcut panel", () => {
@@ -161,28 +233,6 @@ describe("Sidebar overflow layout", () => {
     expect(historyAreaStart).toBeGreaterThanOrEqual(0);
     expect(historyAreaRule).toContain("margin-top: 10px;");
     expect(sidebarSource).toContain("className={styles.sessionArea}");
-  });
-
-  it("retains the bottom settings icon in expanded and collapsed modes", () => {
-    const bottomControlsStart = sidebarSource.indexOf(
-      "className={styles.collapseToggleContainer}",
-    );
-    const bottomControls = sidebarSource.slice(
-      bottomControlsStart,
-      sidebarSource.indexOf("<Modal", bottomControlsStart),
-    );
-
-    expect(bottomControlsStart).toBeGreaterThanOrEqual(0);
-    expect(bottomControls).toContain("<Settings size={18} />");
-    expect(bottomControls).toContain("<SidebarSettingsPanel");
-    expect(bottomControls).toContain("onOpenSettings={handleOpenSettings}");
-    expect(bottomControls).toContain("className={styles.sidebarUser}");
-    expect(bottomControls).toContain("authEnabled={authEnabled}");
-    expect(bottomControls).toContain("onOpenAccount={handleOpenAccount}");
-    expect(bottomControls).toContain("onLogout={handleLogout}");
-    expect(bottomControls).toContain("open={settingsOpen}");
-    expect(bottomControls).toContain("destroyOnHidden");
-    expect(bottomControls).not.toContain("{collapsed && (");
   });
 
   it("removes the prefixed popover shell around quick settings", () => {
@@ -221,22 +271,6 @@ describe("Sidebar overflow layout", () => {
 
   it("removes the standalone chat navigation entry", () => {
     expect(sidebarSource).not.toContain('t("nav.chat")');
-  });
-
-  it("uses a recent-style history header with compact actions", () => {
-    expect(sessionListSource).toContain("<SparkNewChatLine size={18} />");
-    expect(sessionListSource).toContain("<Ellipsis size={16} />");
-    expect(sessionListSource).toContain('key: "search"');
-    expect(sessionListSource).toContain('key: "create-group"');
-    expect(sessionListSource).toContain("setHistoryCollapsed(false)");
-    expect(sessionListSource).toContain("searchInputRef.current?.focus()");
-    expect(sessionListSource).toContain("groupInputRef.current?.focus()");
-    expect(sessionListSource).not.toContain("styles.newChatBtn");
-    expect(sessionListSource).not.toContain("styles.createGroupBtn");
-    expect(sessionListStylesSource).toContain(".historyActions");
-    expect(sessionListStylesSource).toContain(".historyAction");
-    expect(sessionListStylesSource).not.toContain(".newChatBtn");
-    expect(sessionListStylesSource).not.toContain(".createGroupBtn");
   });
 
   it("keeps history actions visible in dark mode", () => {

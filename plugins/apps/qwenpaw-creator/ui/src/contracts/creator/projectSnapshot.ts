@@ -7,6 +7,8 @@ export interface ProjectEntityCollection<T> {
 }
 
 export interface ProjectSettingsDocument extends ProjectJsonRecord {
+  production_stage?: "script" | "media";
+  script_approval_fingerprint?: string | null;
   aspect_ratio: string;
   resolution: string;
   platform: string;

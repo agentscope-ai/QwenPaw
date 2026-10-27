@@ -1,3 +1,9 @@
+import { motion, useReducedMotion } from "motion/react";
+import { DefaultModelPicker } from "./DefaultModelPicker";
+import { SharedModal } from "@/components/interaction/SharedModal";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
+import InlineHelp from "../../../components/InlineHelp";
+import modelStyles from "./OrganizationModels.module.less";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState, useRef } from "react";
 import {
@@ -6,8 +12,7 @@ import {
   Tooltip,
   Button,
   Form,
-  Modal,
-  Select,
+  InputNumber,
   Switch,
   Tabs,
   Skeleton,
@@ -19,6 +24,8 @@ import {
   Boxes,
   Plug,
   ArrowRight,
+  ChevronUp,
+  ChevronDown,
   X,
 } from "lucide-react";
 import {
@@ -56,11 +63,15 @@ export default function OrganizationModels({
   }>();
   const [independentScope, setIndependentScope] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const reducedMotion = useReducedMotion();
   const [updatingItem, setUpdatingItem] = useState<string>();
   const [tab, setTab] = useState(initialModel === "usage" ? "usage" : "models");
   const [error, setError] = useState("");
   const [form] = Form.useForm();
   const [policyForm] = Form.useForm();
+  const policySaving = useRef(false);
+  const policyDraft = useRef<Record<string, unknown>>({});
   const load = useCallback(async () => {
     try {
       const [p, c, m, u, presets] = await Promise.all([
@@ -76,7 +87,7 @@ export default function OrganizationModels({
       setConnections(c);
       setModels(m);
       setUsers(u.members);
-      if (m.length) policyForm.setFieldsValue(p);
+      policyForm.setFieldsValue({ ...p, ...policyDraft.current });
     } catch (e) {
       setError((e as Error).message);
     }
@@ -130,6 +141,7 @@ export default function OrganizationModels({
               concurrency: 0,
             },
       );
+    setEditorOpen(true);
     setEditing({ type, id: value?.id, revision: value?.revision });
   };
   const connectionById = new Map(
@@ -186,7 +198,11 @@ export default function OrganizationModels({
     }
   });
   return (
-    <div className={styles.panel}>
+    <motion.div
+      className={`${styles.panel} ${modelStyles.surface}`}
+      animate={{ scale: !reducedMotion && editorOpen ? 0.995 : 1 }}
+      transition={{ type: "spring", stiffness: 360, damping: 38 }}
+    >
       <div className={styles.heading}>
         <div>
           <h1 className={styles.modelTitle}>
@@ -215,8 +231,8 @@ export default function OrganizationModels({
                 </span>
               </Tooltip>
             )}
+            <InlineHelp>{t("hub.governance.models.subtitle")}</InlineHelp>
           </h1>
-          <p>{t("hub.governance.models.subtitle")}</p>
         </div>
         {tab !== "usage" && (
           <div className={styles.actions}>
@@ -253,7 +269,7 @@ export default function OrganizationModels({
       {policy && (
         <>
           <Tabs
-            className={styles.modelTabs}
+            className={`${styles.modelTabs} ${modelStyles.tabs}`}
             activeKey={tab}
             onChange={setTab}
             items={[
@@ -262,47 +278,50 @@ export default function OrganizationModels({
                 label: t("hub.governance.models.availableModels"),
                 children: (
                   <div className={styles.panel}>
-                    {!!models.length && (
-                      <article>
-                        <Form
-                          form={policyForm}
-                          layout="inline"
-                          className={styles.defaultModelForm}
-                          onFinish={async (values) => {
-                            setBusy(true);
-                            try {
-                              const next = await request<ModelPolicy>(
-                                "admin/model-policy",
-                                "PUT",
-                                {
-                                  ...policy,
-                                  ...values,
-                                  default_model_id:
-                                    values.default_model_id ?? null,
-                                },
-                              );
-                              setPolicy(next);
-                              policyForm.setFieldsValue(next);
-                              message.success(
-                                t("hub.governance.models.settingsSaved"),
-                              );
-                            } catch (e) {
-                              message.error(governanceErrorMessage(e, t));
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                        >
+                    <article className={modelStyles.defaults}>
+                      <Form
+                        form={policyForm}
+                        layout="inline"
+                        disabled={busy}
+                        className={styles.defaultModelForm}
+                        onValuesChange={(changedValues) => {
+                          Object.assign(policyDraft.current, changedValues);
+                        }}
+                        onFinish={async (values) => {
+                          if (policySaving.current) return;
+                          policySaving.current = true;
+                          setBusy(true);
+                          try {
+                            const next = await request<ModelPolicy>(
+                              "admin/model-policy",
+                              "PUT",
+                              {
+                                ...policy,
+                                ...values,
+                                default_model_id:
+                                  values.default_model_id ?? null,
+                              },
+                            );
+                            setPolicy(next);
+                            policyDraft.current = {};
+                            policyForm.setFieldsValue(next);
+                            message.success(
+                              t("hub.governance.models.settingsSaved"),
+                            );
+                          } catch (e) {
+                            message.error(governanceErrorMessage(e, t));
+                          } finally {
+                            policySaving.current = false;
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        {!!models.length && (
                           <Form.Item
                             name="default_model_id"
                             label={t("hub.governance.models.defaultModel")}
                           >
-                            <Select
-                              showSearch
-                              optionFilterProp="label"
-                              placeholder={t(
-                                "hub.governance.models.chooseDefault",
-                              )}
+                            <DefaultModelPicker
                               options={availableModels
                                 .filter((m) => m.all_members)
                                 .map((m) => ({
@@ -314,12 +333,51 @@ export default function OrganizationModels({
                                 }))}
                             />
                           </Form.Item>
-                          <Button htmlType="submit" loading={busy}>
-                            {t("common.save")}
-                          </Button>
-                        </Form>
-                      </article>
-                    )}
+                        )}
+                        <Form.Item
+                          name="gateway_timeout_seconds"
+                          label={
+                            <span className={modelStyles.timeoutLabel}>
+                              {t("hub.governance.models.gatewayTimeout")}
+                              <InlineHelp
+                                inline
+                                subject={t(
+                                  "hub.governance.models.gatewayTimeout",
+                                )}
+                              >
+                                {t("hub.governance.models.gatewayTimeoutHelp")}
+                              </InlineHelp>
+                            </span>
+                          }
+                          rules={[
+                            {
+                              required: true,
+                              type: "integer",
+                              min: 60,
+                              message: t(
+                                "hub.governance.models.gatewayTimeoutInvalid",
+                              ),
+                            },
+                          ]}
+                        >
+                          <InputNumber
+                            min={60}
+                            step={1}
+                            changeOnWheel={false}
+                            controls={{
+                              upIcon: <ChevronUp size={12} aria-hidden />,
+                              downIcon: <ChevronDown size={12} aria-hidden />,
+                            }}
+                            aria-label={t(
+                              "hub.governance.models.gatewayTimeout",
+                            )}
+                          />
+                        </Form.Item>
+                        <Button htmlType="submit" loading={busy}>
+                          {t("common.save")}
+                        </Button>
+                      </Form>
+                    </article>
                     {!models.length ? (
                       <div className={styles.onboarding}>
                         <Boxes size={32} />
@@ -372,7 +430,11 @@ export default function OrganizationModels({
                     {connections.length ? (
                       <div className={styles.grid}>
                         {connections.map((c) => (
-                          <article className={styles.card} key={c.id}>
+                          <InteractiveCard
+                            layoutId={`hub-connection:${c.id}`}
+                            className={`${styles.card} ${modelStyles.providerCard}`}
+                            key={c.id}
+                          >
                             <div className={styles.heading}>
                               <ProviderIcon
                                 providerId={c.provider_id || c.name}
@@ -434,7 +496,7 @@ export default function OrganizationModels({
                                 {t("hub.governance.models.addModel")}
                               </Button>
                             </div>
-                          </article>
+                          </InteractiveCard>
                         ))}
                       </div>
                     ) : (
@@ -457,11 +519,20 @@ export default function OrganizationModels({
           />
         </>
       )}
-      <Modal
-        open={!!editing}
+      <SharedModal
+        surfaceId={
+          editing?.type === "connection" && editing.id
+            ? `hub-connection:${editing.id}`
+            : undefined
+        }
+        className={modelStyles.modal}
+        open={editorOpen}
         centered
         destroyOnHidden
-        afterClose={() => form.resetFields()}
+        afterClose={() => {
+          form.resetFields();
+          setEditing(undefined);
+        }}
         okText={t("common.save")}
         title={
           editing?.type === "connection"
@@ -470,7 +541,7 @@ export default function OrganizationModels({
         }
         closeIcon={<X size={18} />}
         width={640}
-        onCancel={() => setEditing(undefined)}
+        onCancel={() => setEditorOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={busy}
       >
@@ -498,6 +569,8 @@ export default function OrganizationModels({
                 body.name = body.name?.trim() || body.upstream_model?.trim();
                 body.description =
                   models.find((m) => m.id === editing.id)?.description ?? "";
+                if (body.input_token_limit == null)
+                  delete body.input_token_limit;
                 body.output_token_limit = body.output_token_limit ?? null;
                 body.budget_verified = true;
                 body.enabled = editing.id
@@ -514,7 +587,7 @@ export default function OrganizationModels({
                 editing.id ? "PUT" : "POST",
                 body,
               );
-              setEditing(undefined);
+              setEditorOpen(false);
               form.resetFields();
               await load();
             } catch (e) {
@@ -540,7 +613,7 @@ export default function OrganizationModels({
             />
           )}
         </Form>
-      </Modal>
-    </div>
+      </SharedModal>
+    </motion.div>
   );
 }

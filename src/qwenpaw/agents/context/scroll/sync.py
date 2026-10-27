@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 from agentscope.message import Msg
 
 from .serialize import msg_to_entries
+from ....config.history_path import resolve_history_db_path
 
 if TYPE_CHECKING:
     from .history import HistoryStore
@@ -788,7 +789,7 @@ def sync_all_scroll_agents() -> None:
 # Keep the preflight-before-DB-open ordering visible in one startup flow.  In
 # particular, moving DB construction into a generic helper would make it much
 # easier to accidentally mutate/quarantine history before registry validation.
-# pylint: disable=too-many-statements
+# pylint: disable=too-many-statements,too-many-branches
 def _sync_all_scroll_agents() -> None:
     # Imported lazily to keep this module importable without the app config.
     from ....config import load_config
@@ -826,8 +827,37 @@ def _sync_all_scroll_agents() -> None:
         workspace_dir = Path(agent_ref.workspace_dir).expanduser()
         sessions_dir = workspace_dir / "sessions"
         chats_path = workspace_dir / "chats.json"
+        try:
+            db_path = resolve_history_db_path(
+                workspace_dir,
+                lcc.scroll_config.db_filename,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "session-sync[%s]: invalid history path: %s",
+                agent_id,
+                exc,
+            )
+            continue
         if not sessions_dir.is_dir():
-            logger.info("session-sync[%s]: no sessions to sync", agent_id)
+            if db_path.is_file():
+                history = None
+                try:
+                    history = HistoryStore(db_path)
+                    _purge_old_history(
+                        history,
+                        lcc.scroll_config.history_retention_days,
+                        agent_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "session-sync[%s]: maintenance failed",
+                        agent_id,
+                        exc_info=True,
+                    )
+                finally:
+                    if history is not None:
+                        history.close()
             continue
         resolved = preflight_sessions(sessions_dir, chats_path)
         if resolved.registry_error:
@@ -862,7 +892,6 @@ def _sync_all_scroll_agents() -> None:
                     pending,
                 )
 
-        db_path = workspace_dir / lcc.scroll_config.db_filename
         retention_days = lcc.scroll_config.history_retention_days
         history = HistoryStore(db_path)
         try:

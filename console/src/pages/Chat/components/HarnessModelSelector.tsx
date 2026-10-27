@@ -165,7 +165,7 @@ export default function HarnessModelSelector({
       open={open}
       onOpenChange={setOpen}
       placement="bottomRight"
-      overlayClassName={styles.overlay}
+      classNames={{ root: styles.overlay }}
     >
       <button type="button" className={styles.trigger}>
         <Cpu size={15} />

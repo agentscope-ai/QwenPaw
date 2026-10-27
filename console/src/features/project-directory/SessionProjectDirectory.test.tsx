@@ -208,6 +208,36 @@ describe("SessionProjectDirectory", () => {
     );
   });
 
+  it("enters a folder with its arrow without selecting or saving it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+    await openPanel(user);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.openDirectory",
+      }),
+    );
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith("/projects/custom", false);
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(mockSetSessionDirectory).not.toHaveBeenCalled();
+  });
+
+  it("jumps to an ancestor without changing the selected workspace", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+    await openPanel(user);
+    await user.click(await screen.findByRole("button", { name: "/" }));
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith("/", false);
+    expect(mockSetSessionDirectory).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("creates a folder in the browsed directory and selects it", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
@@ -589,8 +619,14 @@ describe("SessionProjectDirectory new-task Agent default", () => {
       screen.queryByText("projectDirectory.agentTitle"),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("projectDirectory.primaryHint"),
-    ).toBeInTheDocument();
+      screen.queryByText("projectDirectory.primaryHint"),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "projectDirectory.primaryHint" }),
+    );
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "projectDirectory.primaryHint",
+    );
     expect(
       screen.queryByRole("button", {
         name: "projectDirectory.useWorkspace",

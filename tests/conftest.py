@@ -104,6 +104,7 @@ def temp_copaw_home(
 
     # Set isolated environment
     monkeypatch.setenv("HOME", temp_dir)
+    monkeypatch.setenv("USERPROFILE", temp_dir)
     monkeypatch.setenv("COPAW_HOME", str(temp_path / ".copaw"))
 
     # Clear sensitive tokens to prevent accidental API calls
@@ -465,3 +466,24 @@ def isolated_secret_dir(monkeypatch, tmp_path):
         None,
     )
     return secret_dir
+
+
+@pytest.fixture
+def mock_typesafe(monkeypatch):
+    """Route TypeSafe SDK clients created by agentscope to a handler."""
+    import httpx2
+    import typesafe_sdk
+
+    def install(handler):
+        original_client = typesafe_sdk.AsyncTypeSafeClient
+        monkeypatch.setattr(
+            typesafe_sdk,
+            "AsyncTypeSafeClient",
+            lambda **kwargs: original_client(
+                transport=httpx2.MockTransport(handler),
+                compression=False,
+                **kwargs,
+            ),
+        )
+
+    return install

@@ -720,7 +720,7 @@ pub(crate) fn backend_environment(app: &tauri::AppHandle) -> Vec<(String, String
 }
 
 /// Stop the helper when the desktop host exits.
-pub(crate) fn stop(app: &tauri::AppHandle) {
+pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<ComputerUseRuntimeState>();
     if let Some(control) = state
         .control
@@ -733,9 +733,7 @@ pub(crate) fn stop(app: &tauri::AppHandle) {
             log::warn!("[computer-use] control endpoint stopped unexpectedly");
         }
     }
-    if let Err(error) = stop_helper(app) {
-        log::warn!("[computer-use] failed to stop helper: {error}");
-    }
+    stop_helper(app)
 }
 
 /// Terminate the managed helper as part of desktop-host shutdown.

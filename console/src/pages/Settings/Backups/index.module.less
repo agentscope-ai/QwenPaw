@@ -61,3 +61,33 @@
   justify-content: center;
   height: 400px;
 }
+
+/* Page-specific settings refinement. */
+
+.content {
+  padding-top: 12px;
+  max-width: 1280px;
+  width: 100%;
+  margin-inline: auto;
+}
+.headerRight {
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .content {
+    padding-inline: 0;
+  }
+}
+
+.content {
+  max-width: none;
+  margin-inline: 0;
+}
+@media (max-width: 600px) {
+  .headerRight {
+    width: 100%;
+  }
+  .headerRight > * {
+    flex: 1;
+  }
+}

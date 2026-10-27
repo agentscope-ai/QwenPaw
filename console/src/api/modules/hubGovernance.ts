@@ -21,15 +21,18 @@ export async function governanceRequest<T>(
 }
 
 export interface ModelPolicy {
+  gateway_timeout_seconds: number;
   default_model_id: string | null;
   member_token_limit: number | null;
   timezone: string;
   revision: number;
 }
 export interface ModelProviderPreset {
+  protocol?: "chat" | "responses" | "anthropic";
   id: string;
   name: string;
   base_url: string;
+  api_key_url?: string;
   api_key_prefix: string;
   api_key_prefixes?: string[];
   freeze_url: boolean;
@@ -38,6 +41,7 @@ export interface ModelProviderPreset {
 }
 
 export interface ModelConnection {
+  protocol?: "chat" | "responses" | "anthropic";
   provider_id?: string | null;
   id: string;
   name: string;
@@ -50,6 +54,10 @@ export interface ModelConnection {
   revision: number;
 }
 export interface ManagedModel {
+  template_id?: string | null;
+  supports_audio?: boolean | null;
+  supports_video?: boolean | null;
+  supports_tool_calling?: boolean | null;
   id: string;
   name: string;
   description: string;

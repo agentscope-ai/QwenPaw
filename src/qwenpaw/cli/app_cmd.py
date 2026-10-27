@@ -7,7 +7,6 @@ import os
 import click
 import uvicorn
 
-from .init_cmd import ensure_local_runtime_initialized
 from ..app.auth import is_auth_enabled
 from ..browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from ..config.utils import write_last_api
@@ -61,6 +60,9 @@ def configure_server_process(
     reload: bool = False,
 ) -> None:
     """Configure shared process state for an HTTP server command."""
+    os.environ["QWENPAW_RUNTIME_MODE"] = (
+        "hub" if os.environ.get("QWENPAW_RUNTIME_ID") else "standalone"
+    )
     write_last_api(probe_host_for_bind_host(host), port)
     os.environ[LOG_LEVEL_ENV] = log_level
     if reload:
@@ -153,6 +155,11 @@ def app_cmd(
     if os.environ.get(
         "QWENPAW_RUNTIME_PROVISIONER",
     ) == "local" and os.environ.get("QWENPAW_RUNTIME_ID"):
+        # Imported lazily: init_cmd pulls in the interactive setup wizard's
+        # dependency tree (providers_cmd, channels_cmd, ...), which is not
+        # needed on the common startup path.
+        from .init_cmd import ensure_local_runtime_initialized
+
         ensure_local_runtime_initialized()
 
     configure_server_process(

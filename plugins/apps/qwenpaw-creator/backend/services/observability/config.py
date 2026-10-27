@@ -15,6 +15,7 @@ from schemas.observability import ObservabilityConfigData
 from services.storage_root import require_creator_data_root
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.atomic_store import atomic_replace_path
+from services.runtime_files.path_safety import is_link_path
 
 _LEGACY_ENV = {
     "enabled": "CREATOR_TRACING_ENABLED",
@@ -161,14 +162,14 @@ def project_observability_root(
     project_root = store.project_root(project_id)
     if (
         not project_root.exists()
-        or project_root.is_symlink()
+        or is_link_path(project_root)
         or not project_root.is_dir()
     ):
         raise ValidationError(f"Project 可观测目录不存在: {project_id}")
     project_json = project_root / "project.json"
     if (
         not project_json.exists()
-        or project_json.is_symlink()
+        or is_link_path(project_json)
         or not project_json.is_file()
     ):
         raise ValidationError(f"Project 可观测目录缺少 project.json: {project_id}")
@@ -193,7 +194,7 @@ def _local_directory(
         target.mkdir(mode=0o700, exist_ok=True)
     if not target.exists():
         return target
-    if target.is_symlink() or not target.is_dir():
+    if is_link_path(target) or not target.is_dir():
         raise ValidationError(f"Creator 可观测路径不是安全目录: {target}")
     resolved = target.resolve(strict=True)
     try:

@@ -1,5 +1,6 @@
 import { clearAuthToken, getApiToken, getApiUrl } from "../config";
 import { responseErrorMessage } from "../error";
+import { addRouterBasename } from "../../utils/navigationMode";
 
 export interface HubUser {
   user_id: string;
@@ -232,7 +233,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (response.status === 401) {
     clearAuthToken();
-    window.location.assign("/login");
+    window.location.assign(
+      addRouterBasename(window.location.pathname, "/login"),
+    );
     throw new Error("Authentication expired");
   }
   if (!response.ok) {

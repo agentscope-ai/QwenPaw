@@ -174,6 +174,9 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         except ApprovalIdentityMismatchError:
             return self._identity_denied()
 
+        if resolved is None:
+            return f"审批请求已处理或已超时。\n\n" f"请求 ID: `{request_id[:16]}`"
+
         # Show cross-session hint if applicable
         cross_session_hint = ""
         if pending.session_id != context.session_id:
@@ -237,6 +240,9 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
         except ApprovalIdentityMismatchError:
             return self._identity_denied()
+
+        if resolved is None:
+            return f"审批请求已处理或已超时。\n\n" f"请求 ID: `{request_id[:16]}`"
 
         # Show cross-session hint if applicable
         cross_session_hint = ""

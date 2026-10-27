@@ -540,6 +540,7 @@ def test_browser_operation_scratch_is_removed_after_execution_failure(
 
 def test_live_operation_scratch_cleanup_rejects_escape_and_symlink(
     tmp_path,
+    directory_link,
 ) -> None:
     run_root = tmp_path / "runtime"
     scratch_root = run_root / "live_operation"
@@ -553,9 +554,9 @@ def test_live_operation_scratch_cleanup_rejects_escape_and_symlink(
     assert marker.read_text(encoding="utf-8") == "keep"
 
     redirect = scratch_root / "agent-run-link"
-    redirect.symlink_to(outside, target_is_directory=True)
+    directory_link(outside, redirect)
     _remove_live_operation_scratch(run_root, redirect.name)
-    assert redirect.is_symlink()
+    assert redirect.resolve() == outside.resolve()
     assert marker.read_text(encoding="utf-8") == "keep"
 
     ordinary = scratch_root / "agent-run-safe"
@@ -599,6 +600,7 @@ def _edit_client(*, description: str):
             "ground_image_objects",
             "browser_use",
             "elements_at",
+            "import_script_asset",
             "delegate_to_agent",
             "request_workgraph_execution",
         }
@@ -2734,6 +2736,71 @@ def test_manual_prompt_repair_respects_review_and_never_dispatches_media(
             assert "瞬态故障" in feedback.content_parts[0].text
 
 
+@pytest.mark.parametrize("after_failure", [False, True])
+@pytest.mark.parametrize("review_mode", ["required", "auto_approve"])
+def test_completion_resume_preserves_manual_regeneration_pause(
+    tmp_path,
+    monkeypatch,
+    after_failure,
+    review_mode,
+) -> None:
+    from services.file_agent_runtime.manual_regeneration_hold import (
+        ManualRegenerationHoldStore,
+    )
+
+    services, _ = _create_project(tmp_path, initial_goal="完成短剧")
+    driver = _driver(services, lambda _messages, _tools: AgentModelTurn())
+    upstream = WorkNode(
+        node_id="storyboard:ep1",
+        kind="storyboard",
+        label="分镜",
+        status=WorkNodeStatus.DONE,
+    )
+    downstream = WorkNode(
+        node_id="video:ep1",
+        kind="video",
+        label="视频",
+        status=WorkNodeStatus.GATED,
+        deps=(upstream.node_id,),
+        missing=("video_prompt 缺失",),
+        authored_text_gap=True,
+    )
+    holds = ManualRegenerationHoldStore(services.root)
+    operation = holds.begin(PROJECT_ID, upstream, (upstream, downstream))
+    holds.admitted(operation)
+    monkeypatch.setattr(
+        driver_module,
+        "get_media_review_mode",
+        lambda: review_mode,
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "derive_work_graph",
+        lambda *_args, **_kwargs: WorkGraph(nodes=(downstream,), generation=1),
+    )
+    before = len(services.sessions.list_messages(PROJECT_ID, SESSION_ID))
+
+    async def resume():
+        await driver._queue_yolo_completion_resume(
+            project_id=PROJECT_ID,
+            session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            run_id="agent-run-held",
+            after_failure=after_failure,
+        )
+
+    asyncio.run(resume())
+    assert (
+        len(services.sessions.list_messages(PROJECT_ID, SESSION_ID)) == before
+    )
+    holds.resume(PROJECT_ID, holds.read(PROJECT_ID).revision)
+    asyncio.run(resume())
+    assert (
+        len(services.sessions.list_messages(PROJECT_ID, SESSION_ID))
+        == before + 1
+    )
+
+
 def test_model_blocked_with_its_pending_review_is_a_neutral_pause(
     tmp_path,
     monkeypatch,
@@ -3016,6 +3083,171 @@ def test_yolo_resume_carries_quiet_digest_and_respects_fuse(
     assert (
         len(repairs) == driver.PROMPT_CONTRACT_RESUME_MAX_CONSECUTIVE
     ), "notification messages must not reset the resume fuse streak"
+    notices = [
+        item
+        for item in services.sessions.list_messages(PROJECT_ID, SESSION_ID)
+        if item.source == "creator_execution_notice"
+    ]
+    assert len(notices) == 1
+    assert notices[0].role == "assistant"
+    assert "自动创作已暂停" in notices[0].content_parts[0].text
+    assert "5 轮" in notices[0].content_parts[0].text
+    assert "第一场" in notices[0].content_parts[0].text
+    assert (
+        notices[0].metadata["executionPause"]["reason"]
+        == "consecutive_resume_limit"
+    )
+    asyncio.run(
+        driver._queue_yolo_completion_resume(
+            project_id=PROJECT_ID,
+            session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            run_id="agent-run-fuse-again",
+        ),
+    )
+    assert (
+        len(
+            [
+                item
+                for item in services.sessions.list_messages(
+                    PROJECT_ID,
+                    SESSION_ID,
+                )
+                if item.source == "creator_execution_notice"
+            ],
+        )
+        == 1
+    )
+    assert any(
+        event.event_type == "message.completed"
+        and event.payload.get("messageId") == notices[0].message_id
+        for event in services.sessions.list_events(PROJECT_ID, SESSION_ID)
+    )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["no_committed_progress", "media_budget_exhausted"],
+)
+def test_yolo_pause_reasons_are_durable_not_new_model_requests(
+    tmp_path,
+    monkeypatch,
+    reason,
+):
+    services, snapshot = _create_project(tmp_path, initial_goal="完成短剧")
+    driver = _driver(services, lambda *_args: AgentModelTurn())
+    node = WorkNode(
+        node_id="visual:hero",
+        kind="visual",
+        label="角色状态图",
+        status=WorkNodeStatus.FAILED,
+        error="请修改输入文本",
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "get_media_review_mode",
+        lambda: "auto_approve",
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "derive_work_graph",
+        lambda *_a, **_kw: WorkGraph(
+            nodes=(node,),
+            generation=snapshot.generation,
+        ),
+    )
+    monkeypatch.setattr(
+        driver.work_scheduler,
+        "wake",
+        lambda _project_id: None,
+    )
+    if reason == "no_committed_progress":
+        services.sessions.append_message(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            role="user",
+            source=driver.YOLO_RESUME_SOURCE,
+            content_parts=[{"type": "text", "text": "修正输入文本"}],
+            metadata={"projectGeneration": snapshot.generation},
+        )
+    else:
+
+        def exhausted(*_args):
+            raise driver_module.MediaCallBudgetExhausted("used budget")
+
+        monkeypatch.setattr(
+            driver_module,
+            "ensure_media_call_budget",
+            exhausted,
+        )
+    before = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
+    asyncio.run(
+        driver._queue_yolo_completion_resume(
+            project_id=PROJECT_ID,
+            session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            run_id="paused-run",
+        ),
+    )
+    after = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
+    assert [m.message_id for m in before if m.role == "user"] == [
+        m.message_id for m in after if m.role == "user"
+    ]
+    assert after[-1].source == "creator_execution_notice"
+    assert after[-1].metadata["executionPause"]["reason"] == reason
+    assert not driver._wake.is_set()
+
+
+@pytest.mark.parametrize(
+    "status",
+    [WorkNodeStatus.READY, WorkNodeStatus.RUNNING, WorkNodeStatus.STALE],
+)
+def test_yolo_does_not_resume_while_scheduler_owns_remaining_work(
+    tmp_path,
+    monkeypatch,
+    status,
+):
+    services, snapshot = _create_project(tmp_path, initial_goal="完成短剧")
+    driver = _driver(services, lambda *_args: AgentModelTurn())
+    node = WorkNode(
+        node_id="script:main",
+        kind="script",
+        label="序章剧本",
+        status=status,
+        command="GENERATE_TIMELINE_SCRIPT",
+        target_ref="timeline:main",
+        regeneration_of="old-script"
+        if status is WorkNodeStatus.STALE
+        else None,
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "get_media_review_mode",
+        lambda: "auto_approve",
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "derive_work_graph",
+        lambda *_a, **_kw: WorkGraph(
+            nodes=(node,),
+            generation=snapshot.generation,
+        ),
+    )
+    monkeypatch.setattr(driver.work_scheduler, "enabled", lambda: True)
+    woke = []
+    monkeypatch.setattr(driver.work_scheduler, "wake", woke.append)
+    before = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
+    asyncio.run(
+        driver._queue_yolo_completion_resume(
+            project_id=PROJECT_ID,
+            session_id=SESSION_ID,
+            conversation_id=CONVERSATION_ID,
+            run_id="machine-owned-run",
+        ),
+    )
+    assert woke == [PROJECT_ID]
+    assert services.sessions.list_messages(PROJECT_ID, SESSION_ID) == before
 
 
 def test_idle_session_flushes_parked_notification_and_consumes_it(
@@ -3674,6 +3906,97 @@ def test_inflight_target_refuses_duplicate_delegation(tmp_path) -> None:
     assert len(runs) == 1, "the duplicate delegation must not spawn a run"
     assert duplicate_error
     assert "already in flight" in duplicate_error[0]
+
+
+def test_repeated_sync_observation_gets_a_capped_parallel_hint(
+    tmp_path,
+) -> None:
+    """Waiting on observations one at a time adds up every VLM round trip.
+
+    From the second synchronous observation the tool result carries a
+    reminder to batch with ``background=true``. The reminder is capped:
+    uncapped it would become context noise of its own. The specialist
+    tool call is stubbed, so no media task is produced.
+    """
+
+    parent_turn = 0
+    specialist_turn = 0
+    # The mainline run must stay open while the detached specialist works:
+    # a completed goal cancels the specialist, exactly as a user stop does.
+    release = asyncio.Event()
+
+    async def callback(messages, tools):
+        nonlocal parent_turn, specialist_turn
+        names = {item["function"]["name"] for item in tools}
+        if "delegate_to_agent" in names:
+            parent_turn += 1
+            if parent_turn == 1:
+                return _delegate_call(
+                    "delegate-observe",
+                    role="ai_editing_director",
+                    target_refs=["timeline:timeline:main"],
+                    task="逐窗核验素材",
+                )
+            await release.wait()
+            return AgentModelTurn(content="收到。")
+        specialist_turn += 1
+        if specialist_turn <= 4:
+            return _tool_turn(
+                call_id=f"observe-{specialist_turn}",
+                name="observe_source_clip",
+                arguments={
+                    "projectId": PROJECT_ID,
+                    "targetRef": "timeline:timeline:main",
+                    "arguments": {
+                        "question": f"第 {specialist_turn} 段看到什么",
+                        "startMs": specialist_turn * 1000,
+                        "durationMs": 1000,
+                    },
+                },
+            )
+        return AgentModelTurn(content="[SUCCESS] 核验完成。")
+
+    async def scenario():
+        services, _snapshot = _create_project(tmp_path, initial_goal="剪辑")
+        driver = _driver(services, callback)
+
+        async def fake_invoke(**kwargs):
+            # No "background" key: this is the synchronous path the hint
+            # is written for.
+            return {"ok": True, "answer": kwargs["call_id"]}
+
+        driver._invoke_specialist_tool = fake_invoke
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(lambda: specialist_turn >= 5)
+        runs = driver.executions.list_specialist_runs(PROJECT_ID)
+        transcripts = [
+            driver.executions.list_specialist_messages(
+                PROJECT_ID,
+                record.run_id,
+            )
+            for record in runs
+        ]
+        release.set()
+        await driver.stop()
+        return transcripts
+
+    transcripts = asyncio.run(scenario())
+    tool_results = [
+        json.dumps(message.content_parts, ensure_ascii=False)
+        for messages in transcripts
+        for message in messages
+        if message.role == "tool"
+    ]
+    assert len(tool_results) == 4
+    hints = [
+        text for text in tool_results if "parallelObservationHint" in text
+    ]
+    # 第 2、3 次同步观察各提醒一次；第 4 次起被上限挡住，不让提醒
+    # 自己变成上下文噪声。
+    assert len(hints) == 2
+    assert "background=true" in hints[0]
+    assert "check_observation_tasks" in hints[0]
 
 
 def test_startup_reclaims_orphaned_specialist_runs(tmp_path) -> None:

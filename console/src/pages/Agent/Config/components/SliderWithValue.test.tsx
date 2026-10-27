@@ -3,22 +3,16 @@ import { screen, fireEvent } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import { SliderWithValue } from "./SliderWithValue";
 
-// Mock the Slider component from @agentscope-ai/design
-vi.mock("@agentscope-ai/design", async () => {
-  const actual = await vi.importActual("@agentscope-ai/design");
-  return {
-    ...actual,
-    Slider: ({ value, onChange, ...props }: any) => (
-      <input
-        type="range"
-        data-testid="slider"
-        value={value ?? 0}
-        onChange={(e) => onChange?.(Number(e.target.value))}
-        {...props}
-      />
-    ),
-  };
-});
+// JSDOM does not implement the animated custom element lifecycle.
+vi.mock("@number-flow/react", () => ({
+  default: ({
+    value,
+    format,
+  }: {
+    value: number;
+    format: Intl.NumberFormatOptions;
+  }) => <span>{new Intl.NumberFormat("en", format).format(value)}</span>,
+}));
 
 describe("SliderWithValue", () => {
   it("renders without crashing", () => {
@@ -54,8 +48,8 @@ describe("SliderWithValue", () => {
       />,
     );
 
-    const slider = screen.getByTestId("slider");
-    fireEvent.change(slider, { target: { value: "0.8" } });
-    expect(handleChange).toHaveBeenCalledWith(0.8);
+    const slider = screen.getByRole("slider");
+    fireEvent.keyDown(slider, { key: "ArrowRight", keyCode: 39 });
+    expect(handleChange).toHaveBeenCalledWith(0.51);
   });
 });

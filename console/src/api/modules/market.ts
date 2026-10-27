@@ -11,6 +11,7 @@ export interface MarketProviderInfo {
 
 export interface MarketResult {
   source: string;
+  source_label?: string | null;
   slug: string;
   name: string;
   description: string | null;

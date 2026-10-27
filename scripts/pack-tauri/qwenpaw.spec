@@ -63,6 +63,7 @@ _data_dirs = [
 datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
 ]
+datas.append((str(REPO_ROOT / "plugins/hub"), "qwenpaw/plugins/bundled/hub"))
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 datas.append(
     (
@@ -132,6 +133,9 @@ datas.append(
     ),
 )
 
+# The native Code Mode worker runs under the bundled standalone CPython.
+datas.append((str(SRC / "modes/coding/_worker.py"), "qwenpaw/modes/coding"))
+
 # Collect package metadata for packages that use importlib.metadata at runtime.
 # Keep this allowlist in sync when adding runtime dependencies that query
 # importlib.metadata, otherwise packaged sidecars may fail only after install.
@@ -179,6 +183,11 @@ a = Analysis(
     binaries=[*qoder_binaries, *codex_binaries],
     datas=datas,
     hiddenimports=[
+        # Bundled Hub entrypoints are plugin data, not statically imported.
+        "qwenpaw.market.providers.qwenpaw",
+        "qwenpaw.market.providers.clawhub",
+        "qwenpaw.market.providers.modelscope",
+        "qwenpaw.market.providers.aliyun",
         "codex_cli_bin",
         # uvicorn internals (not auto-discovered by PyInstaller)
         "uvicorn.logging",

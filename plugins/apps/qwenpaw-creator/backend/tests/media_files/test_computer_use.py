@@ -121,7 +121,7 @@ def test_desktop_run_rejects_empty_code_and_host_kill_switch(
 # ─── ffmpeg capture command ─────────────────────────────────────────────
 
 
-def test_capture_contract_uses_window_bounds_and_platform_backend():
+def test_capture_contract_uses_window_bounds_and_platform_backend(tmp_path):
     assert (
         _crop_filter({"x": 40, "y": 60, "width": 800, "height": 600})
         == "crop=800:600:40:60"
@@ -130,13 +130,14 @@ def test_capture_contract_uses_window_bounds_and_platform_backend():
     viewport = _viewport_from_bounds({"width": 1280, "height": 720})
     assert (viewport.width, viewport.height) == (1280.0, 720.0)
     assert _viewport_from_bounds({"width": 0, "height": 0}) is None
+    output = tmp_path / "take.mp4"
     command = _capture_command(
         ffmpeg="ffmpeg",
         fps=25,
         screen="0",
         crop="crop=800:600:0:0",
         max_duration_seconds=12,
-        output=Path("/tmp/take.mp4"),
+        output=output,
     )
     if sys.platform == "darwin":
         assert "avfoundation" in command
@@ -152,7 +153,7 @@ def test_capture_contract_uses_window_bounds_and_platform_backend():
     assert "crop=800:600:0:0" in joined
     assert "libx264" in command
     assert command[command.index("-t") + 1] == "12"
-    assert command[-1] == "/tmp/take.mp4"
+    assert command[-1] == str(output)
 
 
 # ─── real bridge contracts with injected native/capture planes ──────────

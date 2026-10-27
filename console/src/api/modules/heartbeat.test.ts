@@ -31,8 +31,11 @@ describe("heartbeatApi", () => {
       prompt: "ping",
     } as unknown;
     vi.mocked(request).mockResolvedValue(cfg);
-    const result = await heartbeatApi.getHeartbeatConfig();
+    const result = await heartbeatApi.getHeartbeatConfig("agent-a");
     expect(result).toBe(cfg);
+    expect(request).toHaveBeenCalledWith("/config/heartbeat", {
+      headers: { "X-Agent-Id": "agent-a" },
+    });
   });
 
   it("updateHeartbeatConfig returns the persisted config", async () => {

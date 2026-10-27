@@ -384,19 +384,25 @@ export default function TabbedEditor({
     if (toHydrate.length === 0) return undefined;
 
     void Promise.all(
-      toHydrate.map(async ([path]) => {
+      toHydrate.map(async ([path, diff]) => {
         try {
           const modified = onLoadFile
             ? await onLoadFile(path)
             : (await workspaceApi.loadCodeFile(path)).content;
-          return { path, modified, ok: true };
+          return { path, diff, modified, ok: true };
         } catch {
-          return { path, modified: "", ok: false };
+          return { path, diff, modified: "", ok: false };
         }
       }),
     ).then((results) => {
       if (cancelled) return;
       for (const r of results) {
+        if (
+          useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[r.path] !==
+          r.diff
+        ) {
+          continue;
+        }
         if (r.ok) {
           updateDiffModified(scopeKey, r.path, r.modified);
         } else {
@@ -614,6 +620,7 @@ export default function TabbedEditor({
           const modified = modifiedEditor.getValue();
           if (currentDiff && currentDiff.modified !== modified) {
             updateDiffModified(scopeKey, path, modified);
+            useCodingTabsStore.getState().setTabDirty(scopeKey, path, true);
           }
         },
       );
@@ -887,6 +894,14 @@ export default function TabbedEditor({
         : workspaceApi.loadCodeFile(path).then((res) => res.content ?? "");
       void loadFile
         .then((newModified) => {
+          const state = useCodingTabsStore.getState();
+          if (
+            state.diffsByAgent[scopeKey]?.[path] !== existingDiff ||
+            state.tabsByAgent[scopeKey]?.find((item) => item.path === path)
+              ?.dirty
+          ) {
+            return;
+          }
           if (existingDiff) {
             // There is already a pending diff — update only the modified side so
             // the user sees the cumulative change (original → latest agent edit).

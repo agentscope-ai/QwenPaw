@@ -27,10 +27,11 @@ import hashlib
 import json
 import logging
 import threading
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from agentscope.message import TextBlock, ToolResultState
+from agentscope.message import DataBlock, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from ....runtime.tool_registry import ToolDescriptor
@@ -290,6 +291,11 @@ plus your earlier sessions. Pick an op:
     output match with file_path and nearby matching lines.
   • op="recall_tool", tool_call_id="call_abc" — a tool call and its result.
     For truncated large outputs, this also reports the saved full-output file.
+    The first page includes all archived inline media from that tool result;
+    continuation pages contain text only. Images are restored from history,
+    not reloaded from their original paths. URL-only media remains a reference.
+    This reads the current agent's history across sessions. Search/expand
+    show text and media references; use the tool-call ID to view tool media.
   • op="days_between", start="2024-11-01", end="2024-12-16" — signed
     calendar-day difference (end minus start). Accepts strict ISO dates and
     timestamps, including Z or +/-HH:MM timezones. Set inclusive=true to count
@@ -353,6 +359,43 @@ def _parse_row_blocks(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _recall_tool_media(
+    rows: list[dict],
+    tool_call_id: str,
+) -> list[DataBlock]:
+    """Restore inline media from the already-scoped tool-result rows."""
+    media: list[DataBlock] = []
+    for row in rows:
+        for block in _parse_row_blocks(row.get("blocks")):
+            if (
+                block.get("type") != "tool_result"
+                or block.get("id") != tool_call_id
+            ):
+                continue
+            output = block.get("output")
+            if not isinstance(output, list):
+                continue
+            for item in output:
+                if not isinstance(item, dict) or item.get("type") != "data":
+                    continue
+                source = item.get("source")
+                if (
+                    not isinstance(source, dict)
+                    or source.get("type") != "base64"
+                ):
+                    continue
+                if not source.get("data"):
+                    raise ValueError("Archived inline media bytes are missing")
+                # Give this tool response its own block identities without
+                # changing the archived blocks or their immutable payloads.
+                media.append(
+                    DataBlock.model_validate(
+                        {**item, "id": "data_" + uuid.uuid4().hex},
+                    ),
+                )
+    return media
 
 
 def _bounded_structured_value(value: Any) -> str:
@@ -839,14 +882,15 @@ def make_recall_history(
         inclusive: bool,
         cursor: Optional[str],
         request_fingerprint: str,
-    ) -> tuple[str, bool, dict[str, Any]]:
-        """Execute one op. Returns ``(text, ok, page_metadata)``."""
+    ) -> tuple[str, bool, dict[str, Any], list[DataBlock]]:
+        """Execute one op. Returns text, status, page metadata and media."""
         if op not in _OPS:
             return (
                 f"RECALL FAILED — unknown op {op!r}. Use one of: "
                 f"{', '.join(_OPS)}.",
                 False,
                 {},
+                [],
             )
         ms = _open_ms()
         try:
@@ -857,6 +901,7 @@ def make_recall_history(
                         "(seq span; one turn is lo == hi).",
                         False,
                         {},
+                        [],
                     )
                 rows = ms.expand(int(lo), int(hi))
                 label = f"expand [{int(lo)}, {int(hi)}]"
@@ -880,16 +925,14 @@ def make_recall_history(
                         "tool_call_id.",
                         False,
                         {},
+                        [],
                     )
                 rows = ms.recall_tool(tool_call_id)
                 label = f"recall_tool {tool_call_id!r}"
             else:  # days_between
-                return _run_days_between(
-                    ms,
-                    start,
-                    end,
-                    inclusive,
-                    cursor,
+                return (
+                    *_run_days_between(ms, start, end, inclusive, cursor),
+                    [],
                 )
         finally:
             ms.close()
@@ -913,6 +956,7 @@ def make_recall_history(
                     "total_rows": 0,
                     "complete": True,
                 },
+                [],
             )
         text, page = _render_page(
             rows,
@@ -921,7 +965,16 @@ def make_recall_history(
             max_bytes=page_max_bytes,
             request_fingerprint=request_fingerprint,
         )
-        return text, True, page
+        # Media is atomic and belongs to the requested tool result, not to
+        # its text byte pages. Attach it once, after cursor validation.
+        return (
+            text,
+            True,
+            page,
+            _recall_tool_media(rows, tool_call_id)
+            if op == "recall_tool" and tool_call_id and not cursor
+            else [],
+        )
 
     async def recall_history(
         op: str,
@@ -984,7 +1037,7 @@ def make_recall_history(
         block_target = False
         try:
             try:
-                text, ok, page = await run_sync_io(
+                text, ok, page, media = await run_sync_io(
                     _run,
                     op,
                     lo,
@@ -1018,10 +1071,11 @@ def make_recall_history(
                     else type(exc).__name__
                 )
                 detail = _execution_error_detail(op)
-                text, ok, page = (
+                text, ok, page, media = (
                     f"RECALL FAILED — {detail} ({error_type}: {exc}).",
                     False,
                     {},
+                    [],
                 )
             metadata: dict[str, Any] = {}
             if page:
@@ -1029,7 +1083,7 @@ def make_recall_history(
             text = _bound_observation(text, page_max_bytes)
             block_target = ok
             return ToolChunk(
-                content=[TextBlock(type="text", text=text)],
+                content=[TextBlock(type="text", text=text), *media],
                 state=(
                     ToolResultState.SUCCESS if ok else ToolResultState.ERROR
                 ),

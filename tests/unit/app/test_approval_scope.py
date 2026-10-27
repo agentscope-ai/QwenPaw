@@ -10,6 +10,7 @@ from __future__ import annotations
 # pylint: disable=protected-access
 
 import asyncio
+import time
 
 from qwenpaw.app.approvals.display import approval_display_fields
 from qwenpaw.app.approvals.service import ApprovalService, PendingApproval
@@ -35,7 +36,7 @@ def _make_pending(request_id: str = "req-1") -> PendingApproval:
         channel="console",
         agent_id="a",
         tool_name="Bash",
-        created_at=0.0,
+        created_at=time.time(),
         future=loop.create_future(),
     )
 

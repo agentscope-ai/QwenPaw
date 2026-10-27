@@ -33,6 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from ._cleanup_logging import cleanup_errors, cleanup_logging
+
 if sys.platform == "win32" or TYPE_CHECKING:
     import msvcrt
 
@@ -1776,22 +1778,26 @@ def _iter_orphaned_metadata(
     result: List[Tuple[Path, Dict[str, Any]]] = []
 
     for meta_file in sb_dir.glob("*.json"):
-        try:
+        with cleanup_errors(logger, "Failed to read metadata %s", meta_file):
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-
-        owner_pid = meta.get("owner_pid")
-        if owner_pid is not None and owner_pid != my_pid:
-            if _is_pid_alive(owner_pid):
-                logger.debug(
-                    "Skipping sandbox %s — owner pid %d still alive",
-                    meta.get("sandbox_id", "?"),
-                    owner_pid,
-                )
-                continue
-
-        result.append((meta_file, meta))
+            if not isinstance(meta, dict):
+                raise ValueError("Sandbox metadata must be an object")
+            owner_pid = meta.get("owner_pid")
+            if owner_pid is not None and (
+                not isinstance(owner_pid, int)
+                or isinstance(owner_pid, bool)
+                or owner_pid <= 0
+            ):
+                raise ValueError("Invalid sandbox owner PID")
+            if owner_pid is not None and owner_pid != my_pid:
+                if _is_pid_alive(owner_pid):
+                    logger.debug(
+                        "Skipping sandbox %s — owner pid %d still alive",
+                        meta.get("sandbox_id", "?"),
+                        owner_pid,
+                    )
+                    continue
+            result.append((meta_file, meta))
 
     return result
 
@@ -1803,15 +1809,17 @@ def _iter_orphaned_metadata(
 
 def _create_process_as_user(
     h_token: ctypes.wintypes.HANDLE,
-    cmd: str,
+    cmd: str | list[str],
     cwd: str,
     env: Dict[str, str],
     shell_executable: Optional[str] = None,
+    *,
+    stdio: tuple[int, int, int] | None = None,
 ) -> Tuple[
     int,
     ctypes.wintypes.HANDLE,
-    ctypes.wintypes.HANDLE,
-    ctypes.wintypes.HANDLE,
+    Optional[ctypes.wintypes.HANDLE],
+    Optional[ctypes.wintypes.HANDLE],
     Optional[ctypes.wintypes.HANDLE],
 ]:
     """Creates a suspended process under the restricted token, then resumes it.
@@ -1832,20 +1840,31 @@ def _create_process_as_user(
     kernel32 = _get_kernel32()
     advapi32 = _get_advapi32()
 
-    stdout_read, stdout_write, stderr_read, stderr_write = _create_stdio_pipes(
-        kernel32,
-    )
+    if stdio is None:
+        (
+            stdout_read,
+            stdout_write,
+            stderr_read,
+            stderr_write,
+        ) = _create_stdio_pipes(kernel32)
+    else:
+        stdout_read = stderr_read = None
+        _, stdout_write, stderr_write = stdio
 
     si = _STARTUPINFOW()
     si.cb = ctypes.sizeof(si)
     si.dwFlags = _WC.STARTF_USESTDHANDLES
-    si.hStdInput = None
+    si.hStdInput = stdio[0] if stdio is not None else None
     si.hStdOutput = stdout_write
     si.hStdError = stderr_write
     si.lpDesktop = "WinSta0\\Default"
 
     env_block = _make_env_block(env)
-    command_line = _build_shell_command_line(cmd, shell_executable)
+    command_line = (
+        subprocess.list2cmdline(cmd)
+        if isinstance(cmd, list)
+        else _build_shell_command_line(cmd, shell_executable)
+    )
     cl_buf = ctypes.create_unicode_buffer(command_line)
 
     pi = _PROCESS_INFORMATION()
@@ -1870,12 +1889,14 @@ def _create_process_as_user(
     )
     err = ctypes.get_last_error() if not ok else 0
 
-    kernel32.CloseHandle(stdout_write)
-    kernel32.CloseHandle(stderr_write)
+    if stdio is None:
+        kernel32.CloseHandle(stdout_write)
+        kernel32.CloseHandle(stderr_write)
 
     if not ok:
-        kernel32.CloseHandle(stdout_read)
-        kernel32.CloseHandle(stderr_read)
+        if stdio is None:
+            kernel32.CloseHandle(stdout_read)
+            kernel32.CloseHandle(stderr_read)
         raise OSError(f"CreateProcessAsUserW failed: error={err}")
 
     h_job = _create_job_object()
@@ -2325,6 +2346,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
             self._process_handle = h_proc
             self._job_handle = h_job
 
+            assert h_stdout is not None and h_stderr is not None
             exit_code, stdout, stderr, timed_out = await asyncio.to_thread(
                 self._wait_and_read,
                 h_proc,
@@ -2870,7 +2892,19 @@ def _move_to_failed_cleanup_unelevated(
     logger.info("Cleanup failed, metadata preserved: %s", dest.name)
 
 
-def shutdown_cleanup() -> None:  # pylint: disable=R0912
+def shutdown_cleanup(*, log_progress: bool = True) -> None:
+    """Clean sandbox state, optionally silencing the whole cleanup chain."""
+    with (
+        cleanup_logging(log_progress),
+        cleanup_errors(
+            logger,
+            "Unexpected sandbox shutdown failure",
+        ),
+    ):
+        _shutdown_cleanup()
+
+
+def _shutdown_cleanup() -> None:  # pylint: disable=R0912
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
     Removes ACEs for orphaned sandboxes whose owner process is dead.
@@ -2888,7 +2922,8 @@ def shutdown_cleanup() -> None:  # pylint: disable=R0912
     except Exception as e:
         logger.warning("Failed to clean deny_paths protection on exit: %s", e)
 
-    _migrate_legacy_state_file()
+    with cleanup_errors(logger, "Failed to migrate legacy sandbox state"):
+        _migrate_legacy_state_file()
 
     sb_dir = _unelevated_sandboxes_dir()
     orphaned = _iter_orphaned_metadata(sb_dir)
@@ -2899,67 +2934,9 @@ def shutdown_cleanup() -> None:  # pylint: disable=R0912
     sandboxes_processed = 0
 
     for meta_file, meta in orphaned:
-        cap_sid = meta.get("cap_sid", "")
-        if not cap_sid:
-            continue
-
-        sandbox_id = meta.get("sandbox_id", cap_sid)
-        acl_entries = meta.get("acl_entries", [])
-        deadline = time.monotonic() + 60.0
-        failed_paths: List[str] = []
-
-        t_sandbox = time.monotonic()
-        for entry in acl_entries:
-            entry_path = entry.get("path", "")
-            if entry_path and os.path.exists(entry_path):
-                t_entry = time.monotonic()
-                ok = _remove_acl_with_verify_sync(
-                    entry_path,
-                    cap_sid,
-                    deadline=deadline,
-                )
-                logger.debug(
-                    "  [%s] ACL remove [%s] %s: %.2fs",
-                    sandbox_id,
-                    "OK" if ok else "FAIL",
-                    entry_path,
-                    time.monotonic() - t_entry,
-                )
-                if not ok:
-                    failed_paths.append(entry_path)
-
-        t_acl_done = time.monotonic()
-
-        if failed_paths:
-            logger.warning(
-                "Unelevated sandbox cleanup: failed to remove ACL for "
-                "SID %s from %d path(s): %s",
-                cap_sid,
-                len(failed_paths),
-                failed_paths,
-            )
-
-        logger.info(
-            "[%s] ACL removal: %.2fs (%d entries, %d failed)",
-            sandbox_id,
-            t_acl_done - t_sandbox,
-            len(acl_entries),
-            len(failed_paths),
-        )
-
-        if failed_paths:
-            _move_to_failed_cleanup_unelevated(
-                meta,
-                meta_file,
-                f"ACL removal failed for {len(failed_paths)} path(s)",
-            )
-        else:
-            try:
-                meta_file.unlink()
-            except OSError:
-                pass
-
-        sandboxes_processed += 1
+        with cleanup_errors(logger, "Failed to clean metadata %s", meta_file):
+            if _cleanup_unelevated_metadata(meta_file, meta):
+                sandboxes_processed += 1
 
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
         try:
@@ -2976,7 +2953,71 @@ def shutdown_cleanup() -> None:  # pylint: disable=R0912
         )
 
 
-atexit.register(shutdown_cleanup)
+def _cleanup_unelevated_metadata(meta_file: Path, meta: dict) -> bool:
+    """Clean one sandbox, preserving metadata if ACL removal fails."""
+    cap_sid = meta.get("cap_sid", "")
+    if not cap_sid:
+        return False
+
+    sandbox_id = meta.get("sandbox_id", cap_sid)
+    acl_entries = meta.get("acl_entries", [])
+    deadline = time.monotonic() + 60.0
+    failed_paths: List[str] = []
+
+    t_sandbox = time.monotonic()
+    for entry in acl_entries:
+        entry_path = entry.get("path", "")
+        if entry_path and os.path.exists(entry_path):
+            t_entry = time.monotonic()
+            ok = _remove_acl_with_verify_sync(
+                entry_path,
+                cap_sid,
+                deadline=deadline,
+            )
+            logger.debug(
+                "  [%s] ACL remove [%s] %s: %.2fs",
+                sandbox_id,
+                "OK" if ok else "FAIL",
+                entry_path,
+                time.monotonic() - t_entry,
+            )
+            if not ok:
+                failed_paths.append(entry_path)
+
+    t_acl_done = time.monotonic()
+
+    if failed_paths:
+        logger.warning(
+            "Unelevated sandbox cleanup: failed to remove ACL for "
+            "SID %s from %d path(s): %s",
+            cap_sid,
+            len(failed_paths),
+            failed_paths,
+        )
+
+    logger.info(
+        "[%s] ACL removal: %.2fs (%d entries, %d failed)",
+        sandbox_id,
+        t_acl_done - t_sandbox,
+        len(acl_entries),
+        len(failed_paths),
+    )
+
+    if failed_paths:
+        _move_to_failed_cleanup_unelevated(
+            meta,
+            meta_file,
+            f"ACL removal failed for {len(failed_paths)} path(s)",
+        )
+    else:
+        try:
+            meta_file.unlink()
+        except OSError:
+            pass
+    return True
+
+
+atexit.register(shutdown_cleanup, log_progress=False)
 
 # On module load, clean up any orphaned deny_paths ACLs from crashed sessions
 if sys.platform == "win32":

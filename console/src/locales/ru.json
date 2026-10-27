@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "Перейти к содержимому"
+  },
   "common": {
     "save": "Сохранить",
     "reset": "Сбросить",
@@ -22,6 +25,7 @@
     "view": "Просмотр",
     "content": "Содержимое",
     "loading": "Загрузка...",
+    "loadMore": "Загрузить ещё",
     "saving": "Сохранение...",
     "copy": "Копировать",
     "copied": "Скопировано в буфер обмена",
@@ -32,7 +36,17 @@
     "actions": "Действия",
     "total": "Всего {{count}}",
     "clear": "Очистить",
-    "paste": "Вставить"
+    "paste": "Вставить",
+    "done": "Готово",
+    "autoSaveFailed": "Не удалось сохранить изменения",
+    "discardChangesTitle": "Отменить несохранённые изменения?",
+    "discardChangesContent": "Некоторые изменения не удалось сохранить. Вы можете продолжить редактирование или отменить несохранённые изменения и закрыть окно.",
+    "discardAndClose": "Отменить и закрыть",
+    "keepEditing": "Продолжить редактирование",
+    "configure": "Настроить",
+    "all": "Все",
+    "decrease": "Уменьшить",
+    "increase": "Увеличить"
   },
   "harnesses": {
     "connected": "Подключено",
@@ -46,28 +60,69 @@
     "cliAuthenticated": "{{type}} CLI аутентифицирован"
   },
   "desktop": {
+    "update": {
+      "title": "Обновить QwenPaw?",
+      "otherWindows": "Открыто ещё {{count}} окон.",
+      "otherWindows_one": "Открыто ещё {{count}} окно.",
+      "otherWindows_other": "Открыто ещё {{count}} окон.",
+      "description": "Обновление закроет все окна QwenPaw и прервёт выполняющиеся задачи.",
+      "confirm": "Закрыть и обновить",
+      "preparing": "Закрытие окон…",
+      "otherWindows_few": "Открыто ещё {{count}} окна.",
+      "otherWindows_many": "Открыто ещё {{count}} окон."
+    },
     "closeWindow": {
-      "title": "Закрыть окно",
-      "description": "Что сделать при закрытии окна? Выход из приложения остановит все выполняющиеся задачи и запланированные задания.",
+      "title": "Закрыть QwenPaw?",
+      "description": "Продолжите работу в фоне, чтобы сохранить выполнение задач. Полный выход завершит выполняемые задачи.",
       "remember": "Запомнить мой выбор",
       "showWindow": "Показать окно",
       "minimizeToTray": "Свернуть в трей",
       "quitApp": "Выйти из приложения",
+      "keepRunning": "Продолжить в фоне",
+      "quitting": "Выход…",
+      "stopService": "Полностью выйти",
+      "stopBlocked": "QwenPaw используется в других окнах или приложениях. Закройте их перед полным выходом.",
       "preference": "Закрытие окна",
       "askEveryTime": "Спрашивать каждый раз"
     }
   },
   "chunkError": {
+    "startup": {
+      "title": "Не удалось запустить консоль",
+      "resource": "Не удалось загрузить ресурсы, необходимые для запуска приложения.",
+      "runtime": "При инициализации приложения произошла ошибка.",
+      "timeout": "Приложение ещё не завершило запуск. Обновите страницу или скопируйте сведения об ошибке для диагностики."
+    },
     "title": "Не удалось загрузить страницу",
     "subTitle": "Возможно, это вызвано проблемой сети или обновлением приложения.",
     "genericTitle": "Что-то пошло не так",
     "genericSubTitle": "При отображении этой страницы произошла непредвиденная ошибка.",
-    "reload": "Перезагрузить"
+    "reload": "Перезагрузить",
+    "details": "Показать сведения об ошибке",
+    "copy": "Копировать сведения об ошибке",
+    "copied": "Сведения об ошибке скопированы",
+    "copyFailed": "Не удалось скопировать. Разверните сведения и скопируйте их вручную.",
+    "checking": "Повторная проверка ресурса, который не удалось загрузить…",
+    "serverReadiness": {
+      "checking": "Ожидание доступности локального сервиса и ресурсов страницы…",
+      "timeout": "Локальный сервис или ресурсы страницы пока недоступны. Попробуйте перезагрузить страницу немного позже."
+    },
+    "recheckNote": "originalError — исходное исключение; recheck — результат проверки ресурса после сбоя, а не исходный ответ. Неизвестные значения остаются null. Повторная проверка не позволяет различить проблемы DNS, TLS, CORS или прокси.",
+    "observations": {
+      "missing": "Повторная проверка: ресурс сейчас отсутствует (404).",
+      "denied": "Повторная проверка: запрос без учётных данных для входа отклонён.",
+      "html": "Повторная проверка: сервер вернул веб-страницу по URL модуля.",
+      "http-error": "Повторная проверка: сервер вернул статус ошибки. См. сведения об ошибке.",
+      "available": "Повторная проверка ресурса успешна; причина первоначального сбоя остаётся неизвестной.",
+      "request-failed": "Повторная проверка: запрос не выполнен; конкретная причина неизвестна.",
+      "timeout": "Повторная проверка: время ожидания истекло; конкретная причина неизвестна.",
+      "unavailable": "Невозможно повторно проверить ресурс; причина первоначального сбоя неизвестна."
+    }
   },
   "portabilityImport": {
     "qwenpawOnly": "Импорт доступен только для агентов, использующих бэкенд QwenPaw. Выберите агента QwenPaw, чтобы продолжить.",
     "title": "Импорт",
-    "description": "Перенесите диалоги и настройки инструментов из других ИИ-приложений в QwenPaw.",
+    "description": "Импорт данных из других приложений в QwenPaw. Выберите источник, просмотрите и выберите содержимое. Данные записываются в QwenPaw только после запуска импорта.",
     "steps": {
       "sources": "Приложения",
       "inventory": "Выбор данных",
@@ -297,7 +352,9 @@
       "notFound": "Файл backend-логов пока не найден.",
       "placeholder": "Здесь появится вывод backend-логов.",
       "loadFailed": "Не удалось загрузить backend-логи",
-      "searchPlaceholder": "Поиск по backend-логам..."
+      "searchPlaceholder": "Поиск по backend-логам...",
+      "newLogsAvailable": "Новые записи · К последним",
+      "returnLatest": "К последним записям"
     },
     "actions": {
       "refreshBackend": "Обновить backend-логи",
@@ -804,7 +861,9 @@
     "noTags": "Нет доступных тегов",
     "enabledSkills": "Активные навыки",
     "disabledSkills": "Неактивные навыки",
-    "active": "активно"
+    "active": "активно",
+    "settingsDetails": "Область действия и дополнительные настройки",
+    "name": "Название навыка"
   },
   "skillPool": {
     "description": "Общий локальный пул навыков для встроенных навыков и загрузок из рабочих пространств. Внешние импорты (ClawHub, LobeHub) — отдельная функция.",
@@ -1053,7 +1112,10 @@
       "authEndpoint": "Authorization Endpoint (переопределить)",
       "tokenEndpoint": "Token Endpoint (переопределить)",
       "endpointHint": "Оставьте пустым для автообнаружения. Заполните для ручного указания."
-    }
+    },
+    "local": "Локальный",
+    "remote": "Удалённый",
+    "invalidJson": "Введите корректный JSON хотя бы с одним сервером MCP."
   },
   "heartbeat": {
     "title": "Пульс",
@@ -1080,7 +1142,11 @@
     "targetInbox": "Отправлять во входящие",
     "runNow": "Запустить сейчас",
     "runNowSuccess": "Пульс запущен. Через несколько секунд проверьте входящие или целевой канал.",
-    "runNowFailed": "Не удалось запустить выполнение пульса"
+    "runNowFailed": "Не удалось запустить выполнение пульса",
+    "instructionsTitle": "Инструкции пульса",
+    "instructionsLoadFailed": "Не удалось загрузить инструкции. Повторите попытку.",
+    "customInterval": "Свой интервал",
+    "intervalRange": "Выберите от 1 минуты до 23 часов 59 минут"
   },
   "cronJobs": {
     "executionModel": "Модель выполнения",
@@ -1101,7 +1167,7 @@
     "enabled": "Статус",
     "scheduleType": "Тип расписания",
     "scheduleCron": "Расписание (Cron)",
-    "scheduleCronLabel": "Расписание (Cron)",
+    "scheduleCronLabel": "Время выполнения",
     "scheduleTimezone": "Часовой пояс",
     "cronType": "Частота",
     "cronTypeHourly": "Каждый час",
@@ -1159,7 +1225,7 @@
     "idTooltip": "Генерируемый системой, нередактируемый уникальный UUID, присваиваемый при создании задачи.",
     "nameTooltip": "Понятное имя, чтобы вам было проще найти эту задачу.",
     "cronTooltip": "Определите, когда задача должна запускаться",
-    "cronExample": "Популярные примеры: '0 9 * * *' = ежедневно в 09:00 | '*/30 * * * *' = каждые 30 мин | '0 */2 * * *' = каждые 2 часа | '0 0 * * 0' = воскресенье, полночь",
+    "cronExample": "Популярные примеры: '0 9 * * *' = ежедневно в 09:00 | '*/30 * * * *' = каждые 30 мин | '0 */2 * * *' = каждые 2 часа | '0 0 * * sun' = воскресенье, полночь",
     "cronHelper": "Впервые работаете с cron-выражениями?",
     "cronHelperLink": "Использовать онлайн-генератор",
     "timezoneTooltip": "Часовой пояс для cron-расписания. По умолчанию: UTC",
@@ -1300,12 +1366,41 @@
         "description": "Перед каждой недельной встречей формировать рабочий итог на основе memory за последнюю неделю.",
         "frequency": "Первый запуск: 2026-01-02 08:30 | Каждые 7 дней | До 2026-03-01"
       }
-    }
+    },
+    "calendarScope": "Только задачи на заданную дату",
+    "viewMode": "Вид",
+    "emptyList": "В этом представлении нет задач",
+    "previousMonth": "Предыдущий месяц",
+    "nextMonth": "Следующий месяц",
+    "cronExpression": "Выражение Cron",
+    "cronFormatHint": "Формат: минута час день месяц день недели",
+    "importReviewBadge": "Требуется проверка импорта",
+    "importReviewApprove": "Одобрить",
+    "importReviewTitle": "Проверка импортированной задачи",
+    "importReviewContent": "Вы проверили инструкции, рабочий каталог и разрешения задачи «{{name}}» и подтвердили безопасность её запуска в QwenPaw? После одобрения задача останется отключённой; включите её отдельно.",
+    "importReviewConfirm": "Одобрить",
+    "importReviewSuccess": "Проверка пройдена. Задача отключена; включите её, когда будете готовы.",
+    "importReviewFailed": "Не удалось одобрить проверку",
+    "importReviewBlocked": "Импортированные задачи нужно проверить перед включением или запуском.",
+    "importReviewProjectDirLabel": "Локальный каталог проекта",
+    "importReviewProjectDirTooltip": "Сопоставьте исходный рабочий каталог с существующим проектом на этом устройстве. Эта форма не меняет метаданные миграции и требования проверки.",
+    "importReviewProjectDirExtra": "Для удалённых или непроверяемых каталогов сопоставление обязательно до проверки. Для остальных задач оно необязательно.",
+    "importReviewProjectDirPlaceholder": "Например: /Users/me/Documents/my-project",
+    "importReviewProjectDirRequired": "Перед одобрением укажите в настройках задачи действительный локальный каталог проекта.",
+    "frequency": "Частота",
+    "cronTypeMinutes": "Минуты",
+    "cronTypeMonthly": "Ежемесячно",
+    "intervalMinutes": "Интервал",
+    "everyMinutes": "Каждые {{count}} мин",
+    "monthDay": "День месяца",
+    "shortMonthHint": "Месяцы без указанного дня пропускаются.",
+    "selectAtLeastOneDay": "Выберите хотя бы один день."
   },
   "channels": {
     "title": "Каналы",
     "description": "Управление и настройка каналов сообщений",
     "loading": "Загрузка каналов...",
+    "loadFailed": "Не удалось загрузить каналы. Повторите попытку.",
     "configSaved": "Конфигурация успешно сохранена",
     "configFailed": "Не удалось сохранить конфигурацию",
     "botConflictTitle": "Бот уже используется",
@@ -1527,12 +1622,80 @@
     "availableSection": "Доступные",
     "enableAction": "Активировать",
     "noEnabledChannels": "Нет активированных каналов",
-    "goEnableChannels": "Активировать каналы"
+    "goEnableChannels": "Активировать каналы",
+    "configureAction": "Настроить",
+    "advancedSettings": "Дополнительные настройки",
+    "deliverySettings": "Параметры доставки",
+    "manualCredentials": "Ввести учётные данные",
+    "presentationSettings": "Отображение сообщений",
+    "welcomeText": "Приветственное сообщение",
+    "welcomeTextPlaceholder": "Здравствуйте! Я QwenPaw. Чем могу помочь?",
+    "welcomeTextTooltip": "Отправляется автоматически при первом открытии личного чата с ботом за день",
+    "xiaoyiSetupGuide": "Создайте агента на платформе разработчиков Huawei и получите AK/SK и ID агента. AK/SK находятся на странице управления учётными данными.",
+    "fieldHomeserverURL": "URL домашнего сервера",
+    "fieldAuthMethod": "Способ аутентификации",
+    "fieldAccessToken": "Токен доступа",
+    "fieldPassword": "Пароль",
+    "fieldEnableEndtoEndEncryption": "Сквозное шифрование",
+    "fieldDeviceName": "Имя устройства",
+    "fieldDBPath": "Путь к базе данных",
+    "fieldPollIntervalsec": "Интервал опроса (с)",
+    "fieldHTTPProxy": "HTTP-прокси",
+    "fieldHTTPProxyAuth": "Аутентификация HTTP-прокси",
+    "fieldClientID": "ID клиента",
+    "fieldClientSecret": "Секрет клиента",
+    "fieldMessageType": "Тип сообщения",
+    "fieldCronMessageType": "Тип сообщения по расписанию",
+    "fieldCardTemplateID": "ID шаблона карточки",
+    "fieldCardTemplateKey": "Переменная шаблона карточки",
+    "fieldRobotCode": "Код бота",
+    "fieldAppID": "ID приложения",
+    "fieldAppSecret": "Секрет приложения",
+    "fieldEncryptKey": "Ключ шифрования",
+    "fieldVerificationToken": "Токен проверки",
+    "fieldAPIBaseURL": "Базовый URL API",
+    "fieldShowTyping": "Показывать набор текста",
+    "fieldMQTTHost": "Хост MQTT",
+    "fieldMQTTPort": "Порт MQTT",
+    "fieldCleanSession": "Очистка сессии",
+    "fieldQoS": "Качество обслуживания (QoS)",
+    "fieldMQTTUsername": "Имя пользователя MQTT",
+    "fieldMQTTPassword": "Пароль MQTT",
+    "fieldSubscribeTopic": "Тема подписки",
+    "fieldPublishTopic": "Тема публикации",
+    "fieldTLSEnabled": "Включить TLS",
+    "fieldTLSCACerts": "Сертификаты TLS CA",
+    "fieldTLSCertfile": "Файл сертификата TLS",
+    "fieldTLSKeyfile": "Файл ключа TLS",
+    "fieldMattermostURL": "URL Mattermost",
+    "fieldThreadFollowWithoutMention": "Ответы в ветке без упоминания",
+    "fieldBotID": "ID бота",
+    "fieldSecret": "Секрет",
+    "fieldAccessKeyAK": "Ключ доступа (AK)",
+    "fieldSecretKeySK": "Секретный ключ (SK)",
+    "fieldAgentID": "ID агента",
+    "fieldAPIDomain": "Домен API",
+    "fieldWebSocketHost": "Хост WebSocket",
+    "fieldWebSocketPort": "Порт WebSocket",
+    "matrixUserHelp": "Полный MXID (например, @bot:matrix.org) или локальное имя (bot).",
+    "matrixEncryptionHelp": "После включения подтвердите устройство в Matrix (например, Element) и установите пакет: pip install matrix-nio[e2e].",
+    "matrixDeviceHelp": "Постоянное имя устройства Matrix. По умолчанию: qwenpaw-worker.",
+    "messageTypeHelp": "markdown: обычные сообщения; card: интерактивная карточка ИИ.",
+    "scheduledMessageTypeHelp": "Тип сообщений задач по расписанию, независимо от формата чата.",
+    "cardVariableHelp": "Должно точно совпадать с именем переменной шаблона.",
+    "robotCodeHelp": "Для групповых чатов рекомендуется указать явно.",
+    "apiDomainHelp": "Домен REST API для авторизации по токену. По умолчанию: bot.yuanbao.tencent.com.",
+    "requiredField": "Введите {{field}}",
+    "portRange": "Порт должен быть от 1 до 65535",
+    "developmentMode": "Разработка (pyVoIP)",
+    "productionMode": "Эксплуатация (LiveKit)"
   },
   "sessions": {
     "title": "Сессии",
     "description": "Просмотр и управление активными чат-сессиями",
     "loading": "Загрузка сессий...",
+    "selectSession": "Выбрать {{name}}",
+    "loadFailed": "Не удалось загрузить сессии. Повторите попытку.",
     "confirmDelete": "Подтвердить удаление",
     "deleteConfirm": "Вы уверены, что хотите удалить эту сессию?",
     "batchDeleteConfirm": "Вы уверены, что хотите удалить выбранные сессии ({{count}})?",
@@ -1647,7 +1810,9 @@
       "user": "QwenPaw",
       "system": "Система",
       "default": "По умолчанию"
-    }
+    },
+    "qwenpawSettings": "Переменные среды QwenPaw",
+    "emptyValue": "Пустая строка"
   },
   "tokenUsage": {
     "title": "Использование токенов",
@@ -1716,6 +1881,7 @@
     "retry": "Повторить"
   },
   "modelSelector": {
+    "noFallback": "Не использовать",
     "selectModel": "Выбрать модель",
     "noConfiguredModels": "Нет настроенных моделей",
     "noFreeModels": "Нет доступных бесплатных моделей",
@@ -1741,9 +1907,20 @@
     "oauthConnected": "Успешно подключено к {{provider}}",
     "oauthFailed": "Авторизация не удалась, попробуйте снова",
     "oauthTimeout": "Время авторизации истекло, попробуйте снова",
-    "viewMore": "Показать ещё ({{count}})"
+    "viewMore": "Показать ещё ({{count}})",
+    "manageSelectorModels": "Manage selector models",
+    "addSelectorModel": "Add to selector",
+    "currentModelProtected": "Switch the current model before removing it",
+    "addToSelector": "Add to selector",
+    "removeFromSelector": "Remove from selector",
+    "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "disableBtn": "Отключить",
+    "modelType": "Тип модели",
+    "modelTypeChat": "Чат",
+    "modelTypeDecision": "Решения",
+    "decisionModelHint": "Модели решений настраиваются для будущих функций автоматизации и недоступны для чата.",
     "discoveryOriginApi": "Обнаружено через API",
     "discoveryOriginCatalog": "Официальный каталог",
     "discoveryOriginBoth": "API + каталог",
@@ -1759,8 +1936,10 @@
     "providersTitle": "Провайдеры",
     "providersDescription": "Настройте API-ключи и endpoints для каждого провайдера.",
     "llmTitle": "Модели",
+    "defaultModels": "Модели по умолчанию",
+    "defaultChatModel": "Модель чата",
+    "defaultDecisionModel": "Модель решений",
     "defaultLlm": "LLM по умолчанию",
-    "llmDescription": "Здесь задается глобальная модель LLM по умолчанию у авторизованного провайдера. Для конкретного Agent модель можно выбрать отдельно на странице Chat.",
     "configureProvider": "Настроить {{name}}",
     "baseURL": "Базовый URL",
     "apiKey": "API-ключ",
@@ -1887,7 +2066,7 @@
     "userAdded": "Добавлено пользователем",
     "addModel": "Добавить модель",
     "addModels": "Добавить модели",
-    "autoDiscoverModels": "Автообнаружение моделей",
+    "autoDiscoverModels": "Update model list",
     "addModelTitle": "Добавить модель в {{provider}}",
     "modelIdLabel": "ID модели",
     "modelIdPlaceholder": "например: gpt-4o, gemini-2.0-flash",
@@ -1900,7 +2079,7 @@
     "modelAlreadyExists": "Модель с ID \"{{id}}\" уже существует",
     "autoDiscoverModelsSuccess": "Автообнаружение завершено. Добавлено моделей: {{count}}",
     "autoDiscoverModelsNoNew": "Автообнаружение завершено. Новых моделей не найдено",
-    "autoDiscoverModelsFailed": "Не удалось автоматически обнаружить модели",
+    "autoDiscoverModelsFailed": "Could not update models. The previous list is preserved.",
     "removeModel": "Удалить",
     "removeModelConfirm": "Удалить модель «{{name}}» из {{provider}}?",
     "modelRemoved": "Модель «{{name}}» удалена",
@@ -2059,7 +2238,67 @@
     "resetMaxTokens": "Сбросить на авто",
     "providerDefault": "По умолчанию у провайдера",
     "maxOutputCapabilityLabel": "Предел модели",
-    "unknown": "Неизвестно"
+    "unknown": "Неизвестно",
+    "pool": {
+      "unsupported": "This endpoint does not support model listing. The built-in catalog and existing models are preserved; you can add models manually.",
+      "candidates": "Candidates ({{count}})",
+      "selected": "Selected ({{count}})",
+      "hint": "Enable a model to include it in chat and default model selectors. Every model can be configured directly.",
+      "managedHint": "Organization models are managed by your administrator.",
+      "billing": "All prices",
+      "capability": "All capabilities",
+      "availability": "All availability",
+      "family": "All families",
+      "clear": "Clear filters",
+      "capabilityOptions": {
+        "image": "Image input",
+        "audio": "Audio input",
+        "video": "Video input",
+        "tool_calling": "Tool calling",
+        "unknown": "Capabilities unknown"
+      },
+      "status": {
+        "available": "Available",
+        "unverified": "Unverified",
+        "permission_denied": "No permission",
+        "model_not_found": "Not found",
+        "rate_limited": "Rate limited",
+        "transient_error": "Temporarily unavailable",
+        "incompatible_api": "Incompatible protocol"
+      },
+      "results": "{{count}} models",
+      "empty": "No matching models",
+      "emptyHint": "Adjust filters or discover more models.",
+      "select": "Select",
+      "deselect": "Move to candidates",
+      "context": "Context",
+      "output": "Max output",
+      "manualHint": "Missing a model? Add it manually.",
+      "discovered": "Found {{count}} new candidates. They have not been added to selectors.",
+      "probeFinished": "Probe completed. Capabilities refreshed.",
+      "autoValue": "Auto: {{value}}",
+      "autoUnknown": "Auto: unknown",
+      "outputDefault": "Provider default (limit {{value}})",
+      "cardCounts": "{{selected}} selected · {{candidates}} candidates",
+      "all": "All models ({{count}})",
+      "selectionFilter": "Selection status",
+      "selectorToggle": "Enable in model selector",
+      "enabled": "Enabled",
+      "disabled": "Not enabled",
+      "onlyEnabled": "Enabled only",
+      "enabledSummary": "Enabled {{selected}} / Total {{total}}",
+      "any": "Any",
+      "moreFilters": "More filters",
+      "filterLabels": {
+        "billing": "Price",
+        "capability": "Capabilities",
+        "availability": "Connection status",
+        "family": "Model family"
+      }
+    },
+    "billing": {
+      "free": "Бесплатно"
+    }
   },
   "files": {
     "title": "Файлы",
@@ -2096,6 +2335,7 @@
     "rootMissing": "Отсутствует",
     "rootsPending": "Ещё {{count}} станут доступны после первого сообщения",
     "sourceEmpty": "В этом источнике пока нет файлов.",
+    "listFailed": "Не удалось загрузить список файлов каталога. Повторите попытку.",
     "loadMore": "Загрузить следующие 200",
     "upload": "Загрузить файлы",
     "conflictPolicy": "Политика конфликтов загрузки",
@@ -2115,6 +2355,11 @@
     "noSystemPromptCandidates": "Подходящих файлов нет.",
     "sourceControl": "Управление исходным кодом",
     "preview": "Предпросмотр",
+    "htmlPreview": "Предпросмотр HTML",
+    "htmlReadOnlyTitle": "Эта страница содержит динамический контент",
+    "htmlReadOnlyNotice": "Динамический контент недоступен в режиме предпросмотра только для чтения. Откройте файл в браузере, чтобы воспользоваться всеми функциями страницы.",
+    "htmlReadOnlyNotice_fallback": "Нажмите кнопку ниже, чтобы открыть страницу в браузере и воспользоваться всеми её функциями.",
+    "openHtmlInBrowser": "Открыть в браузере",
     "edit": "Изменить",
     "selectFile": "Выберите файл для открытия",
     "closeTab": "Закрыть вкладку",
@@ -2177,7 +2422,8 @@
     "alreadyBound": "Уже привязан",
     "tooMany": "Можно привязать не более {{max}} каталогов.",
     "countTitle": "Число привязанных каталогов",
-    "syncAsAgentDefault": "Использовать эту конфигурацию рабочего пространства для новых задач"
+    "syncAsAgentDefault": "Использовать эту конфигурацию рабочего пространства для новых задач",
+    "openDirectory": "Открыть {{name}}"
   },
   "agentConfig": {
     "title": "Конфигурация",
@@ -2187,9 +2433,6 @@
     "changeProjectDirectory": "Управлять",
     "manageDefaultFolders": "Рабочее пространство по умолчанию",
     "projectDirectoryWorkspaceFallback": "Используется каталог конфигурации Agent",
-    "enhancedCodeCapability": "Расширенные возможности кода",
-    "enhancedCodeCapabilityTooltip": "Добавляет инструменты кода без смены каталога проекта.",
-    "enhancedCodeCapabilityDescription": "Включает AST, LSP, кодовые подсказки, Git-контекст и управление исходным кодом.",
     "description": "Настройка параметров выполнения агента",
     "reactAgentTitle": "Агент ReAct",
     "llmRetryTitle": "Автоповтор LLM",
@@ -2253,9 +2496,11 @@
       "builtInNote": "Порядок заблокирован · Значения доступны",
       "templateSectionTitle": "Шаблоны Loop",
       "templateSectionDescription": "Выберите встроенный шаблон или добавьте свой.",
-      "defaultTab": "По умолчанию",
+      "defaultTab": "Стандартный",
       "goalTab": "Цель",
       "missionTab": "Миссия",
+      "advisorTab": "Советник",
+      "advisorPipeline": "Конвейер советника",
       "defaultDescription": "Стандартный защищённый ReAct Loop вне явного режима.",
       "goalDescription": "Ограниченный постоянный Loop для проверяемых целей.",
       "missionDescription": "Постоянный процесс для длительных многоэтапных миссий.",
@@ -2376,7 +2621,40 @@
       "safeTemplate": "Безопасный запуск",
       "researchTemplate": "Исследование с бюджетом",
       "qualityTemplate": "Приоритет качества",
-      "blankTemplate": "Пустая цепочка"
+      "blankTemplate": "Пустая цепочка",
+      "advisor": "Режим советника",
+      "advisorDescription": "Основная модель составляет план до начала работы агента и вмешивается, если он раз за разом терпит неудачу. Сам агент работает на модели субагента.",
+      "advisorEnableDescription": "Сделать режим советника доступным для этого агента (экспериментально).",
+      "advisorModels": "Советник: {{advisor}} · Исполнитель: {{worker}}",
+      "advisorEnableHelp": "Диалоги по-прежнему начинаются в стандартном цикле. При включении «Советник» появляется в меню режимов Loop поля ввода и доступна команда /advisor. Каждый диалог включает его отдельно. В каналах и cron-промптах отправьте /advisor on.",
+      "advisorModelsTitle": "Модели советника и исполнителя",
+      "advisorModelsHelp": "По умолчанию советник использует основную модель агента, а исполнитель (сам агент) работает на модели субагента. Обе задаются в селекторе моделей чата, модель субагента в разделе «Маршрутизация моделей агента». Чтобы закрепить любую роль за другой моделью, откройте панель «Модели советника» из меню режимов Loop или кнопки модели рядом с ним.",
+      "advisorSameAsAdvisor": "та же, что у советника",
+      "advisorThinking": "Размышления советника",
+      "advisorThinkingTooltip": "Уровень размышлений для вызовов самого советника. Выключено даёт самый быстрый план. «По умолчанию модели» следует настройкам агента и модели.",
+      "advisorPlanTitle": "Начальный план",
+      "advisorPlanDescription": "Советник пишет план до первого шага агента.",
+      "advisorPlanHelp": "План добавляется в контекст агента как вызов consult_advisor с результатом и показывается в чате по мере написания.",
+      "advisorFollowupTitle": "Автоматическое вмешательство по ходу",
+      "advisorFollowupDescription": "QwenPaw следит за результатами инструментов и зовёт советника, когда агент раз за разом терпит неудачу.",
+      "advisorFollowupHelp": "Срабатывает, когда число неудач подряд или в недавнем окне достигает заданных ниже порогов, не более заданного числа раз за запуск. Счётчики сбрасываются после каждого вмешательства. Советник отвечает CONTINUE или ADJUST с исправленным планом.",
+      "advisorOnDemandTitle": "Консультация по запросу",
+      "advisorOnDemandDescription": "Агент может сам спросить советника через инструмент consult_advisor.",
+      "advisorOnDemandHelp": "Инструмент велит агенту спрашивать только в настоящей точке принятия решения. Сверх лимита ниже он отвечает коротким уведомлением, и агент продолжает.",
+      "advisorMaxConsults": "Максимум консультаций на диалог",
+      "advisorMaxConsultsTooltip": "Учитываются только собственные вызовы consult_advisor агента. Начальный план и автоматические вмешательства не считаются.",
+      "advisorIntervention": {
+        "consecutive_failures": "Неудач подряд",
+        "consecutive_failuresTooltip": "Сколько вызовов инструментов подряд должно завершиться неудачей, прежде чем спросить советника.",
+        "window_failures": "Неудач в окне",
+        "window_failuresTooltip": "Сколько неудачных вызовов инструментов в окне должно набраться, прежде чем спросить советника.",
+        "window_size": "Размер окна (шагов)",
+        "window_sizeTooltip": "Сколько недавних вызовов инструментов охватывает окно неудач.",
+        "max_interventions": "Максимум вмешательств за запуск",
+        "max_interventionsTooltip": "Сколько автоматических вмешательств допускается за один запуск. 0 отключает.",
+        "cooldown_steps": "Пауза (шагов)",
+        "cooldown_stepsTooltip": "Сколько вызовов инструментов ждать после вмешательства до следующего срабатывания."
+      }
     },
     "doomLoopEnabled": "Защита от повторений",
     "doomLoopEnabledTooltip": "Автоматическое вмешательство, когда агент застревает на повторении одних и тех же действий",
@@ -2682,16 +2960,22 @@
       "strictDesc": "Перед каждым вызовом инструмента и доступом к внешним файлам требуется одобрение",
       "smart": "Умный режим",
       "smartDesc": "Вызовы инструментов с низким риском и доступ к внешним файлам выполняются автоматически; операции со средним и высоким риском требуют одобрения",
+      "jev": "Режим модели принятия решений",
+      "jevRequiresDecision": "Сначала включите модель принятия решений",
       "auto": "Автоматический режим",
       "autoDesc": "Одобрение требуется только для операций, соответствующих правилам одобрения инструментов и файлов (по умолчанию)",
       "off": "Выключено",
       "offDesc": "Одобрение инструментов и файлов отключено"
     },
     "saveLevelSuccess": "Режим одобрения инструментов сохранён",
-    "saveLevelFailed": "Не удалось сохранить режим одобрения инструментов"
+    "saveLevelFailed": "Не удалось сохранить режим одобрения инструментов",
+    "offloadPolicy": {
+      "title": "Политика фонового выполнения инструментов"
+    },
+    "memoryAutoRecordTitle": "Включить память разговоров"
   },
   "tools": {
-    "title": "Встроенные инструменты",
+    "title": "Инструменты",
     "description": "Управляйте встроенными инструментами и их статусом. Отключённые инструменты не будут доступны агенту.",
     "emptyState": "Нет настроенных инструментов",
     "loadError": "Не удалось загрузить инструменты",
@@ -2723,12 +3007,161 @@
     "webSearchApiKeyLabel": "API-ключ (необязательно)",
     "webSearchQuotaHintBefore": "Без регистрации: 100 вызовов/день. На ",
     "webSearchQuotaHintAfter": ": 1000/день.",
+    "webSearchTavilyKeyHintBefore": "Необязательно. Если ключ не задан или аутентификация не удалась, используется бесплатный поиск. Ключ: ",
+    "webSearchTavilyKeyHintAfter": ".",
     "active": "активно",
     "available": "Доступно",
     "noEnabled": "Нет включённых инструментов",
     "goEnableBtn": "Включить",
     "configureAction": "Настроить →",
-    "enableAction": "Включить →"
+    "enableAction": "Включить →",
+    "catalog": {
+      "execute_shell_command": {
+        "name": "Выполнить команды",
+        "description": "Запуск команд и скриптов в терминале."
+      },
+      "read_file": {
+        "name": "Прочитать файлы",
+        "description": "Чтение текстовых файлов целиком или по строкам."
+      },
+      "write_file": {
+        "name": "Записать файлы",
+        "description": "Создание файлов или запись нового содержимого."
+      },
+      "edit_file": {
+        "name": "Изменить файлы",
+        "description": "Поиск и замена определённого содержимого файлов."
+      },
+      "append_file": {
+        "name": "Дополнить файлы",
+        "description": "Добавление текста без замены существующего содержимого."
+      },
+      "grep_search": {
+        "name": "Найти текст в файлах",
+        "description": "Поиск текста по ключевому слову или шаблону."
+      },
+      "glob_search": {
+        "name": "Найти файлы",
+        "description": "Поиск файлов по имени или шаблону пути."
+      },
+      "desktop_screenshot": {
+        "name": "Снять скриншот",
+        "description": "Снимок рабочего стола для анализа агентом."
+      },
+      "view_image": {
+        "name": "Просмотреть изображения",
+        "description": "Загрузка изображений для понимания моделью."
+      },
+      "view_video": {
+        "name": "Просмотреть видео",
+        "description": "Загрузка видео для анализа моделью."
+      },
+      "enhance_and_generate_image": {
+        "name": "Улучшить запрос и создать изображение",
+        "description": "Уточнение запроса и генерация изображения."
+      },
+      "web_search": {
+        "name": "Искать в интернете",
+        "description": "Поиск актуальной информации и источников в интернете."
+      },
+      "web_fetch": {
+        "name": "Прочитать веб-страницы",
+        "description": "Получение содержимого страниц для чтения и анализа."
+      },
+      "browser": {
+        "name": "Управлять браузером",
+        "description": "Просмотр страниц и взаимодействие с веб-контентом."
+      },
+      "list_agents": {
+        "name": "Показать агентов",
+        "description": "Поиск доступных агентов для совместной работы."
+      },
+      "chat_with_agent": {
+        "name": "Написать агенту",
+        "description": "Отправка сообщения другому агенту и получение ответа."
+      },
+      "submit_to_agent": {
+        "name": "Делегировать задачу",
+        "description": "Передача фоновой задачи другому агенту."
+      },
+      "check_agent_task": {
+        "name": "Проверить ход задачи",
+        "description": "Проверка состояния и результата делегированной задачи."
+      },
+      "spawn_subagent": {
+        "name": "Запустить субагента",
+        "description": "Запуск временного агента для отдельной задачи."
+      },
+      "delegate_external_agent": {
+        "name": "Передать внешнему агенту",
+        "description": "Передача работы настроенному внешнему агенту."
+      },
+      "send_file_to_user": {
+        "name": "Отправить файлы",
+        "description": "Отправка файла пользователю в текущем диалоге."
+      },
+      "get_current_time": {
+        "name": "Узнать текущее время",
+        "description": "Получение текущих даты и времени."
+      },
+      "set_user_timezone": {
+        "name": "Задать часовой пояс",
+        "description": "Настройка часового пояса для задач, зависящих от времени."
+      },
+      "get_token_usage": {
+        "name": "Проверить расход токенов",
+        "description": "Просмотр расхода токенов при вызовах модели."
+      },
+      "materialize_skill": {
+        "name": "Сохранить навык в файлы",
+        "description": "Запись определения навыка в рабочую область."
+      },
+      "run_tool_batch": {
+        "name": "Выполнить набор инструментов",
+        "description": "Выполнение вызовов инструментов из JSON-файла."
+      },
+      "activate_f1_exploration_mode": {
+        "name": "Изучить согласование почты",
+        "description": "Запуск режима знакомства с согласованием почты."
+      },
+      "migration_compat_inspect": {
+        "name": "Проверить данные миграции",
+        "description": "Проверка подготовленных данных и текущих возможностей QwenPaw."
+      },
+      "migration_compat_read_file": {
+        "name": "Прочитать файлы миграции",
+        "description": "Постраничное чтение подготовленного файла данных."
+      },
+      "migration_compat_write_file": {
+        "name": "Записать файлы миграции",
+        "description": "Создание или перезапись текстовых файлов в исправляемых данных."
+      },
+      "migration_compat_update": {
+        "name": "Обновить настройки миграции",
+        "description": "Обновление разрешённых полей MCP или задач по расписанию."
+      },
+      "migration_compat_finalize": {
+        "name": "Проверить и завершить миграцию",
+        "description": "Финальная проверка и применение исправленных данных при успехе."
+      }
+    },
+    "search": "Поиск инструментов",
+    "noSearchResults": "Инструменты не найдены",
+    "filterAll": "Все инструменты",
+    "filterEnabled": "Включены",
+    "filterDisabled": "Отключены",
+    "enabledCount": "Включено {{enabled}} из {{total}}",
+    "enableAllConfirm": "Включить все инструменты ({{count}})?",
+    "groups": {
+      "files": "Файлы и код",
+      "web": "Интернет и браузер",
+      "media": "Изображения и видео",
+      "agents": "Совместная работа агентов",
+      "runtime": "Выполнение и автоматизация",
+      "migration": "Миграция приложений",
+      "other": "Без категории"
+    },
+    "webSearchConfigLoadError": "Не удалось загрузить учётные данные провайдера. Повторите попытку перед сохранением."
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель — выберите в Chat после настройки",
@@ -2843,6 +3276,8 @@
     "desktopApplication": "Настольное приложение",
     "languageHint": "Изменяет язык интерфейса на этом устройстве.",
     "themeHint": "Используйте светлую, тёмную или системную тему.",
+    "uiFontSize": "Базовый размер шрифта консоли",
+    "uiFontSizeHint": "Задаёт базовый размер шрифта для консоли и страницы входа.",
     "customTheme": "Своя тема",
     "customThemeHint": "Выберите палитру или настройте цвета и радиус скругления.",
     "themePalette": "Палитра темы",
@@ -2882,10 +3317,33 @@
       "global": "Глобальные настройки",
       "plugins": "Функции плагинов"
     },
-    "alwaysVisible": "Всегда отображать"
+    "alwaysVisible": "Всегда отображать",
+    "sidebarEditHelp": "Перетащите маркер для сортировки. С клавиатуры: пробел — выбрать, стрелки — переместить, пробел — отпустить. Кнопки + и − добавляют и убирают пункты. Изменения сохраняются автоматически.",
+    "fixedEntry": "Всегда виден",
+    "addEntry": "Добавить {{name}}",
+    "allAdded": "Всё добавлено",
+    "availableEntries": "Доступные пункты",
+    "dragHint": "Перетащите для сортировки или возврата в список.",
+    "dropHere": "Перетащите ярлыки сюда",
+    "mirrorHint": "Держите нужные инструменты под рукой.",
+    "moveEntry": "Переместить {{name}}",
+    "preview": "Предпросмотр",
+    "previewCaption": "Изменения сохраняются автоматически",
+    "removeEntry": "Убрать {{name}}",
+    "sidebarPreview": "Видимые пункты"
   },
   "chat": {
+    "longTextPaste": {
+      "title": "Вставить длинный текст",
+      "asText": "Вставить как текст",
+      "asFile": "Прикрепить файл",
+      "characters": "Символов: {{count}}"
+    },
+    "historyLoadFailed": "Не удалось загрузить диалог. Повторите попытку.",
+    "routeNotFound": "Этот диалог недоступен или был удалён.",
+    "routeAmbiguous": "Этой ссылке соответствует несколько диалогов. Откройте диалог на боковой панели.",
     "newTask": "Новая задача",
+    "newChat": "Новый чат",
     "groups": {
       "cronShort": "Расписание",
       "subagentShort": "Субагент"
@@ -2909,7 +3367,11 @@
     "prompt1": "Давайте начнём новое путешествие!",
     "prompt2": "Расскажи мне, какими навыками ты обладаешь?",
     "inputPlaceholder": "\"↑↓\" для навигации по сообщениям · \"/\" для быстрых команд",
-    "longTextUploadPrompt": "Пожалуйста, прочитайте загруженный файл с промптом и ответьте на его основе.",
+    "composer": {
+      "attach": "Прикрепить файлы",
+      "send": "Отправить сообщение",
+      "stop": "Остановить генерацию"
+    },
     "emptyOutputError": "Ассистент вернул пустой ответ.",
     "commands": {
       "clear": {
@@ -2999,6 +3461,7 @@
       "rename": "Переименовать",
       "pin": "Закрепить",
       "unpin": "Открепить",
+      "copyId": "Копировать ID беседы",
       "delete": "Удалить"
     },
     "queue": {
@@ -3233,7 +3696,8 @@
         "goToWhitelist": "Перейти к белому списку",
         "moreFindings": "Ещё {{count}} записей не показано (полный список: Настройки → Безопасность → Сканер навыков)."
       }
-    }
+    },
+    "sandboxEnabled": "Защита песочницы"
   },
   "hub": {
     "brand": {
@@ -3653,6 +4117,9 @@
         "memberDefaultsHint": "Новые диалоги начинаются с этой моделью. Участники могут переключиться на другие разрешённые модели.",
         "settingsSaved": "Настройки моделей сохранены",
         "defaultModel": "Модель по умолчанию",
+        "gatewayTimeout": "Тайм-аут шлюза (секунды)",
+        "gatewayTimeoutHelp": "По умолчанию 600 секунд, минимум 60. После сохранения применяется к новым запросам, включая потоковые ответы. Тайм-аут подключения остаётся 10 секунд.",
+        "gatewayTimeoutInvalid": "Введите целое число секунд не меньше 60.",
         "chooseDefault": "Выберите модель, доступную всем участникам",
         "saveSettings": "Сохранить настройки моделей",
         "providers": "Провайдеры",
@@ -3941,18 +4408,19 @@
     "transcriptionInfoDescLocal": "Локальная Whisper транскрипция запускает библиотеку openai-whisper непосредственно на вашем устройстве. Требуются ffmpeg (для декодирования аудио) и пакет openai-whisper. API-ключ и подключение к интернету не нужны. Установка: uv pip install 'qwenpaw[whisper]'."
   },
   "acp": {
-    "title": "ACP",
+    "title": "Подключения ACP",
     "loading": "Загрузка конфигурации ACP...",
-    "builtin": "Встроенный",
-    "custom": "Пользовательский",
-    "create": "Добавить пользовательский агент",
-    "createTitle": "Создать ACP агент",
-    "createSuccess": "ACP агент создан",
+    "loadError": "Не удалось загрузить конфигурацию ACP.",
+    "builtin": "Предустановки",
+    "custom": "Свои",
+    "create": "Добавить подключение ACP",
+    "createTitle": "Новое подключение ACP",
+    "createSuccess": "Подключение ACP добавлено",
     "editTitle": "Редактировать конфигурацию ACP",
-    "agentKey": "Ключ агента",
-    "agentKeyRequired": "Пожалуйста, введите ключ агента",
-    "agentKeyInvalid": "Ключ агента может содержать только буквы, цифры, подчёркивания и дефисы",
-    "agentKeyExists": "Этот ключ агента уже существует",
+    "agentKey": "ID подключения",
+    "agentKeyRequired": "Введите ID подключения",
+    "agentKeyInvalid": "ID может содержать только буквы, цифры, подчёркивания и дефисы",
+    "agentKeyExists": "Этот ID подключения уже существует",
     "enabled": "Включено",
     "command": "Команда",
     "commandRequired": "Пожалуйста, введите команду",
@@ -3974,10 +4442,10 @@
     "configSaved": "Конфигурация ACP сохранена",
     "configFailed": "Не удалось сохранить конфигурацию ACP",
     "deleteTitle": "Удалить {{name}}",
-    "deleteConfirm": "Удалить этот ACP агент? Это действие нельзя отменить.",
-    "deleteSuccess": "ACP агент удалён",
-    "deleteFailed": "Не удалось удалить ACP агент",
-    "nodeSettings": "Настройки Node",
+    "deleteConfirm": "Удалить подключение ACP? Это действие нельзя отменить.",
+    "deleteSuccess": "Подключение ACP удалено",
+    "deleteFailed": "Не удалось удалить подключение ACP",
+    "nodeSettings": "Среда выполнения",
     "nodePath": "Путь к Node",
     "chooseOtherNode": "Выбрать другой Node...",
     "selectNodePath": "Выбрать путь к Node",
@@ -3996,6 +4464,18 @@
       "npxMissing": "npx не найден",
       "versionCheckFailed": "Проверка версии не удалась",
       "unavailable": "Недоступно"
+    },
+    "intro": "Подключайте инструменты по ACP для текущего агента.",
+    "protocolHelp": "Здесь настраиваются инструменты ACP. Сторонние бэкенды в управлении агентами используют собственные встроенные протоколы и настраиваются отдельно.",
+    "currentAgent": "Текущий агент",
+    "callableTools": "Доступные инструменты",
+    "enabledIntegrations": "Включённые подключения",
+    "search": "Поиск подключений ACP",
+    "trustedHelp": "Автоматически одобрять запросы разрешений этого подключения. Жёсткие блокировки безопасности сохраняются. Отключите для подтверждения запросов.",
+    "toolParseModes": {
+      "call_title": "Заголовки вызовов",
+      "update_detail": "Подробности прогресса",
+      "call_detail": "Подробности вызовов"
     }
   },
   "backup": {
@@ -4033,7 +4513,7 @@
     "securityNotice": "Эта резервная копия может содержать конфиденциальные учётные данные. Рабочие пространства агентов включают учётные данные каналов (токены ботов, секреты приложений и т.д.), а секреты провайдеров моделей включают API-ключи. Не передавайте файлы резервных копий другим лицам.",
     "searchPlaceholder": "Поиск по названию или ID...",
     "total": "Всего {{count}}",
-    "agentsPlaceholder": "Выберите рабочие пространства агентов (оставьте пустым для всех)",
+    "agentsPlaceholder": "Выберите рабочие пространства агентов для резервного копирования",
     "selectAll": "Выбрать все",
     "deselectAll": "Снять выбор",
     "createSuccess": "Резервная копия успешно создана",
@@ -4126,6 +4606,12 @@
     "localModelsNotice": "Файлы резервной копии не включают локальные файлы моделей. При миграции между устройствами необходимо повторно загрузить нужные локальные модели на целевом устройстве."
   },
   "approval": {
+    "queue": {
+      "title": "Ожидающие подтверждения",
+      "position": "{{current}} / {{total}}",
+      "previous": "Предыдущее подтверждение",
+      "next": "Следующее подтверждение"
+    },
     "title": "Требуется подтверждение безопасности",
     "tool": "Инструмент",
     "severity": "Уровень угрозы",
@@ -4258,6 +4744,7 @@
     "createSuccess": "Сбор успешно создан",
     "emptyApprovals": "Нет ожидающих подтверждений",
     "emptyPush": "Нет push-сообщений",
+    "loadFailed": "Не удалось загрузить push-сообщения. Повторите попытку.",
     "wobbleEnable": "Включить уведомление о подтверждении",
     "wobbleDisable": "Отключить уведомление о подтверждении",
     "emptyHarvests": "Сборов пока нет",
@@ -4587,7 +5074,95 @@
       "mission": {
         "name": "Миссия",
         "description": "Структурированная длительная многоэтапная задача."
+      },
+      "advisor": {
+        "name": "Советник",
+        "description": "Сильная модель планирует и вмешивается, а дешёвая выполняет работу."
       }
+    },
+    "advisorSetup": {
+      "title": "Модели советника",
+      "hint": "По умолчанию используются основная модель агента (советник) и модель субагента (исполнитель). Выбор здесь сохраняется для этого агента.",
+      "advisorModel": "Модель советника",
+      "workerModel": "Модель исполнителя",
+      "subagentDefault": "{{model}} · по умолчанию: модель субагента",
+      "noSubagent": "Как у советника · по умолчанию: модель субагента не задана",
+      "pairTooltip": "Модели советника → исполнителя этого диалога",
+      "primaryModelDefault": "{{model}} · по умолчанию: основная модель"
+    }
+  },
+  "runtimeDesign": {
+    "title": "Студия выполнения",
+    "subtitle": "Настройте агента под свой способ работы.",
+    "workspace": "Рабочая среда",
+    "workspaceHint": "Язык, часовой пояс и рабочая область",
+    "execution": "Выполнение",
+    "executionHint": "Циклы задач и одобрение инструментов",
+    "recovery": "Сбои и ожидание",
+    "recoveryHint": "Повторы и параллельные запросы",
+    "context": "Объём контекста",
+    "contextHint": "Сжатие, сохранение и результаты инструментов",
+    "memory": "Память и поиск",
+    "memoryHint": "Запись, организация и поиск",
+    "deviceTimezone": "Часовой пояс устройства",
+    "localTime": "Местное время",
+    "mapHint": "Нажмите на карту, чтобы выбрать фиксированный пояс UTC. Для регионов с летним временем выберите региональный часовой пояс в списке выше.",
+    "zoomIn": "Увеличить",
+    "zoomOut": "Уменьшить",
+    "retryPreview": "Предпросмотр ожидания",
+    "retryHint": "Базовое ожидание перед повтором; сервер и ограничения могут увеличить его.",
+    "retryAttempt": "Повтор {{count}}",
+    "totalWait": "Общее ожидание",
+    "budgetTitle": "Бюджет контекста",
+    "budgetHint": "Настроенная ёмкость модели, не текущее использование.",
+    "trigger": "Порог сжатия",
+    "retained": "Сохранённый контекст",
+    "advanced": "Дополнительные настройки",
+    "seconds": "секунд",
+    "allSettings": "Все настройки",
+    "cities": {
+      "America_Los_Angeles": "Лос-Анджелес",
+      "America_New_York": "Нью-Йорк",
+      "America_Sao_Paulo": "Сан-Паулу",
+      "Europe_London": "Лондон",
+      "Europe_Moscow": "Москва",
+      "Africa_Cairo": "Каир",
+      "Africa_Johannesburg": "Йоханнесбург",
+      "Asia_Dubai": "Дубай",
+      "Asia_Kolkata": "Калькутта",
+      "Asia_Shanghai": "Шанхай",
+      "Asia_Tokyo": "Токио",
+      "Asia_Singapore": "Сингапур",
+      "Australia_Sydney": "Сидней",
+      "Pacific_Auckland": "Окленд"
+    },
+    "beijingTime": "Пекинское время",
+    "mapPlaces": {
+      "-12": "Остров Бейкер",
+      "-11": "Паго-Паго",
+      "-10": "Гонолулу",
+      "-9": "Анкоридж",
+      "-8": "Лос-Анджелес",
+      "-7": "Денвер",
+      "-6": "Мехико",
+      "-5": "Нью-Йорк",
+      "-4": "Сан-Хуан",
+      "-3": "Буэнос-Айрес",
+      "-2": "Южная Георгия",
+      "-1": "Прая",
+      "0": "Лондон",
+      "1": "Париж",
+      "2": "Каир",
+      "3": "Москва",
+      "4": "Дубай",
+      "5": "Карачи",
+      "6": "Дакка",
+      "7": "Бангкок",
+      "8": "Пекин",
+      "9": "Токио",
+      "10": "Сидней",
+      "11": "Нумеа",
+      "12": "Сува"
     }
   }
 }

@@ -380,7 +380,7 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
     });
 
     const payloadOf = () =>
-      mockApi.replaceCronJob.mock.calls[0][1] as Record<string, any>;
+      mockApi.replaceCronJob.mock.calls[0][1] as CronJobSpecOutput;
 
     it("Ant Form 只提交已注册字段时，保留 id／meta／dispatch.meta 并强制 enabled=false", async () => {
       const { result } = renderHook(() => useCronJobs());
@@ -429,12 +429,12 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
         } as unknown as CronJobSpecOutput);
       });
 
-      const ctx = payloadOf().request.request_context;
-      expect(ctx.project_dir).toBe("/new/dir");
+      const ctx = payloadOf().request?.request_context;
+      expect(ctx?.project_dir).toBe("/new/dir");
       // Migration metadata is immutable: a field the form never submitted must
       // survive from the original.
-      expect(ctx.imported_flag).toBe("keep-me");
-      expect(payloadOf().request.input).toBe("new input");
+      expect(ctx?.imported_flag).toBe("keep-me");
+      expect(payloadOf().request?.input).toBe("new input");
     });
 
     it("表单未提交 project_dir 时沿用原值", async () => {
@@ -453,7 +453,7 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
         } as unknown as CronJobSpecOutput);
       });
 
-      expect(payloadOf().request.request_context.project_dir).toBe(
+      expect(payloadOf().request?.request_context?.project_dir).toBe(
         "  /original/dir  ",
       );
     });
@@ -474,7 +474,7 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
         } as unknown as CronJobSpecOutput);
       });
 
-      expect(payloadOf().request.request_context.project_dir).toBe(42);
+      expect(payloadOf().request?.request_context?.project_dir).toBe(42);
     });
 
     it("原值与表单都没有 request 时合并结果为 undefined", async () => {
@@ -517,7 +517,7 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
         } as unknown as CronJobSpecOutput);
       });
 
-      expect(payloadOf().request.input).toBe("original input");
+      expect(payloadOf().request?.input).toBe("original input");
     });
 
     it("非待审任务不走受保护合并，直接提交表单值", async () => {

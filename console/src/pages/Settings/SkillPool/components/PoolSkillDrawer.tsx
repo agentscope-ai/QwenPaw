@@ -1,11 +1,5 @@
-import {
-  Button,
-  Drawer,
-  Form,
-  Input,
-  Select,
-  Switch,
-} from "@agentscope-ai/design";
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
+import { Button, Form, Input, Select, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type {
   PoolSkillDetail,

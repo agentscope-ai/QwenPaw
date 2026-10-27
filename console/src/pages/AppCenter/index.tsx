@@ -43,7 +43,8 @@ import {
   getPawAppIdFromPath,
   setActivePawAppId,
 } from "../../plugins/pawapp-sdk/context";
-import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
+import { AppCard, type AppCardData } from "./AppCard";
+import { pickAppDescription } from "./appDescription";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
   addRouterBasename,

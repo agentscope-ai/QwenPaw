@@ -24,21 +24,18 @@ PROJECT_ID = "project-1"
 def test_design_images_do_not_require_a_generic_plan_confirmation() -> None:
     """Requiring the design checkpoint for design images would deadlock:
     only storyboards and videos wait for it."""
-    assert (
-        required_checkpoint_phases(
-            "image_generation",
-            SpecialistRole.VISUAL_DEVELOPMENT,
-        )
-        == ()
-    )
+    assert required_checkpoint_phases(
+        "image_generation",
+        SpecialistRole.VISUAL_DEVELOPMENT,
+    ) == (CHECKPOINT_SCRIPT,)
     assert required_checkpoint_phases(
         "image_generation",
         SpecialistRole.R2V_GENERATION_DIRECTOR,
-    ) == (CHECKPOINT_DESIGN,)
+    ) == (CHECKPOINT_SCRIPT, CHECKPOINT_DESIGN)
     assert required_checkpoint_phases(
         "r2v_generation",
         SpecialistRole.R2V_GENERATION_DIRECTOR,
-    ) == (CHECKPOINT_DESIGN,)
+    ) == (CHECKPOINT_SCRIPT, CHECKPOINT_DESIGN)
     # Non-media tools are never gated.
     assert not required_checkpoint_phases(
         "commit_source_intelligence",
@@ -48,13 +45,13 @@ def test_design_images_do_not_require_a_generic_plan_confirmation() -> None:
 
 def test_multi_timeline_projects_prepend_structure_and_script() -> None:
     """Blueprint ladder（方案 3.1）：多集/分支项目在生成前先确认
-    结构与剧本；设计图只等结构（可与剧本审阅并行）。"""
+    结构与剧本；设计图也必须等待剧本确认。"""
 
     assert required_checkpoint_phases(
         "image_generation",
         SpecialistRole.VISUAL_DEVELOPMENT,
         timeline_count=3,
-    ) == (CHECKPOINT_STRUCTURE,)
+    ) == (CHECKPOINT_STRUCTURE, CHECKPOINT_SCRIPT)
     assert required_checkpoint_phases(
         "image_generation",
         SpecialistRole.R2V_GENERATION_DIRECTOR,
@@ -76,23 +73,19 @@ def test_multi_timeline_projects_prepend_structure_and_script() -> None:
 
 
 def test_single_timeline_structure_is_always_silent() -> None:
-    """单 timeline 项目感知不到 structure/script；调用点拿不到
-    project（timeline_count=None）时同样按单 timeline 处理。"""
+    """单 timeline 不需要结构检查点，但生图仍须确认剧本。"""
 
     for timeline_count in (1, None):
-        assert (
-            required_checkpoint_phases(
-                "image_generation",
-                SpecialistRole.VISUAL_DEVELOPMENT,
-                timeline_count=timeline_count,
-            )
-            == ()
-        )
+        assert required_checkpoint_phases(
+            "image_generation",
+            SpecialistRole.VISUAL_DEVELOPMENT,
+            timeline_count=timeline_count,
+        ) == (CHECKPOINT_SCRIPT,)
         assert required_checkpoint_phases(
             "r2v_generation",
             SpecialistRole.R2V_GENERATION_DIRECTOR,
             timeline_count=timeline_count,
-        ) == (CHECKPOINT_DESIGN,)
+        ) == (CHECKPOINT_SCRIPT, CHECKPOINT_DESIGN)
 
 
 def test_skip_mode_silences_structure_and_script_too(monkeypatch) -> None:

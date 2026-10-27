@@ -42,6 +42,88 @@
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
+      .qwenpaw-boot--error {
+        box-sizing: border-box;
+        overflow: auto;
+        padding: 24px;
+        -webkit-font-smoothing: antialiased;
+      }
+      .qwenpaw-boot--error .qwenpaw-boot__content {
+        margin: auto;
+        max-width: 640px;
+        width: 100%;
+      }
+      .qwenpaw-boot--error h1 {
+        font-size: 24px;
+        font-weight: 600;
+        margin: 0;
+        text-align: center;
+        text-wrap: balance;
+      }
+      .qwenpaw-boot--error p {
+        color: #70706c;
+        font-size: 14px;
+        line-height: 1.6;
+        margin: 0;
+        text-align: center;
+      }
+      .qwenpaw-boot--error details {
+        width: 100%;
+      }
+      .qwenpaw-boot--error summary {
+        cursor: pointer;
+        margin: 0 auto;
+        min-height: 40px;
+        padding: 10px 0;
+        box-sizing: border-box;
+        width: fit-content;
+      }
+      .qwenpaw-boot--error details p {
+        font-size: 12px;
+        margin: 8px 0;
+        text-align: left;
+      }
+      .qwenpaw-boot--error pre {
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.5;
+        max-height: 240px;
+        overflow: auto;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      .qwenpaw-boot__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: center;
+      }
+      .qwenpaw-boot__actions button {
+        background: transparent;
+        border: 1px solid #d8d8d3;
+        border-radius: 10px;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+        font-size: 14px;
+        min-height: 44px;
+        padding: 8px 16px;
+      }
+      .qwenpaw-boot__actions button:hover {
+        background: #ebebe7;
+      }
+      .qwenpaw-boot__actions button:focus-visible {
+        outline: 2px solid #ff7f16;
+        outline-offset: 3px;
+      }
+      .qwenpaw-boot__actions .qwenpaw-boot__reload {
+        background: #ff7f16;
+        border-color: #ff7f16;
+        color: #fff;
+      }
+      .qwenpaw-boot__actions .qwenpaw-boot__reload:hover {
+        background: #ed6f08;
+      }
       @media (prefers-color-scheme: dark) {
         .qwenpaw-boot {
           background: #141414;
@@ -49,6 +131,15 @@
         }
         .qwenpaw-boot__label {
           color: #a6a6a0;
+        }
+        .qwenpaw-boot--error p {
+          color: #a6a6a0;
+        }
+        .qwenpaw-boot__actions button {
+          border-color: #4c4c48;
+        }
+        .qwenpaw-boot__actions button:hover {
+          background: #282826;
         }
       }
     </style>

@@ -556,8 +556,6 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.click(await screen.findByText("Search conversations"));
     fireEvent.change(screen.getByPlaceholderText("Search…"), {
       target: { value: "Conversation 1" },
     });
@@ -640,8 +638,6 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.click(await screen.findByText("Search conversations"));
     const search = screen.getByPlaceholderText("Search…");
     fireEvent.change(search, { target: { value: "beta" } });
     await waitFor(() => {
@@ -672,8 +668,7 @@ describe("SidebarSessionList", () => {
       reorderGroups: vi.fn(),
     });
     renderWithProviders(<SidebarSessionList />);
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.click(await screen.findByText("New group"));
+    fireEvent.click(await screen.findByRole("button", { name: "New group" }));
     const input = screen.getByPlaceholderText("Group name");
     fireEvent.change(input, { target: { value: "My Group" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
@@ -691,7 +686,8 @@ describe("SidebarSessionList", () => {
     });
   });
 
-  it("renders date sections by default", async () => {
+  it("renders date sections in date mode", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     const older = {
       ...sessionA,
       id: "sess-old",
@@ -732,22 +728,27 @@ describe("SidebarSessionList", () => {
     expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
   });
 
-  it("switches the grouping mode from the more menu and persists it", async () => {
+  it("cycles grouping directly without opening a menu and persists it", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     mockData([sessionA, sessionB]);
     renderWithProviders(<SidebarSessionList />);
     await waitFor(() => {
       expect(screen.getAllByTestId("date-header").length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.mouseEnter(await screen.findByText("Group by"));
-    fireEvent.click(await screen.findByText("No grouping"));
+    expect(screen.queryByText("Search conversations")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "By time" }));
+    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("source");
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "By source" }));
 
     await waitFor(() => {
       expect(screen.queryByTestId("date-header")).toBeNull();
     });
     expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("none");
+    fireEvent.click(await screen.findByRole("button", { name: "No grouping" }));
+    expect(localStorage.getItem("qwenpaw_session_group_mode")).toBe("date");
   });
 
   it("restores the chosen grouping mode after a remount", async () => {
@@ -795,6 +796,7 @@ describe("SidebarSessionList", () => {
     });
 
     it("allocates 36px date headers in date mode", async () => {
+      localStorage.setItem("qwenpaw_session_group_mode", "date");
       mockData([sessionA]);
       renderWithProviders(<SidebarSessionList />);
       await waitFor(() => {
@@ -806,6 +808,41 @@ describe("SidebarSessionList", () => {
       expect(list.itemSize(0)).toBe(36);
       expect(list.itemSize(1)).toBe(38);
     });
+
+    it.each(["cron", "subagents"] as const)(
+      "reserves the %s header's source spacing before a conversation",
+      async (kind) => {
+        localStorage.setItem("qwenpaw_session_group_mode", "source");
+        mockData([{ ...sessionA, groupId: kind }]);
+        mockChatGroups.mockReturnValue({
+          groups: [
+            {
+              id: "default",
+              name: "Uncategorized",
+              kind: "default",
+              order: 0,
+              pinned: false,
+            },
+            { id: kind, name: kind, kind, order: 1, pinned: false },
+          ],
+          createGroup: vi.fn(),
+          renameGroup: vi.fn(),
+          pinGroup: vi.fn(),
+          deleteGroup: vi.fn(),
+          reorderGroups: vi.fn(),
+        });
+        renderWithProviders(<SidebarSessionList />);
+        await waitFor(() => {
+          expect(screen.getByTestId(`group-header-${kind}`)).toBeTruthy();
+          expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+        });
+        const list = mockListProps.current!;
+        // The source chip is 32px high with 8px top / 2px bottom margins.
+        expect(list.itemSize(0)).toBe(36);
+        expect(list.itemSize(1)).toBe(42);
+        expect(list.itemSize(2)).toBe(38);
+      },
+    );
   });
 
   it("shows empty groups in source mode", async () => {
@@ -844,15 +881,15 @@ describe("SidebarSessionList", () => {
   });
 
   it("offers group creation only in source mode", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     mockData([sessionA]);
     const first = renderWithProviders(<SidebarSessionList />);
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
 
-    // date mode (default): no New group entry
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.queryByText("New group")).toBeNull();
+    // date mode: no New group entry
+    expect(screen.queryByRole("button", { name: "New group" })).toBeNull();
     first.unmount();
 
     // source mode: the entry appears
@@ -861,11 +898,13 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(await screen.findByText("New group")).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "New group" }),
+    ).toBeTruthy();
   });
 
   it("renders three date tiers and skips empty ones", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     const weekSession = {
       ...sessionA,
       id: "sess-week",
@@ -893,6 +932,7 @@ describe("SidebarSessionList", () => {
   });
 
   it("floats pinned conversations to the top of their date tier", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     const pinnedOld = {
       ...sessionA,
       id: "sess-pinned-old",
@@ -921,6 +961,7 @@ describe("SidebarSessionList", () => {
   });
 
   it("folds and unfolds date sections like group sections", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
     const older = {
       ...sessionA,
       id: "sess-old",

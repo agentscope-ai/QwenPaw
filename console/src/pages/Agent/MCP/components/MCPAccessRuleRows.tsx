@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { DeleteOutlined } from "@ant-design/icons";
+import { Trash2 as DeleteOutlined } from "lucide-react";
 import { Button, Input, Select } from "@agentscope-ai/design";
 import { AutoComplete } from "antd";
 import { useTranslation } from "react-i18next";
@@ -364,7 +364,7 @@ function AccessRuleRow<Rule extends MCPAccessRule>({
       </div>
       <Button
         className={styles.accessRuleDeleteButton}
-        icon={<DeleteOutlined />}
+        icon={<DeleteOutlined size="1em" />}
         onClick={() => deleteRule(rule)}
         title={t("mcp.access.deleteRule")}
       />

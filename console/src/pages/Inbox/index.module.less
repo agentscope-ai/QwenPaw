@@ -1,4 +1,7 @@
+@import (reference) "../../styles/scaledTypography.less";
+
 .inboxPage {
+  .scaled-control-typography();
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -19,7 +22,7 @@
   gap: 20px;
   margin-bottom: 18px;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .inboxTabs {
@@ -37,11 +40,16 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
+  font-size: calc(15px * var(--app-font-scale));
 }
 
 .wobbleToggleActive {
   color: var(--app-accent) !important;
+}
+
+.mailAclButton,
+.wobbleToggle {
+  flex-shrink: 0;
 }
 
 .tabContent {
@@ -71,8 +79,55 @@
 }
 
 .selectedCountText {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
+}
+
+.messagesError,
+.messagesLoading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+}
+
+.messagesError {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-error-border);
+  background: var(--app-error-bg);
+  color: var(--app-error-text);
+
+  > span {
+    flex: 1;
+  }
+
+  :global(.ant-btn) {
+    flex-shrink: 0;
+    min-height: 44px;
+  }
+}
+
+.messagesLoading {
+  justify-content: center;
+  min-height: 120px;
+  color: var(--app-text-secondary);
+}
+
+.messagesLoadingIcon {
+  animation: messagesLoadingSpin 1s linear infinite;
+}
+
+@keyframes messagesLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .messagesLoadingIcon {
+    animation: none;
+  }
 }
 
 .cardList {
@@ -112,7 +167,7 @@
 }
 
 .messageDetailLabel {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
 }
 
@@ -123,7 +178,7 @@
   border-radius: 8px;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -135,7 +190,7 @@
   border-radius: 8px;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -149,7 +204,7 @@
   border-radius: 8px;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   max-height: 360px;
   overflow-y: auto;
@@ -250,12 +305,12 @@
   align-items: center;
   justify-content: center;
   color: var(--app-text-secondary);
-  font-size: 14px;
+  font-size: var(--app-font-body);
 }
 
 .traceFoldTitle {
   font-weight: 500;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   color: var(--app-text);
 }
 
@@ -263,7 +318,7 @@
   display: inline-flex;
   align-items: center;
   color: var(--app-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   opacity: 0;
   transform: rotate(0deg);
   transition:
@@ -283,11 +338,11 @@
 .traceFoldTime {
   margin-left: auto;
   color: var(--app-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 
 .traceAssistantMessage {
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.65;
   color: var(--app-text);
   white-space: normal;
@@ -345,7 +400,7 @@
   color: var(--app-text);
   border-radius: 14px;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.6;
   border: 1px solid var(--app-border);
   white-space: pre-wrap;
@@ -384,7 +439,7 @@
 }
 
 .traceCodeTitle {
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
   color: var(--app-text-secondary);
 }
@@ -393,7 +448,7 @@
   border: none;
   background: transparent;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   cursor: pointer;
   line-height: 1;
   padding: 2px;
@@ -408,7 +463,7 @@
   border-radius: 8px;
   border: 1px solid var(--app-border);
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -426,7 +481,7 @@
   border: none;
   background: var(--app-surface);
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
   white-space: pre;
   word-break: normal;
@@ -438,7 +493,7 @@
 }
 
 .traceMarkdownBlock {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.75;
 
   :global(.markdown > p),
@@ -468,6 +523,10 @@
 @media (max-width: 960px) {
   .pageContent {
     padding: 14px;
+  }
+
+  .messagesToolbar {
+    flex-wrap: wrap;
   }
 
   .inboxTabs {
@@ -533,12 +592,45 @@
     flex-wrap: wrap;
     width: 100%;
 
-    :global(.ant-select) {
+    :global(.ant-select),
+    :global(.qwenpaw-select) {
       width: 100% !important;
     }
 
-    :global(.ant-btn) {
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
       flex-shrink: 0;
+      min-height: var(--app-hit-touch);
+    }
+
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
+      min-height: var(--app-hit-touch) !important;
+    }
+
+    :global(.ant-select-selection-search-input),
+    :global(.qwenpaw-select-selection-search-input) {
+      height: var(--app-hit-touch) !important;
+    }
+  }
+
+  .mailAclButton,
+  .wobbleToggle,
+  .inboxTabs :global(.ant-tabs-tab-btn),
+  .inboxTabs :global(.qwenpaw-tabs-tab-btn),
+  .messageDetailTitle > button {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .messagesError {
+    align-items: flex-start;
+    flex-wrap: wrap;
+
+    > span {
+      min-width: calc(100% - 30px);
     }
   }
 

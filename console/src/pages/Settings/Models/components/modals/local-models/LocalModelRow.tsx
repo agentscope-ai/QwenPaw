@@ -1,11 +1,11 @@
 import { memo } from "react";
 import { Button } from "@agentscope-ai/design";
 import {
-  DeleteOutlined,
-  DownloadOutlined,
-  PlayCircleOutlined,
-  StopOutlined,
-} from "@ant-design/icons";
+  Trash2 as DeleteOutlined,
+  Download as DownloadOutlined,
+  CirclePlay as PlayCircleOutlined,
+  Ban as StopOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { LocalModelInfo } from "../../../../../../api/types";
 import styles from "../../../index.module.less";
@@ -56,7 +56,7 @@ export const LocalModelRow = memo(function LocalModelRow({
           <Button
             type="primary"
             size="small"
-            icon={<DownloadOutlined />}
+            icon={<DownloadOutlined size="1em" />}
             onClick={() => onStartDownload(model)}
             disabled={isModelDownloading || isServerBusy}
           >
@@ -67,7 +67,7 @@ export const LocalModelRow = memo(function LocalModelRow({
             <Button
               danger
               size="small"
-              icon={<StopOutlined />}
+              icon={<StopOutlined size="1em" />}
               loading={stoppingServer}
               onClick={onStopServer}
             >
@@ -76,7 +76,7 @@ export const LocalModelRow = memo(function LocalModelRow({
             <Button
               danger
               size="small"
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined size="1em" />}
               loading={isDeleting}
               disabled
               onClick={() => onDeleteModel(model)}
@@ -89,7 +89,7 @@ export const LocalModelRow = memo(function LocalModelRow({
             <Button
               type="primary"
               size="small"
-              icon={<PlayCircleOutlined />}
+              icon={<PlayCircleOutlined size="1em" />}
               loading={isStarting}
               onClick={() => onStartServer(model)}
               disabled={isServerBusy || isDeleting}
@@ -99,7 +99,7 @@ export const LocalModelRow = memo(function LocalModelRow({
             <Button
               danger
               size="small"
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined size="1em" />}
               loading={isDeleting}
               onClick={() => onDeleteModel(model)}
               disabled={isDeleting || isServerBusy}

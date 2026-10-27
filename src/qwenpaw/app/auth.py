@@ -50,6 +50,17 @@ logger = logging.getLogger(__name__)
 _RUNTIME_TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
 _RUNTIME_TOKEN_HEADER = "x-qwenpaw-runtime-token"
 
+
+def runtime_token_matches(expected: str, supplied: str) -> bool:
+    """Compare runtime tokens without accepting malformed or empty values."""
+    return (
+        bool(expected)
+        and expected.isascii()
+        and supplied.isascii()
+        and (hmac.compare_digest(expected, supplied))
+    )
+
+
 AUTH_FILE = SECRET_DIR / "auth.json"
 
 # Token validity: 7 days (default)
@@ -64,7 +75,9 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/login",
         "/api/auth/status",
         "/api/auth/register",
-        "/api/desktop/shutdown",
+        "/api/runtime/shutdown",
+        "/api/runtime/connect",
+        "/api/runtime/clients",
         "/api/version",
         "/api/settings/language",
         "/api/settings/upload-limit",
@@ -810,7 +823,7 @@ class RuntimeBoundaryMiddleware:
         }
         supplied = headers.get(_RUNTIME_TOKEN_HEADER, "")
         app_id = headers.get(PAWAPP_SCOPE_HEADER.lower())
-        if hmac.compare_digest(runtime_token, supplied) and (
+        if runtime_token_matches(runtime_token, supplied) and (
             app_id is None or browser_read_allowed(scope, unquote(app_id))
         ):
             await self.app(scope, receive, send)

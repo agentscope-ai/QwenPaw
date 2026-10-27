@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 import errno
+import gzip
 import hashlib
 import json
 import logging
@@ -15,6 +16,7 @@ from pathlib import Path
 import tempfile
 import time
 from typing import Any, Generic, TypeVar, cast
+import zlib
 
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
@@ -26,12 +28,16 @@ from .errors import (
     RuntimeFileValidationError,
 )
 from .locking import CrossProcessFileLock
+from .shared_io import open_shared_read, replace_open_file
 
 logger = logging.getLogger("qwenpaw.creator.runtime_files.atomic_store")
 
 
 T = TypeVar("T")
 WriteStageHook = Callable[[str, Path], None]
+# gzip's two-byte magic header; the only signal needed to tell a compressed
+# record apart from the plain JSON ones that already exist on disk.
+_GZIP_MAGIC = b"\x1f\x8b"
 _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = {
     getattr(errno, name)
     for name in (
@@ -106,11 +112,9 @@ def chmod_descriptor_if_supported(descriptor: int, mode: int) -> None:
         fchmod(descriptor, mode)
 
 
-# Reads across the Runtime stores are lock-free.  On POSIX a rename over an
-# open file is invisible to the reader, but Windows opens files without
-# FILE_SHARE_DELETE, so a reader holding a handle makes the publication fail
-# with a sharing violation.  Reads are short, so a bounded retry turns that
-# into a brief wait instead of a lost write.
+# Our snapshot readers permit atomic replacement on Windows. External readers
+# (antivirus, editors, etc.) can still open without FILE_SHARE_DELETE, so keep
+# a bounded retry for their transient sharing violations.
 _REPLACE_RETRY_ATTEMPTS = 50 if _is_windows() else 1
 _REPLACE_RETRY_DELAY_SECONDS = 0.02
 
@@ -126,6 +130,14 @@ def atomic_replace_path(
             os.replace(source, target)
             return
         except PermissionError:
+            if _is_windows():
+                try:
+                    if replace_open_file(Path(source), Path(target)):
+                        return
+                except PermissionError:
+                    # Non-sharing external readers still require the normal
+                    # bounded retry. Other filesystem errors must propagate.
+                    pass
             if attempt == _REPLACE_RETRY_ATTEMPTS - 1:
                 raise
             time.sleep(_REPLACE_RETRY_DELAY_SECONDS)
@@ -156,6 +168,19 @@ def _json_value(value: Any) -> Any:
         raise RuntimeFileValidationError(
             "Runtime record must be JSON serializable",
         ) from exc
+
+
+def _read_atomic_bytes(path: Path) -> bytes:
+    """Retry a Windows reader racing atomic replacement, without a lock."""
+    for attempt in range(_REPLACE_RETRY_ATTEMPTS):
+        try:
+            with open_shared_read(path) as stream:
+                return stream.read()
+        except PermissionError:
+            if attempt == _REPLACE_RETRY_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_RETRY_DELAY_SECONDS)
+    raise AssertionError("Atomic read needs at least one attempt")
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -360,6 +385,7 @@ class AtomicJsonRecordStore(Generic[T]):
         mode: int = 0o600,
         stage_hook: WriteStageHook | None = None,
         locked: bool = True,
+        compress_payload: bool = False,
     ) -> None:
         self.path = Path(path)
         self.model_type = model_type
@@ -372,6 +398,7 @@ class AtomicJsonRecordStore(Generic[T]):
         self.mode = mode
         self.stage_hook = stage_hook
         self.locked = locked
+        self.compress_payload = compress_payload
 
     def _lock(self) -> AbstractContextManager[Any]:
         # ``locked=False`` callers hold a coarser domain lock that already
@@ -406,13 +433,42 @@ class AtomicJsonRecordStore(Generic[T]):
     def _dump_value(value: T) -> Any:
         return _dump_value(value)
 
+    def _encode_document(self, dumped: Any) -> bytes:
+        """Serialize one record, optionally inside a gzip container.
+
+        Only the container changes.  A record checksum is computed over the
+        canonical value (see :meth:`RecordSnapshot.checksum`), so etags and
+        compare-and-swap behave identically whether the bytes on disk are
+        plain JSON or compressed.
+        """
+
+        payload = json_document_bytes(dumped)
+        if not self.compress_payload:
+            return payload
+        # mtime=0 makes the container a pure function of the document: one
+        # record always writes the same bytes, which keeps replays comparable.
+        return gzip.compress(payload, compresslevel=6, mtime=0)
+
+    def _decode_document(self, raw: bytes) -> Any:
+        """Read either container, so plain history and new writes both load."""
+
+        payload = raw
+        if raw[:2] == _GZIP_MAGIC:
+            try:
+                payload = gzip.decompress(raw)
+            except (OSError, EOFError, zlib.error) as exc:
+                raise ValueError(
+                    f"truncated compressed record: {exc}",
+                ) from exc
+        return strict_json_loads(payload)
+
     def _read_snapshot_unlocked(self) -> RecordSnapshot[T]:
         try:
-            raw = self.path.read_bytes()
+            raw = _read_atomic_bytes(self.path)
         except FileNotFoundError as exc:
             raise RecordNotFoundError(self.path) from exc
         try:
-            value = strict_json_loads(raw)
+            value = self._decode_document(raw)
         except (UnicodeDecodeError, ValueError) as exc:
             logger.error("atomic_store corruption: %s: %s", self.path, exc)
             raise CorruptRecordError(self.path, str(exc)) from exc
@@ -440,7 +496,7 @@ class AtomicJsonRecordStore(Generic[T]):
         with self._lock():
             atomic_replace_bytes(
                 self.path,
-                json_document_bytes(dumped),
+                self._encode_document(dumped),
                 mode=self.mode,
                 stage_hook=self.stage_hook,
             )
@@ -453,7 +509,7 @@ class AtomicJsonRecordStore(Generic[T]):
         with self._lock():
             created = atomic_create_bytes(
                 self.path,
-                json_document_bytes(dumped),
+                self._encode_document(dumped),
                 mode=self.mode,
                 stage_hook=self.stage_hook,
             )
@@ -497,7 +553,7 @@ class AtomicJsonRecordStore(Generic[T]):
                 )
             atomic_replace_bytes(
                 self.path,
-                json_document_bytes(dumped),
+                self._encode_document(dumped),
                 mode=self.mode,
                 stage_hook=self.stage_hook,
             )
@@ -531,7 +587,7 @@ class AtomicJsonRecordStore(Generic[T]):
             dumped = self._dump_value(validated)
             atomic_replace_bytes(
                 self.path,
-                json_document_bytes(dumped),
+                self._encode_document(dumped),
                 mode=self.mode,
                 stage_hook=self.stage_hook,
             )

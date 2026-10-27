@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import shutil
+import tempfile
+import time
 import zipfile
 
 import pytest
@@ -24,6 +28,7 @@ from qwenpaw.agents.skill_system.store import (
     _read_json_unlocked,
     _safe_child_path,
     classify_pool_skill_source,
+    cleanup_orphan_skill_stages,
     compute_skill_md_hash,
     copy_pool_skill_automation,
     extract_version,
@@ -37,6 +42,7 @@ from qwenpaw.agents.skill_system.store import (
     read_skill_frontmatter_from_dir,
     render_skill_md,
     safe_skill_dir,
+    staged_skill_dir,
     suggest_conflict_name,
     validate_skill_content,
     workspace_skill_name_conflict,
@@ -673,8 +679,6 @@ class TestExtractZipSkills:
             assert len(found) == 1
             assert found[0][1] == "demo"
         finally:
-            import shutil
-
             shutil.rmtree(extracted_dir, ignore_errors=True)
 
     def test_multi_skill_dirs(self, tmp_path):
@@ -692,8 +696,6 @@ class TestExtractZipSkills:
             assert len(found) == 2
             assert {"demo", "other"} == names
         finally:
-            import shutil
-
             shutil.rmtree(extracted_dir, ignore_errors=True)
 
     def test_non_zip_raises(self):
@@ -708,3 +710,155 @@ class TestExtractZipSkills:
         data = _build_zip({"readme.txt": "nothing here"})
         with pytest.raises(SkillsError):
             store.extract_zip_skills(data)
+
+
+# ---------------------------------------------------------------------------
+# cleanup_orphan_skill_stages
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_orphan_skill_stages_removes_only_stage_dirs(
+    monkeypatch,
+    tmp_path,
+):
+    """A stage dir from a killed process is removed; others survive."""
+    orphan = tmp_path / "qwenpaw_skill_stage_ppt-master_abc123"
+    (orphan / "ppt-master").mkdir(parents=True)
+    (orphan / "ppt-master" / "SKILL.md").write_text("x", encoding="utf-8")
+    unrelated_dir = tmp_path / "unrelated-temp-dir"
+    unrelated_dir.mkdir()
+    unrelated_file = tmp_path / "qwenpaw_skill_stage_not-a-dir"
+    unrelated_file.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert cleanup_orphan_skill_stages(max_age_seconds=0) == 1
+    assert not orphan.exists()
+    assert unrelated_dir.is_dir()
+    assert unrelated_file.is_file()
+
+
+def test_cleanup_orphan_skill_stages_is_a_noop_without_stages(
+    monkeypatch,
+    tmp_path,
+):
+    """An empty temp dir reports nothing removed."""
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert cleanup_orphan_skill_stages() == 0
+
+
+def test_cleanup_orphan_skill_stages_spares_recently_written_dir(
+    monkeypatch,
+    tmp_path,
+):
+    """A dir written inside the grace period is left for another instance."""
+    recent = tmp_path / "qwenpaw_skill_stage_live-instance_def456"
+    (recent / "demo").mkdir(parents=True)
+    (recent / "demo" / "SKILL.md").write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert cleanup_orphan_skill_stages() == 0
+    assert recent.is_dir()
+
+
+def test_cleanup_orphan_skill_stages_checks_newest_entry_mtime(
+    monkeypatch,
+    tmp_path,
+):
+    """Writing into a subdir must count, not just the top dir's own mtime."""
+    stale = tmp_path / "qwenpaw_skill_stage_old_e7890a"
+    (stale / "demo").mkdir(parents=True)
+    (stale / "demo" / "SKILL.md").write_text("x", encoding="utf-8")
+    old_stamp = time.time() - 3 * 24 * 60 * 60
+    os.utime(stale, (old_stamp, old_stamp))
+    # A writer is active two levels deep: that file's mtime is fresh.
+    inner = stale / "demo" / "assets"
+    inner.mkdir()
+    (inner / "part.txt").write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert cleanup_orphan_skill_stages() == 0
+    assert stale.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# staged_skill_dir / import_skill_dir path sanitization
+# ---------------------------------------------------------------------------
+
+
+class TestStagedSkillDirPathSanitization:
+    """A caller-supplied skill name must never escape the staging temp root."""
+
+    def test_stage_dir_sits_inside_a_fixed_prefix_temp_root(self):
+        with staged_skill_dir("demo") as stage_dir:
+            assert stage_dir.name == "demo"
+            temp_root = stage_dir.parent
+            assert temp_root.name.startswith("qwenpaw_skill_stage_")
+            # The skill name must not leak into the temp dir name.
+            assert "demo" not in temp_root.name
+
+    @pytest.mark.parametrize("bad", ["../escape", "a/b", "a\\b", "..", "."])
+    def test_rejects_traversal_name(self, bad):
+        with pytest.raises(SkillsError):
+            with staged_skill_dir(bad):
+                pass
+
+    def test_traversal_name_creates_nothing_outside_and_leaves_no_temp(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+        with pytest.raises(SkillsError):
+            with staged_skill_dir("../escaped") as stage_dir:
+                (stage_dir / "pwned").write_text("x", encoding="utf-8")
+        assert not (tmp_path.parent / "escaped").exists()
+        # the temp root is still swept even though the name was rejected
+        assert list(tmp_path.glob("qwenpaw_skill_stage_*")) == []
+
+
+class TestImportSkillDirPathSanitization:
+    """``import_skill_dir`` must reject names that would escape its root."""
+
+    @staticmethod
+    def _make_src(tmp_path):
+        src = tmp_path / "src" / "demo"
+        src.mkdir(parents=True)
+        (src / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+        return src
+
+    @pytest.mark.parametrize("bad", ["../escape", "a/b", "a\\b"])
+    def test_rejects_traversal_name(self, tmp_path, bad):
+        src = self._make_src(tmp_path)
+        target_root = tmp_path / "target"
+        target_root.mkdir()
+
+        with pytest.raises(SkillsError):
+            import_skill_dir(src, target_root, bad)
+
+        assert not (tmp_path / "escape").exists()
+
+    def test_import_stage_dir_uses_a_fixed_prefix(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        src = self._make_src(tmp_path)
+        target_root = tmp_path / "target"
+        target_root.mkdir()
+
+        seen = {}
+        real_copytree = shutil.copytree
+
+        def spy(src_dir, dst_dir, **kwargs):
+            seen["stage"] = dst_dir
+            return real_copytree(src_dir, dst_dir, **kwargs)
+
+        monkeypatch.setattr(shutil, "copytree", spy)
+        assert import_skill_dir(src, target_root, "demo") is True
+        assert seen["stage"].name == "demo"
+        assert seen["stage"].parent.name.startswith(".skill-import-")
+        assert "demo" not in seen["stage"].parent.name

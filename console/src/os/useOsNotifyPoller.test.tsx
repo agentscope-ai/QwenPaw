@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { InboxEvent } from "../api/modules/console";
+import { ApprovalProvider } from "../contexts/ApprovalContext";
 import { useOsNotify } from "./osNotifyStore";
 
 const { mockGetInboxEvents, mockGetPushMessages } = vi.hoisted(() => ({
@@ -33,6 +35,10 @@ function event(id: string, sourceType: string): InboxEvent {
   };
 }
 
+function wrapper({ children }: { children: ReactNode }) {
+  return <ApprovalProvider>{children}</ApprovalProvider>;
+}
+
 describe("useOsNotifyPoller", () => {
   beforeEach(() => {
     mockGetInboxEvents.mockReset();
@@ -63,7 +69,7 @@ describe("useOsNotifyPoller", () => {
       ],
     });
 
-    const { unmount } = renderHook(() => useOsNotifyPoller());
+    const { unmount } = renderHook(() => useOsNotifyPoller(), { wrapper });
 
     await waitFor(() => expect(useOsNotify.getState().seeded).toBe(true));
     expect(mockGetInboxEvents).toHaveBeenCalledWith({
@@ -72,6 +78,7 @@ describe("useOsNotifyPoller", () => {
       source_types: ["cron", "heartbeat", "memory", "skill_autoupdate", "mail"],
     });
     expect(useOsNotify.getState().inboxCount).toBe(12);
+    expect(mockGetPushMessages).not.toHaveBeenCalled();
 
     unmount();
   });

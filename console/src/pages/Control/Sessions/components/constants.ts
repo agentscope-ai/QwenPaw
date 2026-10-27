@@ -11,7 +11,7 @@ export interface Session extends ChatSpec {
  * 'Z' forces UTC interpretation, consistent with timezone-aware timestamps.
  */
 const normalizeTimestamp = (timestamp: string): string => {
-  if (/[Z+\-]\d{2}:?\d{2}$/.test(timestamp) || timestamp.endsWith("Z")) {
+  if (/[Z+-]\d{2}:?\d{2}$/.test(timestamp) || timestamp.endsWith("Z")) {
     return timestamp;
   }
   return timestamp + "Z";

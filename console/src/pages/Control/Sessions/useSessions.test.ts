@@ -3,6 +3,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSessions } from "./useSessions";
 
 const mockMessage = { success: vi.fn(), error: vi.fn() };
+const agentState = vi.hoisted(() => ({ selectedAgent: "agent-1" }));
 
 vi.mock("../../../api", () => ({
   default: {
@@ -21,7 +22,7 @@ vi.mock("../../../api/modules/chat", () => ({
   },
 }));
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({ selectedAgent: "agent-1" })),
+  useAgentStore: vi.fn(() => ({ selectedAgent: agentState.selectedAgent })),
 }));
 vi.mock("../../../hooks/useAppMessage", () => ({
   useAppMessage: vi.fn(() => ({ message: mockMessage })),
@@ -35,6 +36,16 @@ import { chatApi } from "../../../api/modules/chat";
 
 type Session = { id: string; name: string; [key: string]: unknown };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 describe("useSessions", () => {
   const mockSessions: Session[] = [
     { id: "s1", name: "Session 1" },
@@ -43,6 +54,7 @@ describe("useSessions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    agentState.selectedAgent = "agent-1";
     (chatApi.listChats as ReturnType<typeof vi.fn>).mockResolvedValue(
       mockSessions,
     );
@@ -89,8 +101,134 @@ describe("useSessions", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(chatApi.listChats).toHaveBeenCalledTimes(1);
+    expect(chatApi.listChats).toHaveBeenCalledWith({ agentId: "agent-1" });
     expect(result.current.sessions).toEqual(mockSessions);
+  });
+
+  it("keeps the newest agent result when the previous request resolves late", async () => {
+    const agentA = deferred<Session[]>();
+    const agentB = deferred<Session[]>();
+    (chatApi.listChats as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce(agentA.promise)
+      .mockReturnValueOnce(agentB.promise);
+
+    const { result, rerender } = renderHook(() => useSessions());
+    const callbacks = {
+      archiveSession: result.current.archiveSession,
+      batchArchiveSessions: result.current.batchArchiveSessions,
+      batchDeleteSessions: result.current.batchDeleteSessions,
+      batchUnarchiveSessions: result.current.batchUnarchiveSessions,
+      deleteSession: result.current.deleteSession,
+      refreshSessions: result.current.refreshSessions,
+      unarchiveSession: result.current.unarchiveSession,
+      updateSession: result.current.updateSession,
+    };
+    agentState.selectedAgent = "agent-2";
+    rerender();
+
+    await act(async () => {
+      agentB.resolve([{ id: "b", name: "Agent B" }]);
+      await agentB.promise;
+    });
+    expect(result.current.sessions).toEqual([{ id: "b", name: "Agent B" }]);
+    expect(result.current).toMatchObject(callbacks);
+
+    await act(async () => {
+      agentA.resolve([{ id: "a", name: "Agent A" }]);
+      await agentA.promise;
+    });
+    expect(result.current.sessions).toEqual([{ id: "b", name: "Agent B" }]);
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("ignores a previous agent rejection after the new agent succeeds", async () => {
+    const agentA = deferred<Session[]>();
+    const agentB = deferred<Session[]>();
+    (chatApi.listChats as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce(agentA.promise)
+      .mockReturnValueOnce(agentB.promise);
+
+    const { result, rerender } = renderHook(() => useSessions());
+    agentState.selectedAgent = "agent-2";
+    rerender();
+
+    await act(async () => {
+      agentB.resolve([{ id: "b", name: "Agent B" }]);
+      await agentB.promise;
+    });
+    await act(async () => {
+      agentA.reject(new Error("late agent A failure"));
+      await agentA.promise.catch(() => undefined);
+    });
+
+    expect(result.current.sessions).toEqual([{ id: "b", name: "Agent B" }]);
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("rejects stale row mutations without sending them as the new agent", async () => {
+    const { result, rerender } = renderHook(() => useSessions());
+    await waitFor(() => expect(result.current.sessions).toEqual(mockSessions));
+    const staleOwner = result.current.agentId;
+    const staleDelete = result.current.deleteSession;
+    const staleUpdate = result.current.updateSession;
+    const staleArchive = result.current.archiveSession;
+
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    let deleted: boolean | undefined;
+    await act(async () => {
+      deleted = await staleDelete("s1", staleOwner);
+      await staleUpdate("s1", { name: "stale" }, staleOwner);
+      await staleArchive("s1", staleOwner);
+    });
+
+    expect(deleted).toBe(false);
+    expect(api.deleteSession).not.toHaveBeenCalled();
+    expect(api.updateSession).not.toHaveBeenCalled();
+    expect(chatApi.archiveChat).not.toHaveBeenCalled();
+    expect(chatApi.listChats).toHaveBeenLastCalledWith({ agentId: "agent-2" });
+  });
+
+  it("exposes list errors and retries without resetting the active tab", async () => {
+    const failure = new Error("list failed");
+    const archived = {
+      id: "archived-1",
+      name: "Recovered session",
+      archived: true,
+    };
+    (chatApi.listChats as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce([archived]);
+
+    const { result } = renderHook(() => useSessions());
+    const refreshSessions = result.current.refreshSessions;
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toBe(failure);
+    expect(result.current.sessions).toEqual([]);
+    act(() => result.current.setActiveTab("archived"));
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+
+    expect(result.current.refreshSessions).toBe(refreshSessions);
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+    expect(result.current.activeTab).toBe("archived");
+    expect(result.current.sessions).toEqual([archived]);
+    expect(chatApi.listChats).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a successful empty list distinct from a request failure", async () => {
+    (chatApi.listChats as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+
+    const { result } = renderHook(() => useSessions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.sessions).toEqual([]);
   });
 
   // 3. updateSession 成功时更新 sessions 列表并调用 message.success

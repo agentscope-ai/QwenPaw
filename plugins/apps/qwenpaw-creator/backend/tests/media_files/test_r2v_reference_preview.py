@@ -216,7 +216,7 @@ def test_preview_mirrors_submit_order_and_reserves_missing_storyboard() -> (
 
 
 def test_explicit_reference_from_another_variant_is_rejected() -> None:
-    """A bound entity never consumes an ArtifactVersion owned by another
+    """A bound character never consumes an ArtifactVersion owned by another
     Variant: instead of silently dropping the conflicting reference, the
     resolver fails loudly so the agent fixes the list or the binding."""
     from domain.errors import ValidationError
@@ -256,3 +256,42 @@ def test_explicit_reference_from_another_variant_is_rejected() -> None:
         ["art:a-main", "art:extra"],
     )
     assert resolved == ("art:a-main", "art:extra")
+
+
+def test_bound_scene_may_reference_sibling_variants() -> None:
+    """A scene may carry several of its own Variants into one shot.
+
+    A dusk-to-night lighting transition references two time-of-day states
+    of the same location on purpose. Unlike a character costume swap, this
+    is authored intent, so the resolver must accept the explicit list even
+    though only one Variant is bound.
+    """
+    from services.media_files.visual_reference_resolution import (
+        resolve_r2v_visual_reference_version_ids,
+    )
+
+    project = _project()
+    scene = project.visual.entities.items["scene:rain"]
+    scene.required_variant_ids = ["var:rain", "var:rain-dusk"]
+    scene.variants.items["var:rain-dusk"] = VisualVariant(
+        variant_id="var:rain-dusk",
+        generated_artifact_version_ids=["art:rain-dusk"],
+        selected_artifact_version_id="art:rain-dusk",
+    )
+    scene.variants.order.append("var:rain-dusk")
+    project.assets.artifact_versions_by_id["art:rain-dusk"] = _artifact(
+        "art:rain-dusk",
+        slot_id="slot:scene-rain-dusk",
+        name="雨夜黄昏时刻",
+    )
+    creation = R2VCreation(
+        scene_ref="scene:rain",
+        visual_variant_refs={"scene:rain": "var:rain"},
+    )
+
+    resolved = resolve_r2v_visual_reference_version_ids(
+        project,
+        creation,
+        ["art:rain-main", "art:rain-dusk"],
+    )
+    assert resolved == ("art:rain-main", "art:rain-dusk")

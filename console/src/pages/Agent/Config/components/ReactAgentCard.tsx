@@ -1,20 +1,23 @@
+import { SettingsField } from "@/components/interaction/SettingsField";
+import { NumberSlider } from "@/components/interaction/NumberSlider";
+import { Collapse } from "antd";
 import {
   Button,
   Form,
   Input,
-  InputNumber,
   Select,
   Card,
   Alert,
   Switch,
 } from "@agentscope-ai/design";
 import { FolderOpen, LoaderCircle } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { codingModeApi } from "../../../../api/modules/codingMode";
 import { projectDirectoryApi } from "../../../../api/modules/projectDirectory";
 import ProjectSelectModal from "../../../../components/ProjectSelectModal";
-import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
+import TimezoneAtlas from "./TimezoneAtlas";
+import { AgentModelCard } from "./AgentModelCard";
 import { useMemoryBackends } from "../../../../plugins/memoryBackends";
 import { useAgentStore } from "../../../../stores/agentStore";
 import {
@@ -82,7 +85,7 @@ function ProjectDirectorySetting() {
 
   return (
     <>
-      <Form.Item
+      <SettingsField
         label={t("agentConfig.projectDirectoryTitle")}
         tooltip={t("agentConfig.projectDirectoryDescription")}
         className={styles.reactAgentWideField}
@@ -109,7 +112,7 @@ function ProjectDirectorySetting() {
             </Button>
           )}
         </div>
-      </Form.Item>
+      </SettingsField>
       <ProjectSelectModal
         agentId={selectedAgent}
         open={modalOpen}
@@ -123,58 +126,73 @@ function ProjectDirectorySetting() {
   );
 }
 
-function EnhancedCodeCapabilitySetting() {
+function RuntimeSwitch({ checked, ...props }: ComponentProps<typeof Switch>) {
+  const { t } = useTranslation();
+  return (
+    <div className={styles.runtimeSwitch}>
+      <span aria-hidden="true">
+        {t(checked ? "common.enabled" : "common.disabled")}
+      </span>
+      <Switch {...props} checked={checked} />
+    </div>
+  );
+}
+
+function CodeModeSetting() {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const setCodingMode = useCodingModeStore((state) => state.setCodingMode);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const mode = await codingModeApi.get();
       setCodingMode(selectedAgent, mode.enabled);
+    } catch {
+      setError(t("codingMode.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [selectedAgent, setCodingMode]);
+  }, [selectedAgent, setCodingMode, t]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const toggle = async (enabled: boolean) => {
+  const update = async (enabled: boolean) => {
+    setError("");
     setSaving(true);
     try {
       const result = await codingModeApi.toggle(enabled);
       setCodingMode(selectedAgent, result.enabled);
+    } catch {
+      setError(t("codingMode.updateFailed"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Form.Item
-      label={t("agentConfig.enhancedCodeCapability")}
-      tooltip={t("agentConfig.enhancedCodeCapabilityTooltip")}
-      className={styles.reactAgentWideField}
+    <SettingsField
+      label={t("codingMode.title")}
+      tooltip={t("codingMode.toolPresentationHelp")}
+      valuePropName="checked"
+      className={styles.runtimeToggle}
+      validateStatus={error ? "error" : undefined}
+      help={error || undefined}
     >
-      <div className={styles.switchSetting}>
-        <span>{t("agentConfig.enhancedCodeCapabilityDescription")}</span>
-        {loading ? (
-          <LoaderCircle className={styles.spin} size={16} />
-        ) : (
-          <Switch
-            checked={codingMode}
-            loading={saving}
-            onChange={(enabled) => void toggle(enabled)}
-            aria-label={t("agentConfig.enhancedCodeCapability")}
-          />
-        )}
-      </div>
-    </Form.Item>
+      <RuntimeSwitch
+        aria-label={t("codingMode.title")}
+        disabled={loading || saving}
+        loading={loading || saving}
+        checked={codingMode}
+        onChange={(enabled) => void update(enabled)}
+      />
+    </SettingsField>
   );
 }
 
@@ -183,7 +201,6 @@ export function ReactAgentCard({
   savingLang,
   onLanguageChange,
   timezone,
-  savingTimezone,
   onTimezoneChange,
 }: ReactAgentCardProps) {
   const memoryBackends = useMemoryBackends();
@@ -207,9 +224,9 @@ export function ReactAgentCard({
   const { t } = useTranslation();
 
   return (
-    <Card className={styles.formCard} title={t("agentConfig.reactAgentTitle")}>
+    <Card className={styles.formCard}>
       <div className={styles.reactAgentRow}>
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.language")}
           tooltip={t("agentConfig.languageTooltip")}
           className={styles.reactAgentField}
@@ -222,98 +239,108 @@ export function ReactAgentCard({
             disabled={savingLang}
             style={{ width: "100%" }}
           />
-        </Form.Item>
+        </SettingsField>
 
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.timezone")}
           tooltip={t("agentConfig.timezoneTooltip")}
           className={styles.reactAgentField}
         >
-          <Select
-            showSearch
-            value={timezone}
-            placeholder={t("agentConfig.selectTimezone")}
-            filterOption={(input, option) =>
-              (option?.label?.toString() || "")
-                .toLowerCase()
-                .includes(input.toLowerCase())
-            }
-            options={useTimezoneOptions()}
-            onChange={onTimezoneChange}
-            loading={savingTimezone}
-            disabled={savingTimezone}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.shellCommandTimeout")}
-          name="shell_command_timeout"
-          rules={[
-            {
-              required: true,
-              message: t("agentConfig.shellCommandTimeoutRequired"),
-            },
-            {
-              type: "number",
-              min: 1,
-              message: t("agentConfig.shellCommandTimeoutMin"),
-            },
-          ]}
-          tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
-          className={styles.reactAgentField}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={10}
-            placeholder={t("agentConfig.shellCommandTimeoutPlaceholder")}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.shellCommandExecutable")}
-          name="shell_command_executable"
-          tooltip={t("agentConfig.shellCommandExecutableTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Input
-            style={{ width: "100%" }}
-            placeholder={t("agentConfig.shellCommandExecutablePlaceholder")}
-            allowClear
-          />
-        </Form.Item>
+          <TimezoneAtlas value={timezone} onChange={onTimezoneChange} />
+        </SettingsField>
       </div>
 
       <div className={styles.reactAgentSettings}>
         <ProjectDirectorySetting />
-        <EnhancedCodeCapabilitySetting />
       </div>
 
-      <Form.Item
+      <AgentModelCard />
+
+      <CodeModeSetting />
+
+      <SettingsField
+        className={styles.runtimeToggle}
         label={t("agentConfig.autoGenerateSessionTitle")}
         name={["auto_title_config", "enabled"]}
         valuePropName="checked"
         tooltip={t("agentConfig.autoGenerateSessionTitleTooltip")}
       >
-        <Switch />
-      </Form.Item>
+        <RuntimeSwitch aria-label={t("agentConfig.autoGenerateSessionTitle")} />
+      </SettingsField>
 
-      <div className={styles.reactAgentRow}>
-        <Form.Item
-          label={t("agentConfig.memoryManagerBackend")}
-          name="memory_manager_backend"
-          tooltip={t("agentConfig.memoryManagerBackendTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Select options={memoryBackendOptions} style={{ width: "100%" }} />
-        </Form.Item>
-      </div>
-      <Alert
-        type="warning"
-        showIcon
-        message={t("agentConfig.memoryManagerBackendRestartWarning")}
-        style={{ marginBottom: 16 }}
+      <Collapse
+        ghost
+        items={[
+          {
+            key: "runtime",
+            label: t("agentConfig.advancedRuntime", "Advanced runtime"),
+            forceRender: true,
+            children: (
+              <>
+                <div className={styles.reactAgentRow}>
+                  {" "}
+                  <SettingsField
+                    label={t("agentConfig.shellCommandTimeout")}
+                    name="shell_command_timeout"
+                    rules={[
+                      {
+                        required: true,
+                        message: t("agentConfig.shellCommandTimeoutRequired"),
+                      },
+                      {
+                        type: "number",
+                        min: 1,
+                        message: t("agentConfig.shellCommandTimeoutMin"),
+                      },
+                    ]}
+                    tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <NumberSlider
+                      min={1}
+                      max={600}
+                      step={1}
+                      label={t("agentConfig.shellCommandTimeout")}
+                    />
+                  </SettingsField>
+                  <SettingsField
+                    label={t("agentConfig.shellCommandExecutable")}
+                    name="shell_command_executable"
+                    tooltip={t("agentConfig.shellCommandExecutableTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <Input
+                      style={{ width: "100%" }}
+                      placeholder={t(
+                        "agentConfig.shellCommandExecutablePlaceholder",
+                      )}
+                      allowClear
+                    />
+                  </SettingsField>
+                </div>{" "}
+                <div className={styles.reactAgentRow}>
+                  <SettingsField
+                    label={t("agentConfig.memoryManagerBackend")}
+                    name="memory_manager_backend"
+                    tooltip={t("agentConfig.memoryManagerBackendTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <Select
+                      options={memoryBackendOptions}
+                      style={{ width: "100%" }}
+                    />
+                  </SettingsField>
+                </div>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={t("agentConfig.memoryManagerBackendRestartWarning")}
+                  style={{ marginBottom: 16 }}
+                />
+              </>
+            ),
+          },
+        ]}
       />
     </Card>
   );

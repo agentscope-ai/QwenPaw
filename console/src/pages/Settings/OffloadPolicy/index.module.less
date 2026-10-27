@@ -1,0 +1,31 @@
+.page {
+  width: 100%;
+  margin: 0;
+}
+.card {
+  margin: 8px 16px;
+  border-radius: 24px;
+  :global(.ant-card-head) {
+    border-bottom: 0;
+  }
+}
+.choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 650px) {
+  .choices {
+    grid-template-columns: 1fr;
+  }
+  .card {
+    margin: 8px 0;
+  }
+}
+
+.card {
+  box-shadow: none;
+}
+.choices > * {
+  min-width: 0;
+}

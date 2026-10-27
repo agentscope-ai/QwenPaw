@@ -15,6 +15,7 @@ from agentscope.message import HintBlock, Msg, TextBlock
 from reme.config import parse_action, parse_kwargs
 
 from ..config.config import get_model_max_input_length, load_agent_config
+from ..config.history_path import resolve_history_db_path
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
@@ -82,6 +83,7 @@ _REME_CHAT_SAFE_ACTIONS = frozenset(
     {
         "status",
         "search",
+        "list_tags",
         "proactive",
         "auto_memory",
         "auto_dream",
@@ -645,7 +647,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
             sc = lcc.scroll_config
             history = await run_sync_io(
                 HistoryStore,
-                Path(self._workspace_dir) / sc.db_filename,
+                resolve_history_db_path(
+                    self._workspace_dir,
+                    sc.db_filename,
+                ),
             )
             # Must match the id normal turns persist under (the builder uses
             # ``ctx.session_id``), so these rows align with the live history.
@@ -1127,6 +1132,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "",
                 "Arguments marked with `*` are required. Add "
                 "`show_metadata=true` to display action metadata.",
+                "For arrays and objects, use JSON inside single quotes: "
+                '`tags=\'["Alice","Project_A"]\'` or '
+                '`filter=\'{"kind":"decision"}\'`.',
             ],
         )
         return "\n".join(lines)

@@ -12,6 +12,15 @@ deployment. Three states matter and each produces different text:
   nothing can be spoken until a character voice exists, so designing one is a
   hard prerequisite rather than an option.
 
+Above those capability states sits one preference: the video model speaks.
+Dialogue and voice-over belong in ``creation.narrative`` / ``video_prompt`` and
+come back inside the rendered clip.  Synthesizing narration is the exception,
+reserved for two cases -- a voice sample the user supplied, and footage that
+cannot speak at all (motion carriers, edits over existing material).  Real
+output made that call: a TTS voice laid over generated video sounded worse than
+the native track and could double it, so this guidance states the preference
+first instead of advertising the capability first.
+
 Getting this wrong in either direction is expensive: promising a capability the
 model lacks makes the agent fail mid-run, and hiding a prerequisite makes it
 retry synthesis that can never succeed.
@@ -26,12 +35,15 @@ from models.video_capabilities import video_reference_voice_support
 
 _SCENARIO_USES = {
     "short_drama": (
-        "本项目是短剧：已安排视频原生对白时保留角色台词、口型与原声，"
-        "不再叠加一份 TTS 台词。只有明确采用后期配音或需要画外解说的"
-        "区间才单独合成音频，并按说话者和对应画面分段。"
+        "本项目是短剧：台词与旁白默认由视频模型原生说出。已安排视频原生对白时"
+        "保留角色台词、口型与原声，不再叠加一份 TTS 台词。只有明确采用后期配音"
+        "或需要画外解说的区间才单独合成音频，并按说话者和对应画面分段。"
     ),
-    "video_edit": ("本项目是剪辑：以旁白/解说为主，按镜头分段合成后混入成片。"),
-    "general": "按项目需要选择旁白解说或角色台词配音。",
+    "video_edit": "本项目是剪辑：画面不会自行发声，旁白用 `tts_generation` 分段合成后混入。",
+    "general": (
+        "默认让视频模型原生说出台词与旁白；只有用户提供了自己的音色文件，或该"
+        "区间画面本身不能发声（动效载体、既有素材剪辑）时，才用 TTS 合成。"
+    ),
 }
 
 
@@ -47,12 +59,18 @@ def delegator_guidance() -> str:
     capability = require_capability(model_config.get_tts_model_name())
     lines = [
         "\n# 旁白与配音能力\n",
-        "- ai_editing_director 具备旁白生成能力：可把旁白文本合成为音频资产并"
-        "创建 creation.type=audio、role=narration 的 Element，写回后成片由"
-        "系统自动重新合成。旁白/配音需求直接委派它到 timeline:<timelineId>，"
-        "在任务中写明旁白文案要求，并要求按镜头/语义分段生成、每段 span 对齐"
-        "对应画面；自带人声的区间（creation.type=s2v 的数字人口播、"
-        "已经安排视频原生人声的 R2V 区间）不安排旁白；不需要用户提供音频文件。",
+        "- 台词与旁白优先由视频模型原生生成：把逐字台词、画外旁白、说话者与声音"
+        "来源直接写进该 Element 的 `creation.narrative` 与 `video_prompt`，让人声"
+        "随视频一起生成，不再为同一区间另建音频轨。**只有两种例外才允许 TTS "
+        "合成**：① 用户提供了自己的音色音频文件，据此复刻角色音色；② 该区间的"
+        "画面本身不会自发声——`motion_clip` 等动效载体、既有素材剪辑，以及需要"
+        "外部驱动音频才能开口的 s2v 数字人。不要因为原生人声不够理想就改走 "
+        "TTS。",
+        "- 落在上述例外里时才委派 ai_editing_director 到 timeline:<timelineId>："
+        "它可把旁白文本合成为音频资产并创建 creation.type=audio、role=narration "
+        "的 Element，写回后成片由系统自动重新合成；要求按镜头/语义分段生成、每段"
+        " span 对齐对应画面。自带人声的区间（creation.type=s2v 的数字人口播、"
+        "已经安排视频原生人声的 R2V 区间）不安排旁白。",
     ]
     if capability.has_system_voices:
         lines.append(
@@ -60,7 +78,9 @@ def delegator_guidance() -> str:
             "音色（可选增强）：targetRef 传目标角色的 exact asset:<entityId>。"
             "两条路径——传 voicePrompt 按角色设定直接设计音色（无需样本，"
             "优先用它），或传 sampleSourceVersionId / sampleText 从音频样本"
-            "复刻。",
+            "复刻。用户自己上传了音色文件时走复刻路径，这份音色才是 TTS 旁白"
+            "允许使用的那一个；跨镜头保持声音身份、给视频模型提供参考音色时"
+            "也用同一个工具。",
         )
     else:
         lines.append(
@@ -110,6 +130,12 @@ def _editing_guidance(capability, scenario: str) -> str:
     lines = [
         "\n# 旁白与配音\n",
         f"- {_scenario_line(scenario)}",
+        "- 先判画面能不能自己发声：R2V/T2V/I2V 区间的台词与旁白由视频模型原生"
+        "生成（逐字写进该 Element 的 narrative 与 video_prompt），不要为同一区"
+        "间再合成一份 TTS 音频。只有两种例外才用 `tts_generation`：① 用户提供了"
+        "自己的音色音频文件；② 该区间画面不会自发声——`motion_clip` 等动效载体、"
+        "既有素材剪辑，以及需要外部驱动音频才能开口的 s2v 数字人。两种都不适用"
+        "时如实说明该段没有旁白，不要用系统音色硬凑。",
     ]
     if capability.has_system_voices:
         lines.append(
@@ -130,22 +156,30 @@ def _editing_guidance(capability, scenario: str) -> str:
             "设计音色。",
         )
     lines.append(
-        "- 旁白必须按镜头或语义段落拆分：每段单独调一次 tts_generation，对应"
-        "一个独立的 audio Element，span 只覆盖它解说的画面区间；禁止用一条"
-        "音频贯穿整条 Timeline。每段文本长度要与画面时长匹配（中文语速约每秒"
-        " 4–5 字），生成后用返回的 durationSeconds 校准 span。",
+        "- 属于上述例外、确实要合成时，旁白必须按镜头或语义段落拆分：每段单独调"
+        "一次 tts_generation，对应一个独立的 audio Element，span 只覆盖它解说的"
+        "画面区间；禁止用一条音频贯穿整条 Timeline。每段文本长度要与画面时长匹配"
+        "（中文语速约每秒 4–5 字），生成后用返回的 durationSeconds 校准 span。",
     )
     lines.append(
-        "- 自带人声的区间不安排旁白：数字人口播（creation.type=s2v）的"
-        " span 内视频自身就是人声，任何 已经安排视频原生人声的 R2V 区间 "
-        "同理（生成视频会原生说出台词）；旁白 Element 的 span 不得与这些"
-        "区间重叠，系统会直接拒绝这类写入。",
+        "- 自带人声的区间不安排旁白：数字人口播（creation.type=s2v）的 span "
+        "内视频自身就是人声；已安排原生人声台词的 R2V/T2V/I2V 区间同理"
+        "（生成视频会原生说出台词）。系统只对 s2v 区间与两条旁白相互重叠"
+        "自动拒绝，R2V 等原生人声区间与旁白重叠不会被拦截，需你自行避免："
+        "旁白 Element 的 span 不得与任何已安排原生人声的区间重叠，否则"
+        "会出现视频已发声、旁白又重念一遍的双声。",
     )
     lines.append(
         "- 音频上片：用 jq_project 在目标 Timeline 创建 creation.type=audio 的"
         " Element，旁白必须设 role=narration（配乐用 role=bgm、音效用"
         " role=sfx），引用对应 version id；音频 Element 不需要 location，"
         "gain_db 调音量、pan 调声像。",
+    )
+    lines.append(
+        "- 改配音/换音色某段旁白时，必须复用既有 audio Element：用 "
+        "jq_project 把它的 source_asset_version_id 换绑成新合成的 "
+        "version（或先删除旧 Element 再建）；禁止在同一区间再叠一条 "
+        "narration——两条旁白重叠会变成双声同时播放，系统会直接拒绝写入。",
     )
     lines.append(
         "- 合成时旁白按 span 混入成片，旁白播放区间内画面原声会自动压低，"

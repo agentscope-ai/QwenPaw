@@ -55,6 +55,7 @@ import type {
   ModelConfigItem,
 } from "@/contracts/creator";
 import ModelSetupGuide from "@/components/onboarding/ModelSetupGuide";
+import SkillsConfigPane from "@/components/creator/SkillsConfigPane";
 
 export const LLM_PROTOCOLS = [
   "Anthropic Claude",
@@ -111,6 +112,8 @@ export const IMAGE_PROTOCOLS = [
   "Volcano Engine（火山引擎）",
   "Black Forest Labs（FLUX）",
   "Ideogram",
+  "MiniMax（国内站）",
+  "MiniMax（国际站）",
   "Aliyun Token Plan",
 ];
 // Kling and Vidu appear twice on purpose: they are served both as
@@ -155,6 +158,8 @@ export const PROTOCOL_LABEL_KEYS: Record<string, string> = {
   "Volcano Engine（火山引擎）": "modelConfig.protocols.volcengine",
   "Black Forest Labs（FLUX）": "modelConfig.protocols.bfl",
   Ideogram: "modelConfig.protocols.ideogram",
+  "MiniMax（国内站）": "modelConfig.protocols.minimaxImageCn",
+  "MiniMax（国际站）": "modelConfig.protocols.minimaxImageIntl",
   "Google Gemini（Veo）": "modelConfig.protocols.googleGeminiVeo",
   "MiniMax（海螺）": "modelConfig.protocols.minimaxHailuo",
   "MiniMax H3（SGLang 自部署）": "modelConfig.protocols.minimaxH3Sglang",
@@ -360,6 +365,19 @@ const IMAGE_PRESETS: Record<string, ProtocolPreset> = {
     // ideogram-v3 exposes aspect_ratio and one character reference; the
     // v4 generate endpoint documents neither, so it is text-to-image only.
     models: ["ideogram-v3", "ideogram-v4"],
+  },
+  "MiniMax（国内站）": {
+    // Same wire protocol as the international channel; only the host differs.
+    // MiniMax API keys are region-bound, so the base URL must match the site
+    // the key was issued on (platform.minimax.cn / minimaxi.com).
+    base_url: "https://api.minimax.cn",
+    models: ["image-01", "image-01-live"],
+  },
+  "MiniMax（国际站）": {
+    base_url: "https://api.minimax.io",
+    // Synchronous image_generation endpoint. image-01 accepts one character
+    // subject_reference image; image-01-live is a style model (text-to-image).
+    models: ["image-01", "image-01-live"],
   },
   "Aliyun Token Plan": {
     base_url: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
@@ -656,6 +674,7 @@ type SettingsPane =
   | "media"
   | "mode"
   | "review"
+  | "skills"
   | "guide";
 
 const PANE_MODELS: Record<"lang" | "perception" | "media", TabType[]> = {
@@ -3630,7 +3649,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         style={{
           display: "flex",
           height: "calc(80vh - 130px)",
-          minHeight: 440,
+          minHeight: 0,
         }}
       >
         <nav
@@ -3711,6 +3730,12 @@ export default function ModelConfigModal({ open, onClose }: Props) {
                 : t("modelConfig.reviewOff")}
             </span>,
           )}
+          {navGroupLabel(t("modelConfig.groupExtensions"))}
+          {navButton(
+            "skills",
+            <ReadOutlined style={{ fontSize: 14 }} />,
+            t("modelConfig.paneSkills"),
+          )}
           {navGroupLabel(t("modelConfig.groupHelp"))}
           {navButton(
             "guide",
@@ -3729,6 +3754,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             gap: 12,
           }}
         >
+          {activePane === "skills" && <SkillsConfigPane />}
           {(activePane === "lang" ||
             activePane === "perception" ||
             activePane === "media") &&
@@ -4853,7 +4879,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       </div>
 
       {/* Footer */}
-      <div className="action-bar">
+      <div className="action-bar" style={{ flexShrink: 0 }}>
         <div />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Button onClick={handleCancel}>{t("modelConfig.close")}</Button>

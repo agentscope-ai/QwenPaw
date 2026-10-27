@@ -27,6 +27,7 @@ vi.mock("../../../api/modules/market", () => ({
 }));
 
 import { useMarketSearch } from "./useMarketSearch";
+import { notifyPluginChange } from "../../../utils/pluginChangeEvents";
 
 const PROVIDERS_KEY = "qwenpaw-market-providers";
 
@@ -65,6 +66,179 @@ describe("useMarketSearch", () => {
     const { result } = await mount();
     expect(result.current.providers).toEqual([qwenpaw, github]);
     expect([...result.current.selectedProviderKeys]).toEqual(["qwenpaw"]);
+  });
+
+  it("waits for the catalog before searching a persisted source", async () => {
+    localStorage.setItem(PROVIDERS_KEY, JSON.stringify(["deleted-hub"]));
+    let resolve!: (providers: unknown[]) => void;
+    mocks.listMarketProviders.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const { result } = await mount();
+    expect(mocks.searchMarket).not.toHaveBeenCalled();
+    await act(async () => resolve([qwenpaw]));
+    expect([...result.current.selectedProviderKeys]).toEqual(["qwenpaw"]);
+    expect(mocks.searchMarket).toHaveBeenCalledTimes(1);
+    expect(mocks.searchMarket.mock.calls[0][0].provider_pages).toEqual({
+      qwenpaw: 1,
+    });
+  });
+
+  it("refreshes all market views when a Hub plugin is installed or uninstalled", async () => {
+    const first = await mount();
+    const second = await mount();
+    mocks.listMarketProviders.mockResolvedValue([github]);
+    act(() => notifyPluginChange());
+    await flush();
+    expect(first.result.current.providers).toEqual([github]);
+    expect(second.result.current.providers).toEqual([github]);
+    expect([...first.result.current.selectedProviderKeys]).toEqual(["github"]);
+    mocks.listMarketProviders.mockResolvedValue([qwenpaw, github]);
+    act(() => notifyPluginChange());
+    await flush();
+    expect(first.result.current.providers).toEqual([qwenpaw, github]);
+    expect(second.result.current.providers).toEqual([qwenpaw, github]);
+  });
+
+  it("discards late pagination responses after the last Hub is unloaded", async () => {
+    mocks.listMarketProviders.mockResolvedValue([qwenpaw]);
+    mocks.searchMarket.mockResolvedValueOnce({
+      results: [{ source: "qwenpaw", slug: "first" }],
+      errors: [],
+      by_provider: { qwenpaw: { has_more: true, total: 8 } },
+    });
+    const { result } = await mount();
+    expect(result.current.results).toHaveLength(1);
+    let resolve!: (response: unknown) => void;
+    mocks.searchMarket.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    act(() => result.current.loadMore());
+    mocks.listMarketProviders.mockResolvedValue([]);
+    act(() => notifyPluginChange());
+    await flush();
+    await act(async () =>
+      resolve({
+        results: [{ source: "qwenpaw", slug: "late" }],
+        errors: [{ provider: "qwenpaw", message: "late error" }],
+        by_provider: { qwenpaw: { has_more: true, total: 99 } },
+      }),
+    );
+    expect(result.current.results).toEqual([]);
+    expect(result.current.errors).toEqual([]);
+    expect(result.current.totalCount).toBe(0);
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("preserves explicit deselection when the page regains focus", async () => {
+    const { result } = await mount();
+    act(() => result.current.setSelectedProviders([]));
+    await flush();
+    mocks.searchMarket.mockClear();
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(result.current.selectedProviderKeys.size).toBe(0);
+    expect(mocks.searchMarket).not.toHaveBeenCalled();
+  });
+
+  it.each(["focus", "visibilitychange"])(
+    "preserves loaded pages and cursors on %s with unchanged providers",
+    async (event) => {
+      mocks.searchMarket.mockImplementation(async (body) => ({
+        results: [
+          { source: "qwenpaw", slug: `page-${body.provider_pages.qwenpaw}` },
+        ],
+        errors: [],
+        by_provider: { qwenpaw: { has_more: true, total: 8 } },
+      }));
+      const { result } = await mount();
+      act(() => result.current.loadMore());
+      await flush();
+      expect(result.current.results).toHaveLength(2);
+      mocks.searchMarket.mockClear();
+
+      act(() => {
+        if (event === "focus") window.dispatchEvent(new Event(event));
+        else document.dispatchEvent(new Event(event));
+      });
+      await flush();
+      expect(mocks.listMarketProviders).toHaveBeenCalledTimes(2);
+      expect(mocks.searchMarket).not.toHaveBeenCalled();
+      expect(result.current.results).toHaveLength(2);
+      expect(result.current.totalCount).toBe(8);
+      expect(result.current.hasMore).toBe(true);
+      act(() => result.current.loadMore());
+      await flush();
+      expect(mocks.searchMarket).toHaveBeenLastCalledWith(
+        expect.objectContaining({ provider_pages: { qwenpaw: 3 } }),
+      );
+    },
+  );
+
+  it("keeps an in-flight page and loading state during a background catalog check", async () => {
+    mocks.searchMarket.mockResolvedValueOnce({
+      results: [{ source: "qwenpaw", slug: "first" }],
+      errors: [],
+      by_provider: { qwenpaw: { has_more: true, total: 8 } },
+    });
+    const { result } = await mount();
+    let resolve!: (response: unknown) => void;
+    mocks.searchMarket.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    act(() => result.current.loadMore());
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(result.current.loading).toBe(true);
+    const calls = mocks.searchMarket.mock.calls.length;
+    act(() => result.current.autoLoadMore());
+    expect(mocks.searchMarket).toHaveBeenCalledTimes(calls);
+    await act(async () =>
+      resolve({
+        results: [{ source: "qwenpaw", slug: "second" }],
+        errors: [],
+        by_provider: { qwenpaw: { has_more: false, total: 8 } },
+      }),
+    );
+    expect(result.current.results).toHaveLength(2);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("keeps search results and errors if a background catalog check fails", async () => {
+    mocks.searchMarket.mockResolvedValue({
+      results: [{ source: "qwenpaw", slug: "first" }],
+      errors: [{ provider: "github", message: "timeout" }],
+      by_provider: { qwenpaw: { has_more: true, total: 8 } },
+    });
+    const { result } = await mount();
+    mocks.listMarketProviders.mockRejectedValueOnce(new Error("offline"));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(result.current.providersLoaded).toBe(true);
+    expect(result.current.results).toHaveLength(1);
+    expect(result.current.errors).toEqual([
+      { provider: "github", message: "timeout" },
+    ]);
+    expect(result.current.autoLoadBlocked).toBe(true);
+    expect(mocks.searchMarket).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes an updated Hub even when its catalog entry is unchanged", async () => {
+    await mount();
+    mocks.searchMarket.mockClear();
+    act(() => notifyPluginChange());
+    await flush();
+    expect(mocks.searchMarket).toHaveBeenCalledTimes(1);
+    expect(mocks.searchMarket).toHaveBeenCalledWith(
+      expect.objectContaining({ provider_pages: { qwenpaw: 1 } }),
+    );
   });
 
   it("keeps previously selected providers restored from localStorage", async () => {

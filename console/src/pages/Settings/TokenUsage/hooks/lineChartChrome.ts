@@ -45,6 +45,9 @@ export function lineChartChrome({
         range: [0, 1] as [number, number],
         nice: true,
         tickCount,
+        labelAutoHide: true,
+        labelAutoRotate: false,
+        labelSpacing: 36,
         labelFormatter: (d: string) =>
           dayjs(d).format(ymd ? "YY/MM-DD" : "MM-DD"),
         grid: null,

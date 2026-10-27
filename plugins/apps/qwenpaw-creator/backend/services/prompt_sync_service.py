@@ -137,27 +137,31 @@ def _context_token(
     )
 
 
-def _validate_proposal_references(references: dict) -> None:
-    if references.get("storyboardBudgetDroppedVersionIds"):
+def _validate_proposal_references(references: dict, *, stage=None) -> None:
+    if stage != "video" and references.get(
+        "storyboardBudgetDroppedVersionIds",
+    ):
         # Legacy automatic trimming stops once canonical markers are authored.
         # Do not draft against a trimmed order that cannot survive acceptance.
         raise ValidationError(
             "参考图超出当前模型容量，请先明确整理分镜参考图列表",
         )
     limit = references.get("storyboardReferenceLimit")
-    if references["storyboard"] and (
-        limit is None or len(references["storyboard"]) > limit
+    if (
+        stage != "video"
+        and references["storyboard"]
+        and (limit is None or len(references["storyboard"]) > limit)
     ):
         raise ValidationError("参考图超出当前模型容量，请先整理分镜参考图列表")
     if any(
         row.get("available") is False
         and not (
-            stage == "video"
+            reference_stage == "video"
             and row.get("kind") == "storyboard"
             and not row.get("versionId")
         )
-        for stage in ("storyboard", "video")
-        for row in references[stage]
+        for reference_stage in ((stage,) if stage else ("storyboard", "video"))
+        for row in references[reference_stage]
     ):
         raise ValidationError("当前参考图尚不可用，请先完成或重新选择参考图片")
 
@@ -191,6 +195,7 @@ def _validate_prompts(
     references: dict,
     *,
     proposal: bool = False,
+    stage: Literal["storyboard", "video"] | None = None,
 ) -> None:
     _, element = live_element(document, timeline_id, element_id)
     creation = element["creation"]
@@ -201,33 +206,42 @@ def _validate_prompts(
         element["span"]["duration_tick"]
         / document["timelines"]["items"][timeline_id]["ticks_per_second"],
     )
-    if time_error:
+    if stage != "storyboard" and time_error:
         raise ValidationError(time_error)
     path = _pointer(timeline_id, element_id)
     report = check_changed_r2v_prompt_contracts(
         document,
-        [path + "/storyboard_prompt", path + "/video_prompt"],
+        [
+            path + f"/{name}_prompt"
+            for name in ((stage,) if stage else ("storyboard", "video"))
+        ],
     )
-    if not report["passed"]:
+    findings = [
+        finding
+        for finding in report["findings"]
+        if stage is None or finding["pointer"] == path + f"/{stage}_prompt"
+    ]
+    if findings:
         finding_summary = "; ".join(
-            f"{f['code']}: {f['message']}" for f in report["findings"]
+            f"{f['code']}: {f['message']}" for f in findings
         )
         raise ValidationError(
             f"提示词尚未满足画幅或引用要求：{finding_summary}",
-            details={"findings": report["findings"]},
+            details={"findings": findings},
         )
-    for stage in ("storyboard", "video"):
-        text = creation[f"{stage}_prompt"]
+    for reference_stage in (stage,) if stage else ("storyboard", "video"):
+        text = creation[f"{reference_stage}_prompt"]
         indexes = canonical_marker_indices(text)
         if any(
-            index < 1 or index > len(references[stage]) for index in indexes
+            index < 1 or index > len(references[reference_stage])
+            for index in indexes
         ):
             raise ValidationError("提示词引用了当前镜头没有的参考图")
         if proposal and set(indexes) != set(
-            range(1, len(references[stage]) + 1),
+            range(1, len(references[reference_stage]) + 1),
         ):
             raise ValidationError(
-                ("分镜图" if stage == "storyboard" else "视频")
+                ("分镜图" if reference_stage == "storyboard" else "视频")
                 + "提示词缺少部分已绑定参考图片，请补充引用后重新生成",
             )
         if proposal and re.search(
@@ -307,7 +321,8 @@ class PromptSyncService:
         )
         layout_issue = (
             "分镜图提示词的格数不明确或互相冲突，请统一网格、分镜格数和关键帧数量后重新生成"
-            if (
+            if stage != "video"
+            and (
                 status["status"] == "current"
                 or "storyboardPrompt" in status["changedSources"]
             )
@@ -508,7 +523,6 @@ class PromptSyncService:
             )
         else:
             client = self.client or AgentScopeAgentChatClient(
-                max_tokens=7000,
                 temperature=0.2,
             )
             turn = await client.complete(
@@ -745,6 +759,8 @@ class PromptSyncService:
         project_id: str,
         timeline_id: str,
         element_id: str,
+        *,
+        stage: Literal["storyboard", "video"] | None = None,
     ) -> dict:
         """Clear the sync gate while keeping the current plan/prompts verbatim.
 
@@ -765,7 +781,7 @@ class PromptSyncService:
         )
         references = _references(snapshot.project, element_id)
         model_fingerprint = _model_fingerprint()
-        _validate_proposal_references(references)
+        _validate_proposal_references(references, stage=stage)
         _validate_plan(document, timeline_id, element_id)
         # proposal=False: keep the user's own wording; enforce the technical
         # contract/reference/time checks but never force an AI rewrite.
@@ -775,6 +791,7 @@ class PromptSyncService:
             element_id,
             references,
             proposal=False,
+            stage=stage,
         )
         return await self._commit(
             snapshot,
@@ -782,6 +799,7 @@ class PromptSyncService:
             timeline_id,
             element_id,
             model_fingerprint=model_fingerprint,
+            stage=stage,
         )
 
     async def _commit(
@@ -792,8 +810,18 @@ class PromptSyncService:
         element_id,
         *,
         model_fingerprint,
+        stage: Literal["storyboard", "video"] | None = None,
     ):
         def validate_context(_latest: dict) -> None:
+            from services.file_agent_runtime.manual_regeneration_hold import (
+                check_automatic,
+            )
+
+            check_automatic(
+                self.services.root,
+                snapshot.project.project_id,
+                _lifecycle_lock_held=True,
+            )
             # The commit's exact ETag guard already proves the entire Project
             # (including references) unchanged. Only external model settings
             # remain to recheck under the write lock.
@@ -829,7 +857,11 @@ class PromptSyncService:
             candidate=document,
             origin="frontend_edit",
             review_policy="auto_fix",
-            prompt_sync_confirmation=(timeline_id, element_id, source_token),
+            prompt_sync_confirmation=(
+                (timeline_id, element_id, source_token, stage)
+                if stage
+                else (timeline_id, element_id, source_token)
+            ),
             prompt_sync_expected_etag=snapshot.etag,
             prompt_sync_context_validator=validate_context,
         )

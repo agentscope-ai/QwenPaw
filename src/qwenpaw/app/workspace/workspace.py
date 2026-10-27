@@ -45,6 +45,7 @@ from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
 from ...utils.logging import sanitize_log_value
+from ...plugins._events import observe_stream as _sdk_observe_stream
 
 if TYPE_CHECKING:
     from ...memory import MemoryBackendContext
@@ -148,13 +149,24 @@ class Workspace:
     to ``Runtime.run()``.
     """
 
-    def __init__(self, agent_id: str, workspace_dir: str):
+    def __init__(
+        self,
+        agent_id: str,
+        workspace_dir: str,
+        *,
+        mode_config_overrides: dict[str, dict[str, Any]] | None = None,
+    ):
         """Initialize agent instance.
 
         Args:
             agent_id: Unique agent identifier
             workspace_dir: Path to agent's workspace directory
+            mode_config_overrides: Process-local mode settings, never saved.
         """
+        self.mode_config_overrides = {
+            name: dict(values)
+            for name, values in (mode_config_overrides or {}).items()
+        }
         self.agent_id = agent_id
         self.workspace_dir = Path(workspace_dir).expanduser()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -175,6 +187,7 @@ class Workspace:
         # Non-service state
         self._config = None  # Loaded before start()
         self._config_mtime: float | None = None
+        self.cron_start_paused = False
         self._started = False
         self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
@@ -411,6 +424,7 @@ class Workspace:
         """Inject the cross-workspace AppServiceManager reference."""
         self._app_services = app_services
 
+    @_sdk_observe_stream
     async def stream_query(
         self,
         request: Any,
@@ -419,6 +433,9 @@ class Workspace:
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
+        available = getattr(self._manager, "assert_agent_available", None)
+        if available is not None:
+            available(self.agent_id)
         config = load_agent_config(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
@@ -444,20 +461,34 @@ class Workspace:
                 "user_id": getattr(request, "user_id", None),
                 "channel": getattr(request, "channel", None) or "console",
             }
-            async for item in self.harness_runtime.stream(
+            stream = self.harness_runtime.stream(
                 backend=backend,
                 request=request,
                 cwd=self.workspace_dir.resolve(),
                 settings=settings,
-            ):
-                yield item
+            )
+            try:
+                async for item in stream:
+                    yield item
+            finally:
+                from ...plugins._events import observing
+
+                if observing():
+                    await stream.aclose()
             return
 
         from ...runtime import Runtime
 
         rt = Runtime(workspace=self, app_services=self._app_services)
-        async for item in rt.run(request):
-            yield item
+        stream = rt.run(request)
+        try:
+            async for item in stream:
+                yield item
+        finally:
+            from ...plugins._events import observing
+
+            if observing():
+                await stream.aclose()
 
     def _register_services(  # pylint: disable=too-many-statements
         self,
@@ -605,6 +636,7 @@ class Workspace:
                     )
                     or "UTC",
                     "agent_id": ws.agent_id,
+                    "start_paused": ws.cron_start_paused,
                 },
                 start_method="start",
                 stop_method="stop",
@@ -823,6 +855,9 @@ class Workspace:
     ):
         """Stop agent instance and clean up all resources.
 
+        Attempt every independent cleanup stage before reporting errors.
+        Failed cleanup retains running flags and unfinished handles for retry.
+
         Args:
             final: If True (default), stop ALL services including reusable.
                    If False, skip reusable services (for reload scenario).
@@ -840,15 +875,40 @@ class Workspace:
             f"{sanitize_log_value(self.agent_id)} (final={final})",
         )
 
+        # Revoke this instance's plugin bindings while its managers are alive.
+        # Reload candidates and draining old instances may share an agent id.
+        from ...plugins.registry import PluginRegistry
+
+        errors: list[tuple[str, Exception]] = []
+        try:
+            await PluginRegistry().projector.revoke_workspace(self)
+        except Exception as exc:
+            errors.append(("plugin bindings", exc))
+
         # Stop all services via ServiceManager (handles reuse automatically)
-        await self._service_manager.stop_all(
-            final=final,
-            preserve_reused=preserve_reused,
-        )
+        try:
+            await self._service_manager.stop_all(
+                final=final,
+                preserve_reused=preserve_reused,
+            )
+        except Exception as exc:
+            errors.append(("services", exc))
 
         if self._harness_runtime is not None:
-            await self._harness_runtime.stop()
-            self._harness_runtime = None
+            try:
+                await self._harness_runtime.stop()
+            except Exception as exc:
+                errors.append(("harness", exc))
+            else:
+                self._harness_runtime = None
+
+        if len(errors) == 1:
+            raise errors[0][1]
+        if errors:
+            details = "; ".join(f"{stage}: {exc}" for stage, exc in errors)
+            raise RuntimeError(f"Workspace cleanup failed: {details}") from (
+                errors[0][1]
+            )
 
         self._started = False
         self._start_attempted = False

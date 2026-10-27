@@ -292,7 +292,6 @@ async def _review_async(stage: str, payload_text: str) -> str:
         "请按逐行打分制审阅以下本次提交变更的创作文本：\n\n" + payload_text,
         system_prompt=build_appeal_system_prompt(stage),
         temperature=0.2,
-        max_tokens=1800,
         timeout=_TEXT_MODEL_TIMEOUT_SECONDS,
     )
 

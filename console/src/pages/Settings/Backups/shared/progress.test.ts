@@ -47,7 +47,23 @@ describe("handleBackupProgressEvent", () => {
   it("maps done to progress 100 + done key", () => {
     t.mockClear();
     const result = handleBackupProgressEvent(
-      { type: "done", percent: 100, meta: {} as any },
+      {
+        type: "done",
+        percent: 100,
+        meta: {
+          id: "test",
+          name: "Test",
+          description: "",
+          created_at: "",
+          agent_count: 0,
+          scope: {
+            include_agents: false,
+            include_global_config: false,
+            include_secrets: false,
+            include_skill_pool: false,
+          },
+        },
+      },
       t,
     );
     expect(result).toEqual({ progress: 100, msg: "backup.progressDone" });

@@ -11,7 +11,9 @@ export function createSdkSessionAdapter(
   ) => void,
 ) {
   const ready = new Set<string>();
+  const failed = new Set<string>();
   const pending = new Map<string, symbol>();
+  const messageCacheIds = new Map<string, string>();
   const listeners = new Set<() => void>();
   let revision = 0;
   const publish = () => {
@@ -36,6 +38,7 @@ export function createSdkSessionAdapter(
       if (session.id) {
         ready.delete(session.id);
         pending.delete(session.id);
+        messageCacheIds.delete(session.id);
         publish();
       }
       return result;
@@ -44,6 +47,7 @@ export function createSdkSessionAdapter(
       const token = Symbol(id);
       pending.set(id, token);
       ready.delete(id);
+      failed.delete(id);
       publish();
       try {
         const session = await source.getSession(id);
@@ -54,10 +58,15 @@ export function createSdkSessionAdapter(
           // leaves the sender and its queue permanently disabled.
           for (const sessionId of sessionIds(id, session)) {
             ready.add(sessionId);
+            messageCacheIds.set(sessionId, id);
             onSessionLoaded?.(sessionId, session);
           }
         }
+        if (pending.get(id) === token && !session) failed.add(id);
         return session;
+      } catch (error) {
+        if (pending.get(id) === token) failed.add(id);
+        throw error;
       } finally {
         if (pending.get(id) === token) {
           pending.delete(id);
@@ -78,6 +87,8 @@ export function createSdkSessionAdapter(
     api,
     isReady: (id?: string | null) =>
       !id || id === "new" || (ready.has(id) && !pending.has(id)),
+    hasFailed: (id?: string | null) => !!id && failed.has(id),
+    getMessageCacheId: (id: string) => messageCacheIds.get(id) ?? id,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {

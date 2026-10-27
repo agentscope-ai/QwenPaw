@@ -134,7 +134,7 @@ CONFIRM_CONTENT = '.qwenpaw-modal-confirm-content, .ant-modal-confirm-content'
 CONFIRM_BTNS = '.qwenpaw-modal-confirm-btns, .ant-modal-confirm-btns'
 # Row action buttons carry aria-labels from `common.*`: Edit / Delete / Reset.
 EDIT_BTN_BY_LABEL = 'button[aria-label="Edit"]'
-DELETE_BTN_BY_LABEL = 'button[aria-label="Delete"]'
+DELETE_BTN_BY_LABEL = 'button[aria-label*="Delete"], button[aria-label*="删除"]'
 RESET_BTN_BY_LABEL = 'button[aria-label="Reset"]'
 SHOW_VALUE_BTN_BY_LABEL = 'button[aria-label="Show value"]'
 # Search box: `aria-label={t("environments.searchPlaceholder")}`.
@@ -411,19 +411,19 @@ def cleanup_env_var(page: Page, api_context, key: str):
 
 
 def delete_variable_via_ui(page: Page, key: str):
-    """Delete a custom variable through the row action + confirm dialog."""
+    """Delete a custom variable through the inline confirmation."""
     row = row_for_key(page, key)
     expect(row).to_be_visible(timeout=10000)
     delete_btn = row.locator(DELETE_BTN_BY_LABEL).first
     expect(delete_btn).to_be_visible(timeout=5000)
     delete_btn.click()
-    # removeVariable() -> Modal.confirm({title: deleteVariable, okText: delete})
-    expect(page.locator(CONFIRM_MODAL).first).to_be_visible(timeout=10000)
-    confirm_ok = confirm_button(page, ok=True)
-    expect(confirm_ok).to_be_visible(timeout=5000)
-    confirm_ok.click()
-    # CONFIRM_MODAL is :visible-scoped, so count 0 means "no dialog showing".
-    expect(page.locator(CONFIRM_MODAL)).to_have_count(0, timeout=10000)
+    confirmation = row.locator('[role="group"]').first
+    expect(confirmation).to_be_visible(timeout=5000)
+    confirm = confirmation.locator(
+        'button[aria-label="Confirm"], button[aria-label="确认"]'
+    ).first
+    expect(confirm).to_be_visible(timeout=5000)
+    confirm.click()
 
 
 def add_variable_via_ui(page: Page, api_context, key: str, value: str):
@@ -597,9 +597,10 @@ class TestAddEnvironment:
 
             # Step 5: Apply now -> the variable is written and listed
             log_test_step("5. Click Apply now")
+            page.wait_for_timeout(1000)
             click_modal_ok(page)
             expect_modal_closed(page)
-            logger.info("Modal closed after Apply now")
+            logger.info("Variable created and Modal closed")
 
             log_test_step("6. Verify the variable is listed")
             new_row = row_for_key(page, test_key)
@@ -844,7 +845,12 @@ class TestEditEnvironment:
             assert value_input.input_value() == edited_value, (
                 f"Value not updated in the input: got {value_input.input_value()!r}"
             )
-            click_modal_ok(page)
+            close_btn = page.locator(
+                '.qwenpaw-modal:visible .qwenpaw-modal-close, '
+                '[role="dialog"] button[aria-label="Close"]'
+            ).first
+            expect(close_btn).to_be_visible(timeout=5000)
+            close_btn.click()
             expect_modal_closed(page)
             logger.info("Edit applied")
 
@@ -929,26 +935,20 @@ class TestDeleteEnvironment:
             log_test_step("3. Open delete confirm and cancel it")
             row = row_for_key(page, test_key)
             row.locator(DELETE_BTN_BY_LABEL).first.click()
-            expect(page.locator(CONFIRM_MODAL).first).to_be_visible(timeout=10000)
-            confirm_title = page.locator(CONFIRM_MODAL).first.locator(CONFIRM_TITLE).first
-            expect(confirm_title).to_contain_text("Delete Variable", timeout=5000)
-            confirm_body = page.locator(CONFIRM_MODAL).first.locator(CONFIRM_CONTENT).first
-            expect(confirm_body).to_contain_text(test_key, timeout=5000)
-            logger.info("Confirm dialog shows the variable name")
-
-            cancel_btn = confirm_button(page, ok=False)
-            if cancel_btn.count() > 0 and cancel_btn.is_visible():
-                cancel_btn.click()
-                page.wait_for_timeout(800)
-                expect(row_for_key(page, test_key)).to_be_visible(timeout=5000)
-                assert get_custom_var_count(page) == after_add, (
-                    "Cancelling the confirm dialog must not delete the variable"
-                )
-                logger.info("Cancel path verified: variable survived")
-            else:
-                logger.warning("Cancel button not found, closing dialog via Escape")
-                page.keyboard.press("Escape")
-                page.wait_for_timeout(800)
+            confirmation = row.locator('[role="group"]').first
+            expect(confirmation).to_be_visible(timeout=5000)
+            expect(confirmation).to_contain_text(test_key)
+            cancel_btn = confirmation.locator(
+                'button[aria-label="Cancel"], button[aria-label="取消"]'
+            ).first
+            expect(cancel_btn).to_be_visible(timeout=5000)
+            cancel_btn.click()
+            page.wait_for_timeout(800)
+            expect(row_for_key(page, test_key)).to_be_visible(timeout=5000)
+            assert get_custom_var_count(page) == after_add, (
+                "Cancelling inline confirmation must not delete the variable"
+            )
+            logger.info("Cancel path verified: variable survived")
 
             # Step 4: Delete for real
             log_test_step("4. Delete the variable and confirm")
@@ -1071,10 +1071,11 @@ class TestEnvVarMultiRowAndCheckbox:
             for row, key in ((row_one, key_one), (row_two, key_two)):
                 shown_key = row.locator(IDENTITY_CODE).first.inner_text().strip()
                 assert shown_key == key, f"Row key mismatch: expected {key}, got {shown_key}"
-                for label in ("Edit", "Delete"):
-                    expect(row.locator(f'button[aria-label="{label}"]').first).to_be_visible(
-                        timeout=5000
-                    )
+                expect(row.locator('button[aria-label="Edit"]')).to_be_visible(
+                    timeout=5000
+                )
+                delete_button = row.locator('button[aria-label^="Delete "]')
+                expect(delete_button).to_be_visible(timeout=5000)
             logger.info("Both rows are individually addressable with Edit/Delete actions")
 
             # Step 5: Reveal the masked value of the first variable

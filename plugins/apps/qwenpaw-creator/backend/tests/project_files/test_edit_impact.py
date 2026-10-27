@@ -84,6 +84,12 @@ def _project() -> dict:
                     "owner_ref": "timeline:timeline:main",
                     "selected_version_id": "final-v1",
                 },
+                "script:timeline:main": {
+                    "slot_id": "script:timeline:main",
+                    "kind": "timeline_script",
+                    "owner_ref": "timeline:timeline:main",
+                    "selected_version_id": "script-v1",
+                },
             },
             "artifact_versions_by_id": {
                 "storyboard-v1": {
@@ -100,6 +106,13 @@ def _project() -> dict:
                 },
                 "final-v1": {
                     "version_id": "final-v1",
+                    "owner_ref": "timeline:timeline:main",
+                    "stale": False,
+                    "stale_reason": None,
+                },
+                "script-v1": {
+                    "version_id": "script-v1",
+                    "kind": "timeline_script",
                     "owner_ref": "timeline:timeline:main",
                     "stale": False,
                     "stale_reason": None,
@@ -167,6 +180,33 @@ def test_r2v_video_prompt_invalidates_video_and_final_but_not_storyboard() -> (
     assert versions["final-v1"]["stale"] is True
     assert impact.regeneration_required is True
     assert impact.invalidated_artifact_version_ids == {"video-v1", "final-v1"}
+
+
+def test_element_edits_keep_the_timeline_script_fresh() -> None:
+    # The script shares ``owner_ref`` with the composed master but is drafted
+    # from the story fields, not from Element content, so no Element edit may
+    # obsolete it - a STALE script gates storyboard/video dispatch and its
+    # re-run would overwrite the narrative written below it.
+    for element_id, field_name in (
+        ("r2v-1", "video_prompt"),
+        ("r2v-1", "storyboard_prompt"),
+        ("overlay-1", "text"),
+    ):
+        project, impact = apply_frontend_edit_impacts(
+            _project(),
+            [_element_pointer(element_id, "creation", field_name)],
+        )
+
+        versions = project["assets"]["artifact_versions_by_id"]
+        assert versions["final-v1"]["stale"] is True, field_name
+        assert "script-v1" not in impact.invalidated_artifact_version_ids
+        assert versions["script-v1"] == {
+            "version_id": "script-v1",
+            "kind": "timeline_script",
+            "owner_ref": "timeline:timeline:main",
+            "stale": False,
+            "stale_reason": None,
+        }, field_name
 
 
 def test_committed_impact_can_be_reconstructed_for_idempotent_replay() -> None:

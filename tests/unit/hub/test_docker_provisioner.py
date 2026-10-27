@@ -234,6 +234,7 @@ def test_container_launch_applies_persistence_security_and_limits(
         ),
         {
             "QWENPAW_RUNTIME_INTERNAL_TOKEN": "runtime-token",
+            "QWENPAW_AUTH_ENABLED": "false",
             "PYTHONPATH": "/",
             "OPENAI_API_KEY": "tenant-key",
         },
@@ -254,6 +255,7 @@ def test_container_launch_applies_persistence_security_and_limits(
     assert environment["HOME"] == "/data/member"
     assert environment["QWENPAW_WORKING_DIR"] == "/data/member"
     assert environment["OPENAI_API_KEY"] == "tenant-key"
+    assert environment["QWENPAW_AUTH_ENABLED"] == "true"
     assert environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] == "runtime-token"
     volumes = launch["volumes"]
     assert isinstance(volumes, dict)

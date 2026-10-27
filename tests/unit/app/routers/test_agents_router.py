@@ -468,6 +468,7 @@ def test_patch_agent_model_settings_preserves_active_model(
     fake_config,
 ):
     """Model settings PATCH must not overwrite unrelated agent fields."""
+    client.app.state.provider_manager = MagicMock()
     existing = AgentProfileConfig(
         id="bot",
         name="Bot",

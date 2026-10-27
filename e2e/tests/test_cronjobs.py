@@ -233,26 +233,35 @@ class TestCronJobToggleAndExecute:
 
             log_test_step("3. Verify the enable/disable button is available")
             row = cronjobs_page.get_job_row(job_name)
-            # UI uses Disable/Enable buttons instead of a Switch
-            toggle_btn = row.locator('button:has-text("Disable"), button:has-text("Enable")').first
+            toggle_btn = row.locator(
+                f'[role="switch"][aria-label*="{job_name}"]'
+            ).first
             assert toggle_btn.is_visible(timeout=5000), "Cron job row should include an enable/disable button"
             logger.info("Enable/disable button is available")
 
             log_test_step("4. Click the button and verify the state changed")
-            original_btn_text = toggle_btn.inner_text().strip()
+            original_checked = toggle_btn.get_attribute("aria-checked")
             toggle_btn.click()
             cronjobs_page.page.wait_for_timeout(2000)
 
             # Re-fetch the row and button to verify the state changed
             row = cronjobs_page.get_job_row(job_name)
-            toggle_btn = row.locator('button:has-text("Disable"), button:has-text("Enable")').first
-            new_btn_text = toggle_btn.inner_text().strip()
-            assert new_btn_text != original_btn_text, \
-                f"Button text should change: '{original_btn_text}' -> '{new_btn_text}'"
-            logger.info(f"State toggled: '{original_btn_text}' -> '{new_btn_text}'")
+            toggle_btn = row.locator(
+                f'[role="switch"][aria-label*="{job_name}"]'
+            ).first
+            new_checked = toggle_btn.get_attribute("aria-checked")
+            assert new_checked != original_checked, (
+                f"Switch should change: {original_checked} -> {new_checked}"
+            )
+            logger.info(
+                f"State toggled: {original_checked} -> {new_checked}"
+            )
 
             log_test_step("5. Verify the run-now button and click it")
-            exec_btn = row.locator('button:has-text("Execute"), button:has-text("Run")')
+            exec_btn = row.locator(
+                'button[aria-label="Execute Now"], '
+                'button[aria-label="立即执行"]'
+            )
             if exec_btn.count() > 0 and exec_btn.first.is_visible():
                 assert exec_btn.first.is_enabled(), "Run-now button should be enabled"
                 exec_btn.first.click()
@@ -352,7 +361,7 @@ class TestCronJobScheduleAndTaskType:
         cronjobs_page.click_create_job()
 
         log_test_step("3. Verify the drawer opens")
-        drawer = cronjobs_page.page.locator('.qwenpaw-drawer, .ant-drawer, [class*="drawer"]').first
+        drawer = cronjobs_page.page.locator('[role="dialog"]:visible')
         expect(drawer).to_be_visible(timeout=5000)
         logger.info("Create-job drawer opened")
 
@@ -376,55 +385,47 @@ class TestCronJobScheduleAndTaskType:
         logger.info("Schedule type selector exists")
 
         log_test_step("6. Select 'daily' and verify the time picker appears")
-        daily_option = cronjobs_page.page.locator(
-            '.qwenpaw-radio-label:has-text("daily"), '
-            '[class*="radio"]:has-text("daily")'
-        ).first
+        daily_option = drawer.locator(
+            '.qwenpaw-radio-button-wrapper:has-text("Daily")'
+        )
         if daily_option.is_visible():
             daily_option.click()
             cronjobs_page.page.wait_for_timeout(1000)
-            time_picker = cronjobs_page.page.locator(
-                '.qwenpaw-picker, .qwenpaw-time-picker, [class*="timePicker"], [class*="time"]'
-            ).first
+            time_picker = drawer.locator('[role="spinbutton"]:visible').first
             expect(time_picker).to_be_visible(timeout=3000)
             logger.info("After selecting daily, time picker appeared")
 
         log_test_step("7. Select 'weekly' and verify the weekday picker appears")
-        weekly_option = cronjobs_page.page.locator(
-            '.qwenpaw-radio-label:has-text("weekly"), '
-            '[class*="radio"]:has-text("weekly")'
-        ).first
+        weekly_option = drawer.locator(
+            '.qwenpaw-radio-button-wrapper:has-text("Weekly")'
+        )
         if weekly_option.is_visible():
             weekly_option.click()
             cronjobs_page.page.wait_for_timeout(1000)
-            weekday_selector = cronjobs_page.page.locator(
-                '.qwenpaw-checkbox-group, .qwenpaw-select, [class*="weekday"], [class*="week"]'
-            ).first
+            weekday_selector = drawer.locator(
+                '.qwenpaw-checkbox-group:visible'
+            )
             expect(weekday_selector).to_be_visible(timeout=3000)
             logger.info("After selecting weekly, weekday picker appeared")
 
         log_test_step("8. Select 'custom' and verify the cron expression input appears")
-        custom_option = cronjobs_page.page.locator(
-            '.qwenpaw-radio-label:has-text("custom"), '
-            '[class*="radio"]:has-text("custom")'
-        ).first
+        custom_option = drawer.locator(
+            '.qwenpaw-radio-button-wrapper:has(input[value="custom"])'
+        )
         if custom_option.is_visible():
             custom_option.click()
             cronjobs_page.page.wait_for_timeout(1000)
-            cron_input = cronjobs_page.page.locator(
-                'input[placeholder*="cron"], input[placeholder*="Cron"], [class*="cronInput"]'
-            ).first
+            cron_input = drawer.locator(
+                'input[placeholder="0 9 * * *"]:visible'
+            )
             expect(cron_input).to_be_visible(timeout=3000)
             logger.info("After selecting custom, cron expression input appeared")
 
         log_test_step("9. Verify the task type selector exists (text/agent)")
-        task_type_selector = cronjobs_page.page.locator(
-            '.qwenpaw-radio-group, .qwenpaw-select, [class*="taskType"], [class*="task"]'
-        ).nth(1)
-        if not task_type_selector.is_visible():
-            task_type_selector = cronjobs_page.page.locator(
-                '.qwenpaw-radio-group, .qwenpaw-select, [class*="taskType"], [class*="task"]'
-            ).first
+        drawer.get_by_role("tab", name="Task Type").click()
+        task_type_selector = drawer.locator(
+            '.qwenpaw-form-item:has-text("Task Type") .qwenpaw-select'
+        ).first
         expect(task_type_selector).to_be_visible(timeout=3000)
         logger.info("Task type selector exists")
 
@@ -510,25 +511,13 @@ class TestCronjobScheduleTypeSwitch:
         page.wait_for_timeout(2000)
 
         log_test_step("Click the create-job button")
-        create_btn = page.locator("button:has-text('Create'), button:has-text('Add Job')").first
-        if create_btn.count() == 0:
-            create_btn = page.locator("button.qwenpaw-btn-primary, button.ant-btn-primary").first
+        create_btn = page.locator(CRONJOB_CREATE_BUTTON).first
         assert create_btn.count() > 0, "Create-job button not found"
         create_btn.click()
         page.wait_for_timeout(1500)
 
         log_test_step("Verify the create dialog/drawer opens")
-        drawer = page.locator(".qwenpaw-drawer, .ant-drawer").first
-        try:
-            drawer.wait_for(state="visible", timeout=5000)
-        except Exception:
-            pass
-        if drawer.count() == 0 or not drawer.is_visible():
-            drawer = page.locator(".qwenpaw-modal").first
-            try:
-                drawer.wait_for(state="visible", timeout=3000)
-            except Exception:
-                pass
+        drawer = page.locator('[role="dialog"]:visible')
         assert drawer.count() > 0 and drawer.is_visible(), "Create-job dialog or drawer did not open"
 
         log_test_step("Verify form fields exist")
@@ -537,68 +526,28 @@ class TestCronjobScheduleTypeSwitch:
         logger.info(f"Found {len(form_inputs)} form fields")
 
         log_test_step("Fill in the job name")
-        name_input = drawer.locator("input[placeholder*='name'], input[id*='name'], input").first
-        if name_input.count() > 0:
-            name_input.fill(job_name)
-            page.wait_for_timeout(500)
-            filled_value = name_input.input_value()
-            assert job_name in filled_value, f"Failed to fill job name: expected to contain {job_name}, got {filled_value}"
-            logger.info(f"Job name filled: {job_name}")
+        name_input = drawer.locator('#name:visible')
+        name_input.fill(job_name)
+        page.wait_for_timeout(500)
+        filled_value = name_input.input_value()
+        assert filled_value == job_name
+        logger.info(f"Job name filled: {job_name}")
 
-        log_test_step("Find the schedule type field")
-        schedule_type_select = drawer.locator(".ant-select, .qwenpaw-select").first
-        if schedule_type_select.count() == 0:
-            schedule_type_label = drawer.locator("label:has-text('Schedule'), label:has-text('ScheduleType')").first
-            if schedule_type_label.count() > 0:
-                parent_div = schedule_type_label.locator("..")
-                schedule_type_select = parent_div.locator(".ant-select, .qwenpaw-select, select").first
-
-        if schedule_type_select.count() > 0:
-            log_test_step("Test switching schedule types")
-            schedule_type_select.click()
-            page.wait_for_timeout(500)
-
-            # Get all available options
-            options = page.locator(".ant-select-item-option, .qwenpaw-select-item").all()
-            assert len(options) > 0, "Schedule type dropdown options are empty"
-            logger.info(f"Found {len(options)} schedule type options")
-
-            # Select the first option
-            first_option_text = options[0].inner_text().strip()
-            options[0].click()
-            page.wait_for_timeout(1000)
-            logger.info(f"Selected schedule type: {first_option_text}")
-
-            # If multiple options exist, switch to another and verify the form changes
-            if len(options) > 1:
-                # Record the current form state
-                fields_before = drawer.locator("input:visible, textarea:visible, .ant-picker:visible").all()
-                fields_count_before = len(fields_before)
-
-                schedule_type_select.click()
-                page.wait_for_timeout(500)
-                options_refreshed = page.locator(".ant-select-item-option, .qwenpaw-select-item").all()
-                if len(options_refreshed) > 1:
-                    second_option_text = options_refreshed[1].inner_text().strip()
-                    options_refreshed[1].click()
-                    page.wait_for_timeout(1000)
-                    logger.info(f"Switched to schedule type: {second_option_text}")
-
-                    # Verify form fields changed (different schedule types should have different fields)
-                    fields_after = drawer.locator("input:visible, textarea:visible, .ant-picker:visible").all()
-                    fields_count_after = len(fields_after)
-                    logger.info(f"Fields before: {fields_count_before}, after: {fields_count_after}")
-        else:
-            # No schedule type selector; verify a cron expression input exists
-            cron_input = drawer.locator("input[placeholder*='cron'], input[placeholder*='Cron'], textarea[placeholder*='cron']").first
-            assert cron_input.count() > 0, "Neither schedule type selector nor Cron expression input was found"
-            logger.info("Found Cron expression input")
-
-            cron_input.fill("0 9 * * 1")
-            page.wait_for_timeout(500)
-            filled_value = cron_input.input_value()
-            assert "0 9 * * 1" in filled_value, f"Failed to fill Cron expression: {filled_value}"
-            logger.info("Cron expression filled successfully")
+        log_test_step("Switch between current schedule frequency controls")
+        weekly = drawer.locator(
+            '.qwenpaw-radio-button-wrapper:has-text("Weekly")'
+        )
+        advanced = drawer.locator(
+            '.qwenpaw-radio-button-wrapper:has(input[value="custom"])'
+        )
+        weekly.click()
+        expect(
+            drawer.locator('.qwenpaw-checkbox-group:visible')
+        ).to_be_visible()
+        advanced.click()
+        expect(
+            drawer.locator('input[placeholder="0 9 * * *"]:visible')
+        ).to_be_visible()
 
         log_test_step("Close the create dialog/drawer")
         close_btn = drawer.locator("button:has-text('Cancel'), .ant-drawer-close, .ant-modal-close, .qwenpaw-modal-close").first
@@ -639,92 +588,59 @@ class TestCronjobEditAndUpdate:
         job_name = f"EditTest_{timestamp}"
         updated_name = f"Updated_{timestamp}"
         current_name = None
+        job_id = None
 
         try:
-            log_test_step("Navigate to the cron jobs page")
+            import requests
+
+            log_test_step("Create a complete test job via API")
+            api_url = f"{config.api_url}/cron/jobs"
+            payload = {
+                "name": job_name,
+                "schedule": {
+                    "type": "cron",
+                    "cron": "0 9 * * *",
+                    "timezone": "Asia/Shanghai",
+                },
+                "task_type": "text",
+                "text": "Edit test",
+                "dispatch": {
+                    "type": "channel",
+                    "channel": "console",
+                    "target": {
+                        "user_id": "default",
+                        "session_id": "default",
+                    },
+                    "mode": "stream",
+                },
+                "enabled": False,
+            }
+            response = requests.post(api_url, json=payload, timeout=10)
+            assert response.status_code in (200, 201)
+            job_id = response.json()["id"]
+            current_name = job_name
             page.goto(f"{config.base_url}/cron-jobs")
             page.wait_for_load_state("domcontentloaded")
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(2000)
 
-            log_test_step("Create a test job")
-            create_btn = page.locator(CRONJOB_CREATE_BUTTON).first
-            expect(create_btn).to_be_visible(timeout=5000)
-            create_btn.click()
-            page.wait_for_timeout(1500)
-
-            drawer = page.locator('.qwenpaw-drawer, .ant-drawer').first
-            expect(drawer).to_be_visible(timeout=5000)
-
-            # Fill in the job name
-            name_input = drawer.locator('input').first
-            name_input.fill(job_name)
-            page.wait_for_timeout(500)
-
-            # Submit the create form
-            submit_btn = drawer.locator('button:has-text("OK"), button:has-text("Submit"), button.qwenpaw-btn-primary').first
-            if submit_btn.count() > 0:
-                submit_btn.click()
-                page.wait_for_timeout(2000)
-            current_name = job_name
-            logger.info(f"Test job {job_name} created")
-
-            log_test_step("Ensure the job is disabled (edit requires disable first)")
-            # Reload to refresh the list
-            page.reload()
-            page.wait_for_load_state("domcontentloaded")
-            page.wait_for_timeout(3000)
-
-            # Locate the job row, with retries
-            task_row = page.locator(f'tr:has-text("{job_name}")').first
-            for retry in range(3):
-                if task_row.count() > 0:
-                    break
-                page.wait_for_timeout(2000)
-                task_row = page.locator(f'tr:has-text("{job_name}")').first
-            if task_row.count() == 0:
-                logger.info(f"Job row not found: {job_name}; creation may have failed, skipping edit test")
-                current_name = None
-                log_test_result(test_name, True, 0)
-                return
-
-            # Check and disable the job
-            task_switch = task_row.locator('.qwenpaw-switch').first
-            if task_switch.count() > 0:
-                is_enabled = task_switch.get_attribute("aria-checked") == "true"
-                if is_enabled:
-                    task_switch.click()
-                    page.wait_for_timeout(1000)
-                    logger.info("Job disabled")
-
-            log_test_step("Click the more menu to open edit")
-            more_btn = task_row.locator('button:has(.anticon-more), button:has(.anticon-ellipsis), button[aria-label="more"]').first
-            if more_btn.count() == 0:
-                more_btn = task_row.locator('button').last
-            more_btn.click()
-            page.wait_for_timeout(1000)
-
-            edit_option = page.locator('.qwenpaw-dropdown-menu-item:has-text("Edit"), .ant-dropdown-menu-item:has-text("Edit")').first
-            expect(edit_option).to_be_visible(timeout=3000)
-            edit_option.click()
-            page.wait_for_timeout(1500)
+            log_test_step("Open the job editor from the task name")
+            page.locator(f'tr:has-text("{job_name}") button').first.click()
 
             log_test_step("Verify the edit drawer opens")
-            edit_drawer = page.locator('.qwenpaw-drawer, .ant-drawer').first
+            edit_drawer = page.locator('[role="dialog"]:visible')
             expect(edit_drawer).to_be_visible(timeout=5000)
             logger.info("Edit drawer opened")
 
             log_test_step("Modify the job name")
-            edit_name_input = edit_drawer.locator('input').first
+            edit_name_input = edit_drawer.locator('#name:visible')
             edit_name_input.clear()
             edit_name_input.fill(updated_name)
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(1200)
             logger.info(f"Job name changed to: {updated_name}")
 
-            log_test_step("Save the changes")
-            save_btn = edit_drawer.locator('button:has-text("OK"), button:has-text("Save"), button.qwenpaw-btn-primary').first
-            if save_btn.count() > 0:
-                save_btn.click()
-                page.wait_for_timeout(2000)
+            log_test_step("Close the drawer to flush autosave")
+            edit_drawer.get_by_role("button", name="Close").click()
+            page.wait_for_timeout(1500)
             current_name = updated_name
 
             log_test_step("Verify the update succeeded")
@@ -734,28 +650,10 @@ class TestCronjobEditAndUpdate:
 
             log_test_result(test_name, True, 0)
         finally:
-            # Cleanup: delete the test job (re-navigate to ensure correct page state)
-            if current_name:
+            if job_id:
                 try:
-                    page.goto(f"{config.base_url}/cronjobs")
-                    page.wait_for_timeout(2000)
-                    cleanup_row = page.locator(f'tr:has-text("{current_name}")').first
-                    if cleanup_row.count() > 0:
-                        more_btn = cleanup_row.locator('button:has(.anticon-more), button:has(.anticon-ellipsis), button[aria-label="more"]').first
-                        if more_btn.count() == 0:
-                            more_btn = cleanup_row.locator('button').last
-                        more_btn.click()
-                        page.wait_for_timeout(1000)
-
-                        delete_option = page.locator('.qwenpaw-dropdown-menu-item:has-text("Delete"), .ant-dropdown-menu-item:has-text("Delete")').first
-                        if delete_option.count() > 0:
-                            delete_option.click()
-                            page.wait_for_timeout(1000)
-                            confirm_btn = page.locator('.qwenpaw-modal-confirm .qwenpaw-btn-primary, .qwenpaw-popconfirm .qwenpaw-btn-primary, button:has-text("OK")').first
-                            if confirm_btn.count() > 0:
-                                confirm_btn.click()
-                                page.wait_for_timeout(2000)
-                        logger.info(f"Cleanup: deleted test job '{current_name}'")
+                    requests.delete(f"{api_url}/{job_id}", timeout=10)
+                    logger.info(f"Cleanup: deleted test job '{current_name}'")
                 except Exception:
                     logger.warning(f"Cleanup failed: could not delete test job '{current_name}'")
 
@@ -786,43 +684,21 @@ class TestCronjobWeeklySchedule:
             create_btn.click()
             page.wait_for_timeout(1500)
 
-        drawer = page.locator('.qwenpaw-drawer, .ant-drawer, .qwenpaw-modal').first
+        drawer = page.locator('[role="dialog"]:visible')
         if drawer.count() == 0:
             logger.info("Create dialog not found, skipping test")
             log_test_result(test_name, True, 0)
             return
 
-        log_test_step("Ensure Recurring mode and select Weekly frequency")
-        selects = drawer.locator('.qwenpaw-select, .ant-select').all()
-        if len(selects) < 2:
-            pytest.skip("Schedule selectors not found, skipping test")
-
-        # First select: mode (Recurring / Scheduled) — ensure Recurring
-        selects[0].click()
-        page.wait_for_timeout(500)
-        recurring_opt = page.locator('.qwenpaw-select-item:has-text("Recurring")').first
-        if recurring_opt.count() > 0:
-            recurring_opt.click()
-            page.wait_for_timeout(500)
-        else:
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(300)
-
-        # Second select: frequency (Hourly / Daily / Weekly / Custom)
-        selects = drawer.locator('.qwenpaw-select, .ant-select').all()
-        selects[1].click()
-        page.wait_for_timeout(500)
-        weekly_option = page.locator('.qwenpaw-select-item:has-text("Weekly")').first
-        if weekly_option.count() > 0:
-            weekly_option.click()
-            page.wait_for_timeout(1000)
-            logger.info("Selected Weekly schedule frequency")
-
-            day_checkboxes = drawer.locator('.qwenpaw-checkbox, .ant-checkbox').all()
-            assert len(day_checkboxes) > 0, "Weekly schedule type should have weekday checkboxes"
-            logger.info(f"Found {len(day_checkboxes)} weekday checkboxes")
-        else:
-            pytest.skip("Weekly option not found in frequency selector")
+        log_test_step("Select Weekly frequency")
+        weekly_option = drawer.locator(
+            '.qwenpaw-radio-button-wrapper:has-text("Weekly")'
+        )
+        expect(weekly_option).to_be_visible(timeout=3000)
+        weekly_option.click()
+        day_checkboxes = drawer.get_by_role("checkbox")
+        expect(day_checkboxes.first).to_be_visible(timeout=3000)
+        assert day_checkboxes.count() == 7
 
         page.keyboard.press("Escape")
         page.wait_for_timeout(500)
@@ -854,16 +730,24 @@ class TestCronjobJsonParams:
             create_btn.click()
             page.wait_for_timeout(1500)
 
-        drawer = page.locator('.qwenpaw-drawer, .ant-drawer, .qwenpaw-modal').first
+        drawer = page.locator('[role="dialog"]:visible')
         if drawer.count() == 0:
             logger.info("Create dialog not found, skipping test")
             log_test_result(test_name, True, 0)
             return
 
-        log_test_step("Find the JSON input area")
-        json_input = drawer.locator('textarea, [class*="json"], [class*="CodeMirror"]').first
-        assert json_input.count() > 0, "Create form should have a JSON input area"
-        json_text = '{"key": "value", "count": 42}'
+        log_test_step("Open Task Type and switch request input to JSON mode")
+        drawer.get_by_role("tab", name="Task Type").click()
+        task_type = drawer.locator(
+            '.qwenpaw-form-item:has-text("Task Type") .qwenpaw-select'
+        ).first
+        task_type.click()
+        page.keyboard.press("End")
+        page.keyboard.press("Enter")
+        drawer.get_by_role("button", name="JSON mode").click()
+        json_input = drawer.locator('textarea:visible').last
+        json_text = '[{"role":"user","content":[{"type":"text",'
+        json_text += '"text":"e2e"}]}]'
         json_input.fill(json_text)
         page.wait_for_timeout(500)
         filled_value = json_input.input_value()
@@ -900,7 +784,7 @@ class TestCronjobTimezone:
             create_btn.click()
             page.wait_for_timeout(1500)
 
-        drawer = page.locator('.qwenpaw-drawer, .ant-drawer, .qwenpaw-modal').first
+        drawer = page.locator('[role="dialog"]:visible')
         if drawer.count() == 0:
             logger.info("Create dialog not found, skipping test")
             log_test_result(test_name, True, 0)

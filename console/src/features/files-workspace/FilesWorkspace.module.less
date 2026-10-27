@@ -77,7 +77,7 @@
 
   strong {
     overflow: hidden;
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -85,14 +85,15 @@
 
   span {
     color: var(--files-muted);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
   }
 }
 
 .iconButton,
 .secondaryButton,
 .primaryButton {
-  height: 34px;
+  height: auto;
+  min-height: max(34px, calc(34px * var(--app-font-scale)));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -131,7 +132,7 @@
 .secondaryButton,
 .primaryButton {
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 
 .primaryButton {
@@ -183,10 +184,9 @@
   max-width: 920px;
   margin: 0 auto;
   color: inherit;
-  font:
-    13px/1.72 "SFMono-Regular",
-    Consolas,
-    monospace;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: var(--app-font-secondary);
+  line-height: 1.72;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -218,6 +218,14 @@
   min-width: 0;
   display: flex;
   background: var(--files-bg);
+}
+
+.navigatorPane {
+  display: contents;
+}
+
+.mobilePaneSwitch {
+  display: none;
 }
 
 .activityRail {
@@ -331,7 +339,7 @@
 .directoryContextLabel {
   overflow: hidden;
   color: var(--files-muted);
-  font-size: 9px;
+  font-size: var(--app-font-caption);
   font-weight: 650;
   letter-spacing: 0.05em;
   line-height: 1.2;
@@ -356,7 +364,7 @@
   strong {
     overflow: hidden;
     color: color-mix(in srgb, var(--files-accent) 78%, var(--files-ink));
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.25;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -366,10 +374,9 @@
     min-width: 0;
     overflow: hidden;
     color: var(--files-muted);
-    font:
-      9px/1.35 "SFMono-Regular",
-      Consolas,
-      monospace;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: var(--app-font-caption);
+    line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -429,7 +436,7 @@
 
   strong {
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     line-height: 1.3;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -439,10 +446,9 @@
     min-width: 0;
     overflow: hidden;
     color: var(--files-muted);
-    font:
-      9px/1.35 "SFMono-Regular",
-      Consolas,
-      monospace;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: var(--app-font-caption);
+    line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -452,7 +458,7 @@
 .rootOptionTagMissing {
   padding: 1px 5px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: var(--app-font-caption);
   font-style: normal;
   line-height: 1.5;
   white-space: nowrap;
@@ -479,7 +485,7 @@
   display: block;
   max-width: 300px;
   color: var(--files-muted);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   line-height: 1.4;
   white-space: normal;
 }
@@ -552,7 +558,7 @@
 
   > span:last-child {
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -570,7 +576,7 @@
   border-radius: 7px;
   color: var(--app-info-text);
   background: var(--app-info-bg);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   cursor: pointer;
 
   &:hover {
@@ -588,13 +594,14 @@
 .profilePickerDescription {
   margin: 0 0 12px;
   color: var(--profile-muted);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.55;
 }
 
 .profilePickerSearch {
   width: 100%;
-  height: 36px;
+  height: auto;
+  min-height: max(36px, calc(36px * var(--app-font-scale)));
   padding: 0 10px;
   border: 1px solid var(--profile-line);
   border-radius: 8px;
@@ -616,7 +623,7 @@
 
 .profilePickerItem {
   width: 100%;
-  min-height: 38px;
+  min-height: max(38px, calc(38px * var(--app-font-scale)));
   padding: 0 10px;
   display: flex;
   align-items: center;
@@ -644,7 +651,7 @@
 .profilePickerEmpty {
   padding: 24px 12px;
   color: var(--profile-muted);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   text-align: center;
 }
 
@@ -663,7 +670,7 @@
 .conflictDescription {
   margin: 0 0 14px;
   color: var(--files-muted);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -683,7 +690,7 @@
 }
 
 .conflictChoice {
-  min-height: 58px;
+  min-height: max(58px, calc(58px * var(--app-font-scale)));
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
@@ -701,13 +708,13 @@
     background 150ms ease;
 
   strong {
-    font-size: 13px;
+    font-size: var(--app-font-secondary);
     font-weight: 650;
   }
 
   span {
     color: var(--files-muted);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     line-height: 1.45;
   }
 
@@ -733,13 +740,14 @@
   overflow-x: auto;
 
   button {
-    height: 28px;
+    height: auto;
+    min-height: max(28px, calc(28px * var(--app-font-scale)));
     padding: 0 9px;
     border: 0;
     border-radius: 7px;
     color: var(--files-muted);
     background: transparent;
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     white-space: nowrap;
     cursor: pointer;
   }
@@ -766,7 +774,7 @@
 
 .treeRow {
   width: 100%;
-  min-height: 32px;
+  min-height: max(32px, calc(32px * var(--app-font-scale)));
   padding: 5px 9px;
   display: flex;
   align-items: center;
@@ -776,7 +784,7 @@
   border-radius: 7px;
   color: inherit;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--app-font-body);
   text-align: left;
   cursor: pointer;
 
@@ -822,7 +830,8 @@
   top: 50%;
   right: 6px;
   min-width: 58px;
-  height: 26px;
+  height: auto;
+  min-height: max(26px, calc(26px * var(--app-font-scale)));
   padding: 0 8px;
   display: inline-flex;
   align-items: center;
@@ -832,7 +841,7 @@
   border: 0;
   border-radius: 7px;
   background: transparent;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -855,15 +864,35 @@
   }
 }
 
+.listingError {
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--app-error-text);
+  font-size: var(--app-font-caption);
+
+  > button {
+    width: 100%;
+    min-height: 40px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+}
+
 .loadMore {
   width: calc(100% - 12px);
-  height: 30px;
+  height: auto;
+  min-height: max(30px, calc(30px * var(--app-font-scale)));
   margin: 6px;
   border: 1px dashed var(--files-line);
   border-radius: 7px;
   color: var(--files-muted);
   background: transparent;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   cursor: pointer;
 }
 
@@ -871,6 +900,13 @@
   flex: 1;
   min-width: 360px;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  > :last-child {
+    min-height: 0;
+    flex: 1;
+  }
 }
 
 .sourcePanel {
@@ -882,14 +918,15 @@
   background: var(--files-panel);
 
   > header {
-    height: 42px;
+    height: auto;
+    min-height: max(44px, calc(44px * var(--app-font-scale)));
     padding: 0 12px;
     display: flex;
     align-items: center;
     gap: 8px;
     border-bottom: 1px solid var(--files-line);
     color: var(--files-muted);
-    font-size: 11px;
+    font-size: var(--app-font-caption);
     font-weight: 650;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -903,7 +940,7 @@
   justify-content: center;
   gap: 8px;
   color: var(--files-muted);
-  font-size: 12px;
+  font-size: var(--app-font-body);
 }
 
 .loadError {
@@ -915,7 +952,7 @@
   color: var(--app-error-text);
   background: var(--app-error-bg);
   border-bottom: 1px solid var(--app-error-border);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .spin {
@@ -936,7 +973,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .drawer,
   .drawerPreview,
   .drawerWorkspace,
@@ -954,32 +991,102 @@
   }
 
   .drawerTitle + .secondaryButton {
-    width: 34px;
+    width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
     padding: 0;
     font-size: 0;
   }
 
-  .navigator {
-    width: 42%;
-    min-width: 156px;
+  .navigatorPane {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
   }
 
-  .workspaceEmpty {
+  .navigatorPane {
     .navigator {
       width: 100%;
       min-width: 0;
+      flex: 1;
     }
+  }
 
+  .workspace[data-mobile-pane="document"] {
+    .navigatorPane,
+    .sourcePanel {
+      display: none;
+    }
+  }
+
+  .workspace[data-mobile-pane="navigator"],
+  .workspace[data-mobile-pane="source"] {
     .documentSurface {
       display: none;
     }
   }
 
+  .sourcePanel {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .mobilePaneSwitch {
+    width: 100%;
+    min-height: max(44px, calc(44px * var(--app-font-scale)));
+    padding: 0 12px;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    color: var(--files-muted);
+    border: 0;
+    border-bottom: 1px solid var(--files-line);
+    background: var(--files-bg);
+    font-size: var(--app-font-caption);
+    font-weight: 650;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--files-accent);
+      background: var(--files-accent-soft);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--files-accent);
+      outline-offset: -3px;
+    }
+  }
+
   .activityRail {
-    width: 42px;
+    box-sizing: border-box;
+    width: 57px;
+
+    button {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  .iconButton,
+  .sourceTabs button,
+  .treeRow {
+    min-height: var(--app-hit-touch);
+  }
+
+  .sourceTabs button {
+    min-width: var(--app-hit-touch);
+  }
+
+  .iconButton {
+    width: var(--app-hit-touch);
   }
 
   .documentSurface {
+    width: 100%;
     min-width: 0;
   }
 

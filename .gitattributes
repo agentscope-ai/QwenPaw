@@ -9,3 +9,4 @@ plugins/apps/qwenpaw-data/ui/public/data-console/index.html text eol=lf
 plugins/apps/qwenpaw-data/ui/public/data-console/paw-bridge.js text eol=lf
 plugins/apps/qwenpaw-data/ui/public/data-console/assets/*.js text eol=lf
 plugins/apps/qwenpaw-data/ui/public/data-console/assets/*.css text eol=lf
+src/qwenpaw/providers/data/providers/*.json text eol=lf

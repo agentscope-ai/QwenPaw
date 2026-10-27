@@ -24,7 +24,7 @@ from services.media_files import r2v_execution
 from services.runtime_files import ProjectRuntimeSessionStore
 from services.project_files.store import ProjectStore
 from services.project_files import archive as project_archive
-from services.project_files.models import IndexedFile
+from services.project_files.models import IndexedFile, Project
 
 pytestmark = pytest.mark.unit
 
@@ -60,8 +60,11 @@ async def _import(client, filename, archive):
     )
 
 
-@pytest.mark.parametrize("invalid_config", [False, True])
-def test_archive_transfer_does_not_depend_on_current_model_settings(
+@pytest.mark.parametrize(
+    "invalid_config",
+    [False, True, "invalid-json", "invalid-provider", "null-model"],
+)
+def test_listing_and_archive_transfer_ignore_current_model_settings(
     app,
     api_runtime_root,
     monkeypatch,
@@ -98,6 +101,12 @@ def test_archive_transfer_does_not_depend_on_current_model_settings(
                 },
             ),
         )
+        if invalid_config == "invalid-json":
+            config_path.write_text("{broken")
+        elif invalid_config == "invalid-provider":
+            config_path.write_text('{"asr": {"provider": "unsupported"}}')
+        elif invalid_config == "null-model":
+            config_path.write_text('{"llm": {"model_name": null}}')
         config_before = config_path.read_bytes()
         imported = await _import(client, "backup.zip", exported.content)
         assert imported.status_code == 200, imported.text
@@ -107,12 +116,15 @@ def test_archive_transfer_does_not_depend_on_current_model_settings(
         assert config_path.read_bytes() == config_before
         reexported = await _export(client, project_id)
         assert reexported.status_code == 200, reexported.text
-        if not invalid_config:
-            listed = await client.get("/projects")
-            assert listed.status_code == 200
-            assert [item["projectId"] for item in listed.json()["items"]] == [
-                project_id,
-            ]
+        listed = await client.get("/projects")
+        assert listed.status_code == 200, listed.text
+        assert [item["projectId"] for item in listed.json()["items"]] == [
+            project_id,
+        ]
+        assert listed.headers["X-Creator-Trace-ID"]
+        config_read = await client.get("/models/config")
+        assert config_read.status_code == (422 if invalid_config else 200)
+        assert config_path.read_bytes() == config_before
 
     run_scenario(app, scenario)
 
@@ -207,7 +219,7 @@ def test_export_omits_only_published_compose_scratch(
         indexed = IndexedFile(
             file_id="film-file",
             kind="artifact_payload",
-            relative_uri="assets/source:film/film.mp4",
+            relative_uri="assets/source-film/film.mp4",
             sha256=hashlib.sha256(b"film").hexdigest(),
             size_bytes=4,
             media_type="video/mp4",
@@ -430,13 +442,14 @@ def test_archive_paths_do_not_silently_rename_or_collide(
         archive.writestr("project-1/source:a/file.json", "colon")
         archive.writestr("project-1/source_a/file.json", "underscore")
     destination = tmp_path / "restored"
-    extract(path, destination)
-    assert (
-        destination / "project-1/source:a/file.json"
-    ).read_text() == "colon"
-    assert (
-        destination / "project-1/source_a/file.json"
-    ).read_text() == "underscore"
+    if project_archive.sys.platform != "win32":
+        extract(path, destination)
+        assert (
+            destination / "project-1/source:a/file.json"
+        ).read_text() == "colon"
+        assert (
+            destination / "project-1/source_a/file.json"
+        ).read_text() == "underscore"
     # Windows must reject an unrepresentable archive instead of returning
     # success with dangling references or overwriting one colliding file.
     monkeypatch.setattr(
@@ -446,6 +459,20 @@ def test_archive_paths_do_not_silently_rename_or_collide(
     )
     with pytest.raises(BadRequestError, match="not supported on Windows"):
         extract(path, tmp_path / "windows")
+
+
+def test_export_rejects_directory_redirects(tmp_path, directory_link):
+    project = Project.new(project_id="project-1", name="Archive")
+    root = tmp_path / project.project_id
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "private.txt").write_bytes(b"must not be exported")
+    directory_link(outside, root / "linked")
+    destination = tmp_path / "export.zip"
+    with pytest.raises(BadRequestError, match="non-regular path"):
+        project_archive.write_project_archive(root, project, destination)
+    assert not destination.exists()
 
 
 def test_validator_accepts_windows_reserved_chars(app, api_runtime_root):
@@ -461,3 +488,114 @@ def test_validator_accepts_windows_reserved_chars(app, api_runtime_root):
     archive_path.write_bytes(payload.getvalue())
 
     project_routes._validate_import_archive(archive_path)
+
+
+def test_archive_budget_is_per_call_and_resolved_when_used(monkeypatch):
+    """A caller's caps replace the Project ones; the defaults still follow.
+
+    Skills import through the same extractor with a far smaller payload, so
+    the budget has to be per call. The defaults are read when the limits are
+    built rather than bound as argument defaults, because the import tests
+    above move a cap by patching the module constant.
+    """
+
+    assert project_archive.archive_limits() == (
+        project_archive.MAX_ARCHIVE_BYTES,
+        project_archive.MAX_EXTRACTED_BYTES,
+        project_archive.MAX_MEMBERS,
+        None,
+    )
+    monkeypatch.setattr(project_archive, "MAX_EXTRACTED_BYTES", 8)
+    assert project_archive.archive_limits().extracted_bytes == 8
+    assert project_archive.archive_limits(max_extracted_bytes=4)[1] == 4
+
+
+def test_extract_archive_honours_a_caller_supplied_budget(tmp_path):
+    """Every field of a caller budget is enforced, and a refusal is clean."""
+
+    path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr("one/SKILL.md", "a" * 8)
+        archive.writestr("two/SKILL.md", "b" * 8)
+    destination = tmp_path / "out"
+    limits = project_archive.archive_limits
+
+    with pytest.raises(BadRequestError, match="more than 1 entries"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_members=1),
+        )
+    with pytest.raises(BadRequestError, match="expands beyond"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_extracted_bytes=8),
+        )
+    with pytest.raises(BadRequestError, match="byte limit"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_archive_bytes=8),
+        )
+    assert not list(destination.rglob("SKILL.md"))
+
+    # A per-member cap is reached only while copying: the declared total is
+    # inside the budget, so the member that overruns it has to be refused
+    # mid-write and its partial file removed.
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_member_bytes=4),
+        )
+    assert not (destination / "one" / "SKILL.md").exists()
+
+    project_archive.extract_archive(path, destination, limits=limits())
+    assert (destination / "one" / "SKILL.md").read_text() == "a" * 8
+    assert (destination / "two" / "SKILL.md").read_text() == "b" * 8
+
+
+def test_copy_member_counts_written_bytes_not_declared_ones(tmp_path):
+    """The budget stops the byte that would exceed it, before it lands.
+
+    ``validate_archive`` can only read the sizes an archive declares. The
+    stream here stands in for a member carrying more than it declared -- one
+    that ignores the declared size -- so what is refused is the copy's own
+    counter, and the partial file it had opened does not survive.
+    """
+
+    info = SimpleNamespace(filename="project-1/member.txt")
+    archive = SimpleNamespace(open=lambda _info: io.BytesIO(b"x" * 64))
+
+    kept = tmp_path / "kept.txt"
+    written = project_archive._copy_member(
+        archive,
+        info,
+        kept,
+        remaining=64,
+        member_bytes=None,
+    )
+    assert written == 64
+    assert kept.read_bytes() == b"x" * 64
+
+    refused = tmp_path / "refused.txt"
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive._copy_member(
+            archive,
+            info,
+            refused,
+            remaining=16,
+            member_bytes=None,
+        )
+    assert not refused.exists()
+    # A per-member cap refuses inside a larger remaining budget too.
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive._copy_member(
+            archive,
+            info,
+            refused,
+            remaining=1024,
+            member_bytes=16,
+        )
+    assert not refused.exists()

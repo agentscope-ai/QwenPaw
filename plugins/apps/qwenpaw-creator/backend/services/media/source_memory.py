@@ -113,10 +113,7 @@ MAX_SCENE_SEC = 300.0
 # extraction starts while the next chunk is still being detected.
 CHUNK_SEC = 3600.0
 
-SUBGRAPH_MAX_TOKENS = 16384
-AGGREGATION_MAX_TOKENS = 8192
 SUBGRAPH_RETRIES = 2
-PROJECTION_REVIEW_MAX_TOKENS = 4096
 
 # Outer-VLM review of the P3 projection drafts. Not an agent prompt
 # (no placeholder whitelist involvement) — a Creator-side constant like
@@ -1159,7 +1156,6 @@ class SourceMemoryService:
             return await vlm_model.chat_completion(
                 [{"type": "text", "text": prompt}],
                 temperature=0.3,
-                max_tokens=AGGREGATION_MAX_TOKENS,
             )
 
         root, supers, macro_rels, super_rels = await aggregate_hierarchy(
@@ -1398,7 +1394,6 @@ class SourceMemoryService:
                     response = await vlm_model.chat_completion(
                         content,
                         temperature=0.7,
-                        max_tokens=SUBGRAPH_MAX_TOKENS,
                     )
                     candidate = extract_json(response)
                     if isinstance(candidate, dict):
@@ -1464,7 +1459,6 @@ class SourceMemoryService:
             response = await vlm_model.chat_completion(
                 [{"type": "text", "text": prompt}],
                 temperature=0.2,
-                max_tokens=PROJECTION_REVIEW_MAX_TOKENS,
             )
             candidate = extract_json(response)
             reviewed_entries: list[dict[str, Any]] = []

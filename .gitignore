@@ -114,6 +114,7 @@ CLAUDE.md
 *.tmp
 
 # Build cache
+console/dist-tauri/
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
 
 # Hypothesis test cache
