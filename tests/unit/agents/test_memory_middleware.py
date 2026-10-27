@@ -12,10 +12,6 @@ import pytest
 from agentscope.message import (
     Msg,
     TextBlock,
-    ToolCallBlock,
-    ToolCallState,
-    ToolResultBlock,
-    ToolResultState,
 )
 from agentscope.state import AgentState
 
@@ -24,6 +20,7 @@ from qwenpaw.agents.middlewares import (
     auto_memory_turn_state,
 )
 from qwenpaw.constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     LOOP_CONTINUATION_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
@@ -218,23 +215,13 @@ class TestOnModelCallAutomationSkip:
         agent = _make_agent(source="user")
         query = _user_msg()
         memory_msg = Msg(
-            name="memory_search",
-            role="assistant",
-            content=[
-                ToolCallBlock(
-                    id="search-1",
-                    name="memory_search",
-                    input='{"query": "hello"}',
-                    state=ToolCallState.FINISHED,
-                ),
-                ToolResultBlock(
-                    id="search-1",
-                    name="memory_search",
-                    output=[TextBlock(text="remembered fact")],
-                    state=ToolResultState.SUCCESS,
-                ),
-            ],
+            name="auto_memory_evidence",
+            role="system",
+            content=[TextBlock(text="remembered fact")],
         )
+        memory_msg.metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] = [
+            memory_msg.content[0].id,
+        ]
         agent.state.context = [query]
         mm.auto_memory_search.return_value = {"msg": [query, memory_msg]}
         first_input = {"messages": [query]}
@@ -257,13 +244,47 @@ class TestOnModelCallAutomationSkip:
         )
 
         mm.auto_memory_search.assert_awaited_once()
-        assert first_input["messages"][-1].id == memory_msg.id
+        assert first_input["messages"][0].id == memory_msg.id
         assert [msg.id for msg in second_input["messages"]] == [
-            query.id,
             memory_msg.id,
+            query.id,
             tool_reply.id,
         ]
         assert agent.state.context == [query]
+
+    @pytest.mark.asyncio
+    async def test_search_evidence_merges_into_existing_system_message(self):
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        query = _user_msg()
+        system = Msg(
+            name="system",
+            role="system",
+            content=[TextBlock(text="base instructions")],
+        )
+        evidence = Msg(
+            name="auto_memory_evidence",
+            role="system",
+            content=[TextBlock(text="remembered fact")],
+            metadata={AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: ["evidence"]},
+        )
+        agent.state.context = [query]
+        mm.auto_memory_search.return_value = {"msg": [query, evidence]}
+        input_kwargs = {"messages": [system, query]}
+
+        await mw.on_model_call(
+            agent,
+            input_kwargs,
+            AsyncMock(return_value="model_result"),
+        )
+
+        assert len(input_kwargs["messages"]) == 2
+        assert input_kwargs["messages"][0].role == "system"
+        assert input_kwargs["messages"][0].get_text_content() == (
+            "base instructions\nremembered fact"
+        )
+        assert system.get_text_content() == "base instructions"
 
     @pytest.mark.asyncio
     async def test_new_turn_replaces_search_cache(self):

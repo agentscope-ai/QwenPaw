@@ -31,6 +31,7 @@ from .tools.utils import (
     ToolResultPruner,
 )
 from ..constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
@@ -506,9 +507,29 @@ class MemoryMiddleware(MiddlewareBase):
         memory_msgs: list["Msg"],
         turn_marker: str,
     ) -> list["Msg"]:
-        """Insert transient evidence after its query, preserving chronology."""
+        """Inject evidence without creating a mid-turn system role."""
         existing_ids = {msg.id for msg in messages}
         injected = [msg for msg in memory_msgs if msg.id not in existing_ids]
+        if not injected:
+            return messages
+
+        system_evidence = [msg for msg in injected if msg.role == "system"]
+        injected = [msg for msg in injected if msg.role != "system"]
+        if system_evidence:
+            evidence_blocks = [
+                deepcopy(block)
+                for msg in system_evidence
+                for block in msg.get_content_blocks()
+            ]
+            if messages and messages[0].role == "system":
+                system_msg = deepcopy(messages[0])
+                system_msg.content.extend(evidence_blocks)
+                messages[0] = system_msg
+            else:
+                evidence_msg = deepcopy(system_evidence[0])
+                evidence_msg.content = evidence_blocks
+                messages.insert(0, evidence_msg)
+
         if not injected:
             return messages
 
@@ -597,11 +618,8 @@ class MemoryMiddleware(MiddlewareBase):
         return [
             msg
             for msg in injected
-            if hasattr(msg, "has_content_blocks")
-            and (
-                msg.has_content_blocks("tool_call")
-                or msg.has_content_blocks("tool_result")
-            )
+            if isinstance(getattr(msg, "metadata", None), dict)
+            and msg.metadata.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY)
         ]
 
     async def _auto_memory_interval(self) -> int:
