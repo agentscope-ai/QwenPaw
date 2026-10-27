@@ -7,9 +7,152 @@ import {
   setPendingThinking,
   clearPendingThinking,
 } from "./sessionThinkingApi";
-import { resetSessionModel } from "../session-settings/sessionModel";
+import {
+  resetSessionModel,
+  saveDecisionSettings,
+} from "../session-settings/sessionModel";
 import { dispatchSessionModelChanged } from "../session-settings/sessionModelEvents";
 import { SessionThinking } from "./SessionThinking";
+import type { ThinkingView } from "./types";
+
+beforeEach(() => {
+  vi.mocked(sessionThinkingApi.get).mockReset();
+  vi.mocked(sessionThinkingApi.set).mockReset();
+  vi.mocked(resetSessionModel).mockReset();
+  vi.mocked(saveDecisionSettings).mockReset();
+});
+
+const effortView: ThinkingView = {
+  model: "reasoning-model",
+  model_name: "Reasoning model",
+  model_key: "fixture:reasoning-model",
+  control: {
+    kind: "effort",
+    efforts: ["low", "medium", "high"],
+    supports_off: true,
+  },
+  value: { level: "low" },
+  effective: { level: "low" },
+  source: "session",
+  reason: null,
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+function chooseEffort(key: string, keyCode: number) {
+  const slider = screen.getByRole("slider");
+  fireEvent.keyDown(slider, { key, keyCode });
+  fireEvent.keyUp(slider, { key, keyCode });
+}
+
+it("keeps the panel and latest effort stable across slow, ordered saves", async () => {
+  vi.mocked(sessionThinkingApi.get).mockResolvedValue(effortView);
+  const first = deferred<ThinkingView>();
+  const second = deferred<ThinkingView>();
+  vi.mocked(sessionThinkingApi.set)
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  const { container } = renderWithProviders(
+    <SessionThinking agentId="a" sessionId="s" chatId="c" />,
+  );
+  const slider = await screen.findByRole("slider");
+  await waitFor(() =>
+    expect(slider).not.toHaveAttribute("aria-disabled", "true"),
+  );
+  const title = container.querySelector("section strong")!;
+  chooseEffort("End", 35);
+  await waitFor(() => expect(sessionThinkingApi.set).toHaveBeenCalledTimes(1));
+  expect(title).toHaveTextContent("thinkingControl.high");
+  expect(slider).toHaveAttribute("aria-valuenow", "3");
+  expect(slider).not.toHaveAttribute("aria-disabled", "true");
+  expect(container.querySelector('[class*="spin-blur"]')).toBeNull();
+
+  chooseEffort("ArrowLeft", 37);
+  expect(title).toHaveTextContent("thinkingControl.medium");
+  expect(slider).toHaveAttribute("aria-valuenow", "2");
+  expect(sessionThinkingApi.set).toHaveBeenCalledTimes(1);
+  await act(async () =>
+    first.resolve({ ...effortView, value: { level: "high" } }),
+  );
+  await waitFor(() => expect(sessionThinkingApi.set).toHaveBeenCalledTimes(2));
+  expect(title).toHaveTextContent("thinkingControl.medium");
+  expect(slider).toHaveAttribute("aria-valuenow", "2");
+  await act(async () =>
+    second.resolve({ ...effortView, value: { level: "medium" } }),
+  );
+  expect(title).toHaveTextContent("thinkingControl.medium");
+  expect(slider).toHaveAttribute("aria-valuenow", "2");
+  expect(
+    vi.mocked(sessionThinkingApi.set).mock.calls.map((call) => call[2]),
+  ).toEqual([{ level: "high" }, { level: "medium" }]);
+});
+
+it("restores the last confirmed effort if the latest queued save fails", async () => {
+  vi.mocked(sessionThinkingApi.get).mockResolvedValue(effortView);
+  const first = deferred<ThinkingView>();
+  const second = deferred<ThinkingView>();
+  vi.mocked(sessionThinkingApi.set)
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  const { container } = renderWithProviders(
+    <SessionThinking agentId="a" sessionId="s" chatId="c" />,
+  );
+  const slider = await screen.findByRole("slider");
+  await waitFor(() =>
+    expect(slider).not.toHaveAttribute("aria-disabled", "true"),
+  );
+  chooseEffort("End", 35);
+  await waitFor(() => expect(sessionThinkingApi.set).toHaveBeenCalledTimes(1));
+  chooseEffort("ArrowLeft", 37);
+  await act(async () =>
+    first.resolve({ ...effortView, value: { level: "high" } }),
+  );
+  await waitFor(() => expect(sessionThinkingApi.set).toHaveBeenCalledTimes(2));
+  await act(async () => second.reject(new Error("save failed")));
+  expect(container.querySelector("section strong")).toHaveTextContent(
+    "thinkingControl.high",
+  );
+  expect(slider).toHaveAttribute("aria-valuenow", "3");
+});
+
+it("discards queued writes and responses when switching chats", async () => {
+  vi.mocked(sessionThinkingApi.get).mockResolvedValue(effortView);
+  const first = deferred<ThinkingView>();
+  vi.mocked(sessionThinkingApi.set)
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValueOnce({ ...effortView, value: { level: "medium" } });
+  const { rerender } = renderWithProviders(
+    <SessionThinking agentId="a" sessionId="s" chatId="c" />,
+  );
+  const slider = await screen.findByRole("slider");
+  await waitFor(() =>
+    expect(slider).not.toHaveAttribute("aria-disabled", "true"),
+  );
+  chooseEffort("End", 35);
+  await waitFor(() => expect(sessionThinkingApi.set).toHaveBeenCalledTimes(1));
+  chooseEffort("ArrowLeft", 37);
+  rerender(<SessionThinking agentId="a" sessionId="other" chatId="other" />);
+  await waitFor(() =>
+    expect(sessionThinkingApi.get).toHaveBeenLastCalledWith(
+      "a",
+      "other",
+      "other",
+    ),
+  );
+  await act(async () =>
+    first.resolve({ ...effortView, value: { level: "high" } }),
+  );
+  await waitFor(() => expect(sessionThinkingApi.set).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "1");
+});
 
 const { messageError } = vi.hoisted(() => ({ messageError: vi.fn() }));
 
@@ -25,6 +168,7 @@ vi.mock("../session-settings/sessionModel", async (importOriginal) => ({
     typeof import("../session-settings/sessionModel")
   >()),
   resetSessionModel: vi.fn(),
+  saveDecisionSettings: vi.fn(),
 }));
 vi.mock("../../pages/Chat/ModelSelector/ModelPickerPopover", () => ({
   ModelPickerPopover: ({
@@ -40,6 +184,69 @@ vi.mock("../../pages/Chat/ModelSelector/ModelPickerPopover", () => ({
     </>
   ),
 }));
+
+it.each([null, "decision-chat"])(
+  "preserves advanced decision settings and thinking edits (chat=%s)",
+  async (chatId) => {
+    const decision = { enabled: false, configured: true, override: null };
+    const view = { ...effortView, decision };
+    const decisionSave = deferred<typeof decision>();
+    const thinkingSave = deferred<ThinkingView>();
+    vi.mocked(sessionThinkingApi.get).mockResolvedValue(view);
+    vi.mocked(saveDecisionSettings).mockReturnValueOnce(decisionSave.promise);
+    vi.mocked(sessionThinkingApi.set).mockReturnValueOnce(thinkingSave.promise);
+    const { container } = renderWithProviders(
+      <SessionThinking
+        agentId="decision-agent"
+        sessionId="decision-session"
+        chatId={chatId}
+      />,
+    );
+    const slider = await screen.findByRole("slider");
+    await waitFor(() =>
+      expect(slider).not.toHaveAttribute("aria-disabled", "true"),
+    );
+    fireEvent.click(screen.getByText("chat.sessionSettings.advanced"));
+    const toggle = screen.getByRole("switch", {
+      name: "chat.sessionSettings.decisionEnabled",
+    });
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(saveDecisionSettings).toHaveBeenCalledWith(
+        "decision-agent",
+        { sessionId: "decision-session", chatId },
+        { ...decision, enabled: true, override: true },
+      ),
+    );
+    expect(toggle).toBeDisabled();
+    expect(container.querySelector('[class*="spin-blur"]')).toBeNull();
+    await act(async () => decisionSave.resolve({ ...decision, enabled: true }));
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeEnabled();
+    expect(slider).not.toHaveAttribute("aria-disabled", "true");
+
+    chooseEffort("End", 35);
+    if (chatId) {
+      await waitFor(() =>
+        expect(sessionThinkingApi.set).toHaveBeenCalledTimes(1),
+      );
+      expect(toggle).toBeDisabled();
+      await act(async () =>
+        thinkingSave.resolve({
+          ...view,
+          decision: { ...decision, enabled: true },
+          value: { level: "high" },
+        }),
+      );
+    } else {
+      expect(sessionThinkingApi.set).not.toHaveBeenCalled();
+    }
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeEnabled();
+    expect(slider).toHaveAttribute("aria-valuenow", "3");
+    clearPendingThinking("decision-agent", "decision-session");
+  },
+);
 
 const thinkingView = {
   model: "qwen",

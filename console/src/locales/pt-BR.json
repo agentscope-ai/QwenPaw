@@ -62,13 +62,25 @@
     "cliAuthenticated": "{{type}} CLI autenticado"
   },
   "desktop": {
+    "update": {
+      "title": "Atualizar o QwenPaw?",
+      "otherWindows_one": "Há mais {{count}} janela aberta.",
+      "otherWindows_other": "Há mais {{count}} janelas abertas.",
+      "description": "A atualização fechará todas as janelas do QwenPaw e interromperá as tarefas em execução.",
+      "confirm": "Fechar e atualizar",
+      "preparing": "Fechando janelas…"
+    },
     "closeWindow": {
-      "title": "Fechar Janela",
-      "description": "O que deseja fazer ao fechar a janela? Sair do aplicativo interrompe todas as tarefas em execução e tarefas agendadas.",
+      "title": "Fechar o QwenPaw?",
+      "description": "Continue em segundo plano para manter suas tarefas. Sair completamente encerra as tarefas em execução.",
       "remember": "Lembrar minha escolha",
       "showWindow": "Mostrar janela",
       "minimizeToTray": "Minimizar para a bandeja",
       "quitApp": "Sair do aplicativo",
+      "keepRunning": "Continuar em segundo plano",
+      "quitting": "Saindo…",
+      "stopService": "Sair completamente",
+      "stopBlocked": "O QwenPaw ainda está em uso em outras janelas ou aplicativos. Feche-os antes de sair completamente.",
       "preference": "Fechar Janela",
       "askEveryTime": "Perguntar sempre"
     }
@@ -2513,6 +2525,27 @@
     },
     "billing": {
       "free": "Free"
+    },
+    "chatgpt": {
+      "contextHelp": "Limite da conta: {{maximum}} tokens; orçamento padrão da sessão: {{default}} tokens.",
+      "localHelp": "Devido às políticas da OpenAI e ao retorno OAuth local, o QwenPaw e o navegador devem estar no mesmo computador.",
+      "account": "Conta ChatGPT",
+      "connected": "Assinatura ChatGPT conectada",
+      "disconnected": "Não conectado",
+      "permissionMissing": "Uso da assinatura não autorizado",
+      "failed": "O login não foi concluído. Tente novamente.",
+      "usage": "Gerenciar uso",
+      "reconnect": "Entrar novamente",
+      "changeAccount": "Trocar conta",
+      "accountActions": "Ações da conta ChatGPT",
+      "connectedShort": "Conectado",
+      "signOut": "Sair",
+      "revokeWarning": "Você saiu localmente. A revogação não foi confirmada; desconecte o QwenPaw nas configurações do ChatGPT.",
+      "modelHelp": "Os modelos vêm da conta ChatGPT atual. O uso consome os limites da assinatura ou créditos. Configurações de amostragem e limite de tokens de saída não são compatíveis com este acesso.",
+      "oauthDescription": "O navegador será aberto para autorizar o uso da sua assinatura ChatGPT. Volte ao QwenPaw ao concluir."
+    },
+    "providerVariants": {
+      "chatgpt": "Assinatura ChatGPT"
     }
   },
   "files": {
@@ -2648,9 +2681,6 @@
     "changeProjectDirectory": "Gerenciar",
     "manageDefaultFolders": "Workspace padrão",
     "projectDirectoryWorkspaceFallback": "Usando o diretório de configuração do Agent",
-    "enhancedCodeCapability": "Aprimorar capacidade de código",
-    "enhancedCodeCapabilityTooltip": "Adiciona ferramentas de código sem alterar o diretório do projeto.",
-    "enhancedCodeCapabilityDescription": "Ative AST, LSP, prompts de código, contexto Git e controle de versão.",
     "description": "Configure Agente runtime parameters",
     "reactAgentTitle": "React Agente",
     "llmRetryTitle": "LLM Automatico Tentar novamente",
@@ -3272,10 +3302,6 @@
       "glob_search": {
         "name": "Localizar arquivos",
         "description": "Encontre arquivos pelo nome ou padrão do caminho."
-      },
-      "ast_search": {
-        "name": "Pesquisar a estrutura do código",
-        "description": "Encontre padrões de código com análise de sintaxe."
       },
       "desktop_screenshot": {
         "name": "Capturar a área de trabalho",

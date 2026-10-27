@@ -967,6 +967,19 @@ class ReMeLightMemoryConfig(BaseModel):
         "background task burden.",
     )
 
+    auto_memory_include_images: bool = Field(
+        default=False,
+        description=(
+            "Include conversation images in auto-memory when the memory "
+            "model has confirmed image-input support"
+        ),
+    )
+
+    auto_memory_generate_tags: bool = Field(
+        default=False,
+        description="Generate entity tags after auto-memory writes a note",
+    )
+
     dream_cron_enabled: bool = Field(
         default=True,
         description=(
@@ -1187,7 +1200,8 @@ class ToolResultPruningConfig(BaseModel):
         ge=1,
         le=365,
         description=(
-            "Number of days to retain complete archived tool result files. "
+            "Number of days to retain complete archived tool result files "
+            "after their latest publication or reuse. "
             "This lifetime is independent of Scroll history retention; after "
             "expiry, history may still contain the bounded preview but not "
             "the complete artifact."
@@ -1316,6 +1330,22 @@ class VisualCompactConfig(BaseModel):
     )
 
 
+class DecisionCompactConfig(BaseModel):
+    """Optional recoverable tool-result compaction with a decision model."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+    enabled: bool = False
+    drop_threshold: float = Field(default=0.1, ge=0, le=1)
+    preserve_recent_messages: int = Field(default=6, ge=0)
+    preview_chars: int = Field(default=300, ge=0)
+    total_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    max_state_tokens: int = Field(default=25000, gt=0)
+    max_request_tokens: int = Field(default=30000, gt=0)
+    evidence_chars: int = Field(default=2000, gt=0)
+    max_concurrency: int = Field(default=4, ge=1, le=32)
+
+
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
@@ -1353,6 +1383,9 @@ class LightContextConfig(BaseModel):
     )
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
+    )
+    decision_compact_config: DecisionCompactConfig = Field(
+        default_factory=DecisionCompactConfig,
     )
     visual_compact_config: VisualCompactConfig = Field(
         default_factory=VisualCompactConfig,
@@ -2095,7 +2128,9 @@ class CodingModeConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        description="Enable Coding Mode IDE layout and tools",
+        description=(
+            "Route enabled tools through sandboxed Python orchestration"
+        ),
     )
 
 
@@ -2992,6 +3027,9 @@ class ToolsConfig(BaseModel):
         icon value.
         """
         defaults = _default_builtin_tools()
+        # Retired built-ins must not remain as nonfunctional settings.
+        for name in (f"lsp", f"ast_search"):
+            self.builtin_tools.pop(name, None)
         # Keep persisted configurations from the former stable-track name
         # compatible with the unified browser identity.
         legacy = self.builtin_tools.pop("browser_use", None)

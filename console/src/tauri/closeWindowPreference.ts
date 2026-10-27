@@ -1,20 +1,17 @@
-export const CLOSE_ACTION_STORAGE_KEY = "qwenpaw.closeWindowAction";
+import { invoke } from "@tauri-apps/api/core";
 
-export type CloseAction = "minimize-to-tray" | "quit";
+export type CloseAction = "minimize-to-tray" | "quit" | "stop-service";
 
-export function getRememberedCloseAction(): CloseAction | null {
-  const action = getStorage()?.getItem(CLOSE_ACTION_STORAGE_KEY);
-  return action === "minimize-to-tray" || action === "quit" ? action : null;
+export function setRememberedCloseAction(
+  action: CloseAction | null,
+): Promise<void> {
+  return invoke("set_close_action", { action });
 }
 
-export function setRememberedCloseAction(action: CloseAction) {
-  getStorage()?.setItem(CLOSE_ACTION_STORAGE_KEY, action);
+export function getRememberedCloseAction(): Promise<CloseAction | null> {
+  return invoke("get_close_action");
 }
 
-export function clearRememberedCloseAction() {
-  getStorage()?.removeItem(CLOSE_ACTION_STORAGE_KEY);
-}
-
-function getStorage(): Storage | null {
-  return typeof window === "undefined" ? null : window.localStorage;
+export function clearRememberedCloseAction(): Promise<void> {
+  return setRememberedCloseAction(null);
 }

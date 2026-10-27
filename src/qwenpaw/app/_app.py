@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
 import asyncio
-import hmac
 import inspect
 import mimetypes
 import os
@@ -12,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -56,6 +55,7 @@ from .migration import (
     migrate_legacy_skills_to_skill_pool,
     migrate_legacy_workspace_to_default_agent,
 )
+from .routers.runtime import router as runtime_router
 from .routers import create_agent_scoped_router
 from .routers import router as api_router
 from .routers.advisor_mode import router as advisor_mode_router
@@ -545,6 +545,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
                 core_elapsed = time.time() - startup_start_time
+                logger.info(f"Core agents ready in {core_elapsed:.3f}s")
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
@@ -872,39 +873,7 @@ def get_doctor_runtime():
     }
 
 
-@app.post("/api/desktop/shutdown")
-async def post_desktop_shutdown(
-    x_qwenpaw_desktop_shutdown_token: str | None = Header(default=None),
-):
-    """Gracefully stop the desktop sidecar before the Tauri app exits.
-
-    The Tauri shell calls this on quit so uvicorn performs a normal shutdown
-    (running the lifespan ``finally`` block that flushes memory/index) instead
-    of being force-killed. Only available when running as the desktop sidecar.
-    """
-    from ..tauri.env import DESKTOP_APP_ENV, DESKTOP_SHUTDOWN_TOKEN_ENV
-
-    expected_token = os.environ.get(DESKTOP_SHUTDOWN_TOKEN_ENV)
-    if (
-        os.environ.get(DESKTOP_APP_ENV) != "1"
-        or not expected_token
-        or x_qwenpaw_desktop_shutdown_token is None
-        or not hmac.compare_digest(
-            x_qwenpaw_desktop_shutdown_token,
-            expected_token,
-        )
-    ):
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    server = getattr(app.state, "uvicorn_server", None)
-    if server is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Desktop backend is not ready",
-        )
-
-    server.should_exit = True
-    return {"ok": True}
+app.include_router(runtime_router)
 
 
 app.include_router(api_router, prefix="/api")

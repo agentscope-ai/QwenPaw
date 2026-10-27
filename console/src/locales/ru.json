@@ -60,13 +60,28 @@
     "cliAuthenticated": "{{type}} CLI аутентифицирован"
   },
   "desktop": {
+    "update": {
+      "title": "Обновить QwenPaw?",
+      "otherWindows": "Открыто ещё {{count}} окон.",
+      "otherWindows_one": "Открыто ещё {{count}} окно.",
+      "otherWindows_other": "Открыто ещё {{count}} окон.",
+      "description": "Обновление закроет все окна QwenPaw и прервёт выполняющиеся задачи.",
+      "confirm": "Закрыть и обновить",
+      "preparing": "Закрытие окон…",
+      "otherWindows_few": "Открыто ещё {{count}} окна.",
+      "otherWindows_many": "Открыто ещё {{count}} окон."
+    },
     "closeWindow": {
-      "title": "Закрыть окно",
-      "description": "Что сделать при закрытии окна? Выход из приложения остановит все выполняющиеся задачи и запланированные задания.",
+      "title": "Закрыть QwenPaw?",
+      "description": "Продолжите работу в фоне, чтобы сохранить выполнение задач. Полный выход завершит выполняемые задачи.",
       "remember": "Запомнить мой выбор",
       "showWindow": "Показать окно",
       "minimizeToTray": "Свернуть в трей",
       "quitApp": "Выйти из приложения",
+      "keepRunning": "Продолжить в фоне",
+      "quitting": "Выход…",
+      "stopService": "Полностью выйти",
+      "stopBlocked": "QwenPaw используется в других окнах или приложениях. Закройте их перед полным выходом.",
       "preference": "Закрытие окна",
       "askEveryTime": "Спрашивать каждый раз"
     }
@@ -2284,6 +2299,27 @@
     },
     "billing": {
       "free": "Бесплатно"
+    },
+    "chatgpt": {
+      "contextHelp": "Лимит аккаунта: {{maximum}} токенов; бюджет сеанса по умолчанию: {{default}} токенов.",
+      "localHelp": "Из-за правил OpenAI и локального OAuth-перенаправления QwenPaw и браузер должны работать на одном компьютере.",
+      "account": "Аккаунт ChatGPT",
+      "connected": "Подписка ChatGPT подключена",
+      "disconnected": "Не подключено",
+      "permissionMissing": "Использование подписки не разрешено",
+      "failed": "Вход не завершён. Попробуйте снова.",
+      "usage": "Управление использованием",
+      "reconnect": "Войти снова",
+      "changeAccount": "Сменить аккаунт",
+      "accountActions": "Действия с аккаунтом ChatGPT",
+      "connectedShort": "Подключено",
+      "signOut": "Выйти",
+      "revokeWarning": "Вы вышли локально. Отзыв разрешения не подтверждён; отключите QwenPaw в настройках ChatGPT.",
+      "modelHelp": "Модели получены из текущего аккаунта ChatGPT. Расходуются лимиты подписки или кредиты. Настройки сэмплирования и ограничения выходных токенов здесь не поддерживаются.",
+      "oauthDescription": "Откроется браузер для разрешения использования подписки ChatGPT. После авторизации вернитесь в QwenPaw."
+    },
+    "providerVariants": {
+      "chatgpt": "Подписка ChatGPT"
     }
   },
   "files": {
@@ -2419,9 +2455,6 @@
     "changeProjectDirectory": "Управлять",
     "manageDefaultFolders": "Рабочее пространство по умолчанию",
     "projectDirectoryWorkspaceFallback": "Используется каталог конфигурации Agent",
-    "enhancedCodeCapability": "Расширенные возможности кода",
-    "enhancedCodeCapabilityTooltip": "Добавляет инструменты кода без смены каталога проекта.",
-    "enhancedCodeCapabilityDescription": "Включает AST, LSP, кодовые подсказки, Git-контекст и управление исходным кодом.",
     "description": "Настройка параметров выполнения агента",
     "reactAgentTitle": "Агент ReAct",
     "llmRetryTitle": "Автоповтор LLM",
@@ -3032,10 +3065,6 @@
       "glob_search": {
         "name": "Найти файлы",
         "description": "Поиск файлов по имени или шаблону пути."
-      },
-      "ast_search": {
-        "name": "Найти структуру кода",
-        "description": "Поиск шаблонов кода с учётом синтаксиса."
       },
       "desktop_screenshot": {
         "name": "Снять скриншот",

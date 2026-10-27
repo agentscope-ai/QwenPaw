@@ -1,3 +1,5 @@
+import { ChatGPTAccountPanel } from "../cards/ChatGPTAccountPanel";
+import { OAuthConfirmModal } from "@/pages/Chat/ModelSelector/OAuthConfirmModal";
 import { SharedModal } from "@/components/interaction/SharedModal";
 import { Switch } from "antd";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -268,6 +270,7 @@ function JsonCodeEditor({
 interface ProviderConfigModalProps {
   provider: {
     enabled?: boolean;
+    supports_oauth?: boolean;
     id: string;
     name: string;
     api_key?: string;
@@ -298,6 +301,11 @@ export function ProviderConfigModal({
   onSaved,
 }: ProviderConfigModalProps) {
   const { t } = useTranslation();
+  const subscription = provider.id === "openai-chatgpt";
+  const providerName = subscription
+    ? t("models.providerVariants.chatgpt")
+    : provider.name;
+  const [oauthOpen, setOAuthOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
@@ -468,6 +476,7 @@ export function ProviderConfigModal({
   // Sync form when modal opens or provider data changes
   useEffect(() => {
     if (open) {
+      setOAuthOpen(false);
       form.setFieldsValue({
         enabled: provider.enabled !== false,
         api_key: undefined,
@@ -496,6 +505,13 @@ export function ProviderConfigModal({
     try {
       const values = await form.validateFields();
       setSaving(true);
+      if (subscription) {
+        await api.configureProvider(provider.id, { enabled: values.enabled });
+        await onSaved();
+        setFormDirty(false);
+        onClose();
+        return;
+      }
       const generateConfig = parseGenerateConfig(values.generate_kwargs_text);
 
       // Validate connection before saving
@@ -636,10 +652,9 @@ export function ProviderConfigModal({
 
   return (
     <SharedModal
-      surfaceId={`provider:${provider.id}`}
       width={800}
       className={styles.modelManageModal}
-      title={t("models.configureProvider", { name: provider.name })}
+      title={t("models.configureProvider", { name: providerName })}
       open={open}
       onCancel={onClose}
       footer={
@@ -761,134 +776,163 @@ export function ProviderConfigModal({
           apiKeyPlaceholder={apiKeyPlaceholder}
           validApiKeyPrefixes={validApiKeyPrefixes}
           authMode={authMode}
+          credentialField={
+            subscription && open ? (
+              <ChatGPTAccountPanel provider={provider} onSaved={onSaved} />
+            ) : undefined
+          }
         />
+        {provider.supports_oauth && (
+          <Form.Item>
+            <Button onClick={() => setOAuthOpen(true)}>
+              {t("modelSelector.oauthTitle", { provider: providerName })}
+            </Button>
+          </Form.Item>
+        )}
 
-        <div className={styles.advancedConfigSection}>
-          <button
-            type="button"
-            className={styles.advancedConfigToggle}
-            onClick={() => setAdvancedOpen((prev) => !prev)}
-          >
-            <span className={styles.advancedConfigToggleLabel}>
-              {advancedOpen ? (
-                <DownOutlined size="1em" />
-              ) : (
-                <RightOutlined size="1em" />
-              )}
-              {t("models.advancedConfig")}
-            </span>
-          </button>
-
-          {/* Anthropic auth mode selector */}
-          {isAnthropicProvider && advancedOpen && (
-            <Form.Item label={t("models.authMode")}>
-              <Radio.Group
-                value={authMode}
-                onChange={(e) => {
-                  setAuthMode(e.target.value);
-                  setFormDirty(true);
-                }}
-              >
-                <Radio value="api_key">{t("models.authModeApiKey")}</Radio>
-                <Radio value="auth_token">
-                  {t("models.authModeAuthToken")}
-                </Radio>
-              </Radio.Group>
-            </Form.Item>
-          )}
-
-          {/* Custom Headers editor */}
-          {advancedOpen && (
-            <Form.Item
-              label={t("models.customHeaders")}
-              extra={t("models.customHeadersHint")}
+        {!subscription && (
+          <div className={styles.advancedConfigSection}>
+            <button
+              type="button"
+              className={styles.advancedConfigToggle}
+              onClick={() => setAdvancedOpen((prev) => !prev)}
             >
-              <div className={styles.customHeadersSection}>
-                {customHeaders.map((header, index) => (
-                  <div key={index} className={styles.customHeaderRow}>
-                    <Input
-                      className={styles.customHeaderKey}
-                      placeholder={t("models.customHeaderKey")}
-                      value={header.key}
-                      onChange={(e) => {
-                        const next = [...customHeaders];
-                        next[index] = { ...next[index], key: e.target.value };
-                        setCustomHeaders(next);
-                        setFormDirty(true);
-                      }}
-                    />
-                    <Input
-                      className={styles.customHeaderValue}
-                      placeholder={t("models.customHeaderValue")}
-                      value={header.value}
-                      onChange={(e) => {
-                        const next = [...customHeaders];
-                        next[index] = {
-                          ...next[index],
-                          value: e.target.value,
-                        };
-                        setCustomHeaders(next);
-                        setFormDirty(true);
-                      }}
-                    />
-                    <CloseOutlined
-                      size="1em"
-                      className={styles.customHeaderDelete}
-                      onClick={() => {
-                        setCustomHeaders(
-                          customHeaders.filter((_, i) => i !== index),
-                        );
-                        setFormDirty(true);
-                      }}
-                    />
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className={styles.addHeaderBtn}
-                  onClick={() => {
-                    setCustomHeaders([
-                      ...customHeaders,
-                      { key: "", value: "" },
-                    ]);
+              <span className={styles.advancedConfigToggleLabel}>
+                {advancedOpen ? (
+                  <DownOutlined size="1em" />
+                ) : (
+                  <RightOutlined size="1em" />
+                )}
+                {t("models.advancedConfig")}
+              </span>
+            </button>
+
+            {/* Anthropic auth mode selector */}
+            {isAnthropicProvider && advancedOpen && (
+              <Form.Item label={t("models.authMode")}>
+                <Radio.Group
+                  value={authMode}
+                  onChange={(e) => {
+                    setAuthMode(e.target.value);
                     setFormDirty(true);
                   }}
                 >
-                  {t("models.addHeader")}
-                </button>
-              </div>
-            </Form.Item>
-          )}
+                  <Radio value="api_key">{t("models.authModeApiKey")}</Radio>
+                  <Radio value="auth_token">
+                    {t("models.authModeAuthToken")}
+                  </Radio>
+                </Radio.Group>
+              </Form.Item>
+            )}
 
-          <Form.Item
-            hidden={!advancedOpen || !provider.chat_model}
-            name="generate_kwargs_text"
-            label={t("models.generateConfig")}
-            extra={t("models.generateConfigHint")}
-            rules={[
-              {
-                validator: (_: unknown, value?: string) => {
-                  try {
-                    parseGenerateConfig(value);
-                    return Promise.resolve();
-                  } catch (error) {
-                    return Promise.reject(
-                      error instanceof Error
-                        ? error
-                        : new Error(t("models.generateConfigInvalidJson")),
-                    );
-                  }
+            {/* Custom Headers editor */}
+            {advancedOpen && (
+              <Form.Item
+                label={t("models.customHeaders")}
+                extra={t("models.customHeadersHint")}
+              >
+                <div className={styles.customHeadersSection}>
+                  {customHeaders.map((header, index) => (
+                    <div key={index} className={styles.customHeaderRow}>
+                      <Input
+                        className={styles.customHeaderKey}
+                        placeholder={t("models.customHeaderKey")}
+                        value={header.key}
+                        onChange={(e) => {
+                          const next = [...customHeaders];
+                          next[index] = {
+                            ...next[index],
+                            key: e.target.value,
+                          };
+                          setCustomHeaders(next);
+                          setFormDirty(true);
+                        }}
+                      />
+                      <Input
+                        className={styles.customHeaderValue}
+                        placeholder={t("models.customHeaderValue")}
+                        value={header.value}
+                        onChange={(e) => {
+                          const next = [...customHeaders];
+                          next[index] = {
+                            ...next[index],
+                            value: e.target.value,
+                          };
+                          setCustomHeaders(next);
+                          setFormDirty(true);
+                        }}
+                      />
+                      <CloseOutlined
+                        size="1em"
+                        className={styles.customHeaderDelete}
+                        onClick={() => {
+                          setCustomHeaders(
+                            customHeaders.filter((_, i) => i !== index),
+                          );
+                          setFormDirty(true);
+                        }}
+                      />
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className={styles.addHeaderBtn}
+                    onClick={() => {
+                      setCustomHeaders([
+                        ...customHeaders,
+                        { key: "", value: "" },
+                      ]);
+                      setFormDirty(true);
+                    }}
+                  >
+                    {t("models.addHeader")}
+                  </button>
+                </div>
+              </Form.Item>
+            )}
+
+            <Form.Item
+              hidden={!advancedOpen || !provider.chat_model}
+              name="generate_kwargs_text"
+              label={t("models.generateConfig")}
+              extra={t("models.generateConfigHint")}
+              rules={[
+                {
+                  validator: (_: unknown, value?: string) => {
+                    try {
+                      parseGenerateConfig(value);
+                      return Promise.resolve();
+                    } catch (error) {
+                      return Promise.reject(
+                        error instanceof Error
+                          ? error
+                          : new Error(t("models.generateConfigInvalidJson")),
+                      );
+                    }
+                  },
                 },
-              },
-            ]}
-          >
-            <JsonCodeEditor
-              rows={8}
-              placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  },\n  "max_tokens": 2048\n}`}
-            />
-          </Form.Item>
-        </div>
+              ]}
+            >
+              <JsonCodeEditor
+                rows={8}
+                placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  },\n  "max_tokens": 2048\n}`}
+              />
+            </Form.Item>
+          </div>
+        )}
       </Form>
+      {provider.supports_oauth && (
+        <OAuthConfirmModal
+          open={open && oauthOpen}
+          providerId={provider.id}
+          providerName={providerName}
+          onCancel={() => setOAuthOpen(false)}
+          onSuccess={() => {
+            setOAuthOpen(false);
+            void onSaved();
+          }}
+        />
+      )}
     </SharedModal>
   );
 }

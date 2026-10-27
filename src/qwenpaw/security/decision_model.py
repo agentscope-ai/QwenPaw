@@ -26,10 +26,10 @@ from agentscope.classifier import (
     ClassifierResponse,
 )
 
-from ..providers.provider_manager import ProviderManager
 from ..providers.typesafe_provider import (
     TypeSafeEvaluationError,
     TypeSafeProvider,
+    resolve_decision_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,15 +98,6 @@ _QUESTIONS: dict[str, ClassifierQuestion] = {
 
 def _decision_provider(agent_id: str = "") -> tuple[TypeSafeProvider, str]:
     """Resolve the Agent's decision model, then the global default."""
-    try:
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider("typesafe")
-    except Exception as exc:
-        raise TypeSafeEvaluationError(
-            "TypeSafe provider is unavailable",
-        ) from exc
-    if not isinstance(provider, TypeSafeProvider) or not provider.enabled:
-        raise TypeSafeEvaluationError("TypeSafe provider is unavailable")
     slot = None
     if agent_id:
         try:
@@ -117,12 +108,14 @@ def _decision_provider(agent_id: str = "") -> tuple[TypeSafeProvider, str]:
             raise TypeSafeEvaluationError(
                 "Agent decision model configuration is unavailable",
             ) from exc
-    if slot is None:
-        slot = manager.default_models.get("decision")
-    if slot is not None and slot.provider_id != "typesafe":
-        raise TypeSafeEvaluationError("Decision model provider is unsupported")
-    model = slot.model if slot is not None else "jev-latest"
-    return provider, model
+    try:
+        return resolve_decision_model(slot, default_model="jev-latest")
+    except TypeSafeEvaluationError:
+        raise
+    except Exception as exc:
+        raise TypeSafeEvaluationError(
+            "TypeSafe provider is unavailable",
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -176,23 +169,34 @@ def _is_declared_no_target_read(
     # These read-only tools are registered dynamically rather than through
     # @tool_descriptor. Check the actual callable as well as its identity so
     # an unrelated tool using the same public name cannot inherit the bypass.
-    if tool_name in {"MemorySearch", "RecallContext"}:
+    if tool_name in {"MemorySearch", "MemoryListTags", "RecallContext"}:
         func = getattr(tool_func, "__func__", tool_func)
         module = getattr(func, "__module__", "")
         name = getattr(func, "__name__", "")
         trusted_func = (
-            tool_name == "MemorySearch"
-            and name == "memory_search"
-            and module
-            in {
-                "qwenpaw.agents.memory.reme_light_memory_manager",
-                "qwenpaw.agents.memory.dummy",
-            }
-        ) or (
-            tool_name == "RecallContext"
-            and name == "recall_context"
-            and module
-            == "qwenpaw.agents.context.visual_compression.runtime.recall_tool"
+            (
+                tool_name == "MemorySearch"
+                and name == "memory_search"
+                and module
+                in {
+                    "qwenpaw.agents.memory.reme_light_memory_manager",
+                    "qwenpaw.agents.memory.dummy",
+                }
+            )
+            or (
+                tool_name == "MemoryListTags"
+                and name == "memory_list_tags"
+                and module == "qwenpaw.agents.memory.reme_light_memory_manager"
+            )
+            or (
+                tool_name == "RecallContext"
+                and name == "recall_context"
+                and module
+                == (
+                    "qwenpaw.agents.context."
+                    "visual_compression.runtime.recall_tool"
+                )
+            )
         )
         return (
             trusted_func

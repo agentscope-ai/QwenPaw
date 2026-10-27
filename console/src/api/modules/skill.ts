@@ -15,9 +15,6 @@ import type {
   WorkspaceSkillSummary,
 } from "../types";
 
-// Declare VITE_API_BASE_URL as global (injected by Vite)
-declare const VITE_API_BASE_URL: string;
-
 // Simple in-memory cache with TTL
 const CACHE_TTL_MS = 30000; // 30 seconds
 const LIST_REQUEST_OPTIONS: RequestOptions = {
@@ -74,8 +71,7 @@ export function invalidateSkillCache(options?: {
 }
 
 function getStreamApiUrl(): string {
-  const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";
-  return `${base}/api`;
+  return getApiUrl("").replace(/\/$/, "");
 }
 
 async function _uploadZip(

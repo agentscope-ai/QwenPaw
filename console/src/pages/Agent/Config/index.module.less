@@ -1279,7 +1279,7 @@
   margin: 20px 0 4px;
   padding-top: 20px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   border-top: 1px solid var(--app-border);
 }
@@ -1487,7 +1487,9 @@
   width: 144px;
 }
 .memoryToggleRow > :global(.ant-switch),
-.memoryToggleRow > :global(.qwenpaw-switch) {
+.memoryToggleRow > :global(.qwenpaw-switch),
+.memoryToggleRow > :global(.ant-flex),
+.memoryToggleRow > :global(.qwenpaw-flex) {
   flex-shrink: 0;
 }
 .memorySourceHeader {
@@ -1554,7 +1556,9 @@
 .memorySectionHeader {
   justify-content: space-between;
   > :global(.ant-switch),
-  > :global(.qwenpaw-switch) {
+  > :global(.qwenpaw-switch),
+  > :global(.ant-flex),
+  > :global(.qwenpaw-flex) {
     flex-shrink: 0;
   }
 }
@@ -1633,5 +1637,21 @@
   gap: 8px;
   > h3 {
     margin: 0;
+  }
+}
+
+.runtimeToggle {
+  min-height: 72px;
+  margin-bottom: 0 !important;
+}
+
+.runtimeSwitch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  > span {
+    color: var(--app-text-tertiary);
+    font-size: var(--app-font-secondary);
   }
 }

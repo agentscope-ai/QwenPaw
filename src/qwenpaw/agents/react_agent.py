@@ -33,6 +33,7 @@ from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
 from .context.overflow_recovery import call_with_overflow_recovery
+from .context.types import DecisionCompactionResult
 from .injected_events import merge_injected_events
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
@@ -41,8 +42,7 @@ from .utils.text_block_utils import (
     drop_empty_text_blocks,
     sanitize_empty_text_blocks,
 )
-from ..modes.coding import CodingModeMixin
-from ..utils.io_utils import run_sync_io
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
@@ -226,7 +226,7 @@ def _effective_artifact_retention_days(light_context_config: Any) -> int:
     )
 
 
-class QwenPawAgent(CodingModeMixin, Agent):
+class QwenPawAgent(Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
     This agent extends agentscope 2.0 ``Agent`` with:
@@ -235,7 +235,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     - Memory management with auto-compaction
     - Bootstrap guidance for first-time setup
     - Tool-guard security (via ``PolicyGuardedTool.check_permissions``)
-    - Coding Mode features: Inline Diff (via CodingModeMixin)
     """
 
     # Events a middleware wants shown in the chat stream (an injected
@@ -362,6 +361,35 @@ class QwenPawAgent(CodingModeMixin, Agent):
             instructions=instructions,
         )
 
+    @property
+    def decision_compaction_enabled(self) -> bool:
+        """Whether automatic context compaction may use the decision model."""
+        lcc = self._agent_config.running.light_context_config
+        return (
+            lcc.context_compact_config.enabled
+            and lcc.decision_compact_config.enabled
+        )
+
+    async def try_decision_compact(
+        self,
+        *,
+        tokens: int,
+        source_refs: dict[str, str] | None = None,
+    ) -> DecisionCompactionResult:
+        """Return semantic-preview commit status and its token measurement."""
+        if not self.decision_compaction_enabled:
+            return DecisionCompactionResult(changed=False, tokens_after=tokens)
+        from .context.decision_compaction import DecisionCompactor
+
+        compactor = getattr(self, "_decision_compactor", None)
+        if compactor is None:
+            compactor = self._decision_compactor = DecisionCompactor()
+        return await compactor.compact(
+            self,
+            tokens=tokens,
+            source_refs=source_refs,
+        )
+
     async def _compress_context_impl(
         self,
         context_config: Any = None,
@@ -380,6 +408,23 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     instructions=instructions,
                 )
             return
+
+        if self.decision_compaction_enabled:
+            from .context import _as_internals as as_internals
+
+            cfg = context_config or self.context_config
+            target = cfg.trigger_ratio * self.model.context_size
+            # Manual /compact and overflow recovery keep explicit eviction.
+            if cfg.trigger_ratio >= self.context_config.trigger_ratio:
+                kwargs = await as_internals.prepare_model_input(self)
+                tokens = await as_internals.count_model_input_tokens(
+                    self,
+                    kwargs,
+                )
+                if tokens > target:
+                    result = await self.try_decision_compact(tokens=tokens)
+                    if result.changed and result.tokens_after <= target:
+                        return
 
         await super()._compress_context_impl(
             context_config,
@@ -514,15 +559,35 @@ class QwenPawAgent(CodingModeMixin, Agent):
             # compress_context() on the next reasoning cycle.
             pass
 
+    async def _close_decision_compactor(self):
+        """Release the optional model without interrupting other cleanup."""
+        compactor = getattr(self, "_decision_compactor", None)
+        if compactor is not None:
+            try:
+                await compactor.close()
+            except Exception:
+                logger.warning(
+                    "Decision model client close failed",
+                    exc_info=True,
+                )
+            else:
+                self._decision_compactor = None
+
     async def close(self) -> None:
         """Shut down governor, release the history store, and clean up expired
         tool-result files."""
+        await run_async_to_completion(self._close_resources())
+
+    async def _close_resources(self) -> None:
+        """Keep all cleanup alive until resources are released."""
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
                 gov.stop()
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
+
+        await self._close_decision_compactor()
 
         # Scroll history: apply the retention window (if any) while the
         # connection is still open, then release it (db + -wal + -shm fds —
@@ -702,6 +767,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return False
         formatter_setter = getattr(formatter, "set_thinking_omit_ids", None)
         if callable(formatter_setter):
+            # Dynamic formatter implementations supply this optional method.
+            # pylint: disable-next=not-callable
             return bool(formatter_setter(set(block_ids)))
         # Compatibility for third-party OpenAI-chat formatters that predate
         # the explicit interface but consume the QwenPaw extension attribute.
@@ -1588,19 +1655,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         mgr.hooks.register("check_agent_task", default_timeout_secs=30.0)
         mgr.hooks.register("grep_search", default_timeout_secs=30.0)
         mgr.hooks.register("glob_search", default_timeout_secs=15.0)
-        mgr.hooks.register("ast_search", default_timeout_secs=35.0)
         mgr.hooks.register(
             "desktop_screenshot",
             default_timeout_secs=30.0,
         )
-        for name in (
-            "lsp_definition",
-            "lsp_references",
-            "lsp_rename",
-            "lsp_hover",
-            "lsp_diagnostics",
-        ):
-            mgr.hooks.register(name, default_timeout_secs=20.0)
 
         agent_id = (self._request_context or {}).get(
             "agent_id",

@@ -9,6 +9,8 @@ ReMe's application/job framework.
 import asyncio
 from copy import deepcopy
 import hashlib
+import json
+from inspect import signature
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -44,6 +46,7 @@ from .reme_inbox import (
     RESULT_JOB_NAMES,
     empty_result_body,
     emit_job_result,
+    report_tag_failures,
     result_title,
 )
 from .reme_reranker import (
@@ -73,6 +76,7 @@ from ...exceptions import ProviderError
 from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
     from reme import ReMe
     from reme.application import Response
 
@@ -100,7 +104,7 @@ _HOST_MEMORY_ACTIONS: dict[str, MemoryActionSpec] = {
         "parameters": {"type": "object", "properties": {}},
     },
 }
-_REQUIRED_REME_VERSION = "0.4.1.11"
+_REQUIRED_REME_VERSION = "0.4.2.0"
 
 
 def _consume_detached_task_result(task: asyncio.Task[Any]) -> None:
@@ -139,10 +143,23 @@ def _validate_reme_action_kwargs(
     location = "".join(f"[{part!r}]" for part in error.absolute_path)
     if location:
         location = f" at {location}"
-    raise ValueError(
+    message = (
         f"Invalid arguments for memory action '{action}'{location}: "
-        f"{error.message}",
+        f"{error.message}"
     )
+    if (
+        error.validator == "type"
+        and error.validator_value in ("array", "object")
+        and isinstance(error.instance, str)
+    ):
+        example = (
+            '["tag"]'
+            if error.validator_value == "array"
+            else '{"key":"value"}'
+        )
+        key = ".".join(map(str, error.absolute_path))
+        message += f" Use JSON in single quotes: {key}='{example}'."
+    raise ValueError(message)
 
 
 class _ReMeContractError(RuntimeError):
@@ -154,11 +171,17 @@ def _load_validated_reme_app() -> type:
     import reme  # type: ignore
     from reme import ReMe as ReMeApp  # type: ignore
     from reme.components.file_store import LocalFileStore  # type: ignore
+    from reme.steps.index.watch_changes import WatchChangesStep  # type: ignore
 
     if reme.__version__ != _REQUIRED_REME_VERSION:
         raise _ReMeContractError(
             "QwenPaw requires "
             f"reme-ai=={_REQUIRED_REME_VERSION}, found {reme.__version__}",
+        )
+    if "watch_mode" not in signature(WatchChangesStep.__init__).parameters:
+        raise _ReMeContractError(
+            "QwenPaw requires ReMe with watch_mode support. "
+            f"Reinstall reme-ai=={_REQUIRED_REME_VERSION} from PyPI.",
         )
     required = {
         "ReMe.run_job": getattr(ReMeApp, "run_job", None),
@@ -235,6 +258,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         agent_id = self.agent_id
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
+        self._llm_job_lock = asyncio.Lock()
         self._lifecycle_writer_lock = asyncio.Lock()
         self._lifecycle_condition = asyncio.Condition()
         self._active_reme_jobs = 0
@@ -409,6 +433,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         return build_memory_guidance_prompt(
             agent_config.language,
             memory_search_enabled=cfg.memory_search_enabled,
+            memory_tags_enabled=cfg.auto_memory_generate_tags,
             daily_dir=getattr(cfg, "daily_dir", "memory"),
             digest_dir=getattr(cfg, "digest_dir", "digest"),
         )
@@ -417,6 +442,13 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         """Return ReMe Light memory configuration."""
         agent_config = load_agent_config(self.agent_id)
         return agent_config.running.reme_light_memory_config
+
+    def list_memory_tools(self) -> list:
+        """Add tag discovery when search and tag generation are enabled."""
+        tools = super().list_memory_tools()
+        if tools and self._load_memory_config().auto_memory_generate_tags:
+            tools.append(self.memory_list_tags)
+        return tools
 
     def list_cron_jobs(self) -> list[ServiceCronJob]:
         """Declare the scheduled maintenance jobs supported by ReMe."""
@@ -495,18 +527,72 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             ),
         )
 
-    async def _update_qwenpaw_model(self) -> None:
+    async def _update_qwenpaw_model(
+        self,
+        *,
+        require_image_support: bool = False,
+    ) -> "ChatModelBase | None":
         """Reuse QwenPaw's active model in ReMe's default LLM component."""
         if self._reme is None:
-            return
+            return None
 
         model, _formatter = await create_model_and_formatter_async(
             self.agent_id,
+            require_image_support=require_image_support,
+            resize_images_to_max_bytes=True,
         )
         await self._reme.update_component(
             "as_llm",
             "default",
             model=model,
+        )
+        return model
+
+    async def _prepare_auto_memory_job(
+        self,
+        kwargs: dict[str, Any],
+    ) -> str:
+        """Inject the model, update image kwargs, and select the memory job.
+
+        The caller holds the LLM job lock through preparation and execution.
+        """
+        from ..prompt import get_model_supports_image
+
+        config = await run_sync_io(self._load_memory_config)
+        enabled = bool(config.auto_memory_include_images)
+        requested = kwargs.get("include_images", True) is not False
+        has_images = any(
+            isinstance(block, dict)
+            and isinstance(block.get("source"), dict)
+            and str(block["source"].get("media_type", "")).startswith("image/")
+            for message in kwargs.get("messages") or []
+            if isinstance(message, dict)
+            for block in message.get("content") or []
+        )
+        model = await self._update_qwenpaw_model(
+            require_image_support=enabled and requested and has_images,
+        )
+        # Inspect the exact job model, including its image-safe fallbacks.
+        supports_images = bool(
+            model is not None
+            and await run_sync_io(get_model_supports_image, model),
+        )
+        kwargs["include_images"] = enabled and supports_images and requested
+        if has_images:
+            logger.info(
+                "ReMe auto-memory images: include_images=%s enabled=%s "
+                "model_supports_images=%s requested=%s model=%s",
+                kwargs["include_images"],
+                enabled,
+                supports_images,
+                requested,
+                getattr(model, "model_key", None)
+                or getattr(model, "model", "unknown"),
+            )
+        return (
+            "auto_memory_with_tags"
+            if config.auto_memory_generate_tags
+            else "auto_memory"
         )
 
     async def test_and_stage_embedding(
@@ -560,6 +646,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     async def _run_reme_job(
         self,
         name: str,
+        /,
         *,
         needs_llm: bool = False,
         raise_on_error: bool = False,
@@ -598,6 +685,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
     async def _run_reme_job_unlocked(
         self,
         name: str,
+        /,
         *,
         needs_llm: bool = False,
         raise_on_error: bool = False,
@@ -608,9 +696,21 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             logger.debug("ReMe job skipped; app not started: %s", name)
             return None
         try:
-            if needs_llm:
-                await self._update_qwenpaw_model()
-            response = await self._reme.run_job(name, **kwargs)
+            if needs_llm or name == "auto_memory":
+                # The injected LLM is shared by all ReMe jobs. Keep it stable
+                # through option selection and the complete job, including
+                # Auto-Tag's follow-up calls. Searches need no model lease.
+                async with self._llm_job_lock:
+                    job_name = name
+                    if name == "auto_memory":
+                        job_name = await self._prepare_auto_memory_job(kwargs)
+                    else:
+                        await self._update_qwenpaw_model()
+                    response = await self._reme.run_job(job_name, **kwargs)
+            else:
+                response = await self._reme.run_job(name, **kwargs)
+            if name in RESULT_JOB_NAMES:
+                report_tag_failures(response)
             await self._append_reme_job_result_to_inbox(
                 name,
                 response=response,
@@ -682,6 +782,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         query: str,
         max_results: int = 5,
         min_score: float = 0,
+        tags: list[str] | None = None,
         **kwargs: Any,
     ) -> ToolChunk:
         """Search memory files semantically.
@@ -704,6 +805,9 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 at 0 in normal use because ReMe search may mix BM25 and fused
                 scores with different scales, and raising it can hide valid
                 keyword matches.
+            tags (`list[str]`, optional):
+                Entity tags to filter by. Omit to search all memories;
+                use memory_list_tags to discover existing tag names.
 
         Returns:
             `ToolResponse`:
@@ -726,11 +830,13 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             else cap
         )
 
+        tag_filter: dict[str, Any] = {"tags": tags} if tags is not None else {}
         response = await self._run_reme_job(
             "search",
             query=query,
             limit=effective_limit,
             min_score=max(0.0, min_score),
+            **tag_filter,
         )
         if response is None:
             return _tool_chunk("ReMe is not started.", ok=False)
@@ -746,6 +852,32 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         if not answer:
             answer = NO_MEMORY_RESULTS
         return _tool_chunk(answer, ok=response.success)
+
+    async def memory_list_tags(
+        self,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> ToolChunk:
+        """List entity tags and file counts before filtering memory_search.
+
+        Args:
+            page (`int`): 1-based page number.
+            page_size (`int`): Number of tags per page, between 1 and 1000.
+        """
+        response = await self.run_action(
+            "list_tags",
+            page=page,
+            page_size=page_size,
+        )
+        if response is None:
+            return _tool_chunk("ReMe is not started.", ok=False)
+        answer = response.answer
+        text = (
+            answer
+            if isinstance(answer, str)
+            else json.dumps(answer, ensure_ascii=False)
+        )
+        return _tool_chunk(text, ok=response.success)
 
     # ── reranker helpers ──────────────────────────────────────────────
 
@@ -845,6 +977,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             messages=[message.model_dump(mode="json") for message in messages],
             session_id=_to_reme_session_id(session_id),
             memory_hint=str(kwargs.get("memory_hint") or ""),
+            include_images=kwargs.get("include_images") is not False,
         )
         if response is None:
             return ""

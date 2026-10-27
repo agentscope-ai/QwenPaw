@@ -80,6 +80,8 @@ def _base_config() -> dict[str, Any]:
                     },
                     {
                         "backend": "watch_changes_step",
+                        "watch_mode": "watch",
+                        "monitor_type": "file_store",
                         "dispatch_steps": [
                             {"backend": "update_index_step", "persist": False},
                         ],
@@ -138,6 +140,11 @@ def _base_config() -> dict[str, Any]:
                         "query": {
                             "type": "string",
                             "description": "search query",
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional memory entity tag filter",
                         },
                         "limit": {
                             "type": "integer",
@@ -420,9 +427,8 @@ def _base_config() -> dict[str, Any]:
                 "backend": "base",
                 "description": (
                     "Auto-dream: scan today's day-index and daily notes, "
-                    "globally extract merged units/topics, integrate digest "
-                    "units, write interests.yaml, and persist the dream "
-                    "catalog."
+                    "extract and integrate digest units, and persist the "
+                    "dream catalog."
                 ),
                 "parameters": {
                     "type": "object",
@@ -431,27 +437,16 @@ def _base_config() -> dict[str, Any]:
                         "hint": {"type": "string", "default": ""},
                         "scan_days": {"type": "integer", "default": 2},
                         "max_units": {"type": "integer", "default": 5},
-                        "topic_count": {"type": "integer", "default": 3},
-                        "topic_diversity_days": {
-                            "type": "integer",
-                            "default": 7,
-                        },
                     },
                 },
                 "steps": [
                     {
                         "backend": "dream_extract_step",
                         "file_catalog": "dream",
-                        "topic_session_id": "interests",
                         "scan_days": 2,
                         "max_units": 5,
                     },
                     {"backend": "dream_integrate_step"},
-                    {
-                        "backend": "dream_topics_step",
-                        "topic_count": 3,
-                        "topic_diversity_days": 7,
-                    },
                     {"backend": "dream_finish_step", "file_catalog": "dream"},
                 ],
             },
@@ -485,10 +480,44 @@ def _base_config() -> dict[str, Any]:
                         },
                         "session_id": {"type": "string", "default": ""},
                         "memory_hint": {"type": "string"},
+                        "include_images": {
+                            "type": "boolean",
+                            "description": (
+                                "Include images only when enabled in QwenPaw "
+                                "and supported by its memory model. False "
+                                "disables images for this invocation."
+                            ),
+                        },
                     },
                     "required": ["messages"],
                 },
                 "steps": [{"backend": "auto_memory_step"}],
+            },
+            # A separate job keeps each invocation's steps immutable while the
+            # host selects the current opt-in setting without a restart.
+            "auto_memory_with_tags": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [
+                    {"backend": "auto_memory_step"},
+                    {"backend": "auto_tag_step"},
+                ],
+            },
+            "list_tags": {
+                "backend": "base",
+                "description": "List memory entity tags with file counts.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "page": {"type": "integer", "minimum": 1},
+                        "page_size": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000,
+                        },
+                    },
+                },
+                "steps": [{"backend": "list_tags_step"}],
             },
             "daily_paper": {
                 "backend": "base",
@@ -553,6 +582,7 @@ def _base_config() -> dict[str, Any]:
                         "backend": "daily_paper_digest_step",
                         "job_tools": ["search", "read"],
                     },
+                    {"backend": "auto_tag_step"},
                 ],
             },
             # QwenPaw schedules Daily Paper through ServiceCronJob using the
@@ -625,6 +655,7 @@ def _base_components() -> dict[str, Any]:
         "keyword_index": {
             "default": {"backend": "bm25", "tokenizer": "default"},
         },
+        "tag_index": {"default": {"backend": "local"}},
         "as_embedding": {
             "default": {
                 "backend": "openai",
@@ -652,6 +683,7 @@ def _base_components() -> dict[str, Any]:
                 "embedding_store": "default",
                 "keyword_index": "default",
                 "file_graph": "default",
+                "tag_index": "default",
             },
         },
     }

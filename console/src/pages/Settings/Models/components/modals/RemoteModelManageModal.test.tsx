@@ -629,6 +629,16 @@ describe("model pool removal", () => {
     await waitFor(() => expect(api.getModelPool).toHaveBeenCalledTimes(2));
   });
 
+  it("keeps subscription model settings hidden while allowing pool removal", async () => {
+    await render({ id: "openai-chatgpt" });
+    expect(
+      screen.queryByRole("button", { name: "models.modelConfigLabel" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "models.removeModel" }),
+    ).toHaveLength(2);
+  });
+
   it("does not expose removal for organization-managed models", async () => {
     await render({ id: "hub-managed" });
     expect(

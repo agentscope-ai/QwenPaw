@@ -2,6 +2,8 @@
 # flake8: noqa: E501
 # pylint: disable=line-too-long
 import os
+from codecs import BOM_UTF8
+from io import FileIO
 from pathlib import Path
 from typing import Optional
 
@@ -22,8 +24,8 @@ from ...config.context import (
 )
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import (
-    append_text_async,
     get_path_lock,
+    run_sync_io,
     write_text_atomic_async,
 )
 
@@ -87,27 +89,24 @@ def _resolve_file_path(file_path: str) -> str:
 
 
 def _get_encoding_for_file(file_path: str) -> str:
-    """Determine the appropriate encoding for a file based on its type.
+    """Preserve an existing BOM; default only new tabular files to BOM."""
+    try:
+        with FileIO(file_path) as handle:
+            has_bom = handle.read(len(BOM_UTF8)) == BOM_UTF8
+    except FileNotFoundError:
+        has_bom = Path(file_path).suffix.lower() in {
+            f".csv",
+            f".tsv",
+            f".tab",
+        }
+    return f"utf-8-sig" if has_bom else f"utf-8"
 
-    For cross-platform compatibility, especially with Windows Excel/Notepad:
-    - CSV/TSV/TXT files: Use UTF-8-BOM (Windows Excel needs BOM to detect UTF-8)
-    - All other files: Use UTF-8 (safer default, no BOM)
 
-    Args:
-        file_path: Path to the file
-
-    Returns:
-        Encoding string: "utf-8-sig" or "utf-8"
-    """
-    suffix = Path(file_path).suffix.lower()
-
-    # Files that need BOM for Windows compatibility
-    if suffix in {".csv", ".tsv", ".tab", ".txt", ".log"}:
-        return "utf-8-sig"
-
-    # Default: UTF-8 without BOM (safe for all other files)
-    # This includes: .sh, .yaml, .json, .py, .js, .md, etc.
-    return "utf-8"
+def _append_file(file_path: str, content: str) -> None:
+    """Select encoding and append within one offloaded transaction."""
+    encoding = _get_encoding_for_file(file_path)
+    with open(file_path, f"a", encoding=encoding) as handle:
+        handle.write(content)
 
 
 @tool_descriptor(
@@ -300,7 +299,8 @@ async def write_file(
     content: str,
 ) -> ToolChunk:
     """Create or overwrite a file. Relative paths resolve from the
-    project directory.
+    project directory. New text files use UTF-8 without a BOM; new
+    CSV/TSV/TAB files use a BOM. Existing files retain their BOM state.
 
     Args:
         file_path (`str`):
@@ -322,10 +322,9 @@ async def write_file(
         )
 
     file_path = _resolve_file_path(file_path)
-    encoding = _get_encoding_for_file(file_path)
-
     try:
         async with get_path_lock(file_path):
+            encoding = await run_sync_io(_get_encoding_for_file, file_path)
             await write_text_atomic_async(
                 file_path,
                 content,
@@ -397,9 +396,12 @@ async def edit_file(
 
     resolved_path = _resolve_file_path(file_path)
 
-    encoding = _get_encoding_for_file(resolved_path)
     async with get_path_lock(resolved_path):
         try:
+            encoding = await run_sync_io(
+                _get_encoding_for_file,
+                resolved_path,
+            )
             content = await read_file_safe(resolved_path)
         except FileNotFoundError:
             return ToolChunk(
@@ -522,14 +524,9 @@ async def append_file(
         )
 
     file_path = _resolve_file_path(file_path)
-    encoding = _get_encoding_for_file(file_path)
-
     try:
-        await append_text_async(
-            file_path,
-            content,
-            encoding=encoding,
-        )
+        async with get_path_lock(file_path):
+            await run_sync_io(_append_file, file_path, content)
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,
