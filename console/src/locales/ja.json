@@ -531,7 +531,6 @@
     "selectBuiltin": "組み込み",
     "selectNone": "クリア",
     "noPoolSkills": "プールに利用可能なスキルがありません",
-    "addSkillsToAgent": "スキルを追加",
     "copyTooltip": "エージェント設定をコピー",
     "copyDefaultTooltip": "デフォルトエージェントをテンプレートとしてコピー",
     "copyTitle": "エージェント設定をコピー",

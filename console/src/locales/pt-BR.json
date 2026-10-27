@@ -868,7 +868,6 @@
     "selectBuiltin": "Builtin",
     "selectNone": "Nenhum",
     "noPoolSkills": "No skills available in pool",
-    "addSkillsToAgent": "Adicionar Skills",
     "model": "Modelo",
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
     "modelPlaceholder": "Use global Padrao",

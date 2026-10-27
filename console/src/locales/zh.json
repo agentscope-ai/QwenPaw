@@ -903,7 +903,6 @@
     "selectBuiltin": "内置",
     "selectNone": "清空",
     "noPoolSkills": "技能池中暂无可用技能",
-    "addSkillsToAgent": "添加技能",
     "backend": {
       "column": "后端",
       "eyebrow": "智能体架构",

@@ -1135,7 +1135,6 @@
     "selectBuiltin": "Builtin",
     "selectNone": "None",
     "noPoolSkills": "No skills available in pool",
-    "addSkillsToAgent": "Add Skills",
     "backend": {
       "column": "Backend",
       "eyebrow": "Agent architecture",
