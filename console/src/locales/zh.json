@@ -4404,6 +4404,7 @@
       "modeTooltip": "控制扫描器如何处理不安全的技能：拦截、仅提醒或关闭",
       "modeBlock": "拦截",
       "modeWarn": "仅提醒",
+      "modeOff": "关闭",
       "timeout": "扫描超时（秒）",
       "timeoutTooltip": "等待扫描完成的最长时间（5-300秒）",
       "saveSuccess": "技能扫描器设置已保存",
