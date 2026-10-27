@@ -311,17 +311,21 @@ def filter_delivered(
 ) -> list[AgendaItem]:
     """Drop items the host already surfaced inside the cooldown window.
 
-    Reminders are exempt. A reminder's ``topic_id`` derives from a stable
-    schedule title, so without the exemption one delivery would silence a
-    recurring reminder for the whole window even while it keeps coming due.
+    A reminder skips the multi-day window but not the day it was already
+    announced on.  Its ``topic_id`` derives from a stable schedule title,
+    so treating it like a discovery item would silence a still-due schedule
+    for the whole window, while re-announcing it on every round of the same
+    day is only noise.
     """
     if ledger is None:
         return list(items)
     return [
         item
         for item in items
-        if item.is_reminder
-        or not ledger.is_delivered(item.topic_id, cooldown_days=cooldown_days)
+        if not ledger.is_delivered(
+            item.topic_id,
+            cooldown_days=0 if item.is_reminder else cooldown_days,
+        )
     ]
 
 

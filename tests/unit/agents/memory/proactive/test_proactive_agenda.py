@@ -22,6 +22,10 @@ def _ledger(tmp_path: Path) -> DeliveryLedger:
     return DeliveryLedger(tmp_path / "proactive_delivered.json")
 
 
+def _aged(days: float) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
 class TestParseAgenda:
     def test_reads_metadata_and_keeps_order(self):
         response = SimpleNamespace(
@@ -149,8 +153,11 @@ class TestFilterAndSelect:
 
         assert [item.topic_id for item in kept] == ["t-2"]
 
-    async def test_filter_delivered_exempts_reminders(self, tmp_path: Path):
-        """A due reminder is announced again inside the cooldown window.
+    async def test_filter_delivered_reannounces_a_reminder_next_day(
+        self,
+        tmp_path: Path,
+    ):
+        """A still-due reminder is announced again on a later day.
 
         Reminder ids derive from a stable schedule title, so treating them
         like discovery items would silence a recurring reminder for the whole
@@ -159,7 +166,12 @@ class TestFilterAndSelect:
         ledger = _ledger(tmp_path)
         await ledger.record(
             [
-                {"topic_id": "r-1", "channel": "inbox", "status": "shown"},
+                {
+                    "topic_id": "r-1",
+                    "channel": "inbox",
+                    "status": "shown",
+                    "delivered_at": _aged(1),
+                },
                 {"topic_id": "t-1", "channel": "inbox", "status": "shown"},
             ],
         )
@@ -171,6 +183,27 @@ class TestFilterAndSelect:
         kept = pa.filter_delivered(items, ledger, cooldown_days=3)
 
         assert [item.topic_id for item in kept] == ["r-1"]
+
+    async def test_filter_delivered_hides_a_reminder_shown_today(
+        self,
+        tmp_path: Path,
+    ):
+        """One alert per day: later rounds leave room for discovery items."""
+        ledger = _ledger(tmp_path)
+        await ledger.record(
+            [
+                {"topic_id": "r-1", "channel": "inbox", "status": "shown"},
+                {"topic_id": "t-1", "channel": "inbox", "status": "shown"},
+            ],
+        )
+        items = [
+            pa.AgendaItem(topic_id="r-1", kind="reminder"),
+            pa.AgendaItem(topic_id="t-2", kind="follow_up"),
+        ]
+
+        kept = pa.filter_delivered(items, ledger, cooldown_days=3)
+
+        assert [item.topic_id for item in kept] == ["t-2"]
 
     def test_filter_without_ledger_keeps_everything(self):
         items = [pa.AgendaItem(topic_id="t-1")]
@@ -356,11 +389,16 @@ class TestEnsureAgenda:
         assert [item.topic_id for item in bundle.items] == ["t-2"]
 
     async def test_reminder_survives_the_hydrated_ledger(self, tmp_path: Path):
-        """The due reminder stays; the delivered discovery item goes."""
+        """A reminder from an earlier day stays; the discovery item goes."""
         writer = _ledger(tmp_path)
         await writer.record(
             [
-                {"topic_id": "r-1", "channel": "inbox", "status": "shown"},
+                {
+                    "topic_id": "r-1",
+                    "channel": "inbox",
+                    "status": "shown",
+                    "delivered_at": _aged(1),
+                },
                 {"topic_id": "t-1", "channel": "inbox", "status": "shown"},
             ],
         )
