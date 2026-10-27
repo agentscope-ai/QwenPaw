@@ -234,7 +234,7 @@ def _build_spec_from_cli(
     mode: str,
     silent: bool,
     save_result_to_inbox: Optional[bool] = None,
-    share_session: bool = True,
+    share_session: bool = False,
     timeout_seconds: int = 120,
     tool_safety: bool = False,
 ) -> dict:
@@ -484,7 +484,7 @@ def _build_spec_from_cli(
 )
 @click.option(
     "--share-session/--no-share-session",
-    default=True,
+    default=False,
     help=(
         "Share session with target user. "
         "When disabled, creates isolated context for each run."

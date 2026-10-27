@@ -38,6 +38,7 @@ from ....schemas import (
 
 from ....config.config import XiaoYiConfig as XiaoYiChannelConfig
 from ....constant import DEFAULT_MEDIA_DIR
+from ....exceptions import ChannelError
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -812,24 +813,25 @@ class XiaoYiChannel(BaseChannel):
         self,
         session_id: str,
         msg: Dict[str, Any],
-    ) -> None:
+    ) -> bool:
         """Route outgoing message to the server that owns the session."""
         target = self._session_server_map.get(session_id, "primary")
 
         # Try target server first, fallback to the other
         if target == "backup":
             if self._conn_backup and await self._conn_backup.send_json(msg):
-                return
+                return True
             # Fallback to primary
             if self._conn_primary and await self._conn_primary.send_json(msg):
-                return
+                return True
         else:
             if self._conn_primary and await self._conn_primary.send_json(msg):
-                return
+                return True
             # Fallback to backup
             if self._conn_backup and await self._conn_backup.send_json(msg):
-                return
+                return True
         logger.warning("XiaoYi: No connection available to send message")
+        return False
 
     async def _handle_a2a_request(self, message: Dict[str, Any]) -> None:
         """Handle A2A request message."""
@@ -1096,16 +1098,26 @@ class XiaoYiChannel(BaseChannel):
         at TEXT_CHUNK_LIMIT characters to avoid WebSocket disconnection
         on large messages.
         """
+        meta = meta or {}
+        api_send = bool(meta.get("_api_send"))
+
         if not self.enabled or not self._connected:
-            logger.warning("XiaoYi: Cannot send - not connected")
+            self._handle_delivery_failure(
+                api_send,
+                "Cannot send because the channel is not connected",
+            )
             return
 
-        meta = meta or {}
-        session_id = meta.get("session_id") or to_handle
+        session_id = self._native_session_id(
+            meta.get("session_id") or to_handle,
+        )
         task_id = meta.get("task_id") or self._session_task_map.get(session_id)
 
         if not task_id:
-            logger.warning(f"XiaoYi: No task_id for session {session_id}")
+            self._handle_delivery_failure(
+                api_send,
+                f"No task_id for session {session_id}",
+            )
             return
 
         # Don't send empty text
@@ -1119,7 +1131,36 @@ class XiaoYiChannel(BaseChannel):
         chunks = self._chunk_text(text)
 
         for chunk in chunks:
-            await self._send_chunk(session_id, task_id, message_id, chunk)
+            sent = await self._send_chunk(
+                session_id,
+                task_id,
+                message_id,
+                chunk,
+            )
+            if not sent:
+                self._handle_delivery_failure(
+                    api_send,
+                    f"Failed to send message for session {session_id}",
+                )
+                return
+
+    @staticmethod
+    def _native_session_id(session_id: str) -> str:
+        """Return the XiaoYi-native session ID without its channel prefix."""
+        if session_id.startswith("xiaoyi:"):
+            return session_id.split(":", 1)[-1]
+        return session_id
+
+    @staticmethod
+    def _handle_delivery_failure(api_send: bool, message: str) -> None:
+        """Raise API delivery failures without breaking normal replies."""
+        if api_send:
+            logger.error(f"XiaoYi: {message}")
+            raise ChannelError(
+                channel_name="xiaoyi",
+                message=message,
+            )
+        logger.warning(f"XiaoYi: {message}")
 
     def _chunk_text(self, text: str) -> List[str]:
         """Split text into chunks of TEXT_CHUNK_LIMIT size."""
@@ -1199,17 +1240,17 @@ class XiaoYiChannel(BaseChannel):
         task_id: str,
         message_id: str,
         text: str,
-    ) -> None:
+    ) -> bool:
         """Send a single text chunk via WebSocket."""
         if not self._connected:
-            return
+            return False
         msg = self._build_artifact_msg(
             session_id,
             task_id,
             message_id,
             [{"kind": "text", "text": text}],
         )
-        await self._send_to_session_server(session_id, msg)
+        return await self._send_to_session_server(session_id, msg)
 
     async def _send_reasoning_chunk(
         self,
@@ -1658,7 +1699,7 @@ class XiaoYiChannel(BaseChannel):
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
         """Map dispatch target to channel-specific to_handle."""
         if session_id.startswith("xiaoyi:"):
-            return session_id.split(":", 1)[-1]
+            return self._native_session_id(session_id)
         return user_id
 
     async def _on_process_completed(

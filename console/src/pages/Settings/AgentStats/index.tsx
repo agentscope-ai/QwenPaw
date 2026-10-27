@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, Empty, Button } from "@agentscope-ai/design";
 import { Spin, Tooltip } from "antd";
 import { DatePicker } from "antd";
@@ -11,6 +11,7 @@ import type { AgentStatsSummary } from "../../../api/types/agentStats";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
+import { formatPercent } from "../../../utils/cacheUsage";
 import { useTheme } from "../../../contexts/ThemeContext";
 import { useAgentStore } from "../../../stores/agentStore";
 import { getAgentDisplayName } from "../../../utils/agentDisplayName";
@@ -26,6 +27,7 @@ type ChartDataItem = {
   toolCalls: number;
   agentPromptTokens: number;
   agentCompletionTokens: number;
+  agentCacheReadTokens: number;
   agentLlmCalls: number;
 };
 
@@ -37,6 +39,14 @@ interface ColumnSeries {
 function formatDateLabel(dateStr: string, crossesYear: boolean): string {
   const date = dayjs(dateStr);
   return crossesYear ? date.format("YY/MM-DD") : date.format("MM-DD");
+}
+
+function readCssColor(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
+    fallback
+  );
 }
 
 function getColumnConfig(
@@ -98,6 +108,7 @@ function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
+  const accentColor = readCssColor("--app-accent", "#ff7f16");
   const { selectedAgent, agents } = useAgentStore();
   const selectedAgentInfo = agents.find((a) => a.id === selectedAgent);
   const agentName = selectedAgentInfo
@@ -109,38 +120,38 @@ function AgentStatsPage() {
   const [startDate, setStartDate] = useState<Dayjs>(dayjs().subtract(7, "day"));
   const [endDate, setEndDate] = useState<Dayjs>(dayjs());
 
-  const fetchData = async (start: Dayjs, end: Dayjs) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const summary = await api.getAgentStats({
-        start_date: start.format("YYYY-MM-DD"),
-        end_date: end.format("YYYY-MM-DD"),
-      });
-      setData(summary);
-    } catch (e) {
-      console.error("Failed to load agent statistics:", e);
-      const msg = t("agentStats.loadFailed");
-      message.error(msg);
-      setError(msg);
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchData = useCallback(
+    async (start: Dayjs, end: Dayjs) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const summary = await api.getAgentStats({
+          start_date: start.format("YYYY-MM-DD"),
+          end_date: end.format("YYYY-MM-DD"),
+        });
+        setData(summary);
+      } catch (e) {
+        console.error("Failed to load agent statistics:", e);
+        const msg = t("agentStats.loadFailed");
+        message.error(msg);
+        setError(msg);
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [message, t],
+  );
 
   useEffect(() => {
-    fetchData(startDate, endDate);
-  }, [selectedAgent]);
+    void fetchData(startDate, endDate);
+  }, [selectedAgent, startDate, endDate, fetchData]);
 
   const handleDateChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
     const newStart = dates?.[0] || startDate;
     const newEnd = dates?.[1] || endDate;
     if (dates?.[0]) setStartDate(newStart);
     if (dates?.[1]) setEndDate(newEnd);
-    if (dates?.[0] && dates?.[1]) {
-      fetchData(newStart, newEnd);
-    }
   };
 
   const crossesYear = useMemo(
@@ -159,6 +170,7 @@ function AgentStatsPage() {
       toolCalls: d.tool_calls,
       agentPromptTokens: d.agent_prompt_tokens ?? 0,
       agentCompletionTokens: d.agent_completion_tokens ?? 0,
+      agentCacheReadTokens: d.agent_cache_read_tokens,
       agentLlmCalls: d.agent_llm_calls ?? 0,
     }));
   }, [data?.by_date]);
@@ -196,34 +208,84 @@ function AgentStatsPage() {
           { key: "chats", label: t("agentStats.newSessions") },
           { key: "activeSessions", label: t("agentStats.activeSessions") },
         ],
-        ["#ff7f16", "#3b82f6"],
+        [accentColor, "#3b82f6"],
         isDarkMode,
         crossesYear,
       ),
-    [chartData, t, isDarkMode, crossesYear],
+    [accentColor, chartData, t, isDarkMode, crossesYear],
   );
 
-  const agentTokenColumnConfig = useMemo(
-    () =>
-      getColumnConfig(
-        chartData,
-        [
-          { key: "agentPromptTokens", label: t("agentStats.promptTokens") },
-          {
-            key: "agentCompletionTokens",
-            label: t("agentStats.completionTokens"),
-          },
-        ],
-        ["#8b5cf6", "#10b981"],
-        isDarkMode,
-        crossesYear,
+  const agentTokenColumnConfig = useMemo(() => {
+    const inputLabel = t("agentStats.totalInputTokens");
+    const outputLabel = t("agentStats.completionTokens");
+    const cacheHitLabel = t("tokenUsage.cacheRead");
+    const tokenData = chartData.flatMap((day) => {
+      const cacheHit = Math.min(
+        Math.max(day.agentCacheReadTokens, 0),
+        day.agentPromptTokens,
+      );
+      return [
         {
-          yAxisFormatter: formatCompact,
-          tooltipFormatter: formatCompact,
+          date: day.date,
+          value: cacheHit,
+          displayValue: cacheHit,
+          barType: inputLabel,
+          segment: cacheHitLabel,
         },
-      ),
-    [chartData, t, isDarkMode, crossesYear],
-  );
+        {
+          date: day.date,
+          value: Math.max(day.agentPromptTokens - cacheHit, 0),
+          displayValue: day.agentPromptTokens,
+          barType: inputLabel,
+          segment: inputLabel,
+        },
+        {
+          date: day.date,
+          value: day.agentCompletionTokens,
+          displayValue: day.agentCompletionTokens,
+          barType: outputLabel,
+          segment: outputLabel,
+        },
+      ];
+    });
+
+    return {
+      data: tokenData,
+      xField: "date",
+      yField: "value",
+      seriesField: "barType",
+      colorField: "segment",
+      stack: {
+        groupBy: ["x", "series"],
+        series: false,
+      },
+      height: 150,
+      autoFit: true,
+      theme: isDarkMode ? "dark" : "light",
+      legend: { position: "bottom" as const },
+      scale: {
+        color: {
+          domain: [inputLabel, cacheHitLabel, outputLabel],
+          range: ["#b8b2c2", "#0f9f8f", "#64748b"],
+        },
+      },
+      axis: {
+        x: {
+          labelFormatter: (date: string) => formatDateLabel(date, crossesYear),
+        },
+        y: { labelFormatter: formatCompact },
+      },
+      tooltip: {
+        title: "date",
+        items: [
+          (datum: { displayValue: number; segment: string }) => ({
+            name: datum.segment,
+            value: formatCompact(datum.displayValue),
+          }),
+        ],
+      },
+    };
+  }, [chartData, t, isDarkMode, crossesYear]);
 
   const llmToolColumnConfig = useMemo(
     () =>
@@ -288,7 +350,7 @@ function AgentStatsPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader parent={t("nav.settings")} current={t("agentStats.title")} />
+      <PageHeader current={t("agentStats.title")} />
       <div className={styles.content}>
         {error && !data ? (
           <div className={styles.error}>
@@ -340,6 +402,12 @@ function AgentStatsPage() {
                     value={data.agent_prompt_tokens ?? 0}
                     label={t("agentStats.promptTokens")}
                     tooltip={t("agentStats.currentAgentPromptTokensTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.agent_cache_hit_rate}
+                    label={t("tokenUsage.cacheHitRate")}
+                    tooltip={t("agentStats.currentAgentCacheHitRateTooltip")}
+                    formatValue={(value) => formatPercent(value ?? null)}
                   />
                   <SummaryCard
                     value={data.agent_completion_tokens ?? 0}

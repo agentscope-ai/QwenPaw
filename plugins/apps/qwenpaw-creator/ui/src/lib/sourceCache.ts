@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { downloadSourceCache, getSourceCache } from "@/api/creator";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 import type { SourceCacheVersionView } from "@/contracts/creator";
 
 export interface SourceCacheStatus {
@@ -56,8 +57,7 @@ export function useSourceCache(
   // Keep progress fresh while the backend streams the original footage in.
   useEffect(() => {
     if (!projectId || !enabled || !anyDownloading) return undefined;
-    const timer = window.setInterval(() => void refresh(), 1500);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(() => void refresh(), 2_000);
   }, [projectId, enabled, anyDownloading, refresh]);
 
   const download = useCallback(

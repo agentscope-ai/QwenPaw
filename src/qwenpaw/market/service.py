@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Market search service.
-"""
+"""Market search service."""
 
 from __future__ import annotations
 
@@ -10,9 +9,8 @@ import logging
 from typing import Any
 
 from .categories import resolve as resolve_category
-from .providers import PROVIDERS
+from .registry import market_registry
 from .schema import MarketResult, MarketSearchError, ProviderInfo
-
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +20,7 @@ _MAX_LIMIT = 50
 
 def list_providers() -> list[ProviderInfo]:
     out: list[ProviderInfo] = []
-    for key, provider in PROVIDERS.items():
+    for key, provider in market_registry.snapshot().items():
         is_available, reason = provider.available()
         out.append(
             ProviderInfo(
@@ -30,6 +28,7 @@ def list_providers() -> list[ProviderInfo]:
                 label=provider.label,
                 available=is_available,
                 reason=reason,
+                supports_browse=provider.supports_browse,
             ),
         )
     return out
@@ -48,10 +47,11 @@ async def search_market(
 ]:
     """Search each requested provider at its own page; concat results."""
     capped_limit = max(1, min(int(limit or 1), _MAX_LIMIT))
+    providers = market_registry.snapshot()
     selected = [
         (key, max(1, int(page or 1)))
         for key, page in provider_pages.items()
-        if key in PROVIDERS
+        if key in providers
     ]
 
     coros = [
@@ -84,7 +84,30 @@ async def _run_one(
     lang: str,
     category: str | None,
 ) -> tuple[list[MarketResult], bool, int | None] | MarketSearchError:
-    provider = PROVIDERS[key]
+    try:
+        with market_registry.use(key) as provider:
+            return await _search_provider(
+                provider,
+                key,
+                query,
+                limit,
+                page,
+                lang,
+                category,
+            )
+    except ValueError as exc:
+        return MarketSearchError(provider=key, message=str(exc))
+
+
+async def _search_provider(
+    provider: Any,
+    key: str,
+    query: str,
+    limit: int,
+    page: int,
+    lang: str,
+    category: str | None,
+) -> tuple[list[MarketResult], bool, int | None] | MarketSearchError:
     is_available, reason = provider.available()
     if not is_available:
         return MarketSearchError(

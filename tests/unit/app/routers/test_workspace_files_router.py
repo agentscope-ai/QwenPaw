@@ -323,7 +323,10 @@ def test_watch_rejects_an_unknown_root(files_client: TestClient) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "root must be project or workspace"
+    assert (
+        response.json()["detail"]
+        == "root must be project, project:<path> or workspace"
+    )
 
 
 @pytest.mark.asyncio

@@ -43,12 +43,12 @@ class _MemoryManager:
     async def auto_memory(self, _messages: list[Msg], **_kwargs: Any) -> None:
         self._events.append("auto_memory")
 
-    def add_summarize_task(
+    def submit_auto_memory(
         self,
         messages: list[Msg],
         **_kwargs: Any,
     ) -> None:
-        self._events.append("handler_memory")
+        self._events.append("auto_memory")
         self.submitted.append([msg.get_text_content() for msg in messages])
 
 
@@ -172,6 +172,6 @@ async def test_manual_compact_submits_auto_memory_once() -> None:
 
     await handler.handle_command("/compact")
 
-    assert events == ["scroll", "handler_memory"]
+    assert events == ["scroll", "auto_memory"]
     assert memory_manager.submitted == [["remember this", "answer-1"]]
     assert not auto_memory_turn_state(agent.state)["pending"]

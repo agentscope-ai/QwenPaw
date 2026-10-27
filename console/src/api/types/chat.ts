@@ -19,6 +19,7 @@ export interface ChatSpec {
   name?: string; // Chat display name
   created_at: string | null; // Chat creation timestamp (ISO 8601)
   updated_at: string | null; // Chat last update timestamp (ISO 8601)
+  last_finished_at?: string | null; // Most recent task completion timestamp
   meta?: Record<string, unknown>; // Additional metadata
   status?: ChatStatus; // Conversation status: idle or running
   pinned?: boolean; // Whether the chat is pinned to the top
@@ -39,6 +40,11 @@ export interface Message {
 export interface ChatHistory {
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
+}
+
+export interface ChatResolution {
+  agent_id: string;
+  chat: ChatSpec;
 }
 
 export interface ChatUpdateRequest {

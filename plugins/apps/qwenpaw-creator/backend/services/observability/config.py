@@ -8,10 +8,14 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from domain.errors import ValidationError
 from schemas.observability import ObservabilityConfigData
 from services.storage_root import require_creator_data_root
+from services.runtime_files.locking import CrossProcessFileLock
+from services.runtime_files.atomic_store import atomic_replace_path
+from services.runtime_files.path_safety import is_link_path
 
 _LEGACY_ENV = {
     "enabled": "CREATOR_TRACING_ENABLED",
@@ -113,31 +117,34 @@ def load_observability_config() -> ObservabilityConfigData:
 def save_observability_config(data: ObservabilityConfigData) -> None:
     path = observability_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        descriptor = os.open(
-            temporary,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-            0o600,
+    with CrossProcessFileLock(path.parent / ".observability-config.lock"):
+        temporary = path.with_name(
+            f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp",
         )
         try:
-            os.write(
-                descriptor,
-                (
-                    json.dumps(
-                        data.model_dump(mode="json", by_alias=True),
-                        ensure_ascii=False,
-                        indent=2,
-                    )
-                    + "\n"
-                ).encode("utf-8"),
+            descriptor = os.open(
+                temporary,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
             )
+            try:
+                os.write(
+                    descriptor,
+                    (
+                        json.dumps(
+                            data.model_dump(mode="json", by_alias=True),
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n"
+                    ).encode("utf-8"),
+                )
+            finally:
+                os.close(descriptor)
+            atomic_replace_path(temporary, path)
+            os.chmod(path, 0o600)
         finally:
-            os.close(descriptor)
-        os.replace(temporary, path)
-        os.chmod(path, 0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
+            temporary.unlink(missing_ok=True)
     _load_cached.cache_clear()
 
 
@@ -155,14 +162,14 @@ def project_observability_root(
     project_root = store.project_root(project_id)
     if (
         not project_root.exists()
-        or project_root.is_symlink()
+        or is_link_path(project_root)
         or not project_root.is_dir()
     ):
         raise ValidationError(f"Project 可观测目录不存在: {project_id}")
     project_json = project_root / "project.json"
     if (
         not project_json.exists()
-        or project_json.is_symlink()
+        or is_link_path(project_json)
         or not project_json.is_file()
     ):
         raise ValidationError(f"Project 可观测目录缺少 project.json: {project_id}")
@@ -187,7 +194,7 @@ def _local_directory(
         target.mkdir(mode=0o700, exist_ok=True)
     if not target.exists():
         return target
-    if target.is_symlink() or not target.is_dir():
+    if is_link_path(target) or not target.is_dir():
         raise ValidationError(f"Creator 可观测路径不是安全目录: {target}")
     resolved = target.resolve(strict=True)
     try:

@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import "../../monacoSetup";
 import Editor, {
   DiffEditor,
   type Monaco,
@@ -23,6 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  Copy,
   Download,
   Eye,
   FileCode,
@@ -40,6 +42,8 @@ import FilePreview, { isPreviewable } from "./FilePreview";
 import { workspaceApi } from "../../api/modules/workspace";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useAppMessage } from "../../hooks/useAppMessage";
+import { copyText } from "../../utils/clipboard";
 import { setTextareaValue } from "../Chat/utils";
 import { clearLastEditorCopy, setLastEditorCopy } from "./lastEditorCopy";
 import {
@@ -192,6 +196,7 @@ export default function TabbedEditor({
   navigation,
 }: TabbedEditorProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { isDark } = useTheme();
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const tabElementsRef = useRef(new Map<string, HTMLDivElement>());
@@ -357,6 +362,17 @@ export default function TabbedEditor({
     activeDiffRaw && activeDiffRaw.modified !== null
       ? { original: activeDiffRaw.original, modified: activeDiffRaw.modified }
       : undefined;
+  const activeRenderedContent =
+    activeDiff?.modified ?? activeTab?.content ?? "";
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await copyText(activeRenderedContent);
+      message.success(t("common.copied"));
+    } catch {
+      message.error(t("common.copyFailed"));
+    }
+  }, [activeRenderedContent, message, t]);
 
   // Hydrate the `modified` side of any persisted diff by re-reading the
   // current disk content. Drop diffs whose file no longer exists.
@@ -368,19 +384,25 @@ export default function TabbedEditor({
     if (toHydrate.length === 0) return undefined;
 
     void Promise.all(
-      toHydrate.map(async ([path]) => {
+      toHydrate.map(async ([path, diff]) => {
         try {
           const modified = onLoadFile
             ? await onLoadFile(path)
             : (await workspaceApi.loadCodeFile(path)).content;
-          return { path, modified, ok: true };
+          return { path, diff, modified, ok: true };
         } catch {
-          return { path, modified: "", ok: false };
+          return { path, diff, modified: "", ok: false };
         }
       }),
     ).then((results) => {
       if (cancelled) return;
       for (const r of results) {
+        if (
+          useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[r.path] !==
+          r.diff
+        ) {
+          continue;
+        }
         if (r.ok) {
           updateDiffModified(scopeKey, r.path, r.modified);
         } else {
@@ -598,6 +620,7 @@ export default function TabbedEditor({
           const modified = modifiedEditor.getValue();
           if (currentDiff && currentDiff.modified !== modified) {
             updateDiffModified(scopeKey, path, modified);
+            useCodingTabsStore.getState().setTabDirty(scopeKey, path, true);
           }
         },
       );
@@ -871,6 +894,14 @@ export default function TabbedEditor({
         : workspaceApi.loadCodeFile(path).then((res) => res.content ?? "");
       void loadFile
         .then((newModified) => {
+          const state = useCodingTabsStore.getState();
+          if (
+            state.diffsByAgent[scopeKey]?.[path] !== existingDiff ||
+            state.tabsByAgent[scopeKey]?.find((item) => item.path === path)
+              ?.dirty
+          ) {
+            return;
+          }
           if (existingDiff) {
             // There is already a pending diff — update only the modified side so
             // the user sees the cumulative change (original → latest agent edit).
@@ -998,8 +1029,9 @@ export default function TabbedEditor({
     Boolean(activeTab) &&
     !activeTab?.readOnly &&
     !["image", "pdf", "binary"].includes(activeTab?.previewKind ?? "text");
-  const activeRenderedContent =
-    activeDiff?.modified ?? activeTab?.content ?? "";
+  const activeCanCopy =
+    Boolean(activeTab) &&
+    !["image", "pdf", "binary"].includes(activeTab?.previewKind ?? "text");
 
   return (
     <div className={styles.wrap} onKeyDown={handleKeyDown}>
@@ -1280,11 +1312,24 @@ export default function TabbedEditor({
                 </button>
               )}
             </div>
+            {activeCanCopy && (
+              <Tooltip title={t("common.copy")}>
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  aria-label={t("common.copy")}
+                  onClick={() => void handleCopy()}
+                >
+                  <Copy size={13} />
+                </button>
+              </Tooltip>
+            )}
             {onDownloadFile && activeTabPath && (
               <Tooltip title={t("files.download")}>
                 <button
                   type="button"
                   className={styles.iconBtn}
+                  aria-label={t("files.download")}
                   onClick={() => void onDownloadFile(activeTabPath)}
                 >
                   <Download size={13} />

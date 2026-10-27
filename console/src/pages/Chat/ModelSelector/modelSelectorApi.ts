@@ -1,3 +1,7 @@
+import {
+  loadSessionModel,
+  type SessionModelScope,
+} from "../../../features/session-settings/sessionModel";
 import { providerApi } from "../../../api/modules/provider";
 import type { ActiveModelsInfo, ProviderInfo } from "../../../api/types";
 
@@ -18,12 +22,24 @@ interface ModelSelectorDataSource {
 export async function loadModelSelectorData(
   agentId: string,
   dataSource: ModelSelectorDataSource = providerApi,
+  session?: SessionModelScope,
+  onProviders?: (providers: ProviderInfo[]) => void,
+  onActiveModels?: (activeModels: ActiveModelsInfo) => void,
 ): Promise<ModelSelectorData> {
   const [providersResult, activeResult] = await Promise.allSettled([
-    dataSource.listProviders(),
-    dataSource.getActiveModels({
-      scope: "effective",
-      agent_id: agentId,
+    dataSource.listProviders().then((providers) => {
+      if (Array.isArray(providers)) onProviders?.(providers);
+      return providers;
+    }),
+    (session
+      ? loadSessionModel(agentId, session)
+      : dataSource.getActiveModels({
+          scope: "effective",
+          agent_id: agentId,
+        })
+    ).then((activeModels) => {
+      onActiveModels?.(activeModels);
+      return activeModels;
     }),
   ]);
   return {
@@ -42,7 +58,9 @@ export async function loadModelSelectorData(
 
 export async function loadActiveModels(
   agentId: string,
+  session?: SessionModelScope,
 ): Promise<ActiveModelsInfo> {
+  if (session) return loadSessionModel(agentId, session);
   return providerApi.getActiveModels({
     scope: "effective",
     agent_id: agentId,

@@ -22,6 +22,7 @@ from qwenpaw.agents.fork_project import (
     register_fork,
 )
 from qwenpaw.app.routers import console
+from qwenpaw.app.task_tracker import TaskTracker
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,9 @@ class _ChatManager:
     ) -> SimpleNamespace:
         return SimpleNamespace(id="test-chat", meta={})
 
+    async def mark_chat_finished(self, chat_id: str, finish_time: Any) -> None:
+        """Match the production completion callback used by TaskTracker."""
+
 
 class _ConsoleChannel:
     def resolve_session_id(
@@ -121,6 +125,7 @@ class _Workspace:
         self.workspace_dir = workspace_dir
         self.chat_manager = _ChatManager()
         self.channel_manager = _ChannelManager()
+        self.task_tracker = TaskTracker()
 
 
 @pytest.fixture(autouse=True)

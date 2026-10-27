@@ -29,21 +29,24 @@ const mapPriority = (text: string): "low" | "normal" | "high" | "urgent" => {
 const stripExecutionTimeText = (text: string): string =>
   text.replace(/\s*duration=\d+ms\.?/gi, "").trim();
 
-const getHeartbeatSummary = (status?: string): string => {
+const getHeartbeatSummary = (
+  status: string | undefined,
+  t: TFunction,
+): string => {
   const normalizedStatus = (status || "").toLowerCase();
   if (normalizedStatus === "success") {
-    return "Heartbeat 执行成功";
+    return t("inbox.heartbeatSuccess");
   }
   if (normalizedStatus === "timeout") {
-    return "Heartbeat 执行超时";
+    return t("inbox.heartbeatTimeout");
   }
   if (normalizedStatus === "cancelled") {
-    return "Heartbeat 已取消";
+    return t("inbox.heartbeatCancelled");
   }
-  return "Heartbeat 执行失败";
+  return t("inbox.heartbeatFailed");
 };
 
-const getSkillAutoUpdateSummary = (event: InboxEvent, t: TFunction): string => {
+const getSkillAutoSyncSummary = (event: InboxEvent, t: TFunction): string => {
   const payload = (event.payload || {}) as {
     synced?: { skill?: string; agents?: string[] }[];
     failed?: { skill?: string; agents?: string[] }[];
@@ -51,7 +54,7 @@ const getSkillAutoUpdateSummary = (event: InboxEvent, t: TFunction): string => {
   const parts: string[] = [];
   for (const item of payload.synced || []) {
     parts.push(
-      t("inbox.skillAutoUpdated", {
+      t("inbox.skillAutoSynced", {
         skill: item.skill,
         agents: (item.agents || []).join(", "),
       }),
@@ -59,7 +62,7 @@ const getSkillAutoUpdateSummary = (event: InboxEvent, t: TFunction): string => {
   }
   for (const item of payload.failed || []) {
     parts.push(
-      t("inbox.skillAutoUpdateFailed", {
+      t("inbox.skillAutoSyncFailed", {
         skill: item.skill,
         agents: (item.agents || []).join(", "),
       }),
@@ -68,72 +71,154 @@ const getSkillAutoUpdateSummary = (event: InboxEvent, t: TFunction): string => {
   return parts.join("; ") || event.body;
 };
 
+const getBuiltinAutoUpdateSummary = (
+  event: InboxEvent,
+  t: TFunction,
+): string => {
+  const payload = (event.payload || {}) as {
+    pool_updated?: {
+      skill?: string;
+      from_version?: string;
+      to_version?: string;
+    }[];
+    pool_failed?: { skill?: string }[];
+    synced?: { skill?: string; agents?: string[] }[];
+    sync_failed?: { skill?: string; agents?: string[] }[];
+  };
+  const parts: string[] = [];
+  for (const item of payload.pool_updated || []) {
+    parts.push(
+      t("inbox.skillBuiltinUpdated", {
+        skill: item.skill,
+        from: item.from_version || "-",
+        to: item.to_version || "-",
+      }),
+    );
+  }
+  for (const item of payload.pool_failed || []) {
+    parts.push(t("inbox.skillBuiltinUpdateFailed", { skill: item.skill }));
+  }
+  for (const item of payload.synced || []) {
+    parts.push(
+      t("inbox.skillBuiltinSynced", {
+        skill: item.skill,
+        agents: (item.agents || []).join(", "),
+      }),
+    );
+  }
+  for (const item of payload.sync_failed || []) {
+    parts.push(
+      t("inbox.skillBuiltinSyncFailed", {
+        skill: item.skill,
+        agents: (item.agents || []).join(", "),
+      }),
+    );
+  }
+  return parts.join("; ") || event.body;
+};
+
+const isBuiltinAutoUpdateEvent = (event: InboxEvent): boolean => {
+  if (event.event_type !== "auto_update") return false;
+  const payload = (event.payload || {}) as Record<string, unknown>;
+  // Before the naming split, Auto Sync events were also stored as
+  // `auto_update`. Their payload only had `synced` / `failed`, so keep those
+  // historical messages displayed as Auto Sync.
+  return (
+    "pool_updated" in payload ||
+    "pool_failed" in payload ||
+    "sync_failed" in payload
+  );
+};
+
+const getChannelType = (sourceType: string): PushMessage["channelType"] => {
+  switch (sourceType) {
+    case "heartbeat":
+      return "heartbeat";
+    case "memory":
+      return "memory";
+    case "cron":
+      return "wechat";
+    case "skill_autoupdate":
+      return "skill";
+    default:
+      return "email";
+  }
+};
+
+const getChannelName = (event: InboxEvent, t: TFunction): string => {
+  switch (event.source_type) {
+    case "heartbeat":
+      return "Heartbeat";
+    case "memory":
+      return "Memory";
+    case "cron":
+      return "Cron";
+    case "skill_autoupdate":
+      return isBuiltinAutoUpdateEvent(event)
+        ? t("skillPool.builtinAutoUpdate")
+        : t("skillPool.autoSync");
+    case "mail":
+      return "Mail";
+    default:
+      return "System";
+  }
+};
+
 const mapEventToPushMessage = (
   event: InboxEvent,
   resolveAgentName: (agentId: string) => string,
   t: TFunction,
-): PushMessage => ({
-  id: event.id,
-  channelType:
-    event.source_type === "heartbeat"
-      ? "heartbeat"
-      : event.source_type === "memory"
-      ? "memory"
-      : event.source_type === "cron"
-      ? "wechat"
-      : event.source_type === "skill_autoupdate"
-      ? "skill"
-      : "email",
-  channelName:
-    event.source_type === "heartbeat"
-      ? "Heartbeat"
-      : event.source_type === "memory"
-      ? "Memory"
-      : event.source_type === "cron"
-      ? "Cron"
-      : event.source_type === "skill_autoupdate"
-      ? "Auto Sync"
-      : "System",
-  title:
-    event.source_type === "skill_autoupdate"
-      ? t("inbox.skillAutoUpdateTitle")
-      : event.title,
-  content:
-    event.source_type === "heartbeat"
-      ? getHeartbeatSummary(event.status)
-      : event.source_type === "skill_autoupdate"
-      ? getSkillAutoUpdateSummary(event, t)
-      : stripExecutionTimeText(event.body),
-  sender: {
-    userId: event.agent_id || "default",
-    username:
-      event.source_type === "skill_autoupdate"
+): PushMessage => {
+  const isSkillAutomation = event.source_type === "skill_autoupdate";
+  const isBuiltinUpdate = isSkillAutomation && isBuiltinAutoUpdateEvent(event);
+  let title = event.title;
+  let content = stripExecutionTimeText(event.body);
+  if (event.source_type === "heartbeat") {
+    content = getHeartbeatSummary(event.status, t);
+  } else if (isBuiltinUpdate) {
+    title = t("inbox.skillBuiltinAutoUpdateTitle");
+    content = getBuiltinAutoUpdateSummary(event, t);
+  } else if (isSkillAutomation) {
+    title = t("inbox.skillAutoSyncTitle");
+    content = getSkillAutoSyncSummary(event, t);
+  }
+
+  return {
+    id: event.id,
+    channelType: getChannelType(event.source_type),
+    channelName: getChannelName(event, t),
+    title,
+    content,
+    sender: {
+      userId: event.agent_id || "default",
+      username: isSkillAutomation
         ? t("inbox.skillPoolSender")
         : resolveAgentName(event.agent_id || DEFAULT_AGENT_ID),
-  },
-  createdAt: new Date((event.created_at || Date.now() / 1000) * 1000),
-  read: Boolean(event.read),
-  metadata: {
-    priority:
-      event.severity === "error" || event.status === "error"
-        ? "high"
-        : mapPriority(event.body),
-    sourceType: event.source_type,
-    sourceId: event.source_id,
-    eventType: event.event_type,
-    status: event.status,
-    severity: event.severity,
-    trigger:
-      typeof event.payload?.trigger === "string"
-        ? (event.payload.trigger as string)
-        : undefined,
-    agentId: event.agent_id,
-    payload:
-      event.payload && typeof event.payload === "object"
-        ? event.payload
-        : undefined,
-  },
-});
+    },
+    createdAt: new Date((event.created_at || Date.now() / 1000) * 1000),
+    read: Boolean(event.read),
+    metadata: {
+      priority:
+        event.severity === "error" || event.status === "error"
+          ? "high"
+          : mapPriority(event.body),
+      sourceType: event.source_type,
+      sourceId: event.source_id,
+      eventType: event.event_type,
+      status: event.status,
+      severity: event.severity,
+      trigger:
+        typeof event.payload?.trigger === "string"
+          ? (event.payload.trigger as string)
+          : undefined,
+      agentId: event.agent_id,
+      payload:
+        event.payload && typeof event.payload === "object"
+          ? event.payload
+          : undefined,
+    },
+  };
+};
 
 export const useInboxData = () => {
   const { t } = useTranslation();
@@ -169,33 +254,81 @@ export const useInboxData = () => {
     },
   });
   const [pushMessages, setPushMessages] = useState<PushMessage[]>([]);
+  const [pushMessagesLoading, setPushMessagesLoading] = useState(true);
+  const [pushMessagesError, setPushMessagesError] = useState<Error | null>(
+    null,
+  );
+  const pushMessagesRequestIdRef = useRef(0);
+  const pushMessagesRequestRef = useRef<Promise<void> | null>(null);
   const pushMessagesRef = useRef(pushMessages);
   pushMessagesRef.current = pushMessages;
   const [harvests] = useState<HarvestInstance[]>(MOCK_HARVESTS);
 
-  const loadPushMessages = useCallback(async () => {
-    try {
-      const res = await api.getInboxEvents({
-        limit: INBOX_EVENT_QUERY_LIMIT,
-        source_types: [...PUSH_MESSAGE_SOURCES],
-      });
-      const events = [...(res?.events || [])].filter(isPushMessageEvent);
-      events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-      const nextItems: PushMessage[] = events.map((event) =>
-        mapEventToPushMessage(event, resolveAgentNameRef.current, tRef.current),
-      );
-      setPushMessages(nextItems);
-      setSummary((prev) => ({
-        ...prev,
-        pushMessages: {
-          total: res?.total ?? nextItems.length,
-          unread: res?.unread_count ?? nextItems.filter((m) => !m.read).length,
-        },
-      }));
-    } catch (error) {
-      console.error("Failed to fetch push inbox data", error);
+  const loadPushMessages = useCallback((force = false): Promise<void> => {
+    if (!force && pushMessagesRequestRef.current) {
+      return pushMessagesRequestRef.current;
     }
+    const requestId = ++pushMessagesRequestIdRef.current;
+    const isLatestRequest = () =>
+      pushMessagesRequestIdRef.current === requestId;
+    setPushMessagesLoading(true);
+    const request = (async () => {
+      try {
+        const res = await api.getInboxEvents({
+          limit: INBOX_EVENT_QUERY_LIMIT,
+          source_types: [...PUSH_MESSAGE_SOURCES],
+        });
+        const events = [...(res?.events || [])].filter(
+          (event) =>
+            isPushMessageEvent(event) &&
+            // Pending-approval mail events are handled in the mail access
+            // control drawer; keep them out of the push message list.
+            (event.payload as Record<string, unknown> | undefined)
+              ?.acl_status !== "pending",
+        );
+        events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        const nextItems: PushMessage[] = events.map((event) =>
+          mapEventToPushMessage(
+            event,
+            resolveAgentNameRef.current,
+            tRef.current,
+          ),
+        );
+        if (!isLatestRequest()) return;
+        setPushMessages(nextItems);
+        setSummary((prev) => ({
+          ...prev,
+          pushMessages: {
+            total: res?.total ?? nextItems.length,
+            unread:
+              res?.unread_count ?? nextItems.filter((m) => !m.read).length,
+          },
+        }));
+        setPushMessagesError(null);
+      } catch (error) {
+        if (!isLatestRequest()) return;
+        console.error("Failed to fetch push inbox data", error);
+        setPushMessagesError(
+          error instanceof Error
+            ? error
+            : new Error("Failed to fetch push inbox data"),
+        );
+      } finally {
+        if (isLatestRequest()) setPushMessagesLoading(false);
+      }
+    })();
+    pushMessagesRequestRef.current = request;
+    return request.finally(() => {
+      if (pushMessagesRequestRef.current === request) {
+        pushMessagesRequestRef.current = null;
+      }
+    });
   }, []);
+
+  const refreshPushMessages = useCallback(
+    () => loadPushMessages(true),
+    [loadPushMessages],
+  );
 
   useEffect(() => {
     void loadPushMessages();
@@ -256,9 +389,8 @@ export const useInboxData = () => {
     const unreadIds = pushMessagesRef.current
       .filter((message) => !message.read)
       .map((m) => m.id);
-    if (!unreadIds.length) {
-      return 0;
-    }
+    // Always call the backend — there may be unread events hidden from the
+    // local list (e.g. ACL pending notifications filtered client-side).
     await api.markInboxRead({ all: true });
     setPushMessages((prev) =>
       prev.map((message) =>
@@ -320,12 +452,14 @@ export const useInboxData = () => {
   return {
     summary,
     pushMessages,
+    pushMessagesLoading,
+    pushMessagesError,
     harvests,
     markMessageAsRead,
     markAllMessagesAsRead,
     deleteMessage,
     deleteMessages,
     triggerHarvest,
-    refreshPushMessages: loadPushMessages,
+    refreshPushMessages,
   };
 };

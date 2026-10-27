@@ -23,7 +23,7 @@ def _capability(pipe: str) -> RuntimeCapability:
     return RuntimeCapability(
         _pipe_name=pipe,
         _secret="secret",
-        protocol_version=1,
+        protocol_version=runtime_module.COMPUTER_USE_PROTOCOL_VERSION,
     )
 
 
@@ -105,7 +105,10 @@ def test_a_spent_environment_capability_stops_being_returned(
     """
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_PIPE", "pipe-from-env")
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CAPABILITY", "secret")
-    monkeypatch.setenv("QWENPAW_COMPUTER_USE_PROTOCOL", "1")
+    monkeypatch.setenv(
+        "QWENPAW_COMPUTER_USE_PROTOCOL",
+        str(runtime_module.COMPUTER_USE_PROTOCOL_VERSION),
+    )
 
     injected = HostRuntimeProvider.get_capability()
     assert injected is not None
@@ -132,7 +135,10 @@ def test_an_incompatible_desktop_capability_is_not_exposed(
 ) -> None:
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_PIPE", "pipe-old")
     monkeypatch.setenv("QWENPAW_COMPUTER_USE_CAPABILITY", "secret")
-    monkeypatch.setenv("QWENPAW_COMPUTER_USE_PROTOCOL", "2")
+    monkeypatch.setenv(
+        "QWENPAW_COMPUTER_USE_PROTOCOL",
+        str(runtime_module.COMPUTER_USE_PROTOCOL_VERSION + 1),
+    )
 
     assert HostRuntimeProvider.get_capability() is None
 

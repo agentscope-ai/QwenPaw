@@ -1,6 +1,11 @@
 import { create } from "zustand";
 
-import { dispatchWorkGraphNode, getWorkGraph } from "@/api/creator/workGraph";
+import { CreatorHttpError } from "@/api/creator/client";
+import {
+  dispatchWorkGraphNode,
+  getWorkGraph,
+  resumeWorkGraph,
+} from "@/api/creator/workGraph";
 import type { WorkGraphView } from "@/contracts/creator/workGraph";
 
 interface WorkGraphState {
@@ -9,8 +14,10 @@ interface WorkGraphState {
   loading: boolean;
   error: string | null;
   dispatching: Record<string, boolean>;
+  resuming: boolean;
   refresh: (projectId: string) => Promise<void>;
   dispatchNode: (projectId: string, nodeId: string) => Promise<void>;
+  resume: (projectId: string, revision: number) => Promise<void>;
   reset: () => void;
 }
 
@@ -18,6 +25,9 @@ interface WorkGraphState {
 // snapshot must never replace a newer one (same latest-wins discipline as
 // creatorTaskViewStore).
 let refreshGeneration = 0;
+// A dispatch can outlive navigation, including leaving and reopening the same
+// project. Ordinary refreshes within a project must not invalidate it.
+let projectGeneration = 0;
 
 export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
   projectId: null,
@@ -25,8 +35,10 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
   loading: false,
   error: null,
   dispatching: {},
+  resuming: false,
   refresh: async (projectId) => {
     const generation = ++refreshGeneration;
+    if (get().projectId !== projectId) projectGeneration += 1;
     set((state) =>
       state.projectId === projectId
         ? { loading: true }
@@ -36,6 +48,7 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
             loading: true,
             error: null,
             dispatching: {},
+            resuming: false,
           },
     );
     try {
@@ -51,26 +64,65 @@ export const useWorkGraphStore = create<WorkGraphState>((set, get) => ({
     }
   },
   dispatchNode: async (projectId, nodeId) => {
+    if (get().projectId !== projectId || get().dispatching[nodeId]) return;
+    const generation = projectGeneration;
+    const isCurrent = () =>
+      generation === projectGeneration && get().projectId === projectId;
     set((state) => ({
       dispatching: { ...state.dispatching, [nodeId]: true },
     }));
     try {
       await dispatchWorkGraphNode(projectId, nodeId);
+    } catch (error) {
+      // Do not surface an obsolete project's failure in the current workspace.
+      if (isCurrent()) throw error;
     } finally {
-      set((state) => {
-        const next = { ...state.dispatching };
-        delete next[nodeId];
-        return { dispatching: next };
-      });
-      void get().refresh(projectId);
+      if (isCurrent()) {
+        set((state) => {
+          const next = { ...state.dispatching };
+          delete next[nodeId];
+          return { dispatching: next };
+        });
+        void get().refresh(projectId);
+      }
     }
   },
-  reset: () =>
+  resume: async (projectId, revision) => {
+    if (
+      get().projectId !== projectId ||
+      get().resuming ||
+      !get().graph?.manualHold?.nodeIds.length
+    )
+      return;
+    const generation = projectGeneration;
+    const isCurrent = () =>
+      generation === projectGeneration && get().projectId === projectId;
+    set({ resuming: true });
+    try {
+      // Never substitute a newer revision for the one the user confirmed.
+      await resumeWorkGraph(projectId, revision);
+      if (isCurrent()) await get().refresh(projectId);
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (error instanceof CreatorHttpError && error.status === 409) {
+        await get().refresh(projectId);
+      }
+      if (isCurrent()) throw error;
+    } finally {
+      // Only a graph response may clear the hold, never an optimistic update.
+      if (isCurrent()) set({ resuming: false });
+    }
+  },
+  reset: () => {
+    refreshGeneration += 1;
+    projectGeneration += 1;
     set({
       projectId: null,
       graph: null,
       loading: false,
       error: null,
       dispatching: {},
-    }),
+      resuming: false,
+    });
+  },
 }));

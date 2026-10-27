@@ -51,6 +51,7 @@ class QwenPawDriverApprovalGate:
             )
 
         from . import get_approval_service
+        from ...config.context import get_f1_reasoning
 
         svc = get_approval_service()
         tool_call_id = str(ctx.get("tool_call_id") or "")
@@ -96,6 +97,7 @@ class QwenPawDriverApprovalGate:
                 },
                 "channel_meta": ctx.get("channel_meta"),
                 "_channel_instance": ctx.get("_channel_instance"),
+                "reasoning": get_f1_reasoning(session_id),
                 **(
                     {
                         "_spawn_subagent": True,
@@ -106,7 +108,7 @@ class QwenPawDriverApprovalGate:
             },
         )
         decision = await svc.wait_for_approval(
-            pending.request_id,
+            pending,
             TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         )
         if decision == ApprovalDecision.APPROVED:

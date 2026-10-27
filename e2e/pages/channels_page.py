@@ -46,7 +46,9 @@ class ChannelsPage(BasePage):
     # `[class*=availableItem]` would match one tile three times. The tile
     # container is a <div>; the name/action are <span>. Anchor on
     # `div[class*=availableItem]` to count each tile exactly once.
-    PAGE_LOAD_INDICATOR = '[class*=channelCard], div[class*=availableItem]'
+    PAGE_LOAD_INDICATOR = (
+        '[class*=channelCard], button[class*=availableItem]'
+    )
 
     # Filter buttons (UI text is Chinese; use button[class*=filterTab] to match the button rather than the parent container)
     FILTER_ALL_BTN = 'button[class*=filterTab]:has-text("全部"), button:has-text("All")'
@@ -60,9 +62,12 @@ class ChannelsPage(BasePage):
     # `find_channel_card` / `get_channel_card_count` operate on the union.
     # `div[class*=availableItem]` (not the bare substring) avoids triple
     # matching on the item's name/action spans.
-    CHANNEL_CARD = '[class*=channelCard], div[class*=availableItem]'
-    CHANNEL_CARD_ENABLED = '[class*=channelCard][class*=enabled]'
-    CHANNEL_CARD_DISABLED = 'div[class*=availableItem]'
+    CHANNEL_CARD = (
+        'div.qwenpaw-card[class*=channelCard], '
+        'button[class*=availableItem]'
+    )
+    CHANNEL_CARD_ENABLED = 'div.qwenpaw-card[class*=channelCard]'
+    CHANNEL_CARD_DISABLED = 'button[class*=availableItem]'
 
     # Channel card content
     CHANNEL_ICON = '[class*=channelCard] [class*=icon]'
@@ -74,9 +79,9 @@ class ChannelsPage(BasePage):
     CHANNEL_BOT_PREFIX = '[class*=channelCard] [class*=botPrefix]'
 
     # Edit drawer (match only the visible drawer to avoid strict mode violations)
-    CHANNEL_DRAWER = '.qwenpaw-drawer:visible, .ant-drawer:visible'
-    DRAWER_TITLE = '.qwenpaw-drawer-title, .ant-drawer-title'
-    DRAWER_CLOSE_BTN = '.qwenpaw-drawer-close, .ant-drawer-close'
+    CHANNEL_DRAWER = '[role="dialog"]:visible'
+    DRAWER_TITLE = '[role="dialog"] .qwenpaw-modal-title'
+    DRAWER_CLOSE_BTN = '[role="dialog"] .qwenpaw-modal-close'
 
     # Form fields
     FORM_ITEM = '.ant-form-item, .qwenpaw-form-item'
@@ -321,7 +326,9 @@ class ChannelsPage(BasePage):
         timeout = timeout or self.timeout
         logger.info("Waiting for drawer to open")
         try:
-            self.page.locator('.qwenpaw-drawer, .ant-drawer').first.wait_for(state="visible", timeout=timeout)
+            self.page.locator(self.CHANNEL_DRAWER).first.wait_for(
+                state="visible", timeout=timeout
+            )
             return True
         except Exception:
             return False
@@ -374,7 +381,7 @@ class ChannelsPage(BasePage):
         """
         logger.info(f"Toggling enable to: {enable}")
         # Locate the switch inside the drawer
-        drawer = self.page.locator('.qwenpaw-drawer, .ant-drawer')
+        drawer = self.page.locator(self.CHANNEL_DRAWER)
         switch = drawer.locator('.qwenpaw-switch, .ant-switch').first
 
         # Read the current state
@@ -407,24 +414,9 @@ class ChannelsPage(BasePage):
         return self
 
     def save_channel_config(self) -> "ChannelsPage":
-        """Save the channel configuration (the drawer does not close automatically after saving)."""
-        logger.info("Saving channel configuration")
-        submit_btn = self.page.locator(self.FORM_SUBMIT_BTN).first
-        # Wait for the save API request to complete via expect_response
-        try:
-            with self.page.expect_response(
-                lambda resp: '/api/config/channel' in resp.url and resp.request.method in ('PUT', 'POST', 'PATCH'),
-                timeout=10000
-            ) as response_info:
-                submit_btn.click()
-            response = response_info.value
-            logger.info(f"Save API response: status={response.status}")
-            if not response.ok:
-                logger.warning(f"Save API returned non-OK status: {response.status}")
-        except Exception:
-            # No save API response observed — likely blocked by client-side validation
-            logger.warning("Save API response not captured; possible client-side validation error")
-            self.page.wait_for_timeout(2000)
+        """Wait for the redesigned editor's debounced auto-save."""
+        logger.info("Waiting for channel configuration auto-save")
+        self.page.wait_for_timeout(1500)
         return self
 
     def has_form_validation_errors(self) -> bool:
@@ -439,9 +431,9 @@ class ChannelsPage(BasePage):
         return count > 0
 
     def cancel_channel_config(self) -> "ChannelsPage":
-        """Cancel the channel configuration."""
-        logger.info("Canceling channel configuration")
-        self.page.locator(self.FORM_CANCEL_BTN).first.click()
+        """Close the auto-saving channel editor."""
+        logger.info("Closing channel configuration")
+        self.close_drawer()
         self.wait_for_drawer_close()
         return self
 

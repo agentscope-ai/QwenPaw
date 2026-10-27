@@ -135,14 +135,17 @@ export function useDebugLogs() {
 
   // ── Copy to clipboard ──────────────────────────────────────────────────
 
-  const handleCopyBackend = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(filteredBackendText);
-      messageApi.success(t("common.copied"));
-    } catch {
-      messageApi.error(t("common.copyFailed"));
-    }
-  }, [filteredBackendText, t, messageApi]);
+  const handleCopyBackend = useCallback(
+    async (text = filteredBackendText) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        messageApi.success(t("common.copied"));
+      } catch {
+        messageApi.error(t("common.copyFailed"));
+      }
+    },
+    [filteredBackendText, t, messageApi],
+  );
 
   return {
     backendLogs,

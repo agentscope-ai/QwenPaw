@@ -2,12 +2,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import AssetMediaPreview from "@/components/assets/AssetMediaPreview";
 
-/**
- * Audio assets have no visual frame: a ready track must render as a waveform
- * silhouette instead of the blank "暂无预览" placeholder, while unready audio
- * keeps reporting its ingest state.
- */
-
 describe("AssetMediaPreview audio waveform", () => {
   it("renders a waveform for ready audio instead of a blank placeholder", () => {
     const { container } = render(

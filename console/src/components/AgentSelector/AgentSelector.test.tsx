@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import AgentSelector from "./index";
@@ -102,6 +102,41 @@ describe("AgentSelector", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
+  it("switches agents from the collapsed menu and closes it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector collapsed />);
+    const trigger = screen.getByRole("button", { name: "agent.selectAgent" });
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await user.click(await screen.findByRole("option", { name: /Agent One/ }));
+
+    expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("prevents selecting disabled agents and dismisses with Escape", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector collapsed />);
+    const trigger = screen.getByRole("button", { name: "agent.selectAgent" });
+    await user.click(trigger);
+
+    await user.click(
+      screen.getByRole("button", { name: "agent.disabledAgents" }),
+    );
+    const disabled = await screen.findByText("Agent Two");
+    await user.click(disabled);
+    expect(mocks.setSelectedAgent).not.toHaveBeenCalled();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    screen.getByRole("option", { name: /Agent One/ }).focus();
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+  });
+
   it("shows disabled agents only after expanding the footer", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AgentSelector />);
@@ -117,6 +152,50 @@ describe("AgentSelector", () => {
 
     expect(disabledHeader).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Agent Two")).toBeInTheDocument();
+  });
+
+  it("keeps the popup class and selection behavior", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector />);
+    const selector = screen.getByRole("combobox");
+
+    await user.click(selector);
+
+    const popup = document.querySelector<HTMLElement>(
+      '[class*="agentSelectorDropdown"]',
+    );
+    expect(popup).toBeInTheDocument();
+
+    await user.click(screen.getByText("Agent One"));
+
+    expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
+  });
+
+  it("closes with Escape, restores focus, and supports compact mode", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector compact />);
+    const selector = screen.getByRole("combobox");
+
+    expect(
+      screen.queryByText("agent.currentWorkspace"),
+    ).not.toBeInTheDocument();
+
+    await user.click(selector);
+    expect(
+      document.querySelector('[class*="agentSelectorDropdown"]'),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(selector, {
+      key: "Escape",
+      code: "Escape",
+      keyCode: 27,
+      which: 27,
+    });
+
+    await waitFor(() =>
+      expect(selector).toHaveAttribute("aria-expanded", "false"),
+    );
+    expect(selector).toHaveFocus();
   });
 
   it("does not expose app-managed execution profiles in Chat", async () => {

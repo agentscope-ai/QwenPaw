@@ -10,6 +10,7 @@ export function useProviders() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const { selectedAgent } = useAgentStore();
 
   const fetchAll = useCallback(async (showLoading = true) => {
@@ -17,18 +18,34 @@ export function useProviders() {
       setLoading(true);
     }
     setError(null);
+    setWarning(null);
     try {
-      const [provData, activeData] = await Promise.all([
+      const [providerResult, activeResult] = await Promise.allSettled([
         api.listProviders(),
         api.getActiveModels({ scope: "global" }),
       ]);
+      if (providerResult.status === "rejected") throw providerResult.reason;
+      const provData = providerResult.value;
       if (!Array.isArray(provData)) {
         throw new Error(
           "Unexpected API response. Is VITE_API_BASE_URL configured correctly?",
         );
       }
       setProviders(provData);
-      if (activeData) setActiveModels(activeData);
+      setActiveModels(
+        activeResult.status === "fulfilled" ? activeResult.value : null,
+      );
+      const hubError = provData.find(
+        (provider) => provider.id === "hub-managed",
+      )?.models_last_sync_error;
+      setWarning(
+        hubError ||
+          (activeResult.status === "rejected"
+            ? activeResult.reason instanceof Error
+              ? activeResult.reason.message
+              : "Failed to load active model"
+            : null),
+      );
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load provider data";
@@ -62,6 +79,7 @@ export function useProviders() {
     activeModels,
     loading,
     error,
+    warning,
     fetchAll,
   };
 }

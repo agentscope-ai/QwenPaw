@@ -7,12 +7,12 @@
  * theme (ThemeContext.isDark), so switching the theme restyles the whole
  * shell. Wallpaper-layer pieces (desktop icons, watermark, boot splash)
  * stay constant — they sit on the user-chosen wallpaper, not on a themed
- * surface. Single brand-orange accent (#FF7F16).
+ * surface. Chrome uses the shared project accent token.
  */
 import { createStyles } from "antd-style";
 import { useTheme } from "../contexts/ThemeContext";
 
-export const ACCENT = "#FF7F16";
+export const ACCENT = "var(--app-accent)";
 /** Legacy bottom-bar height, kept for existing imports. */
 export const TASKBAR_H = 56;
 /** macOS-style top menu bar height. */
@@ -293,14 +293,14 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     &:focus-visible {
       box-shadow:
         ${p.shadowWindow},
-        0 0 0 2px rgba(255, 127, 22, 0.74);
+        0 0 0 2px color-mix(in srgb, var(--app-accent) 74%, transparent);
     }
   `,
   windowActive: css`
     border-color: rgba(255, 255, 255, 0.24);
     box-shadow:
       ${p.shadowWindow},
-      0 0 0 1px rgba(255, 127, 22, 0.12);
+      0 0 0 1px var(--app-accent-soft);
   `,
   header: css`
     height: 40px;
@@ -536,7 +536,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
       border-color: rgba(255, 255, 255, 0.36);
       box-shadow:
         0 8px 28px rgba(0, 0, 0, 0.14),
-        0 0 0 3px rgba(255, 127, 22, 0.18);
+        0 0 0 3px var(--app-accent-ring);
     }
   `,
   launcherGrid: css`
@@ -681,7 +681,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     border: 1px solid ${p.border};
     transition: border-color 0.15s ease;
     &:hover {
-      border-color: rgba(255, 127, 22, 0.35);
+      border-color: var(--app-accent-border);
     }
   `,
   storeCardTop: css`
@@ -731,7 +731,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     border-color: ${ACCENT};
     color: ${ACCENT};
     &:hover {
-      background: rgba(255, 127, 22, 0.14);
+      background: var(--app-accent-soft);
     }
   `,
   storeSectionTitle: css`
@@ -786,7 +786,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     }
   `,
   storeChipActive: css`
-    background: rgba(255, 127, 22, 0.16);
+    background: var(--app-accent-soft);
     border-color: ${ACCENT};
     color: ${p.hoverText};
   `,
@@ -904,7 +904,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   `,
   mcSpaceActive: css`
     border-color: ${ACCENT};
-    background: rgba(255, 127, 22, 0.1);
+    background: var(--app-accent-soft);
   `,
   mcSpaceAdd: css`
     width: 56px;
@@ -987,6 +987,11 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     &[data-active="false"] {
       opacity: 0.86;
     }
+    @media (max-width: 600px) {
+      height: 52px;
+      flex-basis: 52px;
+      padding: 0 4px;
+    }
   `,
   lights: css`
     display: flex;
@@ -994,6 +999,11 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     gap: 2px;
     width: 76px;
     height: 40px;
+    @media (max-width: 600px) {
+      width: 132px;
+      height: 52px;
+      gap: 0;
+    }
   `,
   light: css`
     position: relative;
@@ -1033,6 +1043,10 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     &:disabled {
       cursor: default;
       opacity: 0.55;
+    }
+    @media (max-width: 600px) {
+      width: 44px;
+      height: 44px;
     }
   `,
   lightClose: css`
@@ -1214,7 +1228,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   dockDropActive: css`
     border-color: ${ACCENT};
     box-shadow:
-      0 0 0 3px rgba(255, 127, 22, 0.22),
+      0 0 0 3px var(--app-accent-ring),
       ${p.shadowFloat};
   `,
   dockItem: css`
@@ -1634,6 +1648,10 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   settingsRoot: css`
     display: flex;
     height: 100%;
+    min-width: 0;
+    @media (max-width: 600px) {
+      flex-direction: column;
+    }
   `,
   settingsSidebar: css`
     flex: 0 0 220px;
@@ -1642,6 +1660,21 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     padding: 10px;
     border-right: 1px solid ${p.border};
     background: ${p.sideBg};
+    @media (max-width: 600px) {
+      width: 100%;
+      flex: 0 0 auto;
+      display: flex;
+      gap: 4px;
+      padding: 6px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-right: 0;
+      border-bottom: 1px solid ${p.border};
+      scrollbar-width: none;
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
   `,
   settingsNavItem: css`
     display: flex;
@@ -1653,19 +1686,47 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     color: ${p.textSecondary};
     font-size: 13px;
     margin-bottom: 2px;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    text-align: left;
     transition: background 0.12s ease;
     &:hover {
       background: ${p.subtleBg};
     }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px ${ACCENT};
+      outline: none;
+    }
+    @media (max-width: 600px) {
+      min-width: 44px;
+      min-height: 44px;
+      flex: 0 0 auto;
+      margin-bottom: 0;
+      white-space: nowrap;
+    }
   `,
   settingsNavActive: css`
-    background: rgba(255, 127, 22, 0.16);
+    background: var(--app-accent-soft);
     color: ${p.hoverText};
   `,
   settingsPane: css`
     flex: 1;
+    min-width: 0;
+    min-height: 0;
     overflow: auto;
     position: relative;
+    @media (max-width: 600px) {
+      .qwenpaw-btn {
+        min-height: 44px;
+      }
+      .qwenpaw-btn-icon-only {
+        min-width: 44px;
+      }
+      .qwenpaw-select-selector {
+        min-height: 44px !important;
+      }
+    }
   `,
   // ── Boot / power-on splash ────────────────────────────────────────
   boot: css`
@@ -1745,7 +1806,7 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   bootBarFill: css`
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, ${ACCENT}, #ffb066);
+    background: linear-gradient(90deg, ${ACCENT}, var(--app-accent-hover));
     transition: width 0.12s linear;
   `,
   bootHint: css`
@@ -1948,13 +2009,13 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   `,
   spaceChipActive: css`
     border-color: ${ACCENT};
-    background: rgba(255, 127, 22, 0.14);
+    background: var(--app-accent-soft);
   `,
   snapPreview: css`
     position: absolute;
     z-index: 9;
     border-radius: ${RADIUS_WINDOW}px;
-    background: rgba(255, 127, 22, 0.18);
+    background: var(--app-accent-ring);
     border: 2px solid ${ACCENT};
     pointer-events: none;
     transition:

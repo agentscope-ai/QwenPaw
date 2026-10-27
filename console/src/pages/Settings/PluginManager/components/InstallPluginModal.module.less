@@ -5,7 +5,7 @@
   justify-content: center;
   gap: 6px;
   padding: 36px 24px;
-  border: 1.5px dashed var(--ant-color-border);
+  border: 1.5px dashed var(--app-border-strong);
   border-radius: 10px;
   cursor: pointer;
   transition:
@@ -14,26 +14,26 @@
   user-select: none;
 
   &:hover {
-    border-color: var(--ant-color-primary);
-    background: var(--ant-color-primary-bg);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
 
     .dropIcon {
-      color: var(--ant-color-primary);
+      color: var(--app-accent);
     }
   }
 }
 
 .dropZoneActive {
-  border-color: var(--ant-color-primary);
-  background: var(--ant-color-primary-bg);
+  border-color: var(--app-accent);
+  background: var(--app-accent-soft);
 
   .dropIcon {
-    color: var(--ant-color-primary);
+    color: var(--app-accent);
   }
 }
 
 .dropIcon {
-  color: var(--ant-color-text-quaternary);
+  color: var(--app-text-quaternary);
   transition: color 0.2s ease;
   margin-bottom: 4px;
 }
@@ -41,7 +41,7 @@
 .dropPrimary {
   font-size: 14px;
   font-weight: 500;
-  color: var(--ant-color-text);
+  color: var(--app-text);
 }
 
 .dropSecondary {
@@ -53,10 +53,10 @@
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px solid var(--ant-color-border);
+  border: 1px solid var(--app-border-strong);
   border-radius: 8px;
-  background: var(--ant-color-fill-quaternary);
-  color: var(--ant-color-text);
+  background: var(--app-fill-faint);
+  color: var(--app-text);
 }
 
 .selectionName {

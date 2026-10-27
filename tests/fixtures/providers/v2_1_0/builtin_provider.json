@@ -1,0 +1,66 @@
+{
+  "id": "openai",
+  "name": "OpenAI",
+  "base_url": "https://api.openai.com/v1",
+  "api_key": "",
+  "chat_model": "OpenAIChatModel",
+  "models": [
+    {
+      "id": "legacy-default",
+      "name": "Legacy Default",
+      "supports_multimodal": false,
+      "supports_image": false,
+      "supports_video": false,
+      "is_free": false,
+      "max_tokens": 8192,
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {
+        "temperature": 0.1
+      },
+      "relay_reasoning": true
+    },
+    {
+      "id": "legacy-configured",
+      "name": "Legacy Configured",
+      "supports_multimodal": false,
+      "supports_image": false,
+      "supports_video": false,
+      "is_free": false,
+      "max_tokens": 4096,
+      "max_input_length": 65536,
+      "max_input_length_configured": true,
+      "generate_kwargs": {
+        "temperature": 0.2
+      },
+      "relay_reasoning": true
+    },
+    {
+      "id": "legacy-explicit-kwargs",
+      "name": "Legacy Explicit Kwargs",
+      "supports_multimodal": false,
+      "supports_image": true,
+      "supports_video": false,
+      "is_free": false,
+      "max_tokens": 4096,
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {
+        "max_tokens": 2048,
+        "temperature": 0.3
+      },
+      "relay_reasoning": false
+    }
+  ],
+  "extra_models": [],
+  "generate_kwargs": {
+    "top_p": 0.9
+  },
+  "custom_headers": {
+    "X-Legacy": "kept"
+  },
+  "is_custom": false,
+  "meta": {
+    "fixture_version": "v2.1.0"
+  }
+}

@@ -92,15 +92,21 @@ def classify_mcp_binding(
 def split_mcp_binding(
     section: str,
     values: dict[str, str],
+    *,
+    force_secret: bool = False,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Split env/header maps into public literals and secret values."""
     public: dict[str, str] = {}
     secrets: dict[str, str] = {}
     for key, value in dict(values or {}).items():
-        target = classify_mcp_binding(
-            section=section,
-            key=str(key),
-            value=str(value),
+        target = (
+            "secret"
+            if force_secret
+            else classify_mcp_binding(
+                section=section,
+                key=str(key),
+                value=str(value),
+            )
         )
         if target == "public":
             public[str(key)] = str(value)

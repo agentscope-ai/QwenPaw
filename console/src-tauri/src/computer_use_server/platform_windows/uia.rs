@@ -15,8 +15,9 @@ use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 use super::super::state::{
     accessibility_revision, element_line, truncate_document_text, Observation, PendingAction,
-    WindowInfo, ACCESSIBILITY_MAX_ELEMENTS, DOC_TEXT_MAX,
+    ACCESSIBILITY_MAX_ELEMENTS, DOC_TEXT_MAX,
 };
+use super::window::observation_windows;
 
 const ACCESSIBILITY_MAX_DEPTH: usize = 40;
 
@@ -140,7 +141,7 @@ pub(crate) fn focused_text_input(
             "The observed window has no focused text input.".to_string(),
         )
     })?;
-    if !element_belongs_to_window(&element, observation.window.hwnd) {
+    if !element_belongs_to_window(&element, observation.input_hwnd) {
         return Err((
             "stale_observation",
             "Keyboard focus no longer belongs to the observed window.".to_string(),
@@ -194,13 +195,13 @@ fn text_replacement_observed(before: &str, after: &str, text: &str) -> bool {
 }
 
 pub(crate) fn collect_accessibility(
-    window: &WindowInfo,
+    input_hwnd: isize,
 ) -> Result<(Value, HashMap<String, IUIAutomationElement>), String> {
     let automation: IUIAutomation = unsafe {
         CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
             .map_err(|error| format!("UI Automation is unavailable: {error}"))?
     };
-    let root = unsafe { automation.ElementFromHandle(HWND(window.hwnd as _)) }
+    let root = unsafe { automation.ElementFromHandle(HWND(input_hwnd as _)) }
         .map_err(|error| format!("UI Automation could not inspect the window: {error}"))?;
     let walker = unsafe { automation.ControlViewWalker() }
         .map_err(|error| format!("UI Automation tree is unavailable: {error}"))?;
@@ -208,12 +209,12 @@ pub(crate) fn collect_accessibility(
         .map_err(|error| format!("UI Automation raw tree is unavailable: {error}"))?;
     let focused_target = unsafe { automation.GetFocusedElement() }
         .ok()
-        .filter(|element| element_belongs_to_window_with(&raw_walker, element, window.hwnd));
+        .filter(|element| element_belongs_to_window_with(&raw_walker, element, input_hwnd));
     let mut collector = AccessibilityCollector::new(&automation, &walker, focused_target.clone());
     collector.collect(root, 0);
     if collector.focused.is_none() {
         if let Some(element) = focused_target {
-            let depth = element_depth_with(&raw_walker, &element, window.hwnd);
+            let depth = element_depth_with(&raw_walker, &element, input_hwnd);
             collector.publish(element, depth, true);
         }
     }
@@ -526,7 +527,7 @@ fn accessibility_element<'a>(
         "element_not_found",
         "Element is not available in this observation.".to_string(),
     ))?;
-    if !element_belongs_to_window(element, observation.window.hwnd) {
+    if !element_belongs_to_window(element, observation.input_hwnd) {
         return Err((
             "stale_observation",
             "The element is no longer part of the observed window; observe it again.".to_string(),
@@ -552,7 +553,14 @@ pub(crate) fn validate_observation(
         "stale_observation",
         "The observation had no accessibility revision; observe the window again.".to_string(),
     ))?;
-    let (current, _) = collect_accessibility(&observation.window).map_err(|error| {
+    let current_input = observation_windows(&observation.window).input_hwnd;
+    if current_input != observation.input_hwnd {
+        return Err((
+            "stale_observation",
+            "The active interface surface changed; observe the window again.".to_string(),
+        ));
+    }
+    let (current, _) = collect_accessibility(current_input).map_err(|error| {
         (
             "stale_observation",
             format!("The observed accessibility surface is unavailable: {error}"),

@@ -15,6 +15,8 @@ const DOC_SLUGS = [
   "intro",
   "quickstart",
   "console",
+  "import",
+  "mailbox",
   "channels",
   "skills",
   "memory",
@@ -32,6 +34,9 @@ const DOC_SLUGS = [
 async function main() {
   const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
   const BLOG_SLUGS = [
+    "qwenpaw-pawport",
+    "qwenpaw-mailbox",
+    "creator-install-guide",
     "qwenpaw-long-term-memory",
     "qwenpaw-files-workspace",
     "qwenpaw-os-shell",
@@ -46,6 +51,7 @@ async function main() {
   ];
   const paths = [
     "docs",
+    "usage-policy",
     "docs/search",
     ...DOC_SLUGS.map((s) => `docs/${s}`),
     "blog",

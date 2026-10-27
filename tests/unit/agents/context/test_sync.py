@@ -1059,3 +1059,119 @@ def test_blocked_registry_does_not_quarantine_corrupt_history(
 
     assert db_path.read_bytes() == original
     assert not list(workspace.glob("history.db.corrupt-*"))
+
+
+def test_invalid_history_path_does_not_block_other_agents(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    invalid_workspace = tmp_path / "invalid"
+    valid_workspace = tmp_path / "valid"
+    _write_session_2x(
+        invalid_workspace / "sessions",
+        "bad.json",
+        "bad-session",
+        _sample_msgs(),
+    )
+    _write_session_2x(
+        valid_workspace / "sessions",
+        "good-session.json",
+        "good-session",
+        _sample_msgs(),
+    )
+
+    _write_chats(
+        valid_workspace / "chats.json",
+        [_chat("good-session")],
+    )
+
+    profiles = {
+        "invalid": SimpleNamespace(workspace_dir=str(invalid_workspace)),
+        "valid": SimpleNamespace(workspace_dir=str(valid_workspace)),
+    }
+    config = SimpleNamespace(agents=SimpleNamespace(profiles=profiles))
+    agent_configs = {
+        "invalid": SimpleNamespace(
+            running=SimpleNamespace(
+                light_context_config=SimpleNamespace(
+                    strategy="scroll",
+                    scroll_config=SimpleNamespace(
+                        db_filename=f"invalid\0.db",
+                        history_retention_days=0,
+                    ),
+                ),
+            ),
+        ),
+        "valid": SimpleNamespace(
+            running=SimpleNamespace(
+                light_context_config=SimpleNamespace(
+                    strategy="scroll",
+                    scroll_config=SimpleNamespace(
+                        db_filename="history.db",
+                        history_retention_days=0,
+                    ),
+                ),
+            ),
+        ),
+    }
+    import qwenpaw.config as cfg
+    import qwenpaw.config.config as cfgcfg
+
+    monkeypatch.setattr(cfg, "load_config", lambda: config, raising=False)
+    monkeypatch.setattr(
+        cfgcfg,
+        "load_agent_config",
+        lambda agent_id: agent_configs[agent_id],
+        raising=False,
+    )
+
+    sync_all_scroll_agents()
+
+    assert not (tmp_path / "outside.db").exists()
+    history = HistoryStore(valid_workspace / "history.db")
+    try:
+        assert history.count("good-session") > 0
+    finally:
+        history.close()
+
+
+def test_startup_retention_runs_without_sessions_directory(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    history = HistoryStore(workspace / "history.db")
+    history.append(
+        session_id="old-session",
+        dedup_key="old",
+        entry=LogEntry(
+            kind="model_turn",
+            content="expired",
+            created_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    history.close()
+    assert not (workspace / "sessions").exists()
+    _stub_config_loaders(monkeypatch, workspace, retention_days=30)
+
+    sync_all_scroll_agents()
+
+    maintained = HistoryStore(workspace / "history.db")
+    try:
+        assert maintained.count("old-session") == 0
+    finally:
+        maintained.close()
+
+
+def test_startup_maintenance_does_not_create_empty_store(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _stub_config_loaders(monkeypatch, workspace, retention_days=30)
+
+    sync_all_scroll_agents()
+
+    assert not (workspace / "history.db").exists()

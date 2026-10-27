@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ....config.context import (
-    get_current_project_dir,
-    get_current_workspace_dir,
+    get_tool_base_dir,
 )
-from ....constant import SECRET_DIR, WORKING_DIR
+from ....constant import SECRET_DIR
+from ....utils.shell_normalization import normalize_posix_line_continuations
 from ..models import GuardFinding, GuardSeverity, GuardThreatCategory
 from . import BaseToolGuardian
 
@@ -78,11 +78,7 @@ _REDIRECT_OPS_BY_LEN = tuple(
 
 def _workspace_root() -> Path:
     """Return the effective project root for resolving relative paths."""
-    return Path(
-        get_current_project_dir()
-        or get_current_workspace_dir()
-        or WORKING_DIR,
-    )
+    return Path(get_tool_base_dir())
 
 
 # Windows path recognition helpers --------------------------------------------
@@ -120,7 +116,10 @@ def _canonicalize_windows_path(raw: str) -> str:
     Uses :mod:`ntpath` so it works on POSIX hosts too (important for tests
     and for mixed environments).
     """
-    expanded = os.path.expanduser(raw) if raw.startswith("~") else raw
+    expanded = os.path.expandvars(raw)
+    expanded = (
+        os.path.expanduser(expanded) if expanded.startswith("~") else expanded
+    )
     if not ntpath.isabs(expanded):
         root = str(_workspace_root())
         expanded = ntpath.join(root, expanded)
@@ -145,7 +144,11 @@ def _normalize_path(raw_path: str) -> str:
     if os.name == "nt" or _is_windows_style_path(raw):
         return _canonicalize_windows_path(raw)
 
-    p = Path(raw).expanduser()
+    # Shell arguments may spell paths through environment variables.  Expand
+    # them before resolving so the guard evaluates the same effective path as
+    # the child process (notably $HOME/.qwenpaw.secret and ${HOME}/...).
+    expanded = os.path.expandvars(raw)
+    p = Path(expanded).expanduser()
     if not p.is_absolute():
         p = _workspace_root() / p
     return str(p.resolve(strict=False))
@@ -258,6 +261,8 @@ def _extract_paths_from_shell_command(command: str) -> list[str]:
     escape characters and dropped from the token stream.
     """
     use_posix = os.name != "nt"
+    if use_posix:
+        command = normalize_posix_line_continuations(command)
     try:
         tokens = shlex.split(command, posix=use_posix)
     except ValueError:

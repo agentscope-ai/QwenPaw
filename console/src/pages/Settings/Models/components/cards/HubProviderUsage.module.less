@@ -1,0 +1,36 @@
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--app-font-caption);
+  color: var(--app-text-secondary);
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: calc(11px * var(--app-font-scale));
+  font-variant-numeric: tabular-nums;
+}
+.amount {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  strong {
+    color: var(--app-text);
+    font-size: calc(22px * var(--app-font-scale));
+    font-weight: 600;
+  }
+  span {
+    font-size: var(--app-font-caption);
+  }
+}
+.warning {
+  color: var(--app-error-text);
+  font-size: calc(11px * var(--app-font-scale));
+}

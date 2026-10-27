@@ -59,3 +59,11 @@ class BadRequestError(CreatorError):
 class StorageIntegrityError(CreatorError):
     status_code = 503
     code = "STORAGE_INTEGRITY_ERROR"
+
+
+class RuntimeBusyError(CreatorError):
+    """A short Runtime transition could not acquire its coordination lock."""
+
+    status_code = 503
+    code = "RUNTIME_LOCK_TIMEOUT"
+    retryable = True

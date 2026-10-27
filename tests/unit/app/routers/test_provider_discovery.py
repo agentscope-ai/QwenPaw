@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 
 from qwenpaw.app.routers.providers import (
@@ -14,6 +14,7 @@ from qwenpaw.app.routers.providers import (
     ProviderConfigRequest,
     TestProviderRequest,
     configure_provider,
+    create_custom_provider_endpoint,
     discover_models,
     test_provider as provider_connection_endpoint,
     test_model as model_test_endpoint,
@@ -40,8 +41,40 @@ def test_custom_provider_request_rejects_unsafe_id(
         CreateCustomProviderRequest(id=provider_id, name="Unsafe")
 
 
+def test_custom_provider_request_rejects_unsupported_protocol() -> None:
+    with pytest.raises(ValidationError):
+        CreateCustomProviderRequest(
+            id="custom-gemini",
+            name="Custom Gemini",
+            chat_model="GeminiChatModel",
+        )
+
+
+async def test_create_custom_provider_passes_api_key_to_manager() -> None:
+    manager = MagicMock()
+    manager.add_custom_provider = AsyncMock(
+        return_value=ProviderInfo(id="custom-openai", name="Custom OpenAI"),
+    )
+
+    manager.get_provider.return_value = None
+    await create_custom_provider_endpoint(
+        background_tasks=BackgroundTasks(),
+        manager=manager,
+        body=CreateCustomProviderRequest(
+            id="custom-openai",
+            name="Custom OpenAI",
+            default_base_url="https://api.example.com/v1",
+            api_key="sk-test",
+        ),
+    )
+
+    provider_info = manager.add_custom_provider.await_args.args[0]
+    assert provider_info.api_key == "sk-test"
+
+
 async def test_configure_provider_schedules_model_discovery() -> None:
     provider = SimpleNamespace(
+        is_custom=False,
         support_model_discovery=True,
         api_key="sk-test",
         require_api_key=True,
@@ -51,7 +84,15 @@ async def test_configure_provider_schedules_model_discovery() -> None:
     manager.update_provider_async = AsyncMock(return_value=True)
     manager.get_provider.return_value = provider
     manager.get_provider_info = AsyncMock(
-        return_value=ProviderInfo(id="openai", name="OpenAI"),
+        return_value=ProviderInfo(
+            id="openai",
+            name="OpenAI",
+            models_syncing=True,
+        ),
+    )
+    prepared_discovery = object()
+    manager.prepare_provider_model_discovery = AsyncMock(
+        return_value=prepared_discovery,
     )
     manager.discover_provider_models = AsyncMock()
     tasks = BackgroundTasks()
@@ -67,20 +108,41 @@ async def test_configure_provider_schedules_model_discovery() -> None:
     manager.update_provider_async.assert_awaited_once_with(
         "openai",
         {
+            "enabled": None,
             "api_key": "sk-test",
             "base_url": None,
             "chat_model": None,
-            "generate_kwargs": {},
+            "generate_kwargs": None,
             "custom_headers": None,
             "auth_mode": None,
         },
     )
     assert len(tasks.tasks) == 1
-    assert provider.models_syncing is False
+    manager.prepare_provider_model_discovery.assert_awaited_once_with(
+        "openai",
+    )
     task = tasks.tasks[0]
     assert task.func == manager.discover_provider_models
     assert task.args == ("openai",)
-    assert task.kwargs == {"save": True}
+    assert task.kwargs == {"prepared_discovery": prepared_discovery}
+    manager.discover_provider_models.assert_not_awaited()
+
+
+async def test_configure_custom_provider_rejects_gemini() -> None:
+    manager = MagicMock()
+    manager.get_provider.return_value = SimpleNamespace(is_custom=True)
+    manager.update_provider_async = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await configure_provider(
+            background_tasks=BackgroundTasks(),
+            manager=manager,
+            provider_id="custom-provider",
+            body=ProviderConfigRequest(chat_model="GeminiChatModel"),
+        )
+
+    assert exc_info.value.status_code == 400
+    manager.update_provider_async.assert_not_awaited()
 
 
 async def test_discover_route_returns_sync_status() -> None:
@@ -148,7 +210,6 @@ async def test_discover_preview_does_not_persist_credentials() -> None:
         "openai",
         {
             "api_key": "preview-key",
-            "base_url": None,
             "chat_model": "AnthropicChatModel",
         },
     )
@@ -200,7 +261,6 @@ async def test_discover_save_persists_protocol_override(
     manager.update_provider_async.assert_awaited_once_with(
         "custom-provider",
         {
-            "api_key": None,
             "base_url": "https://example.test/v1",
             "chat_model": chat_model,
         },
@@ -272,4 +332,38 @@ async def test_connection_preserves_protocol_override(
     assert result.success is True
     provider.model_copy.assert_called_once_with(
         update={"chat_model": chat_model},
+    )
+
+
+async def test_custom_provider_creation_schedules_discovery():
+    provider = SimpleNamespace(
+        support_model_discovery=True,
+        api_key=f"test-key",
+        require_api_key=True,
+    )
+    manager = MagicMock()
+    info = ProviderInfo(id=f"custom", name=f"Custom", models_syncing=True)
+    manager.add_custom_provider = AsyncMock(return_value=info)
+    manager.get_provider.return_value = provider
+    manager.get_provider_info = AsyncMock(return_value=info)
+    manager.prepare_provider_model_discovery = AsyncMock(
+        return_value=(provider, 1, 1),
+    )
+    manager.discover_provider_models = AsyncMock()
+    tasks = BackgroundTasks()
+    result = await create_custom_provider_endpoint(
+        background_tasks=tasks,
+        manager=manager,
+        body=CreateCustomProviderRequest(
+            id=f"custom",
+            name=f"Custom",
+            api_key=f"test-key",
+        ),
+    )
+    assert result.models_syncing
+    assert len(tasks.tasks) == 1
+    await tasks()
+    manager.discover_provider_models.assert_awaited_once_with(
+        f"custom",
+        prepared_discovery=(provider, 1, 1),
     )

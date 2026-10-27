@@ -2,6 +2,7 @@ import { Button, Input, Modal, Select, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   EyeOutlined,
+  MessageOutlined,
   PictureOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
@@ -20,9 +21,9 @@ import {
   SCENARIO_OPTIONS,
   SCENARIO_TERMS,
   CONTENT_TYPE_OPTIONS,
-  chipLabel,
   useProjectLaunch,
 } from "./useProjectLaunch";
+import AttachmentChip from "./AttachmentChip";
 import ModelConfigModal from "./ModelConfigModal";
 
 const { TextArea } = Input;
@@ -54,6 +55,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
     addFiles,
     addUrl,
     removeAttachment,
+    toggleAttachmentScript,
     urlDraft,
     setUrlDraft,
     launching,
@@ -206,7 +208,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
           className={`mt-3 rounded-xl border-2 border-dashed transition-colors ${
             dragOver
               ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
-              : "border-[#B0AEAB]"
+              : "border-[#B0AEAB] dark:border-[var(--color-border-strong)]"
           }`}
           onDragOver={(e) => {
             e.preventDefault();
@@ -231,6 +233,13 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
           <TextArea
             value={projectDescription}
             onChange={(e) => setProjectDescription(e.target.value)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (files.length > 0) {
+                e.preventDefault();
+                addFiles(files, "file");
+              }
+            }}
             autoSize={{ minRows: 5, maxRows: 12 }}
             placeholder={t(SCENARIO_TERMS[scenario].descriptionKey)}
             className="!border-none !bg-transparent !p-4 !text-sm !shadow-none focus:!shadow-none"
@@ -238,28 +247,15 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
 
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-4 pb-2">
-              {attachments.map((att) => {
-                const { tag, name } = chipLabel(att);
-                return (
-                  <span
-                    key={att.id}
-                    className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-1 pl-2 pr-1 text-[11px] text-[var(--color-text-secondary)]"
-                  >
-                    <b className="shrink-0 text-[10px] text-[var(--color-accent)]">
-                      {tag}
-                    </b>
-                    <span className="min-w-0 truncate">{name}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(att.id)}
-                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[var(--color-border)]"
-                      aria-label={t("home.removeAttachment")}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </span>
-                );
-              })}
+              {attachments.map((att) => (
+                <AttachmentChip
+                  key={att.id}
+                  att={att}
+                  onToggleScript={toggleAttachmentScript}
+                  onRemove={removeAttachment}
+                  maxWidthClass="max-w-[220px]"
+                />
+              ))}
             </div>
           )}
 
@@ -276,6 +272,10 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
               </span>
               {missingRequiredModels!.map((type) => {
                 const meta = {
+                  llm: {
+                    label: "LLM",
+                    icon: <MessageOutlined style={{ fontSize: 10 }} />,
+                  },
                   vlm: {
                     label: "VLM",
                     icon: <EyeOutlined style={{ fontSize: 10 }} />,
@@ -292,7 +292,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
                 return (
                   <span
                     key={type}
-                    className="inline-flex items-center gap-1 rounded-full border border-[var(--color-warning)]/40 bg-white/60 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warning)]"
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--color-warning)]/40 bg-white/60 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warning)] dark:bg-white/10"
                   >
                     {meta.icon}
                     {meta.label}

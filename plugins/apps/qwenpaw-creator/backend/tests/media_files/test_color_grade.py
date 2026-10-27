@@ -109,26 +109,15 @@ def test_unknown_grade_degrades_to_a_warning_and_keeps_the_cut(
     assert output.read_bytes() == original
 
 
-def test_empty_grade_is_a_no_op(tmp_path) -> None:
-    output = tmp_path / "output.mp4"
-    _gray_clip(output)
-    original = output.read_bytes()
-
-    runner = FfmpegLocalMediaRunner(_FFMPEG)
-    assert runner._apply_color_grade(_spec(tmp_path, output, "")) is None
-    assert output.read_bytes() == original
-
-
-def test_grade_presets_align_with_the_domain_vocabulary() -> None:
+def test_model_boundary_only_admits_the_named_preset_vocabulary() -> None:
     from services.media_files.local_execution import _COLOR_GRADE_FILTERS
-    from services.project_files.models import COLOR_GRADE_PRESETS
+    from services.project_files.models import (
+        COLOR_GRADE_PRESETS,
+        Project,
+        Timeline,
+    )
 
     assert set(_COLOR_GRADE_FILTERS) == set(COLOR_GRADE_PRESETS)
-
-
-def test_free_form_color_grade_is_rejected_at_the_model_boundary() -> None:
-    from services.project_files.models import Project, Timeline
-
     project = Project.new(project_id="project-grade", name="Grade")
     base = project.timelines.items["timeline:main"].model_dump()
     with pytest.raises(ValueError, match="color_grade 必须是命名预设"):

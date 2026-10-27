@@ -37,6 +37,18 @@ export interface VisualCompactConfig {
   effort: "low" | "medium" | "high";
 }
 
+export interface DecisionCompactConfig {
+  enabled: boolean;
+  drop_threshold: number;
+  preserve_recent_messages: number;
+  preview_chars: number;
+  total_timeout_seconds: number;
+  max_state_tokens: number;
+  max_request_tokens: number;
+  evidence_chars: number;
+  max_concurrency: number;
+}
+
 export interface LightContextConfig {
   strategy: ContextStrategy;
   dialog_path: string;
@@ -44,6 +56,7 @@ export interface LightContextConfig {
   context_compact_config: ContextCompactConfig;
   scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
+  decision_compact_config: DecisionCompactConfig;
   visual_compact_config: VisualCompactConfig;
 }
 
@@ -68,6 +81,7 @@ export interface EmbeddingModelConfig {
   max_cache_size: number;
   max_input_length: number;
   max_batch_size: number;
+  health_check_timeout: number;
 }
 
 export interface ReMeLightMemoryConfig {
@@ -75,29 +89,38 @@ export interface ReMeLightMemoryConfig {
   auto_memory_inbox_push_enabled: boolean;
   auto_dream_inbox_push_enabled: boolean;
   daily_paper_inbox_push_enabled: boolean;
+  auto_fin_inbox_push_enabled: boolean;
   auto_memory_interval: number;
+  auto_memory_include_images: boolean;
+  auto_memory_generate_tags: boolean;
   dream_cron_enabled: boolean;
   dream_cron: string;
   daily_paper_cron_enabled: boolean;
   daily_paper_cron: string;
   daily_paper_use_hf_mirror: boolean;
   daily_paper_topics: string;
+  auto_fin_cron_enabled: boolean;
+  auto_fin_cron: string;
+  auto_fin_topics: string;
+  auto_fin_window_hours: number;
   memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
+  reranker_config: RerankerConfig;
+}
+
+export interface RerankerConfig {
+  enabled: boolean;
+  api_key: string;
+  base_url: string;
+  model_name: string;
+  candidate_multiplier: number;
+  timeout: number;
 }
 
 export interface AutoTitleConfig {
   enabled: boolean;
   timeout_seconds: number;
-}
-
-export interface ADBPGMemoryConfig {
-  rest_base_url: string;
-  rest_api_key: string;
-  memory_isolation: boolean;
-  search_timeout: number;
-  auto_memory_search_config: AutoMemorySearchConfig;
 }
 
 export interface DoomLoopStageConfig {
@@ -189,7 +212,7 @@ export interface AgentsRunningConfig {
   context_manager_backend: string;
   light_context_config: LightContextConfig;
   memory_manager_backend: string;
-  adbpg_memory_config?: ADBPGMemoryConfig | null;
+  memory_backend_configs?: Record<string, Record<string, unknown>>;
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;

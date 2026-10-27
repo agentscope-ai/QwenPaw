@@ -167,8 +167,9 @@ def resolve_auto_denied_rules(
         return tokens
 
     cfg = _load_config_tool_guard()
-    if cfg is not None and cfg.auto_denied_rules:
-        return {r.strip() for r in cfg.auto_denied_rules if r.strip()}
+    configured_rules = getattr(cfg, "auto_denied_rules", None)
+    if configured_rules:
+        return {r.strip() for r in configured_rules if r.strip()}
 
     return set(_DEFAULT_AUTO_DENIED_RULES)
 

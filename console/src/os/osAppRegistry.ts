@@ -22,6 +22,7 @@ import { usePluginApps } from "./usePluginApps";
 import {
   OS_APPS,
   STORE_APP,
+  MARKETPLACE_APP,
   SETTINGS_APP,
   findAppDef,
   buildPluginApps,
@@ -86,7 +87,13 @@ export function useOsApps(): OsAppsResult {
     const catalog = OS_APPS.filter(
       (a) => availableIds.has(a.routeId) && installedSet.has(a.routeId),
     );
-    const apps = [STORE_APP, ...catalog, ...pluginApps, SETTINGS_APP];
+    const apps = [
+      STORE_APP,
+      MARKETPLACE_APP,
+      ...catalog,
+      ...pluginApps,
+      SETTINGS_APP,
+    ];
     return { apps, appById: new Map(apps.map((a) => [a.routeId, a])) };
   }, [routes, installed, pluginApps]);
 }

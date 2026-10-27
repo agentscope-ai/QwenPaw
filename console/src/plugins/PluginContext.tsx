@@ -74,6 +74,7 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     // Re-sync state whenever any plugin registers new capabilities — both
     // the legacy pluginSystem (toolRenderers) and the new registry
     // (routes via shim + direct route.add) notify on change.
@@ -84,18 +85,54 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
       setPluginRoutes(derivePluginRoutes());
     });
 
-    // Load all installed plugins and PawApps (non-fatal: one bad module
-    // won’t block others). PawApps are 'app'-type plugins: the loader
-    // executes their ui bundle, which self-registers the /apps/{id} route
-    // so the App Center can render them inline.
-    loadAllPlugins().then(({ failed }) => {
-      if (failed.length > 0) setError(failed.join("; "));
-      setLoading(false);
-    });
+    const initialize = async () => {
+      const [{ installHostSdk }, { registerBuiltinCards }] = await Promise.all([
+        import("./hostSdk/install"),
+        import("../components/Chat/ToolCards/registerBuiltinCards"),
+      ]);
+      installHostSdk();
+      registerBuiltinCards();
+      return loadAllPlugins();
+    };
+
+    const runWhenIdle = () => {
+      void initialize()
+        .then(({ failed }) => {
+          if (!cancelled && failed.length > 0) {
+            setError(failed.join("; "));
+          }
+        })
+        .catch((loadError: unknown) => {
+          if (!cancelled) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Plugin initialization failed",
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const handle = idleWindow.requestIdleCallback
+      ? idleWindow.requestIdleCallback(runWhenIdle)
+      : window.setTimeout(runWhenIdle, 1000);
 
     return () => {
+      cancelled = true;
       unsubA();
       unsubB();
+      if (idleWindow.cancelIdleCallback) {
+        idleWindow.cancelIdleCallback(handle);
+      } else {
+        window.clearTimeout(handle);
+      }
     };
   }, []);
 

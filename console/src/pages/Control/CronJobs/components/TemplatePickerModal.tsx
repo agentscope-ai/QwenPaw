@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import { Button, Modal, Select } from "@agentscope-ai/design";
+import { Button } from "@agentscope-ai/design";
+import { Segmented } from "antd";
+import { X, CalendarClock } from "lucide-react";
+import { SharedModal } from "@/components/interaction/SharedModal";
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
+import { Cascade } from "@/components/interaction/Cascade";
 import { useTranslation } from "react-i18next";
 import type { CronTemplateCategory, CronTemplateDefinition } from "./templates";
 import { CRON_TEMPLATES } from "./templates";
@@ -7,6 +12,7 @@ import styles from "../index.module.less";
 
 interface TemplatePickerModalProps {
   open: boolean;
+  surfaceId?: string;
   timezone: string;
   onCancel: () => void;
   onUseTemplate: (templateValues: Record<string, unknown>) => void;
@@ -14,6 +20,7 @@ interface TemplatePickerModalProps {
 
 export function TemplatePickerModal({
   open,
+  surfaceId,
   timezone,
   onCancel,
   onUseTemplate,
@@ -29,11 +36,11 @@ export function TemplatePickerModal({
   const categoryOptions = [
     {
       label: t("cronJobs.scheduleTypeRecurring"),
-      value: "cron",
+      value: "cron" as const,
     },
     {
       label: t("cronJobs.scheduleTypeOnce"),
-      value: "once",
+      value: "once" as const,
     },
   ];
 
@@ -51,45 +58,44 @@ export function TemplatePickerModal({
   };
 
   return (
-    <Modal
-      visible={open}
+    <SharedModal
+      open={open}
+      surfaceId={surfaceId}
+      closeIcon={<X size={18} />}
       title={t("cronJobs.templateModalTitle")}
       footer={null}
       width={860}
       onCancel={onCancel}
     >
       <div className={styles.templateModalHeader}>
-        <div className={styles.templateModalDesc}>
-          {t("cronJobs.templateModalDescription")}
-        </div>
-        <Select<CronTemplateCategory>
+        <Segmented<CronTemplateCategory>
+          aria-label={t("cronJobs.scheduleType")}
           value={category}
           options={categoryOptions}
-          style={{ width: 220 }}
           onChange={setCategory}
         />
       </div>
       <div className={styles.templateGrid}>
-        {filteredTemplates.map((template) => (
-          <div key={template.id} className={styles.templateCard}>
-            <div className={styles.templateTitle}>{t(template.titleKey)}</div>
-            <div className={styles.templateDesc}>
-              {t(template.descriptionKey)}
-            </div>
-            <div className={styles.templateMeta}>
-              {t(template.frequencyKey)}
-            </div>
-            <div className={styles.templateActions}>
-              <Button
-                type="primary"
-                onClick={() => handleUseTemplate(template)}
-              >
-                {t("cronJobs.useTemplate")}
-              </Button>
-            </div>
-          </div>
+        {filteredTemplates.map((template, index) => (
+          <Cascade key={template.id} index={index}>
+            <InteractiveCard tilt={2} className={styles.templateCard}>
+              <CalendarClock size={20} aria-hidden />
+              <div className={styles.templateTitle}>{t(template.titleKey)}</div>
+              <div className={styles.templateDesc}>
+                {t(template.descriptionKey)}
+              </div>
+              <div className={styles.templateMeta}>
+                {t(template.frequencyKey)}
+              </div>
+              <div className={styles.templateActions}>
+                <Button data-press onClick={() => handleUseTemplate(template)}>
+                  {t("cronJobs.useTemplate")}
+                </Button>
+              </div>
+            </InteractiveCard>
+          </Cascade>
         ))}
       </div>
-    </Modal>
+    </SharedModal>
   );
 }

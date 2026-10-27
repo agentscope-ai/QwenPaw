@@ -6,9 +6,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Query, status
+from fastapi.responses import Response
 from pydantic import Field
 
 from domain.enums import (
@@ -40,6 +44,7 @@ from .dependencies import (
     CreatorErrorRoute,
     project_file_services,
     resolve_idempotency_key,
+    semantic_etag,
 )
 
 
@@ -94,6 +99,18 @@ class ExecutionAuthorizationApprovalRequest(
     model: str = Field(min_length=1)
     max_cost: float = Field(alias="maxCost", ge=0)
     max_candidates: int = Field(alias="maxCandidates", ge=1)
+    project_etag: str | None = Field(
+        default=None,
+        alias="projectEtag",
+        min_length=1,
+        strict=True,
+    )
+    prompt_pointer: str | None = Field(
+        default=None,
+        alias="promptPointer",
+        min_length=1,
+        strict=True,
+    )
 
 
 _ROLE_LABELS = {
@@ -381,18 +398,24 @@ async def cancel_task(
 _logger = logging.getLogger(__name__)
 
 
+def _log_safe(value: Any) -> str:
+    """Neutralize CR/LF in user-provided values before logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _timeline_has_text_overlays_without_motion(
     services: CreatorFileServices,
     project_id: str,
     timeline_id: str,
 ) -> bool:
-    """Return True when any text overlay on the timeline lacks motion design.
+    """Return True when any text or keyword overlay lacks motion design.
 
     The AI Editing Director is expected to call ``design_motion_overlays``
     after creating text overlays; when it skips that step the compose pipeline
     falls back to static bubble templates with no animation.  This check lets
     the render route auto-trigger motion design before composing.
     """
+    from services.media_files.motion_design import _is_keyword_overlay
     from services.project_files.models import OverlayCreation
 
     snapshot = services.projects.read(project_id)
@@ -402,8 +425,8 @@ def _timeline_has_text_overlays_without_motion(
     return any(
         element.enabled
         and isinstance(element.creation, OverlayCreation)
-        and element.creation.text.strip()
         and element.creation.motion is None
+        and (element.creation.text.strip() or _is_keyword_overlay(element))
         for element in timeline.elements_by_id.values()
     )
 
@@ -522,7 +545,7 @@ async def render_timeline(
                         _logger.warning(
                             "auto design_motion_overlays failed for %s; "
                             "compose will use fallback static templates",
-                            target_ref,
+                            _log_safe(target_ref),
                             exc_info=True,
                         )
 
@@ -541,9 +564,9 @@ async def render_timeline(
                 # the durable Task; clients observe them through task polling.
                 _logger.error(
                     "compose failed project=%s timeline=%s task=%s",
-                    project_id,
-                    timeline_id,
-                    task_id,
+                    _log_safe(project_id),
+                    _log_safe(timeline_id),
+                    _log_safe(task_id),
                     exc_info=True,
                 )
                 return
@@ -573,6 +596,73 @@ async def render_timeline(
         )
 
 
+@router.get("/timelines/{timeline_id}/rough-cut")
+async def rough_cut_draft(
+    project_id: str,
+    timeline_id: str,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> Response:
+    """Zero-cost rough-cut draft: the timeline's element videos and
+    storyboard stills concatenated at 480p, streamed as one mp4.
+
+    Fails closed with 409 while the timeline has no picture source yet;
+    ffmpeg work runs in a thread so the event loop never blocks.
+    """
+
+    # pylint: disable=import-outside-toplevel
+    from services.media_files.rough_cut import (
+        RoughCutError,
+        collect_rough_cut_clips,
+        render_rough_cut,
+    )
+    from services.project_files.assets import AssetFileError, AssetFileStore
+
+    def build() -> bytes:
+        snapshot = services.projects.read(project_id)
+        project = snapshot.project
+        timeline = project.timelines.items.get(timeline_id)
+        if timeline is None:
+            raise NotFoundError(f"timeline 不存在: {timeline_id}")
+        store = AssetFileStore(services.projects.project_root(project_id))
+        with tempfile.TemporaryDirectory(prefix="rough-cut-src-") as name:
+            workdir = Path(name)
+            counter = iter(range(1_000_000))
+
+            def materialize(file_id: str) -> Path:
+                # Verified copy through the AssetFileStore boundary: the
+                # relative_uri is containment-checked and the bytes are
+                # sha256-verified before ffmpeg ever sees a path.
+                indexed = project.assets.files_by_id.get(file_id)
+                if indexed is None:
+                    raise RoughCutError(f"粗剪素材缺失: {file_id}")
+                suffix = Path(indexed.relative_uri).suffix or ".bin"
+                target = workdir / f"clip-{next(counter):06d}{suffix}"
+                try:
+                    with store.open_verified(indexed) as stream:
+                        with target.open("wb") as sink:
+                            shutil.copyfileobj(stream, sink)
+                except AssetFileError as error:
+                    raise StorageIntegrityError(str(error)) from error
+                return target
+
+            clips = collect_rough_cut_clips(
+                project,
+                timeline,
+                resolve_file=materialize,
+            )
+            return render_rough_cut(clips)
+
+    try:
+        payload = await asyncio.to_thread(build)
+    except RoughCutError as error:
+        raise ConflictError(str(error)) from error
+    return Response(
+        content=payload,
+        media_type="video/mp4",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/execution-authorizations")
 async def list_execution_authorizations(
     project_id: str,
@@ -580,6 +670,15 @@ async def list_execution_authorizations(
     services: CreatorFileServices = Depends(project_file_services),
 ) -> dict[str, Any]:
     try:
+        from services.file_agent_runtime.checkpoints import (
+            retire_legacy_plan_checkpoints,
+        )
+
+        await asyncio.to_thread(
+            retire_legacy_plan_checkpoints,
+            _store(services),
+            project_id,
+        )
         records = await asyncio.to_thread(
             _store(services).list_execution_authorizations,
             project_id,
@@ -613,6 +712,77 @@ async def get_execution_authorization(
     return _authorization_view(record)
 
 
+async def _rebind_workgraph_authorization(
+    services: CreatorFileServices,
+    store: ProjectExecutionStore,
+    current: ExecutionAuthorizationRecord,
+    project_etag: str,
+) -> dict[str, str]:
+    # GET/304 carry HTTP entity tags; PATCH returns the raw project digest.
+    # Normalize before both the edit-grace exemption and the snapshot CAS.
+    project_etag = semantic_etag(project_etag)
+    from services.file_agent_runtime.driver import _execution_provider_model
+    from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
+    from services.file_agent_runtime.workgraph_execution import (
+        ready_request_context,
+        requested_work_node,
+    )
+
+    scope = current.scope or {}
+    workgraph = scope.get("workGraph")
+    if not isinstance(workgraph, dict) or any(
+        not isinstance(workgraph.get(key), str) or not workgraph[key].strip()
+        for key in ("nodeId", "fingerprint", "provider", "model")
+    ):
+        raise ConflictError("此授权不支持绑定已保存的 WorkGraph 快照")
+    if (
+        len(workgraph["fingerprint"]) != 64
+        or any(c not in "0123456789abcdef" for c in workgraph["fingerprint"])
+        or (scope.get("operation"), scope.get("targetRefs"))
+        != (current.operation, current.target_scope)
+        or not isinstance(scope.get("parameters"), dict)
+        or (workgraph["provider"], workgraph["model"])
+        != (current.requested_provider, current.requested_model)
+    ):
+        raise ConflictError("此授权不支持绑定已保存的 WorkGraph 快照")
+    snapshot, _, graph, blocked = await ready_request_context(
+        services,
+        store,
+        current.project_id,
+        check_media_budget=False,
+        confirmed_project_etag=project_etag,
+        confirmed_node_id=workgraph["nodeId"],
+    )
+    if snapshot.etag != project_etag:
+        raise ConflictError("已保存的项目快照已改变，请重新保存后批准")
+    node = graph.by_id.get(workgraph["nodeId"])
+    if (
+        node is None
+        or node.kind not in {"visual", "lineup", "storyboard", "video"}
+        or current.target_scope != [node.target_ref]
+        or node.node_id in blocked
+    ):
+        raise ConflictError("授权的 WorkGraph 目标已改变或尚未就绪")
+    plan = requested_work_node(snapshot, node)
+    if (
+        plan.spec.name != current.operation
+        or plan.parameters != scope["parameters"]
+        or _execution_provider_model(plan.spec, plan.parameters)
+        != (current.requested_provider, current.requested_model)
+    ):
+        raise ConflictError(
+            "执行参数或 provider/model 已改变，必须重新请求授权",
+        )
+    return {
+        "nodeId": node.node_id,
+        "etag": snapshot.etag,
+        "fingerprint": plan.fingerprint,
+        # Rebinding must use the same ledger identity as scheduler dispatch.
+        # pylint: disable-next=protected-access
+        "ledgerFingerprint": WorkGraphScheduler._ledger_fingerprint(node),
+    }
+
+
 async def _decide_authorization(
     *,
     project_id: str,
@@ -622,6 +792,8 @@ async def _decide_authorization(
     decision: dict[str, Any] | None,
     services: CreatorFileServices,
 ) -> dict[str, Any]:
+    # One decision validates checkpoint, graph or saved-prompt authority.
+    # pylint: disable=too-many-branches
     store = _store(services)
     try:
         current = await asyncio.to_thread(
@@ -638,6 +810,21 @@ async def _decide_authorization(
             return _authorization_view(current)
         if target_status is ExecutionAuthorizationStatus.APPROVED:
             assert decision is not None
+            if (current.scope or {}).get("checkpointPhase") == "script":
+                from services.project_files.production_stage import (
+                    script_fingerprint,
+                )
+
+                snapshot = await asyncio.to_thread(
+                    services.projects.read,
+                    project_id,
+                )
+                if current.scope.get(
+                    "scriptFingerprint",
+                ) != script_fingerprint(
+                    snapshot.project,
+                ):
+                    raise ConflictError("剧本已更新，请重新请求并确认当前版本。")
             if (
                 decision.get("provider") != current.requested_provider
                 or decision.get("model") != current.requested_model
@@ -646,6 +833,41 @@ async def _decide_authorization(
             requested_candidates = current.requested_candidates or 1
             if int(decision.get("maxCandidates") or 0) > requested_candidates:
                 raise ConflictError("批准的候选数量不能超过原执行请求")
+            if decision.get("projectEtag") is not None:
+                if (
+                    decision.get("promptPointer") is None
+                    or (current.scope or {}).get("workGraph") is not None
+                ):
+                    decision[
+                        "workGraph"
+                    ] = await _rebind_workgraph_authorization(
+                        services,
+                        store,
+                        current,
+                        decision["projectEtag"],
+                    )
+                else:
+                    from services.project_files.approved_prompt import (
+                        saved_authorization_prompt,
+                    )
+
+                    snapshot = await asyncio.to_thread(
+                        services.projects.read,
+                        project_id,
+                    )
+                    expected = semantic_etag(decision["projectEtag"])
+                    if snapshot.etag != expected:
+                        raise ConflictError("已保存的项目快照已改变，请重新查看后批准。")
+                    saved = saved_authorization_prompt(
+                        snapshot.project,
+                        current,
+                    )
+                    if saved["pointer"] != decision["promptPointer"]:
+                        raise ConflictError("授权卡的提示词目标与执行目标不一致。")
+                    decision["savedPrompt"] = {
+                        "etag": snapshot.etag,
+                        **saved,
+                    }
         record = await asyncio.to_thread(
             store.decide_execution_authorization,
             project_id,
@@ -678,6 +900,16 @@ async def approve_execution_authorization(
             "model": request.model,
             "maxCost": request.max_cost,
             "maxCandidates": request.max_candidates,
+            **(
+                {"projectEtag": request.project_etag}
+                if request.project_etag is not None
+                else {}
+            ),
+            **(
+                {"promptPointer": request.prompt_pointer}
+                if request.prompt_pointer
+                else {}
+            ),
         },
         services=services,
     )

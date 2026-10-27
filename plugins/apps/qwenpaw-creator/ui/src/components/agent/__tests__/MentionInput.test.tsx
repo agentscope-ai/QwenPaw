@@ -18,21 +18,14 @@ const selection: SelectionAttachment = {
 function Harness() {
   const ref = useRef<MentionInputHandle>(null);
   const [serialized, setSerialized] = useState("");
+  const read = () => setSerialized(JSON.stringify(ref.current?.getContent()));
   return (
     <>
       <MentionInput ref={ref} onChange={vi.fn()} onSubmit={vi.fn()} />
-      <button
-        type="button"
-        onClick={() => ref.current?.insertSelection(selection)}
-      >
+      <button onClick={() => ref.current?.insertSelection(selection)}>
         插入选择
       </button>
-      <button
-        type="button"
-        onClick={() => setSerialized(JSON.stringify(ref.current?.getContent()))}
-      >
-        读取内容
-      </button>
+      <button onClick={read}>读取内容</button>
       <output data-testid="serialized">{serialized}</output>
     </>
   );
@@ -48,10 +41,9 @@ describe("MentionInput inline Timeline/Element selection", () => {
     expect(editor.querySelector("[data-selection-ref]")).toHaveTextContent(
       "雪夜 SUV",
     );
-    expect(screen.getByTestId("serialized")).toHaveTextContent(
-      "element:opening/label",
-    );
-    expect(screen.getByTestId("serialized")).toHaveTextContent(
+    const serialized = screen.getByTestId("serialized");
+    expect(serialized).toHaveTextContent("element:opening/label");
+    expect(serialized).toHaveTextContent(
       "/timelines/items/timeline:main/elements_by_id/opening/label",
     );
   });
@@ -59,8 +51,7 @@ describe("MentionInput inline Timeline/Element selection", () => {
   it("restores the structured selection from clipboard HTML", () => {
     render(<Harness />);
     const token = encodeURIComponent(JSON.stringify(selection));
-    const editor = screen.getByRole("textbox");
-    fireEvent.paste(editor, {
+    fireEvent.paste(screen.getByRole("textbox"), {
       clipboardData: {
         getData: (type: string) =>
           type === "text/html"

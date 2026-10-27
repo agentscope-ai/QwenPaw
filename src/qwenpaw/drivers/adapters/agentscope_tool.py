@@ -205,6 +205,7 @@ async def build_driver_agent_tools(
             )
             for capability in driver_capabilities
             if getattr(capability.exposure, "as_tool", False)
+            and getattr(capability, "enabled", True)
         ]
     except Exception:
         logger.debug(

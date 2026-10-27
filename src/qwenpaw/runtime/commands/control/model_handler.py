@@ -10,6 +10,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ....exceptions import ProviderError
+
+from ....utils.io_utils import run_sync_io
 from ....utils.logging import sanitize_log_value
 from .base import BaseControlCommandHandler, ControlContext
 
@@ -120,7 +123,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
             from ....providers.provider_manager import ProviderManager
 
             manager = ProviderManager.get_instance()
-            active_model = manager.get_active_model()
+            active_model = await run_sync_io(manager.get_active_model)
 
             if active_model is None or not active_model.provider_id:
                 return (
@@ -157,7 +160,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         # Get current active model
         active_model = workspace.config.active_model
         if active_model is None:
-            active_model = manager.get_active_model()
+            active_model = await run_sync_io(manager.get_active_model)
 
         # Get all provider infos
         all_provider_infos = await manager.list_provider_info()
@@ -195,7 +198,11 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
             # Get all models for this provider (both built-in and user-added)
             extra_models = list(provider_info.extra_models)
-            all_models = list(provider_info.models) + extra_models
+            all_models = [
+                m
+                for m in list(provider_info.models) + extra_models
+                if m.model_type == "chat"
+            ]
             extra_model_ids = {m.id for m in extra_models}
 
             lines.append(f"\n**Provider: {provider_name}** (`{provider_id}`)")
@@ -348,7 +355,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
         # Get global active model
         manager = ProviderManager.get_instance()
-        global_model = manager.get_active_model()
+        global_model = await run_sync_io(manager.get_active_model)
 
         if global_model is None or not global_model.provider_id:
             return (
@@ -416,7 +423,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         from ....providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
-        provider = manager.get_provider(provider_id)
+        provider = await run_sync_io(manager.get_provider, provider_id)
 
         if not provider:
             return (
@@ -500,7 +507,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         manager = ProviderManager.get_instance()
 
         # Validate provider
-        provider = manager.get_provider(provider_id)
+        provider = await run_sync_io(manager.get_provider, provider_id)
         if not provider:
             return False, f"Provider `{provider_id}` not found."
 
@@ -511,4 +518,8 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Model `{model_id}` not found in provider `{provider_id}`.",
             )
 
+        try:
+            provider.validate_chat_model(model_id)
+        except ProviderError as exc:
+            return False, str(exc)
         return True, ""

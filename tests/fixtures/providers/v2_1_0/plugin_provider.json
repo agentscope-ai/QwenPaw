@@ -1,0 +1,35 @@
+{
+  "id": "legacy-plugin",
+  "name": "Legacy Plugin",
+  "base_url": "https://plugin.example/v1",
+  "api_key": "",
+  "chat_model": "OpenAIChatModel",
+  "models": [],
+  "extra_models": [
+    {
+      "id": "plugin-configured",
+      "name": "Plugin Configured",
+      "supports_multimodal": false,
+      "supports_image": false,
+      "supports_video": false,
+      "is_free": false,
+      "max_tokens": 4096,
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {
+        "temperature": 0.5
+      },
+      "relay_reasoning": true
+    }
+  ],
+  "generate_kwargs": {
+    "top_p": 0.7
+  },
+  "custom_headers": {
+    "X-Plugin-Legacy": "kept"
+  },
+  "is_custom": false,
+  "meta": {
+    "fixture_version": "v2.1.0"
+  }
+}

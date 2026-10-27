@@ -75,6 +75,7 @@ class WorkspaceBootstrapFactory:
             )
             from ...hooks.request_setup.contextvars_hook import (
                 ContextVarsSetupHook,
+                MailF1CleanupHook,
             )
             from ...hooks.request_setup.media_hook import MediaProcessHook
             from ...hooks.session.session_hook import (
@@ -106,6 +107,7 @@ class WorkspaceBootstrapFactory:
                 CancelCleanupHook,
                 CheckpointQueryGateHook,
                 CheckpointAutoSnapshotHook,
+                MailF1CleanupHook,
             ]
             if extra_hook_clses:
                 hook_clses.extend(extra_hook_clses)
@@ -138,6 +140,7 @@ class WorkspaceBootstrapFactory:
             logger.debug("Prompt contributors not available", exc_info=True)
 
         try:
+            from ...modes.advisor import AdvisorMode
             from ...modes.coding import CodingMode
             from ...modes.default import DefaultMode
             from ...modes.goal import GoalMode
@@ -148,6 +151,7 @@ class WorkspaceBootstrapFactory:
                 CodingMode,
                 MissionMode,
                 GoalMode,
+                AdvisorMode,
             ]
         except Exception:
             logger.debug("Modes not available", exc_info=True)

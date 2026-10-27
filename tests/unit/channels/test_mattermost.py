@@ -38,6 +38,53 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+from qwenpaw import schemas
+
+
+@pytest.mark.parametrize("source_type", ["data", "path", "file_url"])
+async def test_file_upload_uses_display_name(
+    mattermost_channel,
+    mock_http_client,
+    tmp_path,
+    source_type,
+):
+    """Multipart filenames preserve existing local or supplied data names."""
+    local_file = tmp_path / "local.pdf"
+    local_file.write_bytes(b"pdf-data")
+    sources = {
+        "data": "data:application/pdf;base64,cGRmLWRhdGE=",
+        "path": str(local_file),
+        "file_url": local_file.as_uri(),
+    }
+    mock_http_client.expect_post(
+        url="/files",
+        response_json={"file_infos": [{"id": "file-id"}]},
+    )
+    mattermost_channel._http = mock_http_client
+    mattermost_channel._post_message = AsyncMock()
+    await mattermost_channel.send_media(
+        "recipient",
+        schemas.FileContent(
+            file_url=sources[source_type],
+            filename="report.pdf",
+        ),
+    )
+
+    upload = mock_http_client._requests[0]["kwargs"]["files"]["files"]
+    expected = "report.pdf" if source_type == "data" else "local.pdf"
+    assert upload[0] == expected
+    assert upload[1].closed
+    mattermost_channel._post_message.assert_awaited_once_with(
+        "recipient",
+        "",
+        "",
+        ["file-id"],
+    )
+    assert local_file.read_bytes() == b"pdf-data"
+    if source_type == "data":
+        assert not list(mattermost_channel._media_dir.iterdir())
+    else:
+        assert not mattermost_channel._media_dir.exists()
 
 
 # =============================================================================

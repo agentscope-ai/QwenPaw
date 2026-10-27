@@ -13,11 +13,22 @@ import logging
 import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
+from typing import (
+    Any,
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Optional,
+)
 
 logger = logging.getLogger(__name__)
 
 _SENTINEL = None
+
+# Indirection so tests can simulate a failing task creation without
+# patching the process-wide ``asyncio`` module.
+_create_task = asyncio.create_task
 
 # Emitted to reconnect subscribers right after the buffered events, so
 # the client can render the replayed part instantly (no token-by-token
@@ -213,7 +224,12 @@ class TaskTracker:
             except ValueError:
                 pass
 
-    async def request_stop(self, run_key: str) -> bool:
+    async def request_stop(
+        self,
+        run_key: str,
+        *,
+        reason: str = "user",
+    ) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
         logger.debug("[STOP] request_stop called for run_key=%s", run_key)
         async with self._lock:
@@ -235,7 +251,7 @@ class TaskTracker:
                 run_key,
             )
             task = state.task
-            task.cancel()
+            task.cancel(reason)
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
         try:
             await task
@@ -247,8 +263,9 @@ class TaskTracker:
         self,
         run_key: str,
         payload: Any,
-        stream_fn: Callable[..., Coroutine],
+        stream_fn: Callable[[Any], AsyncIterator[str]],
         owner: object | None = None,
+        on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
@@ -270,7 +287,6 @@ class TaskTracker:
                 buffer=[],
                 owner=owner,
             )
-            self._runs[run_key] = run
 
             tracker_ref = weakref.ref(self)
 
@@ -309,6 +325,14 @@ class TaskTracker:
                                 q.put_nowait(err_sse)
                 finally:
                     finish_time = datetime.now(timezone.utc)
+                    if on_finished is not None:
+                        try:
+                            await on_finished(run_key, finish_time)
+                        except Exception:  # pylint: disable=broad-except
+                            logger.exception(
+                                "run completion callback failed run_key=%s",
+                                run_key,
+                            )
                     tracker = tracker_ref()
                     if tracker is not None:
                         async with tracker.lock:
@@ -323,7 +347,15 @@ class TaskTracker:
                                 None,
                             )
 
-            run.task = asyncio.create_task(_producer())
+            # Register the run only once the producer task exists.
+            # Registering a placeholder first would leak a permanent
+            # "running" entry -- the status counters read
+            # ``not state.task.done()``, and a bare Future is never done --
+            # if task creation ever failed. This is defensive hardening:
+            # the window is synchronous and a running loop cannot be
+            # closed, so the failure is not reachable in practice.
+            run.task = _create_task(_producer())
+            self._runs[run_key] = run
             return my_queue, True
 
     async def stream_from_queue(

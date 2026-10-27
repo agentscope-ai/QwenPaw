@@ -278,6 +278,36 @@ The engine also runs **`ShellEvasionGuardian`** on `execute_shell_command`. It t
 
 ---
 
+## Mailbox Security
+
+A mailbox authorization code grants full IMAP/SMTP send and receive access. The
+public mailbox identity and automatic-processing settings live in the
+workspace's `agent.json`; the authorization code, app password, or login
+password is encrypted in `credentials.yaml`. `drivers/mcp/qwenpawmail.yaml`
+stores only a credential reference, which is resolved when the MCP subprocess
+starts. Neither the Agent API nor the agent returns these secrets. Passwords,
+phone numbers, and verification codes entered on a provider's registration page
+are not saved to QwenPaw configuration either. Restrict workspace access, do not
+commit these files, and do not share backups containing both the workspace and
+decryption material. Revoke and rotate the credential with the provider if
+exposure is suspected.
+
+Treat every message body as untrusted external input. Automatic processing must
+not follow instructions embedded in email and is barred from permanent deletion
+by default. Outbound mail is limited to the original sender or a known contact in
+`CONTACTS.md`; money, commitments, and sensitive relationships require a draft
+and confirmation. When a message cannot be classified, the exploration path
+raises every subsequent tool call to strict approval.
+
+When automation is enabled, also consider **Mail Access Control**. Unknown
+senders remain pending until allowed, at which point every message saved in the
+pending record is processed; denied senders' later messages are marked read and
+skipped. Among the tools, `delete_message` is permanent, while `delete_thread`
+moves messages to Trash; verify the target before either action. See
+[Mailbox Management and Automation](./mailbox#Mail-Access-Control).
+
+---
+
 ## File Guard
 
 The **File Guard** blocks agent tools from accessing sensitive files and directories. It runs automatically on **every tool call**, scanning all file-path-related parameters to enforce a deny list of protected paths.

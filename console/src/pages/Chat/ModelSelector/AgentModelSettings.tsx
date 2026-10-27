@@ -1,13 +1,20 @@
+import { ModelChoice } from "./ModelChoice";
+import { modelSlotLabel } from "./modelSelectorModels";
+import { ThinkingControl } from "@/features/thinking/ThinkingControl";
+import type {
+  ThinkingPreference,
+  ThinkingControlSpec,
+} from "@/features/thinking/types";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
   LoaderCircle,
-  Plus,
   Save,
   Settings2,
-  Trash2,
+  RotateCcw,
 } from "lucide-react";
+import { Switch } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { agentsApi } from "@/api/modules/agents";
@@ -17,6 +24,7 @@ import type {
   ModelSlotConfig,
 } from "@/api/types";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { useAutoSave } from "@/hooks/useAutoSave";
 
 import styles from "./index.module.less";
 
@@ -27,10 +35,34 @@ interface SettingsProvider {
 }
 
 interface AgentModelSettingsProps {
-  agentId: string;
+  expanded?: boolean;
+  agentId?: string;
   providers: SettingsProvider[];
+  decisionProviders?: SettingsProvider[];
   activeProviderId?: string;
   activeModelId?: string;
+  showThinking?: boolean;
+  initialConfig?: Pick<
+    AgentProfileConfig,
+    | "fallback_models"
+    | "fallback_policy"
+    | "subagent_model"
+    | "thinking_level"
+    | "thinking_budget"
+  >;
+  draftResetToken?: number;
+  onDraftChange?: (
+    settings: Pick<
+      AgentProfileConfig,
+      | "fallback_models"
+      | "fallback_policy"
+      | "subagent_model"
+      | "thinking_level"
+      | "thinking_budget"
+    >,
+  ) => void;
+  surface?: "default" | "settings";
+  autoSave?: boolean;
 }
 
 interface ModelOption {
@@ -39,6 +71,7 @@ interface ModelOption {
   providerId: string;
   modelId: string;
   supportsThinking: boolean;
+  thinkingControl?: ThinkingControlSpec | null;
 }
 
 const EMPTY_KEY = "";
@@ -53,33 +86,41 @@ function supportsThinking(_provider: SettingsProvider, model: ModelInfo) {
 
 export function AgentModelSettings({
   agentId,
+  expanded = false,
   providers,
+  decisionProviders,
   activeProviderId,
   activeModelId,
+  showThinking = true,
+  initialConfig,
+  draftResetToken,
+  onDraftChange,
+  surface = "default",
+  autoSave = false,
 }: AgentModelSettingsProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!agentId);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<AgentProfileConfig | null>(null);
   const [fallbackEnabled, setFallbackEnabled] = useState(true);
-  const [fallbackScope, setFallbackScope] = useState<
-    "configured" | "free_only"
-  >("configured");
   const [fallbackKeys, setFallbackKeys] = useState<string[]>([]);
-  const [pendingFallback, setPendingFallback] = useState(EMPTY_KEY);
   const [subagentKey, setSubagentKey] = useState(EMPTY_KEY);
-  const [thinkingLevel, setThinkingLevel] = useState<
-    "inherit" | "off" | "low" | "medium" | "high"
-  >("inherit");
+  const [decisionModel, setDecisionModel] = useState<ModelSlotConfig | null>(
+    null,
+  );
+  const [thinking, setThinking] = useState<ThinkingPreference>({
+    level: "inherit",
+  });
   const loadRevision = useRef(0);
   const saveRevision = useRef(0);
   const configAgentId = useRef<string | null>(null);
   const agentIdRef = useRef(agentId);
   agentIdRef.current = agentId;
   const bodyId = useId();
+  const draftTokenRef = useRef<number | undefined>();
 
   const options = useMemo<ModelOption[]>(
     () =>
@@ -90,6 +131,7 @@ export function AgentModelSettings({
           providerId: provider.id,
           modelId: model.id,
           supportsThinking: supportsThinking(provider, model),
+          thinkingControl: model.thinking_control,
         })),
       ),
     [providers],
@@ -120,25 +162,12 @@ export function AgentModelSettings({
   const activeOption = optionByKey.get(
     slotKey(activeProviderId ?? "", activeModelId ?? ""),
   );
-  const activeKey = activeOption?.key ?? EMPTY_KEY;
   const thinkingSupported = activeOption?.supportsThinking ?? false;
-
-  useEffect(() => {
-    loadRevision.current += 1;
-    saveRevision.current += 1;
-    configAgentId.current = null;
-    setConfig(null);
-    setLoadError(null);
-    setLoading(false);
-    setSaving(false);
-    setOpen(false);
-  }, [agentId]);
-
-  const applyConfig = (next: AgentProfileConfig, targetAgentId: string) => {
+  function applyConfig(next: AgentProfileConfig, targetAgentId: string): void {
     configAgentId.current = targetAgentId;
     setConfig(next);
+    setDecisionModel(next.decision_model ?? null);
     setFallbackEnabled(next.fallback_policy?.enabled ?? true);
-    setFallbackScope(next.fallback_policy?.target_scope ?? "configured");
     setFallbackKeys(
       (next.fallback_models ?? []).map((slot) =>
         slotKey(slot.provider_id, slot.model),
@@ -149,10 +178,41 @@ export function AgentModelSettings({
         ? slotKey(next.subagent_model.provider_id, next.subagent_model.model)
         : EMPTY_KEY,
     );
-    setThinkingLevel(next.thinking_level ?? "inherit");
-  };
+    setThinking({
+      level: next.thinking_level ?? "inherit",
+      budget_tokens: next.thinking_budget,
+    });
+  }
+
+  useEffect(() => {
+    if (agentId) return;
+    if (draftTokenRef.current === draftResetToken && config) return;
+    draftTokenRef.current = draftResetToken;
+    applyConfig(
+      {
+        id: "draft",
+        name: "",
+        ...initialConfig,
+      } as AgentProfileConfig,
+      "draft",
+    );
+    setOpen(true);
+  }, [agentId, config, draftResetToken, initialConfig]);
+
+  useEffect(() => {
+    if (!agentId) return;
+    loadRevision.current += 1;
+    saveRevision.current += 1;
+    configAgentId.current = null;
+    setConfig(null);
+    setLoadError(null);
+    setLoading(false);
+    setSaving(false);
+    setOpen(false);
+  }, [agentId]);
 
   const loadConfig = async (force = false) => {
+    if (!agentId) return;
     if ((!force && config) || loading) return;
     const targetAgentId = agentId;
     const revision = ++loadRevision.current;
@@ -187,24 +247,52 @@ export function AgentModelSettings({
     if (next) await loadConfig(true);
   };
 
-  const moveFallback = (index: number, offset: -1 | 1) => {
-    const target = index + offset;
-    if (target < 0 || target >= fallbackKeys.length) return;
-    setFallbackKeys((current) => {
-      const next = [...current];
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
+  useEffect(() => {
+    if (expanded && agentId) {
+      setOpen(true);
+      void loadConfig(true);
+    }
+    // Loading is keyed to the expansion mode and agent identity. Depending on
+    // loadConfig would reload after applyConfig updates its closed-over state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, agentId]);
+  const pickSlot = (slot: ModelSlotConfig) => {
+    const key = slotKey(slot.provider_id, slot.model);
+    slotByKey.set(key, slot);
+    return key;
+  };
+  function notifyDraft({
+    fallbackEnabled: nextFallbackEnabled = fallbackEnabled,
+    fallbackKeys: nextFallbackKeys = fallbackKeys,
+    subagentKey: nextSubagentKey = subagentKey,
+    thinking: nextThinking = thinking,
+  }: {
+    fallbackEnabled?: boolean;
+    fallbackKeys?: string[];
+    subagentKey?: string;
+    thinking?: ThinkingPreference;
+  } = {}): void {
+    if (agentId || !onDraftChange || !config) return;
+    const fallbackModels = nextFallbackKeys.flatMap((key) => {
+      const slot = slotByKey.get(key);
+      return slot ? [slot] : [];
     });
-  };
+    onDraftChange({
+      fallback_models: fallbackModels,
+      fallback_policy: {
+        enabled: nextFallbackEnabled,
+        target_scope: config.fallback_policy?.target_scope ?? "configured",
+      },
+      subagent_model: slotByKey.get(nextSubagentKey) ?? null,
+      thinking_level: nextThinking.level,
+      thinking_budget: nextThinking.budget_tokens ?? null,
+    });
+  }
 
-  const addFallback = () => {
-    if (!pendingFallback || fallbackKeys.includes(pendingFallback)) return;
-    setFallbackKeys((current) => [...current, pendingFallback]);
-    setPendingFallback(EMPTY_KEY);
-  };
-
-  const save = async () => {
-    if (!config || saving || configAgentId.current !== agentId) return;
+  const save = async (automatic = false) => {
+    if (!agentId || !config || configAgentId.current !== agentId) {
+      return false;
+    }
     const targetAgentId = agentId;
     const revision = ++saveRevision.current;
     setSaving(true);
@@ -215,13 +303,19 @@ export function AgentModelSettings({
       });
       const subagentSlot = slotByKey.get(subagentKey);
       const settings = {
+        ...(decisionProviders ? { decision_model: decisionModel } : {}),
         fallback_models: fallbackModels,
         fallback_policy: {
           enabled: fallbackEnabled,
-          target_scope: fallbackScope,
+          target_scope: config.fallback_policy?.target_scope ?? "configured",
         },
         subagent_model: subagentSlot ?? null,
-        ...(thinkingSupported ? { thinking_level: thinkingLevel } : {}),
+        ...(showThinking && thinkingSupported
+          ? {
+              thinking_level: thinking.level,
+              thinking_budget: thinking.budget_tokens ?? null,
+            }
+          : {}),
       };
       const updated = await agentsApi.updateModelSettings(
         targetAgentId,
@@ -234,39 +328,59 @@ export function AgentModelSettings({
         return;
       }
       applyConfig(updated, targetAgentId);
-      message.success(t("modelSelector.agentSettingsSaved"));
+      if (!automatic) {
+        message.success(t("modelSelector.agentSettingsSaved"));
+      }
+      return true;
     } catch (error) {
       if (
         revision !== saveRevision.current ||
         targetAgentId !== agentIdRef.current
       ) {
-        return;
+        return false;
       }
+      if (automatic) throw error;
       message.error(
         error instanceof Error
           ? error.message
           : t("modelSelector.agentSettingsSaveFailed"),
       );
+      return false;
     } finally {
       if (revision === saveRevision.current) {
         setSaving(false);
       }
     }
   };
+  const { schedule: scheduleAutoSave } = useAutoSave(
+    () => save(true),
+    1000,
+    autoSave,
+  );
+
+  const schedulePersistence = () => {
+    if (autoSave && agentId) scheduleAutoSave();
+  };
 
   return (
-    <section className={styles.agentModelSettings}>
-      <button
-        type="button"
-        className={styles.agentSettingsToggle}
-        aria-expanded={open}
-        aria-controls={bodyId}
-        onClick={toggleOpen}
-      >
-        <Settings2 size={14} />
-        <span>{t("modelSelector.agentModelSettings")}</span>
-        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-      </button>
+    <section
+      className={styles.agentModelSettings}
+      data-surface={surface}
+      data-auto-save={autoSave}
+    >
+      {!expanded && (
+        <button
+          type="button"
+          className={styles.agentSettingsToggle}
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={toggleOpen}
+        >
+          <Settings2 size={14} />
+          <span>{t("modelSelector.agentModelSettings")}</span>
+          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+      )}
       {open && (
         <div id={bodyId} className={styles.agentSettingsBody}>
           {loading ? (
@@ -285,165 +399,171 @@ export function AgentModelSettings({
             </div>
           ) : (
             <>
-              <label className={styles.settingsRow}>
-                <span>{t("modelSelector.thinkingLevel")}</span>
-                <select
-                  value={thinkingLevel}
-                  disabled={!thinkingSupported}
-                  onChange={(event) =>
-                    setThinkingLevel(event.target.value as typeof thinkingLevel)
-                  }
-                >
-                  {(["inherit", "off", "low", "medium", "high"] as const).map(
-                    (level) => (
-                      <option key={level} value={level}>
-                        {t(`modelSelector.thinking.${level}`)}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-              {!thinkingSupported && (
-                <p className={styles.settingsHint}>
-                  {t("modelSelector.thinkingUnsupported")}
-                </p>
-              )}
-              <label className={styles.settingsRow}>
-                <span>{t("modelSelector.subagentModel")}</span>
-                <select
-                  value={subagentKey}
-                  onChange={(event) => setSubagentKey(event.target.value)}
-                >
-                  <option value={EMPTY_KEY}>
-                    {t("modelSelector.sameAsPrimary")}
-                  </option>
-                  {subagentKey && !optionByKey.has(subagentKey) && (
-                    <option value={subagentKey}>{subagentKey}</option>
-                  )}
-                  {options.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={styles.settingsCheckRow}>
-                <input
-                  type="checkbox"
-                  checked={fallbackEnabled}
-                  onChange={(event) => setFallbackEnabled(event.target.checked)}
-                />
-                <span>{t("modelSelector.enableFallback")}</span>
-              </label>
-              {fallbackEnabled && (
-                <>
-                  <label className={styles.settingsRow}>
-                    <span>{t("modelSelector.fallbackScope")}</span>
-                    <select
-                      value={fallbackScope}
-                      onChange={(event) =>
-                        setFallbackScope(
-                          event.target.value as typeof fallbackScope,
-                        )
+              {showThinking &&
+                (surface === "settings" ? (
+                  <div
+                    className={`${styles.settingLine} ${styles.thinkingSettingLine}`}
+                  >
+                    <span>{t("thinkingControl.title")}</span>
+                    <ThinkingControl
+                      tone="quiet"
+                      control={
+                        activeOption?.thinkingControl ?? {
+                          kind: "unknown",
+                          efforts: [],
+                          supports_off: false,
+                        }
                       }
-                    >
-                      <option value="configured">
-                        {t("modelSelector.configuredModels")}
-                      </option>
-                      <option value="free_only">
-                        {t("modelSelector.freeModelsOnly")}
-                      </option>
-                    </select>
-                  </label>
-                  <div className={styles.fallbackComposer}>
-                    <select
-                      aria-label={t("modelSelector.chooseFallback")}
-                      value={pendingFallback}
-                      onChange={(event) =>
-                        setPendingFallback(event.target.value)
-                      }
-                    >
-                      <option value={EMPTY_KEY}>
-                        {t("modelSelector.chooseFallback")}
-                      </option>
-                      {options
-                        .filter(
-                          (option) =>
-                            option.key !== activeKey &&
-                            !fallbackKeys.includes(option.key),
-                        )
-                        .map((option) => (
-                          <option key={option.key} value={option.key}>
-                            {option.label}
-                          </option>
-                        ))}
-                    </select>
-                    <button
-                      type="button"
-                      aria-label={t("modelSelector.addFallback")}
-                      disabled={!pendingFallback}
-                      onClick={addFallback}
-                    >
-                      <Plus size={14} />
-                    </button>
+                      value={thinking}
+                      onChange={(next) => {
+                        setThinking(next);
+                        notifyDraft({ thinking: next });
+                        schedulePersistence();
+                      }}
+                      disabled={saving}
+                    />
                   </div>
-                  <div className={styles.fallbackList}>
-                    {fallbackKeys.map((key, index) => (
-                      <div key={key}>
-                        <span title={optionByKey.get(key)?.label ?? key}>
-                          {optionByKey.get(key)?.label ?? key}
-                        </span>
-                        <button
-                          type="button"
-                          aria-label={t("modelSelector.moveFallbackUp", {
-                            model: optionByKey.get(key)?.label ?? key,
-                          })}
-                          disabled={index === 0}
-                          onClick={() => moveFallback(index, -1)}
-                        >
-                          <ChevronUp size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={t("modelSelector.moveFallbackDown", {
-                            model: optionByKey.get(key)?.label ?? key,
-                          })}
-                          disabled={index === fallbackKeys.length - 1}
-                          onClick={() => moveFallback(index, 1)}
-                        >
-                          <ChevronDown size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={t("modelSelector.removeFallback", {
-                            model: optionByKey.get(key)?.label ?? key,
-                          })}
-                          onClick={() =>
-                            setFallbackKeys((current) =>
-                              current.filter((item) => item !== key),
-                            )
-                          }
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-              <button
-                type="button"
-                className={styles.saveAgentSettings}
-                disabled={saving}
-                onClick={save}
-              >
-                {saving ? (
-                  <LoaderCircle size={14} className={styles.spinning} />
                 ) : (
-                  <Save size={14} />
+                  <ThinkingControl
+                    tone="default"
+                    control={
+                      activeOption?.thinkingControl ?? {
+                        kind: "unknown",
+                        efforts: [],
+                        supports_off: false,
+                      }
+                    }
+                    value={thinking}
+                    onChange={(next) => {
+                      setThinking(next);
+                      notifyDraft({ thinking: next });
+                      schedulePersistence();
+                    }}
+                    disabled={saving}
+                  />
+                ))}
+              <div className={styles.settingLine}>
+                <span>{t("modelSelector.subagentModel")}</span>
+                <ModelChoice
+                  ariaLabel={t("modelSelector.subagentModel")}
+                  value={slotByKey.get(subagentKey)}
+                  label={
+                    optionByKey.get(subagentKey)?.label ??
+                    (subagentKey || t("modelSelector.sameAsPrimary"))
+                  }
+                  disabled={saving}
+                  onChange={(slot) => {
+                    const key = pickSlot(slot);
+                    setSubagentKey(key);
+                    notifyDraft({ subagentKey: key });
+                    schedulePersistence();
+                  }}
+                />
+                <button
+                  type="button"
+                  aria-label={t("modelSelector.sameAsPrimary")}
+                  disabled={!subagentKey || saving}
+                  onClick={() => {
+                    setSubagentKey(EMPTY_KEY);
+                    notifyDraft({ subagentKey: EMPTY_KEY });
+                    schedulePersistence();
+                  }}
+                >
+                  <RotateCcw size={15} />
+                </button>
+              </div>
+              {decisionProviders && (
+                <div className={styles.settingLine}>
+                  <span>{t("models.defaultDecisionModel")}</span>
+                  <ModelChoice
+                    ariaLabel={t("models.defaultDecisionModel")}
+                    modelType="decision"
+                    value={decisionModel}
+                    label={
+                      modelSlotLabel(decisionProviders, decisionModel) ??
+                      t("modelSelector.noFallback")
+                    }
+                    disabled={saving}
+                    resetOption={{
+                      label: t("modelSelector.noFallback"),
+                      onReset: () => {
+                        setDecisionModel(null);
+                        schedulePersistence();
+                      },
+                    }}
+                    onChange={(slot) => {
+                      setDecisionModel(slot);
+                      schedulePersistence();
+                    }}
+                  />
+                </div>
+              )}
+              <div className={styles.settingLine}>
+                <span>{t("modelSelector.enableFallback")}</span>
+                <Switch
+                  aria-label={t("modelSelector.enableFallback")}
+                  size="small"
+                  checked={fallbackEnabled}
+                  disabled={saving}
+                  onChange={(next) => {
+                    setFallbackEnabled(next);
+                    notifyDraft({ fallbackEnabled: next });
+                    schedulePersistence();
+                  }}
+                />
+              </div>
+              {fallbackEnabled &&
+                (fallbackKeys.length ? fallbackKeys : [EMPTY_KEY]).map(
+                  (key, index) => (
+                    <div className={styles.settingLine} key={index}>
+                      <span>{t("modelSelector.chooseFallback")}</span>
+                      <ModelChoice
+                        ariaLabel={t("modelSelector.chooseFallback")}
+                        value={slotByKey.get(key)}
+                        label={
+                          optionByKey.get(key)?.label ??
+                          (key || t("modelSelector.chooseFallback"))
+                        }
+                        disabled={saving}
+                        onChange={(slot) => {
+                          const keys = [...fallbackKeys];
+                          keys[index] = pickSlot(slot);
+                          setFallbackKeys(keys);
+                          setFallbackEnabled(true);
+                          notifyDraft({
+                            fallbackKeys: keys,
+                            fallbackEnabled: true,
+                          });
+                          schedulePersistence();
+                        }}
+                      />
+                    </div>
+                  ),
                 )}
-                {t("common.save")}
-              </button>
+              {agentId && !autoSave && (
+                <button
+                  type="button"
+                  className={styles.saveAgentSettings}
+                  aria-label={t(
+                    showThinking
+                      ? "common.save"
+                      : "modelSelector.saveAgentSettings",
+                  )}
+                  disabled={saving}
+                  onClick={() => void save()}
+                >
+                  {saving ? (
+                    <LoaderCircle size={14} className={styles.spinning} />
+                  ) : (
+                    <Save size={14} />
+                  )}
+                  {t(
+                    showThinking
+                      ? "common.save"
+                      : "modelSelector.saveAgentSettings",
+                  )}
+                </button>
+              )}
             </>
           )}
         </div>

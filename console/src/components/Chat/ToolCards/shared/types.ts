@@ -16,10 +16,16 @@ export interface ToolCallContent {
   id: string;
   name: string;
   serverLabel?: string;
+  rawInput?: unknown;
   params: Record<string, unknown>;
   inputProgress?: ToolInputProgress;
+  /** True once the output message arrived, i.e. the backend started
+   * executing; /tool-calls queries 404 before this point. */
+  executionStarted?: boolean;
   result?: unknown;
   status: ToolCallStatus;
+  /** Error status caused by an interruption rather than a tool failure. */
+  interrupted?: boolean;
 }
 
 export interface ToolCardProps<T = Record<string, unknown>> {

@@ -2,6 +2,36 @@ declare const VITE_API_BASE_URL: string;
 declare const TOKEN: string;
 
 const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
+let runtimeApiBaseUrl: string | null = null;
+
+/** Desktop clients receive their host address from the native supervisor. */
+export function setRuntimeApiBaseUrl(url: string): void {
+  runtimeApiBaseUrl = url;
+}
+
+export function getApiBaseUrl(): string {
+  return runtimeApiBaseUrl ?? VITE_API_BASE_URL ?? "";
+}
+
+let authCleanup: Promise<unknown> = Promise.resolve();
+
+/** Serialize cookie updates so a late old-account response cannot win. */
+export function updateBrowserSession<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const result = authCleanup.then(operation);
+  authCleanup = result.catch(() => undefined);
+  return result;
+}
+
+function clearBrowserSessions(): void {
+  void updateBrowserSession(() =>
+    fetch(getApiUrl("/hub/pawapps/sessions"), {
+      method: "DELETE",
+      credentials: "include",
+    }),
+  ).catch(() => undefined);
+}
 
 /**
  * Get the full API URL with /api prefix
@@ -9,7 +39,7 @@ const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
  * @returns Full API URL (e.g., "http://localhost:8088/api/models" or "/api/models")
  */
 export function getApiUrl(path: string): string {
-  const base = VITE_API_BASE_URL || "";
+  const base = getApiBaseUrl();
   const apiPrefix = "/api";
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${base}${apiPrefix}${normalizedPath}`;
@@ -30,7 +60,9 @@ export function getApiToken(): string {
  * Store the auth token in localStorage after login.
  */
 export function setAuthToken(token: string): void {
+  if (getApiToken() !== token) clearBrowserSessions();
   localStorage.setItem(AUTH_TOKEN_KEY, token);
+  window.dispatchEvent(new Event("qwenpaw:auth-changed"));
 }
 
 /**
@@ -38,6 +70,8 @@ export function setAuthToken(token: string): void {
  */
 export function clearAuthToken(): void {
   localStorage.removeItem(AUTH_TOKEN_KEY);
+  clearBrowserSessions();
+  window.dispatchEvent(new Event("qwenpaw:auth-changed"));
 }
 
 /**
@@ -46,7 +80,7 @@ export function clearAuthToken(): void {
  * port and finally the default desktop backend port.
  */
 export function getApiPort(): number {
-  const base = VITE_API_BASE_URL || "";
+  const base = getApiBaseUrl();
   if (base) {
     try {
       const url = new URL(base);

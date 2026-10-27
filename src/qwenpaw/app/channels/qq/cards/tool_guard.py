@@ -473,7 +473,7 @@ async def _send_resolved_message(
     guild_id = str(session_ctx.get("gid") or "")
     msg_id = str(session_ctx.get("mid") or "")
 
-    if not sender_id and not group_openid and not channel_id:
+    if not any((sender_id, group_openid, channel_id, guild_id)):
         logger.warning("qq resolved message: no target to send to")
         return
 
@@ -525,7 +525,9 @@ def _enqueue_approval_command(
     session_id = str(session_ctx.get("sid") or "")
     message_type = str(session_ctx.get("mt") or "c2c")
     group_openid = str(session_ctx.get("goid") or "")
-    is_group = message_type == "group"
+    channel_id = str(session_ctx.get("cid") or "")
+    guild_id = str(session_ctx.get("gid") or "")
+    is_group = message_type in ("group", "guild")
 
     command_text = f"/approval {action} {request_id}"
     payload = {
@@ -540,6 +542,8 @@ def _enqueue_approval_command(
             "message_type": message_type,
             "sender_id": sender_id,
             "group_openid": group_openid,
+            "channel_id": channel_id,
+            "guild_id": guild_id,
             "is_group": is_group,
             "from_card_action": True,
         },

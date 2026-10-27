@@ -1,0 +1,613 @@
+.panel {
+  display: grid;
+  gap: 26px;
+  min-width: 0;
+  color: var(--app-text);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  button:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 3px;
+  }
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  h1,
+  h2 {
+    margin: 0;
+    font-size: 30px;
+    line-height: 1.3;
+    font-weight: 650;
+    letter-spacing: -0.035em;
+  }
+  h3,
+  p {
+    margin: 0;
+  }
+  p {
+    margin-top: 10px;
+    color: var(--app-text-secondary);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  > svg {
+    color: var(--app-accent-text);
+  }
+  small {
+    font-size: 12px;
+    color: var(--app-text-tertiary);
+  }
+}
+.eyebrow {
+  display: none;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
+  gap: 16px;
+}
+.card {
+  padding: 22px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--app-text-secondary);
+  }
+  > button {
+    align-self: flex-start;
+  }
+}
+.form {
+  width: 100%;
+  max-width: 600px;
+  :global(.qwenpaw-input-number) {
+    width: 100%;
+  }
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.metric {
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+  small {
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--app-text-secondary);
+  }
+}
+.codes {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
+  border-radius: 10px;
+}
+
+.settingsColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.budgetEditor {
+  display: grid;
+  gap: 16px;
+  :global(.qwenpaw-input-number),
+  :global(.qwenpaw-input-number-group-wrapper) {
+    width: 100%;
+    max-width: 360px;
+  }
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  label {
+    font-size: 12px;
+    font-weight: 600;
+  }
+  small {
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+}
+
+.detailRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  span {
+    color: var(--app-text-secondary);
+  }
+  strong {
+    font-size: 12px;
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 11px;
+  border: 1px solid var(--app-border);
+  background: var(--app-accent-soft);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.empty {
+  display: flex;
+  flex: 1;
+  min-height: 190px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  > svg {
+    color: var(--app-text-tertiary);
+  }
+  strong {
+    font-size: 14px;
+    font-weight: 550;
+  }
+  p {
+    margin: 0;
+    max-width: 340px;
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    line-height: 1.7;
+  }
+}
+.emptyCompact {
+  padding: 24px 0;
+  text-align: center;
+}
+.tablePanel {
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  > :first-child {
+    width: 310px;
+    max-width: 100%;
+    flex: 0 1 310px;
+  }
+  > :global(.qwenpaw-select) {
+    width: 150px;
+  }
+}
+.userHead,
+.userRow {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.4fr) minmax(80px, 0.8fr) minmax(100px, 1fr)
+    minmax(100px, 1fr) 16px;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 22px;
+}
+.userHead {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  background: var(--app-surface-subtle);
+  border-bottom: 1px solid var(--app-border);
+}
+.userRow {
+  width: 100%;
+  min-height: 84px;
+  text-align: left;
+  background: var(--app-surface);
+  border: 0;
+  border-bottom: 1px solid var(--app-border);
+  color: var(--app-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  &:hover {
+    background: var(--app-surface-subtle);
+  }
+  &:last-child {
+    border-bottom: 0;
+  }
+  &:focus-visible {
+    outline-offset: -3px;
+  }
+}
+.identity {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  min-width: 0;
+  strong {
+    font-weight: 600;
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  small {
+    font-size: 12px;
+    color: var(--app-text-tertiary);
+    display: block;
+    margin-top: 4px;
+  }
+}
+.avatar {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  font-size: 13px;
+  font-weight: 550;
+}
+.cellValue {
+  font-variant-numeric: tabular-nums;
+  small {
+    display: none;
+  }
+  em {
+    display: block;
+    font-size: 12px;
+    font-style: normal;
+    margin-top: 4px;
+    color: var(--app-text-tertiary);
+  }
+}
+.tableFooter {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  border: 1px solid var(--app-border);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: var(--app-surface);
+}
+.accessRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--app-border);
+  margin-bottom: 14px;
+  font-size: 12px;
+  strong {
+    font-weight: 600;
+  }
+  small {
+    display: block;
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    margin-top: 5px;
+  }
+}
+.muted {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.help {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.8;
+  summary {
+    cursor: pointer;
+  }
+  p {
+    margin: 10px 0;
+  }
+}
+.onboarding {
+  padding: 42px 24px;
+  text-align: center;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  > svg {
+    color: var(--app-accent);
+  }
+  h3 {
+    margin: 16px 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  p {
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+}
+
+.userModal {
+  :global(.qwenpaw-modal-body) {
+    max-height: min(70vh, 760px);
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  :global(.qwenpaw-tabs-content-holder) {
+    padding: 4px 0 8px;
+  }
+}
+
+@media (max-width: 700px) {
+  .panel {
+    gap: 16px;
+  }
+  .heading h1,
+  .heading h2 {
+    font-size: 27px;
+  }
+  .card {
+    padding: 18px;
+  }
+  .settingsColumns {
+    grid-template-columns: 1fr;
+  }
+
+  .userHead {
+    display: none;
+  }
+  .userRow {
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    padding: 18px;
+    > svg {
+      display: none;
+    }
+  }
+  .cellValue small {
+    display: block;
+    color: var(--app-text-tertiary);
+    font-size: 12px;
+    margin-bottom: 5px;
+  }
+  .toolbar {
+    padding: 0;
+  }
+  .tableFooter {
+    flex-wrap: wrap;
+  }
+}
+
+.runtimeState {
+  display: block;
+  margin-top: 5px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+}
+
+.formSection {
+  padding: 4px 0 20px;
+  & + & {
+    border-top: 1px solid var(--app-border);
+    padding-top: 20px;
+  }
+  h3 {
+    margin: 0 0 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--app-text);
+  }
+  :global(.ant-form-item:last-child) {
+    margin-bottom: 0;
+  }
+}
+.catalogStatus {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -2px 0 16px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  > span {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.capabilities {
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-fill-subtle);
+  font-size: 12px;
+}
+.capabilityValues {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0 0;
+  dt {
+    color: var(--app-text-secondary);
+  }
+  dd {
+    margin: 4px 0 0;
+    font-size: 18px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+}
+.missingCapabilities {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--app-border);
+}
+.advancedSettings {
+  border-top: 1px solid var(--app-border);
+  padding: 14px 0 0;
+  margin-top: 16px;
+  font-size: 12px;
+  summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--app-text-secondary);
+  }
+  &[open] > summary {
+    margin-bottom: 16px;
+  }
+}
+.connectionUrl {
+  overflow-wrap: anywhere;
+}
+
+.connectionToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.permissionRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  min-height: 32px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.modelTabs {
+  min-width: 0;
+}
+
+.modelTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.modelStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  border-radius: 4px;
+  line-height: 1;
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+
+.defaultModelForm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  :global(.qwenpaw-form-item),
+  :global(.ant-form-item) {
+    margin: 0;
+  }
+  :global(.qwenpaw-select),
+  :global(.ant-select) {
+    width: 320px;
+    max-width: 100%;
+  }
+}
+@media (max-width: 700px) {
+  .defaultModelForm {
+    :global(.qwenpaw-form-item),
+    :global(.ant-form-item) {
+      width: 100%;
+    }
+  }
+}
+
+.userList {
+  border: 1px solid var(--app-border);
+  border-radius: 14px 14px 0 0;
+  overflow: hidden;
+  background: var(--app-surface);
+}
+.defaultModelForm {
+  padding: 16px 20px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+}
+.modelTabs :global(.qwenpaw-tabs-content-holder) {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .userHead {
+    display: none;
+  }
+  .userRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+  }
+  .userRow > svg {
+    display: none;
+  }
+  .cellValue small {
+    display: block;
+    margin-bottom: 5px;
+  }
+}
+@media (max-width: 767px) {
+  .toolbar > :first-child {
+    flex-basis: 100%;
+    width: 100%;
+  }
+  .toolbar > :global(.qwenpaw-select) {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  .defaultModelForm {
+    padding: 16px;
+  }
+}

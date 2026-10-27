@@ -5,6 +5,7 @@ import { useApprovalContext } from "../../contexts/ApprovalContext";
 import styles from "./index.module.less";
 
 const POLL_INTERVAL_MS = 2500;
+const BACKGROUND_POLL_INTERVAL_MS = 30000;
 const AUTO_DISMISS_MS = 8000;
 const MAX_SEEN_IDS = 500;
 const MAX_VISIBLE_BUBBLES = 4;
@@ -17,7 +18,7 @@ interface BubbleItem extends PushMessage {
 
 export default function ConsolePollService() {
   const [items, setItems] = useState<BubbleItem[]>([]);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const originalTitleRef = useRef(document.title);
   const blinkRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -29,27 +30,68 @@ export default function ConsolePollService() {
 
   useEffect(() => {
     originalTitleRef.current = document.title;
+    const onDocumentTitleChange = (event: Event) => {
+      originalTitleRef.current = (event as CustomEvent<string>).detail;
+    };
+    document.addEventListener(
+      "qwenpaw:document-title-change",
+      onDocumentTitleChange,
+    );
+    return () => {
+      document.removeEventListener(
+        "qwenpaw:document-title-change",
+        onDocumentTitleChange,
+      );
+    };
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+    let refreshAfterFlight = false;
     const prevApprovalsRef = { current: "" };
-    const tick = () => {
-      consoleApi
-        .getPushMessages()
-        .then((res) => {
-          // Update pending approvals only when they actually change,
-          // to avoid triggering unnecessary re-renders in Chat component
-          // every 2.5s polling cycle.
-          if (res?.pending_approvals) {
-            const serialized = JSON.stringify(res.pending_approvals);
-            if (serialized !== prevApprovalsRef.current) {
-              prevApprovalsRef.current = serialized;
-              setApprovals(res.pending_approvals);
-            }
-          }
+    const clearScheduledPoll = () => {
+      if (!pollRef.current) return;
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    };
 
-          // Update message bubbles
-          if (!res?.messages?.length) return;
+    const scheduleNextPoll = (delay?: number) => {
+      if (cancelled) return;
+      clearScheduledPoll();
+      const nextDelay =
+        delay ??
+        (document.hidden ? BACKGROUND_POLL_INTERVAL_MS : POLL_INTERVAL_MS);
+      pollRef.current = setTimeout(() => {
+        pollRef.current = null;
+        void tick();
+      }, nextDelay);
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (inFlight) {
+        refreshAfterFlight = true;
+        return;
+      }
+
+      inFlight = true;
+      try {
+        const res = await consoleApi.getPushMessages();
+        if (cancelled) return;
+
+        // Update pending approvals only when they actually change,
+        // to avoid triggering unnecessary re-renders in Chat component.
+        if (res?.pending_approvals) {
+          const serialized = JSON.stringify(res.pending_approvals);
+          if (serialized !== prevApprovalsRef.current) {
+            prevApprovalsRef.current = serialized;
+            setApprovals(res.pending_approvals);
+          }
+        }
+
+        // Update message bubbles.
+        if (res?.messages?.length) {
           const seen = seenIdsRef.current;
           if (seen.size > MAX_SEEN_IDS) seen.clear();
           const newItems: BubbleItem[] = [];
@@ -59,22 +101,51 @@ export default function ConsolePollService() {
             seen.add(m.id);
             newItems.push({ ...m, dismissAt: now + AUTO_DISMISS_MS });
           }
-          if (newItems.length === 0) return;
-          const toAdd = newItems.slice(-MAX_NEW_PER_POLL);
-          setItems((prev) => {
-            const merged = [...prev, ...toAdd];
-            return merged.slice(-MAX_VISIBLE_BUBBLES);
-          });
-        })
-        .catch(() => {});
+          if (newItems.length > 0) {
+            const toAdd = newItems.slice(-MAX_NEW_PER_POLL);
+            setItems((prev) => {
+              const merged = [...prev, ...toAdd];
+              return merged.slice(-MAX_VISIBLE_BUBBLES);
+            });
+          }
+        }
+      } catch {
+        // Polling is best-effort; the next scheduled request retries.
+      } finally {
+        inFlight = false;
+        if (!cancelled) {
+          if (refreshAfterFlight) {
+            refreshAfterFlight = false;
+            scheduleNextPoll(0);
+          } else {
+            scheduleNextPoll();
+          }
+        }
+      }
     };
 
-    tick();
-    pollRef.current = setInterval(tick, POLL_INTERVAL_MS);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+    const onVisibility = () => {
+      clearScheduledPoll();
+      if (document.hidden) {
+        refreshAfterFlight = false;
+        if (!inFlight) scheduleNextPoll(BACKGROUND_POLL_INTERVAL_MS);
+        return;
+      }
+      if (inFlight) {
+        refreshAfterFlight = true;
+      } else {
+        void tick();
+      }
     };
-  }, []);
+
+    document.addEventListener("visibilitychange", onVisibility);
+    void tick();
+    return () => {
+      cancelled = true;
+      clearScheduledPoll();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [setApprovals]);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -90,9 +161,9 @@ export default function ConsolePollService() {
 
   useEffect(() => {
     if (items.length === 0 || !document.hidden || blinkRef.current) return;
-    const original = originalTitleRef.current;
     let showPrefix = true;
     blinkRef.current = setInterval(() => {
+      const original = originalTitleRef.current;
       document.title = showPrefix
         ? `${TITLE_BLINK_PREFIX}${original}`
         : original;
@@ -103,7 +174,7 @@ export default function ConsolePollService() {
         clearInterval(blinkRef.current);
         blinkRef.current = null;
       }
-      document.title = original;
+      document.title = originalTitleRef.current;
     };
   }, [items.length]);
 

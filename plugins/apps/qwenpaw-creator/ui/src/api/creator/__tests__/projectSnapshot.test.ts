@@ -37,34 +37,10 @@ function project(generation: number) {
 }
 
 describe("Project snapshot API", () => {
-  it("sends If-None-Match and treats 304 plus Project headers as a successful result", async () => {
-    const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        response(304, undefined, {
-          ETag: '"sha256:g7"',
-          "X-Project-Generation": "7",
-          "X-Project-Sync-Status": "healthy",
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getProjectSnapshot("p1", '"sha256:g7"')).resolves.toEqual({
-      kind: "not_modified",
-      etag: '"sha256:g7"',
-      generation: 7,
-      syncStatus: "healthy",
-    });
-    const request = fetchMock.mock.calls[0];
-    expect(request[0]).toBe("/api/qwenpaw-creator/projects/p1/project");
-    expect(new Headers(request[1]?.headers).get("If-None-Match")).toBe(
-      '"sha256:g7"',
-    );
-  });
-
-  it("returns a validated snapshot envelope and prefers the HTTP entity tag", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
+  it("returns a validated snapshot envelope, then honours If-None-Match with a 304", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
         response(
           200,
           {
@@ -76,17 +52,35 @@ describe("Project snapshot API", () => {
           },
           { ETag: '"sha256:header"' },
         ),
-      ),
-    );
+      )
+      .mockResolvedValueOnce(
+        response(304, undefined, {
+          ETag: '"sha256:header"',
+          "X-Project-Generation": "8",
+          "X-Project-Sync-Status": "healthy",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
-    const result = await getProjectSnapshot("p1");
-    expect(result).toMatchObject({
+    // The HTTP entity tag wins over the body etag.
+    await expect(getProjectSnapshot("p1")).resolves.toMatchObject({
       kind: "updated",
       projectId: "p1",
       generation: 8,
       etag: '"sha256:header"',
       syncStatus: "healthy",
     });
+    await expect(getProjectSnapshot("p1", '"sha256:header"')).resolves.toEqual({
+      kind: "not_modified",
+      etag: '"sha256:header"',
+      generation: 8,
+      syncStatus: "healthy",
+    });
+    const request = fetchMock.mock.calls[1];
+    expect(request[0]).toBe("/api/qwenpaw-creator/projects/p1/project");
+    expect(new Headers(request[1]?.headers).get("If-None-Match")).toBe(
+      '"sha256:header"',
+    );
   });
 
   it("exposes PROJECT_INVALID as sync state instead of raw Project data", async () => {

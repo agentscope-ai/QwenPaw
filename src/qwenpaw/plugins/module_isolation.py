@@ -53,15 +53,120 @@ Known limitations (documented, not silently broken):
   string-annotation resolution or pickling) fail afterwards.
 """
 
+import ast
 import builtins
 import importlib
 import importlib.abc
 import importlib.machinery
+import importlib.util
 import os
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
+
+
+def clear_plugin_bytecode(source_path: Path) -> None:
+    """Discard source-backed plugin caches without walking dependency trees.
+
+    Timestamp caches can remain valid after same-size, same-second edits.
+    Cache names follow import paths, including source-file symlinks, not
+    their targets. Internal directory aliases are also walked when an external
+    cache prefix gives each import path its own cache.
+    """
+    root = source_path.resolve()
+    excluded = {
+        "__pycache__",
+        "site-packages",
+        "dist-packages",
+        "node_modules",
+    }
+
+    def fail(exc: OSError) -> None:
+        raise exc
+
+    def walkable(path: Path) -> bool:
+        resolved = path.resolve()
+        if not resolved.is_relative_to(root):
+            return False
+        relative = resolved.relative_to(root)
+        if any(
+            part in excluded or part.startswith((".venv", "venv", ".git"))
+            for part in relative.parts
+        ):
+            return False
+        if any(
+            (ancestor / "pyvenv.cfg").is_file()
+            for ancestor in (resolved, *resolved.parents)
+            if ancestor.is_relative_to(root)
+        ):
+            return False
+        # Follow aliases separately, but never recurse back into an ancestor.
+        return all(
+            resolved != ancestor.resolve()
+            for ancestor in path.parents
+            if ancestor.is_relative_to(root)
+        )
+
+    for directory, dirs, files in os.walk(
+        root,
+        onerror=fail,
+        followlinks=bool(sys.pycache_prefix),
+    ):
+        parent = Path(directory)
+        dirs[:] = [
+            name
+            for name in dirs
+            if name not in excluded
+            and not name.startswith((".venv", "venv", ".git"))
+            and (
+                walkable(parent / name)
+                if sys.pycache_prefix
+                else not (parent / name).is_symlink()
+            )
+            and not (parent / name / "pyvenv.cfg").is_file()
+        ]
+        for name in files:
+            source = parent / name
+            if source.suffix != ".py":
+                continue
+            cache = Path(importlib.util.cache_from_source(str(source)))
+            cache_root = (
+                Path(sys.pycache_prefix) if sys.pycache_prefix else root
+            )
+            targets = [(cache, cache_root)]
+            if parent == parent.resolve():
+                # Real-path traversal handles sidecars without following links.
+                targets.append((source.with_suffix(".pyc"), root))
+            for target, boundary in targets:
+                cursor = target
+                while cursor != boundary:
+                    if cursor.is_symlink():
+                        raise OSError(
+                            f"Refusing symlinked plugin bytecode: {cursor}",
+                        )
+                    if cursor == cursor.parent:
+                        raise OSError(
+                            f"Plugin bytecode is outside cache root: {target}",
+                        )
+                    cursor = cursor.parent
+                target.unlink(missing_ok=True)
+    importlib.invalidate_caches()
+
+
+class _PluginSourceLoader(importlib.machinery.SourceFileLoader):
+    """Execute current plugin source without reading or writing bytecode."""
+
+    def get_code(self, fullname: str) -> Any:
+        path = self.get_filename(fullname)
+        return self.source_to_code(self.get_data(path), path)
+
+
+def source_only_loader(loader: Any) -> Any:
+    """Bypass source caches only at explicit plugin import boundaries."""
+    if isinstance(loader, importlib.machinery.SourceFileLoader):
+        return _PluginSourceLoader(loader.name, loader.path)
+    return loader
 
 
 class _NamespaceLoader:
@@ -80,7 +185,7 @@ class _NamespaceLoader:
         wrapped: importlib.abc.Loader,
         plugin_builtins: Dict[str, Any],
     ) -> None:
-        self._wrapped = wrapped
+        self._wrapped = source_only_loader(wrapped)
         self._builtins = plugin_builtins
 
     def exec_module(self, module: Any) -> None:
@@ -112,6 +217,7 @@ class PluginNamespaceFinder(importlib.abc.MetaPathFinder):
         module_name: str,
         plugin_builtins: Dict[str, Any],
     ) -> None:
+        importlib.invalidate_caches()
         self._namespaces[module_name] = plugin_builtins
 
     def unregister(self, module_name: str) -> None:
@@ -119,6 +225,9 @@ class PluginNamespaceFinder(importlib.abc.MetaPathFinder):
 
     def is_registered(self, module_name: str) -> bool:
         return module_name in self._namespaces
+
+    def builtins_for(self, module_name: str) -> Dict[str, Any] | None:
+        return self._namespaces.get(module_name)
 
     def find_spec(
         self,
@@ -188,7 +297,10 @@ def strip_plugin_sys_path(source_path: Any) -> None:
     sys.path[:] = [p for p in sys.path if _keep(p)]
 
 
-def sweep_bare_tree_modules(source_path: Any) -> None:
+def sweep_bare_tree_modules(
+    source_path: Any,
+    previous_modules: Optional[Mapping[str, Any]] = None,
+) -> None:
     """Pop non-namespaced ``sys.modules`` entries rooted in *source_path*.
 
     Redirected plugin imports live under ``plugin_<id>`` and are exempt
@@ -198,15 +310,35 @@ def sweep_bare_tree_modules(source_path: Any) -> None:
     data-directory fallthrough; left in place, the ``sys.modules``
     cache would keep serving it to later imports even after the
     plugin's ``sys.path`` entries are swept.
+
+    When *previous_modules* is provided, bindings unchanged since that
+    snapshot are skipped.  Changed bindings rooted in the plugin tree are
+    removed, or restored when they replaced an existing binding.  This keeps
+    load-end cleanup proportional to modules imported by that plugin instead
+    of filesystem-normalizing the entire process module table.
     """
     root = _norm(source_path)
     prefix = root + os.sep
+    missing = object()
 
     def _under(path: Any) -> bool:
         resolved = _norm(path)
         return resolved == root or resolved.startswith(prefix)
 
+    def _remove_or_restore(name: str, mod: Any, previous: Any) -> None:
+        if sys.modules.get(name, missing) is not mod:
+            return
+        if previous is missing:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = previous
+
     for name, mod in list(sys.modules.items()):
+        previous = missing
+        if previous_modules is not None:
+            previous = previous_modules.get(name, missing)
+            if previous is mod:
+                continue
         top = name.partition(".")[0]
         if _finder is not None and _finder.is_registered(top):
             continue
@@ -214,7 +346,7 @@ def sweep_bare_tree_modules(source_path: Any) -> None:
             mod_file = getattr(mod, "__file__", None)
             if mod_file is not None:
                 if _under(mod_file):
-                    sys.modules.pop(name, None)
+                    _remove_or_restore(name, mod, previous)
                 continue
             # Namespace packages have no __file__; match by __path__.
             # Accessing __path__ recomputes _NamespacePath, which can
@@ -223,10 +355,10 @@ def sweep_bare_tree_modules(source_path: Any) -> None:
             try:
                 portions = list(getattr(mod, "__path__", None) or [])
             except KeyError:
-                sys.modules.pop(name, None)
+                _remove_or_restore(name, mod, previous)
                 continue
             if portions and any(_under(p) for p in portions):
-                sys.modules.pop(name, None)
+                _remove_or_restore(name, mod, previous)
         except Exception:  # pylint: disable=broad-except
             # Best-effort cleanup: lazy-module proxies or broken path
             # hooks must not turn a sweep into a load failure.
@@ -364,3 +496,185 @@ def build_plugin_builtins(
     plugin_builtins = dict(vars(builtins))
     plugin_builtins["__import__"] = _plugin_import
     return plugin_builtins
+
+
+def plugin_module_name(plugin_id: str, *, probe: bool = False) -> str:
+    """Return the isolated top-level module name for *plugin_id*."""
+    base = f"plugin_{plugin_id.replace('-', '_')}"
+    return f"{base}__probe" if probe else base
+
+
+def snapshot_plugin_import_state(
+    plugin_id: str,
+    source_path: Path,
+) -> dict[str, Any]:
+    """Capture prefix modules, bare tree modules, sys.path, and finder."""
+    module_name = plugin_module_name(plugin_id)
+    prefix = module_name + "."
+    modules = {
+        key: sys.modules[key]
+        for key in list(sys.modules)
+        if key == module_name or key.startswith(prefix)
+    }
+    root = _norm(source_path)
+    sep = root + os.sep
+    bare: dict[str, Any] = {}
+    for key, mod in list(sys.modules.items()):
+        if key in modules:
+            continue
+        origin = getattr(mod, "__file__", None)
+        if origin is None:
+            continue
+        resolved = _norm(origin)
+        if resolved == root or resolved.startswith(sep):
+            bare[key] = mod
+    path_entries = [
+        entry
+        for entry in sys.path
+        if os.path.isabs(entry)
+        and (_norm(entry) == root or _norm(entry).startswith(sep))
+    ]
+    finder = get_namespace_finder()
+    return {
+        "plugin_id": plugin_id,
+        "module_name": module_name,
+        "source_path": source_path,
+        "modules": modules,
+        "bare": bare,
+        "path_entries": path_entries,
+        "finder_builtins": finder.builtins_for(module_name),
+    }
+
+
+def restore_plugin_import_state(snapshot: dict[str, Any]) -> None:
+    """Put a :func:`snapshot_plugin_import_state` result back."""
+    module_name = snapshot["module_name"]
+    prefix = module_name + "."
+    for key in list(sys.modules):
+        if key == module_name or key.startswith(prefix):
+            sys.modules.pop(key, None)
+    sys.modules.update(snapshot.get("modules") or {})
+    sys.modules.update(snapshot.get("bare") or {})
+    for entry in snapshot.get("path_entries") or []:
+        if entry not in sys.path:
+            sys.path.append(entry)
+    builtins_map = snapshot.get("finder_builtins")
+    if builtins_map is not None:
+        get_namespace_finder().register(module_name, builtins_map)
+
+
+def compile_plugin_import_closure(
+    entry_file: Path,
+    search_paths: list[str],
+) -> None:
+    """``compile()`` the entry file and locally imported siblings."""
+    seen: set[Path] = set()
+    _compile_file(Path(entry_file), search_paths, seen)
+
+
+def probe_plugin_source(
+    plugin_id: str,
+    source_path: Path,
+    entry_file: Path,
+    *,
+    compiled: bool = False,
+) -> None:
+    """Import a probe; ``compiled`` means source validation is done."""
+    probe_name = plugin_module_name(plugin_id, probe=True)
+    plugin_dir = str(source_path)
+    entry_dir = str(entry_file.parent)
+    search_paths = [entry_dir]
+    if _norm(entry_dir) != _norm(plugin_dir):
+        search_paths.append(plugin_dir)
+    if not compiled:
+        compile_plugin_import_closure(entry_file, search_paths)
+    plugin_builtins = build_plugin_builtins(
+        probe_name,
+        search_paths,
+        entry_file=entry_file,
+    )
+    finder = get_namespace_finder()
+    finder.register(probe_name, plugin_builtins)
+    spec = importlib.util.spec_from_file_location(
+        probe_name,
+        entry_file,
+        submodule_search_locations=search_paths,
+    )
+    if spec is None or spec.loader is None:
+        unregister_namespace(probe_name)
+        raise ImportError(f"Failed to load probe spec for {entry_file}")
+    spec.loader = source_only_loader(spec.loader)
+    module = importlib.util.module_from_spec(spec)
+    module.__dict__["__builtins__"] = plugin_builtins
+    try:
+        sys.modules[probe_name] = module
+        module.__package__ = probe_name
+        module.__path__ = search_paths
+        spec.loader.exec_module(module)
+        if (
+            getattr(module, "plugin", None) is None
+            and getattr(
+                module,
+                "app",
+                None,
+            )
+            is None
+        ):
+            raise AttributeError(
+                "Plugin module must export a 'plugin' object "
+                "(or a PawApp 'app' instance)",
+            )
+    finally:
+        finish_probe_import(plugin_id, source_path)
+
+
+def finish_probe_import(plugin_id: str, source_path: Path) -> None:
+    """Drop the probe namespace so later sweeps are not exempt."""
+    probe_name = plugin_module_name(plugin_id, probe=True)
+    unregister_namespace(probe_name)
+    sweep_bare_tree_modules(source_path)
+    prefix = probe_name + "."
+    for key in list(sys.modules):
+        if key == probe_name or key.startswith(prefix):
+            sys.modules.pop(key, None)
+
+
+def _compile_file(
+    path: Path,
+    search_paths: list[str],
+    seen: set[Path],
+) -> None:
+    resolved = path.resolve()
+    if resolved in seen or not resolved.is_file():
+        return
+    seen.add(resolved)
+    source = resolved.read_text(encoding="utf-8")
+    compile(source, str(resolved), "exec")
+    tree = ast.parse(source, filename=str(resolved))
+    for name in _imported_top_names(tree):
+        child = _find_local_py(name, search_paths)
+        if child is not None:
+            _compile_file(child, search_paths, seen)
+
+
+def _imported_top_names(tree: ast.AST) -> list[str]:
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.append(alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            if node.module:
+                names.append(node.module.split(".", 1)[0])
+    return names
+
+
+def _find_local_py(name: str, search_paths: list[str]) -> Path | None:
+    for root in search_paths:
+        candidate = Path(root) / f"{name}.py"
+        if candidate.is_file():
+            return candidate
+        package = Path(root) / name / "__init__.py"
+        if package.is_file():
+            return package
+    return None

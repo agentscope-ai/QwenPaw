@@ -4,12 +4,11 @@
 # pylint: disable=too-many-return-statements,line-too-long
 """VLM-driven motion-graphic design for Timeline edit segments.
 
-``design_motion_overlays`` runs two passes over one Timeline.  Pass A looks
-at real frames behind every text Overlay (``pet_os`` / ``interview_summary``)
-and designs a fancy generated caption card, stored as ``creation.motion`` on
-that same Element; the fixed bubble template stays as the render fallback.
-Pass B picks a sparse set of segments worth a decorative sticker through one
-coordinated selection call, designs each pick against real keyframes, and
+``design_motion_overlays`` runs two passes over one Timeline. Pass A fills
+text Overlays with plain, borderless subtitles or their selected template,
+stored as ``creation.motion`` on the same Element. Render fallbacks use the
+same neutral typography. When explicitly enabled, Pass B picks a sparse set
+of segments for decoration, designs each pick against real keyframes, and
 persists accepted designs as text-free decoration Overlay Elements.  Every
 document is validated by actually loading it before one Project commit.
 
@@ -41,9 +40,29 @@ from services.media_files.keyframe_cache import (
     materialize_keyframe,
     verified_indexed_path,
 )
+from services.media_files.informal_launch_template import (
+    informal_launch_copy_matches,
+    informal_launch_screen_copy,
+    informal_launch_caption_skill,
+    informal_launch_frame_windows,
+    normalize_informal_launch_html,
+    render_informal_launch_caption,
+    requests_informal_launch_preset,
+    uses_informal_launch_captions,
+)
+from services.media_files.informal_launch_timing import (
+    align_launch_caption_spans,
+)
+from services.media_files.live_operation import (
+    facts_within,
+    project_location_to_canvas,
+    read_take_manifest,
+)
 from services.media_files.motion_blueprints import (
-    CAPTION_BLUEPRINT_ORDER,
+    CONTENT_TYPES,
     blueprint_catalog_text,
+    content_type_frame,
+    content_type_palette,
     render_caption_blueprint,
     render_decoration_blueprint,
     render_frame_blueprint,
@@ -58,6 +77,8 @@ from services.media_files.motion_overlay import (
     probe_motion_document,
 )
 from services.media_files.motion_templates import (
+    CAPTION_TEMPLATE_VERSION,
+    DEFAULT_CAPTION_LOCATION,
     MOTION_TEMPLATE_VERSION,
     SUPPORTED_EMOTIONS,
     SUPPORTED_ENTRANCES,
@@ -109,10 +130,6 @@ def _log_safe(value: object) -> str:
 
 _MAX_SEGMENTS = 24
 _MAX_CONCURRENT_DESIGNS = 3
-# Uniform narration captions: one fixed blueprint and intensity shared by
-# every card in the film, so subtitles stay visually identical throughout.
-_UNIFORM_CAPTION_BLUEPRINT = "static_capsule"
-_UNIFORM_CAPTION_INTENSITY = 0.5
 _MAX_DESIGN_ATTEMPTS = 2
 _TEXT_CARD_DESIGN_ATTEMPTS = 4
 _TEXT_CARD_MIN_COVERAGE = 0.3
@@ -120,16 +137,6 @@ _TEXT_CARD_MIN_COVERAGE = 0.3
 # through layout; letters and CJK characters stay authoritative.
 _PUNCTUATION_RUN = re.compile(
     r"[，。！？、；：“”‘’…—～·（）《》〈〉,.!?;:'\"()\[\]~\-]+",
-)
-# Placement/scale tendencies rotated across a film's caption cards so
-# concurrent designs still differ in composition; the model may overrule
-# any of them when the footage demands, they are never style templates.
-_CARD_COMPOSITION_SEEDS = (
-    "大字抢镜：卡占画面上半部偏一侧（width≈0.5），整体微倾斜，靠近主体方向",
-    "小而点睛：紧贴主体动作旁的小卡（width≈0.28），像一句随手贴上的吐槽",
-    "斜角构图：画面斜上角或斜下角，明显旋转角度，逐字大小错落",
-    "横贯强调：中下部横向大字（width≈0.6），关键词放大变色，背景色块不规则",
-    "边角呼应：靠画面一侧竖向留白处，窄而高的排版感，搭配细长装饰线",
 )
 # Expressive caption cards may bleed background blocks off their box
 # edge on purpose; only a fully edge-locked frame (text at risk of
@@ -139,9 +146,8 @@ _TEXT_CARD_MAX_EDGE_CONTACT = 1.0
 _DECORATION_MIN_COVERAGE = 0.08
 _DECORATION_MAX_EDGE_CONTACT = 0.02
 _KEYFRAME_WIDTH = 960
-_VLM_MAX_TOKENS = 6000
 _MOTION_ELEMENT_SUFFIX = "-motion"
-_DEFAULT_DECORATION_BUDGET = 3
+_DEFAULT_DECORATION_BUDGET = 0
 _MAX_DECORATION_BUDGET = 8
 
 # Emoji and pictographic glyphs depend on platform color-font rasterization,
@@ -274,10 +280,7 @@ needed=true 时优先蓝图路线：从下列经验证的装饰蓝图中选最�
   "loop": true,
   "location": {"x": 0-1, "y": 0-1, "width": 0-1, "height": 0-1, "anchor_x": 0-1, "anchor_y": 0-1, "opacity": 0-1}
 }
-location 使用归一化画布坐标：x/y 是锚点在画布上的位置，anchor_x/anchor_y 选择内容盒的哪个点对齐到 x/y，width/height 是盒子相对画布的比例。""".replace(
-        "%DECOR_CATALOG%",
-        blueprint_catalog_text("decoration"),
-    )
+location 使用归一化画布坐标：x/y 是锚点在画布上的位置，anchor_x/anchor_y 选择内容盒的哪个点对齐到 x/y，width/height 是盒子相对画布的比例。"""
 )
 
 _TEXT_STYLE_SYSTEM_PROMPT = (
@@ -334,6 +337,24 @@ def _target_timeline(project: Project, target_ref: str) -> Timeline:
     if timeline is None:
         raise NotFoundError("Timeline 不存在")
     return timeline
+
+
+def _resolve_content_type(
+    project: Project,
+    arguments: Mapping[str, Any],
+) -> str:
+    """Resolve content type from arguments → settings → scenario → default."""
+
+    explicit = arguments.get("contentType")
+    if isinstance(explicit, str) and explicit.strip() in CONTENT_TYPES:
+        return explicit.strip()
+    settings_type = project.settings.content_type
+    if settings_type and settings_type in CONTENT_TYPES:
+        return settings_type
+    scenario = getattr(project, "scenario", None)
+    if scenario == "short_drama":
+        return "short_drama"
+    return "general"
 
 
 def _segment_seconds(
@@ -526,7 +547,7 @@ def _repair_common_html_slips(html: str) -> str:
     def _lift_zero_alpha(match: re.Match[str]) -> str:
         opening, body, closing = match.groups()
         body = re.sub(
-            r"((?:autoAlpha|opacity)\s*:\s*)0(?:\.0+)?(?=\s*[,}!;])",
+            r"((?:autoAlpha|opacity)\s*:\s*)(?:0(?:\.0+)?|\.0+)(?=\s*[,}!;])",
             r"\g<1>0.25",
             body,
         )
@@ -576,17 +597,22 @@ def _validated_design(
     allow_visible_text: bool = False,
     default_loop: bool = True,
     canvas_size: tuple[int, int] | None = None,
+    force_design: bool = False,
+    full_canvas_overlay: bool = False,
 ) -> tuple[MotionGraphic, ElementLocation, str] | str:
     """Return ``(motion, location, concept)`` or a skip reason string.
 
     ``required_text`` switches to text-card mode: the design is always
     needed and the given text must appear verbatim in the document.
+    ``force_design`` prevents the VLM from skipping (needed=false) but
+    does not enforce strict text matching — used for keyword overlays
+    where the editing director explicitly requested the effect.
     ``allow_visible_text`` marks full-canvas scene documents (motion
     clips): they may carry copy when the creative intent asks for it,
     unlike decorations which must stay text-free.
     """
 
-    if required_text is None:
+    if required_text is None and not force_design:
         needed = raw.get("needed")
         if needed is not True:
             reason = str(raw.get("skip_reason") or "").strip()
@@ -609,6 +635,18 @@ def _validated_design(
     uses_template = required_text is None and motif in SUPPORTED_MOTIFS
     blueprint = str(raw.get("blueprint") or "").strip()
     uses_blueprint = bool(blueprint)
+    _box_height: float | None = None
+    _box_width: float | None = None
+    _raw_loc = raw.get("location")
+    if isinstance(_raw_loc, Mapping):
+        try:
+            _box_height = float(_raw_loc.get("height", 0)) or None
+        except (TypeError, ValueError):
+            _box_height = None
+        try:
+            _box_width = float(_raw_loc.get("width", 0)) or None
+        except (TypeError, ValueError):
+            _box_width = None
     if uses_blueprint:
         # Catalog route: the VLM picked a verified GSAP skeleton and only
         # supplies frame-derived parameters; the html body is rendered
@@ -620,6 +658,8 @@ def _validated_design(
                     required_text,
                     palette=raw.get("palette"),
                     intensity=raw.get("intensity"),
+                    box_width=_box_width,
+                    box_height=_box_height,
                 )
             else:
                 html, _hf_duration = render_decoration_blueprint(
@@ -649,7 +689,11 @@ def _validated_design(
     if not isinstance(html, str) or len(html.strip()) < 32:
         raise ValidationError("design html 缺失或过短")
     if not uses_template and not uses_blueprint:
-        html = _repair_common_html_slips(html)
+        html = (
+            normalize_informal_launch_html(html)
+            if full_canvas_overlay
+            else _repair_common_html_slips(html)
+        )
     html = html.strip()
     if len(html) > 200_000:
         raise ValidationError("design html 超过 200000 字符上限")
@@ -691,7 +735,9 @@ def _validated_design(
         html,
         re.IGNORECASE,
     ):
-        raise ValidationError("design html 不允许包含脚本、本机文件或嵌入网页 URL")
+        raise ValidationError(
+            "design html 不允许包含脚本、本机文件或嵌入网页 URL",
+        )
     if re.search(
         r"""(?:src|href)\s*=\s*["']?\s*(?:https?:)?//""",
         html,
@@ -728,7 +774,16 @@ def _validated_design(
         raise ValidationError(
             "装饰动效不允许通过 CSS content 生成可见文字或符号；请用 CSS 几何图形表达",
         )
-    if required_text is not None:
+    if required_text is not None and full_canvas_overlay:
+        if not informal_launch_copy_matches(
+            html,
+            required_text,
+        ):
+            raise ValidationError(
+                "非正式发布会字幕只允许给定完整文案，不得漏字、重复或添加 OK 等额外字样；"
+                "花字装饰使用无文字的图形，不能用隐藏文本凑齐文案",
+            )
+    elif required_text is not None:
         wanted = re.sub(r"\s+", "", required_text)
         # Expressive lettering commonly replaces punctuation with layout
         # (a line break instead of a comma, an accent shape instead of
@@ -799,7 +854,11 @@ def _validated_design(
         intensity=intensity,
     )
     location = _validated_location(raw.get("location"))
-    if required_text is not None and canvas_size is not None:
+    if (
+        required_text is not None
+        and canvas_size is not None
+        and not full_canvas_overlay
+    ):
         _validate_caption_location(location, required_text, canvas_size)
     return motion, location, concept
 
@@ -846,13 +905,99 @@ def _externalized_motion(
         # verify the bytes on disk still match before reusing them.
         file_store.abandon(staged)
         if not file_store.inspect(indexed).available:
-            raise StorageIntegrityError("动效文档路径已存在但内容不一致") from exc
+            raise StorageIntegrityError(
+                "动效文档路径已存在但内容不一致",
+            ) from exc
     return (
         motion.model_copy(
             update={"html": None, "html_file_id": indexed.file_id},
         ),
         indexed,
     )
+
+
+def _live_operation_facts(
+    *,
+    project: Project,
+    project_root: Path,
+    element: TimelineElement,
+    start_seconds: float,
+    end_seconds: float,
+) -> list[str]:
+    """Describe the real operations a recorded clip covers, if it has any.
+
+    Footage produced by live operation carries the coordinates and instants
+    its actions actually happened at. Handing those to the designer is what
+    lets emphasis land on the element that was clicked instead of on a guess
+    derived from looking at pixels. Ordinary footage has no such record and
+    simply yields nothing here.
+    """
+
+    render_source = element.render_source
+    if not isinstance(render_source, SourceVersionRenderSource):
+        return []
+    version = project.assets.source_versions_by_id.get(
+        render_source.version_id,
+    )
+    if version is None:
+        return []
+    manifest = read_take_manifest(
+        project,
+        AssetFileStore(project_root),
+        version,
+    )
+    if not manifest:
+        return []
+    facts = facts_within(
+        manifest,
+        start_ms=start_seconds * 1000,
+        end_ms=end_seconds * 1000,
+        playback_rate=render_source.playback_rate,
+    )
+    if not facts:
+        return []
+    lines = [
+        "本片段来自真实操作录屏，以下是这段时间内真实发生的操作事实"
+        "（location 已穿过当前 Edit 的缩放/裁切/位移，表示最终成片中的"
+        "归一化画布坐标，可直接用作 location 的 x/y/width/height）：",
+    ]
+    placement = (
+        element.location.model_dump(mode="json")
+        if element.location is not None
+        else None
+    )
+    for fact in facts:
+        offset = float(fact.get("clip_offset_ms", 0)) / 1000
+        target = str(fact.get("target") or "").strip()
+        detail = f"- {offset:.2f}s {fact.get('op')}"
+        if target:
+            detail += f" → {target}"
+        location = fact.get("location")
+        if isinstance(location, Mapping):
+            canvas_location = project_location_to_canvas(location, placement)
+            if canvas_location is not None:
+                detail += (
+                    " location="
+                    f"x={canvas_location.get('x')}, "
+                    f"y={canvas_location.get('y')}, "
+                    f"width={canvas_location.get('width')}, "
+                    f"height={canvas_location.get('height')}"
+                )
+            else:
+                detail += "（目标在当前裁切中不可见或画面有旋转，无可靠坐标）"
+        else:
+            detail += "（无坐标）"
+        if fact.get("failed"):
+            detail += "（该操作失败）"
+        lines.append(detail)
+    lines.append(
+        "操作教程类画面的动效方法：空间上以事件坐标为锚，强调发生在操作真正"
+        "发生的位置，讲解锁定在目标元素的盒体上；时间上贴合动作时刻，持续"
+        "时长与动作节奏匹配；保持克制，服务于“看清操作”，不遮挡目标本体，"
+        "同屏只给一个焦点；全片操作强调的视觉语言保持自洽。具体用什么视觉"
+        "形式达到这些目的，由你根据画面自己创作。",
+    )
+    return lines
 
 
 def _design_task_text(
@@ -867,6 +1012,8 @@ def _design_task_text(
     used_motifs: set[str] | None = None,
     story_role: str | None = None,
     story_motif: str | None = None,
+    content_type: str = "",
+    live_operation_facts: list[str] | None = None,
 ) -> str:
     creation = element.creation
     assert isinstance(creation, EditCreation)
@@ -895,60 +1042,33 @@ def _design_task_text(
             + "。若剧情语义允许，请换一种造型，形成有变化但统一的视觉节奏。",
         )
     if os_context:
-        lines.append("同一时段的猫咪 OS 语义如下；装饰造型必须呼应这些台词/情绪，但不得重复显示文字：")
+        lines.append(
+            "同一时段的猫咪 OS 语义如下；装饰造型必须呼应这些台词/情绪，但不得重复显示文字：",
+        )
         lines.extend(f"- {context}" for context in os_context)
     if avoid_locations:
-        lines.append("以下猫咪 OS/字幕卡会在同一时段出现，装饰动效的 location 盒子不得与它们重叠：")
+        lines.append(
+            "以下猫咪 OS/字幕卡会在同一时段出现，装饰动效的 location 盒子不得与它们重叠：",
+        )
         lines.extend(
             f"- {label}: {location.model_dump(mode='json')}"
             for label, location in avoid_locations
         )
+    _CONTENT_TYPE_HINTS = {
+        "short_drama": "本片类型：短剧。动效风格偏情绪化、有冲击力、戏剧感、电影质感。",
+        "interview": "本片类型：采访。动效风格偏专业、简洁、结构化、重点突出。",
+        "pets": "本片类型：宠物。动效风格偏温暖、可爱、活泼、生活化。",
+        "gaming": "本片类型：游戏。动效风格偏霓虹、高科技、炫酷、节奏感强。",
+        "sports": "本片类型：体育。动效风格偏高能量、动态、冲击力强。",
+        "travel": "本片类型：旅行。动效风格偏温暖明亮、轻松、自然风光感。",
+        "general": "本片类型：通用剪辑。动效风格均衡百搭。",
+    }
+    if content_type in _CONTENT_TYPE_HINTS:
+        lines.append(_CONTENT_TYPE_HINTS[content_type])
+    if live_operation_facts:
+        lines.extend(live_operation_facts)
     lines.append(
         "附图是该片段内按时间顺序抽取的真实画面帧，请从中判断主体位置、留白区域和配色。严格按系统要求只输出一个 JSON 对象。",
-    )
-    return "\n".join(lines)
-
-
-def _text_style_task_text(
-    *,
-    overlay: TimelineElement,
-    edit_element: TimelineElement | None,
-    duration_seconds: float,
-    canvas_size: tuple[int, int],
-    brief: str,
-    theme: str = "comic_patrol",
-    card_index: int = 0,
-) -> str:
-    creation = overlay.creation
-    assert isinstance(creation, OverlayCreation)
-    del theme  # 家族感由画面与全片概念推导，不再绑定固定主题色板
-    # Composition seeds rotate per card so concurrently designed cards
-    # still land in different places at different scales — they are
-    # placement tendencies the model may overrule for the footage, never
-    # style templates.
-    seed = _CARD_COMPOSITION_SEEDS[card_index % len(_CARD_COMPOSITION_SEEDS)]
-    lines = [
-        "请为下面这段台词自由设计一张贴合本片风格的动态花字/字幕卡。",
-        f"台词文字: {creation.text}",
-        f"情绪基调: {creation.vibe}",
-        f"展示时长: {duration_seconds:.1f} 秒",
-        f"本卡序号: 第 {card_index + 1} 张。本卡构图建议（可根据画面推翻，但同片各卡构图必须互不重复）：{seed}。",
-    ]
-    if edit_element is not None and isinstance(
-        edit_element.creation,
-        EditCreation,
-    ):
-        lines.append(
-            f"片段剪辑意图: {edit_element.creation.intent or '（未提供）'}",
-        )
-    lines.append(
-        f"画布尺寸: {canvas_size[0]}x{canvas_size[1]} 像素。"
-        "字幕卡盒子的像素尺寸 = location.width/height 乘以画布尺寸，请据此设计字号与布局。",
-    )
-    if brief:
-        lines.append(f"整体包装要求: {brief}")
-    lines.append(
-        "附图是该时段内按时间顺序抽取的真实画面帧，请从中判断主体位置、留白区域和配色。严格按系统要求只输出一个 JSON 对象。",
     )
     return "\n".join(lines)
 
@@ -969,6 +1089,8 @@ async def _design_document(
     ffmpeg_path: str | None = None,
     forced_theme: str | None = None,
     forced_fields: Mapping[str, Any] | None = None,
+    force_design: bool = False,
+    full_canvas_overlay: bool = False,
 ) -> tuple[MotionGraphic, ElementLocation, str] | str:
     """Design one document with bounded retries; returns design or skip reason."""
 
@@ -988,7 +1110,6 @@ async def _design_document(
                 content,
                 system_prompt=system_prompt,
                 temperature=0.6 if attempt == 0 else 0.4,
-                max_tokens=_VLM_MAX_TOKENS,
             )
             parsed = _parse_design_json(answer)
             if forced_theme is not None:
@@ -1001,6 +1122,8 @@ async def _design_document(
                 allow_visible_text=allow_visible_text,
                 default_loop=default_loop,
                 canvas_size=canvas_size,
+                force_design=force_design,
+                full_canvas_overlay=full_canvas_overlay,
             )
         except ValidationError as exc:
             last_error = str(exc)
@@ -1042,9 +1165,15 @@ async def _design_document(
             hint = ""
             if last_error and "t=0" in last_error:
                 hint = (
-                    "具体修法：把所有 tl.from/fromTo 的起始透明度改为 "
-                    "autoAlpha:0.25（不要 opacity:0），或在时间线最前面 "
-                    "tl.set(根容器,{autoAlpha:0.3},0)。"
+                    "具体修法：根容器始终保持 opacity:1，至少一组文字从 "
+                    "autoAlpha:0.25 入场并显式动画到1；不要把根容器永久设成0.3，"
+                    "否则子元素达到1后整段依旧灰淡。稳定阅读期中文和英文均应清晰。"
+                    if full_canvas_overlay
+                    else (
+                        "具体修法：把所有 tl.from/fromTo 的起始透明度改为 "
+                        "autoAlpha:0.25（不要 opacity:0），或在时间线最前面 "
+                        "tl.set(根容器,{autoAlpha:0.3},0)。"
+                    )
                 )
             elif last_error and "__hf" in last_error:
                 hint = (
@@ -1085,7 +1214,9 @@ async def _design_document(
                 "请修正后重新只输出一个 JSON 对象。"
             )
             continue
-        if required_text is not None and probe.text_occlusion > 0.18:
+        if required_text is not None and probe.text_occlusion > (
+            0.10 if full_canvas_overlay else 0.18
+        ):
             culprits = "、".join(probe.text_occlusion_culprits[:4])
             last_error = (
                 "字幕文字被卡片内的图标或装饰遮挡"
@@ -1146,7 +1277,6 @@ async def _select_decoration_ids(
             [{"type": "text", "text": "\n".join(lines)}],
             system_prompt=_SELECT_SYSTEM_PROMPT,
             temperature=0.3,
-            max_tokens=1000,
         )
         raw = _parse_design_json(answer).get("selected")
         if isinstance(raw, list):
@@ -1397,7 +1527,6 @@ async def _plan_story_beats(
                 "exit 从 soft_fade、shrink、none 选择。"
             ),
             temperature=0.35,
-            max_tokens=900,
         )
         parsed = _parse_design_json(answer)
         summary = str(parsed.get("storySummary") or "").strip()
@@ -1417,7 +1546,7 @@ def _is_trusted_caption_motion(motion: MotionGraphic | None) -> bool:
     versioned fixed templates. A hand-written ``html_css`` snippet from
     the editing model (field run 2026-08-09: revision turns wrote 700
     byte cards) fails the compose-time safety check and silently ships
-    the fallback bubble — treat it as unstyled so the design pass
+    the plain subtitle fallback — treat it as unstyled so the design pass
     replaces it with a real footage-aware design.
     """
 
@@ -1454,6 +1583,30 @@ def _is_frame_overlay(element: TimelineElement) -> bool:
     if motion is None:
         return True
     return motion.motif != "variety_frame"
+
+
+def _is_keyword_overlay(element: TimelineElement) -> bool:
+    """Recognise one keyword-effect Overlay declaration.
+
+    Keyword overlays carry no subtitle text (``text=""``) but describe a
+    styled keyword display in their prompt — e.g. "紫色大字 FALLBACK 关
+    键词动效，故障闪烁效果后稳定显示，科技感".  They are neither text
+    captions nor variety frames; the VLM designs the motion document.
+    """
+
+    creation = element.creation
+    if not isinstance(creation, OverlayCreation):
+        return False
+    if creation.text.strip():
+        return False
+    if not (creation.prompt or "").strip():
+        return False
+    if _is_frame_overlay(element):
+        return False
+    wording = (
+        f"{element.element_id} {element.label or ''} {creation.prompt or ''}"
+    )
+    return any(marker in wording for marker in ("关键词", "大字", "keyword"))
 
 
 def _frame_window_from_edit(
@@ -1516,7 +1669,7 @@ async def design_motion_overlays(
         except (TypeError, ValueError) as exc:
             raise ValidationError("maxDecorations 必须是整数") from exc
         budget = min(max(budget, 0), _MAX_DECORATION_BUDGET)
-    caption_style = str(arguments.get("captionStyle") or "varied").strip()
+    caption_style = str(arguments.get("captionStyle") or "uniform").strip()
     if caption_style not in {"varied", "uniform"}:
         raise ValidationError("captionStyle 必须是 varied 或 uniform")
     scene_style = str(arguments.get("sceneStyle") or "generative").strip()
@@ -1529,10 +1682,14 @@ async def design_motion_overlays(
     )
     project = snapshot.project
     timeline = _target_timeline(project, target_ref)
+    content_type = _resolve_content_type(project, arguments)
     project_root = services.projects.project_root(project_id)
     executions = ProjectExecutionStore(services.root)
     ffmpeg_path = resolve_ffmpeg() or "ffmpeg"
     canvas_size = _design_canvas_size(project)
+    launch_captions = uses_informal_launch_captions(timeline)
+    if launch_captions:
+        budget = 0
     # Beat-sync (WT-B5): decoration entrances snap to the BGM grid when a
     # music Element with local bytes exists; degradation is declared inside.
     beat_sync = await asyncio.to_thread(
@@ -1561,6 +1718,26 @@ async def design_motion_overlays(
         ),
         key=lambda element: (element.span.start_tick, element.element_id),
     )[:_MAX_SEGMENTS]
+    aligned_caption_spans = {}
+    caption_frame_windows: dict[str, list[tuple[str, float, float]]] = {}
+    caption_timing: dict[str, Any] = {}
+    if launch_captions:
+        aligned_caption_spans, caption_timing = await asyncio.to_thread(
+            align_launch_caption_spans,
+            project,
+            timeline,
+            text_overlays,
+            project_root,
+            ffmpeg_path,
+        )
+        text_overlays = [
+            item.model_copy(
+                update={"span": aligned_caption_spans[item.element_id]},
+            )
+            if item.element_id in aligned_caption_spans
+            else item
+            for item in text_overlays
+        ]
     motion_clips = sorted(
         (
             element
@@ -1586,11 +1763,23 @@ async def design_motion_overlays(
         ),
         key=lambda element: (element.span.start_tick, element.element_id),
     )[:_MAX_SEGMENTS]
+    # Keyword effect Overlays (text="", prompt describes a styled keyword
+    # display): the editing director declares the creative intent; the VLM
+    # designs the motion document using the underlying footage frames.
+    keyword_overlays = sorted(
+        (
+            element
+            for element in timeline.elements_by_id.values()
+            if element.enabled and _is_keyword_overlay(element)
+        ),
+        key=lambda element: (element.span.start_tick, element.element_id),
+    )[:_MAX_SEGMENTS]
     if (
         not edit_elements
         and not text_overlays
         and not motion_clips
         and not frame_overlays
+        and not keyword_overlays
     ):
         raise ValidationError(
             "Timeline 没有可设计的 Edit Element、文字 Overlay 或动效片段 Element",
@@ -1636,7 +1825,6 @@ async def design_motion_overlays(
                             "你是数学教学视频的内容编辑，只输出一个 JSON 对象，" "不输出任何其他文字。"
                         ),
                         temperature=0.3,
-                        max_tokens=800,
                     )
                     content = _parse_design_json(answer)
                     html, _hf = render_scene_blueprint(
@@ -1730,195 +1918,41 @@ async def design_motion_overlays(
         clip_styled[element.element_id] = motion
         return {**entry, "status": "designed", "concept": concept}
 
-    def fallback_text_style(
-        overlay: TimelineElement,
-        *,
-        reason: str,
-        card_index: int = 0,
-    ) -> dict[str, Any]:
-        # The reason string flows into design notes and the fallback
-        # status payload that downstream observers log; neutralise CR/LF
-        # so exception text cannot forge log lines.
-        reason = reason.replace("\r", "\\r").replace("\n", "\\n")
-        creation = overlay.creation
-        assert isinstance(creation, OverlayCreation)
-        emotion = (
-            creation.vibe if creation.vibe in SUPPORTED_EMOTIONS else "chill"
-        )
-        location = ElementLocation(
-            x=0.50,
-            y=0.88,
-            width=0.80,
-            height=0.18,
-            anchor_x=0.5,
-            anchor_y=0.5,
-        )
-        if overlay.location:
-            location = overlay.location
-        try:
-            _validate_caption_location(
-                location,
-                creation.text,
-                canvas_size,
-            )
-        except ValidationError:
-            location = ElementLocation(
-                x=0.50,
-                y=0.88,
-                width=0.80,
-                height=0.18,
-                anchor_x=0.5,
-                anchor_y=0.5,
-            )
-        # Deterministic blueprint rotation keeps fallback cards varied
-        # even when every generative attempt failed; the render-time
-        # probe gates still guard the final composite, and a blueprint
-        # that failed those gates degrades to the fixed CSS template
-        # inside the compose path without dropping the copy.
-        blueprint = CAPTION_BLUEPRINT_ORDER[
-            card_index % len(CAPTION_BLUEPRINT_ORDER)
-        ]
-        concept = f"蓝图字幕卡 {blueprint}（生成式设计回退：{reason}）"
-        try:
-            blueprint_html, _hf = render_caption_blueprint(
-                blueprint,
-                creation.text,
-                palette=_THEME_BLUEPRINT_PALETTES.get(theme),
-                intensity=0.55,
-            )
-            motion = MotionGraphic(
-                format="html_js",
-                html=blueprint_html,
-                fps=24,
-                loop=False,
-                design_notes=concept,
-                motif="caption_card",
-                theme=theme,
-                variant="sticker",
-                emotion=emotion,
-                entrance="pop",
-                exit="soft_fade",
-                intensity=0.55,
-            )
-        except ValueError:
-            concept = f"可靠动态 OS 字幕卡（生成样式回退：{reason}）"
-            motion = MotionGraphic(
-                html=render_caption_template(
-                    creation.text,
-                    theme=theme,
-                    emotion=emotion,
-                    box_width=location.width,
-                    box_height=location.height,
-                ),
-                fps=24,
-                loop=False,
-                design_notes=concept,
-                motif="caption_card",
-                template_version=MOTION_TEMPLATE_VERSION,
-                theme=theme,
-                variant="sticker",
-                emotion=emotion,
-                entrance="pop",
-                exit="soft_fade",
-                intensity=0.6,
-            )
-        styled[overlay.element_id] = (motion, location)
-        return {
-            "elementId": overlay.element_id,
-            "overlayKind": "caption",
-            "status": "styled_fallback",
-            "concept": concept,
-            "fallbackReason": reason,
-        }
-
     def uniform_text_style(overlay: TimelineElement) -> dict[str, Any]:
-        """Style one caption with the film-wide uniform template.
-
-        Narration captions (tutorials, explainers, documentary voice-over)
-        must look identical from the first card to the last — only the
-        words change — so the uniform mode renders every card from one
-        fixed blueprint deterministically and never asks the design model
-        for a per-card look.
-        """
-
+        """Use the same borderless typography for all ordinary subtitles."""
         creation = overlay.creation
         assert isinstance(creation, OverlayCreation)
         entry: dict[str, Any] = {
             "elementId": overlay.element_id,
             "overlayKind": "caption",
         }
-        # Uniform mode expresses a film-wide caption policy, so every
-        # caption is covered even when the caller scoped elementIds to
-        # its motion clips; re-styling is prevented by the already_styled
-        # guard, never by the request filter.
-        if _is_trusted_caption_motion(creation.motion):
+        # Keep authored/template documents unless these captions were
+        # explicitly selected for redesign.
+        forced = requested is not None and overlay.element_id in requested
+        if not forced and _is_trusted_caption_motion(creation.motion):
             return {**entry, "status": "already_styled"}
-        emotion = (
-            creation.vibe if creation.vibe in SUPPORTED_EMOTIONS else "chill"
-        )
         location = overlay.location or ElementLocation(
-            x=0.50,
-            y=0.88,
-            width=0.80,
-            height=0.14,
-            anchor_x=0.5,
-            anchor_y=0.5,
+            **DEFAULT_CAPTION_LOCATION,
         )
         try:
             _validate_caption_location(location, creation.text, canvas_size)
         except ValidationError:
-            location = ElementLocation(
-                x=0.50,
-                y=0.88,
-                width=0.80,
-                height=0.18,
-                anchor_x=0.5,
-                anchor_y=0.5,
-            )
-        concept = f"全片统一解说字幕卡 {_UNIFORM_CAPTION_BLUEPRINT}"
-        try:
-            blueprint_html, _hf = render_caption_blueprint(
-                _UNIFORM_CAPTION_BLUEPRINT,
+            location = ElementLocation(**DEFAULT_CAPTION_LOCATION)
+        concept = "简洁无边框字幕：透明背景、清晰字体、稳定排版"
+        motion = MotionGraphic(
+            format="html_css",
+            html=render_caption_template(
                 creation.text,
-                palette=_THEME_BLUEPRINT_PALETTES.get(theme),
-                intensity=_UNIFORM_CAPTION_INTENSITY,
-            )
-            motion = MotionGraphic(
-                format="html_js",
-                html=blueprint_html,
-                fps=24,
-                loop=False,
-                design_notes=concept,
-                motif="caption_card",
-                theme=theme,
-                variant="sticker",
-                emotion=emotion,
-                entrance="pop",
-                exit="soft_fade",
-                intensity=_UNIFORM_CAPTION_INTENSITY,
-            )
-        except ValueError:
-            concept = "全片统一解说字幕卡（固定模板）"
-            motion = MotionGraphic(
-                html=render_caption_template(
-                    creation.text,
-                    theme=theme,
-                    emotion=emotion,
-                    box_width=location.width,
-                    box_height=location.height,
-                ),
-                fps=24,
-                loop=False,
-                design_notes=concept,
-                motif="caption_card",
-                template_version=MOTION_TEMPLATE_VERSION,
-                theme=theme,
-                variant="sticker",
-                emotion=emotion,
-                entrance="pop",
-                exit="soft_fade",
-                intensity=_UNIFORM_CAPTION_INTENSITY,
-            )
+                box_width=location.width,
+                box_height=location.height,
+            ),
+            fps=24,
+            loop=False,
+            design_notes=concept,
+            motif="caption_card",
+            template_version=CAPTION_TEMPLATE_VERSION,
+            intensity=0,
+        )
         styled[overlay.element_id] = (motion, location)
         return {**entry, "status": "designed", "concept": concept}
 
@@ -2012,14 +2046,15 @@ async def design_motion_overlays(
         window = _frame_window_from_edit(
             edit.location if edit is not None else None,
         )
-        blueprint = (
-            "warm_journal" if theme == "soft_journal" else "pop_variety"
-        )
+        blueprint = content_type_frame(content_type)
         concept = f"综艺包裹框 {blueprint}：{creation.prompt[:40]}"
+        frame_palette = content_type_palette(
+            content_type,
+        ) or _THEME_BLUEPRINT_PALETTES.get(theme)
         try:
             blueprint_html, _period = render_frame_blueprint(
                 blueprint,
-                palette=_THEME_BLUEPRINT_PALETTES.get(theme),
+                palette=frame_palette,
                 intensity=0.55,
                 window=window,
             )
@@ -2045,37 +2080,39 @@ async def design_motion_overlays(
         )
         return {**entry, "status": "designed", "concept": concept}
 
-    async def style_text_overlay(
+    async def style_keyword_overlay(
         overlay: TimelineElement,
-        card_index: int,
     ) -> dict[str, Any]:
+        """Design one keyword-effect overlay via VLM.
+
+        Keyword overlays carry no subtitle text but describe a styled
+        keyword display in their prompt (e.g. "紫色大字 FALLBACK 关键词
+        动效，故障闪烁效果后稳定显示，科技感").  The VLM observes the
+        underlying footage frames and creates a motion document that
+        shows the keyword with the described visual treatment.
+        """
+
         creation = overlay.creation
         assert isinstance(creation, OverlayCreation)
         entry: dict[str, Any] = {
             "elementId": overlay.element_id,
-            "overlayKind": "caption",
+            "overlayKind": "keyword",
         }
         if requested is not None and overlay.element_id not in requested:
             return {**entry, "status": "not_requested"}
-        # An explicit elementIds request forces a redesign even over a
-        # trusted document — that is how review feedback replaces a card.
         if requested is None and _is_trusted_caption_motion(creation.motion):
             return {**entry, "status": "already_styled"}
         edit = best_covering_edit(overlay)
         if edit is None:
-            return fallback_text_style(
-                overlay,
-                reason="没有相交的剪辑画面",
-                card_index=card_index,
-            )
+            return {
+                **entry,
+                "status": "failed",
+                "error": "没有相交的剪辑画面",
+            }
         try:
             source_start, source_end = _segment_seconds(timeline, edit)
         except ValidationError as exc:
-            return fallback_text_style(
-                overlay,
-                reason=str(exc),
-                card_index=card_index,
-            )
+            return {**entry, "status": "failed", "error": str(exc)}
         edit_start = edit.span.start_tick
         edit_duration = max(1, edit.span.duration_tick)
         overlay_start = overlay.span.start_tick
@@ -2093,32 +2130,57 @@ async def design_motion_overlays(
             source_start + source_span * rel_end,
         )
         if isinstance(frames, dict):
-            return fallback_text_style(
-                overlay,
-                reason=str(
-                    frames.get("error") or frames.get("skipReason") or "抽帧失败",
-                ),
-                card_index=card_index,
-            )
+            return {**entry, **frames}
         duration_seconds = (
             overlay.span.duration_tick / timeline.ticks_per_second
         )
+        task_lines = [
+            "请为下面的关键词效果自由设计一个动态花字。",
+            f"创意意图：{creation.prompt}",
+            f"情绪基调：{creation.vibe}",
+            f"展示时长：{duration_seconds:.1f} 秒",
+            f"画布尺寸：{canvas_size[0]}x{canvas_size[1]} 像素。"
+            f"效果盒子像素尺寸 = location.width/height 乘以画布尺寸，请据此设计字号与布局。",
+        ]
+        if edit is not None and isinstance(edit.creation, EditCreation):
+            task_lines.append(
+                f"片段剪辑意图：{edit.creation.intent or '（未提供）'}",
+            )
+        if brief:
+            task_lines.append(f"整体包装要求：{brief}")
+        _KEYWORD_CONTENT_HINTS = {
+            "short_drama": "本片类型：短剧。关键词动效偏情绪化、电影感、有质感。",
+            "interview": "本片类型：采访。关键词动效偏清晰、专业、结构化。",
+            "pets": "本片类型：宠物。关键词动效偏温暖、可爱、活泼。",
+            "gaming": "本片类型：游戏。关键词动效偏霓虹、发光、炫酷、科技感。",
+            "sports": "本片类型：体育。关键词动效偏粗犷、有力、冲击力强。",
+            "travel": "本片类型：旅行。关键词动效偏温暖明亮、轻松。",
+            "general": "本片类型：通用剪辑。关键词动效风格均衡百搭。",
+        }
+        if content_type in _KEYWORD_CONTENT_HINTS:
+            task_lines.append(_KEYWORD_CONTENT_HINTS[content_type])
+        task_lines.append(
+            "附图是该时段内按时间顺序抽取的真实画面帧，请从中判断主体位置、留白区域和配色。严格按系统要求只输出一个 JSON 对象。",
+        )
+        keyword_match = re.search(
+            r"大字\s+(.+?)\s*关键词",
+            creation.prompt or "",
+        )
+        keyword_text = keyword_match.group(1).strip() if keyword_match else ""
+        if keyword_text:
+            task_lines.insert(
+                1,
+                f"必须展示的文字：{keyword_text}",
+            )
         async with semaphore:
             try:
                 design = await _design_document(
                     system_prompt=_TEXT_STYLE_SYSTEM_PROMPT,
-                    task_text=_text_style_task_text(
-                        overlay=overlay,
-                        edit_element=edit,
-                        duration_seconds=duration_seconds,
-                        canvas_size=canvas_size,
-                        brief=brief,
-                        theme=theme,
-                        card_index=card_index,
-                    ),
+                    task_text="\n".join(task_lines),
                     frame_paths=frames,
                     canvas_size=canvas_size,
-                    required_text=creation.text,
+                    force_design=True,
+                    allow_visible_text=True,
                     default_loop=False,
                     min_coverage=_TEXT_CARD_MIN_COVERAGE,
                     max_edge_contact=_TEXT_CARD_MAX_EDGE_CONTACT,
@@ -2127,20 +2189,187 @@ async def design_motion_overlays(
                     forced_theme=theme,
                 )
             except Exception as exc:
-                return fallback_text_style(
-                    overlay,
-                    reason=str(exc),
-                    card_index=card_index,
-                )
+                return {**entry, "status": "failed", "error": str(exc)}
         if isinstance(design, str):
-            return fallback_text_style(
-                overlay,
-                reason=design,
-                card_index=card_index,
-            )
-        motion, location, concept = design
-        styled[overlay.element_id] = (motion, location)
+            return {**entry, "status": "skipped", "skipReason": design}
+        motion, loc, concept = design
+        styled[overlay.element_id] = (motion, loc)
         return {**entry, "status": "styled", "concept": concept}
+
+    async def style_text_overlay(
+        overlay: TimelineElement,
+        card_index: int,
+    ) -> dict[str, Any]:
+        creation = overlay.creation
+        assert isinstance(creation, OverlayCreation)
+        entry: dict[str, Any] = {
+            "elementId": overlay.element_id,
+            "overlayKind": "caption",
+        }
+        if requested is not None and overlay.element_id not in requested:
+            return {**entry, "status": "not_requested"}
+        if launch_captions:
+            existing = creation.motion
+            if existing is not None:
+                # The template owns its visual direction, not an enum of
+                # five layouts. Validate the authored design without
+                # replacing its typography, location or choreography.
+                html = existing.html
+                if html is None:
+                    indexed = project.assets.files_by_id[existing.html_file_id]
+                    with AssetFileStore(project_root).open_verified(
+                        indexed,
+                    ) as stream:
+                        html = stream.read().decode("utf-8")
+                normalized = normalize_informal_launch_html(html)
+                location = overlay.location or ElementLocation(
+                    x=0.5,
+                    y=0.5,
+                    width=1,
+                    height=1,
+                )
+                if not informal_launch_copy_matches(normalized, creation.text):
+                    raise ValidationError(
+                        f"非正式发布会字幕 {overlay.element_id} 文案与动效不一致；"
+                        "请修正自定义文档，不会替换为预设",
+                    )
+                probe = await asyncio.to_thread(
+                    probe_motion_document,
+                    normalized,
+                    doc_format=existing.format,
+                    box_width=max(160, round(canvas_size[0] * location.width)),
+                    box_height=max(
+                        90,
+                        round(canvas_size[1] * location.height),
+                    ),
+                    ffmpeg_path=ffmpeg_path,
+                    loop=existing.loop,
+                )
+                if not probe.ok or probe.text_occlusion > 0.10:
+                    raise ValidationError(
+                        f"非正式发布会字幕 {overlay.element_id} 校验失败："
+                        f"{probe.error or '文字被遮挡'}；保留设计，请修正后重试",
+                    )
+                if normalized == html:
+                    return {**entry, "status": "already_styled"}
+                motion = existing.model_copy(
+                    update={"html": normalized, "html_file_id": None},
+                )
+                styled[overlay.element_id] = (motion, location)
+                return {**entry, "status": "styled", "concept": "保留设计并修复转义"}
+            if requests_informal_launch_preset(creation):
+                motion, location = render_informal_launch_caption(
+                    overlay,
+                    ticks_per_second=timeline.ticks_per_second,
+                    canvas_size=canvas_size,
+                    card_index=card_index,
+                    card_count=len(text_overlays),
+                )
+            else:
+                frames = []
+                windows = informal_launch_frame_windows(
+                    project,
+                    timeline,
+                    overlay,
+                )
+                caption_frame_windows[overlay.element_id] = windows
+                for version_id, start, end in windows:
+                    artifact = project.assets.artifact_versions_by_id.get(
+                        version_id,
+                    )
+                    if artifact is not None:
+                        if artifact.stale:
+                            raise ValidationError("非正式发布会字幕不能基于已过期的视频设计")
+                        source = verified_indexed_path(
+                            project_root,
+                            project.assets.files_by_id[artifact.file_id],
+                        )
+                    else:
+                        source = _source_local_path(
+                            project=project,
+                            project_root=project_root,
+                            version_id=version_id,
+                            executions=executions,
+                        )
+                    if source is None:
+                        raise ValidationError("非正式发布会字幕缺少实片字节，无法设计主体避让")
+                    for fraction in (0.12, 0.38, 0.62, 0.88):
+                        frame = await asyncio.to_thread(
+                            materialize_keyframe,
+                            project_root,
+                            source_path=source,
+                            source_identity=version_id,
+                            timestamp_seconds=start + (end - start) * fraction,
+                            width=_KEYFRAME_WIDTH,
+                            ffmpeg_path=ffmpeg_path,
+                        )
+                        frames.append(frame.path)
+                context = {
+                    "canvas": canvas_size,
+                    "durationSeconds": overlay.span.duration_tick
+                    / timeline.ticks_per_second,
+                    "actualTimeRangeSeconds": [
+                        overlay.span.start_tick / timeline.ticks_per_second,
+                        overlay.span.end_tick / timeline.ticks_per_second,
+                    ],
+                    "timingEvidence": caption_timing,
+                    "screenCopy": informal_launch_screen_copy(creation.text),
+                    "designIntent": creation.prompt,
+                    "filmDirection": brief,
+                    "creativeDirection": project.strategy.creative_direction,
+                    "visualStyle": project.visual.style,
+                    "story": timeline.description,
+                    "captions": [
+                        {
+                            "id": item.element_id,
+                            "start": item.span.start_tick
+                            / timeline.ticks_per_second,
+                            "duration": item.span.duration_tick
+                            / timeline.ticks_per_second,
+                            "text": informal_launch_screen_copy(
+                                item.creation.text,
+                            ),
+                            "intent": item.creation.prompt,
+                        }
+                        for item in text_overlays
+                    ],
+                }
+                async with semaphore:
+                    design = await _design_document(
+                        system_prompt=informal_launch_caption_skill(),
+                        task_text=json.dumps(context, ensure_ascii=False),
+                        frame_paths=frames,
+                        canvas_size=canvas_size,
+                        required_text=creation.text,
+                        default_loop=False,
+                        full_canvas_overlay=True,
+                        max_edge_contact=0.01,
+                        max_attempts=_TEXT_CARD_DESIGN_ATTEMPTS,
+                        ffmpeg_path=ffmpeg_path,
+                        forced_fields={
+                            "blueprint": "",
+                            "motif": "custom",
+                            "loop": False,
+                            "location": {
+                                "x": 0.5,
+                                "y": 0.5,
+                                "width": 1,
+                                "height": 1,
+                            },
+                        },
+                    )
+                if isinstance(design, str):
+                    raise ValidationError("非正式发布会字幕设计未完成：" + design)
+                motion, location, _concept = design
+            styled[overlay.element_id] = (motion, location)
+            return {
+                **entry,
+                "status": "styled",
+                "concept": motion.design_notes,
+            }
+        # Legacy varied requests also use the neutral subtitle default.
+        # Distinctive captions live in an explicitly authored template.
+        return uniform_text_style(overlay)
 
     async def decorate_segment(
         element: TimelineElement,
@@ -2206,7 +2435,13 @@ async def design_motion_overlays(
                     else None
                 )
                 design = await _design_document(
-                    system_prompt=_DECOR_SYSTEM_PROMPT,
+                    system_prompt=_DECOR_SYSTEM_PROMPT.replace(
+                        "%DECOR_CATALOG%",
+                        blueprint_catalog_text(
+                            "decoration",
+                            content_type=content_type,
+                        ),
+                    ),
                     task_text=_design_task_text(
                         element=element,
                         duration_seconds=segment_duration,
@@ -2218,6 +2453,14 @@ async def design_motion_overlays(
                         used_motifs=used_motifs,
                         story_role=story_role,
                         story_motif=story_motif,
+                        content_type=content_type,
+                        live_operation_facts=_live_operation_facts(
+                            project=project,
+                            project_root=project_root,
+                            element=element,
+                            start_seconds=start_seconds,
+                            end_seconds=end_seconds,
+                        ),
                     ),
                     frame_paths=frames,
                     canvas_size=canvas_size,
@@ -2287,14 +2530,16 @@ async def design_motion_overlays(
     # Text cards choose their final locations first. Decorations then receive
     # those committed-in-memory boxes as hard collision constraints.
     text_results = list(
-        await asyncio.gather(
-            *(
-                style_text_overlay(overlay, card_index)
-                for card_index, overlay in enumerate(text_overlays)
-            ),
-        )
-        if caption_style == "varied"
-        else [uniform_text_style(overlay) for overlay in text_overlays],
+        (
+            await asyncio.gather(
+                *(
+                    style_text_overlay(overlay, card_index)
+                    for card_index, overlay in enumerate(text_overlays)
+                ),
+            )
+            if launch_captions or caption_style == "varied"
+            else [uniform_text_style(overlay) for overlay in text_overlays]
+        ),
     )
     clip_results = list(
         await asyncio.gather(
@@ -2307,6 +2552,11 @@ async def design_motion_overlays(
     frame_results = [
         style_frame_overlay(overlay) for overlay in frame_overlays
     ]
+    keyword_results = list(
+        await asyncio.gather(
+            *(style_keyword_overlay(overlay) for overlay in keyword_overlays),
+        ),
+    )
     # Design decorations in timeline order so each decision can see motifs
     # already used earlier in the story and avoid accidental repetition.
     segment_results: list[dict[str, Any]] = []
@@ -2329,13 +2579,53 @@ async def design_motion_overlays(
             "textOverlays": text_results,
             "motionClips": clip_results,
             "frameOverlays": frame_results,
+            "keywordOverlays": keyword_results,
             "segments": segment_results,
             "generation": snapshot.generation,
             "etag": snapshot.etag,
+            **({"captionTiming": caption_timing} if launch_captions else {}),
         }
 
     def commit_sync() -> ProjectSnapshot:
         current = services.projects.read(project_id)
+        if launch_captions:
+            current_timeline = _target_timeline(current.project, target_ref)
+            if (
+                not uses_informal_launch_captions(current_timeline)
+                or current_timeline.ticks_per_second
+                != timeline.ticks_per_second
+                or _design_canvas_size(current.project) != canvas_size
+            ):
+                raise ValidationError("字幕设计期间模板或画布已变化，请基于最新设置重新设计")
+            # Model calls can outlive an editor change. Only merge designs
+            # whose caption and observed footage still match their inputs;
+            # unrelated edits (for example a project rename) remain valid.
+            for overlay in text_overlays:
+                overlay_id = overlay.element_id
+                if overlay_id not in styled:
+                    continue
+                original = timeline.elements_by_id[overlay_id]
+                latest = current_timeline.elements_by_id.get(overlay_id)
+                if latest is None or any(
+                    getattr(latest, field) != getattr(original, field)
+                    for field in ("creation", "span", "location", "enabled")
+                ):
+                    raise ValidationError("字幕设计期间字幕已被修改，保留最新修改并重新设计")
+                if overlay_id in caption_frame_windows:
+                    try:
+                        windows = informal_launch_frame_windows(
+                            current.project,
+                            current_timeline,
+                            latest.model_copy(update={"span": overlay.span}),
+                        )
+                    except ValidationError as exc:
+                        raise ValidationError(
+                            "字幕设计期间底层视频已变化，请基于新版本重新设计",
+                        ) from exc
+                    if windows != caption_frame_windows[overlay_id]:
+                        raise ValidationError(
+                            "字幕设计期间底层视频已变化，请基于新版本重新设计",
+                        )
         # Motion documents are externalized to content-addressed Project
         # files before the commit references them; project.json keeps only
         # creative facts plus the html_file_id reference.
@@ -2359,6 +2649,16 @@ async def design_motion_overlays(
             else target_ref
         )
         elements = timelines[timeline_key]["elements_by_id"]
+        if aligned_caption_spans:
+            source_slot = current.project.assets.artifact_slots_by_id.get(
+                caption_timing["sourceSlotId"],
+            )
+            if (
+                source_slot is None
+                or source_slot.selected_version_id
+                != caption_timing["sourceVersionId"]
+            ):
+                raise ValidationError("字幕设计期间实片版本已变化，请基于新版本重新设计")
         for item in designed:
             if item.element_id in elements:
                 continue
@@ -2377,6 +2677,10 @@ async def design_motion_overlays(
                 mode="json",
             )
             raw["location"] = location.model_dump(mode="json")
+            if overlay_id in aligned_caption_spans:
+                raw["span"] = aligned_caption_spans[overlay_id].model_dump(
+                    mode="json",
+                )
         for clip_id, motion in clip_styled.items():
             raw = elements.get(clip_id)
             if not isinstance(raw, dict):
@@ -2422,9 +2726,11 @@ async def design_motion_overlays(
         "textOverlays": text_results,
         "motionClips": clip_results,
         "frameOverlays": frame_results,
+        "keywordOverlays": keyword_results,
         "segments": segment_results,
         "generation": committed.generation,
         "etag": committed.etag,
+        **({"captionTiming": caption_timing} if launch_captions else {}),
     }
 
 

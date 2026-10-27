@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import tempfile
+import threading
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
@@ -38,6 +39,15 @@ from .policy_types import (
 )
 
 logger = logging.getLogger(__name__)
+_STORE_LOCKS_GUARD = threading.Lock()
+_STORE_LOCKS: dict[Path, threading.RLock] = {}
+
+
+def _store_lock(cards_dir: Path) -> threading.RLock:
+    key = cards_dir.expanduser().resolve()
+    with _STORE_LOCKS_GUARD:
+        return _STORE_LOCKS.setdefault(key, threading.RLock())
+
 
 __all__ = [
     "AsyncDriverCardStore",
@@ -56,6 +66,7 @@ class AsyncDriverCardStore:
 
     def __init__(self, cards_dir: Path) -> None:
         self._cards_dir = cards_dir
+        self._lock = _store_lock(cards_dir)
 
     @property
     def cards_dir(self) -> Path:
@@ -82,13 +93,13 @@ class AsyncDriverCardStore:
         """Persist one DriverCard and remove stale same-name card files."""
         return await asyncio.to_thread(self._save_sync, card)
 
+    async def save_if_absent(self, card: DriverCard) -> bool:
+        """Persist *card* only when no card with the same name exists."""
+        return await asyncio.to_thread(self._save_if_absent_sync, card)
+
     async def delete(self, name: str) -> None:
         """Delete stored card files for one Driver name."""
-        await asyncio.to_thread(
-            delete_card_paths_for_name,
-            self._cards_dir,
-            name,
-        )
+        await asyncio.to_thread(self._delete_sync, name)
 
     async def stored_path(self, name: str) -> Path | None:
         """Return the first stored DriverCard path for a name, if any."""
@@ -103,10 +114,22 @@ class AsyncDriverCardStore:
         return load_card(path)
 
     def _save_sync(self, card: DriverCard) -> Path:
-        path = self.path_for(card.name, protocol=card.protocol)
-        dump_card(card, path)
-        delete_card_paths_for_name(self._cards_dir, card.name, keep=path)
+        with self._lock:
+            path = self.path_for(card.name, protocol=card.protocol)
+            dump_card(card, path)
+            delete_card_paths_for_name(self._cards_dir, card.name, keep=path)
         return path
+
+    def _save_if_absent_sync(self, card: DriverCard) -> bool:
+        with self._lock:
+            if card_paths_for_name(self._cards_dir, card.name):
+                return False
+            dump_card(card, self.path_for(card.name, protocol=card.protocol))
+        return True
+
+    def _delete_sync(self, name: str) -> None:
+        with self._lock:
+            delete_card_paths_for_name(self._cards_dir, name)
 
     def _stored_path_sync(self, name: str) -> Path | None:
         paths = card_paths_for_name(self._cards_dir, name)

@@ -280,7 +280,7 @@ class TestBatchDelete:
 @pytest.mark.inbox
 class TestSidebarUnreadDot:
     """INBOX-006: After seeding an unread event the sidebar Inbox menu
-    item shows a Badge dot within the 6s polling window."""
+    item shows its notification badge within the 6s polling window."""
 
     @pytest.mark.test_id("INBOX-006")
     def test_sidebar_unread_dot_appears_with_seeded_event(
@@ -301,10 +301,21 @@ class TestSidebarUnreadDot:
                 ),
             ])
 
-            log_test_step("2. Open /chat (any non-inbox page works)")
+            log_test_step("2. Pin Inbox in the visible tools panel")
+            inbox_page.page.add_init_script(
+                "try {"
+                "localStorage.setItem("
+                "'qwenpaw_sidebar_focus_items_v1', "
+                "JSON.stringify(['core.inbox'])"
+                ");"
+                "localStorage.setItem('qwenpaw_sidebar_tools_mode', '1');"
+                "} catch (e) {}"
+            )
+
+            log_test_step("3. Open /chat (any non-inbox page works)")
             inbox_page.open_chat_page()
 
-            log_test_step("3. Wait up to ~18s for the badge polling")
+            log_test_step("4. Wait up to ~18s for the badge polling")
             # Sidebar polls every 6s and the first poll fires after the
             # initial render — give enough headroom for two cycles.
             badge = inbox_page.page.locator(
@@ -331,7 +342,7 @@ class TestSkillAutoSyncInbox:
 
     The auto-sync notification (upstream #5639) is emitted server-side with
     ``source_type='skill_autoupdate'``; the frontend maps that source to a
-    fixed card title via i18n (``inbox.skillAutoUpdateTitle``), so the visible
+    fixed card title via i18n (``inbox.skillAutoSyncTitle``), so the visible
     title is 'Skill auto-sync' / '技能自动同步' regardless of the stored title.
     """
 
@@ -350,10 +361,10 @@ class TestSkillAutoSyncInbox:
                 inbox_page.make_event(
                     event_id="evt-skillsync-1",
                     source_type="skill_autoupdate",
-                    event_type="auto_update",
+                    event_type="auto_sync",
                     status="success",
                     severity="info",
-                    title="Auto-update: 1 skill updated",
+                    title="Auto Sync: 1 skill synced",
                     body="e2e_sync_skill -> default",
                     payload={
                         "synced": [

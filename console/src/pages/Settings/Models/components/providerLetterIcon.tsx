@@ -27,7 +27,6 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   openrouter: "#6366F1",
   opencode: "#2563EB",
   kilo: "#FF5722",
-  "github-models": "#24292F",
 };
 
 /** A palette of fallback colors for providers without a predefined color. */

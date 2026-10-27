@@ -139,7 +139,7 @@ export default function DocumentUnderstanding({
                 target="_blank"
                 rel="noreferrer"
                 title={`打开第 ${shot.page} 页原图`}
-                className="block w-24 shrink-0 overflow-hidden rounded border border-[var(--color-border)] bg-white"
+                className="block w-24 shrink-0 overflow-hidden rounded border border-[var(--color-border)] bg-white dark:bg-[var(--color-bg-elevated)]"
               >
                 <img
                   src={getDocumentPageUrl(projectId, shot.checksum, shot.page)}

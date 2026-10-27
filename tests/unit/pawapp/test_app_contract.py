@@ -130,6 +130,36 @@ async def test_external_service_mode_never_starts_process(
 
 
 @pytest.mark.asyncio
+async def test_managed_service_calls_on_before_start_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FIXTURE_MODE", "external")
+    monkeypatch.setenv("FIXTURE_URL", "http://127.0.0.1:9123/")
+    monkeypatch.setattr(service_module, "_health_request", lambda *_: True)
+
+    calls: list[str] = []
+
+    async def hook() -> None:
+        calls.append("hook")
+        monkeypatch.setenv("FIXTURE_FROM_HOOK", "yes")
+
+    service = ManagedService(
+        ManagedServiceSpec(
+            name="fixture",
+            command=("must-not-run",),
+            external_url_env="FIXTURE_URL",
+            mode_env="FIXTURE_MODE",
+            on_before_start=hook,
+        ),
+    )
+
+    await service.start()
+    assert calls == ["hook"]
+    assert service.spec.env.get("FIXTURE_FROM_HOOK") is None
+    await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_managed_service_preserves_non_sdk_braces(
     tmp_path: Path,
 ) -> None:
@@ -355,14 +385,23 @@ def test_pawapp_delegates_extensions_through_plugin_api(
         "/capabilities",
     }
     assert api.register_http_router.call_count == 1
-    api.register_startup_hook.assert_any_call(
-        hook_name="pawapp_fixture_service_context",
-        callback=service.start,
-        priority=70,
+    service_hook = next(
+        call.kwargs
+        for call in api.register_startup_hook.call_args_list
+        if call.kwargs["hook_name"] == "pawapp_fixture_service_context"
     )
+    assert callable(service_hook["callback"])
+    assert service_hook["priority"] == 70
+    service_effect = next(
+        call.kwargs
+        for call in api.effect.call_args_list
+        if call.kwargs["desc"] == "pawapp:fixture:service:context"
+    )
+    closer = service_effect["teardown"]
+    assert closer.client is service
     api.register_shutdown_hook.assert_any_call(
         hook_name="pawapp_fixture_service_context",
-        callback=service.stop,
+        callback=closer,
         priority=130,
     )
 

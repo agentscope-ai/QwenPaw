@@ -12,6 +12,7 @@ from pydantic import (
     ConfigDict,
     Field,
     computed_field,
+    field_validator,
     model_validator,
 )
 from qwenpaw.schemas import Message
@@ -42,6 +43,7 @@ class ChatGroupKind(str, Enum):
 DEFAULT_CHAT_GROUP_ID = "default"
 CRON_CHAT_GROUP_ID = "cron"
 SUBAGENT_CHAT_GROUP_ID = "subagents"
+CHAT_NAME_MAX_LENGTH = 500
 
 SOURCE_CHAT_GROUP_IDS = {
     SessionSource.chat: DEFAULT_CHAT_GROUP_ID,
@@ -104,7 +106,11 @@ class ChatSpec(BaseModel):
         default_factory=lambda: str(uuid4()),
         description="Chat UUID identifier",
     )
-    name: str = Field(default="New Chat", description="Chat name")
+    name: str = Field(
+        default="New Chat",
+        max_length=CHAT_NAME_MAX_LENGTH,
+        description="Chat name",
+    )
     session_id: str = Field(
         ...,
         description="Session identifier (channel:user_id format)",
@@ -118,6 +124,10 @@ class ChatSpec(BaseModel):
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Chat last update timestamp",
+    )
+    last_finished_at: Optional[datetime] = Field(
+        default=None,
+        description="When the most recent task for this chat finished",
     )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
@@ -152,6 +162,14 @@ class ChatSpec(BaseModel):
         description="Root session for a subagent chat tree",
     )
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def limit_name_length(cls, value: Any) -> Any:
+        """Keep persisted chat names within the storage boundary."""
+        if isinstance(value, str):
+            return value[:CHAT_NAME_MAX_LENGTH]
+        return value
+
     @computed_field  # type: ignore[misc]
     @property
     def archived(self) -> bool:
@@ -169,7 +187,20 @@ class ChatUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, description="Chat name")
+    name: str | None = Field(
+        default=None,
+        max_length=CHAT_NAME_MAX_LENGTH,
+        description="Chat name",
+    )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def limit_name_length(cls, value: Any) -> Any:
+        """Keep renamed chat names within the storage boundary."""
+        if isinstance(value, str):
+            return value[:CHAT_NAME_MAX_LENGTH]
+        return value
+
     pinned: bool | None = Field(
         default=None,
         description="Whether the chat is pinned to the top",

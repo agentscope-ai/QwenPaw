@@ -57,7 +57,7 @@ async def test_finalize_cancelled():
     response = items[-1]
     assert response.outcome == RunOutcome.Cancelled
     assert response.stop_reason == "cancelled"
-    assert response.status == RunStatus.Completed
+    assert response.status == RunStatus.Cancelled
 
 
 @pytest.mark.asyncio
