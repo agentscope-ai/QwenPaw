@@ -116,17 +116,17 @@ def test_kimi_codingplan_models() -> None:
     """Verify Kimi Coding Plan model list."""
     model_ids = [m.id for m in KIMI_CODINGPLAN_MODELS]
     assert model_ids == [
-        f"k3.1-pro",
-        f"k3.1-pro-highspeed",
-        f"kimi-for-coding",
+        "k3.1-pro",
+        "k3.1-pro-highspeed",
+        "kimi-for-coding",
     ]
     assert {
         model.id: (model.supports_image, model.supports_video)
         for model in KIMI_CODINGPLAN_MODELS
     } == {
-        f"k3.1-pro": (True, True),
-        f"k3.1-pro-highspeed": (True, True),
-        f"kimi-for-coding": (False, False),
+        "k3.1-pro": (True, True),
+        "k3.1-pro-highspeed": (True, True),
+        "kimi-for-coding": (False, False),
     }
 
 

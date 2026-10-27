@@ -52,9 +52,9 @@ def test_packaged_catalog_snapshot() -> None:
         "deepseek-v4-pro",
         "deepseek-flash",
     ]
-    assert catalog[f"gemini"][0].id == f"gemini-4-argon"
+    assert catalog["gemini"][0].id == "gemini-4-argon"
     assert [model.id for model in catalog["minimax-cn"]] == [
-        f"MiniMax-M3.1-Flash",
+        "MiniMax-M3.1-Flash",
         "MiniMax-M3",
         "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed",
@@ -74,13 +74,13 @@ def test_packaged_catalog_snapshot() -> None:
     }
     assert recommended == {
         ("dashscope", "qwen3.7-max"),
-        (f"openai", f"gpt-5.6-sol"),
-        (f"openai-response", f"gpt-6.1-sol"),
-        (f"minimax", f"MiniMax-M3.1-Flash"),
-        (f"kimi-intl", f"kimi-k3.1-pro"),
-        (f"minimax-cn", f"MiniMax-M3.1-Flash"),
-        (f"kimi-cn", f"kimi-k3.1-pro"),
-        (f"gemini", f"gemini-4-argon"),
+        ("openai", "gpt-5.6-sol"),
+        ("openai-response", "gpt-6.1-sol"),
+        ("minimax", "MiniMax-M3.1-Flash"),
+        ("kimi-intl", "kimi-k3.1-pro"),
+        ("minimax-cn", "MiniMax-M3.1-Flash"),
+        ("kimi-cn", "kimi-k3.1-pro"),
+        ("gemini", "gemini-4-argon"),
     }
     chat = {model.id: model for model in catalog[f"openai"]}
     responses = {model.id: model for model in catalog[f"openai-response"]}
@@ -155,8 +155,8 @@ def test_packaged_catalog_snapshot() -> None:
         "ark-code-latest": 262_144,
     }
     assert {model.id: model.max_input_length for model in catalog["mimo"]} == {
-        f"mimo-v2.6-pro": 1_048_576,
-        f"mimo-v2.6-flash": 1_048_576,
+        "mimo-v2.6-pro": 1_048_576,
+        "mimo-v2.6-flash": 1_048_576,
         "mimo-v2.5-pro": 1_048_576,
         "mimo-v2.5": 1_048_576,
     }
