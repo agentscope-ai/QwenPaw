@@ -566,6 +566,17 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     require_image_support=require_image_support,
                     resize_images_to_max_bytes=True,
                 )
+            except Exception as exc:
+                # Provider SDKs can reject credentials during construction
+                # with ValueError, before model-call fallback exists.
+                logger.warning(
+                    "Memory model '%s:%s' unavailable; using the agent's "
+                    "main model for memory jobs: %s",
+                    memory_slot.provider_id,
+                    memory_slot.model,
+                    exc,
+                )
+            else:
                 from ..prompt import get_model_supports_image
 
                 if (
@@ -586,14 +597,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                         [memory_model, main_model],
                         fallback_on_any_error=True,
                     )
-            except ProviderError as exc:
-                logger.warning(
-                    "Memory model '%s:%s' unavailable; using the agent's "
-                    "main model for memory jobs: %s",
-                    memory_slot.provider_id,
-                    memory_slot.model,
-                    exc,
-                )
         await self._reme.update_component(
             "as_llm",
             "default",

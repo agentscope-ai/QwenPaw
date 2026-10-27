@@ -172,8 +172,17 @@ async def test_update_model_slot_selection(
     )
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        ProviderError("Provider 'missing' not found."),
+        ValueError("No API key was provided."),
+        RuntimeError("Provider SDK could not initialize."),
+    ],
+)
 async def test_update_model_unavailable_slot_falls_back_to_main_model(
     monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
 ) -> None:
     """A broken memory_model must degrade to the agent's main model."""
     slot = ModelSlotConfig(provider_id="missing", model="qwenpaw-flash-4b")
@@ -181,7 +190,7 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
     factory = AsyncMock(
         side_effect=[
             (main_model, None),
-            ProviderError("Provider 'missing' not found."),
+            error,
         ],
     )
     _patch_deps(
@@ -191,8 +200,9 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
     )
     manager = _build_manager()
 
-    await manager._update_qwenpaw_model()
+    actual_model = await manager._update_qwenpaw_model()
 
+    assert actual_model is main_model
     assert factory.await_count == 2
     assert factory.await_args_list[0].kwargs == {
         "agent_config": factory.await_args_list[1].kwargs["agent_config"],
@@ -205,6 +215,65 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
         "default",
         model=main_model,
     )
+
+
+async def test_gemini_without_api_key_falls_back_and_reme_starts(monkeypatch):
+    """Exercise SDK construction without a model-service request."""
+    from qwenpaw.providers.gemini_provider import GeminiProvider
+
+    for variable in (
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+    provider = GeminiProvider(id="gemini", name="Gemini", api_key="")
+    slot = ModelSlotConfig(provider_id="gemini", model="gemini-2.5-flash")
+    # Prove the SDK, rather than a mock exception, reproduces the failure.
+    with pytest.raises(ValueError, match="[Aa][Pp][Ii] [Kk]ey"):
+        provider.get_chat_model_instance(slot.model)
+    main_model = SimpleNamespace(name="healthy-main")
+
+    async def construct_model(_agent_id, **kwargs):
+        override = kwargs.get("model_slot_override")
+        if override is not None:
+            return provider.get_chat_model_instance(override.model), None
+        return main_model, None
+
+    factory = AsyncMock(side_effect=construct_model)
+    fallback_factory = _patch_deps(
+        monkeypatch,
+        agent_config=_agent_config(memory_model=slot),
+        factory=factory,
+    )
+    manager = _build_manager()
+    manager._reme.start = AsyncMock()
+
+    await manager.start()
+
+    assert factory.await_count == 2
+    fallback_factory.assert_not_called()
+    manager._reme.update_component.assert_awaited_once_with(
+        "as_llm",
+        "default",
+        model=main_model,
+    )
+    manager._reme.start.assert_awaited_once_with()
+
+
+async def test_main_model_construction_errors_remain_visible(monkeypatch):
+    """A dedicated-model fallback cannot hide an unusable main model."""
+    _patch_deps(
+        monkeypatch,
+        agent_config=_agent_config(),
+        factory=AsyncMock(side_effect=ValueError("Main model is broken")),
+    )
+    manager = _build_manager()
+    with pytest.raises(ValueError, match="Main model is broken"):
+        await manager._update_qwenpaw_model()
+    manager._reme.update_component.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
