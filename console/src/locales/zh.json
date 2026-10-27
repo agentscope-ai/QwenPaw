@@ -3533,6 +3533,7 @@
     "memoryModelLabel": "模型",
     "memoryModelUseMain": "使用 Agent 主模型",
     "memoryModelUnavailable": "{{provider}} / {{model}}（不可用）",
+    "memoryModelInheritedProvider": "{{model}}（使用 Agent 主模型的 Provider）",
     "memoryRuntimeStatus": "服务状态",
     "memoryStatusUnknown": "未检查",
     "memoryStatusChecking": "正在检查",

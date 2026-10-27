@@ -234,14 +234,17 @@ function MemoryForm({
 
 function MemoryModelForm({
   initialModel = null,
+  onSave,
 }: {
   initialModel?: { provider_id: string; model: string } | null;
+  onSave?: (values: Record<string, unknown>) => void;
 }) {
   const [form] = Form.useForm();
   return (
     <StaticMemoryProvider>
       <Form
         form={form}
+        onFinish={onSave}
         initialValues={{
           reme_light_memory_config: {
             auto_memory_interval: 0,
@@ -265,6 +268,7 @@ function MemoryModelForm({
             </output>
           )}
         </Form.Item>
+        <button type="submit">Save memory settings</button>
       </Form>
     </StaticMemoryProvider>
   );
@@ -557,6 +561,34 @@ describe("memory writing model selector", () => {
     ).toBeInTheDocument();
     expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
       '{"provider_id":"removed","model":"old-model"}',
+    );
+  });
+
+  it("displays inherited-provider models and preserves them when saving", async () => {
+    vi.mocked(api.listProviders).mockResolvedValue(providers);
+    const onSave = vi.fn();
+    const slot = { provider_id: "", model: "qwen2.5:7b" };
+    renderWithProviders(
+      <MemoryModelForm initialModel={slot} onSave={onSave} />,
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryModelInheritedProvider"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agentConfig.memoryModelUnavailable"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save memory settings" }),
+    );
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reme_light_memory_config: expect.objectContaining({
+            memory_model: slot,
+          }),
+        }),
+      ),
     );
   });
 });

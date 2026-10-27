@@ -3674,6 +3674,7 @@
     "memoryModelLabel": "Model",
     "memoryModelUseMain": "Use the agent's main model",
     "memoryModelUnavailable": "{{provider}} / {{model}} (unavailable)",
+    "memoryModelInheritedProvider": "{{model}} (uses the agent's main provider)",
     "memoryRuntimeStatus": "Service status",
     "memoryStatusUnknown": "Not checked",
     "memoryStatusChecking": "Checking status",

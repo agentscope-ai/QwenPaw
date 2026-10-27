@@ -281,10 +281,14 @@ export function ReMeLightMemoryCard() {
   ) {
     memoryModelOptions.push({
       value: memoryModelValue,
-      label: t("agentConfig.memoryModelUnavailable", {
-        provider: memoryModel.provider_id,
-        model: memoryModel.model,
-      }),
+      label: memoryModel.provider_id
+        ? t("agentConfig.memoryModelUnavailable", {
+            provider: memoryModel.provider_id,
+            model: memoryModel.model,
+          })
+        : t("agentConfig.memoryModelInheritedProvider", {
+            model: memoryModel.model,
+          }),
     });
   }
 
