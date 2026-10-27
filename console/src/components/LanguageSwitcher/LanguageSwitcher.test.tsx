@@ -22,7 +22,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/api/modules/language", () => ({
-  languageApi: { updateLanguage: mockUpdateLanguage },
+  settingsApi: { updateLanguage: mockUpdateLanguage },
 }));
 
 vi.mock("@agentscope-ai/design", () => ({
@@ -80,7 +80,7 @@ describe("LanguageSwitcher", () => {
     expect(localStorage.getItem("language")).toBe("ja");
   });
 
-  it("calls languageApi.updateLanguage after switching language", async () => {
+  it("calls settingsApi.updateLanguage after switching language", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LanguageSwitcher />);
     await user.click(screen.getByText("English"));

@@ -1,101 +1,29 @@
 .graphView {
-  --graph-accent: var(
-    --qwenpaw-color-primary,
-    var(--ant-color-primary, #ff7f16)
-  );
-  --graph-accent-soft: var(
-    --qwenpaw-color-primary-bg,
-    var(--ant-color-primary-bg, #fff2e8)
-  );
-  --graph-on-accent: var(
-    --qwenpaw-color-text-light-solid,
-    var(--ant-color-text-light-solid, #fff)
-  );
-  --graph-success: var(
-    --qwenpaw-color-success-text,
-    var(--ant-color-success-text, #389e5c)
-  );
-  --graph-success-soft: var(
-    --qwenpaw-color-success-bg,
-    var(--ant-color-success-bg, #eef8f1)
-  );
-  --graph-warning: var(
-    --qwenpaw-color-warning-text,
-    var(--ant-color-warning-text, #d89614)
-  );
-  --graph-warning-soft: var(
-    --qwenpaw-color-warning-bg,
-    var(--ant-color-warning-bg, #fff8e6)
-  );
-  --graph-3d-surface: var(
-    --qwenpaw-color-bg-container,
-    var(--ant-color-bg-container, #fffdfb)
-  );
-  --graph-3d-root: var(
-    --qwenpaw-color-primary,
-    var(--ant-color-primary, #ff7f16)
-  );
-  --graph-3d-active: var(
-    --qwenpaw-color-primary-active,
-    var(--ant-color-primary-active, #d9650b)
-  );
-  --graph-3d-direct: var(
-    --qwenpaw-color-success-text,
-    var(--ant-color-success-text, #389e5c)
-  );
-  --graph-3d-hover: var(
-    --qwenpaw-color-primary-hover,
-    var(--ant-color-primary-hover, #ff9a45)
-  );
-  --graph-3d-file: var(
-    --qwenpaw-color-text-secondary,
-    var(--ant-color-text-secondary, #71665e)
-  );
-  --graph-3d-muted: var(
-    --qwenpaw-color-text-quaternary,
-    var(--ant-color-text-quaternary, #c7bfb8)
-  );
-  --graph-3d-edge: var(
-    --qwenpaw-color-border,
-    var(--ant-color-border, #d8cec6)
-  );
-  --graph-3d-edge-active: var(
-    --qwenpaw-color-primary-active,
-    var(--ant-color-primary-active, #d9650b)
-  );
-  --graph-3d-edge-muted: var(
-    --qwenpaw-color-border-secondary,
-    var(--ant-color-border-secondary, #eee7e1)
-  );
-  --graph-3d-label: var(--qwenpaw-color-text, var(--ant-color-text, #292522));
-  --graph-3d-label-background: var(
-    --qwenpaw-color-bg-elevated,
-    var(--ant-color-bg-elevated, #fffdfb)
-  );
-  --graph-3d-label-border: var(
-    --qwenpaw-color-primary-border,
-    var(--ant-color-primary-border, #ffc58f)
-  );
-  --graph-3d-ambient-light: var(
-    --qwenpaw-color-fill-secondary,
-    var(--ant-color-fill-secondary, #eee7e1)
-  );
-  --graph-3d-key-light: var(
-    --qwenpaw-color-bg-container,
-    var(--ant-color-bg-container, #fffdfb)
-  );
-  --graph-3d-fill-light: var(
-    --qwenpaw-color-primary-bg,
-    var(--ant-color-primary-bg, #fff2e8)
-  );
-  --graph-panel: var(
-    --qwenpaw-color-bg-container,
-    var(--ant-color-bg-container, var(--files-panel))
-  );
-  --graph-border: var(
-    --qwenpaw-color-border-secondary,
-    var(--ant-color-border-secondary, var(--files-line))
-  );
+  --graph-accent: var(--app-accent);
+  --graph-accent-soft: var(--app-accent-soft);
+  --graph-on-accent: var(--app-text-inverse);
+  --graph-success: var(--app-success-text);
+  --graph-success-soft: var(--app-success-bg);
+  --graph-warning: var(--app-warning-text);
+  --graph-warning-soft: var(--app-warning-bg);
+  --graph-3d-surface: var(--files-bg, var(--app-surface));
+  --graph-3d-root: var(--files-accent, var(--app-accent));
+  --graph-3d-active: var(--app-accent-active);
+  --graph-3d-direct: var(--app-success-text);
+  --graph-3d-hover: var(--app-accent-hover);
+  --graph-3d-file: var(--files-muted, var(--app-text-secondary));
+  --graph-3d-muted: var(--files-line, var(--app-border-subtle));
+  --graph-3d-edge: var(--files-line, var(--app-border));
+  --graph-3d-edge-active: var(--app-accent-active);
+  --graph-3d-edge-muted: var(--files-line, var(--app-border-subtle));
+  --graph-3d-label: var(--files-ink, var(--app-text));
+  --graph-3d-label-background: var(--files-panel, var(--app-surface-raised));
+  --graph-3d-label-border: var(--app-accent-border);
+  --graph-3d-ambient-light: var(--files-line, var(--app-fill));
+  --graph-3d-key-light: var(--files-bg, var(--app-surface));
+  --graph-3d-fill-light: var(--files-accent-soft, var(--app-accent-soft));
+  --graph-panel: var(--files-panel, var(--app-surface));
+  --graph-border: var(--files-line, var(--app-border));
   height: 100%;
   min-height: 0;
   display: flex;

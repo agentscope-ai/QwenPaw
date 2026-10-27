@@ -66,13 +66,20 @@ export function ThemeProvider({
   );
 
   useEffect(() => {
-    const next = resolveTheme(theme);
-    setResolvedTheme(next);
+    const apply = () => {
+      const next = resolveTheme(theme);
+      setResolvedTheme(next);
+      if (typeof document !== "undefined") {
+        document.documentElement.classList.toggle("dark", next === "dark");
+        document.documentElement.classList.toggle("dark-mode", next === "dark");
+      }
+    };
+    apply();
     persistTheme(theme);
-    if (typeof document !== "undefined") {
-      document.documentElement.classList.toggle("dark", next === "dark");
-      document.documentElement.classList.toggle("dark-mode", next === "dark");
-    }
+    if (theme !== "system" || typeof window === "undefined") return;
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    media?.addEventListener?.("change", apply);
+    return () => media?.removeEventListener?.("change", apply);
   }, [theme]);
 
   const value = useMemo(

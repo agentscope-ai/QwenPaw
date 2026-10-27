@@ -40,12 +40,20 @@ export interface ChannelConflictResponse {
 }
 
 export const channelApi = {
-  listChannelTypes: () => request<string[]>("/config/channels/types"),
+  listChannelTypes: (agentId?: string) =>
+    request<string[]>("/config/channels/types", {
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+    }),
 
-  listChannels: () => request<ChannelConfig>("/config/channels"),
+  listChannels: (agentId?: string) =>
+    request<ChannelConfig>("/config/channels", {
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+    }),
 
-  listChannelSchemas: () =>
-    request<Record<string, ChannelSchema>>("/config/channels/schemas"),
+  listChannelSchemas: (agentId?: string) =>
+    request<Record<string, ChannelSchema>>("/config/channels/schemas", {
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+    }),
 
   updateChannels: (body: ChannelConfig) =>
     request<ChannelConfig>("/config/channels", {
@@ -58,21 +66,31 @@ export const channelApi = {
       `/config/channels/${encodeURIComponent(channelName)}`,
     ),
 
-  updateChannelConfig: (channelName: string, body: SingleChannelConfig) =>
+  updateChannelConfig: (
+    channelName: string,
+    body: SingleChannelConfig,
+    agentId?: string,
+  ) =>
     request<SingleChannelConfig>(
       `/config/channels/${encodeURIComponent(channelName)}`,
       {
         method: "PUT",
         body: JSON.stringify(body),
+        ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
       },
     ),
 
-  checkChannelConflict: (channelName: string, body: SingleChannelConfig) =>
+  checkChannelConflict: (
+    channelName: string,
+    body: SingleChannelConfig,
+    agentId?: string,
+  ) =>
     request<ChannelConflictResponse>(
       `/config/channels/${encodeURIComponent(channelName)}/conflict-check`,
       {
         method: "POST",
         body: JSON.stringify(body),
+        ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
       },
     ),
 

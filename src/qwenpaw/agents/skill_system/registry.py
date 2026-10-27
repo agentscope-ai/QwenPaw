@@ -9,26 +9,36 @@ import json
 import logging
 import os
 import re
+import shutil
 import stat
+import tempfile
 import threading
 import weakref
 from collections import OrderedDict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ...drivers.errors import DriverCardError
+from ...drivers.storage import card_paths_for_name, load_card
 from ...exceptions import SkillsError
 from ...utils.file_snapshot_cache import FileSignature
-from ..utils.file_handling import read_text_file_with_encoding_fallback
+from ...utils.shell_normalization import shell_execution_path
+from ..utils.file_handling import (
+    read_text_file_with_encoding_fallback,
+    single_line_log_value,
+)
 from .models import (
     BuiltinSkillIdentity,
     BuiltinSkillVariant,
+    SkillRequirements,
 )
 from .store import (
     build_skill_metadata,
     classify_pool_skill_source,
+    copy_pool_skill_automation,
     copy_skill_dir,
     default_pool_manifest,
     default_workspace_manifest,
@@ -41,10 +51,13 @@ from .store import (
     is_ignored_skill_entry,
     is_pool_builtin_entry,
     is_primary_pool_skill_dir,
+    load_skill_frontmatter_from_dir,
     mutate_json,
+    mutate_pool_manifest,
     normalize_skill_manifest_entry,
+    parse_skill_requirements,
     read_frontmatter_safe_from_path,
-    read_json,
+    read_pool_skill_automation,
     read_skill_manifest,
     read_skill_pool_manifest,
     safe_skill_dir,
@@ -219,6 +232,12 @@ def _get_packaged_builtin_registry() -> (
         return registry
 
 
+def refresh_packaged_builtin_registry() -> None:
+    """Make the next builtin lookup rescan the packaged skill files."""
+    with _BUILTIN_CACHE_LOCK:
+        _builtin_cache.pop("registry", None)
+
+
 def _select_builtin_variant(
     registry: dict[str, dict[str, BuiltinSkillVariant]],
     skill_name: str,
@@ -310,7 +329,6 @@ def _build_skill_config_env_overrides(
     Config keys that match a declared ``require_envs`` entry are
     injected as environment variables.  Keys not in ``require_envs``
     are silently skipped (still available via the full JSON var).
-    Missing required keys are logged as warnings.
     """
     overrides: dict[str, str] = {}
 
@@ -327,15 +345,6 @@ def _build_skill_config_env_overrides(
         if value in (None, ""):
             continue
         overrides[key] = _stringify_skill_env_value(value)
-
-    for env_name in normalized_required_envs:
-        if env_name not in overrides:
-            logger.warning(
-                "Skill '%s' requires env '%s' but config does "
-                "not provide it",
-                skill_name,
-                env_name,
-            )
 
     overrides[_skill_config_env_var_name(skill_name)] = json.dumps(
         config,
@@ -577,12 +586,12 @@ def _build_builtin_import_candidate(
     }
     return {
         "name": canonical_name,
-        "description": preferred_variant.description
-        if preferred_variant
-        else "",
-        "version_text": preferred_variant.version_text
-        if preferred_variant
-        else "",
+        "description": (
+            preferred_variant.description if preferred_variant else ""
+        ),
+        "version_text": (
+            preferred_variant.version_text if preferred_variant else ""
+        ),
         "current_version_text": current_version_text,
         "current_source": current_source,
         "current_language": current_language,
@@ -774,8 +783,6 @@ def import_builtin_skills(
     imported: list[str] = []
     updated: list[str] = []
     unchanged: list[str] = []
-    manifest_path = get_pool_skill_manifest_path()
-    manifest_default = default_pool_manifest()
 
     def _process(payload: dict[str, Any]) -> dict[str, list[Any]]:
         skills = payload.setdefault("skills", {})
@@ -819,13 +826,7 @@ def import_builtin_skills(
                 entry["config"] = existing.get("config")
             if "tags" in existing:
                 entry["tags"] = existing.get("tags")
-            for au_key in (
-                "auto_update",
-                "auto_update_targets",
-                "auto_update_synced_hash",
-            ):
-                if au_key in existing:
-                    entry[au_key] = existing.get(au_key)
+            copy_pool_skill_automation(existing, entry)
             skills[skill_name] = entry
 
         return {
@@ -835,11 +836,7 @@ def import_builtin_skills(
             "conflicts": conflicts,
         }
 
-    return mutate_json(
-        manifest_path,
-        manifest_default,
-        _process,
-    )
+    return mutate_pool_manifest(_process)
 
 
 def migrate_pool_builtin_language_fields() -> bool:
@@ -881,11 +878,7 @@ def migrate_pool_builtin_language_fields() -> bool:
         return changed
 
     return bool(
-        mutate_json(
-            get_pool_skill_manifest_path(),
-            default_pool_manifest(),
-            _update,
-        ),
+        mutate_pool_manifest(_update),
     )
 
 
@@ -994,13 +987,7 @@ def _build_reconciled_pool_entry(
     existing_installed_from = existing.get("installed_from")
     if existing_installed_from:
         new_entry["installed_from"] = existing_installed_from
-    for au_key in (
-        "auto_update",
-        "auto_update_targets",
-        "auto_update_synced_hash",
-    ):
-        if au_key in existing:
-            new_entry[au_key] = existing.get(au_key)
+    copy_pool_skill_automation(existing, new_entry)
     return new_entry
 
 
@@ -1065,11 +1052,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
 
         return payload
 
-    return mutate_json(
-        manifest_path,
-        default_pool_manifest(),
-        _update,
-    )
+    return mutate_pool_manifest(_update)
 
 
 def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
@@ -1150,6 +1133,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                 next_entry = {
                     "enabled": enabled,
                     "channels": channels,
+                    "preload": existing.get("preload") is True,
                     "source": source,
                     "metadata": metadata,
                     "requirements": metadata["requirements"],
@@ -1232,22 +1216,120 @@ def list_workspaces() -> list[dict[str, str]]:
     return workspaces
 
 
+def _skill_env_key(key: str) -> str:
+    """Preserve platform env-key semantics in dependency-check snapshots."""
+    return key.upper() if os.name == "nt" else key
+
+
+def check_skill_dependencies(
+    requirements: SkillRequirements,
+    env: Mapping[str, str],
+    workspace_dir: Path | None,
+) -> list[str]:
+    """Return unmet prerequisites without logging or starting processes."""
+    missing = []
+    for env_name in requirements.require_envs:
+        if not env.get(_skill_env_key(env_name)):
+            missing.append(f"Environment variable not set: {env_name}")
+
+    search_path = shell_execution_path(env.get("PATH"))
+    for binary in requirements.require_bins:
+        if shutil.which(binary, path=search_path) is None:
+            missing.append(f"CLI binary not found on PATH: {binary}")
+
+    if workspace_dir is not None:
+        for name in requirements.require_mcps:
+            try:
+                paths = card_paths_for_name(workspace_dir / "drivers", name)
+                if not paths:
+                    missing.append(f"MCP server not configured: {name}")
+                    continue
+                card = load_card(paths[0])
+                if card.name != name or card.protocol != "mcp":
+                    missing.append(
+                        f"MCP server configuration is invalid: {name}",
+                    )
+                elif not card.enabled:
+                    missing.append(f"MCP server is disabled: {name}")
+            except (DriverCardError, UnicodeError):
+                missing.append(
+                    f"MCP server configuration is invalid: {name}",
+                )
+    return missing
+
+
 def resolve_effective_skills(
     workspace_dir: Path,
     channel_name: str,
 ) -> list[str]:
-    """Resolve enabled workspace skills for one channel."""
+    """Resolve enabled skills whose declared prerequisites are satisfied.
+
+    Unavailable skills keep their enabled state and are reconsidered on
+    the next resolution.
+    """
     manifest = read_skill_manifest(workspace_dir)
+    skills_dir = get_workspace_skills_dir(workspace_dir)
     resolved = []
     for skill_name, entry in sorted(manifest.get("skills", {}).items()):
         if not entry.get("enabled", False):
             continue
         channels = entry.get("channels") or ["all"]
-        if "all" in channels or channel_name in channels:
-            skill_dir = get_workspace_skills_dir(workspace_dir) / skill_name
-            if skill_dir.exists():
-                resolved.append(skill_name)
+        if "all" not in channels and channel_name not in channels:
+            continue
+        skill_dir = skills_dir / skill_name
+        if not skill_dir.exists():
+            continue
+        try:
+            # The manifest retains valid fields but not declaration errors.
+            post = load_skill_frontmatter_from_dir(skill_dir)
+            requirements, errors = parse_skill_requirements(post)
+            if not errors:
+                env = {
+                    _skill_env_key(key): value
+                    for key, value in os.environ.items()
+                }
+                config = entry.get("config") or {}
+                if isinstance(config, dict) and config:
+                    overrides = _build_skill_config_env_overrides(
+                        skill_name,
+                        config,
+                        requirements.require_envs,
+                    )
+                    for key, value in overrides.items():
+                        # Runtime also preserves existing empty values.
+                        env.setdefault(_skill_env_key(key), value)
+                errors = check_skill_dependencies(
+                    requirements,
+                    env,
+                    workspace_dir,
+                )
+        except Exception as exc:
+            # Isolate inspection failures at the single-skill boundary.
+            errors = [str(exc)]
+        if errors:
+            logger.error(
+                "Skipping skill '%s' in workspace %s: %s",
+                single_line_log_value(skill_name),
+                single_line_log_value(workspace_dir),
+                single_line_log_value("; ".join(errors)),
+            )
+            continue
+        resolved.append(skill_name)
     return resolved
+
+
+def select_preload_skills(
+    workspace_dir: Path,
+    effective_skills: Iterable[str],
+) -> list[str]:
+    """Return effective skills explicitly configured with preload enabled."""
+    entries = read_skill_manifest(workspace_dir).get("skills", {})
+    selected: list[str] = []
+    for name in effective_skills:
+        entry = normalize_skill_manifest_entry(entries.get(name))
+        if entry.get("preload") is True:
+            selected.append(name)
+    return selected
 
 
 def _path_signature(path: Path) -> FileSignature | None:
@@ -1347,10 +1429,7 @@ def get_pool_builtin_sync_status(
 
     pref = get_builtin_skill_language_preference()
     if pool_skills is None:
-        manifest = read_json(
-            get_pool_skill_manifest_path(),
-            default_pool_manifest(),
-        )
+        manifest = read_skill_pool_manifest()
         pool_skills = manifest.get("skills", {})
     result: dict[str, dict[str, Any]] = {}
     for name, variants in registry.items():
@@ -1422,10 +1501,7 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
     """
     registry = _get_packaged_builtin_registry()
     pref = get_builtin_skill_language_preference()
-    manifest = read_json(
-        get_pool_skill_manifest_path(),
-        default_pool_manifest(),
-    )
+    manifest = read_skill_pool_manifest()
     pool_skills = manifest.get("skills", {})
 
     previous_builtin_names = {
@@ -1548,12 +1624,10 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
     }
 
 
-def update_single_builtin(
+def _resolve_builtin_update_variant(
     skill_name: str,
-    *,
-    language: str | None = None,
-) -> dict[str, Any]:
-    """Update one builtin skill in the pool to the latest packaged version."""
+    language: str | None,
+) -> tuple[str, str, BuiltinSkillVariant]:
     registry = _get_packaged_builtin_registry()
     canonical_name = _canonical_builtin_skill_name(skill_name, registry)
     if canonical_name not in registry:
@@ -1588,13 +1662,59 @@ def update_single_builtin(
                 f"language '{selected_language}'"
             ),
         )
+    return canonical_name, selected_language, variant
+
+
+def update_single_builtin(
+    skill_name: str,
+    *,
+    language: str | None = None,
+) -> dict[str, Any]:
+    """Replace one builtin Pool skill with its current packaged version."""
+    (
+        canonical_name,
+        selected_language,
+        variant,
+    ) = _resolve_builtin_update_variant(skill_name, language)
 
     pool_dir = get_skill_pool_dir()
+    pool_dir.mkdir(parents=True, exist_ok=True)
     target = pool_dir / canonical_name
+    transaction_root = Path(
+        tempfile.mkdtemp(
+            prefix=f".builtin_update_{canonical_name}_",
+            dir=pool_dir,
+        ),
+    )
+    staged_target = transaction_root / "staged"
+    backup_target = transaction_root / "backup"
+    target_replaced = False
+
+    def _rollback_target() -> None:
+        nonlocal target_replaced
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        if backup_target.exists():
+            backup_target.rename(target)
+        target_replaced = False
 
     def _update(payload: dict[str, Any]) -> dict[str, Any]:
-        copy_skill_dir(variant.skill_dir, target)
         payload.setdefault("skills", {})
+        current = payload.get("skills", {}).get(canonical_name, {})
+        if not is_pool_builtin_entry(current):
+            raise SkillsError(
+                message=f"'{canonical_name}' is not a builtin pool skill",
+            )
+        nonlocal target_replaced
+        if target.exists():
+            target.rename(backup_target)
+        try:
+            staged_target.rename(target)
+            target_replaced = True
+        except Exception:
+            _rollback_target()
+            raise
+
         entry = build_skill_metadata(
             canonical_name,
             target,
@@ -1603,23 +1723,125 @@ def update_single_builtin(
         )
         entry["builtin_language"] = selected_language
         entry["builtin_source_name"] = variant.source_name
-        current = payload.get("skills", {}).get(canonical_name, {})
         if "config" in current:
             entry["config"] = current["config"]
         if "tags" in current:
             entry["tags"] = current["tags"]
-        for au_key in (
-            "auto_update",
-            "auto_update_targets",
-            "auto_update_synced_hash",
-        ):
-            if au_key in current:
-                entry[au_key] = current.get(au_key)
+        copy_pool_skill_automation(current, entry)
         payload["skills"][canonical_name] = entry
         return entry
 
-    return mutate_json(
-        get_pool_skill_manifest_path(),
-        default_pool_manifest(),
-        _update,
-    )
+    try:
+        copy_skill_dir(variant.skill_dir, staged_target)
+        try:
+            return mutate_pool_manifest(_update)
+        except Exception:
+            if target_replaced or backup_target.exists():
+                _rollback_target()
+            raise
+    finally:
+        shutil.rmtree(transaction_root, ignore_errors=True)
+
+
+def auto_update_builtin_skills(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    """Make opted-in builtin Pool entries match the packaged versions."""
+    updated: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    checked = 0
+
+    registry = _get_packaged_builtin_registry()
+    manifest = read_skill_pool_manifest()
+    entries = manifest.get("skills", {})
+
+    for name, raw_entry in sorted(entries.items()):
+        entry = normalize_skill_manifest_entry(raw_entry)
+        if not read_pool_skill_automation(entry).auto_update:
+            continue
+        if skill_name is not None and name != skill_name:
+            continue
+        if not is_pool_builtin_entry(entry):
+            continue
+
+        variants = registry.get(name) or {}
+        if not variants:
+            continue
+        checked += 1
+
+        configured_language = (
+            str(entry.get("builtin_language", "") or "").strip().lower()
+        )
+        if configured_language and configured_language not in variants:
+            failed.append(
+                {
+                    "skill": name,
+                    "language": configured_language,
+                    "from_version": str(
+                        entry.get("version_text", "") or "",
+                    ),
+                    "to_version": "",
+                    "reason": "language_unavailable",
+                },
+            )
+            continue
+
+        language = configured_language or _resolve_pool_builtin_language(
+            name,
+            entry,
+            registry,
+            preferred_language=get_builtin_skill_language_preference(),
+        )
+        variant = variants.get(language)
+        current_version_text = str(entry.get("version_text", "") or "")
+        target_version_text = (
+            str(variant.version_text or "") if variant is not None else ""
+        )
+        if variant is None:
+            failed.append(
+                {
+                    "skill": name,
+                    "language": language,
+                    "from_version": current_version_text,
+                    "to_version": target_version_text,
+                    "reason": "language_unavailable",
+                },
+            )
+            continue
+        if current_version_text == target_version_text:
+            continue
+
+        try:
+            update_single_builtin(name, language=language)
+        except Exception as exc:  # keep the batch retryable per skill
+            logger.warning(
+                "builtin auto-update failed for '%s'",
+                name,
+                exc_info=True,
+            )
+            failed.append(
+                {
+                    "skill": name,
+                    "language": language,
+                    "from_version": current_version_text,
+                    "to_version": target_version_text,
+                    "reason": "update_failed",
+                    "detail": str(exc),
+                },
+            )
+            continue
+
+        updated.append(
+            {
+                "skill": name,
+                "language": language,
+                "from_version": current_version_text,
+                "to_version": target_version_text,
+            },
+        )
+
+    return {
+        "updated": updated,
+        "failed": failed,
+        "checked": checked,
+    }

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -87,3 +89,36 @@ async def test_failed_session_save_does_not_mark_turn_as_persisted():
 
     assert session.saved is False
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+
+
+async def test_console_image_check_keeps_event_loop_responsive(monkeypatch):
+    session = _FakeSession()
+    session.load_payload = {"state": {"context": []}}
+    ctx = _ctx(session, ephemeral=False)
+    ctx.request.channel = "console"
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    release = threading.Event()
+    completed = False
+
+    def slow_repair(data):
+        nonlocal completed
+        assert data is ctx.session_state
+        loop.call_soon_threadsafe(started.set)
+        # A synchronous invocation must fail rather than hang the test suite.
+        assert release.wait(timeout=3)
+        completed = True
+
+    monkeypatch.setattr(
+        "qwenpaw.hooks.session.session_hook.repair_invalid_history_images",
+        slow_repair,
+    )
+    task = asyncio.create_task(SessionLoadHook().run(ctx))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        assert not task.done()
+        assert not completed
+    finally:
+        release.set()
+        await task
+    assert completed

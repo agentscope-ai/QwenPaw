@@ -29,17 +29,9 @@ describe("SelectionToolbar project locator", () => {
     const target = container.querySelector("p")!;
     const range = document.createRange();
     range.selectNodeContents(target);
-    range.getBoundingClientRect = () => ({
-      x: 80,
-      y: 80,
-      top: 80,
-      right: 160,
-      bottom: 96,
-      left: 80,
-      width: 80,
-      height: 16,
-      toJSON: () => ({}),
-    });
+    // The toolbar anchors on the mouseup point; only rect edges are read.
+    range.getBoundingClientRect = () =>
+      ({ top: 80, right: 160, bottom: 96, left: 80 }) as DOMRect;
     window.getSelection()!.addRange(range);
 
     fireEvent.mouseUp(target, { clientX: 120, clientY: 80 });

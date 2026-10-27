@@ -1,0 +1,45 @@
+.form {
+  padding-top: var(--app-space-3);
+}
+.editor {
+  :global(.ant-btn-icon),
+  :global(.qwenpaw-btn-icon) {
+    display: inline-flex;
+    align-items: center;
+    > svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+    }
+  }
+  :global(.ant-modal-content),
+  :global(.qwenpaw-modal-content) {
+    padding: var(--app-space-6);
+    border-radius: var(--app-radius-panel);
+  }
+  :global(.ant-modal-title),
+  :global(.qwenpaw-modal-title) {
+    padding-right: var(--app-space-6);
+    font-size: calc(18px * var(--app-font-scale));
+    background: transparent;
+  }
+  :global(.ant-modal-footer),
+  :global(.qwenpaw-modal-footer) {
+    padding-top: var(--app-space-4);
+    border-top: 1px solid var(--app-border-subtle);
+  }
+}
+
+.editor {
+  :global(.ant-alert-info),
+  :global(.qwenpaw-alert-info) {
+    border-radius: var(--app-radius);
+    border: 0;
+    background: var(--app-fill-subtle);
+    color: var(--app-text-secondary);
+    :global(.ant-alert-icon),
+    :global(.qwenpaw-alert-icon) {
+      color: var(--app-accent);
+    }
+  }
+}

@@ -1,5 +1,7 @@
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import { responseErrorMessage } from "../error";
+import { requestWithPluginBusyConfirmation } from "../pluginBusy";
 
 export interface PawAppInfo {
   id: string;
@@ -49,9 +51,12 @@ export const pawappApi = {
    * Get details of a specific PawApp.
    */
   async get(appId: string): Promise<PawAppInfo> {
-    const res = await fetch(getApiUrl(`/pawapps/${appId}`), {
-      headers: buildAuthHeaders(),
-    });
+    const res = await fetch(
+      getApiUrl(`/pawapps/${encodeURIComponent(appId)}`),
+      {
+        headers: buildAuthHeaders(),
+      },
+    );
     if (!res.ok)
       throw new Error(`Failed to get PawApp ${appId}: ${res.statusText}`);
     return res.json();
@@ -61,9 +66,12 @@ export const pawappApi = {
    * Get the iframe URL for a PawApp.
    */
   async getIframeUrl(appId: string): Promise<PawAppIframeResponse> {
-    const res = await fetch(getApiUrl(`/pawapps/${appId}/iframe`), {
-      headers: buildAuthHeaders(),
-    });
+    const res = await fetch(
+      getApiUrl(`/pawapps/${encodeURIComponent(appId)}/iframe`),
+      {
+        headers: buildAuthHeaders(),
+      },
+    );
     if (!res.ok)
       throw new Error(
         `Failed to get iframe URL for ${appId}: ${res.statusText}`,
@@ -75,15 +83,21 @@ export const pawappApi = {
    * Uninstall a PawApp by ID (deletes its directory under ~/.copaw/apps).
    */
   async uninstall(appId: string): Promise<void> {
-    const res = await fetch(getApiUrl(`/pawapps/${appId}`), {
-      method: "DELETE",
-      headers: buildAuthHeaders(),
-    });
+    const res = await requestWithPluginBusyConfirmation(
+      (interruptTasks) =>
+        fetch(
+          getApiUrl(
+            `/pawapps/${encodeURIComponent(appId)}${
+              interruptTasks ? "?interrupt_tasks=true" : ""
+            }`,
+          ),
+          { method: "DELETE", headers: buildAuthHeaders() },
+        ),
+      "uninstall",
+    );
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
       throw new Error(
-        (body as { detail?: string }).detail ??
-          `Uninstall failed (${res.status})`,
+        await responseErrorMessage(res, `Uninstall failed (${res.status})`),
       );
     }
   },
@@ -92,6 +106,8 @@ export const pawappApi = {
    * Get the static file URL for a PawApp asset.
    */
   getStaticUrl(appId: string, filePath: string): string {
-    return getApiUrl(`/pawapps/${appId}/static/${filePath}`);
+    return getApiUrl(
+      `/pawapps/${encodeURIComponent(appId)}/static/${filePath}`,
+    );
   },
 };

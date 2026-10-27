@@ -1,0 +1,152 @@
+.budget,
+.timeline {
+  padding: 24px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 22px;
+  background: var(--app-surface);
+  margin: 8px 0 24px;
+  p {
+    margin: 16px 0 0;
+    color: var(--app-text-tertiary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+.capacity {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  > span {
+    font-size: 13px;
+    color: var(--app-text-secondary);
+  }
+  strong {
+    font-size: 32px;
+    font-weight: 550;
+    letter-spacing: -0.035em;
+  }
+  small {
+    font-size: 12px;
+    color: var(--app-text-tertiary);
+    margin-left: 8px;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+}
+.budgetRail {
+  height: 36px;
+  margin: 24px 0;
+  border-radius: 10px;
+  background: var(--app-fill-subtle);
+  position: relative;
+  overflow: hidden;
+  > div {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: inherit;
+  }
+  .used {
+    background: var(--app-accent-soft);
+  }
+  .retained {
+    background: var(--app-accent);
+    opacity: 0.8;
+  }
+  > i {
+    position: absolute;
+    inset-block: 0;
+    width: 2px;
+    background: var(--app-accent);
+  }
+}
+.legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    &:last-child {
+      text-align: right;
+    }
+  }
+  span {
+    color: var(--app-text-secondary);
+    font-size: 12px;
+  }
+  strong {
+    font-size: 20px;
+    font-weight: 550;
+  }
+  small {
+    font-size: 11px;
+    color: var(--app-text-tertiary);
+    font-weight: 400;
+  }
+}
+.timelineHeader {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+.attempts {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  min-height: 116px;
+  margin-top: 12px;
+}
+.attempt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  > span {
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  > div {
+    border-radius: 6px 6px 2px 2px;
+    background: var(--app-accent-soft);
+    border-top: 2px solid var(--app-accent);
+  }
+  small {
+    font-size: 11px;
+    color: var(--app-text-secondary);
+  }
+}
+.remaining {
+  color: var(--app-text-tertiary);
+  align-self: center;
+}
+@media (max-width: 600px) {
+  .budget,
+  .timeline {
+    padding: 18px;
+  }
+  .capacity {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .capacity strong {
+    font-size: 28px;
+  }
+  .legend {
+    gap: 10px;
+  }
+  .legend strong {
+    font-size: 17px;
+  }
+  .attempts {
+    gap: 6px;
+  }
+  .attempt small {
+    font-size: 10px;
+    overflow-wrap: anywhere;
+  }
+}

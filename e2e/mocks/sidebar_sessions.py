@@ -71,8 +71,24 @@ def register(page: Page) -> None:
 
     The sidebar polls every ~3s; the mock stays registered and serves
     identical data on every poll so groups never flap mid-test.
+
+    Upstream #6504+ re-architected the sidebar into user groups (fetched
+    from /api/chats/groups) containing date buckets, so the groups
+    endpoint is mocked too: a single default group that all crafted
+    sessions resolve into.
     """
     sessions = _build_sessions()
+
+    groups = [
+        {
+            "id": "default",
+            "name": "Uncategorized",
+            "order": 0,
+            "kind": "default",
+            "source": None,
+            "pinned": False,
+        },
+    ]
 
     def _handle(route):
         request = route.request
@@ -82,6 +98,12 @@ def register(page: Page) -> None:
                 status=200,
                 content_type="application/json",
                 body=json.dumps(sessions),
+            )
+        elif request.method == "GET" and path.endswith("/api/chats/groups"):
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(groups),
             )
         else:
             route.fallback()

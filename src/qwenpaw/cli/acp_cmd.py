@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sys
 
 import click
 
@@ -44,15 +46,39 @@ import click
         "OPENAI_API_KEY, and OPENAI_MODEL."
     ),
 )
+@click.option(
+    f"--agent-mode",
+    type=str,
+    metavar=f"MODE_ID",
+    default=None,
+    help=(
+        f"Select a QwenPaw agent mode (e.g. code, goal, "
+        f"mission, custom:<id>, plugin:<name>). The first message of "
+        f"each new session uses its registered slash command. "
+        f"Code enables Python tool orchestration for every request. "
+        f"This does not change ACP permission settings."
+    ),
+)
+@click.option(
+    f"--goal-token-budget",
+    type=click.IntRange(min=-1),
+    default=0,
+    show_default=True,
+    help=f"Token budget per goal. -1 or 0 means unlimited.",
+)
 def acp_cmd(
     agent: str | None,
     workspace: str | None,
     debug: bool,
     local_diagnostics: bool,
     runtime_provider: str | None,
+    agent_mode: str | None,
+    goal_token_budget: int,
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
+
+    os.environ["QWENPAW_RUNTIME_MODE"] = "stdio"
 
     level = logging.DEBUG if debug else logging.WARNING
     logging.basicConfig(
@@ -72,13 +98,34 @@ def acp_cmd(
         except ValueError as exc:
             raise click.UsageError(str(exc)) from exc
 
-    from ..agents.acp.server import run_qwenpaw_agent
+    from ..agents.acp.server import run_qwenpaw_agent, silence_stdout
 
-    asyncio.run(
-        run_qwenpaw_agent(
-            agent_id=agent,
-            workspace_dir=workspace_dir,
-            local_diagnostics=local_diagnostics,
-            runtime_provider=provider_config,
-        ),
-    )
+    # Warm-up heavy native imports before the event loop starts. In the full
+    # ACP runtime, the first `import numpy` (via agentscope.embedding inside
+    # workspace bootstrap) can block indefinitely on the Windows loader lock
+    # (all threads waiting, no concurrent import activity). Importing here,
+    # before asyncio.run, completes the DLL load while nothing else is
+    # contended and makes the workspace bootstrap pass through immediately.
+    # Best-effort and Windows-only: numpy is a transitive dependency, not a
+    # declared one, so environments without it must keep starting normally.
+    if sys.platform == "win32":
+        try:
+            import numpy  # noqa: E401,F402  pylint: disable=unused-import
+        except ModuleNotFoundError:
+            pass
+
+    try:
+        asyncio.run(
+            run_qwenpaw_agent(
+                agent_id=agent,
+                workspace_dir=workspace_dir,
+                local_diagnostics=local_diagnostics,
+                runtime_provider=provider_config,
+                agent_mode=agent_mode,
+                goal_token_budget=goal_token_budget,
+            ),
+        )
+    finally:
+        # The client may have closed both pipe directions. Redirect fd 1
+        # before interpreter shutdown so the final flush cannot fail.
+        silence_stdout()

@@ -59,6 +59,9 @@ LOCAL_BRIDGE_CONFIG_JS = "bridge_config.js"
 LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS = 5
 LOCAL_MAX_RECONNECT_BACKOFF_SECONDS = 60
 INSTALL_MODE_STATE_FILENAME = "chrome-extension-install.json"
+EXTENSION_MANIFEST_FILENAME = "manifest.json"
+WINDOWS_MAINTENANCE_BACKUP_SUFFIX = ".qwenpaw-maintenance"
+WINDOWS_MAINTENANCE_STUB_MARKER = "QWENPAW_INSTALL_MAINTENANCE"
 NATIVE_HOST_REPAIR_INSTRUCTION = (
     "Re-run Setup from the Chrome plugin detail page, then reload the Chrome "
     "extension."
@@ -157,6 +160,23 @@ def _extension_source_dir() -> Path:
     )
 
 
+def _read_extension_version(extension_dir: Path) -> str | None:
+    """Read an extension manifest version, returning None when unavailable."""
+    manifest_path = extension_dir / EXTENSION_MANIFEST_FILENAME
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = manifest.get("version") if isinstance(manifest, dict) else None
+    normalized = str(version or "").strip()
+    return normalized or None
+
+
+def _extension_asset_version() -> str | None:
+    """Return the version bundled with this Chrome plugin."""
+    return _read_extension_version(_extension_source_dir())
+
+
 def _native_host_source_path() -> Path:
     plugin_root = _plugin_root()
     return _first_existing_path(
@@ -219,6 +239,42 @@ def native_host_launcher_path(
     if (platform or sys.platform) == "win32":
         name += NM_HOST_WIN_SUFFIX
     return qwenpaw_home / "bin" / name
+
+
+def recover_windows_native_host_launcher(
+    *,
+    home: Path | None = None,
+    platform: str | None = None,
+) -> bool:
+    """Recover a launcher left gated by an interrupted Windows installer."""
+    platform = platform or sys.platform
+    if platform != "win32":
+        return False
+
+    qwenpaw_home = _qwenpaw_home(home or Path.home())
+    launcher = native_host_launcher_path(qwenpaw_home, platform=platform)
+    backup = launcher.with_name(
+        launcher.name + WINDOWS_MAINTENANCE_BACKUP_SUFFIX,
+    )
+    if not backup.is_file():
+        return False
+
+    is_gate = False
+    if launcher.is_file():
+        try:
+            is_gate = (
+                WINDOWS_MAINTENANCE_STUB_MARKER.encode("ascii")
+                in launcher.read_bytes()
+            )
+        except OSError:
+            return False
+    if launcher.exists() and not is_gate:
+        backup.unlink()
+        return False
+
+    launcher.unlink(missing_ok=True)
+    backup.replace(launcher)
+    return True
 
 
 class _NoopNativeHostRegistry:
@@ -565,7 +621,14 @@ def _uninstall(
         install_mode_state_path.unlink()
     host = native_host_launcher_path(qwenpaw_home, platform=platform)
     host_impl = qwenpaw_home / "bin" / "qwenpaw-nm-host.py"
-    for path in (host, host_impl):
+    host_paths = [host, host_impl]
+    if platform == "win32":
+        host_paths.append(
+            host.with_name(
+                host.name + WINDOWS_MAINTENANCE_BACKUP_SUFFIX,
+            ),
+        )
+    for path in host_paths:
         if path.exists():
             path.unlink()
     shutil.rmtree(qwenpaw_home / "chrome-extension", ignore_errors=True)
@@ -653,6 +716,8 @@ def extension_install_status(
     native_host_registry = _native_host_registry(platform, registry)
     qwenpaw_home = _qwenpaw_home(home)
     extension_dir = qwenpaw_home / "chrome-extension" / "qwenpaw-chrome"
+    extension_version = _read_extension_version(extension_dir)
+    extension_asset_version = _extension_asset_version()
     manifest_path = native_manifest_path(home, platform=platform)
     host_path = native_host_launcher_path(qwenpaw_home, platform=platform)
     config_path = qwenpaw_home / "nm-bridge.json"
@@ -694,6 +759,11 @@ def extension_install_status(
     unpacked_installed = (extension_dir / "manifest.json").exists() and (
         native_host_configured
     )
+    extension_update_required = bool(
+        unpacked_installed
+        and extension_asset_version
+        and extension_version != extension_asset_version,
+    )
     install_state = _read_install_mode_state_data(qwenpaw_home)
     install_mode = _read_install_mode_state(qwenpaw_home)
     cws_installed = native_host_configured and (
@@ -724,6 +794,9 @@ def extension_install_status(
         ),
         "extension_id": EXTENSION_ID,
         "extension_dir": str(extension_dir),
+        "extension_version": extension_version,
+        "extension_asset_version": extension_asset_version,
+        "extension_update_required": extension_update_required,
         "native_manifest_path": str(manifest_path),
         "native_host_path": str(host_path),
         "config_path": str(config_path),

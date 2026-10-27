@@ -1,0 +1,92 @@
+# Release-window sentinel: keeps the "Release Window" status current on every
+# PR targeting the default branch.
+#
+# The branch ruleset lists "Release Window" among its required status checks,
+# so every mergeable PR must carry a GREEN "Release Window" status on its head
+# commit, and a RED one blocks the merge. Two producers maintain it:
+#
+#   - this sentinel, which stamps the PR head on every PR event (open /
+#     reopen / push / draft-to-ready / base-branch change via "edited"): green
+#     while no release is in flight, red while the "release-window-active"
+#     lock-marker label exists;
+#   - release-window-watchdog.yml, the sole unfreezer: it sweeps ALL open PRs
+#     back to green and deletes the lock marker once no release run remains
+#     in flight (see its header comment). release.yml's freeze-main creates
+#     the lock marker and stamps all open PRs red at release start.
+#
+# A commit with NO "Release Window" status at all cannot be merged either (a
+# required check that never reported blocks), so every failure mode of this
+# machinery fails closed — it can delay a merge, never allow one it should
+# block. Drafts are skipped: GitHub forbids merging them anyway, and the
+# ready_for_review trigger stamps them the moment they become mergeable.
+#
+# SECURITY: this workflow uses pull_request_target (so it gets a write token
+# even for fork PRs) but NEVER checks out or executes PR code — it only reads
+# event metadata (the head SHA) and posts a commit status. This is the safe
+# metadata-only pattern for this trigger.
+
+name: Release Window Sentinel
+
+on:
+  pull_request_target:
+    # "edited" covers a base-branch change (e.g. re-targeting onto the default
+    # branch), which otherwise leaves the PR unstamped until the next push.
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+
+permissions:
+  statuses: write
+  # Reading the "release-window-active" lock-marker label goes through the
+  # labels endpoint, which belongs to the issues permission scope. Today the
+  # GET works without it because the repository is public (GitHub allows
+  # unauthenticated reads of public resources) — but that would silently break
+  # if the repo ever went private: this job would stop seeing the label, take
+  # the else branch and stamp EVERY PR green during a release (fail-open).
+  # Declaring it explicitly removes that hidden dependency at zero cost.
+  issues: read
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    # A hung `gh api` here would block the PR event indefinitely. The stamp is
+    # two requests; anything over 5 minutes is a hang, not slowness. Failing
+    # leaves the head commit unstamped, which a required check treats as
+    # "not reported" — blocked, i.e. fail-closed.
+    timeout-minutes: 5
+    steps:
+      - name: Stamp the Release Window status on this PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "PR #$PR_NUMBER is a draft — cannot be merged; stamp deferred until ready_for_review."
+            exit 0
+          fi
+
+          default="$(gh api "repos/$REPO" --jq '.default_branch')"
+          if [ "$BASE_REF" != "$default" ]; then
+            echo "PR #$PR_NUMBER targets '$BASE_REF', not the default branch '$default' — nothing to guard."
+            exit 0
+          fi
+
+          if gh api "repos/$REPO/labels/release-window-active" >/dev/null 2>&1; then
+            state="failure"
+            desc="Release in progress — merges frozen"
+          else
+            state="success"
+            desc="No release in flight — merges allowed"
+          fi
+
+          gh api --method POST "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state="$state" \
+            -f context="Release Window" \
+            -f description="$desc" \
+            -f target_url="$PR_URL" >/dev/null
+          echo "Stamped $state on PR #$PR_NUMBER ($HEAD_SHA)"

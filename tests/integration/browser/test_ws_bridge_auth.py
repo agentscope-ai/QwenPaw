@@ -26,6 +26,7 @@ def websocket_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
+@pytest.mark.p1
 def test_nm_bridge_denies_wrong_token(websocket_client: TestClient) -> None:
     with pytest.raises(WebSocketDenialResponse) as denied:
         with websocket_client.websocket_connect(
@@ -36,6 +37,7 @@ def test_nm_bridge_denies_wrong_token(websocket_client: TestClient) -> None:
     assert denied.value.status_code == 401
 
 
+@pytest.mark.p1
 def test_nm_bridge_accepts_correct_token(websocket_client: TestClient) -> None:
     with websocket_client.websocket_connect("/ws/chrome?token=expected-token"):
         pass

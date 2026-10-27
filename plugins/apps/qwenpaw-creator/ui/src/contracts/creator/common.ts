@@ -9,4 +9,8 @@ export interface CreatorApiError {
   message: string;
   retryable: boolean;
   details: Record<string, unknown>;
+  errorId?: string;
+  traceId?: string;
+  requestId?: string;
+  occurredAt?: string;
 }

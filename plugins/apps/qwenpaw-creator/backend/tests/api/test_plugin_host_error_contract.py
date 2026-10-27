@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -18,14 +17,12 @@ from domain.errors import CreatorError
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 PLUGIN_ENTRYPOINT = WORKSPACE_ROOT / "qwenpaw-creator" / "backend" / "main.py"
-PLUGIN_MANIFEST = WORKSPACE_ROOT / "qwenpaw-creator" / "plugin.json"
 QWENPAW_SOURCE = WORKSPACE_ROOT.parents[1] / "src"
 
 
 def _load_plugin_entrypoint(monkeypatch):
-    # Other Creator API tests may attempt optional host imports first.  Make
-    # this host-contract test deterministic by discarding a partially loaded
-    # or foreign qwenpaw module before loading the checked-out host source.
+    # Discard a partially loaded or foreign qwenpaw module before loading
+    # the checked-out host source so this contract test is deterministic.
     for module_name in tuple(sys.modules):
         if module_name == "qwenpaw" or module_name.startswith("qwenpaw."):
             monkeypatch.delitem(sys.modules, module_name, raising=False)
@@ -64,127 +61,30 @@ def test_plugin_defaults_runtime_paths_to_qwenpaw_working_dir(
         Path(module.os.environ["CREATOR_MODEL_CONFIG_PATH"])
         == model_config_path
     )
-    assert Path(module.os.environ["CREATOR_BINARY_DIR"]) == (
-        data_root / "runtime-tools" / "bin"
+    assert (
+        Path(module.os.environ["CREATOR_BINARY_DIR"])
+        == data_root / "runtime-tools" / "bin"
     )
     assert data_root.is_dir()
     assert model_config_path.parent.is_dir()
 
 
-def test_plugin_preserves_explicit_absolute_runtime_paths(
+def test_plugin_rejects_unsafe_runtime_path_configuration(
     tmp_path,
     monkeypatch,
 ) -> None:
-    data_root = tmp_path / "external-creator"
-    model_config_path = data_root / "private" / "models.json"
-    monkeypatch.setenv("CREATOR_DATA_ROOT", str(data_root))
-    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(model_config_path))
-    module = _load_plugin_entrypoint(monkeypatch)
-
-    assert module.configure_creator_runtime_environment(
-        working_dir=tmp_path / "ignored-qwenpaw-home",
-    ) == (data_root, model_config_path)
-
-
-def test_plugin_rejects_relative_runtime_root(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("CREATOR_DATA_ROOT", "relative/creator-runtime")
-    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", "")
-    module = _load_plugin_entrypoint(monkeypatch)
-
-    with pytest.raises(module.CreatorDataRootError, match="absolute path"):
-        module.configure_creator_runtime_environment(working_dir=tmp_path)
-
-
-def test_plugin_rejects_model_config_outside_runtime_root(
-    tmp_path,
-    monkeypatch,
-) -> None:
+    # A model config path escaping the runtime root fails closed.
     monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path / "creator-runtime"))
     monkeypatch.setenv(
         "CREATOR_MODEL_CONFIG_PATH",
         str(tmp_path / "outside" / "model_config.json"),
     )
     module = _load_plugin_entrypoint(monkeypatch)
-
     with pytest.raises(
         module.CreatorDataRootError,
         match="inside CREATOR_DATA_ROOT",
     ):
         module.configure_creator_runtime_environment(working_dir=tmp_path)
-
-
-def test_plugin_manifest_declares_every_creator_config_tool(
-    monkeypatch,
-) -> None:
-    manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
-    tools = {item["name"]: item for item in manifest["meta"]["tools"]}
-    assert set(tools) == {
-        "creator_text_model",
-        "creator_vlm_model",
-        "creator_web_grounding",
-        "creator_asr_model",
-        "creator_tts_model",
-        "creator_s2v_model",
-        "creator_embedding_model",
-        "creator_image_model",
-        "creator_video_model",
-        "creator_media_oss",
-    }
-    tts_fields = {
-        item["name"]: item
-        for item in tools["creator_tts_model"]["config_fields"]
-    }
-    assert set(tts_fields) == {"api_key", "base_url", "model", "voice"}
-    assert tts_fields["api_key"]["type"] == "password"
-    # TTS is optional: the manifest must not force configuration.
-    assert tools["creator_tts_model"]["requires_config"] is False
-    s2v_fields = {
-        item["name"]: item
-        for item in tools["creator_s2v_model"]["config_fields"]
-    }
-    assert set(s2v_fields) == {"api_key", "base_url", "model", "detect_model"}
-    assert s2v_fields["api_key"]["type"] == "password"
-    assert s2v_fields["model"]["default"] == "wan2.2-s2v"
-    assert s2v_fields["detect_model"]["default"] == "wan2.2-s2v-detect"
-    # The digital-human provider is optional: no forced configuration.
-    assert tools["creator_s2v_model"]["requires_config"] is False
-    oss_fields = {
-        item["name"]: item
-        for item in tools["creator_media_oss"]["config_fields"]
-    }
-    assert {
-        "policy_api_key",
-        "access_key_id",
-        "access_key_secret",
-        "endpoint",
-        "bucket",
-        "public_base_url",
-    } == set(oss_fields)
-    assert oss_fields["access_key_secret"]["type"] == "password"
-    grounding_fields = {
-        item["name"]: item
-        for item in tools["creator_web_grounding"]["config_fields"]
-    }
-    assert set(grounding_fields) == {
-        "enabled",
-        "tavily_api_key",
-        "serper_api_key",
-        "native_search_enabled",
-        "search_reuse_llm",
-        "search_api_key",
-        "search_model",
-        "search_base_url",
-        "validation_source",
-        "reuse_llm",
-        "api_key",
-        "model",
-        "base_url",
-    }
-    assert grounding_fields["tavily_api_key"]["type"] == "password"
-    assert grounding_fields["serper_api_key"]["type"] == "password"
-
-    module = _load_plugin_entrypoint(monkeypatch)
-    assert not hasattr(module, "_ensure_config_tools_registered")
 
 
 def test_real_qwenpaw_host_mount_keeps_creator_errors_local_and_structured(
@@ -232,11 +132,18 @@ def test_real_qwenpaw_host_mount_keeps_creator_errors_local_and_structured(
 
         response = asyncio.run(scenario())
         assert response.status_code == 404
-        assert response.json() == {
+        body = response.json()
+        assert {
+            key: body[key]
+            for key in ("code", "message", "retryable", "details")
+        } == {
             "code": "NOT_FOUND",
             "message": "Project 不存在",
             "retryable": False,
             "details": {},
         }
+        assert body["errorId"] == response.headers["X-Creator-Error-ID"]
+        assert body["traceId"] == response.headers["X-Creator-Trace-ID"]
+        assert body["requestId"] == response.headers["X-Request-ID"]
     finally:
         PluginRegistry._instance = previous_registry

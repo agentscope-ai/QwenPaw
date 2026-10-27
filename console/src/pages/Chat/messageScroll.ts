@@ -32,11 +32,14 @@ function canConsumeVerticalWheel(
   element: HTMLElement,
   deltaY: number,
 ): boolean {
-  const overflowY = window.getComputedStyle(element).overflowY;
-  if (overflowY !== "auto" && overflowY !== "scroll") return false;
-
   const maxScrollTop = element.scrollHeight - element.clientHeight;
   if (maxScrollTop <= SCROLL_TOLERANCE_PX) return false;
+
+  // Most ancestors inside a message cannot scroll. Check their inexpensive
+  // geometry first so the wheel hot path does not force style resolution for
+  // every nested Markdown node.
+  const overflowY = window.getComputedStyle(element).overflowY;
+  if (overflowY !== "auto" && overflowY !== "scroll") return false;
 
   if (deltaY < 0) return element.scrollTop > SCROLL_TOLERANCE_PX;
   return element.scrollTop < maxScrollTop - SCROLL_TOLERANCE_PX;

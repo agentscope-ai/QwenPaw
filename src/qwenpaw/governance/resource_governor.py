@@ -60,14 +60,35 @@ class ResourceGovernor:
         workspace_dir: str,
         governance_dir: Optional[str] = None,
         coding_project_dir: Optional[str] = None,
+        extra_project_dirs: Optional[list[str]] = None,
     ):
         self.workspace_dir = Path(workspace_dir)
-        # Coding project dir (Coding Mode). Falls back to the workspace
-        # when unset so the CODING_PROJECT_DIR policy placeholder always
+        # Primary project directory. Falls back to the workspace when
+        # unset so the CODING_PROJECT_DIR policy placeholder always
         # resolves to a concrete path.
         self.coding_project_dir = Path(
             coding_project_dir or workspace_dir,
         )
+        # Remaining bound project directories (the list minus the
+        # primary). They get their own ALLOW rules and sandbox mounts;
+        # entries duplicating the primary/workspace are dropped. Keys come
+        # from the shared ``dir_key`` so the fold follows the platform:
+        # folding unconditionally would make ``/repo`` and ``/Repo`` look
+        # identical on Linux and leave one of two bound roots ungranted.
+        from ..services.project_directory import dir_key
+
+        seen = {dir_key(self.workspace_dir), dir_key(self.coding_project_dir)}
+        self.extra_project_dirs: list[Path] = []
+        for raw in extra_project_dirs or []:
+            try:
+                path = Path(raw).expanduser()
+            except (OSError, TypeError, ValueError):
+                continue
+            key = dir_key(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            self.extra_project_dirs.append(path)
         # Policy is stored outside the workspace to prevent agent tampering.
         # Use ``<basename>_<hash>`` so two workspaces with the same basename
         # but different absolute paths (e.g. ``/Users/a/project`` vs
@@ -155,6 +176,9 @@ class ResourceGovernor:
                 str(self._policy_dir),
                 str(self.workspace_dir),
                 str(self.coding_project_dir),
+                extra_project_dirs=[
+                    str(path) for path in self.extra_project_dirs
+                ],
             )
 
             # Persist migrations/defaults while holding the same lock used by
@@ -217,9 +241,11 @@ class ResourceGovernor:
         # Sandbox not usable (platform unsupported OR the global
         # security.sandbox_enabled switch is off): a SANDBOX_FALLBACK cannot
         # run inside a sandbox. Reaching this point means the command already
-        # cleared Phase 1 deep scan (CRITICAL → DENY), Phase 1.5 shell-danger
+        # cleared Phase 1 deep scan (configured auto-deny rules and
+        # finding-driven approval thresholds), Phase 1.5 shell-danger
         # keywords, and every builtin/user DENY/ASK rule — i.e. nothing
-        # flagged it. Rather than nag the user, run it unsandboxed (ALLOW).
+        # blocked or escalated it. Rather than nag the user, run it
+        # unsandboxed (ALLOW).
         # Only the sandbox isolation layer is dropped; Phase 0-2 protections
         # stay fully in force. STRICT never reaches here (it returns ASK in
         # evaluate() before producing SANDBOX_FALLBACK).
@@ -299,6 +325,17 @@ class ResourceGovernor:
     # Core interface 3: Compile sandbox config
     # ------------------------------------------------------------------
 
+    def execution_sandbox_config(
+        self,
+        tc_spec: ToolCallSpec,
+    ) -> SandboxConfig | None:
+        """Resolve the live global switch for a process execution."""
+        if not self._sandbox_globally_enabled():
+            return None
+        if not self.sandbox_available:
+            raise RuntimeError(f"Sandbox is enabled but unavailable")
+        return self.compile_sandbox_config(tc_spec)
+
     def compile_sandbox_config(  # pylint: disable=unused-argument
         self,
         tc_spec: ToolCallSpec,
@@ -353,13 +390,17 @@ class ResourceGovernor:
         # Workspace is always readwrite
         mounts.insert(0, MountSpec(path=ws, writable=True))
 
-        # Coding project dir is readwrite by default (Coding Mode). When
-        # it is distinct from the workspace, mount it explicitly so Bash
-        # can write there; the policy ALLOW rule alone is not enough for
-        # sandboxed shell tools.
+        # Project dirs are readwrite by default. When they are distinct
+        # from the workspace, mount them explicitly so Bash can write
+        # there; the policy ALLOW rule alone is not enough for sandboxed
+        # shell tools.
         cpd = str(self.coding_project_dir)
         if cpd and cpd != ws and not any(m.path == cpd for m in mounts):
             mounts.append(MountSpec(path=cpd, writable=True))
+        for extra in self.extra_project_dirs:
+            extra_path = str(extra)
+            if extra_path and not any(m.path == extra_path for m in mounts):
+                mounts.append(MountSpec(path=extra_path, writable=True))
 
         return SandboxConfig(
             mode=detect_platform_mode(),
@@ -443,6 +484,9 @@ class ResourceGovernor:
                 str(self._policy_dir),
                 str(self.workspace_dir),
                 str(self.coding_project_dir),
+                extra_project_dirs=[
+                    str(path) for path in self.extra_project_dirs
+                ],
             )
             policy.add_rule(rule)
             save_governance_policy(

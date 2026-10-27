@@ -2,6 +2,9 @@
 """Approval service exports."""
 
 from .service import (
+    ApprovalActor,
+    ApprovalIdentityMismatchError,
+    ApprovalIdentityPolicy,
     ApprovalService,
     PendingApproval,
     get_approval_service,
@@ -9,6 +12,9 @@ from .service import (
 from .models import ApprovalRequestSummary
 
 __all__ = [
+    "ApprovalActor",
+    "ApprovalIdentityMismatchError",
+    "ApprovalIdentityPolicy",
     "ApprovalService",
     "ApprovalRequestSummary",
     "PendingApproval",

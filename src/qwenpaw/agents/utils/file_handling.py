@@ -176,7 +176,11 @@ def _download_remote_to_path(url: str, local_file_path: Path) -> None:
         )
         logger.debug("Downloaded file via wget to: %s", local_file_path)
         return
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as e:
         logger.debug("wget failed, trying curl: %s", e)
     try:
         subprocess.run(
@@ -187,7 +191,11 @@ def _download_remote_to_path(url: str, local_file_path: Path) -> None:
         )
         logger.debug("Downloaded file via curl to: %s", local_file_path)
         return
-    except (subprocess.CalledProcessError, FileNotFoundError) as curl_err:
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as curl_err:
         logger.debug("curl failed, trying urllib: %s", curl_err)
     try:
         urllib.request.urlretrieve(url, str(local_file_path))

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { chatApi } from "./chat";
+import { chatApi, sessionApi } from "./chat";
 
 // chat.ts uses both fetch (uploadFile) and the request wrapper (others) — mock both
 vi.mock("../request", () => ({ request: vi.fn() }));
@@ -13,6 +13,19 @@ vi.mock("../authHeaders", () => ({
 
 import { request } from "../request";
 import { getApiToken } from "../config";
+
+it("resolves a deep link with an explicit alias scope and abort signal", async () => {
+  const controller = new AbortController();
+  await chatApi.resolveChat("chat/id", {
+    currentAgentId: "agent a",
+    signal: controller.signal,
+  });
+
+  expect(request).toHaveBeenCalledWith(
+    "/chats/resolve?chat_id=chat%2Fid&current_agent_id=agent+a",
+    { signal: controller.signal },
+  );
+});
 
 // ---------------------------------------------------------------------------
 // filePreviewUrl — pure function, highest ROI
@@ -142,6 +155,13 @@ describe("chatApi.listChats", () => {
     expect(request).toHaveBeenCalledWith("/chats?user_id=u1");
   });
 
+  it("can list chats for a specific agent without changing the active agent", async () => {
+    await chatApi.listChats({ agentId: "other-agent" });
+    expect(request).toHaveBeenCalledWith("/chats", {
+      headers: { "X-Agent-Id": "other-agent" },
+    });
+  });
+
   it("builds query string with channel", async () => {
     await chatApi.listChats({ channel: "console" });
     expect(request).toHaveBeenCalledWith("/chats?channel=console");
@@ -189,6 +209,55 @@ describe("chatApi CRUD", () => {
     );
   });
 
+  // -------------------------------------------------------------------------
+  // Signal passthrough — regression for #598
+  // When getChat is called with an AbortSignal, it must be forwarded to the
+  // underlying request so callers can cancel in-flight fetches.
+  // -------------------------------------------------------------------------
+  it("getChat forwards AbortSignal to request (#598)", async () => {
+    const controller = new AbortController();
+    await chatApi.getChat("chat-1", { signal: controller.signal });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("getChat forwards signal together with include_app_owned (#598)", async () => {
+    const controller = new AbortController();
+    await chatApi.getChat("chat-1", {
+      signal: controller.signal,
+      include_app_owned: true,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1?include_app_owned=true",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("getChatStatus uses the lightweight status endpoint", async () => {
+    await chatApi.getChatStatus("chat/1");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1/status",
+      expect.objectContaining({ signal: undefined, headers: undefined }),
+    );
+  });
+
+  it("getChatStatus forwards agent identity and AbortSignal", async () => {
+    const controller = new AbortController();
+    await chatApi.getChatStatus("chat-1", {
+      signal: controller.signal,
+      agentId: "agent-2",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1/status",
+      expect.objectContaining({
+        signal: controller.signal,
+        headers: { "X-Agent-Id": "agent-2" },
+      }),
+    );
+  });
+
   it("updateChat sends PUT to the correct path", async () => {
     await chatApi.updateChat("chat-1", { name: "New Name" });
     expect(request).toHaveBeenCalledWith(
@@ -222,6 +291,24 @@ describe("chatApi CRUD", () => {
         body: JSON.stringify(["id1", "id2"]),
       }),
     );
+  });
+
+  it("forwards captured agent identity for session mutations", async () => {
+    vi.mocked(request).mockClear();
+    await chatApi.archiveChat("chat-1", "agent-a");
+    await chatApi.unarchiveChat("chat-1", "agent-a");
+    await chatApi.batchArchiveChats(["chat-1"], "agent-a");
+    await chatApi.batchUnarchiveChats(["chat-1"], "agent-a");
+    await sessionApi.updateSession("chat-1", { name: "Renamed" }, "agent-a");
+    await sessionApi.deleteSession("chat-1", "agent-a");
+    await sessionApi.batchDeleteSessions(["chat-1"], "agent-a");
+
+    expect(request).toHaveBeenCalledTimes(7);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(options).toEqual(
+        expect.objectContaining({ headers: { "X-Agent-Id": "agent-a" } }),
+      );
+    }
   });
 
   it("creates and renames chat groups", async () => {

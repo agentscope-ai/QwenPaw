@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -85,19 +85,47 @@ class ReviewFinding(RenderReviewModel):
     score: int | None = Field(default=None, ge=0, le=10)
 
 
+class ChallengeFinding(RenderReviewModel):
+    """One near-miss challenge question verdict (APE-style polarity).
+
+    ``ET`` confirms the ABSENCE of the hypothesized defect, ``CT``
+    confirms its presence, ``NA`` marks the question as not applicable
+    (a non-empty ``reason`` is mandatory for NA — anti-hallucination).
+    """
+
+    question_id: str
+    question: str
+    verdict: Literal["ET", "CT", "NA"]
+    severity: Literal["minor", "major"] = "major"
+    evidence_timestamp_ms: int | None = Field(default=None, ge=0)
+    reason: str = ""
+    suggestion: str = ""
+
+
 class RenderReviewReport(RenderReviewModel):
     video_ref: str
     round: int = Field(ge=1)
     findings: list[ReviewFinding] = Field(default_factory=list)
+    # Near-miss challenge verdicts appended by the challenge pass; kept
+    # apart from the eight protocol rows so row parsing stays strict.
+    challenge_findings: list[ChallengeFinding] = Field(default_factory=list)
+    # Tier-0 objective facts snapshot (advisory hints shown to the VLM).
+    objective_facts: dict[str, Any] | None = None
     verdict: Literal["pass", "revise"]
     created_at: datetime | None = None
 
     def failed_findings(self) -> list[ReviewFinding]:
         return [item for item in self.findings if not item.passed]
 
+    def confirmed_challenges(self) -> list[ChallengeFinding]:
+        return [
+            item for item in self.challenge_findings if item.verdict == "CT"
+        ]
+
 
 __all__ = [
     "AudioProfile",
+    "ChallengeFinding",
     "LoudnessSegment",
     "RenderReviewReport",
     "ReviewDimension",

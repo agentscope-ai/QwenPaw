@@ -263,8 +263,42 @@ async def source_intelligence_content_parts(
     seen_urls: set[str] = set()
     referenced_versions: list[str] = []
 
+    snapshot = None
+    target_logical_ids: set[str] = set()
+    if target_refs:
+        snapshot = services.projects.read(project_id)
+        for target_ref in target_refs:
+            kind, separator, identifier = str(target_ref).partition(":")
+            if kind == "asset" and separator and identifier:
+                target_logical_ids.add(identifier)
+
+    def _foreign_to_targets(version_id: str | None) -> bool:
+        """Media provably owned by another delegation's target is dropped.
+
+        Per-target delegations share one triggering message whose refs cover
+        every upload; without this scope each run would re-observe every
+        sibling image. Unattributable media (no version or unknown version)
+        is kept — the pre-existing message-attachment contract.
+        """
+
+        if not target_logical_ids or version_id is None or snapshot is None:
+            return False
+        version = snapshot.project.assets.source_versions_by_id.get(
+            version_id,
+        )
+        return (
+            version is not None
+            and version.logical_asset_id not in target_logical_ids
+        )
+
     for content_part in request.content_parts:
         payload = content_part.model_dump(mode="json", exclude_none=True)
+        attachment = payload.get("attachment")
+        attachment_version = (
+            _version_id_from_ref(attachment.get("assetVersionRef"))
+            if isinstance(attachment, Mapping)
+            else None
+        )
         if content_part.type in _MEDIA_PART_TYPES:
             nested = payload.get(content_part.type)
             if not isinstance(nested, Mapping) or not str(
@@ -273,18 +307,14 @@ async def source_intelligence_content_parts(
                 raise ValidationError(
                     f"用户素材 {content_part.type} 缺少可传给模型的 URL",
                 )
-            identity = _part_identity(payload)
-            if identity not in seen:
-                seen.add(identity)
-                seen_urls.add(str(nested.get("url") or ""))
-                parts.append(payload)
-        attachment = payload.get("attachment")
-        if isinstance(attachment, Mapping):
-            version_id = _version_id_from_ref(
-                attachment.get("assetVersionRef"),
-            )
-            if version_id:
-                referenced_versions.append(version_id)
+            if not _foreign_to_targets(attachment_version):
+                identity = _part_identity(payload)
+                if identity not in seen:
+                    seen.add(identity)
+                    seen_urls.add(str(nested.get("url") or ""))
+                    parts.append(payload)
+        if attachment_version and not _foreign_to_targets(attachment_version):
+            referenced_versions.append(attachment_version)
 
     metadata_refs = request.metadata.get("assetVersionRefs") or []
     if isinstance(metadata_refs, list):
@@ -292,12 +322,14 @@ async def source_intelligence_content_parts(
             version_id
             for value in metadata_refs
             if (version_id := _version_id_from_ref(value)) is not None
+            and not _foreign_to_targets(version_id)
         )
 
     if not referenced_versions and not target_refs:
         return parts
 
-    snapshot = services.projects.read(project_id)
+    if snapshot is None:
+        snapshot = services.projects.read(project_id)
     if target_refs:
         sources_by_asset = {
             source.logical_asset_id: source

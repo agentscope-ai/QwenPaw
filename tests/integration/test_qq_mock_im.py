@@ -155,14 +155,30 @@ def test_qq_channel_health_reports_running(
       - Cover the health_check path for a live (mock-connected) QQ
         channel rather than the usual disabled/unhealthy branch.
 
+    Test flow:
+      1. Poll GET /health until 200: enabling a channel is an async
+         reload, and a single query can land in the registration
+         window and get 404 (see comment below).
+
     API endpoints:
       - GET /api/config/channels/qq/health
     """
-    resp = app_server.api_request(
-        "GET",
-        "/api/config/channels/qq/health",
-        timeout=_HTTP_TIMEOUT,
-    )
+    # Enabling the channel is an async reload: replace_channel()
+    # awaits channel.start() outside the manager lock (the WS thread
+    # can complete IDENTIFY before that), then registers the channel
+    # under the lock. The health endpoint walks the registry, so it
+    # returns 404 during that window -- a CI flake was traced to this
+    # race. Poll until the channel becomes visible.
+    deadline = time.time() + 10.0
+    while True:
+        resp = app_server.api_request(
+            "GET",
+            "/api/config/channels/qq/health",
+            timeout=_HTTP_TIMEOUT,
+        )
+        if resp.status_code == 200 or time.time() >= deadline:
+            break
+        time.sleep(0.3)
     assert resp.status_code == 200, app_server.logs_tail()
     body = resp.json()
     assert body.get("channel") == "qq" or "status" in body, body
@@ -242,12 +258,16 @@ def test_qq_outbound_send_carries_msg_id_reply_context(
         msg_seq for c2c passive replies.
 
     Test flow:
-      1. Push a C2C message with a distinctive msg_id.
-      2. Wait for the outbound send; inspect the recorded body.
+      1. Register and activate the inherited global mock model.
+      2. Push a C2C message with a distinctive msg_id.
+      3. Wait for the outbound send; inspect the recorded body.
     """
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+
+    # Global selection is inherited when a request starts; it does not
+    # rewrite the agent or reload its channels.
     provider_id = register_mock_provider(app_server, mock_url)
     try:
         marker_msg_id = "integ-qq-msgid-ctx"
@@ -272,6 +292,84 @@ def test_qq_outbound_send_carries_msg_id_reply_context(
         )
         assert "msg_seq" in matched["body"], matched
         assert matched["auth"].startswith("QQBot "), matched
+    finally:
+        unregister_mock_provider(app_server, provider_id)
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+def test_qq_replayed_c2c_message_is_deduplicated(
+    app_server,
+    qq_channel_up,  # pylint: disable=redefined-outer-name
+    mock_llm,  # pylint: disable=redefined-outer-name
+):
+    """A replayed C2C event (same platform msg id) yields no 2nd reply.
+
+    Test purpose:
+      - End-to-end replay guard: the gateway re-delivers un-acked
+        events after a session resume. Deliver a C2C_MESSAGE_CREATE,
+        wait for the agent reply, then re-deliver the identical event
+        (same ``id``). The duplicate must be dropped before enqueue, so
+        no new outbound send appears for that openid.
+
+    Guard coverage:
+      - This exercises the **per-id** guard. ``push_dispatch`` allocates
+        a fresh incrementing ``s`` on every push, so the replayed event
+        carries ``s > last_seq`` and passes straight through the seq
+        guard. The seq guard itself is covered by the unit test
+        ``test_handle_dispatch_replayed_seq_is_skipped``.
+
+    Test flow:
+      1. Push C2C_MESSAGE_CREATE with a fixed msg id (retry with a fresh
+         id per attempt, as a channel reload can drop the first push).
+      2. Wait for the agent reply.
+      3. Re-push the identical event (same id).
+      4. Assert no new outbound call for that openid.
+    """
+    srv, mock_url = mock_llm
+    srv.force_tool_call = False
+    unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+    provider_id = register_mock_provider(app_server, mock_url)
+    try:
+        openid = "integ-qq-user-replay"
+        event = None
+        sent = None
+        for attempt in range(4):
+            event = {
+                "id": f"integ-qq-replay-{attempt}",
+                "content": "hello replay",
+                "author": {"user_openid": openid},
+            }
+            qq_channel_up.push_dispatch("C2C_MESSAGE_CREATE", event)
+            sent = qq_channel_up.wait_for_sent_text(
+                lambda text: MOCK_LLM_RESPONSE.split()[0] in text,
+                timeout=45.0,
+                path_prefix=f"/v2/users/{openid}/",
+            )
+            if sent is not None:
+                break
+            time.sleep(1.0)
+        assert sent is not None, (
+            f"no reply to first delivery; calls="
+            f"{qq_channel_up.api_calls[-5:]}"
+        )
+
+        before = len(qq_channel_up.api_calls)
+        qq_channel_up.push_dispatch("C2C_MESSAGE_CREATE", event)  # replay
+        # A duplicate reply takes as long as the first one; poll for it
+        # instead of assuming it lands within a fixed short window (a
+        # 5s sleep let the bug slip through unnoticed).
+        dupe = None
+        deadline = time.time() + 45.0
+        while time.time() < deadline and dupe is None:
+            dupe = [
+                call
+                for call in qq_channel_up.api_calls[before:]
+                if openid in call.get("path", "")
+            ] or None
+            if dupe is None:
+                time.sleep(1.0)
+        assert dupe is None, dupe
     finally:
         unregister_mock_provider(app_server, provider_id)
 

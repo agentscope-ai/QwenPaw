@@ -1,6 +1,7 @@
 import { Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import type { AgentStartupStatus } from "@/api/types/agents";
+import { resolveAgentStatus } from "./status";
 import styles from "./index.module.less";
 
 interface AgentStatusIndicatorProps {
@@ -13,7 +14,7 @@ export function AgentStatusIndicator({
   enabled = true,
 }: AgentStatusIndicatorProps) {
   const { t } = useTranslation();
-  const resolvedStatus = status ?? (enabled ? "pending" : "disabled");
+  const resolvedStatus = resolveAgentStatus(status, enabled);
   const label = t(`agent.status.${resolvedStatus}`);
 
   return (

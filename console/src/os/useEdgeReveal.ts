@@ -19,6 +19,15 @@ export interface EdgeOptions {
   bottomBand?: number;
 }
 
+/** Resolve Dock visibility from device, window and pointer-edge state. */
+export function shouldRevealDock(
+  isMobile: boolean,
+  activeWindowMaximized: boolean,
+  bottomHot: boolean,
+): boolean {
+  return isMobile || !activeWindowMaximized || bottomHot;
+}
+
 interface ResolvedOpts {
   threshold: number;
   topBand: number;

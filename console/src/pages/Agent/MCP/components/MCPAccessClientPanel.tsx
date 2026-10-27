@@ -1,5 +1,5 @@
 import React from "react";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus as PlusOutlined } from "lucide-react";
 import { Button } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type {
@@ -16,6 +16,7 @@ import { MCPAccessRuleRows } from "./MCPAccessRuleRows";
 interface MCPAccessClientPanelProps {
   policy: MCPAccessPolicy;
   principalOptions: MCPAccessPrincipalOption[];
+  channelSourceValues: readonly string[];
   setDefaultEffect: (effect: MCPAccessEffect) => void;
   addClientAccessRule: () => void;
   updateClientRule: (
@@ -30,6 +31,7 @@ interface MCPAccessClientPanelProps {
 export const MCPAccessClientPanel: React.FC<MCPAccessClientPanelProps> = ({
   policy,
   principalOptions,
+  channelSourceValues,
   setDefaultEffect,
   addClientAccessRule,
   updateClientRule,
@@ -59,7 +61,7 @@ export const MCPAccessClientPanel: React.FC<MCPAccessClientPanelProps> = ({
         </div>
         <Button
           className={styles.accessClientAddButton}
-          icon={<PlusOutlined />}
+          icon={<PlusOutlined size="1em" />}
           onClick={addClientAccessRule}
         >
           {t("mcp.access.addRule")}
@@ -68,6 +70,7 @@ export const MCPAccessClientPanel: React.FC<MCPAccessClientPanelProps> = ({
       <MCPAccessRuleRows
         rules={policy.client_overrides}
         principalOptions={principalOptions}
+        channelSourceValues={channelSourceValues}
         getKey={accessRuleIdentityKey}
         updateRule={updateClientRule}
         setRuleEffect={setClientRuleEffect}

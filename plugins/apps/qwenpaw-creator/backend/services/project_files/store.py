@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import os
 from pathlib import Path, PurePosixPath
@@ -19,17 +19,21 @@ from typing import Any, Final
 from uuid import uuid4
 
 from pydantic import ValidationError
+from domain.errors import BadRequestError
 from services.runtime_files.atomic_store import (
+    atomic_replace_path,
     fsync_directory as runtime_fsync_directory,
 )
 from services.runtime_files.locking import CrossProcessFileLock
+from services.runtime_files.path_safety import is_link_path, is_link_stat
 from services.storage_root import require_creator_data_root
 from utils.logger import setup_logger
 
 from .models import Project
+from .archive import write_project_archive
 from .serialization import (
     CanonicalJsonError,
-    load_project_json_with_etag,
+    load_project_json_with_source,
     project_etag,
     project_file_bytes,
 )
@@ -37,7 +41,7 @@ from .serialization import (
 logger = setup_logger("store")
 
 
-DEFAULT_MAX_PROJECT_JSON_BYTES = 8 * 1024 * 1024
+DEFAULT_MAX_PROJECT_JSON_BYTES = 32 * 1024 * 1024
 _SAFE_PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Projects materialized from plugin-bundled inspiration examples carry this
@@ -70,11 +74,33 @@ class UnsafeProjectPath(ProjectStoreError):
     pass
 
 
+class InvalidProjectId(UnsafeProjectPath):
+    """The caller supplied a malformed id, as opposed to a damaged store.
+
+    Kept under UnsafeProjectPath so existing handlers that skip unusable
+    directory names keep working, while routes can single it out as a client
+    input mistake rather than a storage fault.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectSnapshot:
     project: Project
     etag: str
     generation: int
+    # The exact persisted source document ``etag`` was hashed from, when this
+    # snapshot was read from disk; None for snapshots built in memory (create /
+    # replace / review) whose ``model_dump`` already is the authority that
+    # ``project_etag`` hashed. A commit boundary writes this as ``base.json``
+    # so it and ``etag`` share one representation even after a load-time repair
+    # changed a stored field. See serialization.load_project_json_with_source.
+    # Auxiliary to identity: a snapshot read back from disk represents the same
+    # state as one built in memory, so it is excluded from equality/repr.
+    source_document: dict[str, Any] | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,7 +338,7 @@ class ProjectStore:
             target_stat = target.lstat()
         except FileNotFoundError as exc:
             raise ProjectNotFound(f"Project not found: {safe_id}") from exc
-        if stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISREG(
+        if is_link_stat(target_stat) or not stat.S_ISREG(
             target_stat.st_mode,
         ):
             raise ProjectIntegrityError(
@@ -329,7 +355,11 @@ class ProjectStore:
                 f"project.json exceeds {self.max_project_json_bytes} bytes",
             )
         try:
-            project, source_etag = load_project_json_with_etag(payload)
+            (
+                project,
+                source_etag,
+                source_document,
+            ) = load_project_json_with_source(payload)
         except CanonicalJsonError as exc:
             raise ProjectIntegrityError(
                 f"Invalid project.json for {safe_id}",
@@ -343,6 +373,7 @@ class ProjectStore:
             project=project,
             etag=source_etag,
             generation=project.generation,
+            source_document=source_document,
         )
 
     def replace(
@@ -414,7 +445,7 @@ class ProjectStore:
         for entry in entries:
             if (
                 entry.name.startswith(".deleted-")
-                or entry.is_symlink()
+                or is_link_path(entry)
                 or not entry.is_dir()
             ):
                 continue
@@ -487,7 +518,7 @@ class ProjectStore:
                 safe_id = _safe_project_id(entry.name)
             except (OSError, UnsafeProjectPath):
                 continue
-            if stat.S_ISLNK(entry_stat.st_mode) or not stat.S_ISDIR(
+            if is_link_stat(entry_stat) or not stat.S_ISDIR(
                 entry_stat.st_mode,
             ):
                 continue
@@ -503,10 +534,18 @@ class ProjectStore:
         project_id: str,
         *,
         expected_etag: str | None = None,
+        cascade: bool = True,
     ) -> None:
-        """Atomically remove a Project from discovery, then delete its tree."""
+        """Atomically remove a Project from discovery, then delete its tree.
+
+        When *cascade* is ``False`` only ``project.json`` is removed so the
+        project vanishes from listings but assets, sessions and observability
+        data remain on disk.  When ``True`` (default) the entire directory
+        tree is deleted.
+        """
 
         safe_id = _safe_project_id(project_id)
+        tombstone: Path | None = None
         with self.lifecycle_lock(safe_id), self._lock:
             current = self.read(safe_id)
             if expected_etag is not None and current.etag != expected_etag:
@@ -514,27 +553,52 @@ class ProjectStore:
                     f"Project ETag conflict: expected={expected_etag}, actual={current.etag}",
                 )
             project_root = self.project_root(safe_id)
+
+            if not cascade:
+                manifest = project_root / "project.json"
+                try:
+                    manifest.unlink()
+                except FileNotFoundError:
+                    pass
+                logger.info(
+                    "project manifest deleted (data retained): %s",
+                    safe_id,
+                )
+                return
+
             tombstone = self.root / f".deleted-{safe_id}-{uuid4().hex}"
             try:
-                os.replace(project_root, tombstone)
+                atomic_replace_path(project_root, tombstone)
                 _fsync_directory(self.root)
             except OSError as exc:
                 raise ProjectStoreError(
                     f"Cannot delete Project: {safe_id}",
                 ) from exc
+        # The atomic rename above is the deletion boundary. Physical cleanup
+        # is deliberately detached: a large tree or an open provider file must
+        # not keep DELETE/Stop waiting after the Project is already absent.
+        # Startup recovery also removes any tombstone left by a crash.
+        assert tombstone is not None
+
+        def cleanup_deleted_tree() -> None:
             try:
                 shutil.rmtree(tombstone)
-            except OSError as exc:
-                # The Project is already logically absent. Leave the hidden
-                # tombstone for startup cleanup instead of moving it back and
-                # accidentally resurrecting stale data.
-                raise ProjectStoreError(
-                    f"Project was removed but tombstone cleanup failed: {safe_id}",
-                ) from exc
+            except OSError:
+                logger.warning(
+                    "Project tombstone cleanup deferred to startup: %s",
+                    tombstone,
+                    exc_info=True,
+                )
+
+        threading.Thread(
+            target=cleanup_deleted_tree,
+            name=f"creator-delete-cleanup:{safe_id}",
+            daemon=True,
+        ).start()
         logger.info("project deleted: %s", safe_id)
 
     def export(self, project_id: str) -> tuple[int, Iterator[bytes]]:
-        """Compress the whole Project folder into a zip under ``CREATOR_DATA_ROOT``/exports/.
+        """Archive the Project and recoverable Runtime under ``CREATOR_DATA_ROOT``/exports/.
         Returns the archive byte size plus an iterator yielding the contents
         in 8192-byte chunks, so HTTP callers can advertise Content-Length for
         download progress without loading the whole file into memory.
@@ -550,25 +614,30 @@ class ProjectStore:
         logger.info(f"exporting to:{str(export_root / zip_file_stem)}")
 
         archive_path = None
-        with self.lifecycle_lock(safe_id), self._lock:
-            # Confirm the Project exists and is loadable before archiving.
-            self.read(safe_id)
-            try:
-                archive_path = shutil.make_archive(
-                    str(export_root / zip_file_stem),
-                    "zip",
-                    root_dir=str(self.root),
-                    base_dir=safe_id,
-                )
-                logger.info(f"export file path:{archive_path}")
-            except Exception as e:
-                logger.error(
-                    f"failed to create export file for project {safe_id}",
-                    exc_info=True,
-                )
-                raise ProjectStoreError(
-                    f"failed to create export file for project {safe_id}",
-                ) from e
+        # Confirm it exists before starting. The archive itself intentionally
+        # runs without either the lifecycle or in-process store lock: Project
+        # files are atomically replaced, and export is explicitly a best-effort
+        # snapshot. Holding the global mutation boundary across ZIP I/O caused
+        # common 10-second lock timeouts on large Projects.
+        snapshot = self.read(safe_id)
+        try:
+            archive_path = str(export_root / f"{zip_file_stem}.zip")
+            write_project_archive(
+                self.project_root(safe_id),
+                snapshot.project,
+                Path(archive_path),
+            )
+            logger.info(f"export file path:{archive_path}")
+        except BadRequestError:
+            raise
+        except Exception as e:
+            logger.error(
+                f"failed to create export file for project {safe_id}",
+                exc_info=True,
+            )
+            raise ProjectStoreError(
+                f"failed to create export file for project {safe_id}",
+            ) from e
 
         return (
             Path(archive_path).stat().st_size,
@@ -593,14 +662,28 @@ class ProjectStore:
             Path(archive_path).unlink(missing_ok=True)
             logger.info(f"deleted project export zip file {archive_path}")
 
-    def lifecycle_lock(self, project_id: str) -> CrossProcessFileLock:
-        """Serialize creation/deletion with all Project-scoped mutations."""
+    def lifecycle_lock(
+        self,
+        project_id: str,
+        *,
+        shared: bool = False,
+        cross_thread_hold: bool = False,
+    ) -> CrossProcessFileLock:
+        """Guard a Project lifetime without serializing unrelated Runtime domains.
+
+        Project creation, deletion and Project-state publication use the
+        default exclusive side. Runtime-only transitions use ``shared=True``:
+        they may proceed in parallel with one another, but still cannot race a
+        delete or Project commit that owns the exclusive side.
+        """
 
         return CrossProcessFileLock(
             self.root
             / ".locks"
             / f"project-{_safe_project_id(project_id)}.lock",
             timeout_seconds=10.0,
+            shared=shared,
+            cross_thread_hold=cross_thread_hold,
         )
 
     def _checked_payload(self, project: Project) -> bytes:
@@ -627,7 +710,7 @@ class ProjectStore:
                 stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temp_path, target)
+            atomic_replace_path(temp_path, target)
             _fsync_directory(project_root)
             _fsync_directory(temp_dir)
         except Exception:
@@ -646,7 +729,7 @@ class ProjectStore:
             project_stat = project_root.lstat()
         except FileNotFoundError as exc:
             raise ProjectNotFound(f"Project not found: {project_id}") from exc
-        if stat.S_ISLNK(project_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(project_stat) or not stat.S_ISDIR(
             project_stat.st_mode,
         ):
             raise UnsafeProjectPath(
@@ -671,7 +754,7 @@ class ProjectStore:
             raise ProjectIntegrityError(
                 "Project assets directory is missing",
             ) from exc
-        if stat.S_ISLNK(assets_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(assets_stat) or not stat.S_ISDIR(
             assets_stat.st_mode,
         ):
             raise UnsafeProjectPath("Project assets must be a real directory")
@@ -695,7 +778,7 @@ def _safe_project_id(value: str) -> str:
         or not _SAFE_PROJECT_ID.fullmatch(value)
         or "\x00" in value
     ):
-        raise UnsafeProjectPath(f"Unsafe project id: {value!r}")
+        raise InvalidProjectId(f"Unsafe project id: {value!r}")
     return value
 
 
@@ -722,6 +805,7 @@ def _fsync_directory(directory: Path) -> None:
 
 __all__ = [
     "DEFAULT_MAX_PROJECT_JSON_BYTES",
+    "InvalidProjectId",
     "ProjectAlreadyExists",
     "ProjectConflict",
     "ProjectIntegrityError",

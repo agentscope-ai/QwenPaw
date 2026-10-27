@@ -21,6 +21,7 @@ def request(session_id: str, code: str) -> ExecRequest:
     )
 
 
+@pytest.mark.p1
 async def test_two_incognito_sessions_are_isolated(fixture_url: str) -> None:
     plane = SubprocessPlane()
     first_code = (
@@ -55,6 +56,7 @@ async def test_two_incognito_sessions_are_isolated(fixture_url: str) -> None:
             await link.close_all()
 
 
+@pytest.mark.p1
 async def test_same_session_id_is_isolated_by_workspace(
     fixture_url: str,
 ) -> None:
@@ -118,6 +120,7 @@ async def test_same_session_id_is_isolated_by_workspace(
     "contexts",
     [("profile", "incognito"), ("incognito", "profile")],
 )
+@pytest.mark.p1
 async def test_profile_and_incognito_have_independent_process_cells(
     contexts: tuple[str, str],
     tmp_path,

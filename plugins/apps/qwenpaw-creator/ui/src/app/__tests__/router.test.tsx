@@ -9,14 +9,25 @@ function terminalRouteId(path: string): string | undefined {
 }
 
 describe("Creator hash router", () => {
-  it("registers only the Project, Timeline/Element Plan, R2V Workbench, and Assets page paths", () => {
+  it("registers the Blueprint, parameterized Plan/Workbench, legacy and Assets page paths", () => {
     expect(FORMAL_CREATOR_ROUTES).toEqual([
       "/",
+      "/project/:id",
+      "/project/:id/t/:timelineId/plan",
+      "/project/:id/t/:timelineId/plan/element/:elementId",
       "/project/:id/plan",
       "/project/:id/plan/element/:elementId",
       "/project/:id/assets",
     ]);
     expect(terminalRouteId("/")).toBe("home");
+    expect(terminalRouteId("/project/p1/t/timeline%3Amain/plan")).toBe(
+      "project-timeline-plan",
+    );
+    expect(
+      terminalRouteId("/project/p1/t/timeline%3Amain/plan/element/r2v-window"),
+    ).toBe("project-timeline-element-workbench");
+    // Legacy paths stay routable: /plan redirects to the primary timeline's
+    // parameterized route, the element workbench renders directly.
     expect(terminalRouteId("/project/p1/plan")).toBe("project-plan");
     expect(terminalRouteId("/project/p1/plan/element/r2v-window")).toBe(
       "project-element-workbench",
@@ -25,8 +36,8 @@ describe("Creator hash router", () => {
     expect(terminalRouteId("/project/p1/unknown")).toBe("project-not-found");
   });
 
-  it("keeps /project/:id as the sole project default entry", () => {
-    expect(terminalRouteId("/project/p1")).toBe("project-default");
+  it("keeps /project/:id as the blueprint default entry", () => {
+    expect(terminalRouteId("/project/p1")).toBe("project-blueprint");
   });
 
   it("normalizes only safe same-app routes for host URL synchronization", () => {

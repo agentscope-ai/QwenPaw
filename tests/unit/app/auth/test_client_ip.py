@@ -239,7 +239,7 @@ class TestShouldSkipAuthDefenseInDepth:
         mock_cfg.return_value = _make_config_return()
         req = _make_request("127.0.0.1")
         req.url = MagicMock()
-        req.url.path = "/api/protected"
+        req.url.path = "/api/hubtected"
         req.method = "GET"
         # pylint: disable=protected-access
         assert AuthMiddleware._should_skip_auth(req) is True
@@ -260,7 +260,7 @@ class TestShouldSkipAuthDefenseInDepth:
         # But _should_skip_auth checks direct peer
         req = _make_request("10.0.0.1", xff="127.0.0.1")
         req.url = MagicMock()
-        req.url.path = "/api/protected"
+        req.url.path = "/api/hubtected"
         req.method = "GET"
         # pylint: disable=protected-access
         assert AuthMiddleware._should_skip_auth(req) is False

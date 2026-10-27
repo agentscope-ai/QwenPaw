@@ -19,15 +19,15 @@
   align-items: flex-start;
   gap: 12px;
   padding: 14px 16px;
-  background: var(--colorBgElevated, #fff);
+  background: var(--app-surface-raised, #fff);
   border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  border: 1px solid var(--colorBorderSecondary, #f0f0f0);
+  border: 1px solid var(--app-border, #f0f0f0);
 }
 
 .icon {
   flex-shrink: 0;
-  color: var(--colorPrimary, #1677ff);
+  color: var(--app-accent, #1677ff);
   margin-top: 2px;
 }
 
@@ -36,7 +36,7 @@
   margin: 0;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--colorText, #333);
+  color: var(--app-text, #333);
   word-break: break-word;
   white-space: pre-wrap;
   max-height: 6em;
@@ -52,7 +52,7 @@
   padding: 4px;
   border: none;
   background: transparent;
-  color: var(--colorTextSecondary, #999);
+  color: var(--app-text-secondary, #999);
   cursor: pointer;
   border-radius: 6px;
   display: flex;
@@ -60,7 +60,7 @@
   justify-content: center;
 
   &:hover {
-    color: var(--colorText, #333);
-    background: var(--colorFillTertiary, #f5f5f5);
+    color: var(--app-text, #333);
+    background: var(--app-fill-subtle, #f5f5f5);
   }
 }

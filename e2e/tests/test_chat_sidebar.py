@@ -47,27 +47,63 @@ class TestSidebarDateGroups:
         page,
         request: pytest.FixtureRequest,
     ) -> None:
+        """Upstream re-architected the sidebar into user groups that each
+        contain date buckets (pinned / today / week / month / older).
+        Date headers are non-collapsible; the user-group header toggles
+        the whole bucket. This case verifies:
+
+        1. The default group header renders
+        2. Date headers for the crafted sessions render (pinned/today/week)
+        3. Expanded group shows its sessions
+        4. Collapsing the group hides its sessions
+        5. Expanding again restores them
+
+        .. versionchanged:: 2026-09-18
+           Adapted to upstream #7788 (``redesign sidebar session list for
+           small screens``), which changed the date-grouping model in two
+           ways this case used to assume away:
+
+           * In ``date`` grouping mode the list renders only the
+             ``today`` / ``week`` / ``older`` tiers
+             (``SidebarSessionList.tsx``:
+             ``(["today", "week", "older"] as const).map(...)``).
+             ``pinned`` is **no longer its own date bucket**: pinned
+             conversations float to the top of *their* recency tier
+             (``tierOfSession`` maps them through ``getDateGroup`` and the
+             ordered list puts pinned first).  Step 2 asserting a
+             ``pinned`` date header can therefore never pass; the pinned
+             session is asserted *visible inside* its tier instead.
+           * ``SessionDateHeader`` became collapsible itself (it now
+             carries ``role="button"``, ``aria-expanded`` and an
+             ``onToggle``), while ``SessionGroupHeader`` only renders in
+             ``source`` grouping mode.  Steps 4/5 therefore toggle the
+             **date** header, not a user-group header that no longer
+             exists in this mode.
+        """
         test_name = request.node.name
 
         log_test_step("1. Mock the sidebar list with 5 crafted-timestamp sessions")
         sidebar_sessions.register(page)
-        # SidebarSessionList only mounts in the sidebar's *simple* mode
-        # (Sidebar.tsx: isSimpleExpanded branch); the default is "full"
-        # nav mode, so pin simple mode before the app boots.
+        # SidebarSessionList defaults to source grouping. Pin date grouping
+        # before the app boots so the date buckets under test are rendered.
         page.add_init_script(
-            "try { localStorage.setItem('qwenpaw_sidebar_mode', 'simple'); }"
+            "try { localStorage.setItem("
+            "'qwenpaw_session_group_mode', 'date'); }"
             " catch (e) {}"
         )
         chat = ChatPage(page)
         chat.open()
 
-        log_test_step("2. All five group headers render")
-        for group in ("pinned", "today", "week", "month", "older"):
+        log_test_step("2. Date headers render for the crafted buckets")
+        # #7788: only today/week/older render as date buckets; "pinned" is a
+        # float-to-top ordering inside its recency tier, not a bucket, so it
+        # has no header to assert here.
+        for group in ("today", "week"):
             expect(chat.get_sidebar_group_header(group)).to_be_visible(
                 timeout=chat.timeout
             )
 
-        log_test_step("3. Expanded groups show their sessions")
+        log_test_step("3. Expanded group shows its sessions")
         expect(
             chat.get_sidebar_session_by_name(sidebar_sessions.PINNED_NAME)
         ).to_be_visible(timeout=chat.timeout)
@@ -78,25 +114,20 @@ class TestSidebarDateGroups:
             chat.get_sidebar_session_by_name(sidebar_sessions.WEEK_NAME)
         ).to_be_visible(timeout=chat.timeout)
 
-        log_test_step("4. 'Within 30 days' and 'Earlier' start collapsed")
+        log_test_step("4. Collapsing the date group hides its sessions")
+        # #7788: the date header itself is the collapsible control now
+        # (SessionDateHeader carries aria-expanded + onToggle); the old
+        # user-group header only exists in "source" grouping mode.
+        chat.get_sidebar_group_header("today").click()
         expect(
-            chat.get_sidebar_session_by_name(sidebar_sessions.MONTH_NAME)
-        ).not_to_be_visible(timeout=5000)
-        expect(
-            chat.get_sidebar_session_by_name(sidebar_sessions.OLDER_NAME)
+            chat.get_sidebar_session_by_name(sidebar_sessions.TODAY_NAME)
         ).not_to_be_visible(timeout=5000)
 
-        log_test_step("5. Clicking 'Earlier' header expands its sessions")
-        chat.toggle_sidebar_group("older")
+        log_test_step("5. Expanding again restores them")
+        chat.get_sidebar_group_header("today").click()
         expect(
-            chat.get_sidebar_session_by_name(sidebar_sessions.OLDER_NAME)
+            chat.get_sidebar_session_by_name(sidebar_sessions.TODAY_NAME)
         ).to_be_visible(timeout=chat.timeout)
-
-        log_test_step("6. Clicking again collapses it back")
-        chat.toggle_sidebar_group("older")
-        expect(
-            chat.get_sidebar_session_by_name(sidebar_sessions.OLDER_NAME)
-        ).not_to_be_visible(timeout=5000)
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")

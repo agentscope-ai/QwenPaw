@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import multiprocessing as mp
 import os
@@ -13,10 +12,10 @@ from collections.abc import Sequence
 
 import click
 
+from qwenpaw.tauri.backend_guard import BackendInstance
 from qwenpaw.tauri.env import (
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
-    DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
@@ -46,6 +45,28 @@ def _looks_like_python_invocation(args: Sequence[str]) -> bool:
         return True
     # Single-dash interpreter flags (-u, -E, -X ...), but not --options.
     return len(first) >= 2 and first[0] == "-" and first[1] != "-"
+
+
+def _abort_unhandled_multiprocessing_child(args: Sequence[str]) -> None:
+    """Stop a frozen multiprocessing child that escaped its runtime hook.
+
+    PyInstaller's multiprocessing runtime hook consumes this private flag and
+    dispatches ``spawn_main()`` before the application entry point runs.  If
+    the flag reaches this function, the packaged executable is missing or did
+    not execute that hook.  Never let such a child continue into backend
+    singleton reconciliation, where it could terminate its parent backend.
+    """
+    if not bool(getattr(sys, "frozen", False)):
+        return
+    if "--multiprocessing-fork" not in args:
+        return
+    if sys.stderr is not None:
+        print(
+            "qwenpaw-backend multiprocessing runtime hook did not handle "
+            "the child process",
+            file=sys.stderr,
+        )
+    raise SystemExit(2)
 
 
 def _bundled_python() -> str:
@@ -258,12 +279,10 @@ def _run_click_command(
         raise RuntimeError(message) from exc
 
 
-def _emit_backend_ready(port: int) -> None:
-    payload = json.dumps({"port": port}, separators=(",", ":"))
-    print(f"{DESKTOP_READY_PREFIX} {payload}", flush=True)
-
-
-def _run_backend_server(log_level: str) -> None:
+def _run_backend_server(
+    log_level: str,
+    instance: BackendInstance,
+) -> None:
     import uvicorn
 
     from qwenpaw.browser.control_link.chrome.protocol import (
@@ -293,11 +312,6 @@ def _run_backend_server(log_level: str) -> None:
     os.environ.pop("QWENPAW_RELOAD_MODE", None)
     setup_logger(normalized_log_level)
 
-    # Ensure only one desktop backend runs: terminate any orphan left by a
-    # crashed/force-quit previous launch before we bind a new port (#5550).
-    from qwenpaw.tauri.backend_guard import reconcile_singleton_backend
-
-    reconcile_singleton_backend(WORKING_DIR)
     if normalized_log_level in ("debug", "trace"):
         from qwenpaw.cli.main import log_init_timings
 
@@ -341,9 +355,12 @@ def _run_backend_server(log_level: str) -> None:
         write_port_file(port_file, port)
         write_last_api(host, port)
         server = uvicorn.Server(config)
-        # Exposed so /api/desktop/shutdown can trigger a graceful exit.
+        # Exposed so /api/runtime/shutdown can trigger a graceful exit.
         fastapi_app.state.uvicorn_server = server
-        _emit_backend_ready(port)
+        fastapi_app.state.runtime_instance = instance
+        fastapi_app.state.runtime_clients = {}
+        instance.publish(port)
+
         server.run(sockets=[backend_socket])
     except Exception:
         backend_socket.close()
@@ -358,6 +375,11 @@ def _socket_port(sock: socket.socket) -> int:
 
 
 def main() -> None:
+    # PyInstaller replaces this function on every platform. It must run before
+    # application initialization so multiprocessing workers and resource
+    # trackers do not re-enter the backend entry point.
+    mp.freeze_support()
+    _abort_unhandled_multiprocessing_child(sys.argv[1:])
     if _is_frozen_desktop() and _looks_like_python_invocation(sys.argv[1:]):
         _reexec_as_bundled_python(sys.argv[1:])
         return
@@ -365,6 +387,16 @@ def main() -> None:
     _install_subprocess_guard()
     _install_desktop_runtime()
 
+    from qwenpaw.constant import WORKING_DIR
+
+    os.environ["QWENPAW_RUNTIME_MODE"] = "shared"
+    with BackendInstance(WORKING_DIR, "shared") as instance:
+        _run_initialized_backend(instance)
+
+
+def _run_initialized_backend(
+    instance: BackendInstance,
+) -> None:
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
 
     install_sidecar_logging(WORKING_DIR / "desktop.log")
@@ -387,9 +419,11 @@ def main() -> None:
 
     warn_unelevated_sandbox()
 
-    _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
+    _run_backend_server(
+        os.environ.get(LOG_LEVEL_ENV, "info"),
+        instance,
+    )
 
 
 if __name__ == "__main__":
-    mp.freeze_support()
     main()

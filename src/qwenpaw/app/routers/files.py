@@ -61,7 +61,7 @@ def _check_path(path: Path) -> str | None:
     methods=["GET", "HEAD"],
     summary="Preview file",
 )
-async def preview_file(
+def preview_file(
     filepath: str,
 ):
     """Preview file."""

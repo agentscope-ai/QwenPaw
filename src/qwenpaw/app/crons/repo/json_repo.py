@@ -49,7 +49,16 @@ class JsonJobRepository(BaseJobRepository):
         """Load and validate jobs as one worker-thread operation."""
         if not self._path.exists():
             return JobsFile(jobs=[])
-        return JobsFile.model_validate(read_json(self._path))
+        data = read_json(self._path)
+        # Preserve the historical default for saved jobs that predate this
+        # field. Newly created jobs use JobRuntimeSpec's new default.
+        if isinstance(data, dict):
+            for job in data.get("jobs", []):
+                if isinstance(job, dict):
+                    runtime = job.setdefault("runtime", {})
+                    if isinstance(runtime, dict):
+                        runtime.setdefault("share_session", True)
+        return JobsFile.model_validate(data)
 
     async def load(self) -> JobsFile:
         """Load and validate jobs without blocking the event loop."""

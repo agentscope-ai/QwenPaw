@@ -22,6 +22,8 @@ vi.mock("./useTools", () => ({
       } satisfies ToolInfo,
     ],
     loading: false,
+    error: null,
+    ready: true,
     batchLoading: false,
     toggleEnabled: vi.fn(),
     toggleAsyncExecution: vi.fn(),

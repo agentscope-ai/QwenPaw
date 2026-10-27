@@ -95,15 +95,13 @@ class ModelTimeoutException(AgentRuntimeErrorException):
     def __init__(
         self,
         model: str,
-        timeout: float | int | None = None,
         details: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         self.model = model
-        self.timeout = timeout
         super().__init__(
             error_code="MODEL_TIMEOUT",
-            message=f"Model '{model}' timed out after {timeout}s",
+            message=f"Model '{model}' timed out",
             details=details,
             **kwargs,
         )
@@ -625,6 +623,11 @@ def _append_error_detail(
     summary = _extract_error_summary(exc)
     if summary:
         converted.message = f"{converted.message}. Reason: {summary}"
+    from .utils.image_resize import image_pixel_limit_hint
+
+    image_hint = image_pixel_limit_hint(exc)
+    if image_hint:
+        converted.message = f"{converted.message}. {image_hint}"
     return converted
 
 
@@ -673,6 +676,7 @@ def _is_model_related_error(exc: Exception) -> bool:
         "rate limit",
         "quota",
         "context length",
+        f"context_length",
         "authentication",
         "unauthorized",
         "forbidden",
@@ -792,7 +796,6 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
         return _append_error_detail(
             ModelTimeoutException(
                 model,
-                timeout=60,
                 details=details,
             ),
             exc,
@@ -801,7 +804,9 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
     if any(
         kw in error_message
         for kw in [
-            "context",
+            f"context length",
+            f"context_length",
+            f"context limit",
             "maximum context",
             "context window",
             "too many tokens",

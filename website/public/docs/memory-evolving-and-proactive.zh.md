@@ -1,13 +1,16 @@
 # 记忆自进化与主动交互（Beta）
 
+Auto-Dream 只负责将每日记忆整合为长期知识，主动交互继续使用现有的 `/proactive` 命令，二者独立运行。
+Auto-Dream 不再接受旧的 `topic_count`、`topic_diversity_days` 参数。
+
 > 本文承接[长期记忆](./memory)，只讲那篇没有展开的两件事：**同一条长期知识如何随时间被改写**，以及 **`/proactive` 主动交互到底怎样工作**。记忆目录、文件格式、索引原理、检索机制和完整配置都在[长期记忆](./memory)中。
 
 QwenPaw 里有两条相关但目前**各自独立**的链路：
 
-| 链路         | 数据来源                    | 产出                                  |
-| ------------ | --------------------------- | ------------------------------------- |
-| 记忆自进化   | `memory/` 每日记忆          | `digest/` 长期知识 + `interests.yaml` |
-| `/proactive` | 近期聊天会话 + 可选桌面截图 | 一条以 `[PROACTIVE]` 开头的主动消息   |
+| 链路         | 数据来源                    | 产出                                |
+| ------------ | --------------------------- | ----------------------------------- |
+| 记忆自进化   | `memory/` 每日记忆          | `digest/` 长期知识                  |
+| `/proactive` | 近期聊天会话 + 可选桌面截图 | 一条以 `[PROACTIVE]` 开头的主动消息 |
 
 `/proactive` 目前**不读取** `digest/` 和 `interests.yaml`。这一点在文末「当前边界」中会再说明。
 
@@ -84,26 +87,6 @@ Auto-Dream 不会每天从头重读整个 `memory/`：
 - **只写 `digest/`**：`memory/` 永远保留“当时看到了什么、怎么判断的”，Auto-Dream 从不回头改写它。
 
 这也是为什么长期记忆可以一直修正而不丢历史：结论可变，现场不可变。
-
-### 顺手产出的兴趣主题
-
-整合长期节点时，Auto-Dream 还会从近期证据里挑出少量、互不重复的兴趣主题，默认最多 3 个，写入 `memory/<date>/interests.yaml`：
-
-```yaml
-- title: 验证紧急回滚流程
-  reason: 已增加 hotfix 例外，但尚未记录事后补做的检查。
-  evidence:
-    - hotfix 复盘中讨论了跳过 staging 的情况。
-  keywords: [hotfix, rollback, release]
-  paths:
-    - memory/2026-08-20/hotfix-retrospective.md
-```
-
-每个主题都带上原因、证据、关键词和相关路径——也就是说，它不只说“你可能关心 X”，还能说清“我为什么这么认为”。生成时会参考近 7 天已经出过的主题做去重，避免天天推荐同一件事。ReMe 提供一个底层 `proactive` job 读取该文件，供其他集成消费；文件不存在时返回 skipped，不会报错。
-
-<p align="center">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream 的整合结果与兴趣主题摘要" />
-</p>
 
 ---
 
@@ -215,7 +198,7 @@ Auto-Dream 不会每天从头重读整个 `memory/`：
 
 ### 当前边界
 
-`/proactive` 的触发和任务推断**只来自近期会话与可选屏幕**，不读取 `interests.yaml`、也不读取 `digest/`。所以本文前后两半目前是两条独立的路径：记忆进化让知识越用越准，主动交互则完全基于近期活动。把两者打通仍在进行中。
+`/proactive` 的触发和任务推断**只来自近期会话与可选屏幕**，不读取 `interests.yaml`、也不读取 `digest/`。所以本文前后两半目前是两条独立的路径：记忆进化让知识越用越准，主动交互则完全基于近期活动。两条路径保持独立。
 
 ---
 
@@ -237,23 +220,25 @@ Proactive **不使用 `agent.json` 参数**，全部通过命令管理，作用�
 ### Auto-Dream 手动运行
 
 ```text
-/dream             # 立即执行一次 Auto-Dream
-/dream <提示信息>  # 带提示执行一次，例如指定关注方向
+/reme auto_dream                    # 立即执行一次 Auto-Dream
+/reme auto_dream hint="关注某个主题" # 带提示执行一次
 ```
 
 平时不需要手动跑：Auto-Dream 默认每天定时执行一次。
+手动运行需要发起请求的聊天身份先完成审批；经过身份验证的控制台可作为管理员审批。
+执行 `/reme help` 可查看当前可用且允许从聊天调用的全部 action。
 
 ### 与本页相关的配置项
 
-以下几项位于 `agent.json` 的 `running.reme_light_memory_config`。完整配置（目录、Embedding、Daily Paper、索引维护、其他 Backend）见[长期记忆](./memory)。
+以下几项位于 `agent.json` 的 `running.reme_light_memory_config`。完整配置（目录、Embedding、Daily Paper、Auto Fin、索引维护、其他 Backend）见[长期记忆](./memory)。
 
-| 配置项                              | 默认值         | 说明                                         |
-| ----------------------------------- | -------------- | -------------------------------------------- |
-| `dream_cron_enabled`                | `true`         | 是否定时运行 Auto-Dream                      |
-| `dream_cron`                        | `"0 23 * * *"` | 5 段 Cron 表达式；触发后随机延迟 0–60 秒启动 |
-| `auto_dream_inbox_push_enabled`     | `true`         | 将 Auto-Dream 的成功或失败摘要推送到 Inbox   |
-| `auto_memory_interval`              | `5`            | 每累计 N 个用户回合运行 Auto-Memory          |
-| `auto_memory_search_config.enabled` | `false`        | 是否在每个普通用户请求前自动检索记忆         |
+| 配置项                              | 默认值         | 说明                                          |
+| ----------------------------------- | -------------- | --------------------------------------------- |
+| `dream_cron_enabled`                | `true`         | 是否定时运行 Auto-Dream                       |
+| `dream_cron`                        | `"0 23 * * *"` | 5 段 Cron 表达式；触发后随机延迟 0–60 秒启动  |
+| `auto_dream_inbox_push_enabled`     | `true`         | Auto-Dream 有实际变化或执行失败时推送到 Inbox |
+| `auto_memory_interval`              | `5`            | 每累计 N 个用户回合运行 Auto-Memory           |
+| `auto_memory_search_config.enabled` | `false`        | 是否在每个普通用户请求前自动检索记忆          |
 
 Auto-Memory 间隔越小，进入 Auto-Dream 的素材越新，但模型调用和 Token 消耗也越高。
 

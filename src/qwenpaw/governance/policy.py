@@ -61,6 +61,10 @@ class GovernanceDecision:
     #   "sandbox"               — Phase 3 shell sandbox fallback
     #   "No rule hit"           — Phase 3 fallback (no rule/finding matched)
     source: str = "No rule hit"
+    # Only a SMART/JEV severity threshold from unmodified bundled detection
+    # rules may have ASK replaced by the decision model. Explicit rules and
+    # unknown origins still require approval.
+    approval_origin: str = "unknown"
 
 
 class ToolCallSpec:
@@ -657,7 +661,9 @@ class GovernancePolicy:
     audit_level: str = "all"  # "all" | "write_only" | "none"
 
     # v2.0 fields
-    execution_level: str = "smart"  # "off" | "auto" | "smart" | "strict"
+    execution_level: str = (
+        "smart"  # "off" | "auto" | "smart" | "jev" | "strict"
+    )
     sensitive_paths: List[str] = field(default_factory=list)
     shell_evasion_checks: dict[str, bool] = field(default_factory=dict)
     detection_rules: List[DetectionRuleConfig] = field(default_factory=list)
@@ -702,7 +708,7 @@ class GovernancePolicy:
         Three-phase evaluation (v2.0):
             Phase 0: Type check — unknown → DENY, internal → ALLOW
             Phase 1: Deep security scan (accumulates findings)
-                     CRITICAL findings → immediate DENY
+                     configured auto-deny findings → immediate DENY
             Phase 2: Policy rules first-match-wins
                      (builtin_rules + user_rules)
             Phase 3: Fallback + execution_level threshold
@@ -732,15 +738,34 @@ class GovernancePolicy:
         findings: list[Any] = []
         if not skip_deep_scan:
             findings = self._deep_security_scan(tc_spec, tool_type)
-            # CRITICAL findings → immediate DENY
-            if any(getattr(f, "severity", "") == "CRITICAL" for f in findings):
-                top = _top_finding(findings)
+            # Severity controls the approval threshold; it does not by itself
+            # make a finding impossible to approve.  Only rule IDs explicitly
+            # configured for auto-deny are hard walls.  This keeps governance
+            # aligned with ToolGuardEngine and the Security-page auto-deny
+            # switch while allowing ordinary CRITICAL findings to reach the
+            # normal ASK path below.
+            from ..security.tool_guard.utils import resolve_auto_denied_rules
+
+            auto_denied_rule_ids = resolve_auto_denied_rules()
+            auto_denied_findings = [
+                finding
+                for finding in findings
+                if getattr(finding, "rule_id", "") in auto_denied_rule_ids
+            ]
+            if auto_denied_findings:
+                top = _top_finding(auto_denied_findings)
                 return GovernanceDecision(
                     action=GovernanceAction.DENY,
                     reason=getattr(top, "description", "") or top.title,
                     findings=findings,
-                    source=_findings_source(findings),
+                    source=_findings_source(auto_denied_findings),
                 )
+
+        sensitive_path_findings = [
+            finding
+            for finding in findings
+            if getattr(finding, "rule_id", "") == "SENSITIVE_FILE_BLOCK"
+        ]
 
         # ── Phase 1.5: Shell danger keyword detection ──
         # Regex-based check that catches command variants missed by
@@ -773,6 +798,14 @@ class GovernancePolicy:
                         findings=findings or None,
                         source="STRICT mode",
                     )
+                if (
+                    action == GovernanceAction.ALLOW
+                    and sensitive_path_findings
+                ):
+                    return self._apply_execution_level_fallback(
+                        tc_spec,
+                        sensitive_path_findings,
+                    )
                 return GovernanceDecision(
                     action=action,
                     reason=rule.reason,
@@ -792,6 +825,14 @@ class GovernancePolicy:
                         reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
+                    )
+                if (
+                    action == GovernanceAction.ALLOW
+                    and sensitive_path_findings
+                ):
+                    return self._apply_execution_level_fallback(
+                        tc_spec,
+                        sensitive_path_findings,
                     )
                 return GovernanceDecision(
                     action=action,
@@ -859,7 +900,7 @@ class GovernancePolicy:
                 tool_name=tc_spec.tool_name,
                 target=tc_spec.target,
                 tool_type=tool_type,
-                sensitive_paths=self.sensitive_paths,
+                sensitive_paths=self._resolve_sensitive_paths(),
                 detection_rules=detection_rules,
                 shell_evasion_checks=shell_evasion_checks,
                 raw_params=tc_spec.raw_params,
@@ -870,6 +911,30 @@ class GovernancePolicy:
                 exc,
             )
             return []
+
+    def _resolve_sensitive_paths(self) -> list[str]:
+        """Return the effective sensitive paths for the active file guard."""
+        from ..security.tool_guard.guardians.file_guardian import (
+            ensure_file_guard_paths,
+        )
+
+        policy_paths = list(self.sensitive_paths)
+        try:
+            from ..config import load_config
+
+            file_guard = load_config().security.file_guard
+        except Exception as exc:
+            logger.warning(
+                "file_guard config load failed: %s; using policy paths",
+                exc,
+            )
+            return ensure_file_guard_paths(policy_paths)
+
+        if not file_guard.enabled:
+            return []
+
+        configured_paths = list(file_guard.sensitive_files or [])
+        return ensure_file_guard_paths(policy_paths + configured_paths)
 
     def _merge_config_rules(
         self,
@@ -979,7 +1044,7 @@ class GovernancePolicy:
                 source=finding_source,
             )
 
-        if level == "smart":
+        if level in ("smart", "jev"):
             if max_sev in ("INFO", "LOW"):
                 return GovernanceDecision(
                     action=GovernanceAction.ALLOW,
@@ -992,6 +1057,11 @@ class GovernancePolicy:
                 reason=finding_reason,
                 findings=findings,
                 source=finding_source,
+                approval_origin=(
+                    "soft_risk"
+                    if self._is_bundled_risk_only(findings)
+                    else "mandatory"
+                ),
             )
 
         # AUTO / OFF: a finding surfaced, so ask.
@@ -1000,6 +1070,20 @@ class GovernancePolicy:
             reason=finding_reason,
             findings=findings,
             source=finding_source,
+        )
+
+    def _is_bundled_risk_only(self, findings: list[Any]) -> bool:
+        """Preserve custom and modified detection rules over model advice."""
+        if not findings:
+            return False
+        defaults = {rule.id: rule for rule in _get_default_detection_rules()}
+        effective, _ = self._merge_config_rules()
+        effective_by_id = {rule.id: rule for rule in effective}
+        return all(
+            getattr(finding, "detector", None) == "pattern_detector"
+            and (rule_id := getattr(finding, "rule_id", None)) in defaults
+            and effective_by_id.get(rule_id) == defaults[rule_id]
+            for finding in findings
         )
 
     def evaluate_source(self, tc_spec: ToolCallSpec) -> str:
@@ -1156,29 +1240,48 @@ def load_governance_policy(
     policy_dir: str,
     workspace_dir: str,
     coding_project_dir: str = "",
+    extra_project_dirs: Optional[List[str]] = None,
 ) -> GovernancePolicy:
     """Load from policy_dir/policy.yaml; return default policy if missing.
 
     Args:
         policy_dir: directory containing policy.yaml
         workspace_dir: used to replace WORKSPACE_DIR placeholders in rules
-        coding_project_dir: used to replace CODING_PROJECT_DIR placeholders
-            in rules; defaults to ``workspace_dir`` when empty
+        coding_project_dir: effective PRIMARY project dir; used to replace
+            CODING_PROJECT_DIR placeholders in rules; defaults to
+            ``workspace_dir`` when empty
+        extra_project_dirs: remaining bound project directories. Each
+            gets a system-managed ALLOW rule (``*(<path>/**)``, reason
+            "Extra project dir") synced to this list on every load —
+            revoking access means unbinding the directory, not deleting
+            the rule.
 
     Supports both v1.0 and v2.0 YAML formats.
     """
     path = Path(policy_dir) / "policy.yaml"
     if not path.exists():
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except Exception:
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     if not isinstance(data, dict):
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     version = data.get("version", "1.0")
     audit_level = data.get("audit_level", "all")
@@ -1229,7 +1332,7 @@ def load_governance_policy(
 
     # ── v2.0 fields ──
     execution_level = data.get("execution_level", "smart")
-    if execution_level not in ("off", "auto", "smart", "strict"):
+    if execution_level not in ("off", "auto", "smart", "jev", "strict"):
         logger.warning(
             "load_governance_policy: invalid execution_level '%s'; "
             "defaulting to 'smart'.",
@@ -1257,6 +1360,14 @@ def load_governance_policy(
     if workspace_dir:
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
         _resolve_placeholders(user_rules, workspace_dir, cpd)
+
+    # ── Sync system-managed ALLOW rules for extra project dirs ──
+    user_rules = _sync_extra_project_dir_rules(
+        user_rules,
+        workspace_dir,
+        cpd,
+        extra_project_dirs or [],
+    )
 
     return GovernancePolicy(
         version=version,
@@ -1289,7 +1400,20 @@ def save_governance_policy(
                        paths back to CODING_PROJECT_DIR placeholders
     """
     builtin_rules = copy.deepcopy(policy.builtin_rules)
-    user_rules = copy.deepcopy(policy.user_rules)
+    # System-managed extra-project-dir rules are NOT persisted: they are
+    # regenerated from the chat's bound directory list on every load (see
+    # ``_sync_extra_project_dir_rules``). Writing them would make the
+    # per-workspace policy.yaml chat-dependent — two chats bound to
+    # different directories would take turns deleting each other's rules,
+    # and a user rule that happened to share the marker reason would be
+    # dropped along with them.
+    user_rules = copy.deepcopy(
+        [
+            rule
+            for rule in policy.user_rules
+            if rule.reason != EXTRA_PROJECT_DIR_RULE_REASON
+        ],
+    )
 
     # ── Restore actual paths to WORKSPACE_DIR / CODING_PROJECT_DIR ──
     if workspace_dir:
@@ -1374,14 +1498,25 @@ _DEFAULT_SENSITIVE_PATHS: List[str] = [
 def _create_default_policy(
     workspace_dir: str = "",
     coding_project_dir: str = "",
+    extra_project_dirs: Optional[List[str]] = None,
 ) -> GovernancePolicy:
     """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     user_rules = copy.deepcopy(get_default_user_rules())
+    cpd = coding_project_dir or workspace_dir
     if workspace_dir:
-        cpd = coding_project_dir or workspace_dir
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
         _resolve_placeholders(user_rules, workspace_dir, cpd)
+    # Outside the ``workspace_dir`` gate, matching ``load_governance_policy``:
+    # extra dirs carry literal absolute paths and need no placeholder
+    # resolution, so they must be granted even on a cold start that has no
+    # workspace to substitute.
+    user_rules = _sync_extra_project_dir_rules(
+        user_rules,
+        workspace_dir,
+        cpd,
+        extra_project_dirs or [],
+    )
     return GovernancePolicy(
         version="2.0",
         builtin_rules=builtin_rules,
@@ -1476,6 +1611,13 @@ def _unresolve_placeholders(
     cannot be distinguished in an already-resolved pattern, so the shared
     path is restored as ``WORKSPACE_DIR`` (the coding dir is still covered
     by the workspace rules in that case).
+
+    System-managed extra-project-dir rules are left untouched. Belt and
+    braces: :func:`save_governance_policy` already drops them before
+    calling this, but were they ever persisted their paths would have to
+    stay literal — an extra root sharing a prefix with the primary (e.g.
+    primary ``/repos/app`` + extra ``/repos/app-docs``) would otherwise be
+    corrupted into ``CODING_PROJECT_DIR-docs``.
     """
     # Build (actual_path, placeholder) pairs, longest path first.
     # avoiding CODING_PROJECT_DIR is substring of WORKSPACE_DIR
@@ -1487,6 +1629,8 @@ def _unresolve_placeholders(
     pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
 
     for rule in rules:
+        if rule.reason == EXTRA_PROJECT_DIR_RULE_REASON:
+            continue
         for actual, placeholder in pairs:
             if actual and actual in rule.match:
                 rule.match = rule.match.replace(actual, placeholder)
@@ -1673,3 +1817,94 @@ def _parse_detection_rules(
                 exc,
             )
     return rules
+
+
+# Reason marker identifying system-managed ALLOW rules for non-primary
+# project directories. Synced against the bound list on every load: the
+# way to revoke one is to unbind the directory, not to delete the rule.
+EXTRA_PROJECT_DIR_RULE_REASON = "Extra project dir"
+
+
+def _project_dir_allow_match(path: str) -> str:
+    """Return the ``match`` granting *path* and everything beneath it.
+
+    The directory name is **escaped**, not interpolated. ``*?[]{}!`` are
+    all legal characters in a directory name but glob syntax to the
+    matcher, so a raw f-string produces a rule that grants the wrong
+    tree: ``/tmp/project[1]`` reads ``[1]`` as a character class, stops
+    matching its own files, and starts matching ``/tmp/project1`` — a
+    directory the user never bound. ``{a,b}`` behaves the same way via
+    brace expansion.
+
+    :func:`wcmatch.glob.escape` is used rather than a hand-rolled escape
+    because it is the same library :meth:`GovernanceRule._globmatch`
+    matches with, and it handles the separator differences between POSIX
+    and Windows paths (which a character-class escape cannot, since
+    brace expansion runs before the pattern is parsed).
+    """
+    from wcmatch import glob
+
+    return f"*({glob.escape(path)}/**)"
+
+
+def _sync_extra_project_dir_rules(
+    user_rules: List[GovernanceRule],
+    workspace_dir: str,
+    coding_project_dir: str,
+    extra_project_dirs: List[str],
+) -> List[GovernanceRule]:
+    """Reconcile system-managed ALLOW rules with the bound dir list.
+
+    Adds ``*(<path>/**)`` ALLOW rules for directories that lack one and
+    drops rules whose directory is no longer bound (or has been promoted
+    to primary / overlaps the workspace, both already covered).
+
+    A rule written before the path was escaped no longer matches the
+    pattern this function would generate, so it is treated as stale and
+    replaced — which is the intended repair, since the unescaped rule
+    described the wrong tree.
+    """
+
+    from ..services.project_directory import dir_key as _dedupe_key
+
+    covered = {
+        key
+        for key in (
+            _dedupe_key(coding_project_dir),
+            _dedupe_key(workspace_dir),
+        )
+        if key
+    }
+    desired: List[str] = []
+    for raw in extra_project_dirs:
+        key = _dedupe_key(raw)
+        if not key or key in covered:
+            continue
+        covered.add(key)
+        desired.append(str(Path(raw).expanduser()))
+
+    existing_matches = {
+        rule.match
+        for rule in user_rules
+        if rule.reason == EXTRA_PROJECT_DIR_RULE_REASON
+    }
+
+    desired_matches = {_project_dir_allow_match(path) for path in desired}
+    kept = [
+        rule
+        for rule in user_rules
+        if rule.reason != EXTRA_PROJECT_DIR_RULE_REASON
+        or rule.match in desired_matches
+    ]
+    for path in desired:
+        match = _project_dir_allow_match(path)
+        if match in existing_matches:
+            continue
+        kept.append(
+            GovernanceRule(
+                match=match,
+                action=GovernanceAction.ALLOW,
+                reason=EXTRA_PROJECT_DIR_RULE_REASON,
+            ),
+        )
+    return kept

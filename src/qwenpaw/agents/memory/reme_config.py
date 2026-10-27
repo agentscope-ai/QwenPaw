@@ -2,9 +2,9 @@
 """Embedded ReMe application configuration for QwenPaw memory.
 
 ReMe's standalone CLI normally loads YAML such as
-``reme/config/default.yaml`` or ``reme/config/qwenpaw.yaml``.  QwenPaw embeds
-ReMe as an in-process application, so it passes an equivalent configuration
-dict directly to ``reme.application.Application`` / ``reme.reme.ReMe``.
+``reme/config/default.yaml``. QwenPaw embeds ReMe as an in-process application,
+so it passes an equivalent configuration dict directly to
+``reme.application.Application`` / ``reme.reme.ReMe``.
 """
 
 from typing import Any
@@ -33,6 +33,7 @@ def build_reme_app_config(
     _apply_embedding_config(
         cfg,
         reme_config.embedding_model_config,
+        embedding_rebuild_required=reme_config.needs_reindex,
     )
     cfg.update(
         {
@@ -62,6 +63,7 @@ def _base_config() -> dict[str, Any]:
     watch_suffixes = ["md"]
 
     return {
+        "plugins": ["auto-fin", "daily-paper"],
         "service": {"backend": "http"},
         "jobs": {
             "index_update_loop": {
@@ -78,6 +80,8 @@ def _base_config() -> dict[str, Any]:
                     },
                     {
                         "backend": "watch_changes_step",
+                        "watch_mode": "watch",
+                        "monitor_type": "file_store",
                         "dispatch_steps": [
                             {"backend": "update_index_step", "persist": False},
                         ],
@@ -110,23 +114,20 @@ def _base_config() -> dict[str, Any]:
             },
             "reindex": {
                 "backend": "base",
-                "max_file_bytes": _MAX_FILE_BYTES,
                 "description": (
-                    "wipe the file store and rebuild it from the existing "
-                    "files"
+                    "rebuild all, BM25, or embedding search indexes"
                 ),
-                "watch_dirs": watch_dirs,
-                "watch_suffixes": watch_suffixes,
-                "parameters": {"type": "object", "properties": {}},
-                "steps": [
-                    {"backend": "clear_store_step"},
-                    {
-                        "backend": "init_changes_step",
-                        "monitor_type": "file_store",
-                        "monitor_name": "default",
-                        "dispatch_steps": ["update_index_step"],
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "enum": ["all", "bm25", "embedding"],
+                            "default": "all",
+                        },
                     },
-                ],
+                },
+                "steps": [{"backend": "reindex_step"}],
             },
             "search": {
                 "backend": "base",
@@ -139,6 +140,11 @@ def _base_config() -> dict[str, Any]:
                         "query": {
                             "type": "string",
                             "description": "search query",
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional memory entity tag filter",
                         },
                         "limit": {
                             "type": "integer",
@@ -421,9 +427,8 @@ def _base_config() -> dict[str, Any]:
                 "backend": "base",
                 "description": (
                     "Auto-dream: scan today's day-index and daily notes, "
-                    "globally extract merged units/topics, integrate digest "
-                    "units, write interests.yaml, and persist the dream "
-                    "catalog."
+                    "extract and integrate digest units, and persist the "
+                    "dream catalog."
                 ),
                 "parameters": {
                     "type": "object",
@@ -432,27 +437,16 @@ def _base_config() -> dict[str, Any]:
                         "hint": {"type": "string", "default": ""},
                         "scan_days": {"type": "integer", "default": 2},
                         "max_units": {"type": "integer", "default": 5},
-                        "topic_count": {"type": "integer", "default": 3},
-                        "topic_diversity_days": {
-                            "type": "integer",
-                            "default": 7,
-                        },
                     },
                 },
                 "steps": [
                     {
                         "backend": "dream_extract_step",
                         "file_catalog": "dream",
-                        "topic_session_id": "interests",
                         "scan_days": 2,
                         "max_units": 5,
                     },
                     {"backend": "dream_integrate_step"},
-                    {
-                        "backend": "dream_topics_step",
-                        "topic_count": 3,
-                        "topic_diversity_days": 7,
-                    },
                     {"backend": "dream_finish_step", "file_catalog": "dream"},
                 ],
             },
@@ -486,10 +480,44 @@ def _base_config() -> dict[str, Any]:
                         },
                         "session_id": {"type": "string", "default": ""},
                         "memory_hint": {"type": "string"},
+                        "include_images": {
+                            "type": "boolean",
+                            "description": (
+                                "Include images only when enabled in QwenPaw "
+                                "and supported by its memory model. False "
+                                "disables images for this invocation."
+                            ),
+                        },
                     },
                     "required": ["messages"],
                 },
                 "steps": [{"backend": "auto_memory_step"}],
+            },
+            # A separate job keeps each invocation's steps immutable while the
+            # host selects the current opt-in setting without a restart.
+            "auto_memory_with_tags": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [
+                    {"backend": "auto_memory_step"},
+                    {"backend": "auto_tag_step"},
+                ],
+            },
+            "list_tags": {
+                "backend": "base",
+                "description": "List memory entity tags with file counts.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "page": {"type": "integer", "minimum": 1},
+                        "page_size": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000,
+                        },
+                    },
+                },
+                "steps": [{"backend": "list_tags_step"}],
             },
             "daily_paper": {
                 "backend": "base",
@@ -550,8 +578,27 @@ def _base_config() -> dict[str, Any]:
                     {"backend": "daily_paper_rank_step"},
                     {"backend": "daily_paper_select_step"},
                     {"backend": "daily_paper_analyze_step"},
-                    {"backend": "daily_paper_digest_step"},
+                    {
+                        "backend": "daily_paper_digest_step",
+                        "job_tools": ["search", "read"],
+                    },
+                    {"backend": "auto_tag_step"},
                 ],
+            },
+            # QwenPaw schedules Daily Paper through ServiceCronJob using the
+            # per-agent cron configuration. Override the plugin's fixed 08:00
+            # CronJob so enabling its backends does not run the job twice.
+            "daily_paper_cron": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [],
+            },
+            # Auto Fin is available for explicit execution, but QwenPaw must
+            # not inherit the plugin's fixed daily schedule.
+            "auto_fin_cron": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [],
             },
         },
         "components": _base_components(),
@@ -608,6 +655,7 @@ def _base_components() -> dict[str, Any]:
         "keyword_index": {
             "default": {"backend": "bm25", "tokenizer": "default"},
         },
+        "tag_index": {"default": {"backend": "local"}},
         "as_embedding": {
             "default": {
                 "backend": "openai",
@@ -625,6 +673,7 @@ def _base_components() -> dict[str, Any]:
                 "max_cache_size": 3000,
                 "max_input_length": 8192,
                 "max_batch_size": 10,
+                "health_check_timeout": 15.0,
             },
         },
         "file_store": {
@@ -634,6 +683,7 @@ def _base_components() -> dict[str, Any]:
                 "embedding_store": "default",
                 "keyword_index": "default",
                 "file_graph": "default",
+                "tag_index": "default",
             },
         },
     }
@@ -642,9 +692,14 @@ def _base_components() -> dict[str, Any]:
 def _apply_embedding_config(
     cfg: dict[str, Any],
     embedding_config: EmbeddingModelConfig,
+    *,
+    embedding_rebuild_required: bool = False,
 ) -> None:
     """Map QwenPaw embedding config into ReMe component config."""
     components = cfg["components"]
+    components["file_store"]["default"][
+        "embedding_rebuild_required"
+    ] = embedding_rebuild_required
     if not _is_embedding_enabled(embedding_config):
         # Keep the explicit empty value: LocalFileStore otherwise defaults to
         # looking up embedding_store:default even when the component is absent.
@@ -653,27 +708,35 @@ def _apply_embedding_config(
         components.pop("as_embedding", None)
         return
 
-    components["as_embedding"]["default"].update(
-        {
-            "backend": embedding_config.backend,
-            "model": embedding_config.model_name,
-            "dimensions": embedding_config.dimensions,
-            "credential": _embedding_credential(embedding_config),
-        },
+    components["as_embedding"]["default"] = build_embedding_component_config(
+        embedding_config,
     )
-    if embedding_config.backend == "openai":
-        components["as_embedding"]["default"][
-            "pass_dimensions"
-        ] = embedding_config.use_dimensions
     components["embedding_store"]["default"].update(
         {
             "enable_cache": embedding_config.enable_cache,
             "max_cache_size": embedding_config.max_cache_size,
             "max_input_length": embedding_config.max_input_length,
             "max_batch_size": embedding_config.max_batch_size,
+            "health_check_timeout": embedding_config.health_check_timeout,
         },
     )
     components["file_store"]["default"]["embedding_store"] = "default"
+
+
+def build_embedding_component_config(
+    embedding_config: EmbeddingModelConfig,
+) -> dict[str, Any]:
+    """Return the complete ReMe config for one embedding wrapper."""
+    component: dict[str, Any] = {
+        "backend": embedding_config.backend,
+        "model": embedding_config.model_name,
+        "dimensions": embedding_config.dimensions,
+        "credential": _embedding_credential(embedding_config),
+        "parameters": {},
+    }
+    if embedding_config.backend == "openai":
+        component["pass_dimensions"] = embedding_config.use_dimensions
+    return component
 
 
 def _is_embedding_enabled(embedding_config: EmbeddingModelConfig) -> bool:

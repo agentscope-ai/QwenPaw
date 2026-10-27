@@ -40,15 +40,22 @@ export const commandsApi = {
     );
 
     // Use dedicated approval API endpoint (bypasses chat/session system)
-    return request<ApprovalCommandResponse>(`/approval/${action}`, {
-      method: "POST",
-      body: JSON.stringify({
-        request_id: requestId,
-        session_id: sessionId,
-        reason: reason || undefined,
-        // scope only meaningful for approve; omitted on deny.
-        scope: action === "approve" ? scope : undefined,
-      }),
-    });
+    const response = await request<ApprovalCommandResponse>(
+      `/approval/${action}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          request_id: requestId,
+          session_id: sessionId,
+          reason: reason || undefined,
+          // scope only meaningful for approve; omitted on deny.
+          scope: action === "approve" ? scope : undefined,
+        }),
+      },
+    );
+    if (!response.success) {
+      throw new Error(response.message);
+    }
+    return response;
   },
 };

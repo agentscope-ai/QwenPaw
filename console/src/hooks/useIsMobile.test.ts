@@ -1,8 +1,40 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  afterEach,
+} from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useIsMobile } from "./useIsMobile";
 
-// Helper to set window dimensions and dispatch a resize event.
+const mediaQueryListeners = new Set<() => void>();
+const addMediaQueryListener = vi.fn((_event: string, listener: () => void) => {
+  mediaQueryListeners.add(listener);
+});
+const removeMediaQueryListener = vi.fn(
+  (_event: string, listener: () => void) => {
+    mediaQueryListeners.delete(listener);
+  },
+);
+
+const mobileMediaQuery = {
+  get matches() {
+    return window.innerWidth <= 768;
+  },
+  media: "(max-width: 768px)",
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: addMediaQueryListener,
+  removeEventListener: removeMediaQueryListener,
+  dispatchEvent: vi.fn(),
+} as unknown as MediaQueryList;
+
+// Helper to set the viewport used by the matchMedia test double.
 function setViewport(width: number) {
   Object.defineProperty(window, "innerWidth", {
     writable: true,
@@ -11,19 +43,29 @@ function setViewport(width: number) {
   });
 }
 
-function dispatchResize() {
-  window.dispatchEvent(new Event("resize"));
+function dispatchMediaChange() {
+  mediaQueryListeners.forEach((listener) => listener());
 }
 
 describe("useIsMobile", () => {
   const originalInnerWidth = window.innerWidth;
+  const originalMatchMedia = window.matchMedia;
+
+  beforeAll(() => {
+    window.matchMedia = vi.fn(() => mobileMediaQuery);
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mediaQueryListeners.clear();
   });
 
   afterEach(() => {
     setViewport(originalInnerWidth);
+  });
+
+  afterAll(() => {
+    window.matchMedia = originalMatchMedia;
   });
 
   // ---------------------------------------------------------------------------
@@ -59,7 +101,7 @@ describe("useIsMobile", () => {
 
     act(() => {
       setViewport(700);
-      dispatchResize();
+      dispatchMediaChange();
     });
 
     expect(result.current).toBe(true);
@@ -72,7 +114,7 @@ describe("useIsMobile", () => {
 
     act(() => {
       setViewport(800);
-      dispatchResize();
+      dispatchMediaChange();
     });
 
     expect(result.current).toBe(false);
@@ -85,7 +127,7 @@ describe("useIsMobile", () => {
 
     act(() => {
       setViewport(1200);
-      dispatchResize();
+      dispatchMediaChange();
     });
 
     expect(result.current).toBe(false);
@@ -98,7 +140,7 @@ describe("useIsMobile", () => {
 
     act(() => {
       setViewport(600);
-      dispatchResize();
+      dispatchMediaChange();
     });
 
     expect(result.current).toBe(true);
@@ -108,18 +150,35 @@ describe("useIsMobile", () => {
   // Cleanup
   // ---------------------------------------------------------------------------
 
-  it("removes the resize listener on unmount (no state update after unmount)", () => {
+  it("removes the media query listener on unmount", () => {
     setViewport(1024);
     const { result, unmount } = renderHook(() => useIsMobile());
     expect(result.current).toBe(false);
 
     unmount();
+    expect(mediaQueryListeners.size).toBe(0);
+    expect(removeMediaQueryListener).toHaveBeenCalledTimes(1);
 
     // Should not throw / update after unmount.
     expect(() => {
       setViewport(500);
-      dispatchResize();
+      dispatchMediaChange();
     }).not.toThrow();
     expect(result.current).toBe(false);
+  });
+
+  it("shares one media query listener across hook instances", () => {
+    const first = renderHook(() => useIsMobile());
+    const second = renderHook(() => useIsMobile());
+
+    expect(mediaQueryListeners.size).toBe(1);
+    expect(addMediaQueryListener).toHaveBeenCalledTimes(1);
+
+    first.unmount();
+    expect(mediaQueryListeners.size).toBe(1);
+
+    second.unmount();
+    expect(mediaQueryListeners.size).toBe(0);
+    expect(removeMediaQueryListener).toHaveBeenCalledTimes(1);
   });
 });

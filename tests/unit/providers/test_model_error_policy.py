@@ -126,6 +126,20 @@ def test_content_safety_does_not_fallback() -> None:
     assert decision.fallback_eligible is False
 
 
+def test_data_inspection_is_content_safety() -> None:
+    decision = classify_model_error(
+        HttpError(
+            400,
+            "Input data may contain inappropriate content; "
+            "type=data_inspection_failed",
+        ),
+    )
+
+    assert decision.kind == "content_safety"
+    assert decision.retryable is False
+    assert decision.fallback_eligible is False
+
+
 @pytest.mark.parametrize(
     "error_factory",
     [

@@ -258,14 +258,24 @@ def test_dingtalk_health_reports_channel(
     API endpoints:
       - GET /api/config/channels/dingtalk/health
     """
-    resp = app_server.api_request(
-        "GET",
-        "/api/config/channels/dingtalk/health",
-        timeout=_HTTP_TIMEOUT,
-    )
+    # Retry loop: the fixture waits for WS connection, but channel
+    # registration in channel_manager may lag slightly behind.
+    deadline = time.time() + 30.0
+    resp = None
+    while time.time() < deadline:
+        resp = app_server.api_request(
+            "GET",
+            "/api/config/channels/dingtalk/health",
+            timeout=_HTTP_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            break
+        time.sleep(0.5)
+    assert resp is not None, "health request timed out"
     assert resp.status_code == 200, app_server.logs_tail()
     body = resp.json()
-    assert body.get("channel") == "dingtalk" or "status" in body, body
+    assert body.get("channel") == "dingtalk", body
+    assert body.get("status") == "healthy", body
 
 
 @pytest.mark.integration

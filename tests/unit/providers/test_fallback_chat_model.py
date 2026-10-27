@@ -1,16 +1,31 @@
 # -*- coding: utf-8 -*-
 """Tests for cross-model fallback boundaries."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
 from typing import Any, AsyncGenerator, cast
 
 import pytest
+from agentscope.message import (
+    Msg,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+    ToolResultState,
+)
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse, StructuredResponse
 from agentscope.model._model_usage import ChatUsage
 
+from qwenpaw.agents import model_factory
+from qwenpaw.providers.capping_formatter import (
+    _CappingAnthropicFormatter,
+    _CappingOpenAIFormatter,
+)
 from qwenpaw.providers.fallback_chat_model import (
     FallbackChatModel,
     install_fallback_notice_sink,
@@ -67,6 +82,24 @@ class _FakeFormatter:
         self.supported_input_media_types = media_types
 
 
+class FormattingFakeModel(FakeModel):
+    """Fake model that records the payload produced by its formatter."""
+
+    def __init__(self, name: str, behavior: Any, formatter: Any) -> None:
+        super().__init__(name, behavior)
+        self.formatter = formatter
+        self.formatted_messages: list[dict[str, Any]] = []
+
+    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        self.calls += 1
+        self.formatted_messages = await self.formatter.format(
+            kwargs["messages"],
+        )
+        if isinstance(self.behavior, Exception):
+            raise self.behavior
+        return self.behavior()
+
+
 class HttpError(Exception):
     """Exception carrying an HTTP status."""
 
@@ -83,6 +116,16 @@ async def _stream(
         yield item
     if error is not None:
         raise error
+
+
+async def _idle_stream(
+    state: dict[str, int],
+) -> AsyncGenerator[ChatResponse, None]:
+    try:
+        await asyncio.Event().wait()
+        yield _response("unreachable")
+    finally:
+        state["closed"] += 1
 
 
 def _response(text: str) -> ChatResponse:
@@ -113,6 +156,59 @@ async def test_falls_back_on_transient_error_before_output() -> None:
             "reason_kind": "transient",
         },
     ]
+
+
+async def test_stream_idle_timeout_falls_back_after_retries() -> None:
+    _limiters.clear()
+    state = {"closed": 0}
+    try:
+        primary = FakeModel(
+            "primary",
+            lambda: _idle_stream(state),
+        )
+        retried_primary = RetryChatModel(
+            primary,
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=1,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+            stream_first_content_timeout=0.15,
+            stream_idle_timeout=0.15,
+        )
+        fallback = FakeModel(
+            "fallback",
+            lambda: _stream(_response("ok")),
+        )
+        model = FallbackChatModel([retried_primary, fallback])
+
+        response = await model(messages=[], tools=[])
+        chunks = [chunk async for chunk in response]
+
+        assert chunks[-1].content[0]["text"] == "ok"
+        assert primary.calls == 2
+        assert fallback.calls == 1
+        assert state["closed"] == 2
+        assert chunks[-1].metadata["qwenpaw_model_fallbacks"] == [
+            {
+                "type": "model_fallback",
+                "from_provider_id": "",
+                "from_model_id": "primary",
+                "to_provider_id": "",
+                "to_model_id": "fallback",
+                "reason_kind": "transient",
+            },
+        ]
+    finally:
+        _limiters.clear()
 
 
 async def test_falls_back_when_primary_model_is_not_found() -> None:
@@ -213,7 +309,10 @@ async def test_falls_back_after_empty_stream_control_chunk() -> None:
     primary = FakeModel(
         "primary",
         lambda: _stream(
-            ChatResponse(content=[], is_last=False),
+            ChatResponse(
+                content=[{"type": "text", "text": ""}],
+                is_last=False,
+            ),
             error=HttpError(503),
         ),
     )
@@ -272,7 +371,10 @@ class ClosableModel(FakeModel):
 
     async def _stream(self) -> AsyncGenerator[ChatResponse, None]:
         try:
-            yield _response("partial")
+            yield ChatResponse(
+                content=[{"type": "text", "text": "partial"}],
+                is_last=False,
+            )
             await self.release.wait()
         except asyncio.CancelledError:
             self.cancelled = True
@@ -757,3 +859,170 @@ def test_fallback_formatter_assignment_reaches_provider_model() -> None:
     assert model.formatter is replacement
     # The idle fallback keeps its own formatter until it serves a request.
     assert fallback.formatter is not replacement
+
+
+def _wrapped_formatting_model(
+    model: FormattingFakeModel,
+    provider_id: str,
+) -> RetryChatModel:
+    """Build the same provider wrapper chain used by model_factory."""
+    return RetryChatModel(
+        TokenRecordingModelWrapper(provider_id, model),
+        retry_config=RetryConfig(enabled=False),
+    )
+
+
+async def test_fallback_propagates_thinking_omissions() -> None:
+    """Every OpenAI-compatible fallback formats with the same omissions."""
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    primary = FormattingFakeModel(
+        "primary",
+        HttpError(503),
+        formatter_class(relay_reasoning_content=True),
+    )
+    fallback = FormattingFakeModel(
+        "fallback",
+        lambda: _response("ok"),
+        formatter_class(relay_reasoning_content=True),
+    )
+    model = FallbackChatModel(
+        [
+            _wrapped_formatting_model(primary, "primary-provider"),
+            _wrapped_formatting_model(fallback, "fallback-provider"),
+        ],
+    )
+    thought = ThinkingBlock(thinking="already consumed")
+    messages = [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[thought, TextBlock(text="continue")],
+        ),
+    ]
+
+    assert model.set_thinking_omit_ids({thought.id}) is True
+    response = await model(messages=messages, tools=[])
+
+    assert response.content[0]["text"] == "ok"
+    assert "reasoning_content" not in primary.formatted_messages[0]
+    assert "reasoning_content" not in fallback.formatted_messages[0]
+
+
+async def test_deepseek_fallback_preserves_exact_reasoning() -> None:
+    """Omission capability follows the actual serving fallback provider."""
+    primary_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="openai-compatible",
+    )
+    deepseek_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="deepseek",
+        model_id="deepseek-reasoner",
+    )
+    primary = FormattingFakeModel(
+        "primary",
+        HttpError(503),
+        primary_class(relay_reasoning_content=True),
+    )
+    fallback = FormattingFakeModel(
+        "deepseek-reasoner",
+        lambda: _response("ok"),
+        deepseek_class(relay_reasoning_content=True),
+    )
+    model = FallbackChatModel(
+        [
+            _wrapped_formatting_model(primary, "primary-provider"),
+            _wrapped_formatting_model(fallback, "deepseek"),
+        ],
+    )
+    thought = ThinkingBlock(thinking="must be replayed to DeepSeek")
+    messages = [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                thought,
+                ToolCallBlock(id="call_1", name="tool", input="{}"),
+                ToolResultBlock(
+                    id="call_1",
+                    name="tool",
+                    output=[TextBlock(text="result")],
+                    state=ToolResultState.SUCCESS,
+                ),
+                TextBlock(text="done"),
+            ],
+        ),
+    ]
+
+    assert model.set_thinking_omit_ids({thought.id}) is True
+    await model(
+        messages=messages,
+        tools=[{"type": "function", "function": {"name": "tool"}}],
+    )
+
+    primary_assistants = [
+        item
+        for item in primary.formatted_messages
+        if item.get("role") == "assistant"
+    ]
+    fallback_assistants = [
+        item
+        for item in fallback.formatted_messages
+        if item.get("role") == "assistant"
+    ]
+    assert "reasoning_content" not in primary_assistants[0]
+    assert fallback_assistants[0]["reasoning_content"] == (
+        "must be replayed to DeepSeek"
+    )
+    assert fallback.formatter._qwenpaw_omit_thinking_ids == set()
+
+
+async def test_anthropic_fallback_preserves_native_thinking() -> None:
+    """An Anthropic fallback keeps signed thinking despite outer omissions."""
+    if model_factory.AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+    openai_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    anthropic_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    primary = FormattingFakeModel(
+        "primary",
+        HttpError(503),
+        openai_class(relay_reasoning_content=True),
+    )
+    fallback = FormattingFakeModel(
+        "fallback",
+        lambda: _response("ok"),
+        anthropic_class(),
+    )
+    model = FallbackChatModel(
+        [
+            _wrapped_formatting_model(primary, "primary-provider"),
+            _wrapped_formatting_model(fallback, "anthropic"),
+        ],
+    )
+    thought = ThinkingBlock(
+        thinking="signed native reasoning",
+        signature="signature-abc",
+    )
+    messages = [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[thought, TextBlock(text="continue")],
+        ),
+    ]
+
+    assert model.set_thinking_omit_ids({thought.id}) is True
+    await model(messages=messages, tools=[])
+
+    native_thinking = fallback.formatted_messages[0]["content"][0]
+    assert native_thinking == {
+        "type": "thinking",
+        "thinking": "signed native reasoning",
+        "signature": "signature-abc",
+    }

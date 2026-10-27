@@ -21,7 +21,7 @@ async def test_build_loads_agent_config_once_in_worker_thread(monkeypatch):
     config = SimpleNamespace(
         id="agent-1",
         active_model=None,
-        coding_mode=None,
+        coding_mode=SimpleNamespace(enabled=False),
     )
 
     def load_agent_config(agent_id):
@@ -65,7 +65,7 @@ async def test_build_constructs_model_in_worker_thread(monkeypatch):
     config = SimpleNamespace(
         id="agent-1",
         active_model=None,
-        coding_mode=None,
+        coding_mode=SimpleNamespace(enabled=False),
     )
 
     monkeypatch.setattr(
@@ -97,12 +97,7 @@ async def test_build_constructs_model_in_worker_thread(monkeypatch):
     monkeypatch.setattr(builder, "_init_governor", lambda *_args: None)
     monkeypatch.setattr(
         builder,
-        "_collect_coding_mode_tools",
-        lambda *_args: [],
-    )
-    monkeypatch.setattr(
-        builder,
-        "_collect_visual_compression_tools",
+        "_collect_context_recall_tools",
         lambda *_args: [],
     )
 
@@ -153,7 +148,7 @@ async def test_build_constructs_prompt_in_worker_thread(monkeypatch):
     config = SimpleNamespace(
         id="agent-1",
         active_model=None,
-        coding_mode=None,
+        coding_mode=SimpleNamespace(enabled=False),
     )
 
     monkeypatch.setattr(
@@ -178,12 +173,7 @@ async def test_build_constructs_prompt_in_worker_thread(monkeypatch):
     monkeypatch.setattr(builder, "_init_governor", lambda *_args: None)
     monkeypatch.setattr(
         builder,
-        "_collect_coding_mode_tools",
-        lambda *_args: [],
-    )
-    monkeypatch.setattr(
-        builder,
-        "_collect_visual_compression_tools",
+        "_collect_context_recall_tools",
         lambda *_args: [],
     )
 

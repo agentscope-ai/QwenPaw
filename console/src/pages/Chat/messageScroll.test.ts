@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getNextReverseScrollTop,
   scrollReverseMessageList,
@@ -59,6 +59,17 @@ function createReverseScroller(): {
 }
 
 describe("scrollReverseMessageList", () => {
+  it("does not resolve styles for non-scrollable message ancestors", () => {
+    const { content, root, scroller } = createReverseScroller();
+    const getComputedStyleSpy = vi.spyOn(window, "getComputedStyle");
+    scroller.scrollTop = -420;
+
+    expect(scrollReverseMessageList(root, content, 100, 0)).toBe(true);
+    expect(getComputedStyleSpy).not.toHaveBeenCalled();
+
+    getComputedStyleSpy.mockRestore();
+  });
+
   it("applies wheel movement to the SDK reverse scroller", () => {
     const { content, root, scroller } = createReverseScroller();
     scroller.scrollTop = -420;

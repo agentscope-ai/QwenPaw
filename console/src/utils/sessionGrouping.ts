@@ -1,15 +1,9 @@
 /**
- * Shared session grouping utilities for both SidebarSessionList and ChatSessionDrawer.
+ * Session grouping utilities for SidebarSessionList.
  * Groups sessions by date: pinned, today, within 7 days, within 30 days, older.
  */
 
 export type DateGroup = "pinned" | "today" | "week" | "month" | "older";
-
-export interface SessionGroup<T> {
-  key: DateGroup;
-  label: string;
-  sessions: T[];
-}
 
 /**
  * Determine which date group a timestamp belongs to.
@@ -37,54 +31,6 @@ export function getDateGroup(
   if (calendarDays < 7) return "week";
   if (calendarDays < 30) return "month";
   return "older";
-}
-
-/**
- * Group sessions by pinned status and date.
- * Pinned sessions go to "pinned" group, others are grouped by date.
- * Empty groups are filtered out.
- */
-export function groupSessions<
-  T extends {
-    pinned?: boolean;
-    updatedAt?: string | null;
-    createdAt?: string | null;
-  },
->(
-  sessions: T[],
-  t: (key: string, fallback: string) => string,
-): SessionGroup<T>[] {
-  const buckets: Record<DateGroup, T[]> = {
-    pinned: [],
-    today: [],
-    week: [],
-    month: [],
-    older: [],
-  };
-
-  for (const s of sessions) {
-    if (s.pinned) {
-      buckets.pinned.push(s);
-    } else {
-      buckets[getDateGroup(s.updatedAt ?? s.createdAt)].push(s);
-    }
-  }
-
-  const order: Array<{ key: DateGroup; fallback: string }> = [
-    { key: "pinned", fallback: "Pinned" },
-    { key: "today", fallback: "Today" },
-    { key: "week", fallback: "Within 7 days" },
-    { key: "month", fallback: "Within 30 days" },
-    { key: "older", fallback: "Earlier" },
-  ];
-
-  return order
-    .filter(({ key }) => buckets[key].length > 0)
-    .map(({ key, fallback }) => ({
-      key,
-      label: t(`chat.group.${key}`, fallback),
-      sessions: buckets[key],
-    }));
 }
 
 /**

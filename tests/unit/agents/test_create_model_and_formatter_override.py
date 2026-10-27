@@ -2,6 +2,7 @@
 """Tests for ``create_model_and_formatter`` model override support."""
 
 # pylint: disable=protected-access,redefined-outer-name
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import threading
 from types import SimpleNamespace
@@ -25,6 +26,10 @@ from qwenpaw.config import config as config_module
 from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers import fallback_chat_model
 from qwenpaw.providers import provider as provider_module
+from qwenpaw.providers.dashscope_provider import DashScopeProvider
+from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.providers.retry_chat_model import RetryChatModel
+from qwenpaw.token_usage import TokenRecordingModelWrapper
 
 
 _REAL_INSTALL_MODEL_FORMATTER = model_factory._install_model_formatter
@@ -42,6 +47,16 @@ class _FakeChatModel:
     def bind_qwenpaw_provider_id(self, provider_id: str) -> None:
         """Record the provider identity selected by the factory."""
         self.qwenpaw_provider_id = provider_id
+
+
+class _FakeProvider(SimpleNamespace):
+    """Provider stub with no additional catalog metadata to resolve."""
+
+    validate_chat_model = provider_module.Provider.validate_chat_model
+
+    def resolve_model_info(self, model_id):
+        """Return the stub's already configured model information."""
+        return self.get_model_info(model_id)
 
 
 def _patched_load_agent_config(_agent_id):  # noqa: ARG001
@@ -73,7 +88,8 @@ def _patch_dependencies(monkeypatch):
     """Avoid touching the real provider manager / retry wrappers."""
     formatter_provider_ids = []
 
-    def install_formatter(model, provider_id=None):
+    def install_formatter(model, provider_id=None, *, model_info=None):
+        del model_info
         formatter_provider_ids.append(provider_id)
         formatter = "formatter"
         if hasattr(model, "formatter"):
@@ -90,7 +106,12 @@ def _patch_dependencies(monkeypatch):
         "ProviderManager",
         SimpleNamespace(
             get_instance=lambda: SimpleNamespace(
-                get_provider=lambda provider_id: SimpleNamespace(
+                get_provider=lambda provider_id: _FakeProvider(
+                    enabled=True,
+                    get_model_info=lambda model_id: provider_module.ModelInfo(
+                        id=model_id,
+                        name=model_id,
+                    ),
                     id=provider_id,
                     get_chat_model_instance=(
                         lambda model_name: _FakeChatModel(
@@ -137,6 +158,85 @@ def test_override_with_model_slot_config(_patch_dependencies):
     assert _patch_dependencies == ["p"]
 
 
+def test_context_size_is_restored_when_missing():
+    """Restore a missing context window from the provider."""
+    model = SimpleNamespace(context_size=None)
+    provider = SimpleNamespace(
+        id="provider",
+        get_context_size=lambda _model_id: 131_072,
+        get_model_info=lambda _model_id: SimpleNamespace(
+            max_input_length_configured=False,
+        ),
+    )
+
+    model_factory._ensure_model_context_size(model, provider, "model")
+
+    assert model.context_size == 131_072
+
+
+def test_implicit_default_context_size_is_replaced():
+    """Replace an implicit AgentScope default with provider metadata."""
+    model = SimpleNamespace(context_size=32_768)
+    provider = SimpleNamespace(
+        id="provider",
+        get_context_size=lambda _model_id: 131_072,
+        get_model_info=lambda _model_id: SimpleNamespace(
+            max_input_length_configured=False,
+        ),
+    )
+
+    model_factory._ensure_model_context_size(model, provider, "model")
+
+    assert model.context_size == 131_072
+
+
+@pytest.mark.parametrize("configured_size", [131_072, 32_768])
+@pytest.mark.parametrize("current_size", [None, 32_768])
+def test_factory_restores_explicit_context_size(
+    monkeypatch,
+    configured_size,
+    current_size,
+):
+    """Use provider resolution for missing or defaulted model windows."""
+    model_id = "qwen3.8-max"
+    provider = DashScopeProvider(
+        id="dashscope",
+        name="DashScope",
+        models=[
+            provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+                max_input_length_auto_detected=262_144,
+            ),
+        ],
+    )
+    assert provider.update_model_config(
+        model_id,
+        {"max_input_length": configured_size},
+    )
+    assert provider.get_context_size(model_id) == configured_size
+
+    model = _FakeChatModel(model_id)
+    model.context_size = current_size
+    monkeypatch.setattr(
+        DashScopeProvider,
+        "get_chat_model_instance",
+        lambda _self, _model_id: model,
+    )
+    monkeypatch.setattr(
+        model_factory.ProviderManager,
+        "get_instance",
+        lambda: SimpleNamespace(get_provider=lambda _provider_id: provider),
+    )
+
+    actual, _ = model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        model_slot_override=f"dashscope:{model_id}",
+    )
+
+    assert actual.context_size == configured_size
+
+
 def test_factory_binds_returned_formatter_to_provider_model():
     """Callers that ignore the formatter return still use the enhanced one."""
     with patch.object(model_factory, "RetryConfig") as retry_cls:
@@ -156,7 +256,12 @@ def test_factory_uses_resolved_provider_id(
     canonical_model = _FakeChatModel("canonical-provider/model")
     wrapper_provider_ids = []
     manager = SimpleNamespace(
-        get_provider=lambda _provider_id: SimpleNamespace(
+        get_provider=lambda _provider_id: _FakeProvider(
+            enabled=True,
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             id="canonical-provider",
             get_chat_model_instance=lambda _model_name: canonical_model,
         ),
@@ -257,6 +362,137 @@ def test_no_override_uses_active_model():
     assert model.identifier == "default-provider/default-model"
 
 
+@pytest.mark.parametrize("next_provider_id", ["dashscope", "other-dashscope"])
+def test_global_model_switch_during_construction_keeps_context(
+    monkeypatch,
+    next_provider_id,
+):
+    """Keep model identity and context from the same global selection."""
+    providers = {
+        provider_id: DashScopeProvider(
+            id=provider_id,
+            name=provider_id,
+            api_key="test-key",
+            models=[
+                provider_module.ModelInfo(
+                    id=model_id,
+                    name=model_id,
+                    max_input_length=context_size,
+                    max_input_length_configured=True,
+                )
+                for model_id, context_size in [
+                    ("model-a", 32_768),
+                    ("model-b", 131_072),
+                ]
+            ],
+        )
+        for provider_id in ("dashscope", next_provider_id)
+    }
+    manager = object.__new__(ProviderManager)
+    manager.default_models = {"chat": None, "decision": None}
+    manager.active_model = ModelSlotConfig(
+        provider_id="dashscope",
+        model="model-a",
+    )
+    monkeypatch.setattr(manager, "get_provider", providers.get)
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    monkeypatch.setattr(model_factory, "ProviderManager", ProviderManager)
+    monkeypatch.setattr(model_factory, "RetryChatModel", RetryChatModel)
+    monkeypatch.setattr(
+        model_factory,
+        "TokenRecordingModelWrapper",
+        TokenRecordingModelWrapper,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_install_model_formatter",
+        _REAL_INSTALL_MODEL_FORMATTER,
+    )
+    config = SimpleNamespace(
+        active_model=None,
+        running=config_module.AgentsRunningConfig(),
+    )
+    constructed = threading.Event()
+    resume = threading.Event()
+    build_model = DashScopeProvider.get_chat_model_instance
+
+    def pause_after_construction(provider, model_id):
+        model = build_model(provider, model_id)
+        if model_id == "model-a":
+            constructed.set()
+            assert resume.wait(timeout=10), "Model switch did not finish"
+        return model
+
+    monkeypatch.setattr(
+        DashScopeProvider,
+        "get_chat_model_instance",
+        pause_after_construction,
+    )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(
+            model_factory.create_model_and_formatter,
+            agent_id="agent-1",
+            agent_config=config,
+        )
+        try:
+            assert constructed.wait(timeout=10), "Model was not constructed"
+            manager.active_model = ModelSlotConfig(
+                provider_id=next_provider_id,
+                model="model-b",
+            )
+        finally:
+            resume.set()
+        actual, _ = pending.result(timeout=10)
+
+    assert actual.model == "model-a"
+    assert actual.context_size == 32_768
+    assert actual.model_key == "dashscope:model-a"
+    assert actual._inner.context_size == 32_768
+    assert actual._inner._model.context_size == 32_768
+
+    next_model, _ = model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        agent_config=config,
+    )
+    assert next_model.model_key == f"{next_provider_id}:model-b"
+    assert next_model.context_size == 131_072
+
+
+@pytest.mark.parametrize(
+    "global_slot",
+    [None, ("", "model-a"), ("dashscope", ""), ("dashscope", "model-a")],
+)
+def test_global_model_configuration_errors(monkeypatch, global_slot):
+    """Report missing global models or providers before construction."""
+    global_model = (
+        ModelSlotConfig(provider_id=global_slot[0], model=global_slot[1])
+        if global_slot is not None
+        else None
+    )
+    manager = SimpleNamespace(
+        get_active_model=lambda: global_model,
+        get_provider=lambda _provider_id: None,
+    )
+    monkeypatch.setattr(
+        model_factory.ProviderManager,
+        "get_instance",
+        lambda: manager,
+    )
+    expected = (
+        "Provider 'dashscope' not found"
+        if global_slot == ("dashscope", "model-a")
+        else "No active model configured"
+    )
+    config = _patched_load_agent_config("agent-1")
+    config.active_model = None
+
+    with pytest.raises(model_factory.ProviderError, match=expected):
+        model_factory.create_model_and_formatter(
+            agent_id="agent-1",
+            agent_config=config,
+        )
+
+
 async def test_async_factory_builds_model_in_worker_thread(monkeypatch):
     """The public async factory offloads the complete model build."""
     caller_thread = threading.get_ident()
@@ -303,15 +539,24 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
         lambda _agent_id: pytest.fail("preloaded config must be reused"),
     )
     providers = {
-        "default-provider": SimpleNamespace(
+        "default-provider": _FakeProvider(
+            enabled=True,
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
-                f"default-provider/{model_name}"
+                _FakeChatModel(f"default-provider/{model_name}")
             ),
         ),
-        "fallback-provider": SimpleNamespace(
-            get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+        "fallback-provider": _FakeProvider(
+            enabled=True,
+            get_model_info=lambda _model_name: SimpleNamespace(
+                is_free=False,
+                model_type="chat",
+            ),
             get_chat_model_instance=lambda model_name: (
-                f"fallback-provider/{model_name}"
+                _FakeChatModel(f"fallback-provider/{model_name}")
             ),
         ),
     }
@@ -330,7 +575,7 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     thinking_levels = []
 
     @contextmanager
-    def record_thinking_level(level):
+    def record_thinking_level(level, _budget=None):
         thinking_levels.append(level)
         yield
 
@@ -352,10 +597,10 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     monkeypatch.setattr(
         fallback_chat_model,
         "FallbackChatModel",
-        lambda models: models,
+        lambda models: SimpleNamespace(models=models),
     )
     monkeypatch.setattr(
-        provider_module,
+        model_factory,
         "agent_thinking_level",
         record_thinking_level,
     )
@@ -365,7 +610,7 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
         agent_config=config,
     )
 
-    assert model == [
+    assert [item.identifier for item in model.models] == [
         "default-provider/default-model",
         "fallback-provider/fallback",
     ]
@@ -391,15 +636,24 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
         lambda _agent_id: config,
     )
     providers = {
-        "default-provider": SimpleNamespace(
+        "default-provider": _FakeProvider(
+            enabled=True,
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
-                f"default-provider/{model_name}"
+                _FakeChatModel(f"default-provider/{model_name}")
             ),
         ),
-        "fallback-provider": SimpleNamespace(
-            get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+        "fallback-provider": _FakeProvider(
+            enabled=True,
+            get_model_info=lambda _model_name: SimpleNamespace(
+                is_free=False,
+                model_type="chat",
+            ),
             get_chat_model_instance=lambda model_name: (
-                f"fallback-provider/{model_name}"
+                _FakeChatModel(f"fallback-provider/{model_name}")
             ),
         ),
     }
@@ -414,22 +668,23 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
     )
     installed = []
 
-    def install(model, provider_id=None):  # noqa: ARG001
-        installed.append((model, provider_id))
-        return f"formatter:{model}"
+    def install(model, provider_id=None, *, model_info=None):
+        del model_info
+        installed.append((model.identifier, provider_id))
+        return f"formatter:{model.identifier}"
 
     monkeypatch.setattr(model_factory, "_install_model_formatter", install)
     monkeypatch.setattr(
         fallback_chat_model,
         "FallbackChatModel",
-        lambda models: models,
+        lambda models: SimpleNamespace(models=models),
     )
 
     model, formatter = model_factory.create_model_and_formatter(
         agent_id="agent-1",
     )
 
-    assert model == [
+    assert [item.identifier for item in model.models] == [
         "default-provider/default-model",
         "fallback-provider/fallback",
     ]
@@ -456,15 +711,24 @@ def test_model_override_disables_persisted_fallback_chain(monkeypatch):
         lambda _agent_id: config,
     )
     providers = {
-        "override-provider": SimpleNamespace(
+        "override-provider": _FakeProvider(
+            enabled=True,
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
-                f"override-provider/{model_name}"
+                _FakeChatModel(f"override-provider/{model_name}")
             ),
         ),
-        "fallback-provider": SimpleNamespace(
-            get_model_info=lambda _model_name: SimpleNamespace(is_free=False),
+        "fallback-provider": _FakeProvider(
+            enabled=True,
+            get_model_info=lambda _model_name: SimpleNamespace(
+                is_free=False,
+                model_type="chat",
+            ),
             get_chat_model_instance=lambda model_name: (
-                f"fallback-provider/{model_name}"
+                _FakeChatModel(f"fallback-provider/{model_name}")
             ),
         ),
     }
@@ -492,7 +756,7 @@ def test_model_override_disables_persisted_fallback_chain(monkeypatch):
         },
     )
 
-    assert model == "override-provider/override"
+    assert model.identifier == "override-provider/override"
     assert not fallback_calls
 
 
@@ -513,12 +777,18 @@ def test_invalid_fallback_slots_are_skipped(monkeypatch):
         lambda _agent_id: config,
     )
     providers = {
-        "default-provider": SimpleNamespace(
+        "default-provider": _FakeProvider(
+            enabled=True,
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
-                f"default-provider/{model_name}"
+                _FakeChatModel(f"default-provider/{model_name}")
             ),
         ),
         "known-provider": SimpleNamespace(
+            enabled=True,
             get_model_info=lambda _model_name: None,
         ),
     }
@@ -540,8 +810,116 @@ def test_invalid_fallback_slots_are_skipped(monkeypatch):
 
     model, _ = model_factory.create_model_and_formatter(agent_id="agent-1")
 
-    assert model == "default-provider/default-model"
+    assert model.identifier == "default-provider/default-model"
     assert not fallback_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("require_images", [False, True])
+@pytest.mark.parametrize("primary_support", [False, True])
+async def test_image_memory_filters_fallbacks_and_fits_every_formatter(
+    monkeypatch,
+    require_images,
+    primary_support,
+):
+    """Image jobs keep visual evidence; text jobs retain ordinary routing."""
+    import base64
+    from io import BytesIO
+    import random
+
+    from PIL import Image
+    from agentscope.message import Base64Source, DataBlock, UserMsg
+    from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+
+    config = _patched_load_agent_config("agent-1")
+    config.fallback_models = [
+        ModelSlotConfig(provider_id="default-provider", model=name)
+        for name in ("text", "unknown", "vision")
+    ]
+    config.fallback_policy = SimpleNamespace(enabled=True, target_scope="any")
+    capabilities = {
+        "default-model": primary_support,
+        "text": False,
+        "unknown": None,
+        "vision": True,
+    }
+
+    def make_model(name):
+        model = _FakeChatModel(name)
+        model.formatter = _CappingOpenAIFormatter(max_bytes=1000)
+        return model
+
+    provider = _FakeProvider(
+        id="default-provider",
+        enabled=True,
+        get_model_info=lambda name: provider_module.ModelInfo(
+            id=name,
+            name=name,
+            supports_image=capabilities[name],
+        ),
+        get_chat_model_instance=make_model,
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "ProviderManager",
+        SimpleNamespace(
+            get_instance=lambda: SimpleNamespace(
+                get_provider=lambda _provider_id: provider,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "_install_model_formatter",
+        _REAL_INSTALL_MODEL_FORMATTER,
+    )
+    monkeypatch.setattr(
+        fallback_chat_model,
+        "FallbackChatModel",
+        lambda models: SimpleNamespace(models=models),
+    )
+    model, formatter = model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        agent_config=config,
+        require_image_support=require_images,
+        resize_images_to_max_bytes=True,
+    )
+    expected = (
+        ["default-model", "vision"]
+        if require_images and primary_support
+        else ["default-model", "text", "unknown", "vision"]
+    )
+    assert [candidate.identifier for candidate in model.models] == expected
+    assert all(
+        candidate.formatter.resize_images_to_max_bytes
+        for candidate in model.models
+    )
+    assert model.models[0].formatter is formatter
+    image = Image.frombytes(
+        "RGB",
+        (32, 32),
+        random.Random(8347).randbytes(3072),
+    )
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    original = base64.b64encode(buffer.getvalue()).decode()
+    message = UserMsg(
+        name="user",
+        content=[
+            DataBlock(
+                source=Base64Source(data=original, media_type="image/png"),
+            ),
+        ],
+    )
+    assert len(buffer.getvalue()) > 1000
+    for candidate in model.models:
+        if capabilities[candidate.identifier] is not True:
+            continue
+        formatted = await candidate.formatter.format([message])
+        url = formatted[0]["content"][0]["image_url"]["url"]
+        assert url.startswith("data:image/png;base64,")
+        assert len(base64.b64decode(url.split(",", 1)[1])) <= 1000
+    assert message.content[0].source.data == original
 
 
 @pytest.mark.parametrize(

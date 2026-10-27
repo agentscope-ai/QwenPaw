@@ -7,7 +7,7 @@
 
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ToolOutlined } from "@ant-design/icons";
+import { Wrench as ToolOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 import { DefaultBlock } from "../shared";
@@ -30,7 +30,7 @@ const GenericToolCard: React.FC<GenericToolCardProps> = ({
 
   return (
     <ToolCardShell
-      icon={<ToolOutlined />}
+      icon={<ToolOutlined size="1em" />}
       title={t("tool.execute", { tool: toolLabel })}
       content={content}
       isStreaming={isStreaming}

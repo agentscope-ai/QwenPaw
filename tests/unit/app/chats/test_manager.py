@@ -403,6 +403,23 @@ async def test_touch_chat_refreshes_updated_at(manager: ChatManager):
     assert touched.updated_at >= before
 
 
+@pytest.mark.asyncio
+async def test_mark_chat_finished_persists_newest_completion(
+    manager: ChatManager,
+):
+    spec = await manager.create_chat(_make_spec())
+    first = spec.updated_at.replace(microsecond=100)
+    second = spec.updated_at.replace(microsecond=200)
+
+    marked = await manager.mark_chat_finished(spec.id, second)
+    stale = await manager.mark_chat_finished(spec.id, first)
+
+    assert marked is not None
+    assert marked.last_finished_at == second
+    assert stale is not None
+    assert stale.last_finished_at == second
+
+
 # ---------------------------------------------------------------------------
 # delete
 # ---------------------------------------------------------------------------

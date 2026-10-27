@@ -190,7 +190,8 @@ def test_model_config_persists_generation_settings(
     """Per-model generation settings are stored on the model entry.
 
     Test purpose:
-      - Cover configure_model / update_model_config: max_tokens,
+      - Cover configure_model / update_model_config: max_tokens in
+        generate_kwargs,
         max_input_length and generate_kwargs must survive the round trip
         so they can override provider-level defaults at request time.
 
@@ -202,9 +203,11 @@ def test_model_config_persists_generation_settings(
         "PUT",
         f"/api/models/{provider}/models/base-model/config",
         json={
-            "max_tokens": 4096,
             "max_input_length": 32768,
-            "generate_kwargs": {"temperature": 0.25},
+            "generate_kwargs": {
+                "max_tokens": 4096,
+                "temperature": 0.25,
+            },
             "relay_reasoning": True,
         },
         timeout=_HTTP_TIMEOUT,
@@ -212,7 +215,7 @@ def test_model_config_persists_generation_settings(
     assert resp.status_code == 200, resp.text
 
     entry = _models_of(app_server, provider)["base-model"]
-    assert entry["max_tokens"] == 4096, entry
+    assert entry["generate_kwargs"]["max_tokens"] == 4096, entry
     assert entry["max_input_length"] == 32768, entry
     assert entry["generate_kwargs"].get("temperature") == 0.25, entry
     assert entry["relay_reasoning"] is True, entry
@@ -264,7 +267,7 @@ def test_model_config_unknown_model_returns_404(
     resp = app_server.api_request(
         "PUT",
         f"/api/models/{provider}/models/integ-absent-model/config",
-        json={"max_tokens": 128},
+        json={"generate_kwargs": {"max_tokens": 128}},
         timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 404, resp.text
@@ -281,7 +284,7 @@ def test_model_config_unknown_provider_returns_404(app_server):
     resp = app_server.api_request(
         "PUT",
         "/api/models/integ-no-such-provider-9931/models/m1/config",
-        json={"max_tokens": 128},
+        json={"generate_kwargs": {"max_tokens": 128}},
         timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 404, resp.text

@@ -31,3 +31,6 @@ reports/logs/
 reports/screenshots/
 reports/videos/
 tests/reports/
+
+# Local SDK regression notes
+/CHAT_SDK_1_2_FULL_REGRESSION.md

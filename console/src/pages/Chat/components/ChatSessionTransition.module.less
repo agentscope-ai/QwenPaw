@@ -1,0 +1,39 @@
+.container {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+.surface {
+  height: 100%;
+  min-height: 0;
+}
+.status {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 16px;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  text-align: center;
+  pointer-events: none;
+}
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 12px 16px;
+  text-align: center;
+  pointer-events: auto;
+}

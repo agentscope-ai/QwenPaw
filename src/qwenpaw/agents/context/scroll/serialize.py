@@ -12,6 +12,11 @@ from agentscope.message import Msg
 from ....constant import QWENPAW_MESSAGE_TAG_KEY
 from ....utils.tool_call_extra import TOOL_CALL_EXTRAS_METADATA_KEY
 from ..types import LogEntry
+from ...utils.tool_message_utils import (
+    dump_block as _dump,
+    flatten_output,
+    media_ref as _media_ref,
+)
 
 # The model echoes a milestone as a fenced single line: ``⟦ text ⟧`` (rare
 # brackets U+27E6 / U+27E7, chosen to almost never collide with code, markdown,
@@ -52,67 +57,6 @@ class HeadlineDeltaState:
     pending: str = ""
     suppressing: bool = False
     legacy_comment: bool = False
-
-
-def _dump(block: Any) -> dict:
-    fn = getattr(block, "model_dump", None)
-    if callable(fn):
-        try:
-            out = fn(mode="json")
-        except Exception:  # noqa: BLE001
-            out = fn()
-        return out if isinstance(out, dict) else {"value": out}
-    return {"repr": str(block)}
-
-
-def _media_ref(bd: dict) -> str | None:
-    """Render one ``DataBlock`` dump as a compact, searchable text reference.
-
-    ``[image: <url>]`` / ``[file: <name> — <url>]`` so a media-bearing turn
-    still lands in ``content`` (and its FTS index) and comes back through
-    recall — which is text-only and would otherwise see an empty string. A
-    base64 source NEVER inlines its payload: only ``name``/``media_type`` is
-    shown, so ``content`` stays small even when the block carries raw bytes.
-    """
-    if not isinstance(bd, dict) or bd.get("type") != "data":
-        return None
-    src = bd.get("source") or {}
-    media_type = src.get("media_type") or ""
-    kind = media_type.split("/", 1)[0] if "/" in media_type else "file"
-    if kind not in ("image", "audio", "video"):
-        kind = "file"
-    ref = (
-        src.get("url")
-        if src.get("type") == "url"
-        else f"<{media_type or 'binary'}>"
-    )
-    name = bd.get("name")
-    if name and ref:
-        return f"[{kind}: {name} — {ref}]"
-    return f"[{kind}: {name or ref or '?'}]"
-
-
-def flatten_output(output: Any) -> str | None:
-    """Flatten a ToolResultBlock.output (str | list[block]) to text.
-
-    Non-text blocks (an image a tool returned) collapse to a ``_media_ref``
-    placeholder rather than vanishing, so the result stays recallable.
-    """
-    if output is None:
-        return None
-    if isinstance(output, str):
-        return output
-    parts: list[str] = []
-    for block in output:
-        bd = block if isinstance(block, dict) else _dump(block)
-        text = bd.get("text")
-        if text:
-            parts.append(text)
-        else:
-            ref = _media_ref(bd)
-            if ref:
-                parts.append(ref)
-    return "\n".join(parts) if parts else None
 
 
 def _state_value(state: Any) -> str | None:

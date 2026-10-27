@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import errno
 import json as _json
 import logging
 import os
@@ -30,6 +31,7 @@ from qwenpaw.schemas import (
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
 from ....constant import DEFAULT_MEDIA_DIR
+from ....token_usage.model_wrapper import TokenRecordingModelWrapper
 from ....exceptions import ModelQuotaExceededException
 from ..renderer import ChannelDisplayConfig
 from ..base import (
@@ -101,6 +103,9 @@ class ConsoleChannel(BaseChannel):
             process,
             on_reply_sent=on_reply_sent,
             display_config=display_config,
+            # Each console HTTP submission is a complete user message.
+            # Attachments must run without waiting for a later text message.
+            no_text_debounce=False,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -116,6 +121,11 @@ class ConsoleChannel(BaseChannel):
         else:
             self._media_dir = DEFAULT_MEDIA_DIR
         self._media_dir.mkdir(parents=True, exist_ok=True)
+
+        # When the controlling TTY/pipe is gone (e.g. daemon after terminal
+        # close), further print() calls raise EIO/EPIPE; skip them after
+        # one warning so daemon logs are not flooded.
+        self._stdout_broken = False
 
         # Windows stdout encoding fix
         if sys.platform == "win32":
@@ -418,9 +428,30 @@ class ConsoleChannel(BaseChannel):
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
             event_count = 0
+            last_usage = None
             headline_stream_states: dict[str, Any] = {}
 
             async for event in self._process(request):
+                usage = TokenRecordingModelWrapper.peek_usage_for_session(
+                    session_id,
+                )
+                if usage is not None and usage is not last_usage:
+                    last_usage = usage
+                    tokens = usage.get(f"last_prompt_tokens", 0)
+                    limit = usage.get(f"context_size", 0)
+                    payload = {
+                        f"type": f"turn_usage",
+                        f"session_id": session_id,
+                        f"usage": usage,
+                        f"context_usage": {
+                            f"estimated_tokens": tokens,
+                            f"max_input_length": limit,
+                            f"context_usage_ratio": (
+                                min(tokens / limit * 100, 100) if limit else 0
+                            ),
+                        },
+                    }
+                    yield f"data: {_json.dumps(payload)}\n\n"
                 event_count += 1
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
@@ -547,15 +578,34 @@ class ConsoleChannel(BaseChannel):
 
     # ── pretty-print helpers ────────────────────────────────────────
 
+    def _mark_stdout_broken(self, exc: OSError) -> None:
+        """Disable further console prints after stdout becomes unusable."""
+        if self._stdout_broken:
+            return
+        self._stdout_broken = True
+        logger.warning(
+            "Console stdout is unavailable (%s); "
+            "suppressing further console prints",
+            exc,
+        )
+
     def _safe_print(self, text: str) -> None:
         """Safely print text, handling Windows encoding and pipe issues.
 
         On Windows, print() can raise OSError [Errno 22] when output is
         piped or contains unsupported characters. This wrapper handles
         such cases gracefully.
+
+        When stdout is detached/closed (common for ``qwenpaw app`` after
+        the launching terminal exits), print() raises EIO/EPIPE. Log once
+        and suppress further prints instead of flooding ERROR logs.
         """
+        if self._stdout_broken:
+            return
         try:
             print(text)
+        except BrokenPipeError as e:
+            self._mark_stdout_broken(e)
         except OSError as e:
             if e.errno == 22:
                 logger.warning(
@@ -573,6 +623,8 @@ class ConsoleChannel(BaseChannel):
                         "Failed to print even with fallback: %s",
                         fallback_err,
                     )
+            elif e.errno in (errno.EIO, errno.EPIPE):
+                self._mark_stdout_broken(e)
             else:
                 logger.error("Print failed with OSError: %s", e)
 
@@ -623,11 +675,8 @@ class ConsoleChannel(BaseChannel):
                 pm.builtin_providers.values(),
             ) + list(pm.custom_providers.values())
             for p in all_providers:
-                meta = getattr(p, "meta", None) or {}
-                if not meta.get("is_free_tier"):
-                    continue
-                for m in p.models:
-                    if getattr(m, "is_free", False):
+                for m in p.models + p.extra_models:
+                    if p.model_pricing(m) == f"free" and not m.remote_missing:
                         alternatives.append(
                             {
                                 "provider_id": p.id,

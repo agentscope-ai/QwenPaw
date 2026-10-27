@@ -8,7 +8,7 @@ export interface ToolConfigField {
   placeholder?: string;
   help?: string;
   options?: string[];
-  default?: any;
+  default?: unknown;
   min?: number;
   max?: number;
 }
@@ -16,6 +16,9 @@ export interface ToolConfigField {
 export interface ToolInfo {
   name: string;
   enabled: boolean;
+  source_plugin_id?: string | null;
+  source_plugin_name?: string | null;
+  category?: string | null;
   description: string;
   summary?: string;
   detail?: string;
@@ -24,20 +27,25 @@ export interface ToolInfo {
   icon: string;
   requires_config?: boolean;
   config_fields?: ToolConfigField[];
-  config_values?: Record<string, any>;
+  config_values?: Record<string, unknown>;
 }
 
 function withLang(path: string, lang?: string): string {
   if (!lang) return path;
-  const sep = path.includes("?") ? "&" : "?";
-  return `${path}${sep}lang=${encodeURIComponent(lang)}`;
+  return `${path}${path.includes("?") ? "&" : "?"}lang=${encodeURIComponent(
+    lang,
+  )}`;
 }
 
 export const toolsApi = {
   /**
    * List all built-in tools
    */
-  listTools: (lang?: string) => request<ToolInfo[]>(withLang("/tools", lang)),
+  listTools: (agentId?: string, lang?: string) =>
+    request<ToolInfo[]>(
+      withLang("/tools", lang),
+      agentId ? { headers: { "X-Agent-Id": agentId } } : undefined,
+    ),
 
   /**
    * Toggle tool enabled status
@@ -71,7 +79,7 @@ export const toolsApi = {
    */
   getToolConfig: (toolName: string, params?: Record<string, string>) => {
     const query = params ? `?${new URLSearchParams(params).toString()}` : "";
-    return request<Record<string, any>>(
+    return request<Record<string, unknown>>(
       `/tools/${encodeURIComponent(toolName)}/config${query}`,
     );
   },
@@ -79,12 +87,17 @@ export const toolsApi = {
   /**
    * Update tool configuration
    */
-  updateToolConfig: (toolName: string, config: Record<string, any>) =>
+  updateToolConfig: (
+    toolName: string,
+    config: Record<string, unknown>,
+    agentId?: string,
+  ) =>
     request<{ status: string; message: string }>(
       `/tools/${encodeURIComponent(toolName)}/config`,
       {
         method: "POST",
         body: JSON.stringify({ config }),
+        ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
       },
     ),
 };

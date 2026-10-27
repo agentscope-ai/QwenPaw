@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
 import uuid
 from typing import Any, Dict
 
+from ...utils.io_utils import run_sync_io
 from ..inbox_trace_store import (
     append_trace_from_session_delta,
     create_trace,
@@ -17,6 +20,83 @@ from ...security.tool_guard.execution_level import ToolExecutionLevel
 from ...schemas import RunStatus
 
 logger = logging.getLogger(__name__)
+
+_SESSION_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_SESSION_COMPONENT_MAX_LENGTH = 32
+_TRACE_META_MAX_LENGTH = 256
+
+
+def _safe_session_component(value: str | None, *, fallback: str) -> str:
+    """Return a bounded, collision-resistant session-id component."""
+    raw = (value or "").strip()
+    normalized = _SESSION_COMPONENT_RE.sub("-", raw).strip("._-")
+    if (
+        normalized
+        and normalized == raw
+        and len(normalized) <= _SESSION_COMPONENT_MAX_LENGTH
+    ):
+        return normalized
+    normalized = normalized or fallback
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
+    prefix_length = _SESSION_COMPONENT_MAX_LENGTH - len(digest) - 1
+    prefix = normalized[:prefix_length].rstrip("._-") or fallback
+    return f"{prefix}-{digest}"
+
+
+def _cron_session_id(
+    *,
+    target_session_id: str | None,
+    job_id: str | None,
+) -> str:
+    """Build one bounded dedicated session id per cron job."""
+    target = _safe_session_component(target_session_id, fallback="session")
+    job = _safe_session_component(job_id, fallback="job")
+    return f"cron:{target}:job:{job}"
+
+
+def _bounded_trace_meta(value: str | None) -> str:
+    raw = value or ""
+    if len(raw) <= _TRACE_META_MAX_LENGTH:
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
+    return f"{raw[: _TRACE_META_MAX_LENGTH - len(digest) - 1]}-{digest}"
+
+
+def _validate_execution_model(req: dict[str, Any]) -> None:
+    """Fail explicitly for invalid per-task models."""
+    context = req.get("request_context") or {}
+    override = req.get("model_slot_override")
+    if "model_slot_override" not in req:
+        override = context.get("model_slot_override")
+    else:
+        # An explicit Default selection also clears a legacy nested override.
+        context.pop("model_slot_override", None)
+    if override is None:
+        return
+    from ...agents.model_factory import _resolve_model_slot_override
+    from ...providers import ProviderManager
+
+    slot = _resolve_model_slot_override(override)
+    if slot is None or not slot.provider_id or not slot.model:
+        raise ValueError("Invalid execution model selected for cron task")
+    provider = ProviderManager.get_instance().get_provider(slot.provider_id)
+    if provider is None:
+        raise ValueError(
+            f"Cron execution model provider not found: {slot.provider_id}",
+        )
+    if not any(model.id == slot.model for model in provider.all_models()):
+        raise ValueError(
+            f"Cron execution model not found: {slot.provider_id}/{slot.model}",
+        )
+    req["model_slot_override"] = slot.model_dump()
+
+
+class CronExecutionTimeout(asyncio.TimeoutError):
+    """Execution timeout carrying the run reference for inbox reporting."""
+
+    def __init__(self, *, run_id: str, timeout_seconds: float):
+        super().__init__(f"timed out after {timeout_seconds}s")
+        self.run_id = run_id
 
 
 class CronExecutor:
@@ -40,6 +120,7 @@ class CronExecutor:
         target_user_id = job.dispatch.target.user_id
         target_session_id = job.dispatch.target.session_id
         target_channel = job.dispatch.channel
+        run_id = str(uuid.uuid4())
         dispatch_meta: Dict[str, Any] = dict(job.dispatch.meta or {})
         if job.task_type == "agent":
             # Agent cron replies still print to the console channel, but
@@ -105,6 +186,7 @@ class CronExecutor:
         )
         request_context["source"] = "cron"
         request_context["cron_job_id"] = job.id or ""
+        request_context["cron_run_id"] = run_id
         request_context["approval_level"] = (
             ToolExecutionLevel.AUTO.value
             if job.runtime.tool_safety
@@ -117,14 +199,14 @@ class CronExecutor:
         if share_session:
             req["session_id"] = target_session_id or f"cron:{job.id}"
         else:
-            # Use job.id (not run_id) so all runs of this job accumulate in the
-            # same dedicated session, giving users a complete history.
-            req["session_id"] = (
-                f"{target_session_id}:cron:{job.id}"
-                if target_session_id
-                else f"cron:{job.id}"
+            # Keep one dedicated visible chat per job. Cron hooks isolate the
+            # model context for each execution while retaining run history.
+            req["session_id"] = _cron_session_id(
+                target_session_id=target_session_id,
+                job_id=job.id,
             )
             req["session_source"] = "cron"
+        request_context["cron_run_session_id"] = req["session_id"]
 
         # Register a ChatSpec so the session appears in the frontend list.
         chat_manager = getattr(self._workspace, "chat_manager", None)
@@ -154,7 +236,6 @@ class CronExecutor:
         )
         baseline_count = len(baseline_messages)
 
-        run_id = str(uuid.uuid4())
         await create_trace(
             run_id,
             meta={
@@ -162,8 +243,12 @@ class CronExecutor:
                 "job_name": job.name,
                 "task_type": "agent",
                 "dispatch_channel": job.dispatch.channel,
-                "target_user_id": target_user_id,
-                "target_session_id": target_session_id,
+                "target_user_id": _bounded_trace_meta(target_user_id),
+                "target_session_id": _bounded_trace_meta(
+                    target_session_id,
+                ),
+                "run_session_id": req["session_id"],
+                "share_session": share_session,
                 "silent": job.dispatch.silent,
             },
         )
@@ -194,6 +279,18 @@ class CronExecutor:
                             delivery_error,
                         )
 
+            (await run_sync_io(_validate_execution_model, req))
+            if req.get("model_slot_override") is not None:
+                backend = getattr(
+                    getattr(self._workspace, "config", None),
+                    "backend",
+                    "qwenpaw",
+                )
+                if backend != "qwenpaw":
+                    raise ValueError(
+                        "Per-task execution models require the QwenPaw "
+                        "backend; select Default for this agent",
+                    )
             final_event: Any | None = None
             async for event in self._workspace.stream_query(req):
                 if job.dispatch.silent:
@@ -243,6 +340,7 @@ class CronExecutor:
             return {
                 "task_type": "agent",
                 "run_id": run_id,
+                "session_id": req["session_id"],
                 "delivery_status": delivery_status,
                 "delivery_error": delivery_error,
             }
@@ -265,7 +363,10 @@ class CronExecutor:
                 status="timeout",
                 error=f"timed out after {job.runtime.timeout_seconds}s",
             )
-            raise
+            raise CronExecutionTimeout(
+                run_id=run_id,
+                timeout_seconds=job.runtime.timeout_seconds,
+            ) from None
         except asyncio.CancelledError:
             logger.info("cron execute: job_id=%s cancelled", job.id)
             await append_trace_from_session_delta(

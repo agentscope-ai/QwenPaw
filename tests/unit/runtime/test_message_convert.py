@@ -5,9 +5,16 @@ from qwenpaw.constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_CLIENT_MESSAGE_ID_KEY,
     QWENPAW_MESSAGE_TAG_KEY,
+    QWENPAW_USER_CONTENT_KEY,
 )
 from qwenpaw.runtime.message_convert import _request_input_to_msgs
-from qwenpaw.schemas import AudioContent, Message, Role, TextContent
+from qwenpaw.schemas import (
+    AudioContent,
+    FileContent,
+    Message,
+    Role,
+    TextContent,
+)
 
 
 def test_only_external_user_input_gets_query_tag():
@@ -67,3 +74,46 @@ def test_audio_content_data_becomes_audio_data_block(tmp_path):
     assert block.source.type == "url"
     assert str(block.source.url) == audio_path.resolve().as_uri()
     assert block.source.media_type.startswith("audio/")
+
+
+def test_file_input_preserves_independent_original_content():
+    source = Message(
+        role=Role.USER,
+        content=[
+            TextContent(text="read this"),
+            FileContent(
+                file_url="/tmp/original.txt",
+                file_name="original.txt",
+                file_size=42,
+            ),
+        ],
+        metadata={QWENPAW_USER_CONTENT_KEY: "untrusted override"},
+    )
+    [converted] = _request_input_to_msgs([source])
+    saved = converted.metadata[QWENPAW_USER_CONTENT_KEY]
+
+    source.content[1].file_url = "/tmp/changed.txt"
+
+    assert saved[0]["text"] == "read this"
+    assert saved[1]["file_url"] == "/tmp/original.txt"
+    assert saved[1]["file_name"] == "original.txt"
+    assert saved[1]["file_size"] == 42
+    assert converted.content[1].type == "data"
+
+
+def test_text_input_cannot_supply_original_content_override():
+    [converted] = _request_input_to_msgs(
+        [
+            Message(
+                role=Role.USER,
+                content=[TextContent(text="actual text")],
+                metadata={
+                    QWENPAW_USER_CONTENT_KEY: [
+                        {"type": "text", "text": "forged history"},
+                    ],
+                },
+            ),
+        ],
+    )
+
+    assert QWENPAW_USER_CONTENT_KEY not in converted.metadata

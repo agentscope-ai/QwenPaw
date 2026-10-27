@@ -32,6 +32,42 @@ export interface CreateBackupRequest {
   agents: string[];
 }
 
+export type BackupJobStatus =
+  | "pending"
+  | "running"
+  | "cancel_requested"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type BackupJobPhase = "preparing" | "agents" | "finalizing";
+
+export interface BackupJobSnapshot {
+  job_id: string;
+  backup_id: string;
+  status: BackupJobStatus;
+  phase: BackupJobPhase;
+  percent: number;
+  current_agent: string | null;
+  agent_index: number;
+  total_agents: number;
+  result: BackupMeta | null;
+  error: string | null;
+}
+
+export type BackupProgressEvent =
+  | { type: "start"; total_agents: number; percent: 0 }
+  | {
+      type: "agent";
+      agent_id: string;
+      index: number;
+      total: number;
+      percent: number;
+    }
+  | { type: "saving"; percent: number }
+  | { type: "done"; meta: BackupMeta; percent: 100 }
+  | { type: "error"; message: string };
+
 export interface RestoreBackupRequest {
   include_agents: boolean;
   agent_ids: string[];
@@ -70,19 +106,6 @@ export interface DeleteBackupsResponse {
   deleted: string[];
   failed: { id: string; reason: string }[];
 }
-
-export type BackupProgressEvent =
-  | { type: "start"; total_agents: number; percent: 0 }
-  | {
-      type: "agent";
-      agent_id: string;
-      index: number;
-      total: number;
-      percent: number;
-    }
-  | { type: "saving"; percent: number }
-  | { type: "done"; meta: BackupMeta; percent: 100 }
-  | { type: "error"; message: string };
 
 export interface BackupConflictResponse {
   detail: "backup_conflict";

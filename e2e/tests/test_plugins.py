@@ -78,10 +78,24 @@ class TestPluginCompatibility:
     """Market tab compat tags + incompatible-install warning modal."""
 
     def _open_market_tab(self, plugin_page: PluginPage) -> None:
-        """Register mocks, open /plugin-manager and switch to Market."""
+        """Register mocks, open the plugin market and switch to list view."""
         plugin_market.register(plugin_page.page)
         plugin_page.open()
         plugin_page.page.locator(plugin_page.TAB_MARKET).first.click()
+        # The market defaults to card view; the catalog rows the assertions
+        # rely on only render in list view. The toggle lives inside the
+        # ACTIVE pane (MARKET_LIST_TOGGLE carries the pane scope): every
+        # pane renders its own toggle with identical aria-labels, so an
+        # unscoped locator resolved to the hidden Installed pane's toggle.
+        # The old bare ``except: pass`` swallowed that failed click and
+        # left the Market pane in card view, where no catalogRow renders
+        # at all (failure screenshot 2026-10-14: Market tab active, both
+        # mocked cards still in card view). A failed switch is now a
+        # loud failure instead of a silent wrong-view assertion.
+        list_toggle = plugin_page.page.locator(
+            plugin_page.MARKET_LIST_TOGGLE
+        ).first
+        list_toggle.click(timeout=plugin_page.timeout)
         plugin_page.page.locator(plugin_page.MARKET_ROW).first.wait_for(
             state="visible", timeout=plugin_page.timeout
         )
@@ -140,6 +154,9 @@ class TestPluginCompatibility:
             has_text=plugin_market.INCOMPATIBLE_PLUGIN_NAME
         ).first
         expect(legacy_row).to_be_visible(timeout=plugin_page.timeout)
+        # Card view reveals the install action only on hover.
+        legacy_row.hover()
+        page.wait_for_timeout(300)
         legacy_row.locator(plugin_page.MARKET_INSTALL_BTN).first.click()
 
         log_test_step("3. 'Compatibility Warning' Modal.confirm appears")

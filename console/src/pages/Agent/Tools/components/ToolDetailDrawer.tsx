@@ -1,4 +1,6 @@
-import { Button, Drawer, Table, Tag } from "@agentscope-ai/design";
+import { Button } from "@agentscope-ai/design";
+import { Table, Tag } from "antd";
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../../api/modules/tools";

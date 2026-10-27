@@ -1,13 +1,15 @@
 .mermaidDiagram {
+  --mermaid-surface: #fffaf6;
+  --mermaid-accent-glow: rgba(243, 107, 33, 0.14);
   position: relative;
   width: 100%;
   overflow: auto;
   background: radial-gradient(
       circle at 50% 0%,
-      rgba(243, 107, 33, 0.14),
+      var(--mermaid-accent-glow),
       transparent 50%
     ),
-    #fffaf6;
+    var(--mermaid-surface);
 }
 
 .isLoading {
@@ -19,7 +21,7 @@
   align-items: center;
   justify-content: center;
   min-height: 176px;
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 14px;
 }
 
@@ -43,8 +45,8 @@
   padding: 24px;
   margin: 0;
   overflow: auto;
-  color: #8a342f;
-  background: #fff8f6;
+  color: var(--app-error-text);
+  background: var(--app-error-bg);
 
   div {
     display: grid;
@@ -58,7 +60,7 @@
 
   span {
     overflow-wrap: anywhere;
-    color: rgba(138, 52, 47, 0.74);
+    color: var(--app-error-text);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
       monospace;
     font-size: 12px;
@@ -66,21 +68,14 @@
 }
 
 :global(.dark-mode) .mermaidDiagram {
+  --mermaid-surface: #17120f;
+  --mermaid-accent-glow: rgba(243, 107, 33, 0.18);
   background: radial-gradient(
       circle at 50% 0%,
-      rgba(243, 107, 33, 0.18),
+      var(--mermaid-accent-glow),
       transparent 52%
     ),
-    #17120f;
-}
-
-:global(.dark-mode) .mermaidError {
-  color: #f6aaa2;
-  background: #261918;
-
-  span {
-    color: rgba(246, 170, 162, 0.74);
-  }
+    var(--mermaid-surface);
 }
 
 @media (max-width: 600px) {

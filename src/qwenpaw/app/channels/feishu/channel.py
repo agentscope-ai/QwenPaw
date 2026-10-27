@@ -52,6 +52,9 @@ from .constants import (
     FEISHU_FILE_MAX_BYTES,
     FEISHU_NICKNAME_CACHE_MAX,
     FEISHU_PROCESSED_IDS_MAX,
+    FEISHU_REASONING_PANEL_ELEMENT_ID,
+    FEISHU_REASONING_PANEL_ICON_TOKEN,
+    FEISHU_REASONING_PANEL_TITLE,
     FEISHU_STALE_MSG_THRESHOLD_MS,
     FEISHU_STREAM_ELEMENT_ID,
     FEISHU_STREAM_MIN_INTERVAL_S,
@@ -194,6 +197,54 @@ _MSG_TYPE_LABEL: Dict[str, str] = {
 }
 
 
+def build_streaming_card_json(
+    initial_text: str,
+    collapsible: bool = False,
+) -> Dict[str, Any]:
+    """Build the Card JSON 2.0 payload of a streaming card.
+
+    With ``collapsible`` the streaming markdown is wrapped in a
+    ``collapsible_panel`` that starts expanded, so reasoning can be folded
+    away once it is finished. The inner markdown keeps
+    ``FEISHU_STREAM_ELEMENT_ID``, so streaming content updates are unaffected.
+    """
+    markdown_element = {
+        "tag": "markdown",
+        "content": initial_text,
+        "element_id": FEISHU_STREAM_ELEMENT_ID,
+    }
+    top_element: Dict[str, Any] = markdown_element
+    if collapsible:
+        top_element = {
+            "tag": "collapsible_panel",
+            "element_id": FEISHU_REASONING_PANEL_ELEMENT_ID,
+            "expanded": True,
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": FEISHU_REASONING_PANEL_TITLE,
+                },
+                "icon": {
+                    "tag": "standard_icon",
+                    "token": FEISHU_REASONING_PANEL_ICON_TOKEN,
+                    "size": "16px 16px",
+                },
+                "icon_position": "follow_text",
+                "icon_expanded_angle": 180,
+            },
+            "border": {
+                "color": "grey",
+                "corner_radius": "5px",
+            },
+            "elements": [markdown_element],
+        }
+    return {
+        "schema": "2.0",
+        "config": {"streaming_mode": True},
+        "body": {"elements": [top_element]},
+    }
+
+
 class FeishuChannel(BaseChannel):
     """Feishu/Lark channel: WebSocket receive, Open API send.
 
@@ -228,6 +279,7 @@ class FeishuChannel(BaseChannel):
         domain: str = "feishu",
         streaming_enabled: bool = False,
         share_session_in_group: bool = False,
+        auto_collapse_thinking: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
     ):
@@ -258,6 +310,9 @@ class FeishuChannel(BaseChannel):
         else:
             self.domain = "feishu"
         self.share_session_in_group = share_session_in_group
+        # Collapse the reasoning panel automatically when the stream ends.
+        # The panel itself is always rendered collapsible.
+        self.auto_collapse_thinking = auto_collapse_thinking
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -380,6 +435,9 @@ class FeishuChannel(BaseChannel):
             ),
             share_session_in_group=bool(
                 getattr(config, "share_session_in_group", False),
+            ),
+            auto_collapse_thinking=bool(
+                getattr(config, "auto_collapse_thinking", False),
             ),
             access_control_dm=bool(
                 getattr(config, "access_control_dm", False),
@@ -2042,8 +2100,12 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         receive_id: str,
         initial_text: str = "...",
+        collapsible: bool = False,
     ) -> Optional[Dict[str, str]]:
         """Create a CardKit streaming card and send it as a message.
+
+        ``collapsible`` is forwarded to :func:`build_streaming_card_json` and
+        selects the reasoning variant of the card.
 
         Returns ``{"card_id": ..., "message_id": ...}`` or ``None``.
         """
@@ -2055,20 +2117,7 @@ class FeishuChannel(BaseChannel):
             CreateCardRequestBody,
         )
 
-        element_id = FEISHU_STREAM_ELEMENT_ID
-        card_json = {
-            "schema": "2.0",
-            "config": {"streaming_mode": True},
-            "body": {
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": initial_text,
-                        "element_id": element_id,
-                    },
-                ],
-            },
-        }
+        card_json = build_streaming_card_json(initial_text, collapsible)
 
         try:
             create_req = (
@@ -2238,6 +2287,58 @@ class FeishuChannel(BaseChannel):
             )
             return False
 
+    async def _collapse_reasoning_panel(
+        self,
+        card_id: str,
+        sequence: int,
+    ) -> bool:
+        """Collapse the reasoning panel via the CardKit element PATCH API.
+
+        The element content API (PUT) returns 404 for this endpoint, so the
+        update goes through a PATCH whose ``partial_element`` is a JSON
+        string. ``sequence`` must exceed the finalize sequence. A failure is
+        logged only: a panel left expanded must never fail the answer.
+        """
+        if not self._client or not card_id:
+            return False
+
+        from lark_oapi.api.cardkit.v1 import (
+            PatchCardElementRequest,
+            PatchCardElementRequestBody,
+        )
+
+        partial_element = json.dumps({"expanded": False}, ensure_ascii=False)
+
+        try:
+            req = (
+                PatchCardElementRequest.builder()
+                .card_id(card_id)
+                .element_id(FEISHU_REASONING_PANEL_ELEMENT_ID)
+                .request_body(
+                    PatchCardElementRequestBody.builder()
+                    .partial_element(partial_element)
+                    .sequence(sequence)
+                    .uuid(str(_uuid.uuid4()))
+                    .build(),
+                )
+                .build()
+            )
+            resp = await self._client.cardkit.v1.card_element.apatch(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu collapse reasoning panel failed: code=%s msg=%s",
+                    resp.code,
+                    resp.msg,
+                )
+                return False
+            return True
+        except Exception:
+            logger.warning(
+                "feishu collapse reasoning panel exception",
+                exc_info=True,
+            )
+            return False
+
     # ------------------------------------------------------------------
     # Streaming hooks (CardKit card mode)
     # ------------------------------------------------------------------
@@ -2280,27 +2381,28 @@ class FeishuChannel(BaseChannel):
         receive_id_type, receive_id = recv
         state = self._get_feishu_stream_state(send_meta)
 
-        # Reuse pre-created card for the first arriving segment.
-        card_info = getattr(request, "_precreated_card", None)
-        if card_info:
-            setattr(request, "_precreated_card", None)
-        else:
-            initial = self._build_stream_display_text(
-                stream_type,
-                "...",
-                send_meta,
-            )
-            card_info = await self._create_streaming_card(
-                receive_id_type,
-                receive_id,
-                initial_text=initial,
-            )
+        # Cards are created lazily in arrival order, so the visible order
+        # matches the order segments were produced: reasoning gets its own
+        # collapsible card, and any answer card is created after it, below it.
+        is_reasoning = stream_type == "reasoning"
+        initial = self._build_stream_display_text(
+            stream_type,
+            "...",
+            send_meta,
+        )
+        card_info = await self._create_streaming_card(
+            receive_id_type,
+            receive_id,
+            initial_text=initial,
+            collapsible=is_reasoning,
+        )
 
         if card_info:
             state["cards"][stream_type] = {
                 "card_id": card_info["card_id"],
                 "message_id": card_info["message_id"],
                 "sequence": 0,
+                "collapsible": is_reasoning,
             }
 
     async def on_streaming_delta(
@@ -2382,6 +2484,17 @@ class FeishuChannel(BaseChannel):
             summary_text=accumulated_text,
             sequence=card_state["sequence"],
         )
+
+        # Fold the reasoning away once generation is done, so a long thinking
+        # trace no longer pushes the answer out of view. Opt-in: the panel is
+        # always collapsible by hand, and this only decides the automatic
+        # fold. Best-effort, consuming the next sequence after settings.
+        if card_state.get("collapsible") and self.auto_collapse_thinking:
+            card_state["sequence"] += 1
+            await self._collapse_reasoning_panel(
+                card_id,
+                sequence=card_state["sequence"],
+            )
 
         # Track last sent message_id for DONE reaction
         message_id = card_state.get("message_id")
@@ -2474,39 +2587,20 @@ class FeishuChannel(BaseChannel):
         )
 
     async def _before_consume_process(self, request: Any) -> None:
-        """Save receive_id and pre-create streaming card if enabled."""
+        """Persist the session's receive_id before the agent runs.
+
+        Streaming cards are created lazily by ``on_streaming_start``, on the
+        first segment of each stream type, so card order matches segment order.
+        """
         meta = getattr(request, "channel_meta", None) or {}
         receive_id = meta.get("feishu_receive_id")
-        receive_id_type = meta.get("feishu_receive_id_type", "open_id")
-        if receive_id and getattr(request, "session_id", None):
-            await self._save_receive_id(
-                request.session_id,
-                receive_id,
-                receive_id_type,
-            )
-
-        # Pre-create streaming card for immediate feedback.
-        # Skip card-action requests (e.g. /approval from buttons).
-        # Skip thread replies (streaming not supported in threads).
-        if (
-            self.streaming_enabled
-            and receive_id
-            and not meta.get("from_card_action")
-            and not meta.get("feishu_thread_id")
-        ):
-            try:
-                card_info = await self._create_streaming_card(
-                    receive_id_type,
-                    receive_id,
-                    initial_text="...",
-                )
-                if card_info:
-                    setattr(request, "_precreated_card", card_info)
-            except Exception:
-                logger.debug(
-                    "feishu streaming card pre-creation failed",
-                    exc_info=True,
-                )
+        if not receive_id or not getattr(request, "session_id", None):
+            return
+        await self._save_receive_id(
+            request.session_id,
+            receive_id,
+            meta.get("feishu_receive_id_type", "open_id"),
+        )
 
     def _run_ws_forever(self) -> None:
         """Run WebSocket with exponential-backoff reconnection."""
