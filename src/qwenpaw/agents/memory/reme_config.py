@@ -46,7 +46,7 @@ def _proactive_refresh_steps() -> list[dict[str, Any]]:
             "scan_days": 2,
             "carry_forward_days": 14,
             "max_carry_forward_topics": 20,
-            "llm_timeout_seconds": 300,
+            "llm_timeout_seconds": 600,
             "max_chars_per_file": 60000,
             "max_total_chars": 300000,
             "profile_max_chars": 1500,
@@ -62,7 +62,7 @@ def _proactive_refresh_steps() -> list[dict[str, Any]]:
             "resource_max_chars": 40000,
             "max_notice_reminders": 3,
             "refine_enabled": True,
-            "refine_timeout_seconds": 90,
+            "refine_timeout_seconds": 600,
         },
         {
             "backend": "proactive_topics_step",
@@ -77,6 +77,7 @@ def _proactive_refresh_steps() -> list[dict[str, Any]]:
         },
         {
             "backend": "proactive_plan_step",
+            "llm_timeout_seconds": 600,
             "max_reminder_cards": 8,
         },
         {
