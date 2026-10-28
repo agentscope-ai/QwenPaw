@@ -117,6 +117,29 @@ conversation. Each session keeps separate history.
 Click the **Chat history** button at the top-right to view and switch between
 past conversations.
 
+**Search conversations:**
+Use the search field in the conversation sidebar to find a conversation by what
+you discussed, even when its generated title does not contain the words you
+remember. Choose a search mode next to the field:
+
+- **Keyword**: type a word or phrase, such as `deployment timeout`. Results
+  update as you type and match the literal text in conversation titles and
+  user/assistant messages, ignoring letter case. Click **Load more** to see
+  additional matches.
+- **AI search**: describe what you remember, such as "the conversation where we
+  fixed a timeout during deployment", then press **Enter** or click the search
+  button. The current agent's configured model searches the saved history and
+  reads relevant messages to find matching conversations. Configure a model
+  first in [Models](./models); no additional embedding service is required.
+
+Results include a matching excerpt so you can recognize the conversation before
+opening it. Click a result to open that conversation, or clear the search field
+to return to the normal conversation list. Search covers the current agent's
+unarchived conversations; conversations managed by apps are excluded. Switch
+agents to search another agent's history.
+The sidebar marks results as incomplete when a history scan or AI search reaches
+its limit, or some saved history cannot be read.
+
 **Delete a session:**
 In the chat history panel, click the **trash** button on the right of a session
 row to delete it.
