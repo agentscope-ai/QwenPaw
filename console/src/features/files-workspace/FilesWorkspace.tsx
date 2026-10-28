@@ -21,7 +21,8 @@ import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import FilesNavigator from "./FilesNavigator";
 import MemoryGraphView from "./MemoryGraphView";
 import MemoryTagsNavigator from "./MemoryTagsNavigator";
-import { useMemoryTagSupport } from "./useMemoryTagSupport";
+import { useMemoryFileConfig } from "./useMemoryTagSupport";
+import { fileTabPath, findOpenFileTab } from "./fileIdentity";
 import { projectRootPath, workspaceRoots } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
@@ -75,7 +76,9 @@ export default function FilesWorkspace({
   // refetch and re-activate the initial tab on unrelated re-renders.
   const scopeKind = scope.kind;
   const agentId = scope.agentId;
-  const memoryTagsSupported = useMemoryTagSupport(agentId);
+  const { config: memoryConfig, getConfig: getMemoryConfig } =
+    useMemoryFileConfig(agentId);
+  const memoryTagsSupported = memoryConfig !== null;
   const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const projectDirOverride =
     scope.kind === "session" && !scope.chatId
@@ -418,37 +421,40 @@ export default function FilesWorkspace({
 
   const openTarget = useCallback(
     async (target: FileTarget) => {
-      const resolvedTarget = await resolveEditableTarget(target);
-      // Tab identity has to include the root: the same relative path exists in
-      // more than one bound directory, and a bare path would make two different
-      // files share one tab (and one dirty buffer). The primary keeps its bare
-      // path so previously persisted tabs still match.
-      const tabPath =
-        resolvedTarget.source === "workspace"
-          ? resolvedTarget.root === "workspace"
-            ? `workspace-root::${resolvedTarget.path}`
-            : resolvedTarget.root && resolvedTarget.root !== "project"
-            ? `${resolvedTarget.root}::${resolvedTarget.path}`
-            : resolvedTarget.path
-          : `${resolvedTarget.source}::${resolvedTarget.path}`;
-      targetsByTab.current.set(tabPath, resolvedTarget);
-      if (resolvedTarget.line) {
-        navigationSequence.current += 1;
-        setEditorNavigation({
-          path: tabPath,
-          line: resolvedTarget.line,
-          endLine: resolvedTarget.endLine ?? resolvedTarget.line,
-          column: resolvedTarget.column,
-          sequence: navigationSequence.current,
-        });
-      }
-      const existing = tabsRef.current.find((tab) => tab.path === tabPath);
-      if (existing) {
-        activateTab(tabPath);
-        return;
-      }
       try {
+        const resolvedTarget = await resolveEditableTarget(target);
+        const canAlias =
+          resolvedTarget.source === "daily" ||
+          resolvedTarget.source === "digest" ||
+          resolvedTarget.source === "memory" ||
+          (resolvedTarget.source === "workspace" &&
+            resolvedTarget.root === "workspace");
+        const memory =
+          canAlias && tabsRef.current.length ? await getMemoryConfig() : null;
+        if (scopeKeyRef.current !== scopeKey) return;
+        const existing = findOpenFileTab(
+          tabsRef.current,
+          resolvedTarget,
+          memory,
+        );
+        const tabPath = existing?.path ?? fileTabPath(resolvedTarget);
+        if (resolvedTarget.line) {
+          navigationSequence.current += 1;
+          setEditorNavigation({
+            path: tabPath,
+            line: resolvedTarget.line,
+            endLine: resolvedTarget.endLine ?? resolvedTarget.line,
+            column: resolvedTarget.column,
+            sequence: navigationSequence.current,
+          });
+        }
+        if (existing) {
+          activateTab(tabPath);
+          return;
+        }
+        targetsByTab.current.set(tabPath, resolvedTarget);
         const loaded = await loadTarget(resolvedTarget);
+        if (scopeKeyRef.current !== scopeKey) return;
         setLoadError("");
         openTab(scopeKey, {
           path: tabPath,
@@ -465,12 +471,18 @@ export default function FilesWorkspace({
         revalidatedScope.current = scopeKey;
         setActiveTab(scopeKey, tabPath);
         setMobilePane("document");
-      } catch {
-        setLoadError(t("files.loadFailed"));
+      } catch (error) {
+        if (
+          scopeKeyRef.current === scopeKey &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setLoadError(t("files.loadFailed"));
+        }
       }
     },
     [
       activateTab,
+      getMemoryConfig,
       loadTarget,
       openTab,
       resolveEditableTarget,
@@ -647,20 +659,9 @@ export default function FilesWorkspace({
                   selectedSource={activeTab?.source ?? "workspace"}
                   selectedRoot={activeTab?.workspaceRoot}
                   onSelectTag={setSelectedMemoryTag}
-                  onOpenFile={(target, workspacePath) => {
+                  onOpenFile={(target) => {
                     setMemoryGraphRoot(null);
-                    // Daily/digest and Workspace can refer to the same file.
-                    // Reuse its buffer, preferring unsaved changes if both exist.
-                    const matches = tabsRef.current.filter(
-                      (tab) =>
-                        tab.path === `workspace-root::${workspacePath}` ||
-                        (target.source !== "workspace" &&
-                          tab.path === `${target.source}::${target.path}`),
-                    );
-                    const existing =
-                      matches.find((tab) => tab.dirty) ?? matches[0];
-                    if (existing) activateTab(existing.path);
-                    else void openTarget(target);
+                    void openTarget(target);
                   }}
                 />
               ) : undefined

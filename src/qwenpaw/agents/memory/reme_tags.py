@@ -3,6 +3,10 @@
 
 from typing import Any
 
+# Unicode casefold expands a source character to at most three characters.
+# ReMe limits source tags to 64 characters, before applying casefold.
+MAX_MEMORY_TAG_QUERY_LENGTH = 64 * 3
+
 
 def _file_location(reme: Any, path: str) -> dict[str, str]:
     """Reuse the existing daily/digest editor identities for indexed files."""
@@ -38,17 +42,37 @@ async def list_tag_files(
     index = store.require_tag_index()
     if not index.is_healthy:
         raise RuntimeError("Memory tag index is unavailable")
-    tags = index.normalize_query_tags([tag])
-    if not tags:
+    raw = "_".join(tag.split())
+    canonical = raw.casefold()
+    if (
+        not raw
+        or len(raw) > MAX_MEMORY_TAG_QUERY_LENGTH
+        or not any(char.isalnum() for char in raw)
+    ):
         raise ValueError("Tag must contain a valid memory tag")
-    paths = await index.paths_for_tags(tags)
-    nodes = await store.get_nodes(paths) if paths else []
+    if len(raw) <= index.max_tag_length:
+        # Pass the source spelling: ReMe normalizes queries itself, and a
+        # second normalization would reject an expanded canonical tag.
+        paths = await index.paths_for_tags([raw])
+        nodes = await store.get_nodes(paths) if paths else []
+    else:
+        # ReMe 0.4.2.0 can list canonical keys that its query length check
+        # rejects. Match those rare expanded keys against catalog metadata;
+        # this reads no file bodies and does not modify the running index.
+        nodes = [
+            node
+            for node in await store.get_nodes()
+            if canonical
+            in index.normalize_tags(
+                (node.front_matter.model_extra or {}).get(index.tag_key),
+            )
+        ]
     if not index.is_healthy:
         raise RuntimeError("Memory tag index is unavailable")
     nodes.sort(key=lambda node: (-node.st_mtime, node.path))
     start = (page - 1) * page_size
     return {
-        "tag": tags[0],
+        "tag": canonical,
         "total_files": len(nodes),
         "page": page,
         "page_size": page_size,

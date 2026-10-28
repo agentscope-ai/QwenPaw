@@ -1081,9 +1081,14 @@ def test_memory_tags_translate_index_counts_and_request_frequency_order(
     )
 
 
-def test_tag_file_endpoint_uses_pure_tag_browsing(client, memory_tag_backend):
+@pytest.mark.parametrize("tag", ["赵六", "ss" * 33, "ffi" * 64])
+def test_tag_file_endpoint_uses_pure_tag_browsing(
+    client,
+    memory_tag_backend,
+    tag,
+):
     answer = {
-        "tag": "赵六",
+        "tag": tag,
         "total_files": 1,
         "page": 1,
         "page_size": 50,
@@ -1105,13 +1110,13 @@ def test_tag_file_endpoint_uses_pure_tag_browsing(client, memory_tag_backend):
     )
     response = client.get(
         "/api/agents/bot/memory/tag-files",
-        params={"tag": "赵六"},
+        params={"tag": tag},
     )
     assert response.status_code == 200
     assert response.json() == answer
     memory_tag_backend.run_action.assert_awaited_once_with(
         "list_tag_files",
-        tag="赵六",
+        tag=tag,
         page=1,
         page_size=50,
     )
@@ -1140,7 +1145,7 @@ def test_tag_browser_unknown_agent_is_404(
 
 @pytest.mark.parametrize(
     "query",
-    ["tag=x&page=0", "tag=x&page_size=101", "tag="],
+    ["tag=x&page=0", "tag=x&page_size=101", "tag=", f"tag={'x' * 193}"],
 )
 def test_tag_browser_validates_query_before_running_action(
     client,

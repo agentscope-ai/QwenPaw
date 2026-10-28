@@ -334,12 +334,23 @@ function MarkdownPreview({
     () => parseMarkdownFrontmatter(content),
     [content],
   );
+  // Tags come from the resolved YAML document, including merge keys and
+  // quoted keys. Render one semantic tag row independently of raw metadata.
+  const metadataEntries = tags.length
+    ? [
+        ...entries.filter(
+          ({ key }) =>
+            !["memory_tags", '"memory_tags"', "'memory_tags'"].includes(key),
+        ),
+        { key: "memory_tags", value: "" },
+      ]
+    : entries;
 
   return (
     <div className={styles.markdownWrap}>
-      {entries.length > 0 && (
+      {metadataEntries.length > 0 && (
         <dl className={styles.frontmatter} aria-label="Front matter">
-          {entries.map(({ key, value }, index) => (
+          {metadataEntries.map(({ key, value }, index) => (
             <div className={styles.frontmatterRow} key={`${key}:${index}`}>
               <dt className={styles.frontmatterKey}>
                 {key === "memory_tags" ? t("files.memoryTagsLabel") : key}

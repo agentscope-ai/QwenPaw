@@ -66,8 +66,8 @@ async def indexed_runtime():
     store = SimpleNamespace(
         require_tag_index=lambda: index,
         get_nodes=AsyncMock(
-            side_effect=lambda paths: [
-                node for node in nodes if node.path in paths
+            side_effect=lambda paths=None: [
+                node for node in nodes if paths is None or node.path in paths
             ],
         ),
     )
@@ -141,3 +141,34 @@ async def test_browser_rejects_invalid_tag(indexed_runtime):
     runtime, _, _ = indexed_runtime
     with pytest.raises(ValueError, match="valid memory tag"):
         await list_tag_files(runtime, tag="  !!!  ")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["ß" * 33, "ﬃ" * 64])
+async def test_browser_accepts_source_and_expanded_canonical_tags(
+    indexed_runtime,
+    source,
+):
+    runtime, index, store = indexed_runtime
+    node = FileNode(
+        path="memory/unicode.md",
+        st_mtime=1,
+        front_matter=FileFrontMatter(memory_tags=[source]),
+    )
+    await index.rebuild([node])
+    store.get_nodes.side_effect = lambda paths=None: (
+        [node] if paths is None or node.path in paths else []
+    )
+    listed = await index.list_tags()
+    canonical = listed["items"][0][0]
+    assert len(canonical) > index.max_tag_length
+    for tag in [source, canonical]:
+        result = await list_tag_files(runtime, tag=tag)
+        assert result["tag"] == canonical
+        assert result["total_files"] == 1
+        assert result["items"][0]["path"] == node.path
+
+    missing = await list_tag_files(runtime, tag="x" * 65)
+    assert missing["items"] == []
+    with pytest.raises(ValueError, match="valid memory tag"):
+        await list_tag_files(runtime, tag="x" * 193)

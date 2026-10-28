@@ -20,7 +20,7 @@ interface MemoryTagsNavigatorProps {
   selectedRoot?: WorkspaceRoot;
   revision: number;
   onSelectTag: (tag: string | null) => void;
-  onOpenFile: (target: FileTarget, workspacePath: string) => void;
+  onOpenFile: (target: FileTarget) => void;
 }
 
 export default function MemoryTagsNavigator({
@@ -78,6 +78,8 @@ export default function MemoryTagsNavigator({
   }, []);
 
   const files = data && "total_files" in data ? data : null;
+  const selectedMemorySource =
+    selectedSource === "memory" ? "daily" : selectedSource;
   const tags = data && "total_tags" in data ? data : null;
   const total = files?.total_files ?? tags?.total_tags ?? 0;
   const pageCount = data ? Math.max(1, Math.ceil(total / data.page_size)) : 1;
@@ -169,23 +171,20 @@ export default function MemoryTagsNavigator({
                       selectedSource === "workspace"
                         ? selectedRoot === "workspace" &&
                           file.path === selectedPath
-                        : file.source === selectedSource &&
+                        : file.source === selectedMemorySource &&
                           file.relative_path === selectedPath
                     )
                       ? "true"
                       : undefined
                   }
                   onClick={() =>
-                    onOpenFile(
-                      {
-                        source: file.source,
-                        path: file.relative_path,
-                        ...(file.source === "workspace"
-                          ? { root: "workspace" as const }
-                          : {}),
-                      },
-                      file.path,
-                    )
+                    onOpenFile({
+                      source: file.source,
+                      path: file.relative_path,
+                      ...(file.source === "workspace"
+                        ? { root: "workspace" as const }
+                        : {}),
+                    })
                   }
                 >
                   <strong>{file.name || file.path.split("/").pop()}</strong>

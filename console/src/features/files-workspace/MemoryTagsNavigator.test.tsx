@@ -72,14 +72,11 @@ describe("MemoryTagsNavigator", () => {
     const callbacks = { ...props(), tag: "赵六" };
     render(<MemoryTagsNavigator {...callbacks} />);
     fireEvent.click(await screen.findByRole("button", { name: /Orion owner/ }));
-    expect(callbacks.onOpenFile).toHaveBeenCalledWith(
-      {
-        source: "workspace",
-        root: "workspace",
-        path: "resources/orion.md",
-      },
-      "resources/orion.md",
-    );
+    expect(callbacks.onOpenFile).toHaveBeenCalledWith({
+      source: "workspace",
+      root: "workspace",
+      path: "resources/orion.md",
+    });
     expect(screen.getByText("files.memoryTagFilesCount:1")).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "files.memoryTagsAll" }),
@@ -148,6 +145,31 @@ describe("MemoryTagsNavigator", () => {
       ).toHaveAttribute("aria-current", "true");
     },
   );
+
+  it("highlights a daily result reused from a legacy memory tab", async () => {
+    vi.mocked(agentsApi.getMemoryTagFiles).mockResolvedValue({
+      ...files,
+      items: [
+        {
+          ...files.items[0],
+          source: "daily",
+          path: "memory/note.md",
+          relative_path: "note.md",
+        },
+      ],
+    });
+    render(
+      <MemoryTagsNavigator
+        {...props()}
+        tag="赵六"
+        selectedSource="memory"
+        selectedPath="note.md"
+      />,
+    );
+    expect(
+      await screen.findByRole("button", { name: /Orion owner/ }),
+    ).toHaveAttribute("aria-current", "true");
+  });
 
   it("reports an unavailable index and retries instead of showing zero files", async () => {
     vi.mocked(agentsApi.getMemoryTagFiles).mockRejectedValueOnce(

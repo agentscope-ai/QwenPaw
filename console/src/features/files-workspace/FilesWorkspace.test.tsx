@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesWorkspace from "./FilesWorkspace";
 import { notifyProjectDirectoryChanged } from "../project-directory/projectDirectoryChangeEvent";
 import type { EditorTab } from "../../stores/codingTabsStore";
+import type { FileTarget } from "./types";
 import { agentsApi } from "../../api/modules/agents";
 
 const lifecycle = vi.hoisted(() => ({
@@ -24,7 +25,7 @@ const lifecycle = vi.hoisted(() => ({
   navigatorProps: null as {
     memoryTagsActive?: boolean;
     memoryTagsPanel?: ReactNode;
-    onSelect: (target: { source: "workspace"; path: string }) => void;
+    onSelect: (target: FileTarget) => void;
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
   } | null,
@@ -111,7 +112,7 @@ vi.mock("./FilesNavigator", () => ({
   default: function MockFilesNavigator(props: {
     memoryTagsActive?: boolean;
     memoryTagsPanel?: ReactNode;
-    onSelect: (target: { source: "workspace"; path: string }) => void;
+    onSelect: (target: FileTarget) => void;
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
   }) {
@@ -216,6 +217,153 @@ describe("FilesWorkspace directory changes", () => {
     },
   );
 
+  it.each(["daily", "digest", "memory"] as const)(
+    "reuses a dirty %s buffer when opening its Workspace alias",
+    async (source) => {
+      const directory = source === "digest" ? "digest" : "memory";
+      lifecycle.tabs = [
+        {
+          path: `${source}::note.md`,
+          displayPath: "note.md",
+          source,
+          content: "Unsaved memory",
+          dirty: true,
+        },
+      ];
+      lifecycle.activeTabPath = lifecycle.tabs[0].path;
+      render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+      act(
+        () =>
+          lifecycle.navigatorProps?.onSelect({
+            source: "workspace",
+            path: `${directory}/note.md`,
+            root: "workspace",
+          }),
+      );
+      await waitFor(() =>
+        expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+          "agent:agent-a",
+          `${source}::note.md`,
+        ),
+      );
+      expect(lifecycle.openTab).not.toHaveBeenCalled();
+      expect(lifecycle.loadFileText).not.toHaveBeenCalled();
+      expect(lifecycle.setTabContent).not.toHaveBeenCalled();
+    },
+  );
+
+  it("recognizes persisted memory tab identities without optional metadata", async () => {
+    lifecycle.tabs = [
+      { path: "memory::note.md", content: "Unsaved memory", dirty: true },
+    ];
+    lifecycle.activeTabPath = "memory::note.md";
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    act(
+      () =>
+        lifecycle.navigatorProps?.onSelect({
+          source: "workspace",
+          root: "workspace",
+          path: "memory/note.md",
+        }),
+    );
+    await waitFor(() =>
+      expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+        "agent:agent-a",
+        "memory::note.md",
+      ),
+    );
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+  });
+
+  it("waits for memory directories before resolving an initial Workspace alias", async () => {
+    let finish!: (
+      value: Awaited<ReturnType<typeof agentsApi.getAgent>>,
+    ) => void;
+    vi.mocked(agentsApi.getAgent).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    lifecycle.tabs = [
+      {
+        path: "digest::note.md",
+        displayPath: "note.md",
+        source: "digest",
+        content: "Unsaved memory",
+        dirty: true,
+      },
+    ];
+    lifecycle.activeTabPath = lifecycle.tabs[0].path;
+    render(
+      <FilesWorkspace
+        initialTarget={{
+          source: "workspace",
+          root: "workspace",
+          path: "custom/digest/note.md",
+        }}
+        scope={{ kind: "agent", agentId: "agent-a" }}
+      />,
+    );
+    await act(async () => {});
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+    await act(async () =>
+      finish({
+        id: "agent-a",
+        name: "Agent A",
+        running: {
+          memory_manager_backend: "remelight",
+          reme_light_memory_config: { digest_dir: "custom/digest" },
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+        "agent:agent-a",
+        "digest::note.md",
+      ),
+    );
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+    expect(agentsApi.getAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers a dirty memory alias over an existing clean Workspace buffer", async () => {
+    lifecycle.tabs = [
+      {
+        path: "workspace-root::memory/note.md",
+        displayPath: "memory/note.md",
+        source: "workspace",
+        workspaceRoot: "workspace",
+        content: "Saved memory",
+        dirty: false,
+      },
+      {
+        path: "daily::note.md",
+        displayPath: "note.md",
+        source: "daily",
+        content: "Unsaved memory",
+        dirty: true,
+      },
+    ];
+    lifecycle.activeTabPath = "daily::note.md";
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    act(
+      () =>
+        lifecycle.navigatorProps?.onSelect({
+          source: "workspace",
+          path: "memory/note.md",
+          root: "workspace",
+        }),
+    );
+    await waitFor(() =>
+      expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+        "agent:agent-a",
+        "daily::note.md",
+      ),
+    );
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+    expect(lifecycle.setTabContent).not.toHaveBeenCalled();
+  });
+
   it("keeps a dirty document mounted while browsing a tag and opening a result", async () => {
     lifecycle.tabs = [
       {
@@ -277,6 +425,17 @@ describe("FilesWorkspace directory changes", () => {
   ] as const)(
     "reuses a dirty workspace tab when opening a tag result: %j",
     async ({ source, hasCleanAlias }) => {
+      vi.mocked(agentsApi.getAgent).mockResolvedValue({
+        id: "agent-a",
+        name: "Agent A",
+        running: {
+          memory_manager_backend: "remelight",
+          reme_light_memory_config: {
+            daily_dir: "custom-daily",
+            digest_dir: "custom-digest",
+          },
+        },
+      });
       const path = `custom-${source}/note.md`;
       const existing: EditorTab = {
         path: `workspace-root::${path}`,

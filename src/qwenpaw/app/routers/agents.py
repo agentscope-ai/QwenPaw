@@ -24,6 +24,7 @@ from ...agents.memory.reme_embedding import (
     EmbeddingReindexUnavailableError,
 )
 from ...agents.memory.action_provider import MemoryActionProvider
+from ...agents.memory.reme_tags import MAX_MEMORY_TAG_QUERY_LENGTH
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..mail.driver_config import (
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
@@ -1745,7 +1746,11 @@ async def get_agent_memory_tags(
 async def get_agent_memory_tag_files(
     agentId: str,
     request: Request,
-    tag: str = Query(..., min_length=1, max_length=64),
+    tag: str = Query(
+        ...,
+        min_length=1,
+        max_length=MAX_MEMORY_TAG_QUERY_LENGTH,
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
 ) -> MemoryTagFilePage:

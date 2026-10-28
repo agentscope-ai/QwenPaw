@@ -60,7 +60,7 @@ from .reme_reranker import (
     rerank_and_cap_response,
     rerank_search_results,
 )
-from .reme_tags import list_tag_files
+from .reme_tags import MAX_MEMORY_TAG_QUERY_LENGTH, list_tag_files
 from ..model_factory import create_model_and_formatter_async
 from ...app.inbox_store import append_event as append_inbox_event
 from ...app.crons.contracts import ServiceCronJob
@@ -102,7 +102,11 @@ _HOST_MEMORY_ACTIONS: dict[str, MemoryActionSpec] = {
         "parameters": {
             "type": "object",
             "properties": {
-                "tag": {"type": "string", "minLength": 1, "maxLength": 64},
+                "tag": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_MEMORY_TAG_QUERY_LENGTH,
+                },
                 "page": {"type": "integer", "minimum": 1},
                 "page_size": {
                     "type": "integer",
