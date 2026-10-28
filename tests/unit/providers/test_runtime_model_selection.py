@@ -126,6 +126,66 @@ async def test_capability_probe_targets_executing_model(models, media_type):
     )
 
 
+@pytest.mark.parametrize("known", [False, True])
+async def test_hub_token_wrapper_preserves_executing_identity(
+    models,
+    monkeypatch,
+    known,
+):
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    _config, manager = models
+    slot = ModelSlotConfig(provider_id="hub-managed", model="selected:tag")
+    info = ModelInfo(
+        id=slot.model,
+        name="Managed vision",
+        supports_image=True if known else None,
+        supports_video=True if known else None,
+        supports_multimodal=True if known else None,
+    )
+    monkeypatch.setattr(
+        manager,
+        "get_provider",
+        lambda pid: SimpleNamespace(all_models=lambda: [info])
+        if pid == slot.provider_id
+        else None,
+    )
+    # This is the wrapper returned directly by the Hub model factory,
+    # without the RetryChatModel that exposes model_key on personal models.
+    model = TokenRecordingModelWrapper(
+        slot.provider_id,
+        SimpleNamespace(model=slot.model),
+    )
+    with runtime_model_context(model):
+        assert await run_sync_io(current_model_slot) == slot
+        if known:
+            assert view_media._check_multimodal_support() is True
+            manager.probe_model_multimodal.assert_not_awaited()
+        else:
+            assert (
+                await view_media._probe_multimodal_if_needed("video") is True
+            )
+            manager.probe_model_multimodal.assert_awaited_once_with(
+                slot.provider_id,
+                slot.model,
+            )
+
+
+@pytest.mark.parametrize(
+    "override",
+    ["invalid\r\nforged", {"model": ["forged\r\n"]}],
+)
+def test_invalid_override_logs_escape_line_breaks(caplog, override):
+    from qwenpaw.providers.model_selection import resolve_model_slot_override
+
+    assert resolve_model_slot_override(override) is None
+    assert caplog.records
+    for record in caplog.records:
+        assert "forged" in record.getMessage()
+        assert "\r" not in record.getMessage()
+        assert "\n" not in record.getMessage()
+
+
 @pytest.mark.parametrize(
     "outcome",
     ["complete", "error", "cross-task-close", "cancel"],

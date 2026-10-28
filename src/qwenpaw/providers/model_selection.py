@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
+from ..utils.logging import sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 _runtime_model: ContextVar[Any] = ContextVar("runtime_model", default=None)
@@ -59,8 +61,8 @@ def resolve_model_slot_override(model_slot_override: Any):
             return ModelSlotConfig.model_validate(model_slot_override)
         except (ValueError, TypeError):
             logger.warning(
-                "Ignoring invalid model_slot_override dict: %r",
-                model_slot_override,
+                "Ignoring invalid model_slot_override dict: %s",
+                sanitize_log_value(model_slot_override),
             )
     elif isinstance(model_slot_override, str):
         # Model names may themselves contain colons (e.g. version tags).
@@ -71,12 +73,12 @@ def resolve_model_slot_override(model_slot_override: Any):
                 model=model_name.strip(),
             )
         logger.warning(
-            "Ignoring invalid model_slot_override string: %r",
-            model_slot_override,
+            "Ignoring invalid model_slot_override string: %s",
+            sanitize_log_value(model_slot_override),
         )
     else:
         logger.warning(
             "Unsupported model_slot_override type: %s",
-            type(model_slot_override).__name__,
+            sanitize_log_value(type(model_slot_override).__name__),
         )
     return None

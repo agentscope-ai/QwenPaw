@@ -96,6 +96,11 @@ class TokenRecordingModelWrapper(ChatModelBase):
         self._compact_threshold = compact_threshold
 
     @property
+    def model_key(self) -> str:
+        """Expose routing identity even without an outer retry wrapper."""
+        return f"{self._provider_id}:{self.model}"
+
+    @property
     def formatter(self) -> Any:
         """Expose the wrapped model's formatter to AgentScope."""
         return self._model.formatter
