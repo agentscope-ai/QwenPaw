@@ -631,6 +631,20 @@ class TestTelegramChunkText:
 # =============================================================================
 
 
+def _fake_create_task(task):
+    """Stand in for asyncio.create_task without leaving a dangling coroutine.
+
+    ``_start_typing`` schedules ``_typing_loop``; when the scheduler is
+    mocked the coroutine is never consumed, so close it and hand back the
+    stub task the caller expects.
+    """
+    task.close()
+    return _STUB_TASK
+
+
+_STUB_TASK = MagicMock(name="stub-typing-task")
+
+
 @pytest.mark.asyncio
 class TestTelegramTypingIndicators:
     """Tests for typing indicator methods."""
@@ -681,14 +695,15 @@ class TestTelegramTypingIndicators:
         telegram_channel._show_typing = True
         telegram_channel._application = MagicMock()
 
-        with patch("asyncio.create_task") as mock_create_task:
-            mock_task = MagicMock()
-            mock_create_task.return_value = mock_task
-
+        with patch(
+            "asyncio.create_task",
+            side_effect=_fake_create_task,
+        ) as mock:
             telegram_channel._start_typing("12345")
 
             assert "12345" in telegram_channel._typing_tasks
-            mock_create_task.assert_called_once()
+            assert telegram_channel._typing_tasks["12345"] is _STUB_TASK
+            mock.assert_called_once()
 
     def test_start_typing_disabled(self, telegram_channel):
         """_start_typing should do nothing when show_typing is False."""
@@ -705,14 +720,15 @@ class TestTelegramTypingIndicators:
         old_task.done.return_value = False
         telegram_channel._typing_tasks["12345"] = old_task
 
-        with patch("asyncio.create_task") as mock_create_task:
-            new_task = MagicMock()
-            mock_create_task.return_value = new_task
-
+        with patch(
+            "asyncio.create_task",
+            side_effect=_fake_create_task,
+        ) as mock:
             telegram_channel._start_typing("12345")
 
             old_task.cancel.assert_called_once()
-            assert telegram_channel._typing_tasks["12345"] is new_task
+            assert telegram_channel._typing_tasks["12345"] is _STUB_TASK
+            mock.assert_called_once()
 
     def test_stop_typing_cancels_task(self, telegram_channel):
         """_stop_typing should cancel typing task."""

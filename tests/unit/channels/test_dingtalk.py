@@ -2895,8 +2895,15 @@ class TestDingTalkStreamMode:
         # Should complete without error
         await dingtalk_channel._stream_loop()
 
-    async def test_run_stream_forever(self, dingtalk_channel):
-        """Run stream forever should execute stream loop."""
+    def test_run_stream_forever(self, dingtalk_channel):
+        """The thread entry point must actually drive the stream loop.
+
+        Production starts ``_run_stream_forever`` in its own thread, where
+        ``asyncio.run`` is allowed to create a loop. Calling it directly
+        from a test coroutine hits "asyncio.run() cannot be called from a
+        running event loop", which the entry point swallows — so the loop
+        coroutine was never awaited and nothing was asserted.
+        """
         dingtalk_channel._stop_event.set()  # Stop immediately
 
         mock_client = MagicMock()
@@ -2904,8 +2911,21 @@ class TestDingTalkStreamMode:
         mock_client.websocket = None
         dingtalk_channel._client = mock_client
 
-        # Should complete without hanging
-        dingtalk_channel._run_stream_forever()
+        loop_entered = threading.Event()
+
+        async def fake_stream_loop():
+            loop_entered.set()
+
+        dingtalk_channel._stream_loop = fake_stream_loop
+
+        thread = threading.Thread(target=dingtalk_channel._run_stream_forever)
+        thread.start()
+        thread.join(timeout=10)
+
+        assert not thread.is_alive()
+        assert loop_entered.is_set()
+        assert dingtalk_channel._stream_event_loop is None
+        assert dingtalk_channel._stop_event.is_set()
 
     def test_ai_card_enabled(self, dingtalk_channel):
         """Check if AI card is enabled."""
