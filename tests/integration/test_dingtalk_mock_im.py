@@ -326,36 +326,57 @@ def test_dingtalk_rich_text_message_roundtrip(
         unregister_mock_provider(app_server, provider_id)
 
 
+def _dingtalk_payload_text(body: dict) -> str:
+    """Return the visible text of a sessionWebhook payload."""
+    markdown = body.get("markdown") or {}
+    if isinstance(markdown, dict) and markdown.get("text"):
+        return str(markdown["text"])
+    content = (body.get("text") or {}).get("content") or ""
+    return str(content)
+
+
 @pytest.mark.integration
 @pytest.mark.p2
-def test_dingtalk_long_reply_uses_plain_text_payload(
+def test_dingtalk_long_reply_uses_markdown_chunks(
     app_server,
     dingtalk_channel_up,  # pylint: disable=redefined-outer-name
     mock_llm,  # pylint: disable=redefined-outer-name
 ):
-    """Replies over 3500 chars are sent as msgtype=text, not markdown.
+    """Replies over 3500 chars are split into markdown chunks.
 
     Test purpose:
       - Cover the length branch in _send_via_session_webhook: texts
-        above 3500 chars skip markdown normalization and go out as a
-        plain text payload.
+        above 3500 chars are split with split_text and each piece is
+        sent as msgtype=markdown, not plain text.
 
     Test flow:
       1. Make the mock LLM reply with >3500 characters.
-      2. Push a DM; find the captured webhook post and assert
-         msgtype == "text".
+      2. Push a DM; find the captured webhook posts and assert each
+         chunk uses msgtype == "markdown".
     """
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     marker = "DTLONGREPLY"
+    y_run = "y" * 40
     srv.response_text = marker + ("y" * 4000)
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
     dingtalk_channel_up.reset_connected()
     provider_id = register_mock_provider(app_server, mock_url)
     _wait_live_connection(dingtalk_channel_up, app_server)
+
+    def _reply_bodies() -> list[dict]:
+        bodies = []
+        posts = dingtalk_channel_up.webhook_posts[before:]
+        for post in posts:
+            body = post.get("body") or {}
+            text = _dingtalk_payload_text(body)
+            if marker in text or y_run in text:
+                bodies.append(body)
+        return bodies
+
     try:
         before = len(dingtalk_channel_up.webhook_posts)
-        captured = None
+        captured: list[dict] = []
         for _ in range(4):
             _wait_live_connection_simple(dingtalk_channel_up)
             dingtalk_channel_up.push_chatbot_text(
@@ -365,21 +386,33 @@ def test_dingtalk_long_reply_uses_plain_text_payload(
                 conversation_type="1",
             )
             deadline = time.time() + 25.0
-            while time.time() < deadline and captured is None:
-                for post in dingtalk_channel_up.webhook_posts[before:]:
-                    body = post.get("body") or {}
-                    text = (body.get("text") or {}).get("content", "")
-                    if marker in text:
-                        captured = body
-                        break
+            while time.time() < deadline and not captured:
+                found = _reply_bodies()
+                if any(marker in _dingtalk_payload_text(b) for b in found):
+                    captured = found
+                    break
                 time.sleep(0.2)
-            if captured is not None:
+            if captured:
+                # Later chunks can land just after the marker chunk.
+                settle = time.time() + 2.0
+                while time.time() < settle:
+                    time.sleep(0.2)
+                    captured = _reply_bodies()
                 break
-        assert captured is not None, (
+        assert captured, (
             f"no long-reply webhook post; posts="
             f"{dingtalk_channel_up.webhook_posts[before:][-3:]}"
         )
-        assert captured.get("msgtype") == "text", captured
+        assert len(captured) >= 2, captured
+        saw_marker = False
+        for body in captured:
+            assert body.get("msgtype") == "markdown", body
+            assert "text" not in body
+            text = _dingtalk_payload_text(body)
+            assert len(text) <= 3500
+            if marker in text:
+                saw_marker = True
+        assert saw_marker
     finally:
         srv.response_text = None
         unregister_mock_provider(app_server, provider_id)
