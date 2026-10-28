@@ -15,7 +15,7 @@ from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.lifecycle import UnloadMode
 from qwenpaw.plugins.loader import PluginLoader
 
-from .timing import WAIT_TIMEOUT, wait_for_thread_progress
+from .timing import WAIT_TIMEOUT, assert_loop_progress
 
 
 @pytest.fixture
@@ -81,30 +81,21 @@ async def test_file_preparation_keeps_event_loop_responsive(
     record = await write(register)
     assert record.status == "registered"
     assert not dest.exists()
-    ticks = []
-    progress = []
+    loop = asyncio.get_running_loop()
+    saves = []
     original = provision.save_inventory
 
-    def slow_save(*args, **kwargs):
-        before = len(ticks)
-        wait_for_thread_progress(lambda: len(ticks) > before)
-        progress.append(len(ticks) > before)
+    def checked_save(*args, **kwargs):
+        assert_loop_progress(loop)
+        saves.append(True)
         return original(*args, **kwargs)
 
-    async def heartbeat():
-        while True:
-            ticks.append(None)
-            await asyncio.sleep(0.005)
-
-    monkeypatch.setattr(provision, "save_inventory", slow_save)
-    task = asyncio.create_task(heartbeat())
+    monkeypatch.setattr(provision, "save_inventory", checked_save)
     try:
         await loader.lifecycle.activate("async-files")
         assert record.instance.value == "factory"
-        assert progress and all(progress)
+        assert saves
     finally:
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
         await loader.lifecycle.unload("async-files", UnloadMode.UNINSTALL)
 
 

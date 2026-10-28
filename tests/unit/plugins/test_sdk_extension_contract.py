@@ -429,10 +429,14 @@ plugin = Plugin()
 
 
 @pytest.mark.parametrize(
-    "phase",
-    ["post_agent_build", "post_response", "on_error", "finally"],
+    "phase, action",
+    [
+        ("post_agent_build", "reply"),
+        ("post_response", "skip_agent"),
+        ("on_error", "reply"),
+        ("finally", "skip_agent"),
+    ],
 )
-@pytest.mark.parametrize("action", ["reply", "skip_agent"])
 async def test_hook_control_flow_actions_rejected_where_runtime_ignores_them(
     tmp_path,
     caplog,

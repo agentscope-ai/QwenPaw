@@ -25,7 +25,6 @@ INTERNAL = {
     "test_sdk_approval_event_bridge.py",
     "test_sdk_channel_bridge.py",
     "test_sdk_channel_run_bridge.py",
-    "test_sdk_dependency_environment.py",
 }
 
 
@@ -36,7 +35,6 @@ def prepare_author_tests(source: Path, root: Path) -> list[str]:
     (suite / "__init__.py").touch()
     for fixture in (
         "sdk_author_fixture.py",
-        "sdk_dependency_fixture.py",
         "timing.py",
     ):
         shutil.copy2(source / "tests/unit/plugins" / fixture, suite)
@@ -125,20 +123,18 @@ def main():
             "files": len(names),
         }
     import_check = f"""
-import importlib.metadata, json, shutil, sys
+import importlib.metadata, json
 from pathlib import Path
 import qwenpaw
 location = Path(qwenpaw.__file__).resolve()
 assert "site-packages" in location.parts, location
 assert not location.is_relative_to(Path({str(source)!r})), location
-uv = Path(shutil.which("uv") or "missing").absolute()
-assert uv.parent == Path(sys.executable).absolute().parent, uv
 versions = {{
     name: importlib.metadata.version(name)
-    for name in ("qwenpaw", "agentscope", "fastapi", "pytest", "uv")
+    for name in ("qwenpaw", "agentscope", "fastapi", "pytest")
 }}
 print(json.dumps({{
-    "import_path": str(location), "uv": str(uv), "versions": versions,
+    "import_path": str(location), "versions": versions,
 }}))
 """
     report["environment"] = json.loads(

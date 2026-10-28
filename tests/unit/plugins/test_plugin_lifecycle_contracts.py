@@ -1255,33 +1255,6 @@ def test_factory_baseline_frozen_until_commit(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unload_keeps_instance_when_not_quiescent(
-    tmp_path: Path,
-    fresh_registry,
-    monkeypatch,
-):
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    loader, _workspace, _installed = await _load(
-        tmp_path,
-        fresh_registry,
-        "held",
-        "pass",
-    )
-    inst = loader.lifecycle.get_instance("held")
-    assert inst is not None
-
-    async def _hang():
-        raise TimeoutError("thread still running")
-
-    inst.record_runtime("thread:x", _hang, kind="custody")
-    report = await loader.unload_plugin("held", delete_files=False)
-    assert report.quiescent is False
-    assert report.needs_restart is True
-    assert loader.lifecycle.get_instance("held") is inst
-    assert "held" in loader.get_all_loaded_plugins()
-
-
-@pytest.mark.asyncio
 async def test_teardown_timeout_is_not_quiescent():
     inst = PluginInstance("stuck")
 

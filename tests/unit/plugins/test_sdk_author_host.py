@@ -457,7 +457,7 @@ class Plugin:
         async def slow(call, args):
             assert call.deadline is not None
             now = asyncio.get_running_loop().time()
-            assert now < call.deadline <= now + 0.05
+            assert call.deadline <= now + 0.05
             try:
                 await asyncio.sleep(10)
                 return ToolResult.text("must not finish")

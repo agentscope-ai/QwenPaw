@@ -291,37 +291,40 @@ async def test_finished_call_context_cannot_start_another_model_invocation(
 
 @pytest.mark.parametrize(
     "tool_timeout, model_timeout",
-    [(2.0, 0.08), (0.08, 2.0)],
+    [(300.0, 60.0), (60.0, 300.0)],
 )
-async def test_bound_model_uses_earliest_deadline_and_closes_provider(
+async def test_bound_model_uses_earliest_deadline(
     tmp_path,
+    monkeypatch,
     tool_timeout,
     model_timeout,
 ):
-    from qwenpaw.plugins import SDKError
     from qwenpaw.plugins.testing import PluginTestHost
 
+    # Compare absolute deadlines; disk speed must not decide this test.
+    # Cancellation and owner cleanup have separate lifecycle tests.
+    # pylint: disable=protected-access
     provider_source = ASYNC_PROVIDER.replace(
         'ctx.storage.write_json("entered.json", True)',
-        (
-            'ctx.storage.write_json("entered.json", True)\n       '
-            '     ctx.storage.write_json("deadline.json", '
-            '{"remaining": call.deadline - '
-            "asyncio.get_running_loop().time() if call.deadline "
-            "is not None else None})"
-        ),
+        'ctx.storage.write_json("deadline.json", call.deadline)',
     )
     caller_source = f"""
+import asyncio
 from qwenpaw.plugins.messages import ContentBlock, Message
 from qwenpaw.plugins.tools import ToolSpec, ToolResult
 class Plugin:
     def register(self, ctx):
         async def complete(call, args):
+            started = asyncio.get_running_loop().time()
             result = await call.models.complete(
                 (Message("user", (ContentBlock(text="hold"),)),),
                 timeout={model_timeout!r},
             )
-            return ToolResult(result.content)
+            return ToolResult(result.content, metadata={{
+                "parent_deadline": call.deadline,
+                "started": started,
+                "finished": asyncio.get_running_loop().time(),
+            }})
         ctx.register_tool(ToolSpec(
             "bound_deadline", "deadline", {{"type": "object"}}, complete,
             enabled=True, timeout={tool_timeout!r},
@@ -337,7 +340,7 @@ plugin = Plugin()
                 ["providers", "storage"],
             ),
         )
-        await host.load(
+        caller = await host.load(
             package(
                 tmp_path / "caller",
                 "deadline-caller",
@@ -345,15 +348,36 @@ plugin = Plugin()
                 ["tools"],
             ),
         )
+        deadlines = []
+        managed_stream = caller._managed_stream
+
+        def observe_deadline(factory, label, **kwargs):
+            if label == "configured model request":
+                deadlines.append(kwargs.get("deadline"))
+            return managed_stream(factory, label, **kwargs)
+
+        monkeypatch.setattr(caller, "_managed_stream", observe_deadline)
         await host.configure_chat_model(
             "bound-provider",
             "bound-model",
             workspace_id="bound",
         )
-        with pytest.raises(SDKError, match="deadline"):
-            await host.call_tool("bound_deadline", {}, workspace_id="bound")
-        remaining = provider.storage.read_json("deadline.json")["remaining"]
-        assert remaining is not None and 0 < remaining <= 0.08
+        provider.storage.write_json("release.json", True)
+        result = await asyncio.wait_for(
+            host.call_tool("bound_deadline", {}, workspace_id="bound"),
+            WAIT_TIMEOUT,
+        )
+        deadline = provider.storage.read_json("deadline.json")
+        parent = result.metadata["parent_deadline"]
+        assert deadlines == [deadline]
+        assert deadline is not None and parent is not None
+        assert (
+            min(parent, result.metadata["started"] + model_timeout) <= deadline
+        )
+        assert deadline <= min(
+            parent,
+            result.metadata["finished"] + model_timeout,
+        )
         assert provider.storage.read_json("provider-closed.json") is True
         for owner in ("deadline-provider", "deadline-caller"):
             assert host.resource_snapshot(owner)["active_calls"] == 0

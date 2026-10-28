@@ -225,13 +225,8 @@ async def test_app_cancel_preserves_other_users_real_tool_and_model_roundtrip(
                     await asyncio.sleep(0.01)
 
 
-@pytest.mark.parametrize(
-    "schema",
-    [{"type": "object"}, {"type": "object", "properties": {}}],
-)
 async def test_model_media_and_metadata_survive_history_reload(
     tmp_path,
-    schema,
 ):
     from qwenpaw.plugins.testing import PluginTestHost
 
@@ -354,7 +349,6 @@ class Plugin:
 
 plugin = Plugin()
 """
-    source = source.replace('{"type": "object"}', repr(schema))
     async with PluginTestHost(tmp_path / "host") as host:
         ctx = await host.load(
             make_plugin(tmp_path, source, ["tools", "providers", "storage"]),

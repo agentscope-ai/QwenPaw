@@ -540,8 +540,10 @@ plugin = Plugin()
             assert (await host.request("POST", stop, user_id="alice")).json()[
                 "stopped"
             ] is False
-            # Let the real, unchanged five-second thread join budget expire.
-            await asyncio.sleep(5.5)
+            # Wait for actual cleanup, not a fixed scheduling allowance.
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while not ctx.storage.read_json("handler-stopped.json", False):
+                    await asyncio.sleep(0.01)
             assert ctx.storage.read_json("handler-stopped.json") is True
             before = ctx.storage.read_json("ticks.json")
             # Disk flushes and thread scheduling have no 60 ms guarantee.

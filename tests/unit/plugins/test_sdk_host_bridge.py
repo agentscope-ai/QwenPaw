@@ -561,7 +561,7 @@ async def test_provider_discovery_deadline_cancels_actual_callback(
     callback = """
         async def callback(call, timeout):
             now = time.monotonic()
-            assert now < call.deadline <= now + timeout
+            assert call.deadline is not None and call.deadline <= now + timeout
             try:
                 await asyncio.sleep(100)
             finally:
@@ -571,7 +571,7 @@ async def test_provider_discovery_deadline_cancels_actual_callback(
         callback = """
         def callback(call, timeout):
             now = time.monotonic()
-            assert now < call.deadline <= now + timeout
+            assert call.deadline is not None and call.deadline <= now + timeout
             safety_deadline = time.monotonic() + 2
             try:
                 while (

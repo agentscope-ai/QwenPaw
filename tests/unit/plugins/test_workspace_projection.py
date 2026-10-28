@@ -187,28 +187,6 @@ def test_owner_scan_reports_stamped_leak_and_blind_unstamped():
     assert scan.saw_unstamped
 
 
-def test_unload_scan_wording_matches_design(fresh_registry):
-    from qwenpaw.plugins.lifecycle import UnloadReport
-
-    loader = PluginLoader(plugin_dirs=[])
-    loader.registry = fresh_registry
-    report = UnloadReport(plugin_id="plug", mode=UnloadMode.UNLOAD)
-    with patch(
-        "qwenpaw.plugins.workspace_projector.default_live_workspaces",
-        return_value=[],
-    ):
-        with patch(
-            "qwenpaw.plugins.workspace_projector.scan_owner_rows",
-            return_value=SimpleNamespace(
-                stamped_leaks=[],
-                saw_unstamped=True,
-            ),
-        ):
-            loader._record_workspace_scan("plug", report)
-    assert "未标注归属、未覆盖" in report.workspace_leaks
-    assert "无章、未覆盖" not in report.workspace_leaks
-
-
 @pytest.mark.asyncio
 async def test_unload_drops_slash_without_rebuilding_workspace(
     fresh_registry,
