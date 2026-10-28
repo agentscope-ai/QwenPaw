@@ -6,10 +6,18 @@ Var QwenPawCliPathState
 
 Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
 
+!macro QWENPAW_RESOLVE_POWERSHELL OUT
+  StrCpy ${OUT} "powershell.exe"
+  ${If} ${FileExists} "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
+    StrCpy ${OUT} "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
+  ${EndIf}
+!macroend
+
 !macro QWENPAW_UPDATE_CLI_PATH ACTION
   InitPluginsDir
   File /oname=$PLUGINSDIR\qwenpaw-update-path.ps1 "..\..\..\..\nsis\update-qwenpaw-path.ps1"
-  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-update-path.ps1" -Action "${ACTION}" -Path "$INSTDIR\binaries\qwenpaw-backend"`
+  !insertmacro QWENPAW_RESOLVE_POWERSHELL $0
+  nsExec::ExecToStack `"$0" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-update-path.ps1" -Action "${ACTION}" -Path "$INSTDIR\binaries\qwenpaw-backend"`
   Pop $0
   Pop $1
 !macroend
@@ -102,7 +110,8 @@ Function ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
   Push $0
   Push $1
   IfFileExists "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" 0 qwenpaw_restore_done
-  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action Restore`
+  !insertmacro QWENPAW_RESOLVE_POWERSHELL $0
+  nsExec::ExecToStack `"$0" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action Restore`
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -123,7 +132,8 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   System::Call 'kernel32::GetCurrentProcessId() i .r2'
 
   qwenpaw_prepare_retry:
-  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2`
+  !insertmacro QWENPAW_RESOLVE_POWERSHELL $0
+  nsExec::ExecToStack `"$0" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2`
   Pop $0
   Pop $1
   ${If} $0 == 0
