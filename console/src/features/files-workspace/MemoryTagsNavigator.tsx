@@ -110,6 +110,7 @@ export default function MemoryTagsNavigator({
             <RefreshCw size={14} aria-hidden="true" />
           </button>
         </div>
+        <p className={styles.tagsCount}>{t("files.memoryTagsScope")}</p>
         {!loading && !failed && data && (
           <p className={styles.tagsCount} role="status">
             {t(

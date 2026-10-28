@@ -1,7 +1,8 @@
 import { renderWithProviders } from "@/test/common_setup";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { agentsApi } from "../../api/modules/agents";
 import FilesDrawer from "./FilesDrawer";
 import { workspaceApi } from "../../api/modules/workspace";
 import type { FileTarget } from "./types";
@@ -58,10 +59,54 @@ vi.mock("../../utils/downloadFileFromUrl", () => ({
 }));
 
 describe("FilesDrawer", () => {
+  beforeEach(() => {
+    vi.spyOn(agentsApi, "getAgent").mockResolvedValue({
+      id: "default",
+      name: "Default",
+      running: { memory_manager_backend: "remelight" },
+    });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
   });
+
+  it.each(["adbpg", "powercontext"])(
+    "keeps preview tags as text for %s",
+    async (backend) => {
+      vi.mocked(agentsApi.getAgent).mockResolvedValue({
+        id: "default",
+        name: "Default",
+        running: { memory_manager_backend: backend },
+      });
+      vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
+        content: "---\nmemory_tags: [Orion]\n---\n# Memory",
+        etag: "v1",
+      });
+      renderWithProviders(
+        <FilesDrawer
+          state={{
+            kind: "preview",
+            target: {
+              source: "workspace",
+              root: "workspace",
+              path: "memory/note.md",
+            },
+            trigger: null,
+          }}
+          dispatch={vi.fn()}
+          scope={{
+            kind: "session",
+            agentId: "default",
+            sessionId: "session-1",
+          }}
+        />,
+      );
+      const tag = await screen.findByText("Orion");
+      expect(tag).toBeInTheDocument();
+      expect(tag.tagName).toBe("SPAN");
+    },
+  );
 
   it("expands a memory preview and carries the clicked tag into the workspace", async () => {
     vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
@@ -91,7 +136,10 @@ describe("FilesDrawer", () => {
       );
     }
     renderWithProviders(<PreviewHarness />);
-    fireEvent.click(await screen.findByText("Orion"));
+    await waitFor(() =>
+      expect(screen.getByText("Orion").tagName).toBe("BUTTON"),
+    );
+    fireEvent.click(screen.getByText("Orion"));
     expect(await screen.findByTestId("files-workspace")).toHaveAttribute(
       "data-memory-tag",
       "Orion",

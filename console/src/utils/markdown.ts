@@ -1,4 +1,6 @@
 import { parseDocument } from "yaml";
+import { caseFold } from "unicode-case-folding";
+import { memoryTagYamlScalars } from "./memoryTagYaml";
 
 export interface FrontmatterEntry {
   key: string;
@@ -11,6 +13,10 @@ export interface ParsedMarkdownFrontmatter {
 }
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+// Python str.split() whitespace, including NEL and U+001C..U+001F.
+const TAG_WHITESPACE =
+  // eslint-disable-next-line no-control-regex
+  /[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/u;
 
 /** Split a leading YAML frontmatter block from the Markdown body. */
 export function parseMarkdownFrontmatter(
@@ -45,7 +51,12 @@ export function parseMemoryTags(content: string): string[] {
   const block = FRONTMATTER_PATTERN.exec(content)?.[1];
   if (!block) return [];
   try {
-    const document = parseDocument(block, { intAsBigInt: true });
+    const document = parseDocument(block, {
+      version: "1.1",
+      customTags: memoryTagYamlScalars,
+      intAsBigInt: true,
+      uniqueKeys: false,
+    });
     if (document.errors.length) return [];
     const value: unknown = document.toJS({ maxAliasCount: 50 })?.memory_tags;
     if (!Array.isArray(value)) return [];
@@ -53,9 +64,9 @@ export function parseMemoryTags(content: string): string[] {
     const tags: string[] = [];
     for (const item of value) {
       if (typeof item !== "string" && typeof item !== "bigint") continue;
-      const tag = String(item).trim().replace(/\s+/gu, "_");
+      const tag = String(item).split(TAG_WHITESPACE).filter(Boolean).join("_");
       if (!tag || [...tag].length > 64 || !/[\p{L}\p{N}]/u.test(tag)) continue;
-      const key = tag.toLowerCase();
+      const key = caseFold(tag);
       if (seen.has(key)) continue;
       seen.add(key);
       tags.push(tag);

@@ -45,7 +45,7 @@ const lifecycle = vi.hoisted(() => ({
   tabs: [] as EditorTab[],
   activeTabPath: "",
   editorProps: null as {
-    onMemoryTagClick: (tag: string) => void;
+    onMemoryTagClick?: (tag: string) => void;
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
     onTabClose: (path: string) => void;
@@ -143,7 +143,7 @@ vi.mock("./MemoryGraphView", () => ({
 
 vi.mock("../../pages/Coding/TabbedEditor", () => ({
   default: function MockTabbedEditor(props: {
-    onMemoryTagClick: (tag: string) => void;
+    onMemoryTagClick?: (tag: string) => void;
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
     onTabClose: (path: string) => void;
@@ -165,6 +165,11 @@ vi.mock("../../pages/Coding/GitPanel", () => ({
 describe("FilesWorkspace directory changes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(agentsApi, "getAgent").mockResolvedValue({
+      id: "agent-a",
+      name: "Agent A",
+      running: { memory_manager_backend: "remelight" },
+    });
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       value: 1024,
@@ -185,6 +190,31 @@ describe("FilesWorkspace directory changes", () => {
     lifecycle.loadFileText.mockResolvedValue({ content: "", etag: "v1" });
     lifecycle.loadMemoryFile.mockResolvedValue({ content: "" });
   });
+
+  it.each(["adbpg", "powercontext"])(
+    "hides tag navigation and preview actions for %s",
+    async (backend) => {
+      vi.mocked(agentsApi.getAgent).mockResolvedValue({
+        id: "agent-a",
+        name: "Agent A",
+        running: { memory_manager_backend: backend },
+      });
+      const tags = vi.spyOn(agentsApi, "getMemoryTags");
+      const files = vi.spyOn(agentsApi, "getMemoryTagFiles");
+      render(
+        <FilesWorkspace
+          initialMemoryTag="Orion"
+          scope={{ kind: "agent", agentId: "agent-a" }}
+        />,
+      );
+      await act(async () => {});
+      expect(lifecycle.navigatorProps?.memoryTagsActive).toBe(false);
+      expect(lifecycle.navigatorProps?.memoryTagsPanel).toBeUndefined();
+      expect(lifecycle.editorProps?.onMemoryTagClick).toBeUndefined();
+      expect(tags).not.toHaveBeenCalled();
+      expect(files).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps a dirty document mounted while browsing a tag and opening a result", async () => {
     lifecycle.tabs = [
@@ -215,7 +245,10 @@ describe("FilesWorkspace directory changes", () => {
       ],
     });
     render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
-    act(() => lifecycle.editorProps?.onMemoryTagClick("赵六"));
+    await waitFor(() =>
+      expect(lifecycle.editorProps?.onMemoryTagClick).toBeDefined(),
+    );
+    act(() => lifecycle.editorProps?.onMemoryTagClick?.("赵六"));
     const result = await screen.findByRole("button", { name: /Orion owner/ });
     expect(lifecycle.editorUnmounted).not.toHaveBeenCalled();
     expect(lifecycle.closeTab).not.toHaveBeenCalled();
@@ -285,7 +318,10 @@ describe("FilesWorkspace directory changes", () => {
         ],
       });
       render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
-      act(() => lifecycle.editorProps?.onMemoryTagClick("赵六"));
+      await waitFor(() =>
+        expect(lifecycle.editorProps?.onMemoryTagClick).toBeDefined(),
+      );
+      act(() => lifecycle.editorProps?.onMemoryTagClick?.("赵六"));
       const result = await screen.findByRole("button", {
         name: /Tagged memory/,
       });
@@ -337,7 +373,10 @@ describe("FilesWorkspace directory changes", () => {
         ],
       });
       render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
-      act(() => lifecycle.editorProps?.onMemoryTagClick("赵六"));
+      await waitFor(() =>
+        expect(lifecycle.editorProps?.onMemoryTagClick).toBeDefined(),
+      );
+      act(() => lifecycle.editorProps?.onMemoryTagClick?.("赵六"));
       const result = await screen.findByRole("button", {
         name: /Tagged memory/,
       });

@@ -61,8 +61,10 @@ export const agentsApi = {
   listAgents: () => request<AgentListResponse>("/agents"),
 
   // Get agent details
-  getAgent: (agentId: string) =>
-    request<AgentProfileConfig>(`/agents/${agentId}`),
+  getAgent: (agentId: string, signal?: AbortSignal) =>
+    signal
+      ? request<AgentProfileConfig>(`/agents/${agentId}`, { signal })
+      : request<AgentProfileConfig>(`/agents/${agentId}`),
 
   // Create new agent
   createAgent: (agent: CreateAgentRequest) =>

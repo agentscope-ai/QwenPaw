@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { parseMemoryTags } from "./markdown";
+import { caseFold } from "unicode-case-folding";
+import contract from "../../../tests/fixtures/memory_tags_contract.json";
 
 describe("memory tag parsing", () => {
+  it.each(contract)(
+    "matches the ReMe contract: $name",
+    ({ frontmatter, display, canonical }) => {
+      const tags = parseMemoryTags(`---\n${frontmatter}\n---\nBody`);
+      expect(tags).toEqual(display);
+      expect(tags.map(caseFold)).toEqual(canonical);
+    },
+  );
   it.each([
     'memory_tags: ["赵六", "Orion"]',
     "memory_tags:\n- 赵六\n- Orion",
@@ -30,7 +40,7 @@ describe("memory tag parsing", () => {
   it("keeps integer tags exact and excludes YAML floats like the index", () => {
     expect(
       parseMemoryTags(
-        "---\nmemory_tags: [1.0, 1e3, 9007199254740993, 2026]\n---\n",
+        "---\nmemory_tags: [1.0, 1.0e+3, 9007199254740993, 2026]\n---\n",
       ),
     ).toEqual(["9007199254740993", "2026"]);
   });

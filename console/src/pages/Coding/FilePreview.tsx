@@ -355,6 +355,7 @@ function MarkdownPreview({
                           className={styles.memoryTag}
                           onClick={() => onMemoryTagClick(tag)}
                           aria-label={t("files.memoryTagBrowse", { tag })}
+                          title={t("files.memoryTagBrowse", { tag })}
                         >
                           {tag}
                         </button>

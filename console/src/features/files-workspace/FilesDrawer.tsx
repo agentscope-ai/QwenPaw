@@ -27,6 +27,7 @@ import { copyText } from "../../utils/clipboard";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
+import { useMemoryTagSupport } from "./useMemoryTagSupport";
 import styles from "./FilesWorkspace.module.less";
 
 const PREVIEW_WIDTH_STORAGE_KEY = "qwenpaw-files-preview-width";
@@ -84,6 +85,7 @@ export default function FilesDrawer({
   const prefersReducedMotion = useReducedMotion();
   const isWorkspace = state.kind === "workspace";
   const agentId = scope.agentId;
+  const memoryTagsSupported = useMemoryTagSupport(agentId);
   const chatId = scope.chatId;
   const projectDirOverride = scope.projectDirOverride;
   const target = state.target;
@@ -463,6 +465,7 @@ export default function FilesDrawer({
                     projectDirOverride={projectDirOverride}
                     workspaceBacked={target.source === "workspace"}
                     onMemoryTagClick={
+                      memoryTagsSupported &&
                       !target.artifactUrl &&
                       (target.source === "memory" ||
                         target.source === "daily" ||

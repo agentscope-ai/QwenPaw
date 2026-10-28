@@ -311,6 +311,11 @@ With ReMe Light, select **Tags** beside Workspace, Profile, Daily and Knowledge
 Base to see tags and their file counts. Select a tag to browse matching files,
 or click a tag in a memory file's preview to open the same list. Results are
 paginated, and opening a result reuses the existing file editor.
+Tag browsing searches the existing memory index, which automatically indexes
+the configured daily and digest directories. A preview tag can find related
+indexed memories even when the current workspace file is outside those
+directories; that file will not appear unless it has been indexed. Other
+memory backends do not expose the Tags tab or clickable preview tags.
 
 **Download workspace:**
 Click **Download** to export the entire workspace as a `.zip` to your machine.

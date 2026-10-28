@@ -21,6 +21,7 @@ import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import FilesNavigator from "./FilesNavigator";
 import MemoryGraphView from "./MemoryGraphView";
 import MemoryTagsNavigator from "./MemoryTagsNavigator";
+import { useMemoryTagSupport } from "./useMemoryTagSupport";
 import { projectRootPath, workspaceRoots } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
@@ -74,6 +75,7 @@ export default function FilesWorkspace({
   // refetch and re-activate the initial tab on unrelated re-renders.
   const scopeKind = scope.kind;
   const agentId = scope.agentId;
+  const memoryTagsSupported = useMemoryTagSupport(agentId);
   const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const projectDirOverride =
     scope.kind === "session" && !scope.chatId
@@ -532,8 +534,9 @@ export default function FilesWorkspace({
   }, [initialTarget, initialMemoryTag, openTarget]);
 
   useEffect(() => {
-    if (initialMemoryTag) showMemoryTag(initialMemoryTag);
-  }, [initialMemoryTag, scopeKey, showMemoryTag]);
+    if (initialMemoryTag && memoryTagsSupported)
+      showMemoryTag(initialMemoryTag);
+  }, [initialMemoryTag, memoryTagsSupported, scopeKey, showMemoryTag]);
 
   useEffect(() => {
     if (!activeTabPath || revalidatedScope.current === scopeKey) return;
@@ -631,34 +634,36 @@ export default function FilesWorkspace({
               setMemoryTagsActive(false);
               setMemoryGraphRoot(null);
             }}
-            memoryTagsActive={memoryTagsActive}
+            memoryTagsActive={memoryTagsSupported && memoryTagsActive}
             onShowMemoryTags={() => setMemoryTagsActive(true)}
             memoryTagsPanel={
-              <MemoryTagsNavigator
-                key={`${scopeKey}:${selectedMemoryTag ?? ""}`}
-                agentId={agentId}
-                tag={selectedMemoryTag}
-                revision={memoryTagsRevision}
-                selectedPath={activeTab?.displayPath ?? ""}
-                selectedSource={activeTab?.source ?? "workspace"}
-                selectedRoot={activeTab?.workspaceRoot}
-                onSelectTag={setSelectedMemoryTag}
-                onOpenFile={(target, workspacePath) => {
-                  setMemoryGraphRoot(null);
-                  // Daily/digest and Workspace can refer to the same file.
-                  // Reuse its buffer, preferring unsaved changes if both exist.
-                  const matches = tabsRef.current.filter(
-                    (tab) =>
-                      tab.path === `workspace-root::${workspacePath}` ||
-                      (target.source !== "workspace" &&
-                        tab.path === `${target.source}::${target.path}`),
-                  );
-                  const existing =
-                    matches.find((tab) => tab.dirty) ?? matches[0];
-                  if (existing) activateTab(existing.path);
-                  else void openTarget(target);
-                }}
-              />
+              memoryTagsSupported ? (
+                <MemoryTagsNavigator
+                  key={`${scopeKey}:${selectedMemoryTag ?? ""}`}
+                  agentId={agentId}
+                  tag={selectedMemoryTag}
+                  revision={memoryTagsRevision}
+                  selectedPath={activeTab?.displayPath ?? ""}
+                  selectedSource={activeTab?.source ?? "workspace"}
+                  selectedRoot={activeTab?.workspaceRoot}
+                  onSelectTag={setSelectedMemoryTag}
+                  onOpenFile={(target, workspacePath) => {
+                    setMemoryGraphRoot(null);
+                    // Daily/digest and Workspace can refer to the same file.
+                    // Reuse its buffer, preferring unsaved changes if both exist.
+                    const matches = tabsRef.current.filter(
+                      (tab) =>
+                        tab.path === `workspace-root::${workspacePath}` ||
+                        (target.source !== "workspace" &&
+                          tab.path === `${target.source}::${target.path}`),
+                    );
+                    const existing =
+                      matches.find((tab) => tab.dirty) ?? matches[0];
+                    if (existing) activateTab(existing.path);
+                    else void openTarget(target);
+                  }}
+                />
+              ) : undefined
             }
           />
         </div>
@@ -732,7 +737,7 @@ export default function FilesWorkspace({
             chatId={chatId}
             projectDirOverride={projectDirOverride}
             navigation={editorNavigation}
-            onMemoryTagClick={showMemoryTag}
+            onMemoryTagClick={memoryTagsSupported ? showMemoryTag : undefined}
             onFileSaved={() => setMemoryTagsRevision((value) => value + 1)}
             onDownloadFile={async (path) => {
               const tab = tabsRef.current.find((item) => item.path === path);
