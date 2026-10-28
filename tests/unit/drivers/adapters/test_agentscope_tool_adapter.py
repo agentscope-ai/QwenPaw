@@ -8,12 +8,14 @@ build_driver_agent_tools, which previously sat at 0% coverage.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-
+import pytest
 from agentscope.message import ToolResultState
 from agentscope.permission import PermissionBehavior
+from mcp.types import AudioContent, CallToolResult, ImageContent, TextContent
 
 from qwenpaw.drivers.adapters import agentscope_tool as at
 from qwenpaw.drivers.capabilities import (
@@ -38,6 +40,23 @@ def _capability(name="cap", tool_name="", as_tool=True):
         description=f"desc {name}",
         input_schema={"type": "object"},
         exposure=exposure,
+    )
+
+
+def _convert(result: CallToolResult) -> dict:
+    chunk = at._tool_chunk_from_driver_result(
+        DriverInvocationResult(
+            ok=True,
+            value=result,
+            metadata={"driver": "mcp"},
+        ),
+    )
+    return chunk.model_dump(
+        mode="json",
+        exclude={
+            "id": True,
+            "content": {"__all__": {"id", "created_at", "finished_at"}},
+        },
     )
 
 
@@ -81,33 +100,17 @@ class TestStringify:
 
 class TestBlocksFromMcpContent:
     def test_text_item(self):
-        item = SimpleNamespace(
-            text="hi",
-            data=None,
-            mimeType=None,
-            resource=None,
-        )
+        item = TextContent(type="text", text="hi")
         blocks = at._blocks_from_mcp_content([item])
         assert len(blocks) == 1
         assert blocks[0].text == "hi"
-
-    def test_data_item(self):
-        item = SimpleNamespace(
-            text=None,
-            data="aGk=",
-            mimeType="image/png",
-            resource=None,
-        )
-        blocks = at._blocks_from_mcp_content([item])
-        assert len(blocks) == 1
-        assert blocks[0].type == "data"
 
     def test_resource_text_item(self):
         resource = SimpleNamespace(text="resource body")
         item = SimpleNamespace(
             text=None,
             data=None,
-            mimeType=None,
+            mime_type=None,
             resource=resource,
         )
         blocks = at._blocks_from_mcp_content([item])
@@ -119,7 +122,7 @@ class TestBlocksFromMcpContent:
         item = SimpleNamespace(
             text=None,
             data=None,
-            mimeType=None,
+            mime_type=None,
             resource=resource,
         )
         blocks = at._blocks_from_mcp_content([item])
@@ -147,47 +150,16 @@ class TestBlocksFromValue:
         assert blocks[0].text == "raw result"
 
     def test_mcp_call_result_expanded(self):
-        value = SimpleNamespace(
-            content=[
-                SimpleNamespace(
-                    text="x",
-                    data=None,
-                    mimeType=None,
-                    resource=None,
-                ),
-            ],
-            isError=False,
-            structuredContent=None,
+        value = CallToolResult(
+            content=[TextContent(type="text", text="x")],
         )
         blocks = at._blocks_from_value(value)
-        assert len(blocks) == 1
-        assert blocks[0].text == "x"
-
-    def test_mcp_with_structured_content_appended(self):
-        value = SimpleNamespace(
-            content=[
-                SimpleNamespace(
-                    text="x",
-                    data=None,
-                    mimeType=None,
-                    resource=None,
-                ),
-            ],
-            isError=False,
-            structuredContent={"k": "v"},
-        )
-        blocks = at._blocks_from_value(value)
-        assert len(blocks) == 2
+        assert [block.text for block in blocks] == ["x"]
 
     def test_mcp_empty_content_gives_placeholder(self):
-        value = SimpleNamespace(
-            content=[],
-            isError=False,
-            structuredContent=None,
-        )
+        value = CallToolResult(content=[])
         blocks = at._blocks_from_value(value)
-        assert len(blocks) == 1
-        assert blocks[0].text == ""
+        assert [block.text for block in blocks] == [""]
 
 
 # ---------------------------------------------------------------------------
@@ -196,22 +168,84 @@ class TestBlocksFromValue:
 
 
 class TestToolChunkFromDriverResult:
+    @pytest.mark.parametrize("is_error", [False, True])
+    @pytest.mark.parametrize(
+        "structured",
+        [{"ok": True}, [1, 2], "x", 0, False],
+    )
+    def test_sdk_result_preserves_text_structure_and_state(
+        self,
+        is_error,
+        structured,
+    ):
+        result = CallToolResult.model_validate(
+            {
+                "content": [{"type": "text", "text": "summary"}],
+                "isError": is_error,
+                "structuredContent": structured,
+            },
+        )
+        assert _convert(result) == {
+            "content": [
+                {"type": "text", "text": "summary"},
+                {
+                    "type": "text",
+                    "text": structured
+                    if isinstance(structured, str)
+                    else json.dumps(structured, ensure_ascii=False, indent=2),
+                },
+            ],
+            "state": "error" if is_error else "success",
+            "is_last": True,
+            "metadata": {"driver": "mcp"},
+        }
+
+    @pytest.mark.parametrize(
+        ("content", "mime_type"),
+        [
+            (
+                ImageContent(type="image", data="YWJj", mime_type="image/png"),
+                "image/png",
+            ),
+            (
+                AudioContent(type="audio", data="YWJj", mime_type="audio/wav"),
+                "audio/wav",
+            ),
+        ],
+    )
+    def test_sdk_media_remains_a_data_block(self, content, mime_type):
+        result = CallToolResult(content=[content])
+        assert _convert(result) == {
+            "content": [
+                {
+                    "type": "data",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime_type,
+                        "data": "YWJj",
+                    },
+                    "name": None,
+                },
+            ],
+            "state": "success",
+            "is_last": True,
+            "metadata": {"driver": "mcp"},
+        }
+
+    def test_sdk_structured_only_result_is_not_wrapped_as_protocol_json(
+        self,
+    ):
+        result = CallToolResult(content=[], structured_content=["item"])
+        assert _convert(result)["content"] == [
+            {"type": "text", "text": '[\n  "item"\n]'},
+        ]
+
     def test_ok_success(self):
         result = DriverInvocationResult(ok=True, value="done")
         chunk = at._tool_chunk_from_driver_result(result)
         assert chunk.state == ToolResultState.SUCCESS
         assert chunk.is_last is True
         assert chunk.content[0].text == "done"
-
-    def test_ok_but_value_is_error(self):
-        value = SimpleNamespace(
-            content=[],
-            isError=True,
-            structuredContent=None,
-        )
-        result = DriverInvocationResult(ok=True, value=value)
-        chunk = at._tool_chunk_from_driver_result(result)
-        assert chunk.state == ToolResultState.ERROR
 
     def test_failure_result(self):
         result = DriverInvocationResult(

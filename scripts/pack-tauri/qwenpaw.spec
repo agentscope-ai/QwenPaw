@@ -142,9 +142,13 @@ datas.append((str(SRC / "modes/coding/_worker.py"), "qwenpaw/modes/coding"))
 _metadata_pkgs = [
     "qwenpaw",
     "fastmcp",
+    "fastmcp-slim",
     "mcp",
+    "mcp-types",
     "httpx",
+    "httpx2",
     "httpcore",
+    "httpcore2",
     "anyio",
     "sniffio",
     "starlette",

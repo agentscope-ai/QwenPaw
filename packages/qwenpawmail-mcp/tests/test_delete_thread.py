@@ -6,7 +6,8 @@ import re
 from unittest.mock import patch
 
 import pytest
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.exceptions import ToolError
 
 from qwenpawmail_mcp.config import load_config
 from qwenpawmail_mcp.errors import MailError
@@ -74,6 +75,7 @@ def _delete_thread(server, thread_id):
         server._tool_manager.call_tool(  # pylint: disable=protected-access
             "delete_thread",
             {"thread_id": thread_id},
+            context=Context(mcp_server=server),
             convert_result=False,
         ),
     )

@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "qwenpaw" }]
 keywords = ["mcp", "email", "imap", "smtp", "163", "netease"]
 dependencies = [
-    "mcp>=1.28,<2.0",
+    "mcp>=2.0.0",
     "imap-tools>=1.13,<2.0",
 ]
 
