@@ -9,7 +9,6 @@ import json
 import shutil
 import sys
 import threading
-import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -66,6 +65,30 @@ from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 from qwenpaw.runtime.tool_registry import ToolRegistry
 
 from .timing import WAIT_TIMEOUT, assert_loop_progress
+
+
+@pytest.fixture
+def sticky_thread():
+    """Keep a thread uncooperative until the test explicitly releases it."""
+    release = threading.Event()
+    threads = []
+
+    def spawn(api):
+        threads.append(api.spawn_thread(release.wait, "sticky"))
+
+    async def stop():
+        release.set()
+        for thread in threads:
+            await asyncio.to_thread(thread.join, WAIT_TIMEOUT)
+            assert not thread.is_alive()
+
+    try:
+        yield SimpleNamespace(spawn=spawn, stop=stop)
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(WAIT_TIMEOUT)
+            assert not thread.is_alive()
 
 
 def _write_plugin(
@@ -2972,15 +2995,12 @@ async def test_failed_register_unquiescent_keeps_module(
     tmp_path: Path,
     fresh_registry,
     monkeypatch,
+    sticky_thread,
 ):
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
     monkeypatch.setattr("qwenpaw.plugins.custody.THREAD_STOP_SECONDS", 0.15)
     body = (
-        "import time\n"
-        "        def _spin():\n"
-        "            while True:\n"
-        "                time.sleep(0.05)\n"
-        "        api.spawn_thread(_spin, 'sticky')\n"
+        "api.config['spawn_sticky'](api)\n"
         "        raise RuntimeError('register boom')"
     )
     installed = _write_plugin(
@@ -3001,21 +3021,31 @@ async def test_failed_register_unquiescent_keeps_module(
         return await real_register(*args, **kwargs)
 
     monkeypatch.setattr(loader, "_invoke_plugin_register", _count)
-    record = await loader.load_plugin(manifest, installed)
-    assert record.status == "failed"
-    assert "plugin_sticky_reg" in sys.modules
-    inst = loader.lifecycle.get_instance("sticky-reg")
-    assert inst is not None
-    assert inst.state is PluginState.FAILED
-    after = setups["n"]
-    report = await loader.lifecycle.reload("sticky-reg")
-    assert not report.ok
-    assert report.needs_restart
-    assert setups["n"] == after
-    repaired = await loader.repair_dependencies("sticky-reg")
-    assert repaired.status == "failed"
-    assert setups["n"] == after
-    assert "plugin_sticky_reg" in sys.modules
+    try:
+        record = await loader.load_plugin(
+            manifest,
+            installed,
+            config={"spawn_sticky": sticky_thread.spawn},
+        )
+        assert record.status == "failed"
+        assert "plugin_sticky_reg" in sys.modules
+        inst = loader.lifecycle.get_instance("sticky-reg")
+        assert inst is not None
+        assert inst.state is PluginState.FAILED
+        after = setups["n"]
+        report = await loader.lifecycle.reload("sticky-reg")
+        assert not report.ok
+        assert report.needs_restart
+        assert setups["n"] == after
+        repaired = await loader.repair_dependencies("sticky-reg")
+        assert repaired.status == "failed"
+        assert setups["n"] == after
+        assert "plugin_sticky_reg" in sys.modules
+
+    finally:
+        await sticky_thread.stop()
+        if loader.get_loaded_plugin("sticky-reg") is not None:
+            await loader.unload_plugin("sticky-reg", delete_files=False)
 
 
 @pytest.mark.asyncio
@@ -3418,16 +3448,14 @@ async def test_register_cancel_records_failed_and_refuses_setup(
     tmp_path: Path,
     fresh_registry,
     monkeypatch,
+    sticky_thread,
 ):
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
     monkeypatch.setattr("qwenpaw.plugins.custody.THREAD_STOP_SECONDS", 0.15)
     marker = tmp_path / "ready-cancel.txt"
     body = (
-        "import asyncio, pathlib, time\n"
-        "        def _spin():\n"
-        "            while True:\n"
-        "                time.sleep(0.05)\n"
-        "        api.spawn_thread(_spin, 'sticky')\n"
+        "import asyncio, pathlib\n"
+        "        api.config['spawn_sticky'](api)\n"
         f"        pathlib.Path({str(marker)!r}).write_text('ready')\n"
         "        return asyncio.get_running_loop().create_future()"
     )
@@ -3449,31 +3477,46 @@ async def test_register_cancel_records_failed_and_refuses_setup(
         return await real_register(*args, **kwargs)
 
     monkeypatch.setattr(loader, "_invoke_plugin_register", _count)
-    task = asyncio.create_task(loader.load_plugin(manifest, installed))
-    async with asyncio.timeout(WAIT_TIMEOUT):
-        while True:
-            if marker.is_file():
-                break
-            await asyncio.sleep(0.02)
-    assert marker.is_file()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    record = loader.get_loaded_plugin("sticky-cancel")
-    assert record is not None
-    assert record.status == "failed"
-    assert any("needs_restart" in item for item in record.diagnostics)
-    assert "plugin_sticky_cancel" in sys.modules
-    inst = loader.lifecycle.get_instance("sticky-cancel")
-    assert inst is not None
-    assert inst.state is PluginState.FAILED
-    assert inst.has_runtime_ledger()
-    after = setups["n"]
-    again = await loader.load_plugin(manifest, installed)
-    assert again.status == "failed"
-    assert setups["n"] == after
-    with pytest.raises(RuntimeError, match="not quiescent"):
-        inst.refuse_unquiescent_reregister()
+    task = asyncio.create_task(
+        loader.load_plugin(
+            manifest,
+            installed,
+            config={"spawn_sticky": sticky_thread.spawn},
+        ),
+    )
+    try:
+        async with asyncio.timeout(WAIT_TIMEOUT):
+            while True:
+                if marker.is_file():
+                    break
+                await asyncio.sleep(0.02)
+        assert marker.is_file()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        record = loader.get_loaded_plugin("sticky-cancel")
+        assert record is not None
+        assert record.status == "failed"
+        assert any("needs_restart" in item for item in record.diagnostics)
+        assert "plugin_sticky_cancel" in sys.modules
+        inst = loader.lifecycle.get_instance("sticky-cancel")
+        assert inst is not None
+        assert inst.state is PluginState.FAILED
+        assert inst.has_runtime_ledger()
+        after = setups["n"]
+        again = await loader.load_plugin(manifest, installed)
+        assert again.status == "failed"
+        assert setups["n"] == after
+        with pytest.raises(RuntimeError, match="not quiescent"):
+            inst.refuse_unquiescent_reregister()
+
+    finally:
+        await sticky_thread.stop()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if loader.get_loaded_plugin("sticky-cancel") is not None:
+            await loader.unload_plugin("sticky-cancel", delete_files=False)
 
 
 @pytest.mark.asyncio
@@ -3978,23 +4021,19 @@ async def test_failed_register_unquiescent_keeps_this_txn_create(
     tmp_path: Path,
     fresh_registry,
     monkeypatch,
+    sticky_thread,
 ):
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
     monkeypatch.setattr("qwenpaw.plugins.custody.THREAD_STOP_SECONDS", 0.15)
     dest = tmp_path / "created-sticky"
-    flag = tmp_path / "stop-sticky"
     factory = tmp_path / "factory-sticky"
     factory.mkdir()
     (factory / "note.md").write_text("v1\n", encoding="utf-8")
     body = (
         "from pathlib import Path\n"
-        "        import time\n"
         f"        dest = Path({str(dest)!r})\n"
         f"        api.provision_files(Path({str(factory)!r}), dest, '1.0.0')\n"
-        "        def _spin():\n"
-        f"            while not Path({str(flag)!r}).exists():\n"
-        "                time.sleep(0.02)\n"
-        "        api.spawn_thread(_spin, 'sticky')\n"
+        "        api.config['spawn_sticky'](api)\n"
         "        raise RuntimeError('register boom')"
     )
     installed = _write_plugin(
@@ -4007,27 +4046,32 @@ async def test_failed_register_unquiescent_keeps_this_txn_create(
     manifest = PluginManifest.from_dict(
         json.loads((installed / "plugin.json").read_text(encoding="utf-8")),
     )
-    record = await loader.load_plugin(manifest, installed)
-    assert record.status == "failed"
-    assert dest.exists()
-    inst = loader.lifecycle.get_instance("sticky-create")
-    assert inst is not None
-    assert inst.state is PluginState.FAILED
-    assert any(entry.desc.startswith("thread:") for entry in inst._runtime)
-    assert "needs_restart" in inst.diagnostics
-    assert loader.lifecycle.get_instance("sticky-create") is inst
-    flag.write_text("stop\n", encoding="utf-8")
-    deadline = time.monotonic() + WAIT_TIMEOUT
-    while time.monotonic() < deadline:
-        if not any(
-            thread.is_alive() and thread.name.endswith(":sticky")
-            for thread in threading.enumerate()
-        ):
-            break
-        time.sleep(0.02)
-    report = await loader.unload_plugin("sticky-create", delete_files=False)
-    assert report.quiescent
-    assert not dest.exists()
+    try:
+        record = await loader.load_plugin(
+            manifest,
+            installed,
+            config={"spawn_sticky": sticky_thread.spawn},
+        )
+        assert record.status == "failed"
+        assert dest.exists()
+        inst = loader.lifecycle.get_instance("sticky-create")
+        assert inst is not None
+        assert inst.state is PluginState.FAILED
+        assert any(entry.desc.startswith("thread:") for entry in inst._runtime)
+        assert "needs_restart" in inst.diagnostics
+        assert loader.lifecycle.get_instance("sticky-create") is inst
+        await sticky_thread.stop()
+        report = await loader.unload_plugin(
+            "sticky-create",
+            delete_files=False,
+        )
+        assert report.quiescent
+        assert not dest.exists()
+
+    finally:
+        await sticky_thread.stop()
+        if loader.get_loaded_plugin("sticky-create") is not None:
+            await loader.unload_plugin("sticky-create", delete_files=False)
 
 
 @pytest.mark.asyncio
@@ -4035,6 +4079,7 @@ async def test_activate_failure_unquiescent_keeps_migrate_dest(
     tmp_path: Path,
     fresh_registry,
     monkeypatch,
+    sticky_thread,
 ):
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
     monkeypatch.setattr("qwenpaw.plugins.custody.THREAD_STOP_SECONDS", 0.15)
@@ -4062,13 +4107,9 @@ async def test_activate_failure_unquiescent_keeps_migrate_dest(
         "mig-keep",
         body=(
             "from pathlib import Path\n"
-            "        import time\n"
             f"        api.provision_files(Path({str(factory_v2)!r}), "
             f"Path({str(dest)!r}), '2.0.0')\n"
-            "        def _spin():\n"
-            "            while True:\n"
-            "                time.sleep(0.05)\n"
-            "        api.spawn_thread(_spin, 'sticky')\n"
+            "        api.config['spawn_sticky'](api)\n"
             "        def _boom():\n"
             "            raise RuntimeError('startup boom')\n"
             "        api.register_startup_hook('boom', _boom)"
@@ -4077,17 +4118,29 @@ async def test_activate_failure_unquiescent_keeps_migrate_dest(
     manifest = PluginManifest.from_dict(
         json.loads((installed / "plugin.json").read_text(encoding="utf-8")),
     )
-    record = await loader.load_plugin(manifest, installed)
-    assert record.status == "failed"
-    assert (dest / "note.md").read_text(encoding="utf-8") == "v2\n"
-    inst = loader.lifecycle.get_instance("mig-keep")
-    assert inst is not None
-    assert inst.state is PluginState.FAILED
-    assert "needs_restart" in inst.diagnostics
-    loc = (load_inventory("mig-keep").get("locations") or {}).get(str(dest))
-    migrating = (loc or {}).get("migrating") or {}
-    assert migrating
-    assert migrating.get("status") != "committed"
+    try:
+        record = await loader.load_plugin(
+            manifest,
+            installed,
+            config={"spawn_sticky": sticky_thread.spawn},
+        )
+        assert record.status == "failed"
+        assert (dest / "note.md").read_text(encoding="utf-8") == "v2\n"
+        inst = loader.lifecycle.get_instance("mig-keep")
+        assert inst is not None
+        assert inst.state is PluginState.FAILED
+        assert "needs_restart" in inst.diagnostics
+        loc = (load_inventory("mig-keep").get("locations") or {}).get(
+            str(dest),
+        )
+        migrating = (loc or {}).get("migrating") or {}
+        assert migrating
+        assert migrating.get("status") != "committed"
+
+    finally:
+        await sticky_thread.stop()
+        if loader.get_loaded_plugin("mig-keep") is not None:
+            await loader.unload_plugin("mig-keep", delete_files=False)
 
 
 @pytest.mark.asyncio

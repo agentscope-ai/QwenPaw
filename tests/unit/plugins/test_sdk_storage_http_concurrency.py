@@ -169,7 +169,7 @@ async def test_cancelled_http_write_blocks_reload_until_disk_finishes(
     tmp_path,
     monkeypatch,
 ):
-    from qwenpaw.plugins import PluginBusyError
+    from qwenpaw.plugins import PluginBusyError, activity
     from qwenpaw.plugins.testing import PluginTestHost
 
     entered, release, finished = (
@@ -199,6 +199,8 @@ async def test_cancelled_http_write_blocks_reload_until_disk_finishes(
         task = None
         try:
             with monkeypatch.context() as patch:
+                # Keep successful retries on the normal budget after release.
+                patch.setattr(activity, "INTERRUPT_TIMEOUT_SECONDS", 0.2)
                 patch.setattr(os, "fsync", controlled_fsync)
                 task = asyncio.create_task(
                     host.request("PUT", path, json={"value": 9}),
