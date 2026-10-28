@@ -351,12 +351,18 @@ async def get_session_chat(ctx):
         }
     )
     request_context = values.get("request_context") or {}
+    channel = values.get("channel") or "console"
+    user_id = values.get("user_id") or getattr(ctx, "user_id", None) or None
     if request_context.get(f"_spawn_subagent"):
         session_id = request_context.get(f"parent_session_id") or session_id
+        # Console submissions keep the child's transport identity separate
+        # from the parent conversation's owner and channel.
+        channel = request_context.get("channel") or channel
+        user_id = request_context.get("user_id") or user_id
     chat_id = await manager.get_chat_id_by_session(
         session_id,
-        values.get("channel") or f"console",
-        values.get("user_id") or getattr(ctx, "user_id", None) or None,
+        channel,
+        user_id,
     )
     return await manager.get_chat(chat_id) if chat_id else None
 
