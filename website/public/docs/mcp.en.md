@@ -201,6 +201,12 @@ final billing separately; viewing, waiting or disabling MCP does not stop a run
 or its runtime charges. Tool inputs go to Baizhi Cloud and page activity reaches
 the visited sites; review the service terms and privacy information before use.
 
+Configuration example: [source](https://github.com/ctcbyzx/QwenPaw/blob/f79d5872937c06f1376c7ae010e2717d431140d6/website/public/docs/mcp.en.md).
+
+Maintained by [ctcbyzx](https://github.com/ctcbyzx), a contributor to [Chaitin's public integration guides](https://github.com/chaitin/baizhi-cloud-browser). See [other browser integrations](https://github.com/ctcbyzx/baizhi-cloud-browser).
+
+For setup help, use the [integration issue tracker](https://github.com/ctcbyzx/baizhi-cloud-browser/issues) and include the client version and a redacted error. Use the [service console](https://capybrowser.app.baizhi.cloud/) for private account or billing questions.
+
 #### Built-in Mail MCP
 
 When mail is configured for a native QwenPaw agent, the system creates and

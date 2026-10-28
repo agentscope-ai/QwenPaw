@@ -194,6 +194,12 @@ CapyBrowser）与 Baizhi Cloud Agent Toolkit 同属百智云，是分别配置�
 运行或停止计费。工具输入发送至百智云，网页操作会访问目标站点，使用前审阅服务
 条款与隐私说明。
 
+[配置示例源码](https://github.com/ctcbyzx/QwenPaw/blob/f79d5872937c06f1376c7ae010e2717d431140d6/website/public/docs/mcp.zh.md)。
+
+维护者：[ctcbyzx](https://github.com/ctcbyzx)（[Chaitin 公共接入仓](https://github.com/chaitin/baizhi-cloud-browser)贡献者）。更多接入方式见[公开接入材料](https://github.com/ctcbyzx/baizhi-cloud-browser)。
+
+配置问题可到[接入维护仓 Issues](https://github.com/ctcbyzx/baizhi-cloud-browser/issues)反馈，附客户端版本和脱敏错误信息。账号或账务问题请通过[服务控制台](https://capybrowser.app.baizhi.cloud/)处理。
+
 #### 内置邮箱 MCP
 
 为 QwenPaw 原生智能体配置邮箱后，系统会在该智能体工作区自动创建并启用
