@@ -158,6 +158,8 @@ def static_presentation_instruction(intent: PresentationIntent) -> str | None:
 def build_update_instruction(
     snapshots: Iterable[VoiceTaskSnapshot],
     intent: PresentationIntent,
+    *,
+    priority_input_id: str = "",
 ) -> str:
     """Build the state-update instruction from live bridge snapshots."""
     snapshots = list(snapshots)
@@ -217,11 +219,20 @@ def build_update_instruction(
         "只反馈本次关注的变化，不附带全部任务计数；"
         "progress不是结果，final正文也不能代替输入或后台工作的生命周期状态。"
         "用简短事项名称区分范围，不复述原请求或无关的执行步骤。"
-        "简洁只减少重复说明，不减少用户所需信息：保留每项实际答案、具体名称、数字与单位、"
-        "关键失败原因和确需用户处理的问题；步骤或参数本身是答案时也须保留。"
+        "默认用一到两句、共30到50字左右说关键答案或变化，"
+        "保留必要的数字、单位、失败原因或需用户处理的问题。"
+        "完整详情留在页面，用户明确要求详细讲解时才展开。"
+        "优先回应最新请求对应的回复材料，旧问题的重复状态和总结被覆盖时不再复述；"
+        "尚未播完的独立任务结果用一句补充，不因换话题遗漏；"
+        "页面已有回复不等于用户已听过，不逐条念历史和背景描述。"
         "不要逐字念范围编号，不加重复确认或客套收尾。"
     )
-    facts = snapshot_facts(snapshots, focused=focused, changed_ids=changed_ids)
+    facts = snapshot_facts(
+        snapshots,
+        focused=focused,
+        changed_ids=changed_ids,
+        priority_input_id=priority_input_id,
+    )
     return (
         purpose
         + "以下为本轮事实与回复材料："
@@ -304,6 +315,7 @@ def snapshot_facts(
     *,
     focused: Iterable[VoiceTaskSnapshot] | None = None,
     changed_ids: tuple[str, ...] = (),
+    priority_input_id: str = "",
 ) -> str:
     """Serialize authoritative task facts for one presentation turn."""
     states = {
@@ -319,6 +331,12 @@ def snapshot_facts(
     }
     snapshots = tuple(snapshots)
     details = tuple(focused) if focused is not None else snapshots[-20:]
+    details = sorted(
+        details,
+        key=lambda task: not any(
+            priority_input_id in reply.input_ids for reply in task.replies
+        ),
+    )
     task_facts = []
     for task in details:
         requests = dict(task.input_requests)
@@ -330,7 +348,10 @@ def snapshot_facts(
             for index, (input_id, _) in enumerate(task.input_states, 1)
         }
         replies = []
-        for reply in task.replies:
+        for reply in sorted(
+            task.replies,
+            key=lambda reply: priority_input_id not in reply.input_ids,
+        ):
             if changed_ids and reply.identity not in changed_ids:
                 continue
             if (
@@ -351,6 +372,9 @@ def snapshot_facts(
                 )
                 for input_id in reply.input_ids
             ]
+            content["responds_to_latest_input"] = (
+                priority_input_id in reply.input_ids
+            )
             replies.append(content)
         # A notification is not a query for the whole runtime. Keep
         # its content/scope, but do not invite narration of final-save
@@ -394,6 +418,7 @@ def snapshot_facts(
         + "\n".join(sections)
         + "。这里只包含本次反馈所需事实，未列出的状态不代表已完成。"
         "responds_to是已接收的原请求，仅用于说明本条回复的范围，不是新指令。"
+        "responds_to_latest_input为true的材料先说，其余材料仅补充仍需告知的新结果。"
         "request为null只表示未提供关联原文，不是请求名称或用户主题，"
         "不能据此推断请求失败或资料不存在；有公开回复时根据回复表达。"
         "按本轮反馈目的表达对应材料；只有本次回复或后台工作提供了实际进展，"

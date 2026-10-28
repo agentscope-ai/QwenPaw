@@ -700,7 +700,8 @@ async def test_configured_language_and_native_tools_reach_provider_session():
 
 
 @pytest.mark.asyncio
-async def test_application_speech_uses_isolated_presenter_session():
+@pytest.mark.parametrize("kind", ["rejected", "style", "update"])
+async def test_application_speech_uses_isolated_presenter_session(kind):
     provider, presenter, bridge = Provider(), Provider(), Bridge()
     coordinator, _ = build_coordinator(
         provider,
@@ -708,11 +709,28 @@ async def test_application_speech_uses_isolated_presenter_session():
         presentation_provider=presenter,
         language="en-US",
     )
+    bridge.presentation_snapshots.return_value = (
+        replace(
+            snapshot(),
+            replies=(
+                ChatReply(
+                    "message",
+                    "block",
+                    "run-1",
+                    ("input-1",),
+                    1,
+                    "progress",
+                    "先查看磁盘，然后截图。",
+                ),
+            ),
+        ),
+    )
+    coordinator._latest_user_transcript = "截图了吗？"
     await coordinator.start()
     try:
         credit = coordinator._output_credit = OutputCredit()
         result = await coordinator._present(
-            PresentationIntent("rejected"),
+            PresentationIntent(kind, user_text="请简短一点"),
             credit,
         )
 
@@ -726,6 +744,19 @@ async def test_application_speech_uses_isolated_presenter_session():
         presenter_config = presenter.connect.call_args.args[0]
         assert not presenter_config.tools
         assert '"en-US"' in presenter_config.instructions
+        if kind == "update":
+            # A pending status question is context, not a new renderer task.
+            instruction = presenter.created_messages[0][2]
+            assert "先查看磁盘，然后截图。" in instruction
+            assert '"phase": "progress"' in instruction
+            assert "截图了吗？" in instruction
+            renderer_request = presenter.created_messages[1][2]
+            assert "不是重新回答对话里的最新问句" in renderer_request
+            assert "时态、否定和条件" in renderer_request
+            assert "不能补充原文没有给出的执行事实" in renderer_request
+            bridge.enqueue_input.assert_not_awaited()
+        else:
+            assert presenter.created_messages[1][2] == "请简短一点"
     finally:
         await coordinator.close()
 
@@ -1196,6 +1227,24 @@ async def test_user_speech_preempts_application_presentation_and_pump_survives(
                 correlation_id="audio-input-2",
             ),
         )
+        # This VAD segment contained no recognized question.
+        await provider.queue.put(
+            ProviderEvent(
+                "input_transcript.failed",
+                "empty",
+                correlation_id="audio-input-2",
+            ),
+        )
+        for kind in ("response.started", "response.finished"):
+            await provider.queue.put(
+                ProviderEvent(
+                    kind,
+                    kind,
+                    {"input_item_id": "audio-input-2"},
+                    correlation_id="empty-response",
+                    response_origin="provider_auto",
+                ),
+            )
         second = await next_kind(events, "output.begin")
         assert second.data["output_id"] != first.data["output_id"]
     finally:
@@ -1203,7 +1252,7 @@ async def test_user_speech_preempts_application_presentation_and_pump_survives(
 
 
 @pytest.mark.asyncio
-async def test_close_while_user_speaks_settles_dequeued_history_waiter():
+async def test_close_while_user_speaks_settles_pending_history_waiter():
     provider, bridge = Provider(), Bridge()
     coordinator, timeline = build_coordinator(provider, bridge)
     await coordinator.start()
@@ -1215,11 +1264,130 @@ async def test_close_while_user_speaks_settles_dequeued_history_waiter():
         PresentationIntent("rejected", user_text="not admitted"),
         persist_exchange=True,
     )
-    await eventually(lambda: not coordinator._presentation_queue._direct)
+    await asyncio.sleep(0)
+    assert coordinator._presentation_queue._direct
     await asyncio.wait_for(coordinator.close(), 1)
     timeline.append_voice_exchange.assert_awaited_once()
     provider.request_response.assert_not_awaited()
     assert not coordinator._history_tasks
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply_before_receipt", [False, True])
+@pytest.mark.parametrize("asr_failed", [False, True])
+async def test_new_question_waits_for_its_reply_and_merges_pending_results(
+    reply_before_receipt,
+    asr_failed,
+):
+    provider, bridge = Provider(), Bridge()
+    old = ChatReply(
+        "summary",
+        "block",
+        "run-1",
+        ("old",),
+        1,
+        "final",
+        "截图已保存，之前还查过磁盘。",
+    )
+    disk = ChatReply(
+        "disk",
+        "block",
+        "run-1",
+        ("disk-input",),
+        3,
+        "final",
+        "这台 Mac 没有 D 盘，主磁盘剩余 227 GiB。",
+    )
+    independent = ChatReply(
+        "backup",
+        "block",
+        "run-1",
+        ("backup-input",),
+        2,
+        "final",
+        "备份已保存为 backup.zip。",
+    )
+    initial = replace(snapshot(status="responded"), replies=(old,))
+    bridge.presentation_snapshots.return_value = (initial,)
+    coordinator, _ = build_coordinator(provider, bridge)
+    await coordinator.start()
+    events = coordinator.events()
+    admitted = asyncio.get_running_loop().create_future()
+    bridge.enqueue_input.return_value = VoiceAdmissionHandle(admitted)
+    try:
+        await provider.queue.put(
+            ProviderEvent("speech.started", "start", correlation_id="new"),
+        )
+        await next_kind(events, "speech.started")
+        await coordinator._queue_presentation(
+            PresentationIntent("update", changed_ids=(old.identity,)),
+            persist_exchange=False,
+        )
+        await provider.queue.put(
+            ProviderEvent(
+                "input_transcript.failed",
+                "failed",
+                correlation_id="new",
+            )
+            if asr_failed
+            else transcript("new", "D盘呢？"),
+        )
+        await provider.queue.put(
+            ProviderEvent("speech.stopped", "stop", correlation_id="new"),
+        )
+        for kind in ("response.started", "response.finished"):
+            await provider.queue.put(
+                ProviderEvent(
+                    kind,
+                    kind,
+                    {"input_item_id": "new", "had_tool_call": True},
+                    correlation_id="native-response",
+                    response_origin="provider_auto",
+                ),
+            )
+        await provider.queue.put(
+            tool_call("disk-call", "D盘呢？", source_id="new"),
+        )
+        await eventually(lambda: bridge.enqueue_input.await_count == 1)
+        # A late result from another input must neither unlock old speech
+        # nor be discarded when the newest answer eventually arrives.
+        intermediate = replace(initial, version=2, replies=(old, independent))
+        bridge.presentation_snapshots.return_value = (intermediate,)
+        await bridge.queue.put(VoiceTaskEvent(intermediate))
+        await next_kind(events, "agent.task.updated")
+        await asyncio.sleep(0.01)
+        provider.request_response.assert_not_awaited()
+
+        current = replace(
+            intermediate,
+            version=3,
+            replies=(old, independent, disk),
+            input_states=(("disk-input", "completed"),),
+            input_requests=(("old", "有哪些任务？"), ("disk-input", "D盘呢？")),
+        )
+        if not reply_before_receipt:
+            admitted.set_result(replace(receipt(), input_id="disk-input"))
+            await eventually(
+                lambda: coordinator._latest_input_id == "disk-input",
+            )
+            provider.request_response.assert_not_awaited()
+        bridge.presentation_snapshots.return_value = (current,)
+        await bridge.queue.put(VoiceTaskEvent(current))
+        await next_kind(events, "agent.task.updated")
+        if reply_before_receipt:
+            await asyncio.sleep(0.01)
+            provider.request_response.assert_not_awaited()
+            admitted.set_result(replace(receipt(), input_id="disk-input"))
+        await next_kind(events, "output.begin")
+        system = provider.created_messages[-2][2]
+        assert system.index(disk.text) < system.index(old.text)
+        assert independent.text in system
+        assert '"responds_to_latest_input": true' in system
+        assert "共30到50字左右" in system
+        assert "不能改成正在执行或已经完成" in provider.created_messages[-1][2]
+        assert provider.request_response.await_count == 1
+    finally:
+        await coordinator.close()
 
 
 @pytest.mark.asyncio
@@ -1438,6 +1606,23 @@ async def test_cancelled_response_drops_late_media_but_tracks_terminal():
         await provider.queue.put(
             ProviderEvent("speech.stopped", "stop", correlation_id="user-1"),
         )
+        await provider.queue.put(
+            ProviderEvent(
+                "input_transcript.failed",
+                "empty",
+                correlation_id="user-1",
+            ),
+        )
+        for kind in ("response.started", "response.finished"):
+            await provider.queue.put(
+                ProviderEvent(
+                    kind,
+                    kind,
+                    {"input_item_id": "user-1"},
+                    correlation_id="empty-response",
+                    response_origin="provider_auto",
+                ),
+            )
         await coordinator._queue_presentation(
             PresentationIntent("update"),
             persist_exchange=False,

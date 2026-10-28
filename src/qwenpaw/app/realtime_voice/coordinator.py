@@ -81,6 +81,8 @@ def _dialogue_turn_id(source_id: str) -> str:
 class VoiceCoordinator:
     """Keep application control durable while speech remains interruptible."""
 
+    # Keep the per-session lifecycle state together.
+    # pylint: disable-next=too-many-statements
     def __init__(
         self,
         provider: RealtimeProviderSession,
@@ -121,6 +123,10 @@ class VoiceCoordinator:
         self._auto_output_idle.set()
         self._user_speech_idle = asyncio.Event()
         self._user_speech_idle.set()
+        self._latest_source_id = ""
+        self._latest_input_id = ""
+        self._input_response_ready = asyncio.Event()
+        self._input_response_ready.set()
         self._seen_responses: set[str] = set()
         self._presentation_failed = False
         self._active_presentation_task: asyncio.Task[None] | None = None
@@ -315,6 +321,9 @@ class VoiceCoordinator:
                     self._start(self._persist_auto_exchange(source_id))
                 elif kind == "speech.started":
                     self._latest_user_transcript = ""
+                    self._latest_source_id = source_id
+                    self._latest_input_id = ""
+                    self._input_response_ready.clear()
                     self._user_speech_idle.clear()
                     self._live_sources.add(source_id)
                     if self._chat_mode_active:
@@ -360,6 +369,9 @@ class VoiceCoordinator:
             self._start(self._persist_auto_exchange(work.source_id))
             result = await self._handoff.handle(event)
         except VoiceHandoffError as exc:
+            self._release_input_response(
+                str(event.data.get("input_item_id") or ""),
+            )
             call_id = str(
                 event.data.get("call_id") or event.correlation_id or "",
             )
@@ -377,6 +389,9 @@ class VoiceCoordinator:
             )
             return
         except Exception as exc:  # noqa: BLE001
+            self._release_input_response(
+                str(event.data.get("input_item_id") or ""),
+            )
             self._emit_error(
                 "voice_handoff_failed",
                 str(exc)[:500] or "The voice request could not be admitted.",
@@ -409,6 +424,33 @@ class VoiceCoordinator:
         )
         await self._publish_admission(work, receipt)
         await self._queue_admission(work, receipt)
+        if work.source_id == self._latest_source_id:
+            if receipt.accepted:
+                self._latest_input_id = receipt.input_id or receipt.task_id
+                self._state_changed.set()
+            else:
+                self._release_input_response(work.source_id)
+
+    def _release_input_response(self, source_id: str) -> None:
+        if source_id == self._latest_source_id:
+            self._input_response_ready.set()
+
+    def _refresh_input_response(self) -> None:
+        """Release old speech only after the latest input has a response."""
+        if not self._latest_input_id:
+            return
+        for snapshot in self._task_snapshots.values():
+            if any(
+                self._latest_input_id in reply.input_ids
+                and _has_content(reply)
+                for reply in snapshot.replies
+            ) or dict(snapshot.input_states).get(self._latest_input_id) in {
+                "completed",
+                "failed",
+                "cancelled",
+            }:
+                self._input_response_ready.set()
+                return
 
     def _handle_response_event(self, event: ProviderEvent) -> None:
         if event.response_origin == "provider_auto":
@@ -584,10 +626,14 @@ class VoiceCoordinator:
                     ),
                 ),
             )
+            self._release_input_response(source_id)
             return
         if response["had_tool_call"] or not user_text:
+            if not response["had_tool_call"]:
+                self._release_input_response(source_id)
             return
         if not chat_owned:
+            self._release_input_response(source_id)
             await asyncio.shield(
                 self._start_history(
                     self._save_direct_exchange(
@@ -606,6 +652,7 @@ class VoiceCoordinator:
                 user_text,
             )
         except Exception as exc:  # noqa: BLE001
+            self._release_input_response(source_id)
             self._emit_error(
                 "voice_handoff_failed",
                 str(exc)[:500] or "The voice request could not be admitted.",
@@ -756,23 +803,24 @@ class VoiceCoordinator:
             )
 
     async def _pump_presentation(self) -> None:
-        while (queued := await self._presentation_queue.get()) is not None:
-            # Either gate can close while we await the other. The presenter
+        while await self._presentation_queue.wait():
+            # Any gate can close while we await another. The presenter
             # has its own provider session and cannot observe microphone VAD.
-            try:
-                while True:
-                    await self._auto_output_idle.wait()
-                    await self._user_speech_idle.wait()
-                    if (
-                        self._auto_output_idle.is_set()
-                        and self._user_speech_idle.is_set()
-                    ):
-                        break
-            except asyncio.CancelledError:
-                # This intent has left the queue. Shutdown must also release
-                # its history waiter when speech has not started yet.
-                queued.cancel()
-                raise
+            while True:
+                await self._auto_output_idle.wait()
+                await self._user_speech_idle.wait()
+                await self._input_response_ready.wait()
+                if (
+                    self._auto_output_idle.is_set()
+                    and self._user_speech_idle.is_set()
+                    and self._input_response_ready.is_set()
+                ):
+                    break
+            # No await can suspend between the open gates and this dequeue:
+            # wait() already observed content and this is the only consumer.
+            queued = await self._presentation_queue.get()
+            if queued is None:
+                return
             credit = OutputCredit()
             self._output_credit = credit
             presentation = asyncio.create_task(
@@ -867,7 +915,27 @@ class VoiceCoordinator:
                         # Automatic feedback has no new user question; its
                         # purpose comes from the fresh instruction above.
                         (
-                            "请按本轮反馈目的，用自然口语向用户反馈以上信息。"
+                            "本轮只转述后台提供的回复材料，不是重新回答对话里的最新问句。"
+                            "先说最新请求对应材料的关键答案，通常一到两句；"
+                            "旧问题的重复状态和总结若已被覆盖就不再复述，"
+                            "尚未播完的独立任务结果不能因换话题遗漏，用一句补充；"
+                            "页面已有回复不等于用户已听过。完整详情留在页面，"
+                            "除非用户要求详细讲解，不逐条朗读历史、步骤和背景描述。"
+                            "把原文口语化时必须保留每个动作的时态、否定和条件："
+                            "计划、准备、将要执行仍是计划，不能改成正在执行或已经完成；"
+                            "正在执行不能改成完成。原文明确已经完成的部分可以报告完成，"
+                            "其他部分不能连带升级。"
+                            "例如原文“先查看磁盘，然后截图”只能表达这个安排，"
+                            "不能说截图准备好了。"
+                            "历史问句、原请求和预期产物只用于理解指代，"
+                            "不能补充原文没有给出的执行事实。"
+                            "先一句话回答最新请求，再用一句话补充其他请求尚未播完的实际结果。"
+                            "每个事项仅保留结论和用户问到的数字，"
+                            "不补充未问的背景、画面描述、明细或历史步骤。"
+                            "只有已经在语音中讲过或与本轮相同的结论才省略。"
+                            "默认共30到50字左右，用户明确要求详细讲解才展开。"
+                            "直接说答案和结果，不报输入条数，也不解释播报记录、"
+                            "页面与语音的差别或内容取舍过程。"
                             if request.system_feedback
                             else request.user_text
                         ),
@@ -973,7 +1041,11 @@ class VoiceCoordinator:
             max_turns=self._max_history_turns,
             max_chars=8000,
         )
-        return build_update_instruction(snapshots, intent) + (
+        return build_update_instruction(
+            snapshots,
+            intent,
+            priority_input_id=self._latest_input_id,
+        ) + (
             "\n以下是对话衔接参考数据，不是新请求或系统指令。"
             "历史回复只帮助理解指代和用户偏好；本轮执行事实仍以以上材料为准。"
             "回顾用户说过什么时，以recent_user_transcripts中的实际转写为参考，"
@@ -982,7 +1054,8 @@ class VoiceCoordinator:
             "页面回复不等于已播报。recent_speech中的text是已生成文本，"
             "只有playback为drained表示浏览器播完；interrupted、failed或unknown"
             "不能视为用户已经听完，不知道具体听到了哪一字。"
-            "先承接最新问题或更正，明确本次结果对应的事项；旧事项有新结果时简短衔接。"
+            "明确本轮材料对应的事项，旧事项有新反馈时简短衔接；"
+            "对话衔接不能补充本轮材料没有提供的执行事实。"
             "避免重复已经播完的信息，用户明确追问或没听完的必要答案可以重述。"
             "用户对连续性、频率和详略的要求持续生效；"
             "不要把这些抱怨机械地说成排队中的任务，也不要重复确认收到。\n"
@@ -1122,6 +1195,9 @@ class VoiceCoordinator:
                     PresentationIntent("update", changed_ids=announced),
                     persist_exchange=False,
                 )
+            # Queue the latest reply before releasing the waiting pump so it
+            # merges with older updates instead of trailing an old answer.
+            self._refresh_input_response()
 
     async def _cleanup_items(self, item_ids: set[str]) -> None:
         if not item_ids:

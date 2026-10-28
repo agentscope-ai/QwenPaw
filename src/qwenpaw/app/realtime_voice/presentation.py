@@ -87,16 +87,21 @@ class PresentationQueue:
         self._changed.set()
         return True
 
-    async def get(self) -> PresentationIntent | None:
-        while True:
-            if self._direct:
-                return self._direct.popleft()
-            if self._coalesced:
-                return self._coalesced.popitem(last=False)[1]
+    async def wait(self) -> bool:
+        """Leave pending updates coalescible until the speaker is ready."""
+        while not (self._direct or self._coalesced):
             if self._closed:
-                return None
+                return False
             self._changed.clear()
             await self._changed.wait()
+        return True
+
+    async def get(self) -> PresentationIntent | None:
+        if not await self.wait():
+            return None
+        if self._direct:
+            return self._direct.popleft()
+        return self._coalesced.popitem(last=False)[1]
 
     def close(self) -> None:
         self._closed = True
