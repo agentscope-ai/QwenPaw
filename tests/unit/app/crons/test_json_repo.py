@@ -60,6 +60,26 @@ async def test_load_accepts_legacy_long_dispatch_ids(repo: JsonJobRepository):
     assert len(loaded.jobs[0].dispatch.target.session_id) == 257
 
 
+@pytest.mark.asyncio
+async def test_load_accepts_legacy_job_without_thinking_fields(
+    repo: JsonJobRepository,
+):
+    data = JobsFile(
+        version=1,
+        jobs=[make_cron_job_spec(job_id="legacy-thinking")],
+    ).model_dump(mode="json")
+    runtime = data["jobs"][0]["runtime"]
+    runtime.pop("thinking_level")
+    runtime.pop("thinking_budget")
+    repo.path.write_text(json.dumps(data), encoding="utf-8")
+
+    loaded = await repo.load()
+
+    runtime = loaded.jobs[0].runtime
+    assert runtime.thinking_level == "inherit"
+    assert runtime.thinking_budget is None
+
+
 # ---------------------------------------------------------------------------
 # append_history / get_history / delete_history
 # ---------------------------------------------------------------------------
