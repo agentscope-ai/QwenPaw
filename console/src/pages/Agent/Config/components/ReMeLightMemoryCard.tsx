@@ -21,6 +21,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
+import { RerankerModelCenter } from "./RerankerModelCenter";
 
 const AUTO_FIN_MAX_WINDOW_HOURS = 168;
 
@@ -920,6 +921,8 @@ export function ReMeLightMemoryCard() {
               <h4>{t("agentConfig.rerankerTitle")}</h4>
               <code>reranker-search</code>
             </div>
+
+            <RerankerModelCenter />
 
             <SettingsField
               label={t("agentConfig.rerankerEnabled")}

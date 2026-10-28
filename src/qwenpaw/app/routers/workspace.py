@@ -47,6 +47,7 @@ from ...config.utils import mutate_config
 from ...config.config import (
     AgentProfileConfig,
     EmbeddingModelConfig,
+    RerankerConfig,
     load_agent_config,
     save_agent_config,
     update_agent_config_async,
@@ -55,6 +56,7 @@ from ...agents.memory.embedding_model import (
     embedding_vector_space_fingerprint,
     test_embedding_model,
 )
+from ...agents.memory.reme_reranker import test_reranker_model
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
@@ -118,6 +120,16 @@ class EmbeddingTestResponse(BaseModel):
     actual_dimensions: int | None = None
     latency_ms: int
     message: str
+
+
+class RerankerTestResponse(BaseModel):
+    """Result of a reranker connectivity request."""
+
+    success: bool
+    latency_ms: int
+    message: str
+    scores: list[float] | None = None
+    ranking_correct: bool | None = None
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -1603,6 +1615,33 @@ async def test_embedding_configuration(
         actual_dimensions=result.actual_dimensions,
         latency_ms=result.latency_ms,
         message=message,
+    )
+
+
+@router.post(
+    "/reranker/test",
+    response_model=RerankerTestResponse,
+    summary="Test reranker configuration",
+    description=(
+        "Send a real rerank request with sample documents and report "
+        "whether the service responded correctly"
+    ),
+)
+async def test_reranker_configuration(
+    reranker_config: RerankerConfig = Body(...),
+) -> RerankerTestResponse:
+    """Test unsaved reranker settings with a real API call."""
+    result = await test_reranker_model(reranker_config)
+
+    message = result.message
+    if reranker_config.api_key:
+        message = message.replace(reranker_config.api_key, "***")
+    return RerankerTestResponse(
+        success=result.success,
+        latency_ms=result.latency_ms,
+        message=message,
+        scores=result.scores,
+        ranking_correct=result.ranking_correct,
     )
 
 

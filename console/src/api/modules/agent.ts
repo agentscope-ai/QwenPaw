@@ -5,6 +5,7 @@ import type {
   AgentRequest,
   AgentsRunningConfig,
   EmbeddingModelConfig,
+  RerankerConfig,
 } from "../types";
 
 export interface EmbeddingTestResponse {
@@ -13,6 +14,14 @@ export interface EmbeddingTestResponse {
   actual_dimensions: number | null;
   latency_ms: number;
   message: string;
+}
+
+export interface RerankerTestResponse {
+  success: boolean;
+  latency_ms: number;
+  message: string;
+  scores: number[] | null;
+  ranking_correct: boolean | null;
 }
 
 export interface MemoryBackendDescriptor {
@@ -82,6 +91,13 @@ export const agentApi = {
       method: "POST",
       body: JSON.stringify(config),
       timeout: Math.max(30, (config.health_check_timeout ?? 15) * 2 + 5) * 1000,
+    }),
+
+  testReranker: (config: RerankerConfig) =>
+    request<RerankerTestResponse>("/workspace/reranker/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+      timeout: Math.max(30, (config.timeout ?? 10) * 2 + 5) * 1000,
     }),
 
   getAgentLanguage: () => request<{ language: string }>("/workspace/language"),

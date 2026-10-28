@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """Reranking and search-response reconstruction for ReMe memory."""
 
+import asyncio
 import logging
+import re
+import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -89,6 +93,142 @@ async def call_reranker_api(
     except Exception:
         logger.warning("[rerank] unexpected error", exc_info=True)
     return None
+
+
+@dataclass(frozen=True)
+class RerankerTestResult:
+    """Result of one real reranker API request."""
+
+    success: bool
+    latency_ms: int
+    message: str
+    scores: list[float] | None = None
+    ranking_correct: bool | None = None
+
+
+_TEST_QUERY = "How do I reset my password?"
+# Document 0 is clearly the most relevant to the query; the other two are
+# distractors. A working reranker should rank document 0 first, which turns
+# the smoke test into a minimal ranking-quality check.
+_TEST_DOCUMENTS = [
+    "Click 'Forgot password' on the login page to reset your password.",
+    "The quick brown fox jumps over the lazy dog.",
+    "Today's lunch special is grilled salmon with rice.",
+]
+
+
+def _strip_html(text: str) -> str:
+    """Collapse an HTML error page into a short plain-text snippet."""
+    plain = re.sub(r"<[^>]+>", " ", text)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    return plain or "non-JSON response"
+
+
+def _extract_scores(
+    results: list[Any],
+) -> tuple[list[float] | None, bool | None]:
+    """Map returned results back to request order and judge the top rank."""
+    score_by_index: dict[int, float] = {}
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        score = item.get("relevance_score")
+        if isinstance(index, int) and isinstance(score, (int, float)):
+            score_by_index[index] = float(score)
+    if not all(i in score_by_index for i in range(len(_TEST_DOCUMENTS))):
+        return None, None
+    scores = [score_by_index[i] for i in range(len(_TEST_DOCUMENTS))]
+    top_index = scores.index(max(scores))
+    return scores, top_index == 0
+
+
+async def test_reranker_model(
+    config: RerankerConfig,
+    *,
+    timeout: float | None = None,
+) -> RerankerTestResult:
+    """Send a real rerank request and assess the result order."""
+    timeout = config.timeout if timeout is None else timeout
+    started = time.monotonic()
+    try:
+        if not config.base_url or not config.base_url.strip():
+            raise ValueError("Reranker base URL is required")
+        if not config.model_name or not config.model_name.strip():
+            raise ValueError("Reranker model name is required")
+
+        url = f"{config.base_url.rstrip('/')}/rerank"
+        payload = {
+            "model": config.model_name.strip(),
+            "query": _TEST_QUERY,
+            "documents": _TEST_DOCUMENTS,
+        }
+
+        async def _post() -> httpx.Response:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                return await client.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {config.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+
+        # httpx timeouts apply per operation; wait_for adds a hard deadline
+        # so a slow-drip server cannot hold the request open indefinitely.
+        response = await asyncio.wait_for(_post(), timeout=timeout + 5)
+        response.raise_for_status()
+        data = response.json()
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list) or not results:
+            raise RuntimeError(
+                "Reranker service returned an unexpected response format",
+            )
+        indices = [
+            item.get("index") for item in results if isinstance(item, dict)
+        ]
+        if len(indices) != len(results) or any(
+            not isinstance(i, int) or not 0 <= i < len(_TEST_DOCUMENTS)
+            for i in indices
+        ):
+            raise RuntimeError(
+                "Reranker service returned invalid document indices",
+            )
+        scores, ranking_correct = _extract_scores(results)
+        latency_ms = round((time.monotonic() - started) * 1000)
+        return RerankerTestResult(
+            success=True,
+            latency_ms=latency_ms,
+            message="Reranker service is available",
+            scores=scores,
+            ranking_correct=ranking_correct,
+        )
+    except (asyncio.TimeoutError, httpx.TimeoutException):
+        latency_ms = round((time.monotonic() - started) * 1000)
+        return RerankerTestResult(
+            success=False,
+            latency_ms=latency_ms,
+            message=f"Reranker API timed out after {timeout}s",
+        )
+    except httpx.HTTPStatusError as exc:
+        latency_ms = round((time.monotonic() - started) * 1000)
+        detail = _strip_html(exc.response.text[:300])
+        return RerankerTestResult(
+            success=False,
+            latency_ms=latency_ms,
+            message=(
+                f"Reranker API returned HTTP {exc.response.status_code}: "
+                f"{detail}"
+            ),
+        )
+    except Exception as exc:
+        latency_ms = round((time.monotonic() - started) * 1000)
+        return RerankerTestResult(
+            success=False,
+            latency_ms=latency_ms,
+            message=str(exc) or type(exc).__name__,
+        )
 
 
 async def rerank_search_results(
