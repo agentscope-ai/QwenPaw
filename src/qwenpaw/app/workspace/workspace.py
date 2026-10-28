@@ -31,6 +31,8 @@ from ...utils.io_utils import run_async_to_completion
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
+    create_history_service,
+    history_service_reuse_compatible,
     create_driver_service,
     create_driver_config_watcher,
     create_chat_service,
@@ -48,6 +50,7 @@ from ...utils.logging import sanitize_log_value
 from ...plugins._events import observe_stream as _sdk_observe_stream
 
 if TYPE_CHECKING:
+    from ...agents.context.scroll.history import HistoryStore
     from ...memory import MemoryBackendContext
 
 logger = logging.getLogger(__name__)
@@ -204,6 +207,11 @@ class Workspace:
         )
 
     # Service access via properties (delegates to ServiceManager)
+    @property
+    def history_store(self) -> Optional["HistoryStore"]:
+        """Shared Scroll store; request context managers only borrow it."""
+        return self._service_manager.services.get("history_store")
+
     @property
     def session(self) -> Optional[SafeJSONSession]:
         """Get session instance from ServiceManager."""
@@ -556,6 +564,21 @@ class Workspace:
                 },
                 priority=10,
                 concurrent_init=False,
+            ),
+        )
+
+        # Close after request-producing services. Reload transfers this store
+        # only when its configured path and file identity still match.
+        sm.register(
+            ServiceDescriptor(
+                name="history_store",
+                create_service=create_history_service,
+                stop_method="close",
+                reusable=True,
+                reuse_compatibility=history_service_reuse_compatible,
+                require_clean_stop=True,
+                priority=15,
+                optional=True,
             ),
         )
 

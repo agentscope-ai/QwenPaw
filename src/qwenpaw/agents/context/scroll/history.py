@@ -304,9 +304,11 @@ class HistoryStore:
         # degraded; callers/monitoring can read this.
         self.degraded = False
         self.write_failures = 0
-        # Flipped True by ``close()`` so callers can tell an intentional
-        # teardown race from a real disk outage (see ``closed``).
+        # True only after the connection closes, including a deferred close
+        # completed by the last request releasing its borrow.
         self._closed = False
+        self._borrowers = 0
+        self._close_requested = False
         self._checked_identity: tuple[int, int] | None = None
         probe_key, cached_identity = self._claim_integrity_probe(
             self._path,
@@ -445,6 +447,7 @@ class HistoryStore:
             timeout=_BUSY_TIMEOUT_MS / 1000,
         )
         identity_after_open = self._file_identity(self._path)
+        self._opened_identity = identity_after_open
         self._conn.row_factory = sqlite3.Row
         # Set the wait policy before journal_mode: switching/confirming WAL can
         # itself need a lock when several processes start at once.
@@ -634,6 +637,20 @@ class HistoryStore:
     @property
     def path(self) -> Path:
         return self._path
+
+    def matches_path(self, path: Path) -> bool:
+        """Whether a workspace can reuse this connection for the current file.
+
+        A restore/replacement at the same path must not reuse an old inode.
+        Replacing a live database still requires stopping its writers first.
+        """
+        return (
+            not self.closed
+            and not self._close_requested
+            and self._path.resolve() == path.resolve()
+            and self._opened_identity is not None
+            and self._opened_identity == self._file_identity(path)
+        )
 
     def _init_schema(self) -> None:
         version = self._conn.execute("PRAGMA user_version").fetchone()[0]
@@ -1261,16 +1278,41 @@ class HistoryStore:
 
     @property
     def closed(self) -> bool:
-        """True once :meth:`close` has run — the connection is gone."""
+        """True once the connection is gone, not while borrowers drain."""
         return self._closed
 
-    def close(self) -> None:
-        self._closed = True
+    def acquire(self) -> None:
+        """Borrow the workspace connection for one request."""
         with self._lock:
-            try:
-                self._conn.close()
-            except sqlite3.Error:
-                pass
+            if self._closed or self._close_requested:
+                raise RuntimeError("History store is shutting down")
+            self._borrowers += 1
+
+    def release(self) -> None:
+        """Release a request's borrow and finish a pending workspace close."""
+        with self._lock:
+            self._borrowers -= 1
+            if self._close_requested and not self._borrowers:
+                self._close_connection()
+
+    def _close_connection(self) -> None:
+        # Caller holds the connection lock, including against worker writes.
+        self._conn.close()
+        self._closed = True
+
+    def close(self) -> bool:
+        """Close once requests have drained; False asks the owner to retry.
+
+        Refusing new borrows prevents shutdown racing a new request. Existing
+        borrowers retain a usable connection until their final persistence and
+        cleanup finish. The last release completes the deferred close.
+        """
+        with self._lock:
+            self._close_requested = True
+            if self._borrowers:
+                return False
+            self._close_connection()
+            return True
 
     def __repr__(self) -> str:
         return f"<HistoryStore path={self._path}>"

@@ -8,14 +8,45 @@ improve testability and code organization.
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
+    from ...agents.context.scroll.history import HistoryStore
     from .workspace import Workspace
 
 logger = logging.getLogger(__name__)
+
+
+def _history_path(ws: "Workspace") -> Path | None:
+    from ...config.history_path import resolve_history_db_path
+
+    lcc = ws.config.running.light_context_config
+    if lcc.strategy != "scroll":
+        return None
+    return resolve_history_db_path(
+        ws.workspace_dir,
+        lcc.scroll_config.db_filename,
+    )
+
+
+def create_history_service(ws: "Workspace") -> "HistoryStore | None":
+    """Open one workspace-owned connection, offloaded by ServiceManager."""
+    from ...agents.context import create_scroll_history
+
+    path = _history_path(ws)
+    return create_scroll_history(path) if path is not None else None
+
+
+def history_service_reuse_compatible(
+    ws: "Workspace",
+    history: "HistoryStore",
+) -> bool:
+    """Keep the old store only for the same enabled, unchanged database."""
+    path = _history_path(ws)
+    return path is not None and history.matches_path(path)
 
 
 async def create_driver_service(
