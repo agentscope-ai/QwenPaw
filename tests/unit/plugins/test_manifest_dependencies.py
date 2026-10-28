@@ -106,9 +106,9 @@ async def test_satisfied_and_marker_excluded_manifest_does_not_install(
     assert installer == []
 
 
-@pytest.mark.parametrize("dependency", ["httpx==0.0.1", "Pillow==0.0.1"])
+@pytest.mark.parametrize("dependency", ["httpx==0.0.1", "uvicorn==0.0.1"])
 @pytest.mark.parametrize("origin", ["manifest", "requirements"])
-async def test_manifest_cannot_replace_host_or_sdk_distribution(
+async def test_manifest_cannot_replace_protected_host_distribution(
     tmp_path,
     installer,
     dependency,
@@ -120,7 +120,10 @@ async def test_manifest_cannot_replace_host_or_sdk_distribution(
         dependency if origin == "requirements" else None,
     )
     async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(SDKRestartRequiredError):
+        with pytest.raises(
+            SDKRestartRequiredError,
+            match="Restart the backend",
+        ):
             await host.install(source)
         corrected = tmp_path / "corrected"
         corrected.mkdir()
@@ -149,19 +152,28 @@ async def test_manifest_unsupported_syntax_is_not_silently_ignored(
     assert installer == []
 
 
+@pytest.mark.parametrize("sdk", [False, True])
 async def test_both_constraints_apply_when_same_package_is_declared_twice(
     tmp_path,
     installer,
+    sdk,
 ):
     source = package(
         tmp_path,
-        ["packaging==0.0.1"],
-        f"packaging=={version('packaging')}\n",
+        ["b01-probe-conflict==1.0"],
+        "b01-probe-conflict==2.0\n",
+        sdk=sdk,
     )
     async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(SDKRestartRequiredError):
+        # The fixture installs 1.0; the second constraint must still fail
+        # post-install verification, before the plugin can register.
+        with pytest.raises(SDKError, match="b01-probe-conflict==2.0"):
             await host.install(source)
-    assert installer == []
+    assert len(installer) == 1
+    assert set(installer[0].split()) == {
+        "b01-probe-conflict==1.0",
+        "b01-probe-conflict==2.0",
+    }
 
 
 async def test_boot_checks_manifest_without_installing_or_mutating_source(
@@ -189,7 +201,7 @@ async def test_upgrade_rejection_keeps_old_tool_callable(tmp_path, installer):
     two = tool_package(tmp_path, "2.0.0")
     path = two / "plugin.json"
     manifest = json.loads(path.read_text())
-    manifest["dependencies"] = ["Pillow==0.0.1"]
+    manifest["dependencies"] = ["uvicorn==0.0.1"]
     path.write_text(json.dumps(manifest))
     async with PluginTestHost(tmp_path / "host") as host:
         assert (await host.install(one)).ok
@@ -280,6 +292,17 @@ import mcp.types
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from qwenpaw.plugins.testing import PluginTestHost
+# Unrelated stale metadata must not prevent a real SDK dependency install.
+duplicates = Path(sys.argv[3]).parent / 'duplicate-metadata'
+for version in ('1.0', '2.0'):
+    info = duplicates / f'unrelated_probe-{version}.dist-info'
+    info.mkdir(parents=True)
+    (info / 'METADATA').write_text(
+        f'Metadata-Version: 2.1\nName: unrelated-probe\nVersion: {version}\n'
+    )
+sys.path.append(str(duplicates))
+assert {d.version for d in importlib.metadata.distributions()
+        if d.metadata['Name'] == 'unrelated-probe'} == {'1.0', '2.0'}
 commands = []
 original = subprocess.Popen
 def observe(args, *values, **kwargs):
@@ -293,9 +316,9 @@ async def main():
         result = await host.call_tool('dependency_answer', {})
         assert result.content[0].text == 'installed from manifest'
     assert importlib.metadata.version('b01-probe-real') == '1.0'
-    assert any('--dry-run' in args for args in commands), commands
-    assert any('--dry-run' not in args for args in commands), commands
-    assert all('--constraint' in args for args in commands), commands
+    assert len(commands) == 1, commands
+    assert '--dry-run' not in commands[0], commands
+    assert '--constraint' not in commands[0], commands
     assert all(not Path(a[a.index('-r') + 1]).exists() for a in commands)
     print(json.dumps({
         'commands': commands, 'answer': 'installed from manifest'
