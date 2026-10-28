@@ -1250,6 +1250,38 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 self._drop_provider(provider_id),
             )
 
+    def register_tool_policy_hook(
+        self,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+        *,
+        fail: str = "open",
+        timeout_s: float = 1.0,
+    ) -> None:
+        """Register an async ``(ToolCallSpec) -> PolicyHint | None`` hook.
+
+        Hooks run after host policy and JEV review in priority order, and may
+        only escalate to ASK or DENY. ``allow`` and ``None`` never override
+        host rules. ``fail`` controls whether errors/timeouts abstain
+        (``open``) or deny (``closed``). OFF mode bypasses policy hooks.
+        Hooks are global; use the spec's agent_id/session_id to scope them.
+        """
+        self._guard_register()
+        if self._registry:
+            self._registry.register_tool_policy_hook(
+                plugin_id=self.plugin_id,
+                hook_name=hook_name,
+                callback=callback,
+                priority=priority,
+                fail=fail,
+                timeout_s=timeout_s,
+            )
+            self._note_runtime(
+                f"tool_policy_hook:{hook_name}",
+                self._drop_hook(hook_name),
+            )
+
     def register_startup_hook(
         self,
         hook_name: str,

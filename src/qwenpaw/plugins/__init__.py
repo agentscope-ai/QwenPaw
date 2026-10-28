@@ -11,6 +11,8 @@ from .loader import PluginLoader
 from .registry import PluginRegistry
 from .api import PluginApi, get_tool_config
 from .architecture import PluginManifest, PluginRecord
+from ..governance.tool_policy import PolicyHint
+from ..governance.policy import ToolCallSpec
 from .activity import PluginBusyError
 from .errors import (
     SDKError,
@@ -53,4 +55,6 @@ __all__ = [
     "ReloadReport",
     "UnloadMode",
     "get_tool_config",
+    "PolicyHint",
+    "ToolCallSpec",
 ]

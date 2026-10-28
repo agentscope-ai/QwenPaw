@@ -291,8 +291,10 @@ async def _policy_tool_check_permissions(
     Flow:
         1. Construct ToolCallSpec(tool_name, target, agent_id, session_id)
         2. governor.assert_policy(tool_call) → GovernanceDecision
-        3. governor.audit(tool_call, decision)
-        4. Map to PermissionDecision
+        3. Apply JEV decision-model review when enabled
+        4. Apply escalation-only plugin policy hints
+        5. governor.audit(tool_call, decision)
+        6. Map to PermissionDecision
     """
     from agentscope.permission import PermissionBehavior, PermissionDecision
 
@@ -375,6 +377,11 @@ async def _policy_tool_check_permissions(
         )
 
     tc_spec = self._build_tc_spec()
+    tc_spec.approval_level = (
+        effective_level.value
+        if effective_level is not None
+        else governor.policy.execution_level
+    )
 
     if f1_active:
         # Temporarily force STRICT for this evaluation only, then restore
@@ -457,6 +464,16 @@ async def _policy_tool_check_permissions(
                 findings=decision.findings,
                 source="decision_model",
             )
+    from ..plugins.registry import PluginRegistry
+    from .tool_policy import apply_tool_policy_hooks
+
+    # Hooks may change the decision source, not its sandbox obligations.
+    decision_model_applied = decision.source == "decision_model"
+    decision = await apply_tool_policy_hooks(
+        tc_spec,
+        decision,
+        PluginRegistry().get_tool_policy_hooks(),
+    )
     governor.audit(tc_spec, decision)
 
     # Cache the decision + tc_spec for __call__ to use
@@ -471,7 +488,7 @@ async def _policy_tool_check_permissions(
         )
     )
     self._qp_decision_model_sandbox_required = (
-        decision.source == "decision_model" and self._qp_sandbox_mode
+        decision_model_applied and self._qp_sandbox_mode
     )
     if self._qp_sandbox_mode:
         self._qp_sandbox_config = decision.sandbox_config
@@ -505,6 +522,7 @@ async def _policy_tool_check_permissions(
             policy_findings=decision.findings,
             governance_reason=decision.reason,
             source=decision.source,
+            policy_extra=decision.extra,
         )
     else:
         # Unknown decision → deny as safe default
@@ -669,6 +687,7 @@ async def _ask_user_approval(
     governance_reason: str | None = None,
     policy_findings: list[Any] | None = None,
     source: str = "No rule hit",
+    policy_extra: dict | None = None,
 ) -> Any:
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -701,9 +720,15 @@ async def _ask_user_approval(
 
     from .generalize import generalize_target_for_approval
 
+    hook_asked = any(
+        hint.get("action") == "ask"
+        for hint in (policy_extra or {})
+        .get("tool_policy", {})
+        .get("hooks", [])
+    )
     generalized_target = (
         target
-        if source in {"jev", "decision_model"}
+        if hook_asked or source in {"jev", "decision_model"}
         else await generalize_target_for_approval(
             tool_name,
             target,
@@ -898,13 +923,14 @@ async def _ask_user_approval(
     approval_decision = GovernanceDecision(
         action=GovernanceAction.ALLOW if approved else GovernanceAction.DENY,
         reason=(f"User Approve ({scope_label})" if approved else "User Deny"),
+        extra=policy_extra or {},
     )
     governor.audit(tc_spec, approval_decision)
 
     summary = format_findings_summary(guard_result)
     if decision == ApprovalDecision.APPROVED:
-        if source not in {"jev", "decision_model"}:
-            # A decision-model approval applies to this call only.
+        if not hook_asked and source not in {"jev", "decision_model"}:
+            # Plugin and decision-model consent apply to this call only.
             rule_target = (
                 generalized_target
                 if scope == ApprovalScope.SIMILAR
