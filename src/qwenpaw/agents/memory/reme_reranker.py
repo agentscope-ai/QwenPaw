@@ -10,7 +10,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -255,7 +255,9 @@ async def _validate_reranker_base_url(base_url: str) -> str:
             ) from exc
         if not address.is_global:
             raise ValueError("Reranker base URL targets a non-public address")
-    return base
+
+    request_path = f"{parsed.path.rstrip('/')}/rerank"
+    return urlunsplit((parsed.scheme, parsed.netloc, request_path, "", ""))
 
 
 async def test_reranker_model(
@@ -267,14 +269,13 @@ async def test_reranker_model(
     timeout = config.timeout if timeout is None else timeout
     started = time.monotonic()
     try:
-        base_url = await _validate_reranker_base_url(config.base_url)
+        url = await _validate_reranker_base_url(config.base_url)
         if not config.model_name or not config.model_name.strip():
             raise ValueError("Reranker model name is required")
 
-        url = f"{base_url.rstrip('/')}/rerank"
-
         async def _post(payload: dict[str, Any]) -> httpx.Response:
             async with httpx.AsyncClient(timeout=timeout) as client:
+                # codeql[py/partial-ssrf] base URL validated against SSRF
                 return await client.post(
                     url,
                     headers={
