@@ -119,7 +119,9 @@ export const agentApi = {
 
   getRerankerHistory: (fingerprint: string) =>
     request<{ fingerprint: string; history: RerankerHistoryRecord[] }>(
-      `/workspace/reranker/history?fingerprint=${encodeURIComponent(fingerprint)}`,
+      `/workspace/reranker/history?fingerprint=${encodeURIComponent(
+        fingerprint,
+      )}`,
       { timeout: 15_000 },
     ),
 

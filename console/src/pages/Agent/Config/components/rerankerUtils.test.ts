@@ -19,15 +19,15 @@ const enabledConfig: RerankerConfig = {
 describe("isRerankerConfigured", () => {
   it("requires the switch, base URL and model name", () => {
     expect(isRerankerConfigured(enabledConfig)).toBe(true);
-    expect(
-      isRerankerConfigured({ ...enabledConfig, enabled: false }),
-    ).toBe(false);
+    expect(isRerankerConfigured({ ...enabledConfig, enabled: false })).toBe(
+      false,
+    );
     expect(isRerankerConfigured({ ...enabledConfig, base_url: " " })).toBe(
       false,
     );
-    expect(
-      isRerankerConfigured({ ...enabledConfig, model_name: "" }),
-    ).toBe(false);
+    expect(isRerankerConfigured({ ...enabledConfig, model_name: "" })).toBe(
+      false,
+    );
   });
 
   it("treats a missing config as not configured", () => {
@@ -35,9 +35,7 @@ describe("isRerankerConfigured", () => {
   });
 
   it("mirrors load_reranker_config: api_key stays optional", () => {
-    expect(isRerankerConfigured({ ...enabledConfig, api_key: "" })).toBe(
-      true,
-    );
+    expect(isRerankerConfigured({ ...enabledConfig, api_key: "" })).toBe(true);
   });
 });
 

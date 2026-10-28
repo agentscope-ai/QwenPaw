@@ -5,9 +5,7 @@ import type { RerankerConfig } from "@/api/types/agent";
 // call_reranker_api additionally needs a base URL to post to.
 export function isRerankerConfigured(config?: Partial<RerankerConfig>) {
   return Boolean(
-    config?.enabled &&
-      config?.base_url?.trim() &&
-      config?.model_name?.trim(),
+    config?.enabled && config?.base_url?.trim() && config?.model_name?.trim(),
   );
 }
 

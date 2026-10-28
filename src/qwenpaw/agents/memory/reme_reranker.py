@@ -2,12 +2,15 @@
 """Reranking and search-response reconstruction for ReMe memory."""
 
 import asyncio
+import ipaddress
 import logging
 import re
+import socket
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -15,6 +18,7 @@ from ...config.config import (
     RerankerConfig,
     load_agent_config_async,
 )
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +199,65 @@ def _extract_scores(
     return scores, top_index == 0
 
 
+async def _validate_reranker_base_url(base_url: str) -> str:
+    """SSRF-safe validation of a user-supplied reranker base URL.
+
+    Mirrors ``agents/tools/view_media``: only http/https, no credentials, no
+    localhost, and every resolved address must be globally routable so a
+    console user cannot use the probe to reach internal services.
+    """
+    base = (base_url or "").strip()
+    if not base:
+        raise ValueError("Reranker base URL is required")
+    try:
+        parsed = urlsplit(base)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except (UnicodeError, ValueError) as exc:
+        raise ValueError("Reranker base URL is invalid") from exc
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Reranker base URL must use HTTP or HTTPS")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Reranker base URL must not contain credentials")
+
+    host = parsed.hostname.rstrip(".")
+    if host.lower() == "localhost":
+        raise ValueError("Reranker base URL targets a non-public address")
+
+    def _resolve() -> tuple[str, ...]:
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            return tuple(
+                dict.fromkeys(
+                    str(info[4][0]).split("%", maxsplit=1)[0]
+                    for info in infos
+                    if info[4]
+                ),
+            )
+        return (str(literal),)
+
+    try:
+        addresses = await run_sync_io(_resolve)
+    except OSError as exc:
+        raise ValueError(
+            "Reranker base URL host could not be resolved",
+        ) from exc
+    if not addresses:
+        raise ValueError("Reranker base URL host could not be resolved")
+
+    for value in addresses:
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise ValueError(
+                "Reranker base URL host resolved to an invalid address",
+            ) from exc
+        if not address.is_global:
+            raise ValueError("Reranker base URL targets a non-public address")
+    return base
+
+
 async def test_reranker_model(
     config: RerankerConfig,
     *,
@@ -204,12 +267,11 @@ async def test_reranker_model(
     timeout = config.timeout if timeout is None else timeout
     started = time.monotonic()
     try:
-        if not config.base_url or not config.base_url.strip():
-            raise ValueError("Reranker base URL is required")
+        base_url = await _validate_reranker_base_url(config.base_url)
         if not config.model_name or not config.model_name.strip():
             raise ValueError("Reranker model name is required")
 
-        url = f"{config.base_url.rstrip('/')}/rerank"
+        url = f"{base_url.rstrip('/')}/rerank"
 
         async def _post(payload: dict[str, Any]) -> httpx.Response:
             async with httpx.AsyncClient(timeout=timeout) as client:

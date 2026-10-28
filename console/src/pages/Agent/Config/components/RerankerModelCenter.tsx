@@ -130,9 +130,7 @@ export function RerankerModelCenter() {
       <div className={styles.memoryOverviewHeader}>
         <div className={styles.embeddingTitle}>
           <h3>{t("agentConfig.rerankerOverviewTitle")}</h3>
-          <InlineHelp>
-            {t("agentConfig.rerankerStatusDescription")}
-          </InlineHelp>
+          <InlineHelp>{t("agentConfig.rerankerStatusDescription")}</InlineHelp>
         </div>
       </div>
 
@@ -263,11 +261,7 @@ function rollingPrecision(history: RerankerHistoryRecord[]): number {
   return recent.reduce((sum, value) => sum + value, 0) / recent.length;
 }
 
-function PrecisionSparkline({
-  history,
-}: {
-  history: RerankerHistoryRecord[];
-}) {
+function PrecisionSparkline({ history }: { history: RerankerHistoryRecord[] }) {
   const values = history
     .map((entry) => entry.precision)
     .filter((value): value is number => value !== null);

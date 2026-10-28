@@ -26,8 +26,8 @@ interface RerankerVerificationStore {
  * application restart. The service fingerprint makes the result valid only
  * for the exact settings that were tested.
  */
-export const useRerankerVerificationStore =
-  create<RerankerVerificationStore>((set) => ({
+export const useRerankerVerificationStore = create<RerankerVerificationStore>(
+  (set) => ({
     verificationByAgent: {},
     setVerification: (agentId, verification) =>
       set((state) => ({
@@ -43,4 +43,5 @@ export const useRerankerVerificationStore =
         delete verificationByAgent[agentId];
         return { verificationByAgent };
       }),
-  }));
+  }),
+);
