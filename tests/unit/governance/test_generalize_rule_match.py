@@ -689,7 +689,7 @@ class TestOpenAIChatModelCompatDisableThinking:
         compat._disable_thinking_kwargs = {}
         kwargs = {"disable_thinking": True}
         compat._consume_disable_thinking(kwargs)
-        assert kwargs == {}
+        assert not kwargs
 
     @pytest.mark.parametrize(
         "translated",
