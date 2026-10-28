@@ -3,8 +3,7 @@ param(
     [string]$InstallDir,
     [ValidateSet("Prepare", "Restore")]
     [string]$Action = "Prepare",
-    [int]$NsisProcessId = 0,
-    [string]$LogPath = ""
+    [int]$NsisProcessId = 0
 )
 
 # Prepare a recognized QwenPaw installation for NSIS replacement. The script
@@ -15,18 +14,6 @@ $ErrorActionPreference = "Stop"
 $gateMarker = "QWENPAW_INSTALL_MAINTENANCE"
 $launcher = Join-Path $env:USERPROFILE ".qwenpaw\bin\qwenpaw-nm-host.bat"
 $launcherBackup = "$launcher.qwenpaw-maintenance"
-
-function Write-InstallDiagnostic {
-    param([string]$Message)
-
-    Write-Output $Message
-    if ($LogPath) {
-        # Do not let a diagnostic write failure change the process checks.
-        try {
-            Add-Content -LiteralPath $LogPath -Encoding Unicode -Value $Message
-        } catch {}
-    }
-}
 
 function Get-NormalizedPath {
     param([string]$Path)
@@ -237,10 +224,7 @@ function Stop-ProcessRecords {
 
     $ids = @($Processes | ForEach-Object { $_.ProcessId } | Sort-Object -Unique)
     foreach ($processId in $ids) {
-        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue -ErrorVariable stopErrors
-        foreach ($stopError in $stopErrors) {
-            Write-InstallDiagnostic "Could not stop PID ${processId}: $($stopError.Exception.Message)"
-        }
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
     }
     if ($ids.Count -gt 0) {
         Wait-Process -Id $ids -Timeout 8 -ErrorAction SilentlyContinue
@@ -255,14 +239,12 @@ function Write-ProcessList {
 
     foreach ($process in @($Processes | Sort-Object ExecutablePath, ProcessId)) {
         $relative = $process.ExecutablePath.Substring($Root.Length).TrimStart("\")
-        Write-InstallDiagnostic "$($process.Name) (PID $($process.ProcessId)): $relative"
+        Write-Output "$($process.Name) (PID $($process.ProcessId)): $relative"
     }
 }
 
-$stage = "identify installation"
 try {
     if ($Action -eq "Restore") {
-        $stage = "restore Native Messaging launcher"
         $requestedRoot = (Get-NormalizedPath -Path $InstallDir).TrimEnd("\")
         Restore-NativeHostLauncher -Root $requestedRoot
         exit 0
@@ -277,30 +259,24 @@ try {
         throw "Cannot safely manage processes for a reparse-point installation."
     }
 
-    $stage = "prepare Native Messaging launcher"
     Enable-NativeHostGate -Root $root
-    $stage = "identify installer processes"
     $nsisProcessIds = Get-NsisProcessIds -ProcessId $NsisProcessId
-    $stage = "query installation processes"
     $scoped = Get-ScopedProcesses -Root $root -ExcludedProcessIds $nsisProcessIds
     $automatic = @(
         $scoped | Where-Object {
             Test-IsAutomaticProcess -Process $_ -Root $root
         }
     )
-    $stage = "stop background processes"
     Stop-ProcessRecords -Processes $automatic
 
-    $stage = "check remaining processes"
     $remaining = Get-ScopedProcesses -Root $root -ExcludedProcessIds $nsisProcessIds
     if ($remaining.Count -gt 0) {
-        Write-InstallDiagnostic "Close these processes before continuing:"
+        Write-Output "Close these processes before continuing:"
         Write-ProcessList -Processes $remaining -Root $root
         exit 1
     }
     exit 0
 } catch {
-    Write-InstallDiagnostic "Failed to ${stage}: $($_.Exception.Message)"
-    Write-InstallDiagnostic $_.InvocationInfo.PositionMessage
+    Write-Output $_.Exception.Message
     exit 1
 }
