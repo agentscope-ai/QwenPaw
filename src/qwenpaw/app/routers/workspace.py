@@ -1683,7 +1683,9 @@ async def test_reranker_configuration(
         precision=result.precision,
         cases=[
             RerankerCaseResponse(
-                query=c.query, scores=c.scores, correct=c.correct
+                query=c.query,
+                scores=c.scores,
+                correct=c.correct,
             )
             for c in (result.cases or [])
         ],

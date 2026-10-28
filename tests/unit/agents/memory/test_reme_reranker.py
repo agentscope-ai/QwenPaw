@@ -63,7 +63,7 @@ def _results(*scores):
     return {
         "results": [
             {"index": i, "relevance_score": s} for i, s in enumerate(scores)
-        ]
+        ],
     }
 
 
@@ -164,7 +164,9 @@ async def test_probe_strips_html_from_http_error(monkeypatch) -> None:
         text="<html><body>Internal Server Error</body></html>",
     )
     error = httpx.HTTPStatusError(
-        "server error", request=MagicMock(), response=response
+        "server error",
+        request=MagicMock(),
+        response=response,
     )
     _install(
         monkeypatch,
@@ -180,7 +182,7 @@ async def test_probe_strips_html_from_http_error(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_probe_requires_base_url(monkeypatch) -> None:
+async def test_probe_requires_base_url() -> None:
     result = await module.test_reranker_model(_config(base_url=" "))
 
     assert result.success is False

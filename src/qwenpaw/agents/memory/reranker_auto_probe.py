@@ -19,7 +19,8 @@ _AUTO_PROBE_SWEEP_SECONDS = 1800.0
 
 
 async def _sweep_once() -> None:
-    from ...config.config import load_agent_config, load_config
+    from ...config.config import load_agent_config
+    from ...config.utils import load_config
     from ...utils.io_utils import run_sync_io
 
     from .reranker_history import (
@@ -38,13 +39,18 @@ async def _sweep_once() -> None:
         try:
             agent_config = await run_sync_io(load_agent_config, agent_id)
         except Exception:
-            logger.exception("reranker auto-probe: failed to load agent %s", agent_id)
+            logger.exception(
+                "reranker auto-probe: failed to load agent %s",
+                agent_id,
+            )
             continue
 
         reranker = getattr(agent_config, "reranker_config", None)
         if reranker is None or not reranker.enabled:
             continue
-        interval_hours = getattr(reranker, "auto_verify_interval_hours", 0) or 0
+        interval_hours = (
+            getattr(reranker, "auto_verify_interval_hours", 0) or 0
+        )
         if interval_hours <= 0:
             continue
 
@@ -80,15 +86,16 @@ async def _sweep_once() -> None:
                     result.message,
                 )
         except Exception:
-            logger.exception("reranker auto-probe error for agent %s", agent_id)
+            logger.exception(
+                "reranker auto-probe error for agent %s",
+                agent_id,
+            )
 
 
 async def run_reranker_auto_probe_loop() -> None:
     while True:
         try:
             await _sweep_once()
-        except asyncio.CancelledError:
-            raise
         except Exception:
             logger.exception("reranker auto-probe sweep crashed")
         await asyncio.sleep(_AUTO_PROBE_SWEEP_SECONDS)

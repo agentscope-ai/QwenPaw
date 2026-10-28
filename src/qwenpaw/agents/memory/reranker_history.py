@@ -25,7 +25,8 @@ _HISTORY_FILE = "reranker_history.json"
 def service_fingerprint(config: RerankerConfig) -> str:
     """Fingerprint of a reranker service, mirroring the console helper.
 
-    Kept in sync with console/src/pages/Agent/Config/components/rerankerUtils.ts
+    Kept in sync with console/src/pages/Agent/Config/components/
+    rerankerUtils.ts
     (getRerankerServiceFingerprint): base URL normalized, key/model/timeout
     included so a config change starts a new history series.
     """
@@ -62,7 +63,10 @@ def _save(data: dict[str, list[dict[str, Any]]]) -> None:
     tmp.replace(path)
 
 
-def append_record(fingerprint: str, record: dict[str, Any]) -> list[dict[str, Any]]:
+def append_record(
+    fingerprint: str,
+    record: dict[str, Any],
+) -> list[dict[str, Any]]:
     """Append one verification record and return the capped series."""
     with _LOCK:
         data = _load()

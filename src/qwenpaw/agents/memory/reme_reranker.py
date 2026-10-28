@@ -117,7 +117,8 @@ class RerankerTestResult:
     cases: list[RerankerCaseResult] | None = None
 
 
-# Each case is (query, [expected-most-relevant document, distractor, distractor]).
+# Each case is (query, [expected-most-relevant document, distractor,
+# distractor]).
 # A working reranker should rank document 0 first for every case, turning the
 # probe into a small multi-domain ranking-quality estimate instead of a single
 # binary smoke test.
@@ -125,7 +126,8 @@ _TEST_SUITE = [
     (
         "How do I reset my password?",
         [
-            "Click 'Forgot password' on the login page to reset your password.",
+            "Click 'Forgot password' on the login page to "
+            "reset your password.",
             "The quick brown fox jumps over the lazy dog.",
             "Today's lunch special is grilled salmon with rice.",
         ],
@@ -157,7 +159,8 @@ _TEST_SUITE = [
     (
         "How do I cancel my subscription?",
         [
-            "Go to Account > Billing > Cancel subscription to stop auto-renewal.",
+            "Go to Account > Billing > Cancel subscription to stop "
+            "auto-renewal.",
             "The recipe calls for two eggs and a cup of milk.",
             "Line 3 of the metro is suspended for maintenance.",
         ],
@@ -229,7 +232,10 @@ async def test_reranker_model(
             }
             # httpx timeouts apply per operation; wait_for adds a hard deadline
             # so a slow-drip server cannot hold a request open indefinitely.
-            response = await asyncio.wait_for(_post(payload), timeout=timeout + 5)
+            response = await asyncio.wait_for(
+                _post(payload),
+                timeout=timeout + 5,
+            )
             response.raise_for_status()
             data = response.json()
             results = data.get("results") if isinstance(data, dict) else None
@@ -249,7 +255,11 @@ async def test_reranker_model(
                 )
             scores, correct = _extract_scores(results, len(documents))
             cases.append(
-                RerankerCaseResult(query=query, scores=scores, correct=correct),
+                RerankerCaseResult(
+                    query=query,
+                    scores=scores,
+                    correct=correct,
+                ),
             )
             if correct is True:
                 correct_count += 1
