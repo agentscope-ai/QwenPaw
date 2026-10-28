@@ -73,10 +73,10 @@ def _validate_execution_model(req: dict[str, Any]) -> None:
         context.pop("model_slot_override", None)
     if override is None:
         return
-    from ...agents.model_factory import _resolve_model_slot_override
+    from ...providers.model_selection import resolve_model_slot_override
     from ...providers import ProviderManager
 
-    slot = _resolve_model_slot_override(override)
+    slot = resolve_model_slot_override(override)
     if slot is None or not slot.provider_id or not slot.model:
         raise ValueError("Invalid execution model selected for cron task")
     provider = ProviderManager.get_instance().get_provider(slot.provider_id)

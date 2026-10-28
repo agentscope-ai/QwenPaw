@@ -20,6 +20,8 @@ Commands for controlling conversation context.
 
 Manually trigger context compaction (**requires waiting**). Under Scroll, eligible older turns are archived while the configured recent tail and active turn remain live. If turns are archived, the continuation summary is updated. Long-term-memory saving can also run in the background when enabled.
 
+Both Scroll and native compaction use the conversation's effective model, including a model selected in the chat UI. An explicit request model takes precedence over the conversation selection, followed by the agent default and then the global default. Scroll summary generation still requests thinking off using the selected model's supported parameters.
+
 ```
 /compact
 ```
@@ -475,6 +477,8 @@ Commands for viewing and managing conversation history.
 
 Display a list of all uncompressed messages in the current conversation, along with detailed **context usage information**.
 
+The maximum input length and context-usage percentage use the conversation's effective model, including conversation and request overrides.
+
 ```
 /history
 ```
@@ -510,7 +514,7 @@ Display a list of all uncompressed messages in the current conversation, along w
 
 > 💡 **Tip**: Use `/history` frequently to monitor your context usage.
 >
-> When `Context usage` approaches 75%, the conversation is about to trigger auto-`compact`.
+> Auto-compaction may run when `Context usage` reaches the configured automatic compaction threshold.
 >
 > If context exceeds the maximum limit, please report the model and `/history` logs to the community, then use `/compact` or `/new` to manage context.
 >
@@ -693,7 +697,7 @@ Commands for managing and switching AI models. These commands execute directly w
 | `/model`                         | Show current active model                        | ✅   |
 | `/model -h` or `/model help`     | Show help information                            | ✅   |
 | `/model list`                    | List all available models                        | ✅   |
-| `/model <provider>:<model>`      | Switch to specified model                        | ✅   |
+| `/model <provider>:<model>`      | Change the agent default model                   | ✅   |
 | `/model reset`                   | Reset to global default model                    | ✅   |
 | `/model info <provider>:<model>` | Show detailed information about a specific model | ✅   |
 
@@ -701,7 +705,7 @@ Commands for managing and switching AI models. These commands execute directly w
 
 ### /model - Show Current Model
 
-Display the currently active model for this agent.
+Display the model currently selected for this conversation, including any request or conversation override. The response identifies whether the model comes from a request override, a conversation override, the agent default, or the global default.
 
 **Usage:**
 
@@ -770,6 +774,8 @@ Manage and switch AI models for the current agent.
 
 Display all configured providers and their available models. The currently active model is marked with **[ACTIVE]**.
 
+`/model` and the **[ACTIVE]** marker include the current conversation's model override. Switching or resetting a model with `/model` updates the agent default; an existing conversation override remains in effect. Clear that override in the conversation's model selector to inherit the agent default.
+
 **Usage:**
 
 ```
@@ -811,7 +817,7 @@ Example: `/model openai:gpt-4o`
 
 ### /model <provider>:<model> - Switch Model
 
-Switch the current agent to use a different model.
+Change the current agent's default model. Conversations with their own model override keep that selection; the command reports this when the current conversation has an override.
 
 **Usage:**
 
@@ -835,7 +841,7 @@ Switch the current agent to use a different model.
 Provider: `anthropic`
 Model: `claude-3-5-sonnet-20241022`
 
-The new model will be used for subsequent messages.
+The new agent default will be used for subsequent messages that inherit it.
 ```
 
 > 💡 **Tip**: Model changes only affect the current agent. Other agents continue using their configured models.
@@ -844,7 +850,7 @@ The new model will be used for subsequent messages.
 
 ### /model reset - Reset to Global Default
 
-Reset the current agent's model to the global default model configured in the web UI.
+Reset the current agent's default model to the global default configured in the web UI. Existing conversation overrides remain in effect.
 
 **Usage:**
 
@@ -857,12 +863,9 @@ Reset the current agent's model to the global default model configured in the we
 ```
 **Model Reset**
 
-Agent model has been reset to global default:
-
+Agent now uses global default model:
 Provider: `openai`
 Model: `gpt-4o`
-
-The global default model will be used for subsequent messages.
 ```
 
 > 💡 **Tip**: Use this command to revert agent-specific model overrides.

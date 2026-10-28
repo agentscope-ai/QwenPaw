@@ -94,7 +94,15 @@ This is where you talk to QwenPaw. It is the default page when the Console opens
 
 **Choose a model:**
 Use the control at the **top-right** of the chat page to pick the model for the
-current agent.
+current conversation. This selection is saved with the conversation and leaves
+the agent default unchanged. Clear the conversation override in the selector to
+inherit the agent default again.
+
+Normal replies, manual `/compact`, `/history` context limits, and automatic
+chat-title generation follow this selection. Reasoning preferences are stored
+separately for each provider/model in the conversation. Image/video capability
+checks and on-demand probes follow the model executing the turn, including a
+configured fallback model when one is used.
 
 **Send a message:**
 Type in the input box at the bottom, then press **Enter** or click the send

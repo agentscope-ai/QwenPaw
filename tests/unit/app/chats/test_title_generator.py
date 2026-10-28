@@ -3,6 +3,7 @@
 """Tests for asynchronous chat-title generation."""
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -12,6 +13,9 @@ from qwenpaw.app.chats import title_generator
 class _ChatManager:
     def __init__(self) -> None:
         self.updated_title: str | None = None
+
+    async def get_chat(self, chat_id):
+        return SimpleNamespace(id=chat_id, meta={})
 
     async def patch_chat_if_name_matches(
         self,
@@ -132,3 +136,96 @@ def test_clean_title_preserves_reasoning_tags_in_answer(raw):
 )
 def test_clean_title_strips_common_inline_reasoning_formats(raw):
     assert title_generator._clean_title(raw) == "Deploying QwenPaw"
+
+
+@pytest.mark.parametrize("request_override", [None, "direct", "context"])
+async def test_title_uses_conversation_model_and_its_thinking(
+    monkeypatch,
+    request_override,
+):
+    from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+
+    default = ModelSlotConfig(provider_id="default", model="M1")
+    selected = ModelSlotConfig(provider_id="session", model="M2")
+    override = ModelSlotConfig(provider_id="request", model="M3")
+    config = AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        active_model=default,
+        thinking_level="high",
+    )
+    meta = {
+        "runtime_context": {
+            "model": selected.model_dump(),
+            "thinking": {"session:M2": {"level": "low"}},
+        },
+    }
+    chat_manager = _ChatManager()
+    chat_manager.get_chat = AsyncMock(
+        return_value=SimpleNamespace(meta=meta),
+    )
+    workspace = SimpleNamespace(agent_id="agent", chat_manager=chat_manager)
+    factory = AsyncMock(return_value=(object(), None))
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _: config,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.model_factory.create_model_and_formatter_async",
+        factory,
+    )
+    monkeypatch.setattr(
+        title_generator,
+        "consume_model_response",
+        AsyncMock(return_value="A title"),
+    )
+    request = None
+    if request_override == "direct":
+        request = {"model_slot_override": override.model_dump()}
+    elif request_override == "context":
+        request = {
+            "meta": {
+                "request_context": {
+                    "model_slot_override": override.model_dump(),
+                },
+            },
+        }
+    await title_generator.generate_and_update_title(
+        workspace,
+        "chat",
+        "First message",
+        "First message",
+        request=request,
+    )
+    used = factory.await_args.kwargs["agent_config"]
+    assert used.active_model == (override if request_override else selected)
+    assert used.thinking_level == ("inherit" if request_override else "low")
+    assert config.active_model == default
+    assert config.thinking_level == "high"
+    assert chat_manager.updated_title == "A title"
+
+
+async def test_deleted_chat_does_not_generate_a_title(monkeypatch):
+    from qwenpaw.config.config import AgentProfileConfig
+
+    config = AgentProfileConfig(id="agent", name="Agent")
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _: config,
+    )
+    factory = AsyncMock()
+    monkeypatch.setattr(
+        "qwenpaw.agents.model_factory.create_model_and_formatter_async",
+        factory,
+    )
+    workspace = SimpleNamespace(
+        agent_id="agent",
+        chat_manager=SimpleNamespace(get_chat=AsyncMock(return_value=None)),
+    )
+    await title_generator.generate_and_update_title(
+        workspace,
+        "deleted",
+        "First message",
+        "First message",
+    )
+    factory.assert_not_awaited()

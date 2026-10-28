@@ -14,6 +14,7 @@ accepts plain dicts — the formatter is now built-in and asserts on
 ``Msg`` instances), await ``model(messages)`` directly, and tolerate the
 same ``(ValueError, AppBaseException)`` factory failures.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,6 +23,8 @@ import re
 from typing import TYPE_CHECKING
 
 from qwenpaw.exceptions import AppBaseException
+from qwenpaw.providers.model_selection import request_model_override
+from qwenpaw.services.session_thinking import apply_chat_model_settings
 from qwenpaw.utils.io_utils import run_sync_io
 from qwenpaw.utils.model_response import consume_model_response
 
@@ -66,11 +69,14 @@ def _clean_title(raw: str) -> str:
     return title
 
 
+# pylint: disable-next=too-many-return-statements
 async def generate_and_update_title(
     workspace: "Workspace",
     chat_id: str,
     user_message: str,
     placeholder_name: str,
+    *,
+    request=None,
 ) -> None:
     """Generate a chat title via the active LLM and persist it.
 
@@ -120,9 +126,19 @@ async def generate_and_update_title(
             timeout = title_cfg.timeout_seconds
 
             try:
+                chat = await workspace.chat_manager.get_chat(chat_id)
+                if chat is None:
+                    return
+                model_override = request_model_override(request)
+                agent_config = await apply_chat_model_settings(
+                    agent_config,
+                    chat.meta,
+                    model_override=model_override,
+                )
                 model, _ = await create_model_and_formatter_async(
                     agent_id=workspace.agent_id,
                     agent_config=agent_config,
+                    model_slot_override=model_override,
                 )
             except (ValueError, AppBaseException) as exc:
                 # Same exception shape as ``skills_stream.get_model``: missing
