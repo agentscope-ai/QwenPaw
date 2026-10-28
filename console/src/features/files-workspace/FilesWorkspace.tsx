@@ -22,7 +22,7 @@ import FilesNavigator from "./FilesNavigator";
 import MemoryGraphView from "./MemoryGraphView";
 import MemoryTagsNavigator from "./MemoryTagsNavigator";
 import { useMemoryFileConfig } from "./useMemoryTagSupport";
-import { fileTabPath, findOpenFileTab } from "./fileIdentity";
+import { fileTabPath, fileTabTarget, findOpenFileTab } from "./fileIdentity";
 import { projectRootPath, workspaceRoots } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
@@ -91,6 +91,7 @@ export default function FilesWorkspace({
   const tabs = useTabsForScope(scopeKey);
   const activeTabPath = useActiveTabPathForScope(scopeKey);
   const activeTab = tabs.find((tab) => tab.path === activeTabPath);
+  const activeTarget = activeTab ? fileTabTarget(activeTab) : undefined;
   const {
     clearProjectTabs,
     closeTab,
@@ -304,19 +305,9 @@ export default function FilesWorkspace({
   const loadTab = useCallback(
     async (tabPath: string) => {
       const tab = tabsRef.current.find((item) => item.path === tabPath);
-      const separator = tabPath.indexOf("::");
       const target =
         targetsByTab.current.get(tabPath) ??
-        ({
-          source:
-            tab?.source ??
-            (separator < 0
-              ? "workspace"
-              : (tabPath.slice(0, separator) as FileTarget["source"])),
-          path: separator < 0 ? tabPath : tabPath.slice(separator + 2),
-          root: tab?.workspaceRoot,
-          artifactUrl: tab?.artifactUrl,
-        } satisfies FileTarget);
+        fileTabTarget(tab ?? { path: tabPath, content: "", dirty: false });
       return loadTarget(target);
     },
     [loadTarget],
@@ -429,8 +420,16 @@ export default function FilesWorkspace({
           resolvedTarget.source === "memory" ||
           (resolvedTarget.source === "workspace" &&
             resolvedTarget.root === "workspace");
-        const memory =
-          canAlias && tabsRef.current.length ? await getMemoryConfig() : null;
+        let memory = null;
+        try {
+          memory =
+            canAlias && tabsRef.current.length ? await getMemoryConfig() : null;
+        } catch (error) {
+          // Exact identities remain usable offline. Without one, retry later
+          // rather than opening a second buffer for a potentially dirty alias.
+          if (!findOpenFileTab(tabsRef.current, resolvedTarget, null))
+            throw error;
+        }
         if (scopeKeyRef.current !== scopeKey) return;
         const existing = findOpenFileTab(
           tabsRef.current,
@@ -655,9 +654,10 @@ export default function FilesWorkspace({
                   agentId={agentId}
                   tag={selectedMemoryTag}
                   revision={memoryTagsRevision}
-                  selectedPath={activeTab?.displayPath ?? ""}
-                  selectedSource={activeTab?.source ?? "workspace"}
-                  selectedRoot={activeTab?.workspaceRoot}
+                  memoryConfig={memoryConfig}
+                  selectedPath={activeTarget?.path ?? ""}
+                  selectedSource={activeTarget?.source}
+                  selectedRoot={activeTarget?.root}
                   onSelectTag={setSelectedMemoryTag}
                   onOpenFile={(target) => {
                     setMemoryGraphRoot(null);
@@ -742,10 +742,10 @@ export default function FilesWorkspace({
             onFileSaved={() => setMemoryTagsRevision((value) => value + 1)}
             onDownloadFile={async (path) => {
               const tab = tabsRef.current.find((item) => item.path === path);
-              const separator = path.indexOf("::");
-              const sourcePath =
-                tab?.displayPath ??
-                (separator < 0 ? path : path.slice(separator + 2));
+              const target = fileTabTarget(
+                tab ?? { path, content: "", dirty: false },
+              );
+              const sourcePath = target.path;
               const filename = sourcePath.split("/").pop() ?? sourcePath;
               if (tab?.artifactUrl) {
                 await downloadFileFromUrl(tab.artifactUrl, filename, {
@@ -754,12 +754,9 @@ export default function FilesWorkspace({
                 });
                 return;
               }
-              if ((tab?.source ?? "workspace") === "workspace") {
+              if (target.source === "workspace") {
                 await downloadFileFromUrl(
-                  workspaceApi.getFileDownloadUrl(
-                    sourcePath,
-                    tab?.workspaceRoot,
-                  ),
+                  workspaceApi.getFileDownloadUrl(sourcePath, target.root),
                   filename,
                   {
                     headers: {
@@ -788,21 +785,22 @@ export default function FilesWorkspace({
             }}
             onSaveFile={async (path, content) => {
               const tab = tabsRef.current.find((item) => item.path === path);
-              const separator = path.indexOf("::");
-              if ((tab?.source ?? "workspace") === "workspace") {
+              const target = fileTabTarget(
+                tab ?? { path, content, dirty: true },
+              );
+              if (target.source === "workspace") {
                 const saved = await workspaceApi.saveFileContent(
-                  tab?.displayPath ?? path,
+                  target.path,
                   content,
                   tab?.etag,
                   chatId,
-                  tab?.workspaceRoot,
+                  target.root,
                   projectDirOverride,
                 );
                 setTabEtag(scopeKey, path, saved.etag);
                 return;
               }
-              const source = path.slice(0, separator);
-              const sourcePath = path.slice(separator + 2);
+              const { source, path: sourcePath } = target;
               if (source === "profile") {
                 await workspaceApi.saveFile(sourcePath, content, agentId);
               } else if (source === "daily" || source === "digest") {

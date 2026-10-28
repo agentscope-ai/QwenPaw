@@ -37,6 +37,8 @@ const lifecycle = vi.hoisted(() => ({
   loadFile: vi.fn(),
   saveFile: vi.fn(),
   loadMemoryFile: vi.fn(),
+  loadDailyMemory: vi.fn(),
+  saveDailyMemory: vi.fn(),
   openTab: vi.fn(),
   saveFileContent: vi.fn(),
   setTabContent: vi.fn(),
@@ -104,6 +106,8 @@ vi.mock("../../api/modules/workspace", () => ({
     loadFile: lifecycle.loadFile,
     saveFile: lifecycle.saveFile,
     loadMemoryFile: lifecycle.loadMemoryFile,
+    loadDailyMemory: lifecycle.loadDailyMemory,
+    saveDailyMemory: lifecycle.saveDailyMemory,
     saveFileContent: lifecycle.saveFileContent,
   },
 }));
@@ -190,6 +194,7 @@ describe("FilesWorkspace directory changes", () => {
     });
     lifecycle.loadFileText.mockResolvedValue({ content: "", etag: "v1" });
     lifecycle.loadMemoryFile.mockResolvedValue({ content: "" });
+    lifecycle.loadDailyMemory.mockResolvedValue({ content: "" });
   });
 
   it.each(["adbpg", "powercontext"])(
@@ -251,6 +256,134 @@ describe("FilesWorkspace directory changes", () => {
       expect(lifecycle.setTabContent).not.toHaveBeenCalled();
     },
   );
+
+  it("retries config after a failed open without creating a conflicting buffer", async () => {
+    vi.mocked(agentsApi.getAgent).mockRejectedValue(new Error("offline"));
+    lifecycle.tabs = [
+      { path: "daily::note.md", content: "Unsaved", dirty: true },
+    ];
+    lifecycle.activeTabPath = "daily::note.md";
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    await act(async () => {});
+    const target: FileTarget = {
+      source: "workspace",
+      root: "workspace",
+      path: "memory/note.md",
+    };
+    await act(async () => lifecycle.navigatorProps?.onSelect(target));
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      id: "agent-a",
+      name: "Agent A",
+      running: { memory_manager_backend: "remelight" },
+    });
+    await act(async () => lifecycle.navigatorProps?.onSelect(target));
+    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "daily::note.md",
+    );
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+    expect(lifecycle.setTabContent).not.toHaveBeenCalled();
+  });
+
+  it("reuses an exact dirty tab when configuration is unavailable", async () => {
+    vi.mocked(agentsApi.getAgent).mockRejectedValue(new Error("offline"));
+    lifecycle.tabs = [
+      {
+        path: "workspace-root::notes.md",
+        displayPath: "notes.md",
+        source: "workspace",
+        workspaceRoot: "workspace",
+        content: "Unsaved",
+        dirty: true,
+      },
+    ];
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    await act(async () => {});
+    await act(
+      async () =>
+        lifecycle.navigatorProps?.onSelect({
+          source: "workspace",
+          root: "workspace",
+          path: "notes.md",
+        }),
+    );
+    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "workspace-root::notes.md",
+    );
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+    expect(lifecycle.setTabContent).not.toHaveBeenCalled();
+  });
+
+  it("opens an ordinary Workspace file on a repeated click after config recovers", async () => {
+    vi.mocked(agentsApi.getAgent).mockRejectedValue(new Error("offline"));
+    lifecycle.tabs = [
+      {
+        path: "workspace-root::first.md",
+        content: "Unsaved first",
+        dirty: true,
+      },
+    ];
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    await act(async () => {});
+    const target: FileTarget = {
+      source: "workspace",
+      root: "workspace",
+      path: "second.md",
+    };
+    await act(async () => lifecycle.navigatorProps?.onSelect(target));
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      id: "agent-a",
+      name: "Agent A",
+      running: { memory_manager_backend: "remelight" },
+    });
+    await act(async () => lifecycle.navigatorProps?.onSelect(target));
+    expect(lifecycle.openTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      expect.objectContaining({ path: "workspace-root::second.md" }),
+    );
+    expect(agentsApi.getAgent).toHaveBeenCalledTimes(3);
+    expect(lifecycle.tabs[0].content).toBe("Unsaved first");
+  });
+
+  it("saves a reused legacy digest buffer through its original memory route", async () => {
+    lifecycle.tabs = [
+      {
+        path: "memory::digest/note.md",
+        content: "Unsaved digest",
+        dirty: true,
+      },
+    ];
+    lifecycle.activeTabPath = lifecycle.tabs[0].path;
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    await act(
+      async () =>
+        lifecycle.navigatorProps?.onSelect({
+          source: "workspace",
+          root: "workspace",
+          path: "digest/note.md",
+        }),
+    );
+    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "memory::digest/note.md",
+    );
+    await act(
+      async () =>
+        lifecycle.editorProps?.onSaveFile(
+          "memory::digest/note.md",
+          "Updated digest",
+        ),
+    );
+    expect(lifecycle.saveDailyMemory).toHaveBeenCalledWith(
+      "digest/note.md",
+      "Updated digest",
+    );
+    expect(lifecycle.saveFileContent).not.toHaveBeenCalled();
+    expect(lifecycle.openTab).not.toHaveBeenCalled();
+  });
 
   it("recognizes persisted memory tab identities without optional metadata", async () => {
     lifecycle.tabs = [

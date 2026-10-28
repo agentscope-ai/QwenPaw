@@ -10,21 +10,72 @@ export function fileTabPath(target: FileTarget): string {
   return target.path;
 }
 
+/** Decode persisted tabs even when optional source/root metadata is absent. */
+export function fileTabTarget(tab: EditorTab): FileTarget {
+  const separator = tab.path.indexOf("::");
+  const prefix = separator < 0 ? "" : tab.path.slice(0, separator);
+  return {
+    source:
+      tab.source ??
+      (prefix === "memory" ||
+      prefix === "daily" ||
+      prefix === "digest" ||
+      prefix === "profile" ||
+      prefix === "attachment"
+        ? prefix
+        : "workspace"),
+    path:
+      tab.displayPath ??
+      (separator < 0 ? tab.path : tab.path.slice(separator + 2)),
+    root:
+      tab.workspaceRoot ??
+      (prefix === "workspace-root"
+        ? "workspace"
+        : prefix.startsWith("project:")
+        ? (prefix as FileTarget["root"])
+        : undefined),
+    artifactUrl: tab.artifactUrl,
+  };
+}
+
 /** Only agent workspace and memory sources can name the same storage file. */
-function workspacePath(target: FileTarget, memory: MemoryFileConfig | null) {
+export function workspacePath(
+  target: FileTarget,
+  memory: MemoryFileConfig | null,
+) {
   if (target.artifactUrl) return null;
   if (target.source === "workspace")
     return target.root === "workspace" ? target.path : null;
   if (!memory) return null;
-  const directory =
+  let directory =
     target.source === "daily" || target.source === "memory"
       ? memory.daily_dir
       : target.source === "digest"
       ? memory.digest_dir
       : null;
+  let path = target.path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  // Match AgentMdManager._normalize_md_path and legacy digest routing.
+  if (
+    !path ||
+    path.split("/").some((part) => !part || part === "." || part === "..")
+  )
+    return null;
+  if (!path.endsWith(".md")) path += ".md";
+  const digestPrefix = memory.digest_dir
+    .split("/")
+    .filter((part) => part && part !== ".")
+    .pop();
+  if (
+    target.source === "memory" &&
+    digestPrefix &&
+    path.startsWith(`${digestPrefix}/`)
+  ) {
+    directory = memory.digest_dir;
+    path = path.slice(digestPrefix.length + 1);
+  }
   return directory === null
     ? null
-    : `${directory}/${target.path}`
+    : `${directory}/${path}`
         .replace(/\\/g, "/")
         .split("/")
         .filter((part) => part && part !== ".")
@@ -39,29 +90,10 @@ export function findOpenFileTab(
   const path = fileTabPath(target);
   const workspace = workspacePath(target, memory);
   const matches = tabs.filter((tab) => {
-    const separator = tab.path.indexOf("::");
-    const prefix = separator < 0 ? "" : tab.path.slice(0, separator);
-    const source =
-      tab.source ??
-      (prefix === "memory" || prefix === "daily" || prefix === "digest"
-        ? prefix
-        : "workspace");
     return (
       tab.path === path ||
       (workspace !== null &&
-        workspacePath(
-          {
-            source,
-            path:
-              tab.displayPath ??
-              (separator < 0 ? tab.path : tab.path.slice(separator + 2)),
-            root:
-              tab.workspaceRoot ??
-              (prefix === "workspace-root" ? "workspace" : undefined),
-            artifactUrl: tab.artifactUrl,
-          },
-          memory,
-        ) === workspace)
+        workspacePath(fileTabTarget(tab), memory) === workspace)
     );
   });
   return matches.find((tab) => tab.dirty) ?? matches[0];

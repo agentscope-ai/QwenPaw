@@ -10,6 +10,8 @@ import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../api/modules/agents";
 import type { MemoryTagFilePage, MemoryTagPage } from "../../api/types/agents";
 import type { FileSource, FileTarget, WorkspaceRoot } from "./types";
+import { workspacePath } from "./fileIdentity";
+import type { MemoryFileConfig } from "./useMemoryTagSupport";
 import styles from "./FilesWorkspace.module.less";
 
 interface MemoryTagsNavigatorProps {
@@ -19,6 +21,7 @@ interface MemoryTagsNavigatorProps {
   selectedSource?: FileSource;
   selectedRoot?: WorkspaceRoot;
   revision: number;
+  memoryConfig: MemoryFileConfig;
   onSelectTag: (tag: string | null) => void;
   onOpenFile: (target: FileTarget) => void;
 }
@@ -30,6 +33,7 @@ export default function MemoryTagsNavigator({
   selectedSource,
   selectedRoot,
   revision,
+  memoryConfig,
   onSelectTag,
   onOpenFile,
 }: MemoryTagsNavigatorProps) {
@@ -78,8 +82,16 @@ export default function MemoryTagsNavigator({
   }, []);
 
   const files = data && "total_files" in data ? data : null;
-  const selectedMemorySource =
-    selectedSource === "memory" ? "daily" : selectedSource;
+  const selectedWorkspacePath = selectedSource
+    ? workspacePath(
+        {
+          source: selectedSource,
+          path: selectedPath,
+          root: selectedRoot,
+        },
+        memoryConfig,
+      )
+    : null;
   const tags = data && "total_tags" in data ? data : null;
   const total = files?.total_files ?? tags?.total_tags ?? 0;
   const pageCount = data ? Math.max(1, Math.ceil(total / data.page_size)) : 1;
@@ -167,15 +179,7 @@ export default function MemoryTagsNavigator({
                   type="button"
                   className={styles.tagFileRow}
                   aria-current={
-                    (
-                      selectedSource === "workspace"
-                        ? selectedRoot === "workspace" &&
-                          file.path === selectedPath
-                        : file.source === selectedMemorySource &&
-                          file.relative_path === selectedPath
-                    )
-                      ? "true"
-                      : undefined
+                    file.path === selectedWorkspacePath ? "true" : undefined
                   }
                   onClick={() =>
                     onOpenFile({

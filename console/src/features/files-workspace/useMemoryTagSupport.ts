@@ -20,8 +20,9 @@ export function useMemoryFileConfig(agentId: string) {
   const refresh = useCallback(() => {
     pending.current?.controller.abort();
     const controller = new AbortController();
-    const promise = agentsApi.getAgent(agentId, controller.signal).then(
-      (config) => {
+    const promise = agentsApi
+      .getAgent(agentId, controller.signal)
+      .then((config) => {
         if (controller.signal.aborted)
           throw new DOMException("Aborted", "AbortError");
         const running = config.running as
@@ -41,12 +42,15 @@ export function useMemoryFileConfig(agentId: string) {
             : null;
         setLoaded({ agentId, config: memory });
         return memory;
-      },
-      (error: unknown) => {
-        if (!controller.signal.aborted) setLoaded(null);
+      })
+      .catch((error: unknown) => {
+        // An older request must not clear a newer agent/focus refresh.
+        if (pending.current?.controller === controller) {
+          pending.current = undefined;
+          if (!controller.signal.aborted) setLoaded(null);
+        }
         throw error;
-      },
-    );
+      });
     pending.current = { agentId, controller, promise };
     return promise;
   }, [agentId]);

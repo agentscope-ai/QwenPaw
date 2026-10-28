@@ -2,7 +2,10 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentsApi } from "../../api/modules/agents";
 import type { AgentProfileConfig } from "../../api/types/agents";
-import { useMemoryTagSupport } from "./useMemoryTagSupport";
+import {
+  useMemoryFileConfig,
+  useMemoryTagSupport,
+} from "./useMemoryTagSupport";
 
 const config = (backend: string): AgentProfileConfig => ({
   id: "agent",
@@ -12,6 +15,49 @@ const config = (backend: string): AgentProfileConfig => ({
 
 describe("memory tag support", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("retries a failed config read and shares the retry between callers", async () => {
+    const getAgent = vi
+      .spyOn(agentsApi, "getAgent")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(config("remelight"));
+    const { result } = renderHook(() => useMemoryFileConfig("agent"));
+    await act(async () => {});
+    await act(async () => {
+      const first = result.current.getConfig();
+      const second = result.current.getConfig();
+      expect(first).toBe(second);
+      await expect(first).resolves.toEqual({
+        daily_dir: "memory",
+        digest_dir: "digest",
+      });
+    });
+    expect(getAgent).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not discard a newer cached request when an aborted request fails late", async () => {
+    let rejectOld!: (reason: Error) => void;
+    const getAgent = vi
+      .spyOn(agentsApi, "getAgent")
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectOld = reject;
+          }),
+      )
+      .mockResolvedValue(config("remelight"));
+    const { result } = renderHook(() => useMemoryFileConfig("agent"));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await act(async () => rejectOld(new Error("late failure")));
+    await act(async () => {
+      await expect(result.current.getConfig()).resolves.toEqual({
+        daily_dir: "memory",
+        digest_dir: "digest",
+      });
+    });
+    expect(getAgent).toHaveBeenCalledTimes(2);
+    expect(result.current.config).not.toBeNull();
+  });
 
   it("ignores a late capability response after changing agents", async () => {
     let resolveOld!: (value: AgentProfileConfig) => void;

@@ -44,6 +44,7 @@ const props = () => ({
   tag: null as string | null,
   selectedPath: "",
   revision: 0,
+  memoryConfig: { daily_dir: "memory", digest_dir: "digest" },
   onSelectTag: vi.fn(),
   onOpenFile: vi.fn(),
 });
@@ -170,6 +171,54 @@ describe("MemoryTagsNavigator", () => {
       await screen.findByRole("button", { name: /Orion owner/ }),
     ).toHaveAttribute("aria-current", "true");
   });
+
+  it.each([
+    { daily_dir: "memory", digest_dir: "digest", prefix: "digest" },
+    {
+      daily_dir: "custom/daily",
+      digest_dir: "custom/knowledge",
+      prefix: "knowledge",
+    },
+  ])(
+    "highlights the actual legacy digest file rather than its daily namesake: %j",
+    async (memoryConfig) => {
+      vi.mocked(agentsApi.getMemoryTagFiles).mockResolvedValue({
+        ...files,
+        total_files: 2,
+        items: [
+          {
+            ...files.items[0],
+            name: "Digest file",
+            source: "digest",
+            path: `${memoryConfig.digest_dir}/note.md`,
+            relative_path: "note.md",
+          },
+          {
+            ...files.items[0],
+            name: "Daily namesake",
+            source: "daily",
+            path: `${memoryConfig.daily_dir}/${memoryConfig.prefix}/note.md`,
+            relative_path: `${memoryConfig.prefix}/note.md`,
+          },
+        ],
+      });
+      render(
+        <MemoryTagsNavigator
+          {...props()}
+          memoryConfig={memoryConfig}
+          tag="赵六"
+          selectedSource="memory"
+          selectedPath={`${memoryConfig.prefix}/note.md`}
+        />,
+      );
+      expect(
+        await screen.findByRole("button", { name: /Digest file/ }),
+      ).toHaveAttribute("aria-current", "true");
+      expect(
+        screen.getByRole("button", { name: /Daily namesake/ }),
+      ).not.toHaveAttribute("aria-current");
+    },
+  );
 
   it("reports an unavailable index and retries instead of showing zero files", async () => {
     vi.mocked(agentsApi.getMemoryTagFiles).mockRejectedValueOnce(
