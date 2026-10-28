@@ -129,7 +129,10 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   ${If} $0 == 0
     Goto qwenpaw_prepare_done
   ${Else}
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawStopProcessesPrompt)$\n$\n$1" /SD IDCANCEL IDRETRY qwenpaw_prepare_retry IDCANCEL qwenpaw_prepare_cancel
+    ${If} $0 == "error"
+      StrCpy $1 "$(qwenpawPowerShellStartFailed)$\n$\n$1"
+    ${EndIf}
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawPrepareInstallFailed)$\n$\n$1" /SD IDCANCEL IDRETRY qwenpaw_prepare_retry IDCANCEL qwenpaw_prepare_cancel
   ${EndIf}
 
   qwenpaw_prepare_cancel:
