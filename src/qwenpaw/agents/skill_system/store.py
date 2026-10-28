@@ -26,6 +26,7 @@ import yaml
 
 from ...exceptions import SkillImportCancelled, SkillsError
 from ...security.skill_scanner import scan_skill_directory
+from ...utils.io_utils import rename_or_copy_directory
 from ..utils.file_handling import (
     read_text_file_with_encoding_fallback,
     single_line_log_value,
@@ -462,6 +463,37 @@ def copy_skill_dir(source: Path, target: Path) -> None:
         target,
         ignore=_ignore,
         copy_function=_checked_copy2,
+    )
+
+
+def install_staged_skill_dir(staged_dir: Path, target_dir: Path) -> None:
+    """Install an already-scanned staged skill at *target_dir*.
+
+    A rename moves the staged tree into place, which replaces the second full
+    copy of a large skill with a single directory operation. When the
+    filesystem refuses the rename, ``copy_skill_dir`` takes over, so behaviour
+    there is unchanged.
+
+    Cancellation is honoured before anything is replaced. Removing the
+    previous target and renaming the stage are two separate steps, so an
+    interrupted install can leave the target absent; the caller's rollback
+    restores the previous contents, and the surrounding context manager
+    discards the stage on failure.
+
+    The staged tree is installed as it stands, so it must already be clean.
+    This is only equivalent to ``copy_skill_dir`` when the stage was produced
+    by it — that copy filters OS artifacts and dereferences symlinks, which a
+    rename cannot do. The pool download builds its stage that way; a caller
+    that stages any other way has to clean the tree itself first.
+    """
+    ensure_not_cancelled()
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    rename_or_copy_directory(
+        staged_dir,
+        target_dir,
+        copy_directory=copy_skill_dir,
     )
 
 

@@ -68,6 +68,7 @@ from ...agents.skill_system.store import (
     with_cancel_checker,
 )
 from ...security.skill_scanner import SkillScanError
+from ...utils.io_utils import rename_or_copy_directory
 from ..inbox_store import append_event as append_inbox_event
 from ..utils import check_upload_size, schedule_agent_reload
 
@@ -631,11 +632,29 @@ def _snapshot_workspace_skill(
     skill_dir = workspace_dir / "skills" / skill_name
     backup_dir: Path | None = None
     if skill_dir.exists():
-        backup_root = Path(
-            tempfile.mkdtemp(prefix=f"qwenpaw_skill_rollback_{skill_name}_"),
-        )
-        backup_dir = backup_root / skill_name
-        shutil.copytree(skill_dir, backup_dir)
+        # Backups live inside the workspace so the restore can rename one back
+        # instead of copying every file again. Directory creation and the copy
+        # are one attempt: the workspace can accept the directory and still
+        # refuse the copy (out of space, a write rejected by policy), and only
+        # then does the system temp directory get a turn.
+        prefix = f".qwenpaw_skill_rollback_{skill_name}_"
+        backup_dir = None
+        last_error: OSError | None = None
+        for parent in (workspace_dir, None):
+            backup_root: Path | None = None
+            try:
+                backup_root = Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
+                candidate = backup_root / skill_name
+                shutil.copytree(skill_dir, candidate)
+                backup_dir = candidate
+                break
+            except OSError as exc:  # try the system temp directory next
+                last_error = exc
+                if backup_root is not None:
+                    shutil.rmtree(backup_root, ignore_errors=True)
+        else:
+            if last_error is not None:
+                raise last_error
     return {
         "workspace_dir": workspace_dir,
         "skill_name": skill_name,
@@ -651,10 +670,27 @@ def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
     backup_dir = snapshot.get("backup_dir")
     entry = snapshot.get("entry")
 
-    if skill_dir.exists():
-        shutil.rmtree(skill_dir)
-    if backup_dir is not None and Path(backup_dir).exists():
-        shutil.copytree(Path(backup_dir), skill_dir)
+    # Both rollback paths share this snapshot, so it can be replayed: the
+    # per-target restore runs for every target, and a later failure makes the
+    # caller restore them all again. Renaming consumes the backup on the
+    # first pass, so a replay must not start by deleting the target — it
+    # would find nothing to put back and the user's files would be gone.
+    # Files are restored once; a retry still finishes the manifest write and
+    # the cleanup, which are the parts that can fail.
+    if not snapshot.get("files_restored"):
+        if skill_dir.exists():
+            shutil.rmtree(skill_dir)
+        if backup_dir is not None and Path(backup_dir).exists():
+            skill_dir.parent.mkdir(parents=True, exist_ok=True)
+            # Rollback must finish even after the request was cancelled, so
+            # the copy fallback here is the plain one, not the cancellable
+            # install copy.
+            rename_or_copy_directory(
+                Path(backup_dir),
+                skill_dir,
+                copy_directory=shutil.copytree,
+            )
+        snapshot["files_restored"] = True
 
     def _restore(payload: dict[str, Any]) -> None:
         payload.setdefault("skills", {})
@@ -1569,20 +1605,35 @@ def _build_download_plan(
     targets: list[_ResolvedDownloadTarget],
     skill_name: str,
 ) -> list[dict[str, Any]]:
-    """Build execution plan with rollback snapshots."""
+    """Build execution plan with rollback snapshots.
+
+    The stack owns the backups until every snapshot is ready: if a later
+    target cannot be backed up, the download loop's ``finally`` has not
+    started yet and the earlier backups would be left behind. On success the
+    stack is emptied and the download flow owns the cleanup.
+    """
     plan: list[dict[str, Any]] = []
-    for target in targets:
-        snapshot = _snapshot_workspace_skill(
-            target.workspace_dir,
-            str(skill_name),
-        )
-        plan.append(
-            {
-                "workspace_id": target.workspace_id,
-                "workspace_dir": target.workspace_dir,
-                "snapshot": snapshot,
-            },
-        )
+    with ExitStack() as stack:
+        for target in targets:
+            snapshot = _snapshot_workspace_skill(
+                target.workspace_dir,
+                str(skill_name),
+            )
+            backup_dir = snapshot.get("backup_dir")
+            if backup_dir is not None:
+                stack.callback(
+                    shutil.rmtree,
+                    Path(backup_dir).parent,
+                    ignore_errors=True,
+                )
+            plan.append(
+                {
+                    "workspace_id": target.workspace_id,
+                    "workspace_dir": target.workspace_dir,
+                    "snapshot": snapshot,
+                },
+            )
+        stack.pop_all()
     return plan
 
 

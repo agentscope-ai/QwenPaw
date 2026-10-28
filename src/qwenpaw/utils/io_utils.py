@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import secrets
 import stat
@@ -41,6 +42,8 @@ import yaml
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
+
+logger = logging.getLogger(__name__)
 
 _PATH_LOCKS: weakref.WeakValueDictionary[
     str,
@@ -506,6 +509,35 @@ async def write_yaml_atomic_async(
     )
 
 
+def rename_or_copy_directory(
+    source: Path,
+    target: Path,
+    *,
+    copy_directory: Callable[[Path, Path], object],
+) -> None:
+    """Move *source* onto *target*, copying when the rename is refused.
+
+    Whether ``os.rename`` succeeds depends on the filesystem, not on anything
+    the caller can inspect first: a same-volume rename can still be refused.
+    So this tries the rename and hands a refusal to *copy_directory*, which
+    each call site chooses — a cancellable copy for an install, a plain one
+    for recovery that has to finish.
+
+    *target* must not exist, and *target*'s parent must already be there:
+    removing a previous target is the caller's decision, not this helper's.
+    """
+    try:
+        os.rename(source, target)
+    except OSError as exc:
+        logger.debug(
+            "Directory rename failed for %s (%s); copying instead",
+            target,
+            exc,
+            exc_info=True,
+        )
+        copy_directory(source, target)
+
+
 __all__ = [
     "append_text_async",
     "get_path_lock",
@@ -516,6 +548,7 @@ __all__ = [
     "read_json",
     "read_json_async",
     "read_text_async",
+    "rename_or_copy_directory",
     "run_async_to_completion",
     "run_sync_io",
     "unlink_async",
