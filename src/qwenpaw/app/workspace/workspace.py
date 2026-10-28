@@ -31,6 +31,8 @@ from ...utils.io_utils import run_async_to_completion
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
+    create_history_service,
+    history_service_reuse_compatible,
     create_driver_service,
     create_driver_config_watcher,
     create_chat_service,
@@ -190,6 +192,7 @@ class Workspace:
         self.cron_start_paused = False
         self._started = False
         self._start_attempted = False
+        self._stopping = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
         self._app_services: Any = None
@@ -204,6 +207,11 @@ class Workspace:
         )
 
     # Service access via properties (delegates to ServiceManager)
+    @property
+    def history_store(self):
+        """Workspace-owned history writer, borrowed by request contexts."""
+        return self._service_manager.services.get("history_store")
+
     @property
     def session(self) -> Optional[SafeJSONSession]:
         """Get session instance from ServiceManager."""
@@ -433,6 +441,8 @@ class Workspace:
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
+        if self._stopping:
+            raise RuntimeError(f"Workspace '{self.agent_id}' is stopping")
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
@@ -543,6 +553,19 @@ class Workspace:
                 stop_method="close",
                 priority=5,
                 concurrent_init=False,
+            ),
+        )
+
+        # Keep history alive until the request-producing services stop.
+        sm.register(
+            ServiceDescriptor(
+                name="history_store",
+                create_service=create_history_service,
+                stop_method="close",
+                reusable=True,
+                reuse_compatibility=history_service_reuse_compatible,
+                priority=9,
+                optional=True,
             ),
         )
 
@@ -727,6 +750,7 @@ class Workspace:
             return
 
         self._start_attempted = True
+        self._stopping = False
 
         logger.info(
             f"Starting workspace: {sanitize_log_value(self.agent_id)}",
@@ -873,6 +897,18 @@ class Workspace:
         logger.info(
             "Stopping agent instance: "
             f"{sanitize_log_value(self.agent_id)} (final={final})",
+        )
+
+        # Refuse late requests before taking the snapshot. Reload generations
+        # share a tracker, so only cancel runs owned by this workspace. Their
+        # cancellation handlers must finish saving before services are closed.
+        self._stopping = True
+        active = await self.task_tracker.snapshot_active_tasks(owner=self)
+        for task in active.values():
+            if not task.cancelling():
+                task.cancel("shutdown")
+        await run_async_to_completion(
+            asyncio.gather(*active.values(), return_exceptions=True),
         )
 
         # Revoke this instance's plugin bindings while its managers are alive.

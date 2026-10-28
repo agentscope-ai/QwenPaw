@@ -1104,6 +1104,7 @@ class AgentBuilder:
             session_id=session_id,
             agent_id=agent_id,
             offloader=offloader,
+            history=getattr(workspace, "history_store", None),
         )
 
     @staticmethod

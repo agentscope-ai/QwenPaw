@@ -2273,6 +2273,38 @@ def test_on_save_after_close_is_quiet_noop(store: HistoryStore):
     assert mgr._persisted_ids == set()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_store", [False, True])
+async def test_compress_after_close_keeps_unpersisted_context(
+    store: HistoryStore,
+    close_store,
+):
+    mgr = make_manager(store, owns_history=False)
+    ctx = [user("task"), assistant("step", headline="s"), assistant("more")]
+    agent = FakeAgent(ctx, tokens=200)
+    if close_store:
+        store.close()
+    else:
+        mgr.close()
+    assert mgr._persist_guarded(agent) is False
+    await mgr.compress(agent)
+    assert [msg.id for msg in agent.state.context] == [msg.id for msg in ctx]
+    assert not mgr._persisted_ids
+
+
+def test_borrower_close_does_not_close_other_session(store: HistoryStore):
+    first = make_manager(store, session_id="first", owns_history=False)
+    second = make_manager(store, session_id="second", owns_history=False)
+    first.close()
+    first.on_save(FakeAgent([user("ignored after close")]), None)
+    second.on_save(FakeAgent([user("still durable")]), None)
+    assert not store.closed
+    assert store.count("first") == 0
+    assert store.count("second") == 1
+    assert not first._persisted_ids
+    assert len(second._persisted_ids) == 1
+
+
 def test_on_save_resets_recall_guard_for_next_real_user_turn(
     store: HistoryStore,
 ):

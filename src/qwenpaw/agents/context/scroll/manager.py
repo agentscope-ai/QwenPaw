@@ -91,6 +91,7 @@ class ScrollContextManager:
         *,
         history: HistoryStore,
         session_id: str,
+        owns_history: bool = True,
         agent_id: str | None = None,
         offloader: Any = None,
         compact_tool_result_max_bytes: int | None = None,
@@ -98,6 +99,8 @@ class ScrollContextManager:
         recall_loop_guard: Any = None,
     ) -> None:
         self._history = history
+        self._owns_history = owns_history
+        self._closed = False
         self._session_id = session_id
         self._agent_id = agent_id
         # Kept for constructor compatibility with older integrations. Scroll
@@ -333,11 +336,10 @@ class ScrollContextManager:
             active = self._active_turn_tail(agent)
             turn_id = getattr(active[0], "id", None) if active else None
             self._recall_loop_guard.begin_turn(turn_id)
-        # Teardown race: a stop/cancel can close the store while a final
-        # ``on_save`` is still in flight. The connection was retired on
-        # purpose, so skip the write quietly instead of degrading durability.
-        if self._history.closed:
-            return True
+        # Late saves after teardown are quiet no-ops, but must not authorize
+        # compaction to evict history that was never persisted.
+        if self._closed or self._history.closed:
+            return False
         try:
             self._persist_new(agent)
             return True
@@ -2310,4 +2312,6 @@ class ScrollContextManager:
         ).isoformat()
 
     def close(self) -> None:
-        self._history.close()
+        self._closed = True
+        if self._owns_history:
+            self._history.close()

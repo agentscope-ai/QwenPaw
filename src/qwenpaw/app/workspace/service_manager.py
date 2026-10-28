@@ -172,7 +172,7 @@ class ServiceManager:
         """
         reusable = {}
         for name, descriptor in self.descriptors.items():
-            if descriptor.reusable and name in self.services:
+            if descriptor.reusable and self.services.get(name) is not None:
                 reusable[name] = self.services[name]
         return reusable
 
