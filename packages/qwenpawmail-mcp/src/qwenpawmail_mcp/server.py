@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""FastMCP server layer: registers 23 tools over the MailClient core.
+"""MCPServer layer: registers 23 tools over the MailClient core.
 
 All exceptions are caught at the tool boundary and re-raised as ToolError so
 MCP clients receive an isError result with an actionable message.
@@ -13,8 +13,8 @@ import json
 from datetime import date, timedelta
 from typing import Any, Callable, TypeVar
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from .config import Config, load_config
@@ -134,9 +134,9 @@ def _tool_errors(func: F) -> F:
 def create_server(
     config: Config | None = None,
     client: MailClient | None = None,
-) -> FastMCP:
+) -> MCPServer:
     # pylint: disable=too-many-statements
-    """Build the FastMCP server.
+    """Build the mail MCP server.
 
     ``client`` can be injected for testing.  When neither *client* nor valid
     credentials are available, the server still starts so that
@@ -225,7 +225,7 @@ def create_server(
                     pass
                 raise
 
-    mcp = FastMCP(
+    mcp = MCPServer(
         name="qwenpawmail-mcp",
         instructions=(
             "MCP server for NetEase 163/126/yeah.net and QQ mailboxes over "
@@ -248,10 +248,10 @@ def create_server(
     ) -> ToolAnnotations:
         return ToolAnnotations(
             title=title,
-            readOnlyHint=read_only,
-            destructiveHint=destructive,
-            idempotentHint=idempotent,
-            openWorldHint=True,
+            read_only_hint=read_only,
+            destructive_hint=destructive,
+            idempotent_hint=idempotent,
+            open_world_hint=True,
         )
 
     @mcp.tool(

@@ -61,7 +61,7 @@ def _blocks_from_mcp_content(content: Any) -> list[Any]:
             continue
 
         data = getattr(item, "data", None)
-        mime_type = getattr(item, "mimeType", None)
+        mime_type = getattr(item, "mime_type", getattr(item, "mimeType", None))
         if data is not None and mime_type:
             blocks.append(
                 DataBlock(
@@ -123,10 +123,15 @@ def _blocks_from_value(value: Any) -> list[Any]:
             )
         return blocks or [_text_block("")]
     content = getattr(value, "content", None)
-    is_mcp_call_result = content is not None and hasattr(value, "isError")
-    if is_mcp_call_result:
+    if content is not None and (
+        hasattr(value, "is_error") or hasattr(value, "isError")
+    ):
         blocks = _blocks_from_mcp_content(content)
-        structured = getattr(value, "structuredContent", None)
+        structured = getattr(
+            value,
+            "structured_content",
+            getattr(value, "structuredContent", None),
+        )
         if structured is not None:
             blocks.append(_text_block(_stringify(structured)))
         return blocks or [_text_block("")]

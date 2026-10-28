@@ -14,7 +14,7 @@ class ClientSession(_ClientSession):
         super().__init__(read_stream, write_stream)
         self._logger = logger
 
-    async def _validate_tool_result(self, name, result):
+    async def validate_tool_result(self, name, result):
         # Preserve the SDK's cache refresh and missing structured-content rules.
         if name not in self._tool_output_schemas:
             await self.list_tools()
@@ -27,7 +27,7 @@ class ClientSession(_ClientSession):
         schema = self._tool_output_schemas[name]
         if schema is None:
             return
-        if result.structuredContent is None:
+        if result.structured_content is None:
             self._logger.warning(
                 "Tool %r returned no structured content for its output schema",
                 name,
@@ -36,7 +36,7 @@ class ClientSession(_ClientSession):
                 f"Tool {name} has an output schema but returned no structured content",
             )
         try:
-            validate(result.structuredContent, schema, registry=_REGISTRY)
+            validate(result.structured_content, schema, registry=_REGISTRY)
         except Unresolvable:
             self._logger.warning(
                 "Tool %r output schema reference is unavailable locally",

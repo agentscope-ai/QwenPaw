@@ -1,7 +1,7 @@
 {
   "id": "qwenpaw-mcp",
   "name": "MCP",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "general",
   "description": "Connect MCP servers and manage their OAuth authorization.",
   "author": "QwenPaw Team",

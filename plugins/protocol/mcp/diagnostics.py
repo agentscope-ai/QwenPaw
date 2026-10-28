@@ -5,11 +5,14 @@ from functools import partialmethod
 from ssl import SSLCertVerificationError
 
 import httpx
-from mcp.shared.exceptions import McpError
+import httpx2
+from mcp.shared.exceptions import MCPError
 
 # The public SDK exports StaleContextError lazily.
 # pylint: disable-next=no-name-in-module
 from qwenpaw.plugins import StaleContextError
+
+_HTTP_STATUS_ERRORS = (httpx.HTTPStatusError, httpx2.HTTPStatusError)
 
 
 class MCPLogger:
@@ -47,9 +50,9 @@ def error_summary(error):
             continue
         seen.add(id(current))
         detail = type(current).__name__
-        if isinstance(current, httpx.HTTPStatusError):
+        if isinstance(current, _HTTP_STATUS_ERRORS):
             detail += f" (HTTP {current.response.status_code})"
-        elif isinstance(current, McpError):
+        elif isinstance(current, MCPError):
             detail += f" (JSON-RPC {current.error.code})"
         elif isinstance(current, SSLCertVerificationError):
             code = getattr(current, "verify_code", None)
