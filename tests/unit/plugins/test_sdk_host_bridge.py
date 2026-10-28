@@ -12,20 +12,19 @@ from .test_sdk_entry_contract import write_plugin
 from .timing import WAIT_TIMEOUT, wait_for_thread_progress
 
 
-async def test_published_runtime_tool_stream_remains_busy_until_closed(
-    tmp_path,
-):
+async def test_function_tool_stream_close_releases_sdk_invocation(tmp_path):
     from qwenpaw.agents import tools
     from qwenpaw.plugins import PluginBusyError
     from qwenpaw.plugins.testing import PluginTestHost
+    from qwenpaw.runtime.tool_guard import GuardedFunctionTool
 
     async with PluginTestHost(tmp_path / "host") as host:
         await host.load(
             make_plugin(tmp_path),
             config={"marker": str(tmp_path / "closed")},
         )
-        invoke = getattr(tools, "sdk_contract_stream")
-        stream = invoke()
+        tool = GuardedFunctionTool(getattr(tools, "sdk_contract_stream"))
+        stream = await tool.call()
         try:
             response = await asyncio.create_task(anext(stream))
             assert [
@@ -38,28 +37,6 @@ async def test_published_runtime_tool_stream_remains_busy_until_closed(
         finally:
             await stream.aclose()
         assert (tmp_path / "closed").read_text() == "stream-closed"
-        assert host.resource_snapshot("author-contract")["active_calls"] == 0
-        assert (await host.reload("author-contract")).ok
-
-
-async def test_function_tool_stream_close_releases_sdk_invocation(tmp_path):
-    from qwenpaw.agents import tools
-    from qwenpaw.plugins.testing import PluginTestHost
-    from qwenpaw.runtime.tool_guard import GuardedFunctionTool
-
-    async with PluginTestHost(tmp_path / "host") as host:
-        await host.load(
-            make_plugin(tmp_path),
-            config={"marker": str(tmp_path / "closed")},
-        )
-        tool = GuardedFunctionTool(getattr(tools, "sdk_contract_stream"))
-        stream = await tool.call()
-        try:
-            response = await anext(stream)
-            assert response.content[0].text == "first"
-        finally:
-            await stream.aclose()
-        assert (tmp_path / "closed").exists()
         assert host.resource_snapshot("author-contract")["active_calls"] == 0
         assert (await host.reload("author-contract")).ok
 

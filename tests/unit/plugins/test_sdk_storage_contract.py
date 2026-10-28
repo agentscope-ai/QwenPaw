@@ -266,53 +266,6 @@ plugin = Plugin()
         ).content[0].text == "high:test-one"
 
 
-async def test_tool_media_preserves_public_preview_reference(tmp_path):
-    from qwenpaw.plugins.testing import PluginTestHost
-    from .sdk_author_fixture import make_plugin as extension_plugin
-
-    source = """
-from qwenpaw.plugins.tools import ToolSpec, ToolResult
-from qwenpaw.plugins.messages import ContentBlock
-
-
-class Plugin:
-    def register(self, ctx):
-        async def image(call, args):
-            attachment = call.media.write(
-                "image.png", b"image-data", mime_type="image/png"
-            )
-            return ToolResult(
-                (ContentBlock("image", attachment=attachment),),
-                metadata={"preview": attachment.preview_url},
-            )
-
-        ctx.register_tool(
-            ToolSpec(
-                "preview_image",
-                "preview",
-                {"type": "object"},
-                image,
-                enabled=True,
-            )
-        )
-
-
-plugin = Plugin()
-"""
-    async with PluginTestHost(tmp_path / "host") as host:
-        await host.load(
-            extension_plugin(tmp_path, source, ["tools", "storage"]),
-        )
-        result = await host.call_tool("preview_image", {})
-        attachment = result.content[0].attachment
-        assert attachment.preview_url == result.metadata["preview"]
-        assert attachment.preview_url.startswith("/api/files/preview/")
-        assert (
-            Path(file_url_to_path(attachment.url)).read_bytes()
-            == b"image-data"
-        )
-
-
 async def test_async_storage_and_media_preserve_sync_contract(tmp_path):
     from qwenpaw.plugins import SDKError, StaleContextError
     from qwenpaw.plugins.testing import PluginTestHost

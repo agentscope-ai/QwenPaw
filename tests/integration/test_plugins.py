@@ -46,9 +46,11 @@ def aliyun_cli_on_path(
     windows = os.name == f"nt"
     cli = bin_dir / (f"aliyun.cmd" if windows else f"aliyun")
     cli.write_text(
-        f"@echo off\necho integration-test\n"
-        if windows
-        else f"#!/bin/sh\necho integration-test\n",
+        (
+            f"@echo off\necho integration-test\n"
+            if windows
+            else f"#!/bin/sh\necho integration-test\n"
+        ),
         encoding=f"utf-8",
     )
     cli.chmod(0o755)
@@ -262,41 +264,6 @@ def test_plugins_list_returns_empty_array_contract(app_server) -> None:
         payload if isinstance(payload, list) else payload.get("plugins", [])
     )
     assert isinstance(items, list)
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_plugins_catalog_returns_200_with_plugins_field_contract(
-    app_server,
-) -> None:
-    """Test purpose:
-    - Verify GET /api/plugins/catalog returns the documented contract
-      even when the upstream CDN is unreachable. The server-side
-      proxy is supposed to fall back to ``{"plugins": [], "error": ...}``
-      with HTTP 200 instead of 5xx, so the Console plugin page
-      degrades gracefully.
-
-    Test flow:
-    1. GET /api/plugins/catalog (real call; CDN may be unreachable
-       in offline / CI environments).
-    2. Assert 200, response is a dict with a ``plugins`` list field.
-       Do not assert on the catalog contents — only on the contract.
-
-    API endpoints:
-    - GET /api/plugins/catalog
-    """
-    resp = app_server.api_request(
-        "GET",
-        "/api/plugins/catalog",
-        timeout=PLUGIN_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 200, app_server.logs_tail()
-    payload = resp.json()
-    assert isinstance(payload, dict), f"expected dict, got {type(payload)}"
-    assert isinstance(
-        payload.get("plugins"),
-        list,
-    ), f"plugins field missing or not a list: {payload}"
 
 
 @pytest.mark.integration

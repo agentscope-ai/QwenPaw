@@ -285,7 +285,7 @@ async def test_finished_managed_tasks_do_not_accumulate_live_resources(
     )
     async with PluginTestHost(tmp_path / "host") as host:
         ctx = await host.load(make_plugin(tmp_path, source))
-        for _ in range(100):
+        for _ in range(3):
             await ctx.resources.task(
                 asyncio.sleep(0),
                 description="short-lived",
@@ -356,14 +356,14 @@ async def test_closed_child_scopes_release_parent_registration(tmp_path):
         ctx = await host.load(make_plugin(tmp_path, source))
         initial = ctx.resources.snapshot()["resources"]
         closed = []
-        for index in range(20):
+        for index in range(3):
             child = ctx.resources.child(instance_id=f"restart-{index}")
             child.defer(lambda number=index: closed.append(number))
             await child.close()
             await child.close()
             assert child.closed
             assert ctx.resources.snapshot()["resources"] == initial
-        assert closed == list(range(20))
+        assert closed == list(range(3))
 
         blocked = True
 

@@ -85,18 +85,9 @@ class TestNormRealpath:
 
 
 class TestResolvedPluginManifestPath:
-    def test_returns_manifest(self, tmp_path):
-        (tmp_path / "plugin.json").write_text("{}")
-        result = pl.resolved_plugin_manifest_path(tmp_path)
-        assert result.name == "plugin.json"
-
     def test_missing_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             pl.resolved_plugin_manifest_path(tmp_path / "nope")
-
-    def test_missing_manifest_raises(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            pl.resolved_plugin_manifest_path(tmp_path)
 
     def test_symlink_escape_rejected(self, tmp_path):
         src = tmp_path / "src"

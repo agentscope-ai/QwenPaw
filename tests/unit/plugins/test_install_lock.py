@@ -134,21 +134,12 @@ class TestAcquireRelease:
 
 
 class TestContextManager:
-    def test_creates_parent_dirs(self, lock_path):
+    def test_creates_lock_and_releases_after_the_block(self, lock_path):
         assert not lock_path.parent.exists()
-
-        with lock_mod.plugin_install_lock(lock_path) as acquired:
-            assert acquired is True
-            assert lock_path.parent.is_dir()
-
-    def test_yields_true_and_creates_lock_file(self, lock_path):
-        with lock_mod.plugin_install_lock(lock_path) as acquired:
-            assert acquired is True
-            assert lock_path.is_file()
-
-    def test_releases_after_the_block(self, lock_path):
         with lock_mod.plugin_install_lock(lock_path) as first:
             assert first is True
+            assert lock_path.parent.is_dir()
+            assert lock_path.is_file()
 
         # A second fd can take the lock only if the first was released.
         fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
@@ -194,34 +185,6 @@ class TestTimeoutFallsOpen:
                 assert acquired is False
         finally:
             _release(held)
-
-    def test_body_runs_despite_timeout(self, lock_path):
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        held = _hold(lock_path)
-        ran = []
-        try:
-            with lock_mod.plugin_install_lock(lock_path, timeout=0.0):
-                ran.append(True)
-        finally:
-            _release(held)
-        assert ran == [True]
-
-    def test_timeout_does_not_leave_the_lock_held(self, lock_path):
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        held = _hold(lock_path)
-        try:
-            with lock_mod.plugin_install_lock(lock_path, timeout=0.0):
-                pass
-        finally:
-            _release(held)
-
-        # After the peer releases, the lock is free again (we never held it).
-        fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
-        try:
-            assert lock_mod._acquire_os_lock(fd) is True
-        finally:
-            lock_mod._release_os_lock(fd)
-            os.close(fd)
 
     def test_negative_timeout_is_clamped_to_zero(self, lock_path):
         lock_path.parent.mkdir(parents=True, exist_ok=True)

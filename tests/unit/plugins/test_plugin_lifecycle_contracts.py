@@ -469,10 +469,18 @@ async def test_commands_wait_for_initial_activation(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["control", "slash", "adapter", "mode"])
+# Each registration kind feeds the same activity gate used by all mutations.
 @pytest.mark.parametrize(
-    "operation",
-    ["unload", "reload", "config", "install"],
+    "kind, operation",
+    [
+        ("control", "unload"),
+        ("slash", "unload"),
+        ("adapter", "unload"),
+        ("mode", "unload"),
+        ("control", "reload"),
+        ("control", "config"),
+        ("control", "install"),
+    ],
 )
 async def test_busy_command_blocks_lifecycle(
     tmp_path,

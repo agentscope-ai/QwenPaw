@@ -135,28 +135,6 @@ async def test_author_load_call_reload_and_stale_context(tmp_path):
             await host.call_tool("sdk_contract_echo", {"text": "gone"})
 
 
-async def test_stream_is_busy_between_items_and_close_releases_it(tmp_path):
-    from qwenpaw.plugins import PluginBusyError
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    marker = tmp_path / "closed"
-    root = make_plugin(tmp_path)
-    async with PluginTestHost(tmp_path / "host") as host:
-        await host.load(root, config={"marker": str(marker)})
-        stream = host.stream_tool("sdk_contract_stream", {})
-        try:
-            first = await anext(stream)
-            assert first.kind == "delta" and first.content[0].text == "first"
-            with pytest.raises(PluginBusyError):
-                await host.reload("author-contract")
-            assert not marker.exists()
-        finally:
-            await stream.aclose()
-        assert marker.read_text() == "stream-closed"
-        report = await host.reload("author-contract")
-        assert report.ok, report.errors
-
-
 async def test_stream_consumer_cancellation_closes_plugin_generator(tmp_path):
     from qwenpaw.plugins.testing import PluginTestHost
 
@@ -247,6 +225,8 @@ async def test_stream_suspended_after_short_lived_task_still_blocks_reload(
             first_call = asyncio.create_task(anext(stream))
             first = await first_call
             assert first_call.done() and first.kind == "delta"
+            assert first.content[0].text == "first"
+            assert not (tmp_path / "closed").exists()
             assert (
                 host.resource_snapshot("author-contract")["active_calls"] == 1
             )
@@ -254,6 +234,7 @@ async def test_stream_suspended_after_short_lived_task_still_blocks_reload(
                 await host.reload("author-contract")
         finally:
             await stream.aclose()
+        assert (tmp_path / "closed").read_text() == "stream-closed"
         assert host.resource_snapshot("author-contract")["active_calls"] == 0
         assert (await host.reload("author-contract")).ok
 
