@@ -8,7 +8,14 @@ const hoisted = vi.hoisted(() => {
     error: vi.fn(),
     warning: vi.fn(),
   };
-  const agentState = { selectedAgent: "agent-1", agents: [] };
+  const agentState = {
+    selectedAgent: "agent-1",
+    agents: [] as Array<{
+      id: string;
+      backend?: string;
+      backend_capabilities?: { provider_mcp_discovery?: boolean };
+    }>,
+  };
   const apiMocks = {
     listMCPClients: vi.fn(),
     createMCPClient: vi.fn(),
@@ -20,7 +27,7 @@ const hoisted = vi.hoisted(() => {
   // A stable translation function so useCallback dependencies don't change on
   // every render and trigger an infinite loadClients loop via useEffect.
   const stableT = (k: string) => k;
-  return { messageMock, agentState, apiMocks, stableT };
+  return { discover: vi.fn(), messageMock, agentState, apiMocks, stableT };
 });
 
 vi.mock("../../../api", () => ({
@@ -40,6 +47,10 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: hoisted.stableT }),
+}));
+
+vi.mock("../../../api/modules/harness", () => ({
+  harnessApi: { listMCP: hoisted.discover },
 }));
 
 import { useMCP } from "./useMCP";
@@ -437,4 +448,216 @@ describe("useMCP", () => {
     expect(apiMocks.deleteMCPClient).toHaveBeenCalledWith("client-1");
     expect(messageMock.success).toHaveBeenCalledWith("mcp.deleteSuccess");
   });
+});
+
+describe("useMCP workspace response ownership", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<T>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    return { promise, resolve, reject };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.agentState.selectedAgent = "agent-1";
+    apiMocks.listMCPClients.mockReset();
+  });
+
+  it("does not display a late response from the previous workspace", async () => {
+    const old = deferred<MCPClientInfo[]>();
+    apiMocks.listMCPClients
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValueOnce([makeClient({ key: "agent-2-client" })]);
+    const { result, rerender } = renderHook(() => useMCP());
+    hoisted.agentState.selectedAgent = "agent-2";
+    rerender();
+    await waitFor(() =>
+      expect(result.current.clients[0]?.key).toBe("agent-2-client"),
+    );
+    await act(async () =>
+      old.resolve([makeClient({ key: "private-agent-1-client" })]),
+    );
+    expect(result.current.clients.map(({ key }) => key)).toEqual([
+      "agent-2-client",
+    ]);
+  });
+
+  it("clears old workspace data while the next workspace is loading", async () => {
+    const next = deferred<MCPClientInfo[]>();
+    apiMocks.listMCPClients
+      .mockResolvedValueOnce([makeClient()])
+      .mockReturnValueOnce(next.promise);
+    const { result, rerender } = renderHook(() => useMCP());
+    await waitFor(() => expect(result.current.clients).toHaveLength(1));
+    hoisted.agentState.selectedAgent = "agent-2";
+    rerender();
+    expect(result.current.clients).toEqual([]);
+    await act(async () => next.resolve([]));
+  });
+
+  it("requires a fresh successful load after switching away and back", async () => {
+    const otherWorkspace = deferred<MCPClientInfo[]>();
+    const returningWorkspace = deferred<MCPClientInfo[]>();
+    apiMocks.listMCPClients
+      .mockResolvedValueOnce([makeClient()])
+      .mockReturnValueOnce(otherWorkspace.promise)
+      .mockReturnValueOnce(returningWorkspace.promise);
+    apiMocks.createMCPClient.mockReset();
+    const { result, rerender } = renderHook(() => useMCP());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    agentState.selectedAgent = "agent-1";
+    rerender();
+    expect(result.current.ready).toBe(false);
+    expect(result.current.clients).toEqual([]);
+    await act(async () => {
+      expect(
+        await result.current.createClient("new", {
+          name: "New",
+          command: "run",
+        }),
+      ).toBe(false);
+    });
+    expect(apiMocks.createMCPClient).not.toHaveBeenCalled();
+
+    await act(async () => {
+      otherWorkspace.resolve([]);
+      returningWorkspace.resolve([makeClient({ name: "Reloaded" })]);
+    });
+    expect(result.current.ready).toBe(true);
+    expect(result.current.clients[0].name).toBe("Reloaded");
+  });
+
+  it("suppresses stale workspace failures while the current request is pending", async () => {
+    const old = deferred<MCPClientInfo[]>();
+    const next = deferred<MCPClientInfo[]>();
+    apiMocks.listMCPClients
+      .mockReturnValueOnce(old.promise)
+      .mockReturnValueOnce(next.promise);
+    const { result, rerender } = renderHook(() => useMCP());
+    hoisted.agentState.selectedAgent = "agent-2";
+    rerender();
+    await act(async () => old.reject(new Error("old workspace failed")));
+    expect(messageMock.error).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe(true);
+    await act(async () => next.resolve([]));
+  });
+});
+
+describe("useMCP mutation ownership", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.agentState.selectedAgent = "agent-1";
+    for (const mock of Object.values(apiMocks)) mock.mockReset();
+  });
+
+  it.each(["create", "update", "toggle", "delete", "policy"] as const)(
+    "ignores late %s completion after workspace changes",
+    async (operation) => {
+      let resolve!: (value: unknown) => void;
+      const pending = new Promise((done) => {
+        resolve = done;
+      });
+      const mutation = {
+        create: apiMocks.createMCPClient,
+        update: apiMocks.updateMCPClient,
+        toggle: apiMocks.toggleMCPClient,
+        delete: apiMocks.deleteMCPClient,
+        policy: apiMocks.updateMCPPolicy,
+      }[operation];
+      mutation.mockReturnValueOnce(pending);
+      apiMocks.listMCPClients
+        .mockResolvedValueOnce([makeClient({ name: "Workspace One" })])
+        .mockResolvedValue([makeClient({ name: "Workspace Two" })]);
+      const { result, rerender } = renderHook(() => useMCP());
+      await waitFor(() =>
+        expect(result.current.clients[0]?.name).toBe("Workspace One"),
+      );
+      let completion!: Promise<unknown>;
+      act(() => {
+        const policy = {
+          default_effect: "deny",
+          client_overrides: [],
+          tool_defaults: [],
+          tool_overrides: [],
+          unmanaged_rules_count: 0,
+        } as const;
+        completion =
+          operation === "create"
+            ? result.current.createClient("new", {
+                name: "new",
+                command: "run",
+              })
+            : operation === "update"
+            ? result.current.updateClient("client-1", {
+                name: "Wrong workspace update",
+              })
+            : operation === "toggle"
+            ? result.current.toggleEnabled(makeClient())
+            : operation === "delete"
+            ? result.current.deleteClient(makeClient())
+            : result.current.updatePolicy("client-1", {
+                ...policy,
+                client_overrides: [],
+                tool_defaults: [],
+                tool_overrides: [],
+              });
+      });
+      hoisted.agentState.selectedAgent = "agent-2";
+      rerender();
+      await waitFor(() =>
+        expect(result.current.clients[0]?.name).toBe("Workspace Two"),
+      );
+      await act(async () => {
+        resolve(undefined);
+        await completion;
+      });
+      expect(result.current.clients).toEqual([
+        makeClient({ name: "Workspace Two" }),
+      ]);
+      expect(apiMocks.listMCPClients).toHaveBeenCalledTimes(2);
+      expect(messageMock.success).not.toHaveBeenCalled();
+      expect(messageMock.error).not.toHaveBeenCalled();
+    },
+  );
+});
+
+it("does not mix delayed provider discovery into a different selected workspace", async () => {
+  vi.clearAllMocks();
+  hoisted.agentState.selectedAgent = "agent-1";
+  hoisted.agentState.agents = [
+    {
+      id: "agent-1",
+      backend: "codex",
+      backend_capabilities: { provider_mcp_discovery: true },
+    },
+    { id: "agent-2", backend: "qwenpaw" },
+  ];
+  let resolve!: (value: { servers: unknown[]; message?: string }) => void;
+  hoisted.discover.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  apiMocks.listMCPClients.mockReset().mockResolvedValue([]);
+  const { result, rerender } = renderHook(() => useMCP());
+  await waitFor(() => expect(hoisted.discover).toHaveBeenCalledWith("codex"));
+  hoisted.agentState.selectedAgent = "agent-2";
+  rerender();
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  await act(async () =>
+    resolve({
+      servers: [{ name: "Private provider server" }],
+      message: "Old workspace warning",
+    }),
+  );
+  expect(result.current.providerServers).toEqual([]);
+  expect(messageMock.warning).not.toHaveBeenCalled();
+  hoisted.agentState.agents = [];
 });

@@ -44,7 +44,11 @@ def prepare_author_tests(source: Path, root: Path) -> list[str]:
             shutil.copy2(file, suite)
             tests.append(file.name)
     assert tests, "No public author tests found in build snapshot"
-    (root / "pytest.ini").write_text("[pytest]\nasyncio_mode = auto\n")
+    (root / "pytest.ini").write_text(
+        "[pytest]\nasyncio_mode = auto\n"
+        "markers =\n"
+        "    p1: supported feature contracts\n",
+    )
     return tests
 
 
@@ -123,12 +127,32 @@ def main():
             "files": len(names),
         }
     import_check = f"""
-import importlib.metadata, json
+import hashlib, importlib.metadata, json, zipfile
+from email.parser import BytesParser
 from pathlib import Path
 import qwenpaw
 location = Path(qwenpaw.__file__).resolve()
 assert "site-packages" in location.parts, location
 assert not location.is_relative_to(Path({str(source)!r})), location
+distributions = [
+    dist for dist in importlib.metadata.distributions()
+    if dist.metadata["Name"].lower().replace("_", "-") == "qwenpaw"
+]
+assert len(distributions) == 1, "Expected sole installed qwenpaw metadata"
+with zipfile.ZipFile({str(args.wheel.resolve())!r}) as archive:
+    metadata = next(
+        name for name in archive.namelist()
+        if name.endswith(".dist-info/METADATA")
+    )
+    expected = BytesParser().parsebytes(archive.read(metadata))["Version"]
+    assert distributions[0].version == expected, "Installed wheel version mismatch"
+    for name in archive.namelist():
+        if name.startswith("qwenpaw/") and not name.endswith("/"):
+            installed = location.parent.parent / name
+            assert installed.is_file(), f"Missing installed wheel file: {{name}}"
+            assert hashlib.sha256(installed.read_bytes()).digest() == hashlib.sha256(
+                archive.read(name)
+            ).digest(), f"Installed wheel bytes mismatch: {{name}}"
 versions = {{
     name: importlib.metadata.version(name)
     for name in ("qwenpaw", "agentscope", "fastapi", "pytest")

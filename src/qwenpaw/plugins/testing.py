@@ -1076,6 +1076,127 @@ class PluginTestHost:
             for item in await provider.fetch_models()
         )
 
+    async def _driver_manager(self, workspace_id):
+        from ..drivers.manager import DriverManager
+        from ..drivers.credentials.store import AsyncCredentialStore
+        from ..app.approvals.driver_gate import QwenPawDriverApprovalGate
+        from ._drivers import attach_driver_protocols
+
+        workspace = await self._workspace(workspace_id)
+        services = workspace._service_manager.services
+        manager = services.get("driver_manager")
+        if manager is None:
+            manager = DriverManager(
+                workspace.workspace_dir / "drivers",
+                AsyncCredentialStore(
+                    workspace.workspace_dir / "credentials.yaml",
+                ),
+                approval_gate=QwenPawDriverApprovalGate(),
+            )
+            services["driver_manager"] = manager
+        attach_driver_protocols(manager, self._loader.registry, workspace)
+        return manager
+
+    async def open_driver(
+        self,
+        source,
+        *,
+        workspace_id="test",
+        session_scope="",
+    ):
+        from ..drivers.contracts import DriverCard
+        from .drivers import _freeze, _thaw
+
+        try:
+            card = DriverCard(**_thaw(_freeze(source)))
+            manager = await self._driver_manager(workspace_id)
+            if session_scope:
+                await manager.replace_transient_drivers(session_scope, [card])
+            else:
+                await manager.register_driver(card)
+        except Exception as exc:
+            raise SDKError(str(exc)) from exc
+
+    async def list_driver_capabilities(
+        self,
+        source_id,
+        *,
+        workspace_id="test",
+        session_scope="",
+    ):
+        from ..drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
+        from .drivers import _freeze
+        from dataclasses import asdict
+
+        try:
+            manager = await self._driver_manager(workspace_id)
+            capabilities = await manager.list_driver_capabilities(
+                source_id,
+                request_context={DRIVER_SCOPE_CONTEXT_KEY: session_scope},
+            )
+            return tuple(_freeze(asdict(value)) for value in capabilities)
+        except Exception as exc:
+            raise SDKError(str(exc)) from exc
+
+    async def call_driver(
+        self,
+        source_id,
+        name,
+        arguments,
+        *,
+        workspace_id="test",
+        session_scope="",
+        session_id="test",
+        user_id="test",
+        channel="console",
+    ):
+        from ..drivers.capabilities import (
+            DriverInvocation,
+            format_capability_id,
+        )
+        from ..drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
+
+        manager = await self._driver_manager(workspace_id)
+        try:
+            handler = manager._get_handler(source_id)
+            result = await manager.invoke_capability(
+                DriverInvocation(
+                    format_capability_id(
+                        handler.card.protocol,
+                        source_id,
+                        "tool",
+                        "invoke",
+                        name,
+                    ),
+                    dict(arguments),
+                    {
+                        "agent_id": workspace_id,
+                        "session_id": session_id,
+                        "user_id": user_id,
+                        "channel": channel,
+                        DRIVER_SCOPE_CONTEXT_KEY: session_scope,
+                    },
+                ),
+            )
+            if not result.ok:
+                raise SDKError(result.message)
+            return result.value
+        except Exception as exc:
+            raise SDKError(str(exc)) from exc
+
+    async def close_driver(
+        self,
+        source_id,
+        *,
+        workspace_id="test",
+        session_scope="",
+    ):
+        try:
+            manager = await self._driver_manager(workspace_id)
+            await manager.close_driver(source_id, session_scope=session_scope)
+        except Exception as exc:
+            raise SDKError(str(exc)) from exc
+
     async def start_memory(
         self,
         backend_id: str,

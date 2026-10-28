@@ -1564,6 +1564,16 @@
     "custom": "Custom"
   },
   "mcp": {
+    "recovery": {
+      "title": "MCP needs attention",
+      "invalid_upgrade_record": "Review the MCP installation record, then retry",
+      "orphaned_installation_record": "Review the MCP installation record, then retry",
+      "offline_upgrade_failed_check_dependencies_and_storage": "Check offline dependencies and storage, then retry",
+      "workspace_needs_review": "Review this workspace’s saved MCP configuration, then retry",
+      "invalid_plugin_settings": "Review the MCP plugin settings, then retry",
+      "plugin_runtime_failed": "Check the MCP plugin dependencies and settings, then retry",
+      "plugin_diagnostics_present": "Review MCP plugin diagnostics before retrying"
+    },
     "title": "MCP Clients",
     "qwenpawManaged": "QwenPaw managed",
     "qwenpawManagedHint": "Shared control-plane configuration injected into supported third-party Agents at runtime.",

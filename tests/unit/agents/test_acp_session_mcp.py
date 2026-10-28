@@ -282,6 +282,9 @@ async def test_acp_session_cleanup_cancellation_preserves_committed_state(
             self.card = card
             self.name = card.name
 
+        async def init(self) -> None:
+            pass
+
         async def shutdown(self) -> None:
             if self.card.endpoint["cwd"] == str(old_cwd):
                 teardown_started.set()
@@ -291,10 +294,7 @@ async def test_acp_session_cleanup_cancellation_preserves_committed_state(
                 await allow_close.wait()
                 close_finished.set()
 
-    async def build_handler(card):
-        return _BlockingHandler(card)
-
-    monkeypatch.setattr(manager, "_build_and_init_handler", build_handler)
+    monkeypatch.setattr(manager, "_build_handler", _BlockingHandler)
     workspace = _FakeWorkspace()
     workspace.driver_manager = manager
     agent = _TestACPAgent(workspace)

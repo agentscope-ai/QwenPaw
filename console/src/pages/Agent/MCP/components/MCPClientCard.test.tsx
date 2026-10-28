@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type React from "react";
 import type { MCPClientInfo } from "@/api/types";
 import { MCPClientCard } from "./MCPClientCard";
 
@@ -21,8 +22,21 @@ vi.mock("@/hooks/useAppMessage", () => ({
   }),
 }));
 vi.mock("@/components/interaction/ServiceCard", () => ({
-  ServiceCard: ({ onConfigure }: { onConfigure: () => void }) => (
-    <button onClick={onConfigure}>Configure connection</button>
+  ServiceCard: ({
+    onConfigure,
+    disabled,
+    actions,
+  }: {
+    onConfigure: () => void;
+    disabled?: boolean;
+    actions?: React.ReactNode;
+  }) => (
+    <div>
+      <button disabled={disabled} onClick={onConfigure}>
+        Configure connection
+      </button>
+      {actions}
+    </div>
   ),
 }));
 vi.mock("./MCPAccessModal", () => ({ MCPAccessModal: () => null }));
@@ -85,4 +99,34 @@ describe("MCP connection draft dismissal", () => {
     );
     expect(onUpdate).not.toHaveBeenCalled();
   });
+});
+
+it("retains a readonly saved card while disabling every native runtime control", () => {
+  const update = vi.fn();
+  const toggle = vi.fn();
+  const remove = vi.fn();
+  render(
+    <MCPClientCard
+      client={{ ...client, transport: "sse", url: "https://saved.invalid/mcp" }}
+      readOnly
+      onToggle={toggle}
+      onDelete={remove}
+      onUpdate={update}
+      onUpdatePolicy={vi.fn()}
+    />,
+  );
+  for (const name of [
+    "Configure connection",
+    "mcp.tools",
+    "mcp.oauth.manage",
+    "common.delete",
+  ]) {
+    const button = screen.getByRole("button", { name });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+  }
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(update).not.toHaveBeenCalled();
+  expect(toggle).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
 });

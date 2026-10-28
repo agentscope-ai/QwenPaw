@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Imported pytest fixtures are explicit re-exports for fixture discovery.
+# pylint: disable=redefined-outer-name
 from pathlib import Path
 
 import pytest
@@ -6,10 +8,14 @@ import pytest
 from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.drivers.contracts import CredentialRef, DriverCard, PolicyRule
 from qwenpaw.drivers.credentials.store import AsyncCredentialStore
-from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
-from qwenpaw.drivers.manager import DriverManager
 from qwenpaw.drivers.storage import card_path, dump_card
-from tests.integration.driver_mcp_fakes import patch_mcp_runtime_clients
+from tests.integration.driver_mcp_fakes import (
+    mcp_runtime_host as _mcp_runtime_host,
+    sdk_mcp_manager,
+    patch_mcp_runtime_clients,
+)
+
+mcp_runtime_host = _mcp_runtime_host
 
 
 @pytest.mark.asyncio
@@ -18,6 +24,7 @@ from tests.integration.driver_mcp_fakes import patch_mcp_runtime_clients
 async def test_env_ref_header_resolves_from_environment_at_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     monkeypatch.setenv("WIND_API_KEY", "ak_real_key_123")
@@ -48,8 +55,7 @@ async def test_env_ref_header_resolves_from_environment_at_runtime(
         ),
         card_path(tmp_path / "drivers", "wind", protocol="mcp"),
     )
-    manager = DriverManager(tmp_path / "drivers", store)
-    manager.register_handler_type("mcp", MCPDriverHandler)
+    manager = await sdk_mcp_manager(mcp_runtime_host, tmp_path, store)
 
     await manager.build_drivers()
     capability = next(
@@ -62,7 +68,10 @@ async def test_env_ref_header_resolves_from_environment_at_runtime(
     )
 
     assert result.ok is True
-    assert result.value["headers"]["Authorization"] == "Bearer ak_real_key_123"
+    assert (
+        result.value.structured_content["headers"]["Authorization"]
+        == "Bearer ak_real_key_123"
+    )
     # A rotated env value is reflected without any persisted credential.
     credentials_file = tmp_path / "credentials.yaml"
     on_disk = (

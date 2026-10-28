@@ -10,6 +10,7 @@ option.
 
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 from PyInstaller.utils.hooks import (
@@ -64,6 +65,25 @@ datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
 ]
 datas.append((str(REPO_ROOT / "plugins/hub"), "qwenpaw/plugins/bundled/hub"))
+# Keep the offline, opt-in MCP payload identical to wheel package data. Do not
+# copy the whole author tree (which may contain node_modules or build caches).
+_packaging = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())[
+    "tool"
+]["setuptools"]
+_optional_package = "qwenpaw.plugins.bundled.optional.mcp"
+_optional_source = REPO_ROOT / _packaging["package-dir"][_optional_package]
+for _pattern in _packaging["package-data"][_optional_package]:
+    for _path in sorted(_optional_source.glob(_pattern)):
+        if _path.is_file():
+            datas.append(
+                (
+                    str(_path),
+                    str(
+                        Path(*_optional_package.split("."))
+                        / _path.relative_to(_optional_source).parent
+                    ),
+                ),
+            )
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 datas.append(
     (

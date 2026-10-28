@@ -862,7 +862,7 @@ class PluginLifecycle:
         interrupt_tasks: bool = False,
     ) -> Any:
         """Load or unload first; persist ``enabled`` only when it is true."""
-        from .settings import persist_plugin_settings
+        from .settings import persist_plugin_settings, clear_plugin_intent
 
         from ..utils.io_utils import run_sync_io
 
@@ -888,12 +888,37 @@ class PluginLifecycle:
                     plugin_id,
                     enabled=True,
                 )
-                return await self._loader.load_installed_unlocked(plugin_id)
+                blocked = plugin_id in self._loader.startup_blocked_plugins
+                self._loader.startup_blocked_plugins.discard(plugin_id)
+                try:
+                    record = await self._loader.load_installed_unlocked(
+                        plugin_id,
+                    )
+                except BaseException:
+                    if blocked:
+                        self._loader.startup_blocked_plugins.add(plugin_id)
+                    raise
+                if record.status != "failed":
+                    await run_sync_io(
+                        clear_plugin_intent,
+                        plugin_id,
+                        plugins_dir=self._loader.plugin_dirs[0],
+                    )
+                elif blocked:
+                    self._loader.startup_blocked_plugins.add(plugin_id)
+                return record
             await run_sync_io(
                 persist_plugin_settings,
                 plugin_id,
                 enabled=enabled,
             )
+            if enabled:
+                await run_sync_io(
+                    clear_plugin_intent,
+                    plugin_id,
+                    plugins_dir=self._loader.plugin_dirs[0],
+                )
+                self._loader.startup_blocked_plugins.discard(plugin_id)
             return self._loader.get_loaded_plugin(plugin_id)
 
     async def unload_all(self, mode: UnloadMode) -> list[UnloadReport]:

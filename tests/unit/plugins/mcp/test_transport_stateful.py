@@ -23,8 +23,8 @@ import pytest
 from mcp.shared.exceptions import McpError
 from mcp.types import CONNECTION_CLOSED, ErrorData
 
-import qwenpaw.drivers.handlers.mcp_stateful_client as mod
-from qwenpaw.drivers.handlers.mcp_stateful_client import (
+import mcp_plugin_under_test.mcp_stateful_client as mod
+from mcp_plugin_under_test.mcp_stateful_client import (
     HttpStatefulClient,
     _is_401_error,
     _is_transport_error,

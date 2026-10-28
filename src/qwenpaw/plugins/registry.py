@@ -161,6 +161,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
         self._channels: Dict[str, ChannelRegistration] = {}
+        self._driver_protocols: dict[str, Any] = {}
+        self.protocol_resolver: Optional[Callable] = None
+        self.protocol_eligibility: Optional[Callable] = None
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
         self._middleware_registrations: List[MiddlewareRegistration] = []
@@ -176,6 +179,29 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._stop_workspaces: dict[str, Any] = {}
 
         self._initialized = True
+
+    def register_driver_protocol(self, owner, spec) -> None:
+        """Reject duplicate protocol names before recording the exact owner."""
+        from .errors import SDKError
+
+        if spec.protocol in self._driver_protocols:
+            previous = self._driver_protocols[spec.protocol].owner
+            raise SDKError(
+                f"Driver protocol {spec.protocol!r} is already registered "
+                f"by plugin {previous.plugin_id!r}",
+            )
+        self._driver_protocols[spec.protocol] = owner
+
+    def unregister_driver_protocol(self, protocol, *, expected_owner) -> None:
+        """A retained handle may release only its own registration."""
+        current = self._driver_protocols.get(protocol)
+        if current is not None and current.owner is expected_owner:
+            del self._driver_protocols[protocol]
+
+    def get_driver_protocol(self, protocol):
+        """Return the owner/spec pair without creating a connection."""
+        descriptor = self._driver_protocols.get(protocol)
+        return (descriptor.owner, descriptor.spec) if descriptor else None
 
     def register_middleware(
         self,

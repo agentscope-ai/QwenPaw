@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from agentscope.message import (
@@ -92,6 +93,35 @@ def _blocks_from_mcp_content(content: Any) -> list[Any]:
 
 
 def _blocks_from_value(value: Any) -> list[Any]:
+    from ...plugins.drivers import DriverCallResult, _thaw
+    from ...plugins._messages import _to_block
+
+    if isinstance(value, DriverCallResult):
+
+        def mutable(block):
+            return replace(
+                block,
+                metadata=_thaw(block.metadata),
+                attributes=_thaw(block.attributes),
+                output=(
+                    block.output
+                    if isinstance(block.output, str)
+                    else [mutable(item) for item in block.output]
+                ),
+            )
+
+        blocks = []
+        for block in value.content:
+            # A file can supply both its inline body and an attachment URI.
+            # Preserve each through the final consumer boundary.
+            if block.type == "file" and block.text:
+                blocks.append(_text_block(block.text))
+            blocks.append(_to_block(mutable(block)))
+        if value.structured_content is not None:
+            blocks.append(
+                _text_block(_stringify(_thaw(value.structured_content))),
+            )
+        return blocks or [_text_block("")]
     content = getattr(value, "content", None)
     is_mcp_call_result = content is not None and hasattr(value, "isError")
     if is_mcp_call_result:
@@ -105,17 +135,24 @@ def _blocks_from_value(value: Any) -> list[Any]:
 
 def _tool_chunk_from_driver_result(result: DriverInvocationResult) -> Any:
     if result.ok:
+        from ...plugins.drivers import _thaw
+
         value = result.value
         state = (
             ToolResultState.ERROR
-            if bool(getattr(value, "isError", False))
+            if bool(
+                getattr(value, "is_error", getattr(value, "isError", False)),
+            )
             else ToolResultState.SUCCESS
         )
         return ToolChunk(
             content=_blocks_from_value(value),
             state=state,
             is_last=True,
-            metadata=dict(result.metadata or {}),
+            metadata={
+                **_thaw(dict(getattr(value, "metadata", {}) or {})),
+                **dict(result.metadata or {}),
+            },
         )
 
     error_payload = {
@@ -153,7 +190,11 @@ class DriverCapabilityTool(ToolBase):
     ) -> None:
         self.name = capability.exposure.tool_name or capability.name
         self.description = capability.description
-        self.input_schema = dict(capability.input_schema or {})
+        self.input_schema = (
+            capability.input_schema
+            if isinstance(capability.input_schema, bool)
+            else dict(capability.input_schema)
+        )
         self._capability = capability
         self._invoker = invoker
         self._request_context = dict(request_context or {})

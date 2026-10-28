@@ -1,0 +1,27 @@
+{
+  "config": {
+    "mcp": {
+      "migration_version": 0,
+      "clients": {
+        "anysearch": {
+          "name": "anysearch_mcp",
+          "description": "AnySearch web search via MCP",
+          "enabled": false,
+          "transport": "streamable_http",
+          "url": "https://api.anysearch.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${ANYSEARCH_API_KEY}"
+          },
+          "command": "",
+          "args": [],
+          "env": {},
+          "cwd": "",
+          "http_timeout": null,
+          "tools": null,
+          "oauth": null
+        }
+      }
+    }
+  },
+  "cards": []
+}

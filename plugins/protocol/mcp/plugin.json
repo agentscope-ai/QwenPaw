@@ -1,0 +1,11 @@
+{
+  "id": "qwenpaw-mcp",
+  "name": "MCP",
+  "version": "1.0.0",
+  "type": "general",
+  "description": "Connect MCP servers and manage their OAuth authorization.",
+  "author": "QwenPaw Team",
+  "entry": {"backend": "plugin.py", "frontend": "frontend/dist/index.js"},
+  "capabilities": ["drivers", "apps"],
+  "sdk": {"version": "1.1.0", "capabilities": ["drivers", "apps"]}
+}

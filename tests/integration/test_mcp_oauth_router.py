@@ -18,10 +18,13 @@ API endpoints:
   - DELETE /api/mcp/oauth/{client_key}
   - POST   /api/mcp/oauth/start/{client_key}
 """
+
 from __future__ import annotations
 
 import pytest
 from helpers import default_http_timeout
+
+pytestmark = pytest.mark.usefixtures("installed_mcp_plugin")
 
 _HTTP_TIMEOUT = default_http_timeout(30.0)
 

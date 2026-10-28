@@ -1,0 +1,75 @@
+{
+  "config": {
+    "mcp": {
+      "migration_version": 1,
+      "clients": {
+        "anysearch": {
+          "name": "anysearch_mcp",
+          "description": "AnySearch web search via MCP",
+          "enabled": false,
+          "transport": "streamable_http",
+          "url": "https://api.anysearch.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${ANYSEARCH_API_KEY}"
+          },
+          "command": "",
+          "args": [],
+          "env": {},
+          "cwd": "",
+          "http_timeout": null,
+          "tools": null,
+          "oauth": null
+        }
+      }
+    }
+  },
+  "cards": [
+    {
+      "name": "anysearch",
+      "protocol": "mcp",
+      "endpoint": {
+        "transport": "streamable_http",
+        "url": "https://api.anysearch.com/mcp",
+        "headers": {
+          "Authorization": {
+            "source": "credential",
+            "credential": "env_anysearch_api_key",
+            "field": "value",
+            "format": "Bearer {value}"
+          }
+        }
+      },
+      "credentials": {
+        "env_anysearch_api_key": {
+          "kind": "static",
+          "ref": "env:ANYSEARCH_API_KEY"
+        }
+      },
+      "config": {
+        "display_name": "anysearch_mcp",
+        "description": "AnySearch web search via MCP"
+      },
+      "enabled": false,
+      "policy": {
+        "default_effect": "deny",
+        "rules": [
+          {
+            "subject": "*",
+            "effect": "ask",
+            "target": {
+              "kind": "tool",
+              "name": "*"
+            },
+            "principal": {
+              "source_type": "*",
+              "source_value": "*",
+              "subject_type": "*",
+              "subject_value": "*"
+            },
+            "condition": null
+          }
+        ]
+      }
+    }
+  ]
+}

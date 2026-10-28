@@ -248,6 +248,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         logger.error(message, exc_info=True)
         raise RuntimeError(f"{message} Original error: {exc}") from exc
 
+    from .mcp_plugin_migration import (
+        inventory_mcp_usage,
+        validate_mcp_upgrade_preflight,
+    )
+
+    mcp_upgrade_snapshot = await asyncio.to_thread(inventory_mcp_usage)
+    validate_mcp_upgrade_preflight(mcp_upgrade_snapshot)
+
     auto_register_from_env()
     check_proxy_config_sanity()
 
@@ -525,21 +533,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             plugin_loader.registry.set_plugin_http_app(app)
 
-            config = load_config(get_config_path())
-            plugin_configs = (
-                config.plugins if hasattr(config, "plugins") else {}
-            )
-            logger.debug(
-                f"Loading plugins with {len(plugin_configs)} config(s)",
-            )
+            from .mcp_plugin_upgrade import prepare_startup_plugins
 
-            # Phase 1: register only; projection waits for activate_all
-            await plugin_loader.load_all_plugins(
-                configs=plugin_configs,
-                types=["channel", "memory", "hub"],
-                activate=False,
+            await prepare_startup_plugins(
+                plugin_loader,
+                workspace_registry,
+                app=app,
+                snapshot=mcp_upgrade_snapshot,
             )
-            logger.debug("Phase 1: channel, memory and Hub plugins loaded")
+            logger.debug("Phase 1: startup-critical plugins registered")
             app.state.market_ready.set()
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
@@ -577,6 +579,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             # Phase 2: load remaining plugins (channel plugins already
             # loaded — load_plugin skips them automatically)
+            plugin_configs = load_config(get_config_path()).plugins
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
                 activate=False,

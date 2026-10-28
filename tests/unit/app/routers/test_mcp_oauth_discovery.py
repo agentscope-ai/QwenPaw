@@ -4,7 +4,10 @@
 import httpx
 import pytest
 
-from qwenpaw.app.routers.mcp_oauth import (
+# Populate the test-only plugin namespace before importing source helpers.
+# pylint: disable=wrong-import-order,unused-import
+from tests.unit.plugins.mcp import _package  # noqa: F401
+from mcp_plugin_under_test.oauth_helpers import (
     _fetch_as_metadata,
     _resolve_auth_server_url,
 )

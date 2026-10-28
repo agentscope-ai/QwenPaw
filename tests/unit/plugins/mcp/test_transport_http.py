@@ -13,10 +13,10 @@ from typing import Any, Callable
 import httpx
 import pytest
 
-import qwenpaw.drivers.handlers.mcp_stateful_client as mod
-import qwenpaw.drivers.handlers.mcp_streamable_http as http_mod
-from qwenpaw.drivers.handlers.mcp_stateful_client import HttpStatefulClient
-from qwenpaw.drivers.handlers.mcp_streamable_http import (
+import mcp_plugin_under_test.mcp_stateful_client as mod
+import mcp_plugin_under_test.mcp_streamable_http as http_mod
+from mcp_plugin_under_test.mcp_stateful_client import HttpStatefulClient
+from mcp_plugin_under_test.mcp_streamable_http import (
     HttpAutoClient,
     HttpStatelessClient,
     _CLIENT_CAPABILITIES_META_KEY,
@@ -876,18 +876,25 @@ async def test_stateless_close_keeps_http_until_aclose_succeeds():
     async def cancelled():
         raise asyncio.CancelledError
 
+    http = c._http
+    original_close = http.aclose
     c._http.aclose = cancelled  # type: ignore[method-assign]
     with pytest.raises(asyncio.CancelledError):
         await c.close()
+    # Root-approved custody correction: cancellation retains the client.
+    assert c._http is http
+    http.aclose = original_close
+    await c.close(ignore_errors=False)
     assert c._http is None
 
 
 async def test_driver_routes_streamable_http_to_auto_and_sse_to_stateful(
     monkeypatch,
+    tmp_path,
 ):
-    from qwenpaw.drivers.contracts import DriverCard
-    from qwenpaw.drivers.credentials.providers import NoneProvider
-    from qwenpaw.drivers.handlers import mcp as mcp_mod
+    import sys
+    from qwenpaw.plugins.testing import PluginTestHost
+    from .fixtures import PLUGIN, card
 
     built: list[str] = []
 
@@ -908,26 +915,30 @@ async def test_driver_routes_streamable_http_to_auto_and_sse_to_stateful(
     class Stateful(Track):
         kind = "stateful"
 
-    monkeypatch.setattr(mcp_mod, "HttpAutoClient", Auto)
-    monkeypatch.setattr(mcp_mod, "HttpStatefulClient", Stateful)
-    provider = NoneProvider()
-    for transport in ("streamable_http", "sse"):
-        card = DriverCard(
-            name=f"mcp-{transport.replace('_', '-')}",
-            protocol="mcp",
-            endpoint={"transport": transport, "url": "http://mcp.test/mcp"},
-        )
-        handler = mcp_mod.MCPDriverHandler(card, provider)
-        await handler._setup()
-        await handler._teardown()
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(PLUGIN)
+        connection = sys.modules["plugin_qwenpaw_mcp.connection"]
+        monkeypatch.setattr(connection, "HttpAutoClient", Auto)
+        monkeypatch.setattr(connection, "HttpStatefulClient", Stateful)
+        for transport in ("streamable_http", "sse"):
+            source = card(
+                name=f"mcp-{transport.replace('_', '-')}",
+                transport=transport,
+            )
+            await host.open_driver(source)
+            await host.close_driver(source["name"])
     assert built == ["auto", "stateful"]
 
 
-async def test_stdio_driver_injects_managed_environment(monkeypatch) -> None:
+async def test_stdio_driver_injects_managed_environment(
+    monkeypatch,
+    tmp_path,
+) -> None:
     """Managed values bypass the MCP SDK inherited-env allowlist."""
-    from qwenpaw.drivers.contracts import DriverCard
-    from qwenpaw.drivers.credentials.providers import NoneProvider
-    from qwenpaw.drivers.handlers import mcp as mcp_mod
+    import sys
+    from qwenpaw.envs import save_envs
+    from qwenpaw.plugins.testing import PluginTestHost
+    from .fixtures import PLUGIN, card
 
     captured: dict[str, str] = {}
 
@@ -941,26 +952,15 @@ async def test_stdio_driver_injects_managed_environment(monkeypatch) -> None:
         async def close(self, ignore_errors=True):
             del ignore_errors
 
-    monkeypatch.setattr(mcp_mod, "StdIOStatefulClient", Track)
-    monkeypatch.setattr(
-        mcp_mod,
-        "load_envs",
-        lambda: {"MANAGED_TOKEN": "managed", "LOCAL": "global"},
-    )
-    card = DriverCard(
-        name="mcp-stdio-env",
-        protocol="mcp",
-        endpoint={
-            "transport": "stdio",
-            "command": "example",
-            "env": {"LOCAL": "card"},
-        },
-    )
-
-    handler = mcp_mod.MCPDriverHandler(card, NoneProvider())
-    await handler._setup()
-
-    assert captured == {"MANAGED_TOKEN": "managed", "LOCAL": "card"}
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(PLUGIN)
+        connection = sys.modules["plugin_qwenpaw_mcp.connection"]
+        monkeypatch.setattr(connection, "StdIOStatefulClient", Track)
+        save_envs({"MANAGED_TOKEN": "managed", "LOCAL": "global"})
+        source = card(name="mcp-stdio-env")
+        source["endpoint"]["env"] = {"LOCAL": "card"}
+        await host.open_driver(source)
+        assert captured == {"MANAGED_TOKEN": "managed", "LOCAL": "card"}
 
 
 def _modern_rpc(call_result: Any):

@@ -23,26 +23,16 @@ async def create_driver_service(
     _service,
     publish: Callable[[Any], None],
 ):
-    """Create and initialize the per-workspace DriverManager.
-
-    DriverManager is the runtime for external capabilities.  MCP is wired as
-    the first concrete Driver protocol; legacy MCP config is migrated into
-    DriverCard storage and is not exposed through the old MCP runtime path.
-    """
+    """Publish lightweight storage before starting available sources."""
     # pylint: disable=protected-access
-    from ...drivers.adapters.mcp_legacy_config import (
-        migrate_legacy_mcp_if_needed,
-    )
-    from ...drivers.credentials.store import AsyncCredentialStore
-    from ...drivers.handlers import MCPDriverHandler
-    from ...drivers.handlers.mcp import validate_mcp_endpoint
-    from ...drivers.manager import DriverManager
-    from ..approvals.driver_gate import QwenPawDriverApprovalGate
+    from ..driver_runtime_service import LazyDriverService
     from ..mail.driver_config import (
         is_managed_qwenpawmail_card,
         sync_qwenpawmail_driver_card,
     )
 
+    service = LazyDriverService(ws)
+    publish(service)
     # Upgrade legacy qwenpawmail cards before DriverManager can launch them.
     # ``load_agent_config`` has already hydrated the in-memory secrets from the
     # encrypted store at this point.
@@ -66,60 +56,18 @@ async def create_driver_service(
             ws.agent_id,
         )
 
-    credential_store = AsyncCredentialStore(
-        ws.workspace_dir / "credentials.yaml",
-    )
-    driver_manager = DriverManager(
-        ws.workspace_dir / "drivers",
-        credential_store,
-        approval_gate=QwenPawDriverApprovalGate(),
-    )
-    driver_manager.register_handler_type(
-        "mcp",
-        MCPDriverHandler,
-        endpoint_validator=validate_mcp_endpoint,
-    )
-    # Publish immediately after construction and before migration/start can
-    # suspend.  Cancellation can then always find and shut down the manager.
-    publish(driver_manager)
-    # Future Driver protocols should be registered here together with their
-    # endpoint validator and tests.  This PR intentionally keeps the concrete
-    # runtime surface to MCP while leaving DriverManager protocol-neutral.
-    await migrate_legacy_mcp_if_needed(ws, driver_manager)
-    await driver_manager.start()
-    logger.debug(
-        "DriverManager external capability runtime initialized for agent: %s",
-        ws.agent_id,
-    )
-    return driver_manager
-    # pylint: enable=protected-access
+    await service.start()
+    return service
 
 
-async def create_driver_config_watcher(
-    ws: "Workspace",
-    _service,
-    publish: Callable[[Any], None],
-):
-    """Create watcher for manual DriverCard edits.
-
-    Console/API updates call ``DriverConfigService.reload_driver_best_effort``
-    immediately.  This watcher covers the manual-edit path and works for all
-    Driver protocols instead of only MCP.
-    """
+async def create_driver_config_watcher(ws, _service, publish):
+    """Compatibility factory; the lazy service owns watcher lifecycle."""
     # pylint: disable=protected-access
-    driver_manager = ws._service_manager.services.get("driver_manager")
-    if driver_manager is None:
-        return None
-
-    from ..driver_config_watcher import DriverConfigWatcher
-
-    watcher = DriverConfigWatcher(
-        driver_manager,
-        ws.workspace_dir / "drivers",
-    )
-    publish(watcher)
+    service = ws._service_manager.services.get("driver_manager")
+    watcher = service.watcher if service is not None else None
+    if watcher is not None:
+        publish(watcher)
     return watcher
-    # pylint: enable=protected-access
 
 
 async def create_chat_service(

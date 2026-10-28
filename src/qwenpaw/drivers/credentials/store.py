@@ -7,6 +7,7 @@ import asyncio
 import os
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,75 @@ class AsyncCredentialStore:
         """Persist *record* only when its ref is not already in use."""
         return await asyncio.to_thread(self.put_if_absent_sync, record)
 
+    async def get_versioned(self, ref: str) -> tuple[CredentialRecord, int]:
+        """Read the record and its revision under the writers' shared lock."""
+
+        def read():
+            with self._lock:
+                record = self.get_sync(ref)
+                revision = (
+                    0
+                    if ref.startswith("env:")
+                    else int(self._read_credentials()[ref].get("revision", 0))
+                )
+                return record, revision
+
+        return await asyncio.to_thread(read)
+
+    async def compare_and_put(
+        self,
+        ref: str,
+        *,
+        expected_revision: int,
+        public,
+        secrets,
+    ) -> None:
+        """Replace values atomically, preserving metadata and stamping time."""
+
+        def update():
+            if ref.startswith("env:"):
+                raise DriverCardError("Environment credentials are read-only")
+            with self._lock:
+                record = self.get_sync(ref)
+                revision = int(
+                    self._read_credentials()[ref].get("revision", 0),
+                )
+                if revision != expected_revision:
+                    raise DriverCardError("Credential revision is stale")
+                self.put_sync(
+                    CredentialRecord(
+                        ref=ref,
+                        kind=record.kind,
+                        public=dict(public),
+                        secrets=dict(secrets),
+                        meta={**record.meta, "updated_at": time.time()},
+                    ),
+                )
+
+        from ...utils.io_utils import run_sync_io
+
+        await run_sync_io(update)
+
+    @staticmethod
+    def _next_revision(root) -> int:
+        # The watermark survives deletion, preventing delete/recreate ABA.
+        revision = (
+            max(
+                int(root.get("revision", 0)),
+                max(
+                    (
+                        int(value.get("revision", 0))
+                        for value in root["credentials"].values()
+                        if isinstance(value, dict)
+                    ),
+                    default=0,
+                ),
+            )
+            + 1
+        )
+        root["revision"] = revision
+        return revision
+
     async def delete(self, ref: str) -> None:
         """Remove one credential entry if present."""
         await asyncio.to_thread(self.delete_sync, ref)
@@ -142,6 +212,7 @@ class AsyncCredentialStore:
             root = self._read_root()
             credentials = dict(root["credentials"])
             credentials[record.ref] = {
+                "revision": self._next_revision(root),
                 "kind": record.kind,
                 "public": dict(record.public),
                 "secrets": self._encrypt_secrets(dict(record.secrets)),
@@ -165,6 +236,7 @@ class AsyncCredentialStore:
             if record.ref in credentials:
                 return False
             credentials[record.ref] = {
+                "revision": self._next_revision(root),
                 "kind": record.kind,
                 "public": dict(record.public),
                 "secrets": self._encrypt_secrets(dict(record.secrets)),
@@ -181,6 +253,7 @@ class AsyncCredentialStore:
             credentials = dict(root["credentials"])
             if ref in credentials:
                 credentials.pop(ref, None)
+                self._next_revision(root)
                 root["credentials"] = credentials
                 self._write_root(root)
 
@@ -214,7 +287,7 @@ class AsyncCredentialStore:
             raise DriverCardError(
                 "Credential store credentials must be a mapping",
             )
-        return {"version": _STORE_VERSION, "credentials": dict(credentials)}
+        return {**data, "credentials": dict(credentials)}
 
     def _read_credentials(self) -> dict[str, Any]:
         return dict(self._read_root()["credentials"])

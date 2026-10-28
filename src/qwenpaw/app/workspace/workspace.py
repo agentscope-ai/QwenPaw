@@ -32,7 +32,6 @@ from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
     create_driver_service,
-    create_driver_config_watcher,
     create_chat_service,
     create_channel_service,
     create_agent_config_watcher,
@@ -588,6 +587,7 @@ class Workspace:
                 service_class=None,
                 post_init=create_driver_service,
                 stop_method="shutdown_all",
+                require_clean_stop=True,
                 priority=20,
                 concurrent_init=True,
                 optional=True,
@@ -668,19 +668,6 @@ class Workspace:
                 start_method="start",
                 stop_method="stop",
                 priority=50,
-                concurrent_init=False,
-            ),
-        )
-
-        # Priority 51: Driver Card Watcher (conditional)
-        sm.register(
-            ServiceDescriptor(
-                name="driver_config_watcher",
-                service_class=None,
-                post_init=create_driver_config_watcher,
-                start_method="start",
-                stop_method="stop",
-                priority=51,
                 concurrent_init=False,
             ),
         )

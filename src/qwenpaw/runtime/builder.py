@@ -992,8 +992,8 @@ class AgentBuilder:
     ) -> tuple[list[Any], list[str]]:
         """Build request-time Driver tools and prompt hints.
 
-        MCP is exposed through Driver capabilities only, so a server cannot
-        be exposed twice through separate runtime paths.
+        The workspace facade returns an empty catalog without constructing
+        a runtime when no registered source is active.
         """
         workspace = getattr(ctx, "workspace", None)
         driver_manager = (

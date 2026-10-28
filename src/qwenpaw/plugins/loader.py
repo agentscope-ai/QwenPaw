@@ -52,6 +52,7 @@ from .module_isolation import (
 )
 from .safe_fs import safe_remove, same_location
 from .registry import PluginRegistry
+from .install_receipts import INSTALL_COMMIT, write_install_commit
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +297,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         self.registry = PluginRegistry()
         self.lifecycle = PluginLifecycle(self)
         self._loaded_plugins: Dict[str, PluginRecord] = {}
+        self.startup_blocked_plugins: set[str] = set()
         self._recovery_blocked: dict[str, str] = {}
         self._recovery_errors: dict[str, str] = {}
         # In-process per-plugin serialization for load/unload/reinstall.
@@ -1317,6 +1319,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         types: Optional[List[str]] = None,
         *,
         activate: bool = False,
+        capabilities: Optional[List[str]] = None,
     ) -> Dict[str, PluginRecord]:
         """Discover and load all plugins.
 
@@ -1339,11 +1342,32 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         discovered = self.discover_plugins()
 
         for manifest, plugin_dir in discovered:
-            if types is not None and manifest.plugin_type not in types:
+            if manifest.id in self.startup_blocked_plugins:
                 continue
-            from .settings import is_plugin_enabled, runtime_config
+            if (
+                types is not None
+                and manifest.plugin_type not in types
+                and not set(capabilities or ()).intersection(
+                    (manifest.sdk or {}).get("capabilities", ()),
+                )
+            ):
+                continue
+            from .settings import (
+                is_plugin_enabled,
+                runtime_config,
+                read_plugin_intent,
+            )
 
             config = configs.get(manifest.id) if configs else None
+            try:
+                if read_plugin_intent(
+                    manifest.id,
+                    plugins_dir=self.plugin_dirs[0],
+                ):
+                    continue
+            except (OSError, ValueError):
+                logger.warning("Invalid plugin intent; skipping plugin")
+                continue
             if not is_plugin_enabled(config):
                 logger.info(
                     "Skipping disabled plugin '%s'",
@@ -2098,6 +2122,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             if staging.exists():
                 safe_remove(staging, purpose="clear plugin staging")
             shutil.copytree(incoming, staging)
+            (staging / INSTALL_COMMIT).unlink(missing_ok=True)
             if not (staging / "plugin.json").exists():
                 raise RuntimeError("staged plugin is missing plugin.json")
             if backup.exists():
@@ -2355,6 +2380,9 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         source_path: Path,
         *,
         force: bool = False,
+        allow_install: bool = True,
+        install_origin: Optional[Dict] = None,
+        user_requested: bool = True,
     ) -> PluginRecord:
         """Install offline without registering or starting resources."""
         source_path = await asyncio.to_thread(Path(source_path).resolve)
@@ -2391,8 +2419,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             decision = await self._ensure_dependencies_installed(
                 source_path,
                 manifest.id,
-                allow_install=self.lifecycle.delegate.owns_dependency_env(
-                    manifest.id,
+                allow_install=(
+                    allow_install
+                    and self.lifecycle.delegate.owns_dependency_env(
+                        manifest.id,
+                    )
                 ),
             )
             if decision.require_restart and manifest.sdk is not None:
@@ -2405,12 +2436,38 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 or (decision.missing and not decision.already_satisfied)
             ):
                 raise RuntimeError(decision.reason)
-            return await self._load_plugin_from_path_unlocked(
+            record = await self._load_plugin_from_path_unlocked(
                 source_path,
                 manifest,
                 replace_files=force,
                 enabled=False,
+                install_origin=install_origin,
             )
+            if user_requested:
+                await self._commit_explicit_install(record)
+            return record
+
+    async def _commit_explicit_install(self, record: PluginRecord) -> None:
+        """Publish explicit intent only after the installed record commits."""
+        from ..utils.io_utils import run_sync_io
+        from .settings import clear_plugin_intent
+
+        def commit():
+            if any(
+                same_location(
+                    record.source_path,
+                    Path(base) / record.manifest.id,
+                )
+                for base in self.plugin_dirs
+            ):
+                write_install_commit(record.source_path, record.manifest.id)
+            clear_plugin_intent(
+                record.manifest.id,
+                plugins_dir=self.plugin_dirs[0],
+            )
+
+        await run_sync_io(commit)
+        self.startup_blocked_plugins.discard(record.manifest.id)
 
     async def load_plugin_from_path(
         self,
@@ -2470,24 +2527,31 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         del _manifest_path
         plugin_id = manifest.id
         async with self.plugin_lifecycle(plugin_id):
+            startup_blocked = plugin_id in self.startup_blocked_plugins
             if force and plugin_id in self._loaded_plugins:
                 if before_force_unload is not None:
                     maybe_before = before_force_unload(plugin_id)
                     if inspect.isawaitable(maybe_before):
                         await maybe_before
-                report = await self.reload_plugin_unlocked(
-                    plugin_id,
-                    new_source=source_path,
-                    interrupt_tasks=interrupt_tasks,
-                    config=config,
-                    allow_install=True,
-                    owns_dependency_env=(
-                        self.lifecycle.delegate.owns_dependency_env(
-                            plugin_id,
-                        )
-                    ),
-                    after_unload=after_force_unload,
-                )
+                report = None
+                self.startup_blocked_plugins.discard(plugin_id)
+                try:
+                    report = await self.reload_plugin_unlocked(
+                        plugin_id,
+                        new_source=source_path,
+                        interrupt_tasks=interrupt_tasks,
+                        config=config,
+                        allow_install=True,
+                        owns_dependency_env=(
+                            self.lifecycle.delegate.owns_dependency_env(
+                                plugin_id,
+                            )
+                        ),
+                        after_unload=after_force_unload,
+                    )
+                finally:
+                    if startup_blocked and (report is None or not report.ok):
+                        self.startup_blocked_plugins.add(plugin_id)
                 if not report.ok:
                     detail = (
                         "; ".join(report.errors)
@@ -2509,6 +2573,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                         (record.source_path / _PAWPORT_MARKER).unlink,
                         missing_ok=True,
                     )
+                await self._commit_explicit_install(record)
                 return record
             record = None
             from ..config import load_config
@@ -2520,6 +2585,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             incoming = runtime_config(
                 config if config is not None else settings,
             )
+            if enabled:
+                self.startup_blocked_plugins.discard(plugin_id)
             try:
                 record = await self._load_plugin_from_path_unlocked(
                     source_path,
@@ -2542,6 +2609,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                         (record.source_path / _PAWPORT_MARKER).unlink,
                         missing_ok=True,
                     )
+                await self._commit_explicit_install(record)
                 return record
             except BaseException:
                 inst = self.lifecycle.get_instance(plugin_id)
@@ -2549,6 +2617,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     record.status == "active"
                     or (inst is not None and inst.activated)
                 )
+                if startup_blocked and not already_committed:
+                    self.startup_blocked_plugins.add(plugin_id)
                 if (
                     record is not None
                     and plugin_id in self._loaded_plugins
@@ -2578,6 +2648,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
         enabled: bool = True,
+        install_origin: Optional[Dict] = None,
     ) -> PluginRecord:
         """Install+load from path; caller must hold lifecycle for id."""
         # pylint: disable=too-many-statements,too-many-branches
@@ -2637,6 +2708,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 stage_dir = stage_root / plugin_id
                 try:
                     shutil.copytree(source_path, stage_dir)
+                    (stage_dir / INSTALL_COMMIT).unlink(missing_ok=True)
+                    if install_origin is not None:
+                        from ..utils.io_utils import write_json_atomic
+
+                        write_json_atomic(
+                            stage_dir / ".plugin-install-origin.json",
+                            install_origin,
+                        )
                     if pawport_owner is not None:
                         (stage_dir / _PAWPORT_MARKER).write_text(
                             json.dumps(
@@ -3590,11 +3669,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """Clear persisted plugin settings and recorded tool configs."""
         from ..utils.io_utils import run_sync_io
         from .api import _remove_tool_config
-        from .settings import drop_plugin_settings
+        from .settings import drop_plugin_settings, record_plugin_uninstall
 
         names = list(tool_names) if tool_names is not None else []
 
         def _apply() -> None:
+            record_plugin_uninstall(
+                plugin_id,
+                plugins_dir=self.plugin_dirs[0],
+            )
             errors = []
             for name in names:
                 try:

@@ -1403,6 +1403,16 @@
     "custom": "自定义"
   },
   "mcp": {
+    "recovery": {
+      "title": "MCP 需要处理",
+      "invalid_upgrade_record": "请检查 MCP 安装记录，然后重试",
+      "orphaned_installation_record": "请检查 MCP 安装记录，然后重试",
+      "offline_upgrade_failed_check_dependencies_and_storage": "请检查离线依赖和存储，然后重试",
+      "workspace_needs_review": "请检查此工作区保存的 MCP 配置，然后重试",
+      "invalid_plugin_settings": "请检查 MCP 插件设置，然后重试",
+      "plugin_runtime_failed": "请检查 MCP 插件依赖和设置，然后重试",
+      "plugin_diagnostics_present": "请先查看 MCP 插件诊断信息，再重试"
+    },
     "title": "MCP 客户端",
     "qwenpawManaged": "QwenPaw 管理",
     "qwenpawManagedHint": "由统一控制面管理，并在运行时注入支持的第三方智能体。",

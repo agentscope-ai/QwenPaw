@@ -263,11 +263,11 @@ class MultiAgentManager:
             async with self._lock:
                 self.agents[agent_id] = instance
 
-            elapsed = time.perf_counter() - t0
+            await self._activate_workspace_drivers(instance)
             logger.debug(
                 "Workspace created and started: "
                 f"{sanitize_log_value(agent_id)} "
-                f"({elapsed:.3f}s)",
+                f"({time.perf_counter() - t0:.3f}s)",
             )
 
             # Fire workspace_created hooks so plugins can provision
@@ -346,6 +346,31 @@ class MultiAgentManager:
             workspace_info,
             "workspace_created",
         )
+
+    @staticmethod
+    async def _activate_workspace_drivers(workspace):
+        """Open sources after the exact workspace instance is published."""
+        if service := getattr(workspace, "driver_manager", None):
+            await service.activate_registered_protocols()
+
+    async def _complete_reload_handoff(
+        self,
+        old_instance,
+        new_instance,
+        agent_id,
+    ):
+        """Finish both sides of a committed swap before caller cancellation."""
+        await self._graceful_stop_old_instance(old_instance, agent_id)
+        await self._activate_workspace_drivers(new_instance)
+        if (
+            self.agents.get(agent_id) is not new_instance
+            or agent_id in self._uninstalling_agents
+            or id(new_instance) in self._agent_stop_tasks
+        ):
+            return
+        cron_manager = getattr(new_instance, "cron_manager", None)
+        if cron_manager is not None:
+            cron_manager.resume_scheduling()
 
     @classmethod
     async def _setup_workspace_plugins(
@@ -739,6 +764,7 @@ class MultiAgentManager:
                     if cron_manager is not None:
                         cron_manager.handoff_from(
                             getattr(old_instance, "cron_manager", None),
+                            resume=False,
                         )
                     self.agents[agent_id] = new_instance
                     self._retired_instances[id(old_instance)] = old_instance
@@ -788,10 +814,14 @@ class MultiAgentManager:
             reusable,
         )
 
-        # Once committed, cleanup must take ownership even if the reload
-        # request is cancelled while capturing outgoing tasks.
+        # Once committed, finish outgoing cleanup and incoming activation even
+        # if the reload request is cancelled during either side of the handoff.
         await run_async_to_completion(
-            self._graceful_stop_old_instance(old_instance, agent_id),
+            self._complete_reload_handoff(
+                old_instance,
+                new_instance,
+                agent_id,
+            ),
         )
 
         return True

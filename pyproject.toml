@@ -89,9 +89,11 @@ include-package-data = true
 "qwenpaw" = "src/qwenpaw"
 "qwenpawmail_mcp" = "packages/qwenpawmail-mcp/src/qwenpawmail_mcp"
 "qwenpaw.plugins.bundled.hub" = "plugins/hub"
+"qwenpaw.plugins.bundled.optional.mcp" = "plugins/protocol/mcp"
 
 [tool.setuptools.package-data]
 "qwenpaw.plugins.bundled.hub" = ["*/plugin.json"]
+"qwenpaw.plugins.bundled.optional.mcp" = ["*.py", "plugin.json", "requirements.txt", "frontend/dist/*.js"]
 # Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
 "qwenpaw" = [
     "console/**",

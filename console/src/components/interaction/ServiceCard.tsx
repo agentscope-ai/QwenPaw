@@ -16,6 +16,7 @@ export function ServiceCard({
   onToggle,
   actions,
   surfaceId,
+  disabled = false,
 }: {
   surfaceId?: string;
   name: string;
@@ -25,6 +26,7 @@ export function ServiceCard({
   onConfigure: () => void;
   onToggle: () => Promise<void> | void;
   actions?: ReactNode;
+  disabled?: boolean;
 }) {
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
@@ -51,12 +53,12 @@ export function ServiceCard({
             )
           )
             return;
-          onConfigure();
+          if (!disabled) onConfigure();
         }}
       >
         <div className={styles.heading}>
           <h3>
-            <button type="button" onClick={onConfigure}>
+            <button type="button" disabled={disabled} onClick={onConfigure}>
               {name}
             </button>
           </h3>
@@ -65,6 +67,7 @@ export function ServiceCard({
         <div className={styles.metadata}>{metadata}</div>
         <div className={styles.actions}>
           <Button
+            disabled={disabled}
             type="text"
             icon={<Settings2 size={16} />}
             onClick={onConfigure}
@@ -74,6 +77,7 @@ export function ServiceCard({
           <div className={styles.trailing}>
             {actions}
             <Switch
+              disabled={disabled}
               checked={enabled}
               loading={pending}
               aria-label={`${t(

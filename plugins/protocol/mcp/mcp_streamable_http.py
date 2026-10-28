@@ -16,12 +16,16 @@ import logging
 import re
 import time
 from datetime import timedelta
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 import httpx
 from mcp import types as mcp_types
 
-from ...__version__ import __version__ as _QWENPAW_VERSION
+try:
+    _QWENPAW_VERSION = version("qwenpaw")
+except PackageNotFoundError:
+    _QWENPAW_VERSION = "0.0.0"
 
 logger = logging.getLogger(__name__)
 
@@ -621,9 +625,7 @@ class HttpStatelessClient(_HttpClientBase):
             logger.warning(
                 f"Error closing MCP stateless client '{self.name}': {exc}",
             )
-        except BaseException:
-            self._http = None
-            raise
+            return
         self._http = None
 
     def _reject_tool(self, label: Any, reason: Any) -> None:
@@ -992,7 +994,11 @@ class HttpAutoClient(_HttpClientBase):
             return
         finally:
             if self._impl is not modern:
-                await modern.close(ignore_errors=True)
+                try:
+                    await modern.close(ignore_errors=False)
+                except BaseException:
+                    self._impl = modern
+                    raise
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError(
@@ -1003,10 +1009,18 @@ class HttpAutoClient(_HttpClientBase):
         from .mcp_stateful_client import HttpStatefulClient
 
         legacy = HttpStatefulClient(**shared)
+        # Publish the cleanup owner before connect can fail or be cancelled.
+        self._impl = legacy
         try:
             await legacy.connect(timeout=remaining)
         except BaseException as exc:
-            await legacy.close(ignore_errors=True)
+            try:
+                await legacy.close_owned()
+            except Exception:
+                # Keep the partial implementation for the source close owner.
+                pass
+            else:
+                self._impl = None
             if fallback_reason:
                 # Keep the modern probe's verdict reachable: the legacy
                 # error alone can hide that the peer first answered 401.
@@ -1015,7 +1029,6 @@ class HttpAutoClient(_HttpClientBase):
                     f"({exc}); modern probe reported: {fallback_reason}",
                 )
             raise
-        self._impl = legacy
         self.is_stateful = True
         self.is_connected = True
 
@@ -1028,10 +1041,15 @@ class HttpAutoClient(_HttpClientBase):
             if impl is None:
                 return
             try:
-                await impl.close(ignore_errors=ignore_errors)
+                close_owned = getattr(impl, "close_owned", None)
+                if close_owned is not None:
+                    await close_owned()
+                else:
+                    await impl.close(ignore_errors=False)
             except Exception:
                 if not ignore_errors:
                     raise
+                return
             self._impl = None
 
     async def list_tools(self):

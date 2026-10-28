@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
+# Imported pytest fixtures are explicit re-exports for fixture discovery.
+# pylint: disable=redefined-outer-name
+# pylint: disable=protected-access,wrong-import-order,ungrouped-imports
 """Configurable HTTP MCP timeout."""
 
 from __future__ import annotations
@@ -20,10 +22,17 @@ from qwenpaw.drivers.adapters.mcp_legacy_config import (
     legacy_mcp_client_to_driver,
 )
 from qwenpaw.drivers.contracts import DriverCard
-from qwenpaw.drivers.credentials.providers import NoneProvider
-from qwenpaw.drivers.handlers import mcp as mcp_handler
-from qwenpaw.drivers.handlers.mcp_stateful_client import HttpStatefulClient
-from qwenpaw.drivers.handlers.mcp_streamable_http import HttpStatelessClient
+from tests.unit.plugins import (
+    mcp as _mcp_test_package,
+)  # noqa: F401  # pylint: disable=unused-import
+from mcp_plugin_under_test.mcp_stateful_client import HttpStatefulClient
+from mcp_plugin_under_test.mcp_streamable_http import HttpStatelessClient
+from tests.integration.driver_mcp_fakes import (
+    mcp_runtime_host as _mcp_runtime_host,
+    sdk_mcp_manager,
+)
+
+mcp_runtime_host = _mcp_runtime_host
 
 URL = "http://127.0.0.1:8080/mcp/sse"
 
@@ -108,7 +117,13 @@ def _patch_fake_client(monkeypatch, client_attr: str) -> list[object]:
         async def close(self, ignore_errors: bool = True) -> None:
             del ignore_errors
 
-    monkeypatch.setattr(mcp_handler, client_attr, FakeClient)
+    import sys
+
+    monkeypatch.setattr(
+        sys.modules["plugin_qwenpaw_mcp.connection"],
+        client_attr,
+        FakeClient,
+    )
     return instances
 
 
@@ -123,27 +138,27 @@ async def test_driver_handler_passes_http_timeout(
     transport: str,
     client_attr: str,
     monkeypatch,
+    mcp_runtime_host,
+    tmp_path,
 ) -> None:
     """Pass configured http_timeout through as the HTTP client timeout."""
     instances = _patch_fake_client(monkeypatch, client_attr)
-    handler = mcp_handler.MCPDriverHandler(
-        DriverCard(
-            name="actions",
-            protocol="mcp",
-            endpoint={
-                "transport": transport,
-                "url": URL,
-                "http_timeout": 1200.0,
-            },
-        ),
-        NoneProvider(),
+    manager = await sdk_mcp_manager(mcp_runtime_host, tmp_path)
+    source = DriverCard(
+        name="actions",
+        protocol="mcp",
+        endpoint={
+            "transport": transport,
+            "url": URL,
+            "http_timeout": 1200.0,
+        },
     )
     try:
-        await handler._setup()
+        await manager.upsert_driver(source)
         assert instances[0].kwargs["timeout"] == 1200.0
         assert instances[0].connect_timeout == 1200.0
     finally:
-        await handler._teardown()
+        await manager.shutdown_all()
 
 
 @pytest.mark.parametrize(
@@ -157,23 +172,23 @@ async def test_driver_handler_keeps_default_connect_timeout(
     transport: str,
     client_attr: str,
     monkeypatch,
+    mcp_runtime_host,
+    tmp_path,
 ) -> None:
     """Leave constructor timeout and connect budget at defaults when unset."""
     instances = _patch_fake_client(monkeypatch, client_attr)
-    handler = mcp_handler.MCPDriverHandler(
-        DriverCard(
-            name="actions",
-            protocol="mcp",
-            endpoint={"transport": transport, "url": URL},
-        ),
-        NoneProvider(),
+    manager = await sdk_mcp_manager(mcp_runtime_host, tmp_path)
+    source = DriverCard(
+        name="actions",
+        protocol="mcp",
+        endpoint={"transport": transport, "url": URL},
     )
     try:
-        await handler._setup()
+        await manager.upsert_driver(source)
         assert "timeout" not in instances[0].kwargs
         assert instances[0].connect_timeout == 30.0
     finally:
-        await handler._teardown()
+        await manager.shutdown_all()
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { MCPAccessPolicy, MCPClientInfo } from "../../../api/types";
@@ -17,6 +17,25 @@ type MutationOwner = {
 export function useMCP() {
   const { t } = useTranslation();
   const { selectedAgent, agents } = useAgentStore();
+  const identity = useMemo(
+    () => ({ active: true, agentId: selectedAgent }),
+    [selectedAgent],
+  );
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
+  const isCurrent = useCallback(
+    () => identity.active && currentIdentity.current === identity,
+    [identity],
+  );
+  useEffect(() => {
+    identity.active = true;
+    return () => {
+      identity.active = false;
+    };
+  }, [identity]);
+  const [loadedIdentity, setLoadedIdentity] = useState<typeof identity | null>(
+    null,
+  );
   const selectedAgentInfo = agents.find((item) => item.id === selectedAgent);
   const selectedBackend = selectedAgentInfo?.backend ?? "qwenpaw";
   const canDiscoverProviderMCP = Boolean(
@@ -47,17 +66,20 @@ export function useMCP() {
   );
 
   const captureMutationOwner = useCallback((): MutationOwner | null => {
+    if (!isCurrent() || loadedIdentity !== identity) return null;
     const owner = {
       agentId,
       generation: mutationGeneration.current,
     };
     return ownsMutation(owner) ? owner : null;
-  }, [agentId, ownsMutation]);
+  }, [agentId, identity, isCurrent, loadedIdentity, ownsMutation]);
 
   const loadClients = useCallback(async () => {
+    if (!isCurrent()) return;
     const generation = ++requestGeneration.current;
     const requestedAgent = selectedAgent || "default";
     const isCurrentRequest = () =>
+      isCurrent() &&
       generation === requestGeneration.current &&
       (useAgentStore.getState().selectedAgent || "default") === requestedAgent;
 
@@ -66,6 +88,7 @@ export function useMCP() {
     setLoadError(null);
     try {
       const data = await api.listMCPClients(requestedAgent);
+      if (!isCurrentRequest()) return;
       let discoveredServers: HarnessDiscoveredMCPServer[] = [];
       let discoveryWarning = "";
       if (selectedBackend !== "qwenpaw" && canDiscoverProviderMCP) {
@@ -74,6 +97,7 @@ export function useMCP() {
           discoveredServers = discovered.servers;
           discoveryWarning = discovered.message ?? "";
         } catch (error) {
+          if (!isCurrentRequest()) return;
           console.warn("Failed to discover Provider MCP servers:", error);
         }
       }
@@ -82,6 +106,7 @@ export function useMCP() {
       setProviderServers(discoveredServers);
       loadedAgentRef.current = requestedAgent;
       setLoadedAgent(requestedAgent);
+      setLoadedIdentity(identity);
       if (discoveryWarning) message.warning(discoveryWarning);
     } catch (error) {
       if (!isCurrentRequest()) return;
@@ -92,7 +117,15 @@ export function useMCP() {
     } finally {
       if (isCurrentRequest()) setLoadingAgent(null);
     }
-  }, [canDiscoverProviderMCP, message, selectedAgent, selectedBackend, t]);
+  }, [
+    canDiscoverProviderMCP,
+    identity,
+    isCurrent,
+    message,
+    selectedAgent,
+    selectedBackend,
+    t,
+  ]);
 
   useEffect(() => {
     void loadClients();
@@ -243,14 +276,14 @@ export function useMCP() {
     [captureMutationOwner, loadClients, message, ownsMutation, t],
   );
 
-  const ready = loadedAgent === agentId;
+  const ready = loadedAgent === agentId && loadedIdentity === identity;
   const error = loadError?.agentId === agentId ? loadError.message : null;
   const loading = loadingAgent === agentId || (!ready && !error);
 
   return {
     agentId,
-    clients,
-    providerServers,
+    clients: ready ? clients : [],
+    providerServers: ready ? providerServers : [],
     loading,
     error,
     ready,

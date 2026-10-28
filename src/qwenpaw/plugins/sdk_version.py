@@ -7,7 +7,7 @@ from packaging.version import InvalidVersion, Version
 
 from .errors import SDKCompatibilityError
 
-SDK_VERSION = "1.0.0"
+SDK_VERSION = "1.1.0"
 SDK_CAPABILITIES = frozenset(
     {
         "tools",
@@ -28,6 +28,7 @@ SDK_CAPABILITIES = frozenset(
         "events",
         "apps",
         "channels",
+        "drivers",
     },
 )
 
