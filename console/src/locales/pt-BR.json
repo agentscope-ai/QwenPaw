@@ -183,6 +183,10 @@
     "done": "Concluir"
   },
   "appCenter": {
+    "installApp": "Instalar app",
+    "installAppTitle": "Instalar app",
+    "installAppHint": "Somente pacotes cujo plugin.json declara meta.pawapp são apps e aparecem na Central de Apps após a instalação; plugins comuns são levados à lista de instalados na página de Plugins.",
+    "installedNotApp": "Instalado, mas é um plugin comum — não aparecerá na Central de Apps. Levando você à lista de instalados na página de Plugins.",
     "backToList": "Voltar",
     "subtitle": "Gerencie os aplicativos instalados ou amplie seu espaço de trabalho pelo mercado de aplicativos.",
     "myApps": "Meus aplicativos",

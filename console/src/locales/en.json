@@ -138,6 +138,10 @@
     }
   },
   "appCenter": {
+    "installApp": "Install App",
+    "installAppTitle": "Install App",
+    "installAppHint": "Only packages whose plugin.json declares meta.pawapp are apps and appear in the App Center once installed; plain plugins are taken to the Installed list on the Plugins page after install.",
+    "installedNotApp": "Installed, but it is a plain plugin — it will not appear in the App Center. Taking you to the Installed list on the Plugins page.",
     "backToList": "Back",
     "subtitle": "Manage installed apps, or expand your workspace from official and community channels.",
     "myApps": "My Apps",

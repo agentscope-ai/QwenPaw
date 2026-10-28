@@ -184,6 +184,10 @@
     "done": "Selesai"
   },
   "appCenter": {
+    "installApp": "Instal Aplikasi",
+    "installAppTitle": "Instal Aplikasi",
+    "installAppHint": "Hanya paket yang mendeklarasikan meta.pawapp di plugin.json yang merupakan aplikasi dan muncul di Pusat Aplikasi setelah instalasi; plugin biasa akan diarahkan ke daftar Terpasang di halaman Plugin.",
+    "installedNotApp": "Terinstal, tetapi ini plugin biasa — tidak akan muncul di Pusat Aplikasi. Mengarahkan Anda ke daftar Terpasang di halaman Plugin.",
     "backToList": "Kembali",
     "subtitle": "Kelola aplikasi yang terpasang atau perluas workspace Anda dari pasar aplikasi.",
     "myApps": "Aplikasi Saya",
