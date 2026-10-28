@@ -131,10 +131,10 @@ When resizing is enabled, an image that requires resizing but cannot be processe
 
 | Variable                                   | Default | Description                                                                                                                     |
 | ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`    | Maximum cumulative upstream wait for the first content-bearing chunk; `0` disables the first-content timeout                    |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`    | Shared budget per attempt for upstream request startup and the first content-bearing chunk; `0` disables the first-content timeout |
 | `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`    | Maximum cumulative upstream wait between content-bearing chunks after the first content arrives; `0` disables this idle timeout |
 
-These timeouts count only time spent waiting for the upstream stream, excluding pauses caused by downstream consumer backpressure. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
+The two streaming timeouts count only upstream wait time, excluding rate-limiter queueing and pauses caused by downstream consumer backpressure. A rate-limiter acquire still pending after about 10 seconds logs one warning with the model, elapsed wait, and limiter state. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
 
 **Security & Authentication:**
 
