@@ -3975,7 +3975,13 @@
     "decisionCompact_evidence_chars": "Evidence characters per result",
     "decisionCompact_evidence_charsHelp": "Maximum tool-result excerpt sent for relevance judgment.",
     "decisionCompact_max_concurrency": "Concurrent decision requests",
-    "decisionCompact_max_concurrencyHelp": "Maximum concurrent requests during one compression pass."
+    "decisionCompact_max_concurrencyHelp": "Maximum concurrent requests during one compression pass.",
+    "rerankerPrecisionResult": "Ranking precision {{correct}}/{{total}} ({{percent}}%)",
+    "rerankerPrecisionRolling": "10-run average {{avg}}%",
+    "rerankerPrecisionHistoryOnly": "History available; run service verification to measure precision",
+    "rerankerAutoVerifyInterval": "Auto-verify interval (hours)",
+    "rerankerAutoVerifyIntervalMin": "Enter an integer of 0 or more",
+    "rerankerAutoVerifyIntervalTooltip": "Probe the reranker service every N hours; 0 disables auto verification"
   },
   "tools": {
     "search": "Search tools",

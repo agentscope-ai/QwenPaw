@@ -15,8 +15,10 @@ describe("rerankerVerificationStore", () => {
     const verification = {
       fingerprint: "https://api.siliconflow.cn/v1-key-model-10",
       latency: 320,
-      scores: [0.97, 0.11, 0.02],
-      rankingCorrect: true,
+      precision: 1,
+      correctCount: 3,
+      total: 3,
+      history: [],
       verifiedAt: Date.now(),
     };
 
@@ -32,15 +34,19 @@ describe("rerankerVerificationStore", () => {
     const verification1 = {
       fingerprint: "https://api.siliconflow.cn/v1-key-model-10",
       latency: 320,
-      scores: [0.97, 0.11, 0.02],
-      rankingCorrect: true,
+      precision: 1,
+      correctCount: 3,
+      total: 3,
+      history: [],
       verifiedAt: Date.now(),
     };
     const verification2 = {
       fingerprint: "http://localhost:8000-key-model-5",
       latency: 90,
-      scores: [0.1, 0.95, 0.03],
-      rankingCorrect: false,
+      precision: 0,
+      correctCount: 0,
+      total: 3,
+      history: [],
       verifiedAt: Date.now(),
     };
 
@@ -58,15 +64,19 @@ describe("rerankerVerificationStore", () => {
     const verification1 = {
       fingerprint: "https://api.siliconflow.cn/v1-key-model-10",
       latency: 320,
-      scores: [0.97, 0.11, 0.02],
-      rankingCorrect: true,
+      precision: 1,
+      correctCount: 3,
+      total: 3,
+      history: [],
       verifiedAt: Date.now(),
     };
     const verification2 = {
       fingerprint: "http://localhost:8000-key-model-5",
       latency: 90,
-      scores: [0.1, 0.95, 0.03],
-      rankingCorrect: false,
+      precision: 0,
+      correctCount: 0,
+      total: 3,
+      history: [],
       verifiedAt: Date.now(),
     };
 
@@ -94,15 +104,19 @@ describe("rerankerVerificationStore", () => {
     const verification1 = {
       fingerprint: "https://api.siliconflow.cn/v1-key-model-10",
       latency: 320,
-      scores: [0.97, 0.11, 0.02],
-      rankingCorrect: true,
+      precision: 1,
+      correctCount: 3,
+      total: 3,
+      history: [],
       verifiedAt: Date.now(),
     };
     const verification2 = {
       fingerprint: "https://api.siliconflow.cn/v1-key-other-model-10",
       latency: 410,
-      scores: null,
-      rankingCorrect: null,
+      precision: null,
+      correctCount: 0,
+      total: 0,
+      history: [],
       verifiedAt: Date.now(),
     };
 

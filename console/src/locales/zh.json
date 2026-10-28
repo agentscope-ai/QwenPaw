@@ -3834,7 +3834,13 @@
     "decisionCompact_evidence_chars": "每条结果的证据字符数",
     "decisionCompact_evidence_charsHelp": "发送给决策模型用于相关性判断的工具结果摘录长度上限。",
     "decisionCompact_max_concurrency": "决策请求并发数",
-    "decisionCompact_max_concurrencyHelp": "一次压缩过程中最多同时执行的决策请求数。"
+    "decisionCompact_max_concurrencyHelp": "一次压缩过程中最多同时执行的决策请求数。",
+    "rerankerPrecisionResult": "排序精度 {{correct}}/{{total}}（{{percent}}%）",
+    "rerankerPrecisionRolling": "近10次均值 {{avg}}%",
+    "rerankerPrecisionHistoryOnly": "已有历史记录，点服务验证可测排序精度",
+    "rerankerAutoVerifyInterval": "自动验证间隔（小时）",
+    "rerankerAutoVerifyIntervalMin": "请输入不小于 0 的整数",
+    "rerankerAutoVerifyIntervalTooltip": "每 N 小时自动探测重排序服务，0 关闭自动验证"
   },
   "tools": {
     "search": "搜索工具",

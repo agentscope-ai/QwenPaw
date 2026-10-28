@@ -3254,7 +3254,13 @@
     "offloadPolicy": {
       "title": "Política de execução de ferramentas em segundo plano"
     },
-    "memoryAutoRecordTitle": "Ativar memória de conversas"
+    "memoryAutoRecordTitle": "Ativar memória de conversas",
+    "rerankerPrecisionResult": "Precisão de ranking {{correct}}/{{total}} ({{percent}}%)",
+    "rerankerPrecisionRolling": "Média de 10 execuções {{avg}}%",
+    "rerankerPrecisionHistoryOnly": "Histórico disponível; execute a verificação do serviço para medir a precisão",
+    "rerankerAutoVerifyInterval": "Intervalo de verificação automática (horas)",
+    "rerankerAutoVerifyIntervalMin": "Insira um número inteiro de 0 ou mais",
+    "rerankerAutoVerifyIntervalTooltip": "Teste o serviço reranker a cada N horas; 0 desativa a verificação automática"
   },
   "tools": {
     "title": "Ferramentas",

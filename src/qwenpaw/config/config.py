@@ -898,6 +898,14 @@ class RerankerConfig(BaseModel):
         ge=1.0,
         description="Reranker API timeout in seconds",
     )
+    auto_verify_interval_hours: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Automatically probe the reranker service every N hours "
+            "(0 disables auto verification)"
+        ),
+    )
 
 
 class ReMeLightMemoryConfig(BaseModel):

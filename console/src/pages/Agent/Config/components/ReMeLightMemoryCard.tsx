@@ -1095,6 +1095,31 @@ export function ReMeLightMemoryCard() {
                   disabled={!rerankerEnabled}
                 />
               </SettingsField>
+
+              <SettingsField
+                label={t("agentConfig.rerankerAutoVerifyInterval")}
+                name={[
+                  "reme_light_memory_config",
+                  "reranker_config",
+                  "auto_verify_interval_hours",
+                ]}
+                initialValue={0}
+                rules={[
+                  {
+                    type: "number",
+                    min: 0,
+                    message: t("agentConfig.rerankerAutoVerifyIntervalMin"),
+                  },
+                ]}
+                tooltip={t("agentConfig.rerankerAutoVerifyIntervalTooltip")}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  step={1}
+                  disabled={!rerankerEnabled}
+                />
+              </SettingsField>
             </div>
           </section>
         </div>

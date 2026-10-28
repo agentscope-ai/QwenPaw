@@ -14,6 +14,7 @@ const enabledConfig: RerankerConfig = {
   model_name: "BAAI/bge-reranker-v2-m3",
   candidate_multiplier: 3,
   timeout: 10,
+  auto_verify_interval_hours: 0,
 };
 
 const disabledConfig: RerankerConfig = {
@@ -41,14 +42,16 @@ describe("useRerankerVerification", () => {
   it("stores latency and the ranking verdict for the agent", () => {
     const { result } = renderVerificationHook(enabledConfig);
 
-    act(() => result.current.markVerified(320, true, [0.97, 0.11, 0.02]));
+    act(() => result.current.markVerified(320, 1, 3, 3, []));
 
     const stored =
       useRerankerVerificationStore.getState().verificationByAgent.default;
     expect(stored).toMatchObject({
       latency: 320,
-      scores: [0.97, 0.11, 0.02],
-      rankingCorrect: true,
+      precision: 1,
+      correctCount: 3,
+      total: 3,
+      history: [],
     });
     expect(result.current.testedRerankerIsCurrent).toBe(true);
   });
@@ -56,7 +59,7 @@ describe("useRerankerVerification", () => {
   it("preserves the selected agent verification during a mixed config frame", () => {
     const { result, rerender } = renderVerificationHook(enabledConfig);
 
-    act(() => result.current.markVerified(320, true, [0.97, 0.11, 0.02]));
+    act(() => result.current.markVerified(320, 1, 3, 3, []));
     expect(
       useRerankerVerificationStore.getState().verificationByAgent.default,
     ).toBeDefined();
@@ -79,7 +82,7 @@ describe("useRerankerVerification", () => {
   it("still clears verification when the same agent becomes disabled", () => {
     const { result, rerender } = renderVerificationHook(enabledConfig);
 
-    act(() => result.current.markVerified(320, true, [0.97, 0.11, 0.02]));
+    act(() => result.current.markVerified(320, 1, 3, 3, []));
     rerender({ currentConfig: disabledConfig });
 
     expect(
@@ -90,10 +93,9 @@ describe("useRerankerVerification", () => {
   it("invalidates the stored verdict when the service config changes", () => {
     const { result, rerender } = renderVerificationHook(enabledConfig);
 
-    act(() => result.current.markVerified(320, true, [0.97, 0.11, 0.02]));
+    act(() => result.current.markVerified(320, 1, 3, 3, []));
     rerender({
-      ...enabledConfig,
-      model_name: "other-reranker-model",
+      currentConfig: { ...enabledConfig, model_name: "other-reranker-model" },
     });
 
     expect(result.current.testedRerankerIsCurrent).toBe(false);

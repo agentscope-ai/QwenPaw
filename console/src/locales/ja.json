@@ -3000,7 +3000,13 @@
     "offloadPolicy": {
       "title": "ツールのバックグラウンド実行ポリシー"
     },
-    "memoryAutoRecordTitle": "会話メモリを有効にする"
+    "memoryAutoRecordTitle": "会話メモリを有効にする",
+    "rerankerPrecisionResult": "ランキング精度 {{correct}}/{{total}}（{{percent}}%）",
+    "rerankerPrecisionRolling": "直近10回平均 {{avg}}%",
+    "rerankerPrecisionHistoryOnly": "履歴があります。サービス検証を実行すると精度を測定できます",
+    "rerankerAutoVerifyInterval": "自動検証間隔（時間）",
+    "rerankerAutoVerifyIntervalMin": "0以上の整数を入力してください",
+    "rerankerAutoVerifyIntervalTooltip": "N時間ごとにリランカーサービスを検証します。0で自動検証を無効化"
   },
   "tools": {
     "title": "ツール",

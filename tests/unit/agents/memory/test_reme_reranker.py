@@ -84,8 +84,12 @@ async def test_probe_reports_scores_and_correct_rank(monkeypatch) -> None:
     result = await module.test_reranker_model(_config())
 
     assert result.success is True
-    assert result.scores == [0.97, 0.11, 0.02]
-    assert result.ranking_correct is True
+    assert result.total == 5
+    assert result.correct_count == 5
+    assert result.precision == 1.0
+    assert len(result.cases) == 5
+    assert result.cases[0].scores == [0.97, 0.11, 0.02]
+    assert result.cases[0].correct is True
     assert result.latency_ms >= 0
 
 
@@ -99,7 +103,9 @@ async def test_probe_flags_wrong_top_rank(monkeypatch) -> None:
     result = await module.test_reranker_model(_config())
 
     assert result.success is True
-    assert result.ranking_correct is False
+    assert result.correct_count == 0
+    assert result.precision == 0.0
+    assert result.cases[0].correct is False
 
 
 @pytest.mark.asyncio
@@ -112,8 +118,10 @@ async def test_probe_without_scores_skips_ranking_verdict(
     result = await module.test_reranker_model(_config())
 
     assert result.success is True
-    assert result.scores is None
-    assert result.ranking_correct is None
+    assert result.precision is None
+    assert result.total == 0
+    assert result.cases[0].scores is None
+    assert result.cases[0].correct is None
 
 
 @pytest.mark.asyncio

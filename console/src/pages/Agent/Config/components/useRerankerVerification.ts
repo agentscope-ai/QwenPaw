@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { RerankerHistoryRecord } from "@/api/modules/agent";
 import type { RerankerConfig } from "@/api/types/agent";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRerankerVerificationStore } from "@/stores/rerankerVerificationStore";
@@ -30,15 +31,34 @@ export function useRerankerVerification(
   const markVerified = useCallback(
     (
       latency: number,
-      rankingCorrect: boolean | null,
-      scores: number[] | null,
+      precision: number | null,
+      correctCount: number,
+      total: number,
+      history: RerankerHistoryRecord[],
     ) => {
       setVerification(agentId, {
         fingerprint: getRerankerServiceFingerprint(config),
         latency,
-        scores,
-        rankingCorrect,
+        precision,
+        correctCount,
+        total,
+        history,
         verifiedAt: Date.now(),
+      });
+    },
+    [agentId, config, setVerification],
+  );
+
+  const setHistory = useCallback(
+    (history: RerankerHistoryRecord[]) => {
+      setVerification(agentId, {
+        fingerprint: getRerankerServiceFingerprint(config),
+        latency: 0,
+        precision: null,
+        correctCount: 0,
+        total: 0,
+        history,
+        verifiedAt: 0,
       });
     },
     [agentId, config, setVerification],
@@ -64,6 +84,7 @@ export function useRerankerVerification(
     testedReranker,
     testedRerankerIsCurrent,
     markVerified,
+    setHistory,
     clearVerification,
   };
 }

@@ -3017,7 +3017,13 @@
     "offloadPolicy": {
       "title": "Политика фонового выполнения инструментов"
     },
-    "memoryAutoRecordTitle": "Включить память разговоров"
+    "memoryAutoRecordTitle": "Включить память разговоров",
+    "rerankerPrecisionResult": "Точность ранжирования {{correct}}/{{total}} ({{percent}}%)",
+    "rerankerPrecisionRolling": "Среднее за 10 прогонов {{avg}}%",
+    "rerankerPrecisionHistoryOnly": "История доступна; выполните проверку сервиса для измерения точности",
+    "rerankerAutoVerifyInterval": "Интервал автопроверки (часы)",
+    "rerankerAutoVerifyIntervalMin": "Введите целое число от 0 и больше",
+    "rerankerAutoVerifyIntervalTooltip": "Проверять сервис reranker каждые N часов; 0 отключает автопроверку"
   },
   "tools": {
     "title": "Инструменты",

@@ -669,10 +669,31 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     _bg_task = asyncio.create_task(_background_startup())
     daily_telemetry = start_daily_telemetry()
 
+    # Periodically auto-verify configured reranker services whose interval
+    # is positive. Best-effort: a failure to start must not break the app.
+    reranker_probe_task: asyncio.Task[None] | None = None
+    try:
+        from ..agents.memory.reranker_auto_probe import (
+            run_reranker_auto_probe_loop,
+        )
+
+        reranker_probe_task = asyncio.create_task(
+            run_reranker_auto_probe_loop(),
+        )
+    except Exception:
+        logger.error(
+            "Failed to start reranker auto-probe loop",
+            exc_info=True,
+        )
+
     try:
         yield
     finally:
         await daily_telemetry.close()
+        if reranker_probe_task is not None:
+            reranker_probe_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await reranker_probe_task
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()

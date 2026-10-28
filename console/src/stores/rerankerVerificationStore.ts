@@ -1,10 +1,14 @@
 import { create } from "zustand";
 
+import type { RerankerHistoryRecord } from "@/api/modules/agent";
+
 export interface VerifiedReranker {
   fingerprint: string;
   latency: number;
-  scores: number[] | null;
-  rankingCorrect: boolean | null;
+  precision: number | null;
+  correctCount: number;
+  total: number;
+  history: RerankerHistoryRecord[];
   verifiedAt: number;
 }
 

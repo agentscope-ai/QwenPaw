@@ -4820,7 +4820,13 @@
     "offloadPolicy": {
       "title": "Kebijakan eksekusi alat di latar belakang"
     },
-    "memoryAutoRecordTitle": "Aktifkan memori percakapan"
+    "memoryAutoRecordTitle": "Aktifkan memori percakapan",
+    "rerankerPrecisionResult": "Presisi peringkat {{correct}}/{{total}} ({{percent}}%)",
+    "rerankerPrecisionRolling": "Rata-rata 10 lari {{avg}}%",
+    "rerankerPrecisionHistoryOnly": "Riwayat tersedia; jalankan verifikasi layanan untuk mengukur presisi",
+    "rerankerAutoVerifyInterval": "Interval verifikasi otomatis (jam)",
+    "rerankerAutoVerifyIntervalMin": "Masukkan bilangan bulat 0 atau lebih",
+    "rerankerAutoVerifyIntervalTooltip": "Uji layanan reranker setiap N jam; 0 menonaktifkan verifikasi otomatis"
   },
   "loop": {
     "gotoSettings": "Pengaturan Loop Agen",

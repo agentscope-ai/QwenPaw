@@ -13,6 +13,7 @@ const enabledConfig: RerankerConfig = {
   model_name: "BAAI/bge-reranker-v2-m3",
   candidate_multiplier: 3,
   timeout: 10,
+  auto_verify_interval_hours: 0,
 };
 
 describe("isRerankerConfigured", () => {

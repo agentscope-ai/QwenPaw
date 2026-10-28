@@ -3041,7 +3041,13 @@
     },
     "remeLightMemoryTitle": "Bộ nhớ dài hạn",
     "lightContextTitle": "Quản lý ngữ cảnh",
-    "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
+    "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại",
+    "rerankerPrecisionResult": "Độ chính xác xếp hạng {{correct}}/{{total}} ({{percent}}%)",
+    "rerankerPrecisionRolling": "Trung bình 10 lần chạy {{avg}}%",
+    "rerankerPrecisionHistoryOnly": "Đã có lịch sử; chạy xác minh dịch vụ để đo độ chính xác",
+    "rerankerAutoVerifyInterval": "Khoảng thời gian tự xác minh (giờ)",
+    "rerankerAutoVerifyIntervalMin": "Nhập số nguyên từ 0 trở lên",
+    "rerankerAutoVerifyIntervalTooltip": "Kiểm tra dịch vụ reranker mỗi N giờ; 0 tắt xác minh tự động"
   },
   "models": {
     "connect": "Xác thực OAuth",

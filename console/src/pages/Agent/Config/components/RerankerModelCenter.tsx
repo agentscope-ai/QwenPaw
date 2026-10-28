@@ -1,12 +1,17 @@
+import { useEffect } from "react";
 import InlineHelp from "@/components/InlineHelp";
 import { Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { BadgeCheck, ChevronRight, Cpu, Power, Target } from "lucide-react";
 
 import { api } from "@/api";
+import type { RerankerHistoryRecord } from "@/api/modules/agent";
 import type { RerankerConfig } from "@/api/types/agent";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import { isRerankerConfigured } from "./rerankerUtils";
+import {
+  getRerankerServiceFingerprint,
+  isRerankerConfigured,
+} from "./rerankerUtils";
 import styles from "../index.module.less";
 import { useRerankerVerification } from "./useRerankerVerification";
 
@@ -29,8 +34,31 @@ export function RerankerModelCenter() {
     testedReranker,
     testedRerankerIsCurrent,
     markVerified,
+    setHistory,
     clearVerification,
   } = useRerankerVerification(rerankerConfig, rerankerConfigured);
+
+  const serviceFingerprint = rerankerConfigured
+    ? getRerankerServiceFingerprint(rerankerConfig)
+    : "";
+
+  // Load the persistent verification history for the current service so the
+  // precision slot can show a trend even before a manual verification.
+  useEffect(() => {
+    if (!serviceFingerprint) return;
+    let cancelled = false;
+    api
+      .getRerankerHistory(serviceFingerprint)
+      .then((res) => {
+        if (!cancelled) setHistory(res.history);
+      })
+      .catch(() => {
+        // History is best-effort; a failed fetch must not block the UI.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serviceFingerprint, setHistory]);
 
   const testReranker = async () => {
     try {
@@ -58,22 +86,26 @@ export function RerankerModelCenter() {
     try {
       const result = await api.testReranker(config);
       if (result.success) {
-        markVerified(result.latency_ms, result.ranking_correct, result.scores);
-        const scoresText =
-          result.scores?.map((score) => score.toFixed(3)).join(" / ") ?? "";
-        const rankingLine =
-          result.ranking_correct === true
-            ? t("agentConfig.rerankerRankingCorrect", { scores: scoresText })
-            : result.ranking_correct === false
-            ? t("agentConfig.rerankerRankingIncorrect", {
-                scores: scoresText,
+        markVerified(
+          result.latency_ms,
+          result.precision,
+          result.correct_count,
+          result.total,
+          result.history ?? [],
+        );
+        const precisionLine =
+          result.precision !== null
+            ? t("agentConfig.rerankerPrecisionResult", {
+                correct: result.correct_count,
+                total: result.total,
+                percent: Math.round(result.precision * 100),
               })
             : t("agentConfig.rerankerRankingUnknown");
         modal.success({
           title: t("agentConfig.rerankerTestSuccess"),
           content: `${t("agentConfig.rerankerTestSuccessDetail", {
             latency: result.latency_ms,
-          })} ${rankingLine}`,
+          })} ${precisionLine}`,
         });
       } else {
         clearVerification();
@@ -179,43 +211,92 @@ export function RerankerModelCenter() {
             <Target size={14} aria-hidden="true" />
             {t("agentConfig.rerankerPrecisionLabel")}
           </span>
-          {testedRerankerIsCurrent &&
-          testedReranker &&
-          testedReranker.rankingCorrect !== null ? (
+          {testedRerankerIsCurrent && testedReranker ? (
             <>
-              <strong
-                className={
-                  testedReranker.rankingCorrect
-                    ? styles.embeddingStatusValueVerified
-                    : styles.embeddingStatusValuePending
-                }
-              >
-                {testedReranker.rankingCorrect ? 100 : 0}%
-              </strong>
-              <small
-                title={testedReranker.scores
-                  ?.map((score) => score.toFixed(3))
-                  .join(" / ")}
-              >
-                {testedReranker.scores
-                  ?.map((score) => score.toFixed(3))
-                  .join(" / ")}
-              </small>
+              {testedReranker.verifiedAt > 0 &&
+              testedReranker.precision !== null ? (
+                <>
+                  <strong className={styles.embeddingStatusValueVerified}>
+                    {testedReranker.correctCount}/{testedReranker.total} ={" "}
+                    {Math.round(testedReranker.precision * 100)}%
+                  </strong>
+                  <small>
+                    {t("agentConfig.rerankerPrecisionRolling", {
+                      avg: Math.round(
+                        rollingPrecision(testedReranker.history) * 100,
+                      ),
+                    })}
+                  </small>
+                </>
+              ) : (
+                <>
+                  <strong>—</strong>
+                  <small>
+                    {t(
+                      testedReranker.history.length > 0
+                        ? "agentConfig.rerankerPrecisionHistoryOnly"
+                        : "agentConfig.rerankerPrecisionHint",
+                    )}
+                  </small>
+                </>
+              )}
+              <PrecisionSparkline history={testedReranker.history} />
             </>
           ) : (
             <>
               <strong>—</strong>
-              <small>
-                {t(
-                  testedRerankerIsCurrent && testedReranker
-                    ? "agentConfig.rerankerPrecisionNoScores"
-                    : "agentConfig.rerankerPrecisionHint",
-                )}
-              </small>
+              <small>{t("agentConfig.rerankerPrecisionHint")}</small>
             </>
           )}
         </div>
       </div>
     </section>
+  );
+}
+
+function rollingPrecision(history: RerankerHistoryRecord[]): number {
+  const values = history
+    .map((entry) => entry.precision)
+    .filter((value): value is number => value !== null);
+  if (values.length === 0) return 0;
+  const recent = values.slice(-10);
+  return recent.reduce((sum, value) => sum + value, 0) / recent.length;
+}
+
+function PrecisionSparkline({
+  history,
+}: {
+  history: RerankerHistoryRecord[];
+}) {
+  const values = history
+    .map((entry) => entry.precision)
+    .filter((value): value is number => value !== null);
+  if (values.length < 2) return null;
+  const width = 120;
+  const height = 26;
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * (width - 4) + 2;
+      const y = height - 3 - value * (height - 6);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className={styles.precisionSparkline}
+      aria-hidden="true"
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
