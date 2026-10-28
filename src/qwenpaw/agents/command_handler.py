@@ -600,9 +600,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
             from agentscope.agent import Agent, InjectionConfig
 
             from ..agents.model_factory import create_model_and_formatter_async
+            from ..services.session_thinking import apply_session_thinking
 
             if agent_config is None:
                 agent_config = await self._get_agent_config_async()
+            agent_config = await apply_session_thinking(
+                self._prompt_context,
+                agent_config,
+            )
             model, _fmt = await create_model_and_formatter_async(
                 agent_id=agent_config.id,
                 agent_config=agent_config,

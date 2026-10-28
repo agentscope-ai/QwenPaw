@@ -949,6 +949,84 @@ def _make_config(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("session_model", "expected_model"),
+    [(None, "default-model"), ("session-model", "session-model")],
+)
+async def test_standalone_compact_uses_session_model(
+    monkeypatch,
+    session_model,
+    expected_model,
+) -> None:
+    """Standalone compaction follows the chat's model, with agent fallback."""
+    from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+
+    default_slot = ModelSlotConfig(
+        provider_id="provider",
+        model="default-model",
+    )
+    config = AgentProfileConfig(
+        id="agent-1",
+        name="Agent",
+        active_model=default_slot,
+    )
+    runtime_context = (
+        {
+            "model": ModelSlotConfig(
+                provider_id="provider",
+                model=session_model,
+            ).model_dump(),
+        }
+        if session_model
+        else {}
+    )
+    chat_manager = SimpleNamespace(
+        get_chat_id_by_session=AsyncMock(return_value="chat-1"),
+        get_chat=AsyncMock(
+            return_value=SimpleNamespace(
+                meta={"runtime_context": runtime_context},
+            ),
+        ),
+    )
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(chat_manager=chat_manager),
+        session_id="session-1",
+        request=SimpleNamespace(
+            channel="console",
+            user_id="user-1",
+            request_context={},
+        ),
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        state=SimpleNamespace(context=[], summary=""),
+        prompt_context=ctx,
+    )
+    monkeypatch.setattr(
+        handler,
+        "_get_current_system_prompt",
+        AsyncMock(return_value=""),
+    )
+    monkeypatch.setattr(
+        handler,
+        "_build_manual_context_config",
+        lambda _config: object(),
+    )
+    model_factory = AsyncMock(return_value=(object(), object()))
+    monkeypatch.setattr(
+        "qwenpaw.agents.model_factory.create_model_and_formatter_async",
+        model_factory,
+    )
+    monkeypatch.setattr("agentscope.agent.Agent", MagicMock())
+
+    assert await handler._build_tmp_agent(config) is not None
+
+    used_config = model_factory.await_args.kwargs["agent_config"]
+    assert used_config.active_model.model == expected_model
+    assert config.active_model == default_slot
+
+
+@pytest.mark.asyncio
 async def test_compact_respects_disabled_config() -> None:
     agent = _make_agent()
     agent.state = SimpleNamespace(
