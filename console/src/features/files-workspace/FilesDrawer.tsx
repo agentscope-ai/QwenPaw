@@ -80,12 +80,14 @@ export default function FilesDrawer({
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [memoryTagToBrowse, setMemoryTagToBrowse] = useState<string>();
   const prefersReducedMotion = useReducedMotion();
   const isWorkspace = state.kind === "workspace";
   const agentId = scope.agentId;
   const chatId = scope.chatId;
   const projectDirOverride = scope.projectDirOverride;
   const target = state.target;
+  useEffect(() => setMemoryTagToBrowse(undefined), [agentId, target]);
   const widthStorageKey = isWorkspace
     ? WORKSPACE_WIDTH_STORAGE_KEY
     : PREVIEW_WIDTH_STORAGE_KEY;
@@ -438,7 +440,11 @@ export default function FilesDrawer({
                 <div className={styles.empty}>{t("common.loading")}</div>
               }
             >
-              <FilesWorkspace initialTarget={target} scope={scope} />
+              <FilesWorkspace
+                initialTarget={target}
+                initialMemoryTag={memoryTagToBrowse}
+                scope={scope}
+              />
             </Suspense>
           ) : (
             <>
@@ -456,6 +462,19 @@ export default function FilesDrawer({
                     root={target.root}
                     projectDirOverride={projectDirOverride}
                     workspaceBacked={target.source === "workspace"}
+                    onMemoryTagClick={
+                      !target.artifactUrl &&
+                      (target.source === "memory" ||
+                        target.source === "daily" ||
+                        target.source === "digest" ||
+                        (target.source === "workspace" &&
+                          target.root === "workspace"))
+                        ? (tag) => {
+                            setMemoryTagToBrowse(tag);
+                            dispatch({ type: "EXPAND_WORKSPACE" });
+                          }
+                        : undefined
+                    }
                   />
                 ) : metadata?.preview_kind === "text" ? (
                   <pre className={styles.textPreview}>{content}</pre>

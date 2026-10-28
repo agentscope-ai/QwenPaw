@@ -8,6 +8,8 @@ import type {
   CopyAgentRequest,
   AgentProfileRef,
   MemoryGraphSnapshot,
+  MemoryTagPage,
+  MemoryTagFilePage,
   ReorderAgentsResponse,
 } from "../types/agents";
 
@@ -134,6 +136,25 @@ export const agentsApi = {
 
   getMemoryGraph: (agentId: string) =>
     request<MemoryGraphSnapshot>(`/agents/${agentId}/memory/graph`),
+
+  getMemoryTags: (agentId: string, page = 1, signal?: AbortSignal) =>
+    request<MemoryTagPage>(
+      `/agents/${encodeURIComponent(agentId)}/memory/tags?page=${page}`,
+      { signal },
+    ),
+
+  getMemoryTagFiles: (
+    agentId: string,
+    tag: string,
+    page = 1,
+    signal?: AbortSignal,
+  ) =>
+    request<MemoryTagFilePage>(
+      `/agents/${encodeURIComponent(
+        agentId,
+      )}/memory/tag-files?${new URLSearchParams({ tag, page: String(page) })}`,
+      { signal },
+    ),
 
   // Delete agent
   deleteAgent: (agentId: string) =>

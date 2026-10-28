@@ -1,3 +1,5 @@
+import { parseDocument } from "yaml";
+
 export interface FrontmatterEntry {
   key: string;
   value: string;
@@ -37,3 +39,30 @@ export function parseMarkdownFrontmatter(
 /** Remove YAML frontmatter from the beginning of a Markdown string. */
 export const stripFrontmatter = (content: string): string =>
   parseMarkdownFrontmatter(content).body;
+
+/** Read the indexed tag list while retaining the source's display casing. */
+export function parseMemoryTags(content: string): string[] {
+  const block = FRONTMATTER_PATTERN.exec(content)?.[1];
+  if (!block) return [];
+  try {
+    const document = parseDocument(block, { intAsBigInt: true });
+    if (document.errors.length) return [];
+    const value: unknown = document.toJS({ maxAliasCount: 50 })?.memory_tags;
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const item of value) {
+      if (typeof item !== "string" && typeof item !== "bigint") continue;
+      const tag = String(item).trim().replace(/\s+/gu, "_");
+      if (!tag || [...tag].length > 64 || !/[\p{L}\p{N}]/u.test(tag)) continue;
+      const key = tag.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tags.push(tag);
+      if (tags.length === 3) break;
+    }
+    return tags;
+  } catch {
+    return [];
+  }
+}

@@ -20,6 +20,7 @@ import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import FilesNavigator from "./FilesNavigator";
 import MemoryGraphView from "./MemoryGraphView";
+import MemoryTagsNavigator from "./MemoryTagsNavigator";
 import { projectRootPath, workspaceRoots } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
@@ -36,6 +37,7 @@ import styles from "./FilesWorkspace.module.less";
 
 interface FilesWorkspaceProps {
   initialTarget?: FileTarget;
+  initialMemoryTag?: string;
   scope: FilesWorkspaceScope;
 }
 
@@ -60,6 +62,7 @@ function inferPreviewKind(
 
 export default function FilesWorkspace({
   initialTarget,
+  initialMemoryTag,
   scope,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
@@ -105,6 +108,11 @@ export default function FilesWorkspace({
   const [loadError, setLoadError] = useState("");
   const [memoryGraphRoot, setMemoryGraphRoot] =
     useState<MemoryGraphRoot | null>(null);
+  const [memoryTagsActive, setMemoryTagsActive] = useState(false);
+  const [selectedMemoryTag, setSelectedMemoryTag] = useState<string | null>(
+    null,
+  );
+  const [memoryTagsRevision, setMemoryTagsRevision] = useState(0);
   const [activity, setActivity] = useState<"files" | "git">("files");
   const [mobilePane, setMobilePane] = useState<
     "navigator" | "source" | "document"
@@ -472,7 +480,16 @@ export default function FilesWorkspace({
   useEffect(() => {
     hydratedTabs.current.clear();
     revalidationSequence.current.clear();
+    setMemoryTagsActive(false);
+    setSelectedMemoryTag(null);
   }, [scopeKey]);
+
+  const showMemoryTag = useCallback((tag: string) => {
+    setActivity("files");
+    setMemoryTagsActive(true);
+    setSelectedMemoryTag(tag);
+    setMobilePane("navigator");
+  }, []);
 
   useEffect(() => {
     if (!chatId && projectDirOverride) {
@@ -502,8 +519,20 @@ export default function FilesWorkspace({
   }, [closeTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey, t, tabs]);
 
   useEffect(() => {
-    if (initialTarget) void openTarget(initialTarget);
-  }, [initialTarget, openTarget]);
+    let cancelled = false;
+    if (initialTarget) {
+      void openTarget(initialTarget).then(() => {
+        if (!cancelled && initialMemoryTag) setMobilePane("navigator");
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [initialTarget, initialMemoryTag, openTarget]);
+
+  useEffect(() => {
+    if (initialMemoryTag) showMemoryTag(initialMemoryTag);
+  }, [initialMemoryTag, scopeKey, showMemoryTag]);
 
   useEffect(() => {
     if (!activeTabPath || revalidatedScope.current === scopeKey) return;
@@ -601,8 +630,31 @@ export default function FilesWorkspace({
               setMobilePane("document");
             }}
             onShowFiles={() => {
+              setMemoryTagsActive(false);
               setMemoryGraphRoot(null);
             }}
+            memoryTagsActive={memoryTagsActive}
+            onShowMemoryTags={() => setMemoryTagsActive(true)}
+            memoryTagsPanel={
+              <MemoryTagsNavigator
+                key={`${scopeKey}:${selectedMemoryTag ?? ""}`}
+                agentId={agentId}
+                tag={selectedMemoryTag}
+                revision={memoryTagsRevision}
+                selectedPath={
+                  tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
+                  ""
+                }
+                selectedSource={
+                  tabs.find((tab) => tab.path === activeTabPath)?.source
+                }
+                onSelectTag={setSelectedMemoryTag}
+                onOpenFile={(target) => {
+                  setMemoryGraphRoot(null);
+                  void openTarget(target);
+                }}
+              />
+            }
           />
         </div>
       ) : (
@@ -675,6 +727,8 @@ export default function FilesWorkspace({
             chatId={chatId}
             projectDirOverride={projectDirOverride}
             navigation={editorNavigation}
+            onMemoryTagClick={showMemoryTag}
+            onFileSaved={() => setMemoryTagsRevision((value) => value + 1)}
             onDownloadFile={async (path) => {
               const tab = tabsRef.current.find((item) => item.path === path);
               const separator = path.indexOf("::");

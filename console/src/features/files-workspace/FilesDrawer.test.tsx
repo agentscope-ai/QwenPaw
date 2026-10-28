@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import FilesDrawer from "./FilesDrawer";
 import { workspaceApi } from "../../api/modules/workspace";
 import type { FileTarget } from "./types";
+import { useReducer } from "react";
+import { filesDrawerReducer } from "./filesDrawerState";
 
 const clipboardMocks = vi.hoisted(() => ({
   copyText: vi.fn().mockResolvedValue(undefined),
@@ -46,7 +48,9 @@ vi.mock("../../api/modules/workspace", () => ({
 }));
 
 vi.mock("./FilesWorkspace", () => ({
-  default: () => <div data-testid="files-workspace" />,
+  default: ({ initialMemoryTag }: { initialMemoryTag?: string }) => (
+    <div data-testid="files-workspace" data-memory-tag={initialMemoryTag} />
+  ),
 }));
 
 vi.mock("../../utils/downloadFileFromUrl", () => ({
@@ -57,6 +61,41 @@ describe("FilesDrawer", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+  });
+
+  it("expands a memory preview and carries the clicked tag into the workspace", async () => {
+    vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
+      content: "---\nmemory_tags: [赵六, Orion]\n---\n# Memory",
+      etag: "v1",
+    });
+    function PreviewHarness() {
+      const [state, dispatch] = useReducer(filesDrawerReducer, {
+        kind: "preview",
+        target: {
+          source: "workspace",
+          root: "workspace",
+          path: "memory/note.md",
+        },
+        trigger: null,
+      });
+      return state.kind === "closed" ? null : (
+        <FilesDrawer
+          state={state}
+          dispatch={dispatch}
+          scope={{
+            kind: "session",
+            agentId: "default",
+            sessionId: "session-1",
+          }}
+        />
+      );
+    }
+    renderWithProviders(<PreviewHarness />);
+    fireEvent.click(await screen.findByText("Orion"));
+    expect(await screen.findByTestId("files-workspace")).toHaveAttribute(
+      "data-memory-tag",
+      "Orion",
+    );
   });
 
   it("copies the complete text file content", async () => {

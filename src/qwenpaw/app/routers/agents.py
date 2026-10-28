@@ -12,7 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -129,6 +129,44 @@ class MemoryGraphSnapshot(BaseModel):
     version: Literal[1] = 1
     nodes: list[MemoryGraphNode]
     edges: list[MemoryGraphEdge]
+
+
+class MemoryTag(BaseModel):
+    """A canonical tag and the number of indexed files carrying it."""
+
+    tag: str
+    file_count: int
+
+
+class MemoryTagPage(BaseModel):
+    """One page of tags, ordered by file count."""
+
+    items: list[MemoryTag]
+    total_tags: int
+    page: int
+    page_size: int
+
+
+class MemoryTagFile(BaseModel):
+    """Indexed metadata for a workspace-relative memory file."""
+
+    path: str
+    source: Literal["daily", "digest", "workspace"]
+    relative_path: str
+    name: str = ""
+    description: str = ""
+    modified_at: float
+    memory_tags: list[str]
+
+
+class MemoryTagFilePage(BaseModel):
+    """One page of complete files carrying a tag."""
+
+    tag: str
+    items: list[MemoryTagFile]
+    total_files: int
+    page: int
+    page_size: int
 
 
 class ReorderAgentsRequest(BaseModel):
@@ -1625,6 +1663,102 @@ async def get_agent_memory_status(
             status_code=500,
             detail="ReMe returned an invalid memory status payload",
         ) from exc
+
+
+async def _run_memory_tag_action(
+    agent_id: str,
+    request: Request,
+    action: str,
+    **kwargs: Any,
+) -> Any:
+    """Resolve an agent and run a read-only action on its live memory index."""
+
+    def check_config() -> None:
+        if agent_id not in load_config().agents.profiles:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        config = load_agent_config(agent_id)
+        if config.running.memory_manager_backend != "remelight":
+            raise HTTPException(
+                status_code=400,
+                detail="Memory tags are only supported by ReMe Light",
+            )
+
+    await run_sync_io(check_config)
+    workspace = await _get_multi_agent_manager(request).get_agent(agent_id)
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    try:
+        response = await memory_manager.run_action(action, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory tag index is unavailable",
+        ) from exc
+    if response is None or not response.success:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory tag index is unavailable",
+        )
+    return response.answer
+
+
+@router.get("/{agentId}/memory/tags", response_model=MemoryTagPage)
+async def get_agent_memory_tags(
+    agentId: str,
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+) -> MemoryTagPage:
+    """List canonical tags and distinct file counts across this agent."""
+    answer = await _run_memory_tag_action(
+        agentId,
+        request,
+        "list_tags",
+        page=page,
+        page_size=page_size,
+        order_by="file_count",
+        order="desc",
+    )
+    return MemoryTagPage(
+        items=[
+            MemoryTag(tag=tag, file_count=count)
+            for tag, count in answer["items"]
+        ],
+        total_tags=answer["total_tags"],
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/{agentId}/memory/tag-files", response_model=MemoryTagFilePage)
+async def get_agent_memory_tag_files(
+    agentId: str,
+    request: Request,
+    tag: str = Query(..., min_length=1, max_length=64),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+) -> MemoryTagFilePage:
+    """Browse all tagged files without semantic ranking or chunk limits."""
+    answer = await _run_memory_tag_action(
+        agentId,
+        request,
+        "list_tag_files",
+        tag=tag,
+        page=page,
+        page_size=page_size,
+    )
+    return MemoryTagFilePage.model_validate(answer)
 
 
 @router.get(

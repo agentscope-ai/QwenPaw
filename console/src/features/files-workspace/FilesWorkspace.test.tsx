@@ -6,11 +6,12 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesWorkspace from "./FilesWorkspace";
 import { notifyProjectDirectoryChanged } from "../project-directory/projectDirectoryChangeEvent";
 import type { EditorTab } from "../../stores/codingTabsStore";
+import { agentsApi } from "../../api/modules/agents";
 
 const lifecycle = vi.hoisted(() => ({
   clearProjectTabs: vi.fn(),
@@ -21,6 +22,8 @@ const lifecycle = vi.hoisted(() => ({
   navigatorMounted: vi.fn(),
   navigatorUnmounted: vi.fn(),
   navigatorProps: null as {
+    memoryTagsActive?: boolean;
+    memoryTagsPanel?: ReactNode;
     onSelect: (target: { source: "workspace"; path: string }) => void;
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
@@ -42,6 +45,7 @@ const lifecycle = vi.hoisted(() => ({
   tabs: [] as EditorTab[],
   activeTabPath: "",
   editorProps: null as {
+    onMemoryTagClick: (tag: string) => void;
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
     onTabClose: (path: string) => void;
@@ -105,6 +109,8 @@ vi.mock("../../api/modules/workspace", () => ({
 
 vi.mock("./FilesNavigator", () => ({
   default: function MockFilesNavigator(props: {
+    memoryTagsActive?: boolean;
+    memoryTagsPanel?: ReactNode;
     onSelect: (target: { source: "workspace"; path: string }) => void;
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
@@ -114,7 +120,9 @@ vi.mock("./FilesNavigator", () => ({
       lifecycle.navigatorMounted();
       return () => lifecycle.navigatorUnmounted();
     }, []);
-    return <div>navigator</div>;
+    return (
+      <div>navigator{props.memoryTagsActive && props.memoryTagsPanel}</div>
+    );
   },
 }));
 
@@ -135,6 +143,7 @@ vi.mock("./MemoryGraphView", () => ({
 
 vi.mock("../../pages/Coding/TabbedEditor", () => ({
   default: function MockTabbedEditor(props: {
+    onMemoryTagClick: (tag: string) => void;
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
     onTabClose: (path: string) => void;
@@ -175,6 +184,57 @@ describe("FilesWorkspace directory changes", () => {
     });
     lifecycle.loadFileText.mockResolvedValue({ content: "", etag: "v1" });
     lifecycle.loadMemoryFile.mockResolvedValue({ content: "" });
+  });
+
+  it("keeps a dirty document mounted while browsing a tag and opening a result", async () => {
+    lifecycle.tabs = [
+      {
+        path: "daily::note.md",
+        displayPath: "note.md",
+        source: "daily",
+        content: "Unsaved memory",
+        dirty: true,
+      },
+    ];
+    lifecycle.activeTabPath = "daily::note.md";
+    vi.spyOn(agentsApi, "getMemoryTagFiles").mockResolvedValue({
+      tag: "赵六",
+      total_files: 1,
+      page: 1,
+      page_size: 50,
+      items: [
+        {
+          path: "resources/orion.md",
+          source: "workspace",
+          relative_path: "resources/orion.md",
+          name: "Orion owner",
+          description: "",
+          modified_at: 1700000000,
+          memory_tags: ["赵六"],
+        },
+      ],
+    });
+    render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+    act(() => lifecycle.editorProps?.onMemoryTagClick("赵六"));
+    const result = await screen.findByRole("button", { name: /Orion owner/ });
+    expect(lifecycle.editorUnmounted).not.toHaveBeenCalled();
+    expect(lifecycle.closeTab).not.toHaveBeenCalled();
+    expect(lifecycle.setTabContent).not.toHaveBeenCalled();
+    expect(lifecycle.tabs[0].content).toBe("Unsaved memory");
+    fireEvent.click(result);
+    await waitFor(() =>
+      expect(lifecycle.openTab).toHaveBeenCalledWith(
+        "agent:agent-a",
+        expect.objectContaining({
+          path: "workspace-root::resources/orion.md",
+          source: "workspace",
+          workspaceRoot: "workspace",
+        }),
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: /Orion owner/ }),
+    ).toBeInTheDocument();
   });
 
   it("loads and saves profile files using the workspace agent", async () => {
