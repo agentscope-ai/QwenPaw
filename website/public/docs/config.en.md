@@ -781,7 +781,7 @@ QwenPaw needs an LLM provider to work. You can set it up in three ways:
 | DeepSeek                           | `deepseek`               | `https://api.deepseek.com`                          | `sk-`          |
 | Kimi (China)                       | `kimi-cn`                | `https://api.moonshot.cn/v1`                        | _(any)_        |
 | Kimi (International)               | `kimi-intl`              | `https://api.moonshot.ai/v1`                        | _(any)_        |
-| MiniMax (China)                    | `minimax-cn`             | `https://api.minimaxi.com/anthropic`                | _(any)_        |
+| MiniMax (China)                    | `minimax-cn`             | `https://api.minimax.cn/anthropic`                  | _(any)_        |
 | MiniMax (International)            | `minimax`                | `https://api.minimax.io/anthropic`                  | _(any)_        |
 | Zhipu (BigModel)                   | `zhipu-cn`               | `https://open.bigmodel.cn/api/paas/v4`              | _(any)_        |
 | Zhipu Coding Plan (BigModel)       | `zhipu-cn-codingplan`    | `https://open.bigmodel.cn/api/coding/paas/v4`       | _(any)_        |

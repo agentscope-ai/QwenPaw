@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "catalog_version": "2026.10.27.1",
-  "published_at": "2026-10-27T00:00:00Z",
+  "catalog_version": "2026.10.28.1",
+  "published_at": "2026-10-28T00:00:00Z",
   "source_url": "https://models.dev/api.json",
   "providers": {
     "openrouter": {
@@ -5347,7 +5347,7 @@
     },
     "anthropic": {
       "path": "providers/anthropic.json",
-      "sha256": "b5a89f9d03ee169111d0cd9ba5237395c939d66272b6bc39bc71c8d603ae798f",
+      "sha256": "ed266ee8b8c7a96ae6d3f79f0b4d5265227f60881d1986d0651f73f2afc38f07",
       "api_urls": [
         "https://api.anthropic.com"
       ],
@@ -6428,7 +6428,7 @@
     },
     "kimi-codingplan": {
       "path": "providers/kimi-codingplan.json",
-      "sha256": "bf3e774a9079532ee051ecdc2b836a38dda53a99cebcf14ade6546f2196f28a4",
+      "sha256": "5a59b0ab3c6251e9ce141a1d053bf2ec704e40bb9c4abf91268b83fa8b6f14ac",
       "api_urls": [
         "https://api.kimi.com/coding/v1"
       ],
@@ -6472,7 +6472,7 @@
                 "source": "documentation",
                 "reference": "https://www.kimi.com/code/docs/kimi-code/models.html",
                 "updated_at": "2026-10-26",
-                "note": "Maximum context is plan-dependent. K3.1 Pro defaults to high effort on Coding Plan; the standard API defaults to max."
+                "note": "Maximum context is plan-dependent. K3.1 Pro defaults to high effort on Coding Plan; the standard API defaults to max. Coding Plan documentation does not specify a separate maximum output length; it is intentionally left unknown rather than copied from the standard API."
               }
             },
             "released_at": "2026-10-23"
@@ -6504,7 +6504,7 @@
                 "source": "documentation",
                 "reference": "https://www.kimi.com/code/docs/kimi-code/models.html",
                 "updated_at": "2026-10-26",
-                "note": "Maximum context is plan-dependent. K3.1 Pro Highspeed defaults to high effort on Coding Plan; the standard API defaults to max."
+                "note": "Maximum context is plan-dependent. K3.1 Pro Highspeed defaults to high effort on Coding Plan; the standard API defaults to max. Coding Plan documentation does not specify a separate maximum output length; it is intentionally left unknown rather than copied from the standard API."
               }
             },
             "released_at": "2026-10-23"

@@ -264,8 +264,19 @@ def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
     )
 
 
-def test_packaged_refresh_ignores_previous_release_ota(tmp_path: Path) -> None:
-    """The merged catalog must supersede the previous main release."""
+@pytest.mark.parametrize(
+    "version,published_at",
+    [
+        ("2026.10.26.1", "2026-10-26T00:00:00Z"),
+        ("2026.10.27.1", "2026-10-27T00:00:00Z"),
+    ],
+)
+def test_packaged_refresh_ignores_previous_release_ota(
+    tmp_path: Path,
+    version: str,
+    published_at: str,
+) -> None:
+    """The refreshed catalog must supersede previous release caches."""
     ota = tmp_path / "ota.json"
     missing = tmp_path / "missing.json"
     _write_catalog(
@@ -275,8 +286,8 @@ def test_packaged_refresh_ignores_previous_release_ota(tmp_path: Path) -> None:
                 {"id": "mimo-v2.5-pro", "name": "Previous default"},
             ],
         },
-        catalog_version="2026.10.26.1",
-        published_at="2026-10-26T00:00:00Z",
+        catalog_version=version,
+        published_at=published_at,
     )
     expected = model_catalog.load_model_catalog(
         ota_path=missing,

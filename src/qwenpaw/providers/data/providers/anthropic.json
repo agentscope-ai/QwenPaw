@@ -631,8 +631,9 @@
         },
         "thinking_control": {
           "source": "documentation",
-          "reference": "https://platform.claude.com/docs/en/build-with-claude/effort",
-          "updated_at": "2026-10-26"
+          "reference": "https://platform.claude.com/docs/en/models/haiku-5-5/whats-new-haiku-5-5",
+          "updated_at": "2026-10-28",
+          "note": "Thinking can be disabled only at high effort or below. supports_off indicates that disabling is available; it does not express this effort-dependent constraint. Requests combining disabled thinking with xhigh or max effort are not supported."
         }
       },
       "released_at": "2026-10-07",
