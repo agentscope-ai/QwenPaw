@@ -3967,3 +3967,214 @@ class TestDingTalkAdditionalCoverage:
         _sender, skip = sender_from_chatbot_message(msg)
 
         assert skip is True
+
+
+class TestOnEventMessageCompletedWebhookFallback:
+    """Final markdown replies must fall back when sessionWebhook expires."""
+
+    @pytest.mark.asyncio
+    async def test_completed_falls_back_to_open_api_on_webhook_failure(
+        self,
+        dingtalk_channel,
+    ):
+        """Expired sessionWebhook should still deliver via Open API."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [
+            TextContent(
+                type=ContentType.TEXT,
+                text="Final answer after a long task",
+            ),
+        ]
+        send_meta = {"session_webhook": "http://webhook.url"}
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_message_to_content_parts",
+                return_value=parts,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_webhook,
+            patch.object(
+                dingtalk_channel,
+                "_invalidate_session_webhook",
+                new_callable=AsyncMock,
+            ) as mock_invalidate,
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_fallback,
+            patch.object(
+                dingtalk_channel,
+                "_send_media_part_via_webhook",
+                new_callable=AsyncMock,
+            ) as mock_media,
+        ):
+            await dingtalk_channel.on_event_message_completed(
+                MagicMock(),
+                "dingtalk:sw:test",
+                MagicMock(),
+                send_meta,
+            )
+
+            mock_webhook.assert_awaited_once()
+            mock_invalidate.assert_awaited_once_with("dingtalk:sw:test")
+            mock_fallback.assert_awaited_once()
+            assert mock_fallback.await_args.args[0].endswith(
+                "Final answer after a long task",
+            )
+            mock_media.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_completed_raises_for_api_send_when_both_paths_fail(
+        self,
+        dingtalk_channel,
+    ):
+        """Proactive API sends still surface delivery failure."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [
+            TextContent(type=ContentType.TEXT, text="Should fail loudly"),
+        ]
+        send_meta = {
+            "session_webhook": "http://webhook.url",
+            "_api_send": True,
+        }
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_message_to_content_parts",
+                return_value=parts,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_invalidate_session_webhook",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            with pytest.raises(ChannelError, match="Open API fallback"):
+                await dingtalk_channel.on_event_message_completed(
+                    MagicMock(),
+                    "dingtalk:sw:test",
+                    MagicMock(),
+                    send_meta,
+                )
+
+    @pytest.mark.asyncio
+    async def test_completed_keeps_webhook_media_when_text_succeeds(
+        self,
+        dingtalk_channel,
+    ):
+        """Successful webhook replies still deliver media on the same path."""
+        from qwenpaw.app.channels.base import (
+            ContentType,
+            ImageContent,
+            TextContent,
+        )
+
+        parts = [
+            TextContent(type=ContentType.TEXT, text="See image"),
+            ImageContent(
+                type=ContentType.IMAGE,
+                image_url="https://example.com/a.png",
+            ),
+        ]
+        send_meta = {"session_webhook": "http://webhook.url"}
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_message_to_content_parts",
+                return_value=parts,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_webhook,
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+            ) as mock_fallback,
+            patch.object(
+                dingtalk_channel,
+                "_send_media_part_via_webhook",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_media,
+        ):
+            await dingtalk_channel.on_event_message_completed(
+                MagicMock(),
+                "dingtalk:sw:test",
+                MagicMock(),
+                send_meta,
+            )
+
+            mock_webhook.assert_awaited_once()
+            mock_fallback.assert_not_awaited()
+            mock_media.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_consume_error_falls_back_to_open_api(
+        self,
+        dingtalk_channel,
+    ):
+        """Error notices should not be silently dropped on expired webhook."""
+        request = MagicMock()
+        request.channel_meta = {
+            "session_webhook": "http://webhook.url",
+            "message_id": "",
+            "conversation_id": "",
+        }
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_webhook,
+            patch.object(
+                dingtalk_channel,
+                "_invalidate_session_webhook",
+                new_callable=AsyncMock,
+            ) as mock_invalidate,
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_fallback,
+        ):
+            await dingtalk_channel._on_consume_error(
+                request,
+                "dingtalk:sw:test",
+                "something went wrong",
+            )
+
+            mock_webhook.assert_awaited_once()
+            mock_invalidate.assert_awaited_once_with("dingtalk:sw:test")
+            mock_fallback.assert_awaited_once()
+            assert "something went wrong" in mock_fallback.await_args.args[0]

@@ -565,16 +565,28 @@ class DingTalkChannel(BaseChannel):
                 conversation_id,
                 "☹️Error",
             )
-        # Send error text via webhook or fallback
+        # Send error text via webhook or Open API fallback
         session_webhook = self._get_session_webhook(meta)
         bot_prefix = self.bot_prefix or ""
         full_err = bot_prefix + err_text if err_text else bot_prefix
         if session_webhook and full_err.strip():
-            await self._send_via_session_webhook(
+            delivered = await self._send_via_session_webhook(
                 session_webhook,
                 full_err.strip(),
                 bot_prefix="",
             )
+            if not delivered:
+                await self._invalidate_session_webhook(to_handle)
+                logger.warning(
+                    "dingtalk _on_consume_error: sessionWebhook send "
+                    "failed, trying Open API fallback for to_handle=%s",
+                    to_handle,
+                )
+                await self._try_open_api_fallback(
+                    full_err.strip(),
+                    to_handle,
+                    meta,
+                )
         # Release dedup msg_id so future retries are accepted
         msg_ids = meta.get("_message_ids")
         if msg_ids is None:
@@ -2406,7 +2418,8 @@ class DingTalkChannel(BaseChannel):
         Card mode (non-streaming): accumulate text into a single pre-created
         card. The card is finalized in _on_process_completed after all messages
         are processed.
-        Markdown mode: send via sessionWebhook or fallback to send().
+        Markdown mode: send via sessionWebhook, with Open API fallback when
+        the webhook has expired or failed (same path as send_content_parts).
         """
         parts = self._message_to_content_parts(event)
         if not parts:
@@ -2500,13 +2513,35 @@ class DingTalkChannel(BaseChannel):
                 elif dingtalk_id:
                     at_dids = [dingtalk_id]
                 state["at_sent"] = True
-            await self._send_via_session_webhook(
+            delivered = await self._send_via_session_webhook(
                 session_webhook,
                 body.strip(),
                 bot_prefix="",
                 at_user_ids=at_uids,
                 at_dingtalk_ids=at_dids,
             )
+            if not delivered:
+                # sessionWebhook expired/failed: mirror send_content_parts
+                await self._invalidate_session_webhook(to_handle)
+                logger.warning(
+                    "dingtalk on_event_message_completed: sessionWebhook "
+                    "send failed, trying Open API fallback for "
+                    "to_handle=%s",
+                    to_handle,
+                )
+                fallback_ok = await self._try_open_api_fallback(
+                    body.strip(),
+                    to_handle,
+                    send_meta,
+                )
+                if fallback_ok:
+                    return
+                self._raise_delivery_error_if_api_send(
+                    self._api_send_delivery_errors(send_meta),
+                    "DingTalk send failed via sessionWebhook and "
+                    "Open API fallback",
+                )
+                return
             # Deliver media parts via webhook
             media_types = (
                 ContentType.IMAGE,
