@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../api/modules/agents";
 import type { MemoryTagFilePage, MemoryTagPage } from "../../api/types/agents";
-import type { FileSource, FileTarget } from "./types";
+import type { FileSource, FileTarget, WorkspaceRoot } from "./types";
 import styles from "./FilesWorkspace.module.less";
 
 interface MemoryTagsNavigatorProps {
@@ -17,9 +17,10 @@ interface MemoryTagsNavigatorProps {
   tag: string | null;
   selectedPath: string;
   selectedSource?: FileSource;
+  selectedRoot?: WorkspaceRoot;
   revision: number;
   onSelectTag: (tag: string | null) => void;
-  onOpenFile: (target: FileTarget) => void;
+  onOpenFile: (target: FileTarget, workspacePath: string) => void;
 }
 
 export default function MemoryTagsNavigator({
@@ -27,6 +28,7 @@ export default function MemoryTagsNavigator({
   tag,
   selectedPath,
   selectedSource,
+  selectedRoot,
   revision,
   onSelectTag,
   onOpenFile,
@@ -162,19 +164,27 @@ export default function MemoryTagsNavigator({
                   type="button"
                   className={styles.tagFileRow}
                   aria-current={
-                    file.source === selectedSource &&
-                    file.relative_path === selectedPath
+                    (
+                      selectedSource === "workspace"
+                        ? selectedRoot === "workspace" &&
+                          file.path === selectedPath
+                        : file.source === selectedSource &&
+                          file.relative_path === selectedPath
+                    )
                       ? "true"
                       : undefined
                   }
                   onClick={() =>
-                    onOpenFile({
-                      source: file.source,
-                      path: file.relative_path,
-                      ...(file.source === "workspace"
-                        ? { root: "workspace" as const }
-                        : {}),
-                    })
+                    onOpenFile(
+                      {
+                        source: file.source,
+                        path: file.relative_path,
+                        ...(file.source === "workspace"
+                          ? { root: "workspace" as const }
+                          : {}),
+                      },
+                      file.path,
+                    )
                   }
                 >
                   <strong>{file.name || file.path.split("/").pop()}</strong>

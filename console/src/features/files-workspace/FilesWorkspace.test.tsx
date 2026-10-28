@@ -237,6 +237,125 @@ describe("FilesWorkspace directory changes", () => {
     ).toBeInTheDocument();
   });
 
+  it.each([
+    { source: "daily", hasCleanAlias: false },
+    { source: "digest", hasCleanAlias: false },
+    { source: "daily", hasCleanAlias: true },
+  ] as const)(
+    "reuses a dirty workspace tab when opening a tag result: %j",
+    async ({ source, hasCleanAlias }) => {
+      const path = `custom-${source}/note.md`;
+      const existing: EditorTab = {
+        path: `workspace-root::${path}`,
+        displayPath: path,
+        source: "workspace",
+        workspaceRoot: "workspace",
+        content: "Unsaved memory",
+        dirty: true,
+      };
+      const tabs: EditorTab[] = hasCleanAlias
+        ? [
+            {
+              path: `${source}::note.md`,
+              displayPath: "note.md",
+              source,
+              content: "Saved memory",
+              dirty: false,
+            },
+            existing,
+          ]
+        : [existing];
+      lifecycle.tabs = tabs;
+      lifecycle.activeTabPath = existing.path;
+      vi.spyOn(agentsApi, "getMemoryTagFiles").mockResolvedValue({
+        tag: "赵六",
+        total_files: 1,
+        page: 1,
+        page_size: 50,
+        items: [
+          {
+            path,
+            source,
+            relative_path: "note.md",
+            name: "Tagged memory",
+            description: "",
+            modified_at: 1700000000,
+            memory_tags: ["赵六"],
+          },
+        ],
+      });
+      render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+      act(() => lifecycle.editorProps?.onMemoryTagClick("赵六"));
+      const result = await screen.findByRole("button", {
+        name: /Tagged memory/,
+      });
+      fireEvent.click(result);
+      await waitFor(() =>
+        expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+          "agent:agent-a",
+          existing.path,
+        ),
+      );
+      expect(lifecycle.openTab).not.toHaveBeenCalled();
+      expect(lifecycle.loadMemoryFile).not.toHaveBeenCalled();
+      expect(lifecycle.setTabContent).not.toHaveBeenCalled();
+      expect(lifecycle.tabs).toEqual(tabs);
+      expect(result).toHaveAttribute("aria-current", "true");
+    },
+  );
+
+  it.each([undefined, "project", "project:/other"] as const)(
+    "does not reuse or highlight an unrelated project file, root: %s",
+    async (workspaceRoot) => {
+      const existing: EditorTab = {
+        path: workspaceRoot?.startsWith("project:")
+          ? `${workspaceRoot}::resources/orion.md`
+          : "resources/orion.md",
+        displayPath: "resources/orion.md",
+        source: "workspace",
+        workspaceRoot,
+        content: "Unsaved project file",
+        dirty: true,
+      };
+      lifecycle.tabs = [existing];
+      lifecycle.activeTabPath = existing.path;
+      vi.spyOn(agentsApi, "getMemoryTagFiles").mockResolvedValue({
+        tag: "赵六",
+        total_files: 1,
+        page: 1,
+        page_size: 50,
+        items: [
+          {
+            path: "resources/orion.md",
+            source: "workspace",
+            relative_path: "resources/orion.md",
+            name: "Tagged memory",
+            description: "",
+            modified_at: 1700000000,
+            memory_tags: ["赵六"],
+          },
+        ],
+      });
+      render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+      act(() => lifecycle.editorProps?.onMemoryTagClick("赵六"));
+      const result = await screen.findByRole("button", {
+        name: /Tagged memory/,
+      });
+      expect(result).not.toHaveAttribute("aria-current");
+      fireEvent.click(result);
+      await waitFor(() =>
+        expect(lifecycle.openTab).toHaveBeenCalledWith(
+          "agent:agent-a",
+          expect.objectContaining({
+            path: "workspace-root::resources/orion.md",
+            workspaceRoot: "workspace",
+          }),
+        ),
+      );
+      expect(lifecycle.tabs).toEqual([existing]);
+    },
+  );
+
   it("loads and saves profile files using the workspace agent", async () => {
     lifecycle.tabs = [
       {

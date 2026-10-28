@@ -72,11 +72,14 @@ describe("MemoryTagsNavigator", () => {
     const callbacks = { ...props(), tag: "赵六" };
     render(<MemoryTagsNavigator {...callbacks} />);
     fireEvent.click(await screen.findByRole("button", { name: /Orion owner/ }));
-    expect(callbacks.onOpenFile).toHaveBeenCalledWith({
-      source: "workspace",
-      root: "workspace",
-      path: "resources/orion.md",
-    });
+    expect(callbacks.onOpenFile).toHaveBeenCalledWith(
+      {
+        source: "workspace",
+        root: "workspace",
+        path: "resources/orion.md",
+      },
+      "resources/orion.md",
+    );
     expect(screen.getByText("files.memoryTagFilesCount:1")).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "files.memoryTagsAll" }),
@@ -103,6 +106,48 @@ describe("MemoryTagsNavigator", () => {
       ),
     );
   });
+
+  it.each([undefined, "project", "project:/other", "workspace"] as const)(
+    "matches workspace results only for the agent root, selected root: %s",
+    async (selectedRoot) => {
+      render(
+        <MemoryTagsNavigator
+          {...props()}
+          tag="赵六"
+          selectedSource="workspace"
+          selectedRoot={selectedRoot}
+          selectedPath="resources/orion.md"
+        />,
+      );
+      const result = await screen.findByRole("button", { name: /Orion owner/ });
+      expect(result.getAttribute("aria-current")).toBe(
+        selectedRoot === "workspace" ? "true" : null,
+      );
+    },
+  );
+
+  it.each(["daily", "digest"] as const)(
+    "recognizes a %s result opened through its full workspace path",
+    async (source) => {
+      const path = `custom-${source}/note.md`;
+      vi.mocked(agentsApi.getMemoryTagFiles).mockResolvedValue({
+        ...files,
+        items: [{ ...files.items[0], source, path, relative_path: "note.md" }],
+      });
+      render(
+        <MemoryTagsNavigator
+          {...props()}
+          tag="赵六"
+          selectedSource="workspace"
+          selectedRoot="workspace"
+          selectedPath={path}
+        />,
+      );
+      expect(
+        await screen.findByRole("button", { name: /Orion owner/ }),
+      ).toHaveAttribute("aria-current", "true");
+    },
+  );
 
   it("reports an unavailable index and retries instead of showing zero files", async () => {
     vi.mocked(agentsApi.getMemoryTagFiles).mockRejectedValueOnce(

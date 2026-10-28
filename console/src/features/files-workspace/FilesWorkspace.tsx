@@ -85,6 +85,7 @@ export default function FilesWorkspace({
     scope.kind === "session" ? { ...scope, projectDirOverride } : scope;
   const tabs = useTabsForScope(scopeKey);
   const activeTabPath = useActiveTabPathForScope(scopeKey);
+  const activeTab = tabs.find((tab) => tab.path === activeTabPath);
   const {
     clearProjectTabs,
     closeTab,
@@ -616,10 +617,7 @@ export default function FilesWorkspace({
           <FilesNavigator
             key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
             scope={effectiveScope}
-            selectedPath={
-              tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
-              activeTabPath
-            }
+            selectedPath={activeTab?.displayPath ?? activeTabPath}
             onSelect={(target) => {
               setMemoryGraphRoot(null);
               void openTarget(target);
@@ -641,17 +639,24 @@ export default function FilesWorkspace({
                 agentId={agentId}
                 tag={selectedMemoryTag}
                 revision={memoryTagsRevision}
-                selectedPath={
-                  tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
-                  ""
-                }
-                selectedSource={
-                  tabs.find((tab) => tab.path === activeTabPath)?.source
-                }
+                selectedPath={activeTab?.displayPath ?? ""}
+                selectedSource={activeTab?.source ?? "workspace"}
+                selectedRoot={activeTab?.workspaceRoot}
                 onSelectTag={setSelectedMemoryTag}
-                onOpenFile={(target) => {
+                onOpenFile={(target, workspacePath) => {
                   setMemoryGraphRoot(null);
-                  void openTarget(target);
+                  // Daily/digest and Workspace can refer to the same file.
+                  // Reuse its buffer, preferring unsaved changes if both exist.
+                  const matches = tabsRef.current.filter(
+                    (tab) =>
+                      tab.path === `workspace-root::${workspacePath}` ||
+                      (target.source !== "workspace" &&
+                        tab.path === `${target.source}::${target.path}`),
+                  );
+                  const existing =
+                    matches.find((tab) => tab.dirty) ?? matches[0];
+                  if (existing) activateTab(existing.path);
+                  else void openTarget(target);
                 }}
               />
             }
