@@ -37,6 +37,7 @@ from .store import (
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     import_skill_dir,
+    install_staged_skill_dir,
     is_ignored_skill_entry,
     is_pool_builtin_entry,
     is_primary_pool_skill_dir,
@@ -1146,7 +1147,7 @@ class SkillPoolService:
             # cancellation seen here costs nothing to honour, because the
             # target directory is still exactly what it was.
             ensure_not_cancelled()
-            copy_skill_dir(staged_dir, target_dir)
+            install_staged_skill_dir(staged_dir, target_dir)
 
         pool_config = entry.get("config") or {}
         pool_tags = entry.get("tags")
