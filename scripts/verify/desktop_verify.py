@@ -710,7 +710,7 @@ class PlaywrightDriver(UIDriver):
                 pass
 
 
-UI_MODES = ("tauri-macos", "tauri-windows")
+UI_MODES = ("tauri-macos", "tauri-windows", "tauri-linux")
 
 
 def make_driver(
@@ -720,7 +720,7 @@ def make_driver(
     cdp_url: str = "",
 ) -> UIDriver:
     """Build a concrete ``UIDriver`` for the requested mode."""
-    if ui_mode == "tauri-macos":
+    if ui_mode in ("tauri-macos", "tauri-linux"):
         return PlaywrightDriver("webkit", screenshot_dir, headless)
     if ui_mode == "tauri-windows":
         return PlaywrightDriver(

@@ -9,6 +9,7 @@ option.
 """
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -250,7 +251,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["nvidia", "triton"],
     noarchive=False,
 )
 
@@ -331,3 +332,36 @@ coll = COLLECT(
     upx=False,
     name="qwenpaw-backend",
 )
+
+
+def _strip_cuda_payload(bundle):
+    """Drop the CUDA runtime that torch pulls in through the whisper extra.
+
+    The ``nvidia-*`` wheels and ``triton`` add several gigabytes and are only
+    usable with a matching driver. Desktop installs fetch llama.cpp on demand
+    for local inference, so only torch's CPU path is shipped. PyInstaller
+    collects these libs from package data rather than from imports, so the
+    ``excludes`` entry alone is not enough.
+    """
+    internal = bundle / "_internal"
+    if not internal.is_dir():
+        return
+    removed_bytes = 0
+    for entry in sorted(internal.iterdir()):
+        if entry.name != "nvidia" and not entry.name.startswith(
+            ("nvidia.", "triton"),
+        ):
+            continue
+        if entry.is_dir():
+            removed_bytes += sum(
+                f.stat().st_size for f in entry.rglob("*") if f.is_file()
+            )
+            shutil.rmtree(entry)
+        else:
+            removed_bytes += entry.stat().st_size
+            entry.unlink()
+    if removed_bytes:
+        print(f"stripped CUDA payload: {removed_bytes / (1024 ** 3):.2f} GiB")
+
+
+_strip_cuda_payload(Path(DISTPATH) / "qwenpaw-backend")

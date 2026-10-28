@@ -99,6 +99,18 @@ if ! "$PYTHON_BIN" -c "import PyInstaller" 2> /dev/null; then
 fi
 echo "PyInstaller installed"
 
+# Desktop builds ship torch's CPU build on Linux. The default PyPI wheel
+# declares the CUDA runtime (nvidia-* plus triton, ~4 GB) through DT_NEEDED on
+# libtorch_cpu.so itself, so those libraries cannot simply be stripped after
+# the fact -- and they are unusable on machines without a matching driver.
+# Installing the CPU wheel first satisfies the whisper requirement, so the
+# project install below keeps it instead of replacing it with the CUDA build.
+if [ "$(uname -s)" = "Linux" ]; then
+    echo "== Installing CPU-only torch =="
+    install_python_packages torch \
+        --index-url https://download.pytorch.org/whl/cpu
+fi
+
 # Install project dependencies (ensures ALL runtime deps are importable)
 echo "== Installing project dependencies =="
 # Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace

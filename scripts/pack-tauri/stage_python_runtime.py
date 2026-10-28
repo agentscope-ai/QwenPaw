@@ -173,6 +173,30 @@ def _is_staged(dest: Path, marker: Path, marker_value: str) -> bool:
     )
 
 
+SUPPORTED_RUNTIME_SERIES = ("3.11", "3.12", "3.13")
+FALLBACK_RUNTIME_SERIES = "3.13"
+
+
+def _default_python_version() -> str:
+    """Return the CPython series to bundle.
+
+    The bundled runtime is frozen into the desktop app, so it must stay inside
+    the range the project declares in ``requires-python``. The interpreter that
+    *bootstraps* this script is a different thing: a host Python newer than the
+    supported range (3.14, for example) must not pull the shipped runtime out
+    of range, so it falls back to the newest supported series instead.
+    """
+    host = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if host in SUPPORTED_RUNTIME_SERIES:
+        return host
+    print(
+        f"Host CPython {host} is outside the supported runtime series "
+        f"({', '.join(SUPPORTED_RUNTIME_SERIES)}); staging "
+        f"{FALLBACK_RUNTIME_SERIES} instead",
+    )
+    return FALLBACK_RUNTIME_SERIES
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -182,12 +206,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--python-version",
-        default=f"{sys.version_info.major}.{sys.version_info.minor}",
-        help="CPython X.Y to stage (default: this interpreter's version)",
+        default=None,
+        help=(
+            "CPython X.Y to stage (default: the bootstrap interpreter's "
+            "version when it is supported, otherwise 3.13)"
+        ),
     )
     args = parser.parse_args()
 
-    xy = args.python_version
+    xy = args.python_version or _default_python_version()
     triple = _host_triple()
     dest = Path(args.dest).resolve()
     marker = dest / ".python-runtime-version"

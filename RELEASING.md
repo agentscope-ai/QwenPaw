@@ -3,7 +3,7 @@
 _中文版：[RELEASING_zh.md](RELEASING_zh.md)_
 
 QwenPaw ships four artifacts from a single version — the **PyPI** wheel, the
-**Docker** image, the **desktop** apps (Tauri, Windows + macOS) and the
+**Docker** image, the **desktop** apps (Tauri, Windows + macOS + Linux) and the
 **plugins** bundle. They are published together by one orchestrated workflow so
 that a failure in any one of them blocks the whole release: you can never end up
 with, e.g., a web release that has no matching desktop build.
@@ -33,7 +33,7 @@ with, e.g., a web release that has no matching desktop build.
 2. **Prepare** (build + verify, publishes nothing) — in parallel:
    - `build-wheel` — build the Python wheel (with the bundled console).
    - `verify-web` — pip-install, Docker health-check and install-script checks.
-   - `build-desktop` — build the Tauri Windows + macOS apps and run the
+   - `build-desktop` — build the Tauri Windows + macOS + Linux apps and run the
      install → launch → real-chat UI verification.
    - `build-plugins` — pack the plugin bundle.
 3. **Gate + Publish** — every publish job `needs` **all** prepare jobs, so a
