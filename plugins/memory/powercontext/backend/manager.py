@@ -251,8 +251,6 @@ class PowerContextMemoryManager(BaseMemoryManager):
             query,
             max_results,
             max_context_bytes=self._auto_search_result_budget(
-                query=query,
-                max_results=max_results,
                 max_context_bytes=max_context_bytes,
                 estimate_divisor=options.estimate_divisor,
             ),
@@ -512,15 +510,11 @@ class PowerContextMemoryManager(BaseMemoryManager):
     def _auto_search_result_budget(
         self,
         *,
-        query: str,
-        max_results: int,
         max_context_bytes: int,
         estimate_divisor: float = 4.0,
     ) -> int:
-        """Reserve bytes for synthetic tool metadata before retrieval text."""
+        """Reserve bytes for the untrusted reference wrapper."""
         message = self._build_auto_memory_search_msg(
-            query=query,
-            max_results=max_results,
             text="",
             estimate_divisor=estimate_divisor,
         )

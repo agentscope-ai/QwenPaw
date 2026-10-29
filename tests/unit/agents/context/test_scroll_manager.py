@@ -280,13 +280,11 @@ def make_manager(store: HistoryStore, **kw) -> ScrollContextManager:
     return ScrollContextManager(history=store, **kw)
 
 
-def auto_memory_search_msg(*, query: str, max_results: int, text: str) -> Msg:
+def auto_memory_search_msg(*, text: str) -> Msg:
     return AutoMemoryMsgBuilder(
         working_dir="",
         agent_id="ag1",
     )._build_auto_memory_search_msg(
-        query=query,
-        max_results=max_results,
         text=text,
     )
 
@@ -395,8 +393,6 @@ def test_auto_memory_search_message_not_persisted(store: HistoryStore):
     """Auto-search context is live-only and must not pollute history.db."""
     mgr = make_manager(store)
     auto_msg = auto_memory_search_msg(
-        query="deploy plan",
-        max_results=2,
         text="remembered deployment notes",
     )
     agent = FakeAgent([user("what was the deploy plan?"), auto_msg])

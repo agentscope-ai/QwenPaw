@@ -218,8 +218,6 @@ async def test_auto_search_injects_powercontext_result(tmp_path):
         "what did we decide?",
         2,
         max_context_bytes=manager._auto_search_result_budget(
-            query="what did we decide?",
-            max_results=2,
             max_context_bytes=12000,
         ),
     )
@@ -492,8 +490,6 @@ async def test_auto_memory_bounds_multibyte_text_and_excludes_search(tmp_path):
     client = SimpleNamespace(remember=AsyncMock())
     manager._client = client
     synthetic_search = manager._build_auto_memory_search_msg(
-        query="prior decision",
-        max_results=1,
         text="recalled-memory-must-not-be-persisted",
     )
     await manager.auto_memory([user("你" * 3000), synthetic_search])

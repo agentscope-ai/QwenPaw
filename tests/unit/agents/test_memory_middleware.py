@@ -4,6 +4,7 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import json
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,6 +16,13 @@ from agentscope.message import (
 )
 from agentscope.state import AgentState
 
+from qwenpaw.providers.capping_formatter import (
+    _CappingAnthropicFormatter,
+    _CappingDashScopeFormatter,
+    _CappingGeminiFormatter,
+    _CappingOpenAIFormatter,
+    _CappingOpenAIResponseFormatter,
+)
 from qwenpaw.agents.middlewares import (
     MemoryMiddleware,
     auto_memory_turn_state,
@@ -188,10 +196,14 @@ class TestOnModelCallAutomationSkip:
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="user")
         query = _user_msg()
+        evidence_block = TextBlock(text="remembered fact")
         memory_msg = Msg(
-            name="memory_search",
-            role="assistant",
-            content=[TextBlock(text="remembered fact")],
+            name="auto_memory_evidence",
+            role="system",
+            content=[evidence_block],
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [evidence_block.id],
+            },
         )
         agent.state.context = [query]
         mm.auto_memory_search.return_value = {"msg": [query, memory_msg]}
@@ -205,7 +217,10 @@ class TestOnModelCallAutomationSkip:
         ):
             await mw.on_model_call(agent, input_kwargs, next_handler)
 
-        assert input_kwargs["messages"] == [query, memory_msg]
+        assert len(input_kwargs["messages"]) == 1
+        assert input_kwargs["messages"][0].get_text_content() == (
+            "hello\nremembered fact"
+        )
         assert agent.state.context == [query]
 
     @pytest.mark.asyncio
@@ -270,11 +285,14 @@ class TestOnModelCallAutomationSkip:
             role="system",
             content=[TextBlock(text="base instructions")],
         )
+        evidence_block = TextBlock(text="remembered fact")
         evidence = Msg(
             name="auto_memory_evidence",
             role="system",
-            content=[TextBlock(text="remembered fact")],
-            metadata={AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: ["evidence"]},
+            content=[evidence_block],
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [evidence_block.id],
+            },
         )
         agent.state.context = [query]
         mm.auto_memory_search.return_value = {"msg": [query, evidence]}
@@ -298,6 +316,35 @@ class TestOnModelCallAutomationSkip:
         assert system.get_text_content() == "base instructions"
         assert query.get_text_content() == "hello"
         assert agent.state.context == [query]
+
+    def test_search_evidence_injection_is_idempotent(self):
+        query = _user_msg()
+        evidence_block = TextBlock(text="remembered fact")
+        evidence = Msg(
+            name="auto_memory_evidence",
+            role="system",
+            content=[evidence_block],
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [evidence_block.id],
+            },
+        )
+
+        first = MemoryMiddleware._inject_search_messages(
+            [query],
+            memory_msgs=[evidence],
+            turn_marker=query.id,
+        )
+        second = MemoryMiddleware._inject_search_messages(
+            first,
+            memory_msgs=[evidence],
+            turn_marker=query.id,
+        )
+
+        assert second[0].get_text_content() == "hello\nremembered fact"
+        assert second[0].metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] == [
+            evidence_block.id,
+        ]
+        assert query.get_text_content() == "hello"
 
     def test_search_evidence_change_preserves_prefix_before_current_turn(self):
         system = Msg(
@@ -367,6 +414,57 @@ class TestOnModelCallAutomationSkip:
         )
 
         assert result == [history]
+
+    @pytest.mark.parametrize(
+        "formatter_class",
+        [
+            _CappingOpenAIFormatter,
+            _CappingDashScopeFormatter,
+            _CappingAnthropicFormatter,
+            _CappingGeminiFormatter,
+            _CappingOpenAIResponseFormatter,
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_provider_wire_prefix_stays_stable_when_evidence_changes(
+        self,
+        formatter_class,
+    ):
+        system = Msg(
+            name="system",
+            role="system",
+            content=[TextBlock(text="base instructions")],
+        )
+        history = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="previous answer")],
+        )
+        query = _user_msg()
+
+        def request_messages(text: str) -> list[Msg]:
+            block = TextBlock(text=text)
+            evidence = Msg(
+                name="auto_memory_evidence",
+                role="system",
+                content=[block],
+                metadata={AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [block.id]},
+            )
+            return MemoryMiddleware._inject_search_messages(
+                [system, history, query],
+                memory_msgs=[evidence],
+                turn_marker=query.id,
+            )
+
+        formatter = formatter_class()
+        wire_a = await formatter.format(request_messages("memory A"))
+        wire_b = await formatter.format(request_messages("memory B"))
+
+        assert wire_a[:-1] == wire_b[:-1]
+        assert "memory A" in json.dumps(wire_a[-1])
+        assert "memory B" in json.dumps(wire_b[-1])
+        assert "tool_call" not in json.dumps(wire_a)
+        assert "tool_result" not in json.dumps(wire_a)
 
     @pytest.mark.asyncio
     async def test_new_turn_replaces_search_cache(self):
@@ -499,6 +597,47 @@ class TestOnModelCallAutomationSkip:
 
         mm.auto_memory_search.assert_awaited_once()
         assert _turn_state(agent)["search"]["turn_marker"] == "turn-1"
+
+    @pytest.mark.asyncio
+    async def test_legacy_search_cache_is_invalidated_after_state_restore(
+        self,
+    ):
+        mm = _make_memory_manager()
+        agent = _make_agent(source="user")
+        agent.state = AgentState(session_id="session-1")
+        query = _user_msg(msg_id="turn-1")
+        agent.state.context = [query]
+        legacy_block = TextBlock(text="legacy synthetic trajectory")
+        legacy_msg = Msg(
+            name="memory_search",
+            role="assistant",
+            content=[legacy_block],
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [legacy_block.id],
+            },
+        )
+        _turn_state(agent)["search"] = {
+            "turn_marker": query.id,
+            "messages": [legacy_msg.model_dump(mode="json")],
+        }
+        agent.state = AgentState.model_validate(
+            agent.state.model_dump(mode="json"),
+        )
+        input_kwargs = {"messages": [agent.state.context[0]]}
+
+        await MemoryMiddleware(memory_manager=mm).on_model_call(
+            agent,
+            input_kwargs,
+            AsyncMock(return_value="model_result"),
+        )
+
+        mm.auto_memory_search.assert_awaited_once()
+        assert len(input_kwargs["messages"]) == 1
+        assert (
+            "legacy synthetic trajectory"
+            not in input_kwargs["messages"][0].get_text_content()
+        )
+        assert _turn_state(agent)["search"]["version"] == 1
 
 
 # ---------------------------------------------------------------------------
