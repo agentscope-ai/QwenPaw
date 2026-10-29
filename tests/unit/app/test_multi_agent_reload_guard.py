@@ -297,6 +297,7 @@ class _ControlledStopWorkspace:
         self.release = asyncio.Event()
         self.stopped = asyncio.Event()
         self.fail = fail
+        self.cancel_active_requests = AsyncMock()
         self.final_modes = []
         if not blocked:
             self.release.set()
