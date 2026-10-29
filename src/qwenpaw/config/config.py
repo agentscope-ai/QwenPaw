@@ -236,7 +236,7 @@ def normalize_model_slot_config(
                 model=model.strip(),
             )
         raise ValueError("model slot strings must use 'provider_id:model'")
-    raise TypeError(f"Unsupported model slot type: {type(value).__name__}")
+    raise ValueError(f"Unsupported model slot type: {type(value).__name__}")
 
 
 class ActiveModelsInfo(BaseModel):

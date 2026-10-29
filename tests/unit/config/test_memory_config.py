@@ -164,6 +164,12 @@ def test_memory_model_accepts_slot_forms(value, expected):
     assert ReMeLightMemoryConfig(memory_model=value).memory_model == expected
 
 
+@pytest.mark.parametrize("value", [123, False, [], {"model": 123}])
+def test_memory_model_invalid_types_raise_validation_error(value):
+    with pytest.raises(ValidationError):
+        ReMeLightMemoryConfig(memory_model=value)
+
+
 def test_memory_model_survives_serialization_round_trip():
     cfg = ReMeLightMemoryConfig(
         memory_model={
