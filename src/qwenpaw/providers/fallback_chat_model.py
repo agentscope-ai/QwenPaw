@@ -36,6 +36,17 @@ def install_fallback_notice_sink() -> dict[str, Any]:
     return sink
 
 
+def get_model_identity(model: ChatModelBase) -> tuple[str, str]:
+    """Resolve identity for retry, fallback, and token-recording wrappers."""
+    key = str(getattr(model, "model_key", "") or "")
+    name = str(getattr(model, "model", "unknown") or "unknown")
+    if ":" not in key:
+        provider_id = str(getattr(model, "_provider_id", "") or "")
+        return provider_id, key or name
+    provider_id, model_id = key.split(":", maxsplit=1)
+    return provider_id, model_id
+
+
 class FallbackChatModel(ChatModelBase):
     """Try configured models in order before any response becomes visible."""
 
@@ -365,13 +376,7 @@ class FallbackChatModel(ChatModelBase):
 
     @staticmethod
     def _model_identity(model: ChatModelBase) -> tuple[str, str]:
-        key = str(getattr(model, "model_key", "") or "")
-        name = str(getattr(model, "model", "unknown") or "unknown")
-        if ":" not in key:
-            provider_id = str(getattr(model, "_provider_id", "") or "")
-            return provider_id, key or name
-        provider_id, model_id = key.split(":", maxsplit=1)
-        return provider_id, model_id
+        return get_model_identity(model)
 
     @classmethod
     def _fallback_event(

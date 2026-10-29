@@ -75,7 +75,10 @@ from ...config.config import (
 )
 from ...exceptions import ProviderError
 from ...providers import ProviderManager
-from ...providers.fallback_chat_model import FallbackChatModel
+from ...providers.fallback_chat_model import (
+    FallbackChatModel,
+    get_model_identity,
+)
 from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
@@ -572,9 +575,9 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             **model_kwargs,
         )
         model = main_model
-        main_model_key = getattr(main_model, "model_key", None)
-        if memory_slot is not None and main_model_key != (
-            f"{memory_slot.provider_id}:{memory_slot.model}"
+        if memory_slot is not None and get_model_identity(main_model) != (
+            memory_slot.provider_id,
+            memory_slot.model,
         ):
             try:
                 (
