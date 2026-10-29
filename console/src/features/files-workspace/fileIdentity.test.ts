@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EditorTab } from "../../stores/codingTabsStore";
-import { fileTabTarget, findOpenFileTab } from "./fileIdentity";
+import { fileTabTarget, findOpenFileTab, workspacePath } from "./fileIdentity";
 
 describe("legacy memory file identities", () => {
   it.each([
@@ -97,6 +97,73 @@ describe("legacy memory file identities", () => {
         findOpenFileTab(
           [workspace],
           { source: "memory", path: `${config.prefix}/note.md` },
+          config,
+        ),
+      ).toBe(workspace);
+    },
+  );
+
+  it.each([
+    {
+      daily_dir: "notes\\daily",
+      digest_dir: "notes\\knowledge",
+      digestPath: "notes/knowledge/note.md",
+    },
+    {
+      daily_dir: "notes\\daily\\",
+      digest_dir: "notes\\knowledge\\",
+      digestPath: "notes/knowledge/note.md",
+    },
+    {
+      daily_dir: "notes/daily",
+      digest_dir: "notes\\nested/knowledge\\",
+      digestPath: "notes/nested/knowledge/note.md",
+    },
+  ])(
+    "keeps legacy digest aliases distinct from Daily files with Windows directories: %j",
+    (config) => {
+      const legacy: EditorTab = {
+        path: "memory::knowledge/note.md",
+        content: "Unsaved digest",
+        dirty: true,
+      };
+      expect(workspacePath(fileTabTarget(legacy), config)).toBe(
+        config.digestPath,
+      );
+      expect(
+        findOpenFileTab(
+          [legacy],
+          { source: "workspace", root: "workspace", path: config.digestPath },
+          config,
+        ),
+      ).toBe(legacy);
+      expect(
+        findOpenFileTab(
+          [legacy],
+          {
+            source: "workspace",
+            root: "workspace",
+            path: "notes/daily/knowledge/note.md",
+          },
+          config,
+        ),
+      ).toBeUndefined();
+      expect(
+        findOpenFileTab(
+          [legacy],
+          { source: "digest", path: "note.md" },
+          config,
+        ),
+      ).toBe(legacy);
+      const workspace: EditorTab = {
+        path: `workspace-root::${config.digestPath}`,
+        content: "Unsaved digest",
+        dirty: true,
+      };
+      expect(
+        findOpenFileTab(
+          [workspace],
+          { source: "memory", path: "knowledge/note.md" },
           config,
         ),
       ).toBe(workspace);

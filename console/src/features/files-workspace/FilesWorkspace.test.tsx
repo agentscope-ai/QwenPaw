@@ -348,10 +348,21 @@ describe("FilesWorkspace directory changes", () => {
     expect(lifecycle.tabs[0].content).toBe("Unsaved first");
   });
 
-  it("saves a reused legacy digest buffer through its original memory route", async () => {
+  it("opens a distinct Windows Daily file without reusing a dirty legacy digest buffer", async () => {
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      id: "agent-a",
+      name: "Agent A",
+      running: {
+        memory_manager_backend: "remelight",
+        reme_light_memory_config: {
+          daily_dir: "notes\\daily",
+          digest_dir: "notes\\knowledge",
+        },
+      },
+    });
     lifecycle.tabs = [
       {
-        path: "memory::digest/note.md",
+        path: "memory::knowledge/note.md",
         content: "Unsaved digest",
         dirty: true,
       },
@@ -363,27 +374,86 @@ describe("FilesWorkspace directory changes", () => {
         lifecycle.navigatorProps?.onSelect({
           source: "workspace",
           root: "workspace",
-          path: "digest/note.md",
+          path: "notes/daily/knowledge/note.md",
         }),
     );
-    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+    expect(lifecycle.openTab).toHaveBeenCalledWith(
       "agent:agent-a",
-      "memory::digest/note.md",
+      expect.objectContaining({
+        path: "workspace-root::notes/daily/knowledge/note.md",
+        source: "workspace",
+        workspaceRoot: "workspace",
+      }),
     );
-    await act(
-      async () =>
-        lifecycle.editorProps?.onSaveFile(
-          "memory::digest/note.md",
-          "Updated digest",
-        ),
+    expect(lifecycle.setActiveTab).not.toHaveBeenCalledWith(
+      "agent:agent-a",
+      "memory::knowledge/note.md",
     );
-    expect(lifecycle.saveDailyMemory).toHaveBeenCalledWith(
-      "digest/note.md",
-      "Updated digest",
-    );
-    expect(lifecycle.saveFileContent).not.toHaveBeenCalled();
-    expect(lifecycle.openTab).not.toHaveBeenCalled();
+    expect(lifecycle.tabs[0].content).toBe("Unsaved digest");
+    expect(lifecycle.setTabContent).not.toHaveBeenCalled();
   });
+
+  it.each([
+    {
+      daily_dir: "memory",
+      digest_dir: "digest",
+      legacyPath: "digest/note.md",
+      workspacePath: "digest/note.md",
+    },
+    {
+      daily_dir: "notes\\daily",
+      digest_dir: "notes\\knowledge",
+      legacyPath: "knowledge/note.md",
+      workspacePath: "notes/knowledge/note.md",
+    },
+  ])(
+    "saves a reused legacy digest buffer through its original memory route: %j",
+    async (config) => {
+      vi.mocked(agentsApi.getAgent).mockResolvedValue({
+        id: "agent-a",
+        name: "Agent A",
+        running: {
+          memory_manager_backend: "remelight",
+          reme_light_memory_config: {
+            daily_dir: config.daily_dir,
+            digest_dir: config.digest_dir,
+          },
+        },
+      });
+      const tabPath = `memory::${config.legacyPath}`;
+      lifecycle.tabs = [
+        {
+          path: tabPath,
+          content: "Unsaved digest",
+          dirty: true,
+        },
+      ];
+      lifecycle.activeTabPath = lifecycle.tabs[0].path;
+      render(<FilesWorkspace scope={{ kind: "agent", agentId: "agent-a" }} />);
+      await act(
+        async () =>
+          lifecycle.navigatorProps?.onSelect({
+            source: "workspace",
+            root: "workspace",
+            path: config.workspacePath,
+          }),
+      );
+      expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+        "agent:agent-a",
+        tabPath,
+      );
+      await act(
+        async () =>
+          lifecycle.editorProps?.onSaveFile(tabPath, "Updated digest"),
+      );
+      expect(lifecycle.saveDailyMemory).toHaveBeenCalledWith(
+        config.legacyPath,
+        "Updated digest",
+      );
+      expect(lifecycle.saveFileContent).not.toHaveBeenCalled();
+      expect(lifecycle.openTab).not.toHaveBeenCalled();
+    },
+  );
 
   it("recognizes persisted memory tab identities without optional metadata", async () => {
     lifecycle.tabs = [

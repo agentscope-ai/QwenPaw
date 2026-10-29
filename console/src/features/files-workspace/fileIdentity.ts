@@ -62,6 +62,7 @@ export function workspacePath(
     return null;
   if (!path.endsWith(".md")) path += ".md";
   const digestPrefix = memory.digest_dir
+    .replace(/\\/g, "/")
     .split("/")
     .filter((part) => part && part !== ".")
     .pop();
