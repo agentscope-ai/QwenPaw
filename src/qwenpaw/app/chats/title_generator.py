@@ -20,11 +20,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from qwenpaw.exceptions import AppBaseException
 from qwenpaw.providers.model_selection import request_model_override
-from qwenpaw.services.session_thinking import apply_chat_model_settings
+from qwenpaw.services.session_thinking import (
+    apply_chat_model_settings,
+    get_session_chat,
+)
 from qwenpaw.utils.io_utils import run_sync_io
 from qwenpaw.utils.model_response import consume_model_response
 
@@ -129,10 +133,14 @@ async def generate_and_update_title(
                 chat = await workspace.chat_manager.get_chat(chat_id)
                 if chat is None:
                     return
+                settings_chat = await get_session_chat(
+                    SimpleNamespace(workspace=workspace, request=request),
+                    chat=chat,
+                )
                 model_override = request_model_override(request)
                 agent_config = await apply_chat_model_settings(
                     agent_config,
-                    chat.meta,
+                    settings_chat.meta if settings_chat else None,
                     model_override=model_override,
                 )
                 model, _ = await create_model_and_formatter_async(

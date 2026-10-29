@@ -332,13 +332,14 @@ async def thinking_view(
     }
 
 
-async def get_session_chat(ctx):
-    """Find the calling conversation for runtime and control contexts."""
+async def get_session_chat(ctx, *, chat=None):
+    """Find settings for runtime/control contexts or an already loaded chat.
+
+    Spawned subagents use the parent conversation even when the current
+    chat is supplied, as it is for background title generation.
+    """
     workspace = getattr(ctx, f"workspace", None)
     manager = getattr(workspace, f"chat_manager", None)
-    session_id = getattr(ctx, f"session_id", None)
-    if not manager or not session_id:
-        return None
     request = getattr(ctx, "request", None)
     if request is None:
         request = getattr(ctx, "payload", None)
@@ -350,10 +351,37 @@ async def get_session_chat(ctx):
             for name in ("request_context", "channel", "user_id")
         }
     )
-    request_context = values.get("request_context") or {}
-    channel = values.get("channel") or "console"
-    user_id = values.get("user_id") or getattr(ctx, "user_id", None) or None
-    if request_context.get(f"_spawn_subagent"):
+    # Console title tasks receive the native payload, before it is converted
+    # into the AgentRequest used by execution.
+    request_context = (
+        values.get("request_context")
+        or (values.get("meta") or {}).get("request_context")
+        or {}
+    )
+    spawned = request_context.get(f"_spawn_subagent")
+    if chat is not None and not spawned:
+        return chat
+    session_id = getattr(ctx, f"session_id", None) or getattr(
+        chat,
+        "session_id",
+        None,
+    )
+    if not manager or not session_id:
+        return None
+    channel = (
+        values.get("channel")
+        or values.get("channel_id")
+        or getattr(chat, "channel", None)
+        or "console"
+    )
+    user_id = (
+        values.get("user_id")
+        or values.get("sender_id")
+        or getattr(ctx, "user_id", None)
+        or getattr(chat, "user_id", None)
+        or None
+    )
+    if spawned:
         session_id = request_context.get(f"parent_session_id") or session_id
         # Console submissions keep the child's transport identity separate
         # from the parent conversation's owner and channel.
