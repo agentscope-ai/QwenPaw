@@ -470,18 +470,24 @@ class HistoryStore:
             if identity_before_open in (None, identity_after_open):
                 self._checked_identity = identity_after_open
         self._init_schema()
-        if self._fts:
+        self._fts_check_pending = self._fts
+        self._retry_pending_fts_check()
+
+    def _retry_pending_fts_check(self) -> None:
+        """Retry a deferred probe under the lock, or during construction."""
+        if self._fts_check_pending:
+            timeout = self._conn.execute("PRAGMA busy_timeout").fetchone()[0]
             try:
                 # FTS integrity-check is an INSERT and needs a writer lock.
                 # This optional probe must not stall request construction
-                # behind an ordinary writer; subsequent opens try it again.
+                # behind an ordinary writer; subsequent borrows try it again.
                 try:
                     self._conn.execute("PRAGMA busy_timeout=0")
                     with self._conn:
                         self._check_fts()
                 finally:
                     self._conn.execute(
-                        f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}",
+                        f"PRAGMA busy_timeout={timeout}",
                     )
             except sqlite3.DatabaseError as exc:
                 code = getattr(exc, "sqlite_errorcode", None)
@@ -490,13 +496,15 @@ class HistoryStore:
                     sqlite3.SQLITE_LOCKED,
                 ):
                     logger.debug(
-                        "Deferring history FTS check until a later open: %s",
+                        "Deferring history FTS check until a later borrow: %s",
                         self._path,
                     )
+                    return
                 elif self._is_corruption(exc):
                     self._repair_fts()
                 else:
                     raise
+            self._fts_check_pending = False
 
     @staticmethod
     def _is_fts_only_corruption(results: Sequence[str]) -> bool:
@@ -1286,6 +1294,7 @@ class HistoryStore:
         with self._lock:
             if self._closed or self._close_requested:
                 raise RuntimeError("History store is shutting down")
+            self._retry_pending_fts_check()
             self._borrowers += 1
 
     def release(self) -> None:

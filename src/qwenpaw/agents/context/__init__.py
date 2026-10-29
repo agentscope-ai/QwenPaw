@@ -179,6 +179,7 @@ def build_scroll_components(
     # build. Native keeps full history in-context, so degrading is always safe.
     history = None
     manager = None
+    owns_history = True
     try:
         # Imported lazily so the native path never pays for the scroll
         # machinery — and so a missing scroll dependency degrades to native
@@ -190,20 +191,24 @@ def build_scroll_components(
         sc = lcc.scroll_config
         trc = lcc.tool_result_pruning_config
         db_path = resolve_history_db_path(workspace_dir, sc.db_filename)
-        if history_store is not None:
+        if (
+            history_store is not None
+            and history_store.path.resolve() == db_path.resolve()
+        ):
             if not history_store.matches_path(db_path):
                 raise RuntimeError("Workspace history store no longer matches")
             history = history_store
+            owns_history = False
         else:
-            # Standalone callers own their connection; workspace callers borrow
-            # the service managed by their workspace.
+            # Config edits can precede (or never trigger) workspace reload.
+            # Own the new connection without retiring existing borrowers.
             history = create_scroll_history(db_path)
         recall_loop_guard = RecallLoopGuard()
         scratch_root = str(Path(workspace_dir) / ".scroll")
 
         manager = ScrollContextManager(
             history=history,
-            owns_history=history_store is None,
+            owns_history=owns_history,
             session_id=session_id,
             agent_id=agent_id,
             # Legacy dialog archive is opt-in; only hand the manager an
@@ -239,9 +244,7 @@ def build_scroll_components(
             recall_tool=recall,
         )
     except Exception:  # noqa: BLE001 - any scroll failure degrades to native
-        if manager is not None or (
-            history is not None and history_store is None
-        ):
+        if manager is not None or (history is not None and owns_history):
             try:
                 if manager is not None:
                     manager.close()

@@ -126,6 +126,51 @@ async def test_workspace_history_survives_requests_and_reload(
 
 
 @pytest.mark.asyncio
+async def test_history_path_change_without_workspace_reload(tmp_path):
+    ws = _history_workspace(tmp_path)
+    await ws._service_manager.start_all()
+    components = []
+    original = ws.history_store
+    try:
+        ctx = SimpleNamespace(workspace=ws, session_id="s")
+        first = await AgentBuilder._build_scroll_components(
+            ctx,
+            ws.config,
+            model=None,
+        )
+        assert first is not None
+        components.append(first)
+        # A request sees the edited config before any workspace reload.
+        ws.config.running.light_context_config.scroll_config.db_filename = (
+            "changed.db"
+        )
+        second = await AgentBuilder._build_scroll_components(
+            ctx,
+            ws.config,
+            model=None,
+        )
+        assert second is not None
+        components.append(second)
+        changed = second.context_manager._history
+        assert changed.path == tmp_path / "changed.db"
+        assert ws.history_store is original
+        for store in (original, changed):
+            store.append(
+                session_id="s",
+                entry=LogEntry(kind="model_turn", content="persisted"),
+            )
+            assert store.count("s") == 1
+        second.context_manager.close()
+        assert changed.closed
+        assert not original.closed
+        assert original.count("s") == 1
+    finally:
+        for component in components:
+            component.context_manager.close()
+        await ws._service_manager.stop_all(final=True)
+
+
+@pytest.mark.asyncio
 async def test_cancelled_scroll_build_releases_workspace_history(
     tmp_path,
     monkeypatch,
