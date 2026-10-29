@@ -1,132 +1,173 @@
-"""组装系统提示：按优先级拼接，超预算从低优先级丢弃。"""
+"""系统提示组装。贡献者只写 system section。"""
 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from airport_sms.context.contributors import (
-    case_section,
-    hint_section,
-    manual_section,
-    role_section,
-    site_section,
-)
-from airport_sms.context.manual_index import ManualIndex, ManualMissingError
-from airport_sms.domain.case import Case
+from airport_sms.context.manual_index import ManualIndex
+from airport_sms.domain.case import Case, CaseId
 from airport_sms.domain.roles import Role
+
+PROMPT_SEPARATOR = "\n\n"
+
+
+def count_tokens(text: str) -> int:
+    """粗算 token：每 4 个字符计 1。"""
+    if not text:
+        return 0
+    return max(1, (len(text) + 3) // 4)
 
 
 @dataclass(frozen=True)
-class PromptBundle:
-    """系统提示、引用条款与稳定哈希。"""
+class PromptContext:
+    """一次组装所需的结构化输入。"""
 
-    system: str
-    cited_clauses: tuple[str, ...]
-    digest: str
+    role: Role
+    site_id: str
+    case: Case | None = None
+    clause_ids: tuple[str, ...] = ()
+    hints: tuple[str, ...] = ()
+    site_rules: str = ""
 
 
 @dataclass(frozen=True)
 class ProposedDecision:
-    """拟议决策载荷：条款引用写回案件提案侧。"""
+    """拟议决策载荷。条款 id 记在提案上。"""
 
-    case_id: str
-    action: str
-    cited_clauses: tuple[str, ...]
+    case_id: CaseId | None
+    summary: str
+    cited_clause_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AssembledPrompt:
+    """组装结果。"""
+
+    system: str
+    cited_clause_ids: tuple[str, ...]
+    dropped: tuple[str, ...] = ()
+    token_count: int = 0
+
+    def digest(self) -> str:
+        """稳定哈希，供重复组装对照。"""
+        return hashlib.sha256(self.system.encode("utf-8")).hexdigest()
+
+
+class PromptContributor:
+    """一段系统提示。priority 升序靠前，溢出时先丢数字大的。"""
+
+    name: str
+    priority: int = 100
+
+    def contribute(self, ctx: PromptContext) -> str | None:
+        """返回一段系统文本，或 None 表示本轮跳过。"""
+        raise NotImplementedError
 
 
 class PromptManager:
-    """按固定顺序拼接系统段。hint 只能进系统段。"""
+    """按优先级登记贡献者并组装系统提示。"""
 
-    # 高优先级在前；超预算从尾部丢弃。
-    _ORDER = ("role", "site", "case", "manual", "hint")
+    def __init__(self, *, token_budget: int = 800) -> None:
+        self._contributors: list[PromptContributor] = []
+        self._token_budget = token_budget
 
-    def __init__(
-        self,
-        manuals: dict[str, str],
-        *,
-        budget_chars: int = 4000,
-        site_id: str = "",
-    ) -> None:
-        self._manuals = manuals
-        self._budget = budget_chars
-        self._site_id = site_id
+    def register(self, contributor: PromptContributor) -> None:
+        """登记贡献者。同名拒绝。"""
+        if not getattr(contributor, "name", None):
+            raise ValueError("PromptContributor.name must be a non-empty string")
+        if any(item.name == contributor.name for item in self._contributors):
+            raise ValueError(f"duplicate contributor {contributor.name}")
+        self._contributors.append(contributor)
+        self._contributors.sort(key=lambda item: (item.priority, item.name))
 
-    @classmethod
-    def from_index(
-        cls,
-        index: ManualIndex,
-        *,
-        budget_chars: int = 4000,
-        site_id: str = "",
-        require_clauses: list[str] | None = None,
-    ) -> PromptManager:
-        """从手册索引构造。可选强制条款存在。"""
-        if require_clauses:
-            manuals = index.require(require_clauses)
-        else:
-            manuals = index.load()
-        return cls(manuals, budget_chars=budget_chars, site_id=site_id)
+    def names(self) -> list[str]:
+        """按组装顺序返回贡献者名。"""
+        return [item.name for item in self._contributors]
 
-    def build(
-        self,
-        *,
-        role: Role,
-        case: Case | None,
-        clause_ids: list[str] | None = None,
-        hint: str | None = None,
-        site_id: str | None = None,
-    ) -> PromptBundle:
-        """构建系统提示。返回的 cited_clauses 供写回提案。"""
-        clause_ids = list(clause_ids or [])
-        for cid in clause_ids:
-            if cid not in self._manuals:
-                raise ManualMissingError(cid)
-        site = site_id if site_id is not None else self._site_id
-        sections: list[tuple[str, str]] = [
-            ("role", role_section(role)),
-            ("site", site_section(site)),
-            ("case", case_section(case)),
-            ("manual", manual_section(clause_ids, self._manuals)),
-        ]
-        if hint:
-            sections.append(("hint", hint_section(hint)))
-        assert [n for n, _ in sections] == [
-            n for n in self._ORDER if n != "hint" or hint
-        ]
-        kept: list[str] = []
-        for _name, text in sections:
-            trial = "\n\n".join(kept + [text])
-            if len(trial) > self._budget and kept:
-                break
-            kept.append(text)
-        system = "\n\n".join(kept)
-        digest = hashlib.sha256(system.encode("utf-8")).hexdigest()
-        return PromptBundle(
+    def build(self, ctx: PromptContext) -> AssembledPrompt:
+        """组装系统提示。超预算从最低优先级段开始丢弃。"""
+        fragments: list[tuple[int, str, str]] = []
+        for contributor in self._contributors:
+            text = contributor.contribute(ctx)
+            if text:
+                fragments.append((contributor.priority, contributor.name, text.strip()))
+        dropped: list[str] = []
+        kept = list(fragments)
+        while kept and count_tokens(_join(kept)) > self._token_budget:
+            _priority, name, _text = kept.pop()
+            dropped.append(name)
+        system = _join(kept)
+        return AssembledPrompt(
             system=system,
-            cited_clauses=tuple(clause_ids),
-            digest=digest,
+            cited_clause_ids=ctx.clause_ids,
+            dropped=tuple(dropped),
+            token_count=count_tokens(system),
         )
 
     def propose(
         self,
+        ctx: PromptContext,
+        summary: str,
         *,
-        role: Role,
-        case: Case,
-        action: str,
-        clause_ids: list[str],
-        hint: str | None = None,
-    ) -> tuple[PromptBundle, ProposedDecision]:
-        """构建提示并产出带条款引用的拟议决策。"""
-        bundle = self.build(
-            role=role, case=case, clause_ids=clause_ids, hint=hint
+        case: Case | None = None,
+    ) -> tuple[AssembledPrompt, ProposedDecision, Case | None]:
+        """组装提示并生成拟议决策。引用条款写入提案；若有案件则同步到副本。"""
+        assembled = self.build(ctx)
+        target = case if case is not None else ctx.case
+        proposal = ProposedDecision(
+            case_id=target.id if target is not None else None,
+            summary=summary,
+            cited_clause_ids=assembled.cited_clause_ids,
         )
-        decision = ProposedDecision(
-            case_id=str(case.id),
-            action=action,
-            cited_clauses=bundle.cited_clauses,
-        )
-        return bundle, decision
+        updated: Case | None = None
+        if target is not None:
+            cited = tuple(
+                dict.fromkeys((*target.cited_clauses, *proposal.cited_clause_ids))
+            )
+            updated = replace(
+                target,
+                cited_clauses=cited,
+                version=target.version + 1,
+            )
+        return assembled, proposal, updated
 
 
-__all__ = ["PromptBundle", "PromptManager", "ProposedDecision"]
+def _join(fragments: list[tuple[int, str, str]]) -> str:
+    """按已排序片段拼接系统提示。"""
+    return PROMPT_SEPARATOR.join(item[2] for item in fragments)
+
+
+def build_sms_prompt_manager(
+    index: ManualIndex,
+    *,
+    token_budget: int = 800,
+) -> PromptManager:
+    """登记默认 SMS 贡献者。"""
+    from airport_sms.context.contributors import (
+        CaseSnapshotContributor,
+        HintContributor,
+        ManualClauseContributor,
+        RoleContributor,
+        SiteRulesContributor,
+    )
+
+    manager = PromptManager(token_budget=token_budget)
+    manager.register(RoleContributor())
+    manager.register(SiteRulesContributor())
+    manager.register(CaseSnapshotContributor())
+    manager.register(ManualClauseContributor(index))
+    manager.register(HintContributor())
+    return manager
+
+
+__all__ = [
+    "AssembledPrompt",
+    "PROMPT_SEPARATOR",
+    "PromptContext",
+    "PromptContributor",
+    "PromptManager",
+    "ProposedDecision",
+    "build_sms_prompt_manager",
+    "count_tokens",
+]

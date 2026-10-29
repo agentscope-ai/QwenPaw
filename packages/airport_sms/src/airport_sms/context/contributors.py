@@ -1,63 +1,103 @@
-"""Prompt 贡献者：角色、场站、案件、手册。"""
+"""系统提示贡献者。每段只产出 system section。"""
 
 from __future__ import annotations
 
-from airport_sms.domain.case import Case
+from airport_sms.context.manual_index import ManualIndex
+from airport_sms.context.prompt_manager import PromptContext, PromptContributor
 from airport_sms.domain.roles import Role
 
 _ROLE_DUTIES: dict[Role, str] = {
-    Role.REPORTER: (
-        "起草并提交隐患，附证据与位置。"
-        "不得关闭案件，不得使用 close_case。"
-    ),
-    Role.DEPT_OWNER: "分诊、分派整改与升级。可 escalate，不可擅自关闭。",
-    Role.SAFETY_OFFICE: "评估、ALARP 判定、校验与关闭。拥有 close 权限。",
-    Role.SYSTEM: "调度任务与系统作业。source=scheduler。",
+    Role.REPORTER: "职责：报告隐患并补充证据。禁止关闭案件。",
+    Role.DEPT_OWNER: "职责：评估风险、落实整改，必要时升级。",
+    Role.SAFETY_OFFICE: "职责：校验整改并关闭案件。拥有关闭案件权限。",
+    Role.SYSTEM: "职责：调度超期与摘要任务，不代替人工关闭。",
 }
 
 
-def role_section(role: Role) -> str:
-    """角色职责段落。"""
-    return f"[role]\nrole={role.value}\n{_ROLE_DUTIES[role]}"
+class RoleContributor(PromptContributor):
+    """角色职责。"""
+
+    name = "role"
+    priority = 10
+
+    def contribute(self, ctx: PromptContext) -> str | None:
+        """输出角色职责系统段。"""
+        return f"## role\n{_ROLE_DUTIES[ctx.role]}"
 
 
-def site_section(site_id: str) -> str:
-    """场站规则段落。"""
-    return f"[site]\nsite_id={site_id}\nApply site-local SMS procedures for {site_id}."
+class SiteRulesContributor(PromptContributor):
+    """场站规则。"""
+
+    name = "site_rules"
+    priority = 20
+
+    def contribute(self, ctx: PromptContext) -> str | None:
+        """输出场站规则系统段。"""
+        extra = f"\n{ctx.site_rules}" if ctx.site_rules else ""
+        return f"## site_rules\nsite_id={ctx.site_id}{extra}"
 
 
-def case_section(case: Case | None) -> str:
+class CaseSnapshotContributor(PromptContributor):
     """当前案件快照。"""
-    if case is None:
-        return "[case]\n(none)"
-    return (
-        f"[case]\nid={case.id}\nstate={case.state.value}\n"
-        f"hazard={case.hazard}\nlocation={case.location}\n"
-        f"risk={case.risk_level.value}"
-    )
+
+    name = "case_snapshot"
+    priority = 30
+
+    def contribute(self, ctx: PromptContext) -> str | None:
+        """输出案件 id 与状态。"""
+        if ctx.case is None:
+            return None
+        case = ctx.case
+        return (
+            f"## case_snapshot\n"
+            f"case_id={case.id}\n"
+            f"state={case.state.value}\n"
+            f"hazard={case.hazard}\n"
+            f"location={case.location}\n"
+            f"risk={case.risk_level.value}"
+        )
 
 
-def manual_section(clause_ids: list[str], manuals: dict[str, str]) -> str:
-    """引用手册条款正文。"""
-    lines = ["[manual]"]
-    for cid in clause_ids:
-        text = manuals.get(cid)
-        if text is None:
-            lines.append(f"{cid}=(missing)")
-        else:
-            lines.append(text)
-    return "\n".join(lines)
+class ManualClauseContributor(PromptContributor):
+    """引用手册条款。"""
+
+    name = "manual_clauses"
+    priority = 40
+
+    def __init__(self, index: ManualIndex) -> None:
+        self._index = index
+
+    def contribute(self, ctx: PromptContext) -> str | None:
+        """输出已引用条款正文。"""
+        if not ctx.clause_ids:
+            return None
+        lines = ["## manual_clauses"]
+        for cid in ctx.clause_ids:
+            body = self._index.get(cid) or ""
+            lines.append(f"{cid}: {body}")
+        return "\n".join(lines)
 
 
-def hint_section(hint: str) -> str:
-    """动态提示，只能作为系统段，禁止伪装成用户话。"""
-    return f"[hint]\n{hint}"
+class HintContributor(PromptContributor):
+    """动态提示。只进系统段，禁止伪装成用户发言。"""
+
+    name = "hint"
+    priority = 90
+
+    def contribute(self, ctx: PromptContext) -> str | None:
+        """把 hints 写成 labeled system section。"""
+        if not ctx.hints:
+            return None
+        blocks = ["## system_hint"]
+        for hint in ctx.hints:
+            blocks.append(hint)
+        return "\n".join(blocks)
 
 
 __all__ = [
-    "case_section",
-    "hint_section",
-    "manual_section",
-    "role_section",
-    "site_section",
+    "CaseSnapshotContributor",
+    "HintContributor",
+    "ManualClauseContributor",
+    "RoleContributor",
+    "SiteRulesContributor",
 ]
