@@ -2,35 +2,33 @@
 
 企业级机场集团安全管理体系（SMS）Agent。基于 AgentScope，分层参考 QwenPaw，主数据是案件状态机而不是个人聊天 JSON。
 
-## AIA 支柱
+## 业主模块（AIA + 运行面）
 
-### 指令与上下文
+| 支柱 / 面 | 业主模块 |
+| --- | --- |
+| 指令与上下文 | `context` |
+| 状态与记忆 | `domain` `session` `memory` |
+| 计划与任务 | `tasks` |
+| 能力 | `tools` |
+| 资产执行环境 | `execenv` |
+| 控制和交互 | `governance` `api` `channels` `web` |
+| 质量和反馈 | `obs` |
+| 会话 | `session` |
+| 调度 | `tasks` |
+| 模型网关 | `models` |
+| 运行时 | `runtime` |
 
-角色职责、场站规则、手册条款进入系统提示。实现落在后续 `context` 与 `runtime` 相关模块。当前占位目录是 `memory` 与 `runtime`。
+## 运维
 
-### 状态与记忆
+见 `docs/runbook.md`（备份、密钥轮换、审批 SLA、手册更新、外部桥）。
 
-案件状态与多用户会话是系统真源。模块目录是 `domain`、`session`、`memory`。
+冒烟：
 
-### 计划与任务
+```bash
+python packages/airport_sms/scripts/smoke_e2e.py
+```
 
-整改计划与超期调度进入同一命令总线。后续落在任务与调度模块。当前由 `runtime` 承接入口。
-
-### 能力
-
-工具描述符与角色白名单。模块目录是 `tools`。
-
-### 资产执行环境
-
-证据资产与受限执行。后续 `execenv`。当前由 `api` 健康检查证明包可导入。
-
-### 控制和交互
-
-治理闸、审批、控制台与通道。模块目录是 `governance`、`channels`、`api`。
-
-### 质量和反馈
-
-观测、评估与人工纠正回流。模块目录是 `obs`。
+配置模式版本见 `airport_sms.config.CONFIG_SCHEMA_VERSION`。`external_sms_bridge.enabled` 默认 `false`。
 
 ## 模型角色
 
@@ -53,6 +51,6 @@ pytest packages/airport_sms/tests -q
 ruff check packages/airport_sms
 ```
 
-需要 AgentScope 运行时时再装 `packages/airport_sms[runtime]`。钉扎与 QwenPaw 主仓一致，当前为 `agentscope[model-ollama,classifier-jev]==2.0.10`。脚手架默认依赖为空，避免在无网或超时环境里装不下包。
+需要 AgentScope 运行时时再装 `packages/airport_sms[runtime]`。钉扎与 QwenPaw 主仓一致，当前为 `agentscope[model-ollama,classifier-jev]==2.0.10`。
 
 Python 要求 `>=3.11,<3.14`。
