@@ -1284,6 +1284,10 @@ class QwenPawAgent(Agent):
                 self._last_wire_request_had_media()
                 and self._is_explicit_media_capability_error(e)
             )
+            media_url_retry = (
+                self._last_wire_request_had_media()
+                and self._is_media_url_error(e)
+            )
             media_payload_retry = (
                 not media_capability_retry
                 and self._uses_request_time_media_normalization()
@@ -1294,6 +1298,7 @@ class QwenPawAgent(Agent):
                 video_fallback_retry
                 or audio_fallback_retry
                 or media_capability_retry
+                or media_url_retry
                 or media_payload_retry
             ):
                 if self._uses_request_time_media_normalization():
@@ -1308,6 +1313,7 @@ class QwenPawAgent(Agent):
             model_key = self._get_model_key()
             learn_global_rejection = (
                 media_capability_retry
+                and not media_url_retry
                 and self._is_global_media_capability_error(e)
             )
             if video_fallback_retry:
@@ -1335,9 +1341,11 @@ class QwenPawAgent(Agent):
                 self._set_formatter_media_strip(True)
             else:
                 logger.warning(
-                    "_reasoning failed because the provider explicitly "
-                    "rejected the model's media capability (%s); stripping "
-                    "media and retrying.",
+                    "_reasoning failed because the provider rejected %s "
+                    "(%s); stripping media for this request and retrying.",
+                    "a media URL"
+                    if media_url_retry
+                    else "the model's media capability",
                     e,
                 )
                 if self._uses_request_time_media_normalization():
@@ -1479,6 +1487,19 @@ class QwenPawAgent(Agent):
             "(1026)",
         )
         return any(marker in error_str for marker in safety_markers)
+
+    @staticmethod
+    def _is_media_url_error(exc: Exception) -> bool:
+        """Recognize a request-local URL rejection, not a model capability."""
+        if extract_status_code(exc) != 400:
+            return False
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+        error_str = " ".join(str(exc).lower().split())
+        # Some compatible endpoints reject a local or inline media URL
+        # after a provider switch. Retry only this explicit validation
+        # error; a generic invalid parameter or endpoint URL is unrelated.
+        return "the provided url does not appear to be valid" in error_str
 
     @staticmethod
     def _is_explicit_media_capability_error(exc: Exception) -> bool:

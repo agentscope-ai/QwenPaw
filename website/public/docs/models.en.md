@@ -219,6 +219,12 @@ Since different tasks may require different model capabilities, QwenPaw also sup
 
 ![Chat Model Settings](https://img.alicdn.com/imgextra/i2/O1CN01Vq1yXW1Oy5NHgBLmR_!!6000000001773-2-tps-3810-2064.png)
 
+### Media in existing conversations
+
+When switching providers, an existing conversation may contain media from earlier attachments or tool results. If a request containing media receives HTTP 400 with “The provided URL does not appear to be valid,” QwenPaw retries once with media replaced by text placeholders. The model can continue using the text context, but cannot inspect the omitted media on that retry.
+
+This fallback does not rewrite saved messages or disable the model's media capabilities. Later requests can still use the original media. If the retry also fails, the error is reported normally.
+
 ## Advanced Model Configuration
 
 ### Model Configuration Files
