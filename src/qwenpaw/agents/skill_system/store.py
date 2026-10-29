@@ -465,6 +465,67 @@ def copy_skill_dir(source: Path, target: Path) -> None:
     )
 
 
+def same_volume(path_a: Path, path_b: Path) -> bool:
+    """True when both paths live on the same filesystem volume.
+
+    ``st_dev`` answers this portably enough: POSIX exposes the device id and
+    Windows reports the volume serial. A path that does not exist yet is
+    probed through its nearest existing ancestor, because callers ask this
+    question before creating the file they care about.
+    """
+
+    def _device_of(path: Path) -> int | None:
+        for candidate in (path, *path.parents):
+            try:
+                return os.stat(candidate).st_dev
+            except OSError:
+                continue
+        return None
+
+    device_a = _device_of(Path(path_a))
+    device_b = _device_of(Path(path_b))
+    return device_a is not None and device_a == device_b
+
+
+def install_staged_skill_dir(staged_dir: Path, target_dir: Path) -> None:
+    """Install an already-scanned staged skill at *target_dir*.
+
+    A same-volume install renames the staged tree into place, which replaces
+    the second full copy of a large skill with a single directory rename.
+    Everywhere else — a workspace on another volume, a filesystem that
+    refuses the rename — this falls back to ``copy_skill_dir``, so behaviour
+    there is unchanged.
+
+    Cancellation is honoured before anything is replaced: a rename is atomic,
+    so a cancelled install can never leave half a skill in the workspace.
+
+    The staged tree is installed as it stands, so it must already be clean.
+    This is only equivalent to ``copy_skill_dir`` when the stage was produced
+    by it — that copy filters OS artifacts and dereferences symlinks, which a
+    rename cannot do. The pool download builds its stage that way; a caller
+    that stages any other way has to clean the tree itself first.
+    """
+    ensure_not_cancelled()
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    if same_volume(staged_dir, target_dir.parent):
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        try:
+            os.rename(staged_dir, target_dir)
+        except OSError:
+            # A refused rename leaves no partial tree behind, and
+            # ``copy_skill_dir`` replaces whatever target it finds, so the
+            # fallback is left to own the target instead of deleting it here.
+            logger.debug(
+                "Same-volume install fell back to a copy for %s",
+                target_dir,
+                exc_info=True,
+            )
+        else:
+            return
+    copy_skill_dir(staged_dir, target_dir)
+
+
 # ---------------------------------------------------------------------------
 # Cross-process JSON locking + atomic I/O
 # ---------------------------------------------------------------------------
