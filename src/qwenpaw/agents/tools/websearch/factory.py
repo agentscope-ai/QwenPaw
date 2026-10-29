@@ -9,6 +9,7 @@ from ....app.agent_context import get_current_agent_id
 from ....config.config import load_agent_config
 from .anysearch import AnySearchProvider
 from .base import SearchProvider
+from .deepseek import DeepSeekProvider
 from .firecrawl import FirecrawlProvider
 from .tavily import TavilyProvider
 
@@ -41,9 +42,11 @@ def get_search_provider() -> SearchProvider:
         return AnySearchProvider()
     if choice == "firecrawl":
         return FirecrawlProvider()
+    if choice == "deepseek":
+        return DeepSeekProvider()
     raise ValueError(
         f"Unknown web_search provider: {choice!r} "
-        "(expected 'tavily', 'anysearch' or 'firecrawl')",
+        "(expected 'tavily', 'anysearch', 'firecrawl' or 'deepseek')",
     )
 
 

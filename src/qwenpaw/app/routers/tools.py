@@ -104,7 +104,7 @@ _BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
             "name": "provider",
             "label": "Provider",
             "type": "select",
-            "options": ["tavily", "anysearch", "firecrawl"],
+            "options": ["tavily", "anysearch", "firecrawl", "deepseek"],
             "default": "tavily",
         },
         {
