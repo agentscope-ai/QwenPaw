@@ -14,12 +14,12 @@ import {
   ListTodo,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { agentsApi, api } from "@/api";
+import { agentsApi } from "@/api";
 import type { ReMeLightMemoryConfig } from "@/api/types/agent";
-import type { ModelSlotConfig, ProviderInfo } from "@/api/types/provider";
+import type { ModelSlotConfig } from "@/api/types/provider";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { useAgentStore } from "@/stores/agentStore";
-import { buildEligibleProviders } from "@/pages/Chat/ModelSelector/modelSelectorModels";
+import { useEligibleProviders } from "@/pages/Chat/ModelSelector/useEligibleProviders";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
@@ -56,8 +56,7 @@ export function ReMeLightMemoryCard() {
     null,
   );
   const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [providersLoading, setProvidersLoading] = useState(true);
+  const providers = useEligibleProviders(true);
   const [autoFinExpanded, setAutoFinExpanded] = useState(() =>
     Boolean(
       form.getFieldValue(["reme_light_memory_config", "auto_fin_cron_enabled"]),
@@ -235,31 +234,12 @@ export function ReMeLightMemoryCard() {
     ? encodeModelSlot(memoryModel)
     : MAIN_MODEL_VALUE;
 
-  useEffect(() => {
-    let active = true;
-    setProvidersLoading(true);
-    api
-      .listProviders()
-      .then((items) => {
-        if (active) setProviders(items);
-      })
-      .catch(() => {
-        if (active) setProviders([]);
-      })
-      .finally(() => {
-        if (active) setProvidersLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const memoryModelOptions = [
     {
       value: MAIN_MODEL_VALUE,
       label: t("agentConfig.memoryModelUseMain"),
     },
-    ...buildEligibleProviders(providers).flatMap((provider) => {
+    ...(providers ?? []).flatMap((provider) => {
       const seen = new Set<string>();
       return provider.models
         .filter((model) => {
@@ -433,7 +413,7 @@ export function ReMeLightMemoryCard() {
         >
           <Select
             aria-label={t("agentConfig.memoryModelLabel")}
-            loading={providersLoading}
+            loading={providers === null}
             options={memoryModelOptions}
             style={{ width: "100%" }}
           />

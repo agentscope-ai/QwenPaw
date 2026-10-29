@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React, { useEffect, useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
+import { providerApi } from "@/api/modules/provider";
 import { useAgentStore } from "@/stores/agentStore";
 import { useEmbeddingVerificationStore } from "@/stores/embeddingVerificationStore";
 import { renderWithProviders } from "@/test/common_setup";
@@ -481,7 +482,7 @@ function MemoryAndEmbeddingForm() {
 }
 
 beforeEach(() => {
-  vi.spyOn(api, "listProviders").mockResolvedValue([]);
+  vi.spyOn(providerApi, "listProviders").mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -519,7 +520,7 @@ describe("memory writing model selector", () => {
   });
 
   it("stores an explicit provider/model object and clears it to null", async () => {
-    vi.mocked(api.listProviders).mockResolvedValue(providers);
+    vi.mocked(providerApi.listProviders).mockResolvedValue(providers);
     renderWithProviders(<MemoryModelForm />);
     const selector = await screen.findByRole("combobox", {
       name: "agentConfig.memoryModelLabel",
@@ -537,7 +538,7 @@ describe("memory writing model selector", () => {
   });
 
   it("only offers configured chat providers and keeps configured extra models", async () => {
-    vi.mocked(api.listProviders).mockResolvedValue([
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
       ...providers,
       {
         id: "gemini",
@@ -583,7 +584,7 @@ describe("memory writing model selector", () => {
   });
 
   it("preserves a saved selection from an unconfigured provider", async () => {
-    vi.mocked(api.listProviders).mockResolvedValue(
+    vi.mocked(providerApi.listProviders).mockResolvedValue(
       providers.map((provider) => ({
         ...provider,
         api_key: "",
@@ -608,7 +609,7 @@ describe("memory writing model selector", () => {
   });
 
   it("round-trips an existing selection", async () => {
-    vi.mocked(api.listProviders).mockResolvedValue(providers);
+    vi.mocked(providerApi.listProviders).mockResolvedValue(providers);
     renderWithProviders(
       <MemoryModelForm
         initialModel={{ provider_id: "dashscope", model: "qwen-flash" }}
@@ -639,7 +640,7 @@ describe("memory writing model selector", () => {
   });
 
   it("displays inherited-provider models and preserves them when saving", async () => {
-    vi.mocked(api.listProviders).mockResolvedValue(providers);
+    vi.mocked(providerApi.listProviders).mockResolvedValue(providers);
     const onSave = vi.fn();
     const slot = { provider_id: "", model: "qwen2.5:7b" };
     renderWithProviders(
