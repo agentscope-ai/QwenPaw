@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1034,6 +1035,126 @@ def test_get_memory_status_does_not_mask_unexpected_runtime_error(
 # ---------------------------------------------------------------------------
 # GET /agents/{id}/memory/graph
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def memory_tag_backend(fake_config, manager_mock, monkeypatch):
+    """Keep browser requests on one explicitly resolved memory backend."""
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.load_config",
+        lambda: fake_config,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.load_agent_config",
+        lambda _: AgentProfileConfig(id="bot", name="Bot"),
+    )
+    memory = MagicMock(spec=MemoryActionProvider)
+    memory.run_action = AsyncMock()
+    manager_mock.get_agent = AsyncMock(
+        return_value=SimpleNamespace(memory_manager=memory),
+    )
+    return memory
+
+
+def test_memory_tags_translate_index_counts_and_request_frequency_order(
+    client,
+    memory_tag_backend,
+):
+    memory_tag_backend.run_action.return_value = MagicMock(
+        success=True,
+        answer={"items": [("赵六", 7)], "total_tags": 12},
+    )
+    response = client.get("/api/agents/bot/memory/tags?page=2&page_size=5")
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [{"tag": "赵六", "file_count": 7}],
+        "total_tags": 12,
+        "page": 2,
+        "page_size": 5,
+    }
+    memory_tag_backend.run_action.assert_awaited_once_with(
+        "list_tags",
+        page=2,
+        page_size=5,
+        order_by="file_count",
+        order="desc",
+    )
+
+
+@pytest.mark.parametrize("tag", ["赵六", "ss" * 33, "ffi" * 64])
+def test_tag_file_endpoint_uses_pure_tag_browsing(
+    client,
+    memory_tag_backend,
+    tag,
+):
+    answer = {
+        "tag": tag,
+        "total_files": 1,
+        "page": 1,
+        "page_size": 50,
+        "items": [
+            {
+                "path": "resources/customer.md",
+                "source": "workspace",
+                "relative_path": "resources/customer.md",
+                "name": "Customer",
+                "description": "Description",
+                "modified_at": 123.0,
+                "memory_tags": ["赵六"],
+            },
+        ],
+    }
+    memory_tag_backend.run_action.return_value = MagicMock(
+        success=True,
+        answer=answer,
+    )
+    response = client.get(
+        "/api/agents/bot/memory/tag-files",
+        params={"tag": tag},
+    )
+    assert response.status_code == 200
+    assert response.json() == answer
+    memory_tag_backend.run_action.assert_awaited_once_with(
+        "list_tag_files",
+        tag=tag,
+        page=1,
+        page_size=50,
+    )
+
+
+@pytest.mark.parametrize("result", [None, MagicMock(success=False)])
+def test_tag_browser_returns_unavailable_instead_of_empty(
+    client,
+    memory_tag_backend,
+    result,
+):
+    memory_tag_backend.run_action.return_value = result
+    assert client.get("/api/agents/bot/memory/tags").status_code == 503
+
+
+@pytest.mark.parametrize("endpoint", ["tags", "tag-files?tag=赵六"])
+def test_tag_browser_unknown_agent_is_404(
+    client,
+    memory_tag_backend,
+    endpoint,
+):
+    response = client.get(f"/api/agents/missing/memory/{endpoint}")
+    assert response.status_code == 404
+    memory_tag_backend.run_action.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["tag=x&page=0", "tag=x&page_size=101", "tag=", f"tag={'x' * 193}"],
+)
+def test_tag_browser_validates_query_before_running_action(
+    client,
+    memory_tag_backend,
+    query,
+):
+    response = client.get(f"/api/agents/bot/memory/tag-files?{query}")
+    assert response.status_code == 422
+    memory_tag_backend.run_action.assert_not_awaited()
 
 
 def test_get_memory_graph_returns_reme_snapshot(

@@ -1,10 +1,19 @@
 # -*- coding: utf-8 -*-
-"""Tests for the CloudPaw mission prompt patch."""
+"""Tests for CloudPaw prompt and toolkit patches."""
 
 import importlib.util
 import sys
 import types
 from pathlib import Path
+
+import pytest
+from agentscope.message import TextBlock, ToolResultState
+from agentscope.permission import PermissionMode
+from agentscope.state import AgentState
+from agentscope.tool import FunctionTool, ToolChunk
+
+from qwenpaw.modes.coding.code_mode import CodeModeTool
+from qwenpaw.runtime.builder import AgentBuilder
 
 
 def _load_mission_prompts(monkeypatch):
@@ -76,3 +85,48 @@ def test_mission_patch_accepts_upstream_prompt_kwargs(monkeypatch):
     assert "Max 7 retries per story" in default_prompt
     assert "Check the regression scenario." in cloudpaw_prompt
     assert cloudpaw_prompt
+
+
+@pytest.mark.parametrize("registered", [False, True])
+async def test_cloudpaw_code_mode_tools_remain_callable(
+    monkeypatch,
+    registered,
+):
+    """Injected tools run through CPython without replacing existing tools."""
+    from plugins.bundle.cloudpaw import hooks
+    from plugins.bundle.cloudpaw.hooks import _patch_build_toolkit
+
+    async def cloudpaw_probe():
+        """Return a result without external services."""
+        return ToolChunk(content=[TextBlock(text="plugin-result")])
+
+    existing = FunctionTool(cloudpaw_probe)
+    monkeypatch.setattr(hooks, "_ORCHESTRATOR_PLUGIN_TOOLS", (cloudpaw_probe,))
+    monkeypatch.setattr(
+        AgentBuilder,
+        "build_toolkit",
+        AgentBuilder.build_toolkit,
+    )
+    monkeypatch.setattr(CodeModeTool, "sandbox_config", lambda _self: None)
+    _patch_build_toolkit()
+    toolkit = await AgentBuilder().build_toolkit(
+        types.SimpleNamespace(
+            coding_mode=types.SimpleNamespace(enabled=True),
+        ),
+        agent_id=hooks.BUILTIN_ORCHESTRATION_AGENT_ID,
+        extra_tools=[existing] if registered else [],
+    )
+    if registered:
+        assert await toolkit.get_tool("cloudpaw_probe") is existing
+    schemas = await toolkit.get_tool_schemas()
+    assert [schema["function"]["name"] for schema in schemas] == [
+        "run_code",
+    ]
+    state = AgentState()
+    state.permission_context.mode = PermissionMode.BYPASS
+    result = await toolkit.code.call(
+        "r = await tools.cloudpaw_probe()\ntext(r['content'][0]['text'])",
+        state,
+    )
+    assert result.state == ToolResultState.SUCCESS
+    assert result.content[0].text == "plugin-result"

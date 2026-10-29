@@ -33,6 +33,21 @@ describe("SidebarSettingsPanel", () => {
     localStorage.removeItem("qwenpaw_chat_wide_mode");
   });
 
+  it("focuses its first action when opened", () => {
+    renderWithProviders(
+      <ThemeProvider>
+        <SidebarSettingsPanel
+          onOpenDesktopMode={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "sidebar.changeAvatar" }),
+    ).toHaveFocus();
+  });
+
   it("keeps Settings as an action and displays the current version", async () => {
     const onClose = vi.fn();
     const onOpenSettings = vi.fn();

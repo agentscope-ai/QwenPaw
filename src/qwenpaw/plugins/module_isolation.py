@@ -59,11 +59,26 @@ import importlib
 import importlib.abc
 import importlib.machinery
 import importlib.util
+import logging
 import os
 import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
+
+
+logger = logging.getLogger(__name__)
+
+
+def refresh_import_caches() -> None:
+    """Refresh discovery caches without aborting plugin operations."""
+    try:
+        importlib.invalidate_caches()
+    except Exception:  # Cache hooks may come from incompatible stdlib copies.
+        logger.warning(
+            "Import cache refresh failed; continuing",
+            exc_info=True,
+        )
 
 
 def clear_plugin_bytecode(source_path: Path) -> None:
@@ -151,7 +166,7 @@ def clear_plugin_bytecode(source_path: Path) -> None:
                         )
                     cursor = cursor.parent
                 target.unlink(missing_ok=True)
-    importlib.invalidate_caches()
+    refresh_import_caches()
 
 
 class _PluginSourceLoader(importlib.machinery.SourceFileLoader):
@@ -217,7 +232,7 @@ class PluginNamespaceFinder(importlib.abc.MetaPathFinder):
         module_name: str,
         plugin_builtins: Dict[str, Any],
     ) -> None:
-        importlib.invalidate_caches()
+        refresh_import_caches()
         self._namespaces[module_name] = plugin_builtins
 
     def unregister(self, module_name: str) -> None:

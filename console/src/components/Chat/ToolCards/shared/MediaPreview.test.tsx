@@ -8,6 +8,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@agentscope-ai/chat", () => ({
   Attachments: {
@@ -99,7 +100,7 @@ describe("MediaPreview error state", () => {
     },
   );
 
-  it("shows a warning when the file preview URL 404s", async () => {
+  it("keeps the failure compact until its details are opened", async () => {
     mockFetchByUrl({ "/api/files/preview/file1.txt": 404 });
 
     render(
@@ -112,9 +113,72 @@ describe("MediaPreview error state", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("preview.error.NOT_FOUND")).toBeInTheDocument();
-    });
+    const trigger = await screen.findByRole("button", { name: /file1.txt/ });
+    const details = screen.getByText("preview.error.NOT_FOUND");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("preview.unavailable")).toBeVisible();
+    expect(details).not.toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(details).toBeVisible();
+    expect(
+      document.getElementById(trigger.getAttribute("aria-controls")!),
+    ).toContainElement(details);
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(details).not.toBeVisible();
+  });
+
+  it("supports keyboard activation and a hover hint", async () => {
+    const user = userEvent.setup();
+    mockFetchByUrl({ "/api/files/preview/file1.txt": 404 });
+    render(
+      <MediaPreview
+        media={{
+          url: "/api/files/preview/file1.txt",
+          name: "file1.txt",
+          type: "file",
+        }}
+      />,
+    );
+
+    const trigger = await screen.findByRole("button", { name: /file1.txt/ });
+    await user.hover(trigger);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "preview.showDetails",
+    );
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await user.unhover(trigger);
+    await user.tab();
+    expect(trigger).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("preview.error.NOT_FOUND")).toBeVisible();
+    await user.keyboard(" ");
+    expect(screen.getByText("preview.error.NOT_FOUND")).not.toBeVisible();
+  });
+
+  it("shows the full filename inside the expanded details", async () => {
+    const filename = "很长的文件名_browser_screenshot_2815ac68.png";
+    mockFetchByUrl({ "/api/files/preview/missing.png": 404 });
+    render(
+      <MediaPreview
+        media={{
+          url: "/api/files/preview/missing.png",
+          name: filename,
+          type: "file",
+        }}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: new RegExp(filename) }),
+    );
+    expect(screen.getAllByText(filename)).toHaveLength(2);
+    expect(screen.getAllByText(filename)[1]).toBeVisible();
   });
 
   it("clears a stale error once the media URL changes to a valid one", async () => {
@@ -136,6 +200,8 @@ describe("MediaPreview error state", () => {
     await waitFor(() => {
       expect(screen.getByText("preview.error.NOT_FOUND")).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByRole("button", { name: /file1.txt/ }));
+    expect(screen.getByText("preview.error.NOT_FOUND")).toBeVisible();
 
     // Tool result arrives with the resolved absolute path
     rerender(
@@ -154,6 +220,20 @@ describe("MediaPreview error state", () => {
       ).not.toBeInTheDocument();
     });
     expect(screen.getByTestId("file-card")).toBeInTheDocument();
+
+    rerender(
+      <MediaPreview
+        media={{
+          url: "/api/files/preview/file1.txt",
+          name: "file1.txt",
+          type: "file",
+        }}
+      />,
+    );
+    expect(
+      await screen.findByRole("button", { name: /file1.txt/ }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("preview.error.NOT_FOUND")).not.toBeVisible();
   });
 
   it("opens a file card in Preview without downloading it", async () => {

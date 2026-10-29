@@ -1,0 +1,202 @@
+{
+  "schema_version": 2,
+  "channel_key": "onebot",
+  "label": {
+    "en": "OneBot",
+    "zh": "OneBot"
+  },
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {
+    "scope": "runner",
+    "module": "qwenpaw_channel_onebot.driver",
+    "qualname": "OneBotDriver"
+  },
+  "requirements_file": "requirements.txt",
+  "config_schema": {
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "bot_prefix": {
+        "default": "",
+        "title": "Bot Prefix",
+        "type": "string"
+      },
+      "show_tool_calls": {
+        "default": true,
+        "title": "Show Tool Calls",
+        "type": "boolean"
+      },
+      "show_tool_results": {
+        "default": true,
+        "title": "Show Tool Results",
+        "type": "boolean"
+      },
+      "tool_call_max_length": {
+        "default": 200,
+        "minimum": 0,
+        "title": "Tool Call Max Length",
+        "type": "integer"
+      },
+      "tool_result_max_length": {
+        "default": 500,
+        "minimum": 0,
+        "title": "Tool Result Max Length",
+        "type": "integer"
+      },
+      "show_thinking": {
+        "default": true,
+        "title": "Show Thinking",
+        "type": "boolean"
+      },
+      "dm_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Dm Policy",
+        "type": "string"
+      },
+      "group_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Group Policy",
+        "type": "string"
+      },
+      "allow_from": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Allow From",
+        "type": "array",
+        "default": []
+      },
+      "deny_message": {
+        "default": "",
+        "title": "Deny Message",
+        "type": "string"
+      },
+      "require_mention": {
+        "default": false,
+        "title": "Require Mention",
+        "type": "boolean"
+      },
+      "no_text_debounce": {
+        "default": true,
+        "title": "No Text Debounce",
+        "type": "boolean"
+      },
+      "access_control_dm": {
+        "default": false,
+        "title": "Access Control Dm",
+        "type": "boolean"
+      },
+      "access_control_group": {
+        "default": false,
+        "title": "Access Control Group",
+        "type": "boolean"
+      },
+      "dm_disabled": {
+        "default": false,
+        "title": "Dm Disabled",
+        "type": "boolean"
+      },
+      "group_disabled": {
+        "default": false,
+        "title": "Group Disabled",
+        "type": "boolean"
+      },
+      "ws_host": {
+        "default": "127.0.0.1",
+        "title": "Ws Host",
+        "type": "string"
+      },
+      "ws_port": {
+        "default": 6199,
+        "title": "Ws Port",
+        "type": "integer"
+      },
+      "access_token": {
+        "default": "",
+        "title": "Access Token",
+        "type": "string"
+      },
+      "share_session_in_group": {
+        "default": false,
+        "title": "Share Session In Group",
+        "type": "boolean"
+      },
+      "media_dir": {
+        "default": null,
+        "title": "Media Dir",
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "media_base64": {
+        "default": false,
+        "title": "Media Base64",
+        "type": "boolean"
+      },
+      "media_base64_max_mb": {
+        "default": 10,
+        "title": "Media Base64 Max Mb",
+        "type": "integer",
+        "exclusiveMinimum": 0
+      },
+      "media_download_max_mb": {
+        "default": 50,
+        "title": "Media Download Max Mb",
+        "type": "integer",
+        "exclusiveMinimum": 0
+      }
+    },
+    "title": "OneBotConfig",
+    "type": "object"
+  },
+  "config_fields": [
+    "enabled",
+    "bot_prefix",
+    "show_tool_calls",
+    "show_tool_results",
+    "tool_call_max_length",
+    "tool_result_max_length",
+    "show_thinking",
+    "dm_policy",
+    "group_policy",
+    "allow_from",
+    "deny_message",
+    "require_mention",
+    "no_text_debounce",
+    "access_control_dm",
+    "access_control_group",
+    "dm_disabled",
+    "group_disabled",
+    "ws_host",
+    "ws_port",
+    "access_token",
+    "share_session_in_group",
+    "media_dir",
+    "media_base64",
+    "media_base64_max_mb",
+    "media_download_max_mb"
+  ],
+  "capabilities": [
+    "channel.generic.v1",
+    "ingress_endpoint",
+    "media",
+    "send.content_source.v1"
+  ]
+}

@@ -74,7 +74,6 @@ interface AgentModalProps {
   form: ReturnType<typeof Form.useForm>[0];
   selectedSkills: string[];
   onSelectedSkillsChange: (skills: string[]) => void;
-  onInstalledSkillsLoaded: (skills: string[]) => void;
   onSave: () => Promise<void>;
   onCancel: () => void;
 }
@@ -85,13 +84,11 @@ export function AgentModal({
   form,
   selectedSkills,
   onSelectedSkillsChange,
-  onInstalledSkillsLoaded,
   onSave,
   onCancel,
 }: AgentModalProps) {
   const { t } = useTranslation();
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
-  const [installedSkills, setInstalledSkills] = useState<string[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
 
   const mailMode = Form.useWatch("mail_mode", form);
@@ -127,44 +124,28 @@ export function AgentModal({
   }, [mailDomain, isCustomMailDomain]);
 
   useEffect(() => {
-    if (!open || selectedBackend !== "qwenpaw") return;
+    if (!open || editingAgent || selectedBackend !== "qwenpaw") return;
 
+    let active = true;
     setLoadingSkills(true);
 
-    const fetchPool = skillApi.listSkillPoolSkills();
-    const fetchInstalled = editingAgent
-      ? skillApi.listSkills(editingAgent.id)
-      : Promise.resolve([]);
-
-    Promise.all([fetchPool, fetchInstalled])
-      .then(([pool, workspaceSkills]) => {
-        const poolSkillNames = new Set(pool.map((skill) => skill.name));
-        const installedSkills = workspaceSkills
-          .filter((skill) => poolSkillNames.has(skill.name))
-          .map((skill) => skill.name);
-
+    skillApi
+      .listSkillPoolSkills()
+      .then((pool) => {
+        if (!active) return;
         setPoolSkills(pool);
-        setInstalledSkills(installedSkills);
-        onInstalledSkillsLoaded(installedSkills);
-        if (editingAgent) {
-          onSelectedSkillsChange(installedSkills);
-        } else {
-          onSelectedSkillsChange([]);
-        }
+        onSelectedSkillsChange([]);
       })
-      .finally(() => setLoadingSkills(false));
-  }, [
-    editingAgent,
-    onInstalledSkillsLoaded,
-    onSelectedSkillsChange,
-    open,
-    selectedBackend,
-  ]);
+      .finally(() => {
+        if (active) setLoadingSkills(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [editingAgent, onSelectedSkillsChange, open, selectedBackend]);
 
   const toggleSkill = (name: string) => {
-    const isInstalled = editingAgent && installedSkills.includes(name);
-    if (isInstalled) return;
-
     if (selectedSkills.includes(name)) {
       onSelectedSkillsChange(selectedSkills.filter((s) => s !== name));
     } else {
@@ -181,13 +162,11 @@ export function AgentModal({
     const builtinNames = poolSkills
       .filter((s) => s.source === "builtin")
       .map((s) => s.name);
-    onSelectedSkillsChange(
-      Array.from(new Set([...installedSkills, ...builtinNames])),
-    );
+    onSelectedSkillsChange(builtinNames);
   };
 
   const handleSelectNone = () => {
-    onSelectedSkillsChange(editingAgent ? [...installedSkills] : []);
+    onSelectedSkillsChange([]);
   };
 
   return (
@@ -450,73 +429,66 @@ export function AgentModal({
           )}
       </Form>
 
-      <div
-        style={{
-          marginTop: 4,
-          display: selectedBackend === "qwenpaw" ? undefined : "none",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 8,
-          }}
-        >
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            {editingAgent
-              ? t("agent.addSkillsToAgent")
-              : t("agent.initialSkills")}
-          </Text>
-          <Space size={4}>
-            <Button size="small" type="primary" onClick={handleSelectAll}>
-              {t("agent.selectAll")}
-            </Button>
-            <Button size="small" type="default" onClick={handleSelectBuiltin}>
-              {t("agent.selectBuiltin")}
-            </Button>
-            <Button size="small" type="default" onClick={handleSelectNone}>
-              {t("agent.selectNone")}
-            </Button>
-          </Space>
-        </div>
+      {!editingAgent && selectedBackend === "qwenpaw" && (
+        <div style={{ marginTop: 4 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 8,
+            }}
+          >
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {t("agent.initialSkills")}
+            </Text>
+            <Space size={4}>
+              <Button size="small" type="primary" onClick={handleSelectAll}>
+                {t("agent.selectAll")}
+              </Button>
+              <Button size="small" type="default" onClick={handleSelectBuiltin}>
+                {t("agent.selectBuiltin")}
+              </Button>
+              <Button size="small" type="default" onClick={handleSelectNone}>
+                {t("agent.selectNone")}
+              </Button>
+            </Space>
+          </div>
 
-        {loadingSkills ? (
-          <div style={{ textAlign: "center", padding: "16px 0" }}>
-            <Spin size="small" />
-          </div>
-        ) : poolSkills.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={t("agent.noPoolSkills")}
-          />
-        ) : (
-          <div className={styles.pickerGrid}>
-            {poolSkills.map((skill) => {
-              const selected = selectedSkills.includes(skill.name);
-              const isInstalled =
-                !!editingAgent && installedSkills.includes(skill.name);
-              return (
-                <div
-                  key={skill.name}
-                  className={`${styles.pickerCard} ${
-                    selected ? styles.pickerCardSelected : ""
-                  } ${isInstalled ? styles.pickerCardDisabled : ""}`}
-                  onClick={() => toggleSkill(skill.name)}
-                >
-                  {selected && (
-                    <span className={styles.pickerCheck}>
-                      <CheckOutlined size="1em" />
-                    </span>
-                  )}
-                  <div className={styles.pickerCardTitle}>{skill.name}</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+          {loadingSkills ? (
+            <div style={{ textAlign: "center", padding: "16px 0" }}>
+              <Spin size="small" />
+            </div>
+          ) : poolSkills.length === 0 ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={t("agent.noPoolSkills")}
+            />
+          ) : (
+            <div className={styles.pickerGrid}>
+              {poolSkills.map((skill) => {
+                const selected = selectedSkills.includes(skill.name);
+                return (
+                  <div
+                    key={skill.name}
+                    className={`${styles.pickerCard} ${
+                      selected ? styles.pickerCardSelected : ""
+                    }`}
+                    onClick={() => toggleSkill(skill.name)}
+                  >
+                    {selected && (
+                      <span className={styles.pickerCheck}>
+                        <CheckOutlined size="1em" />
+                      </span>
+                    )}
+                    <div className={styles.pickerCardTitle}>{skill.name}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

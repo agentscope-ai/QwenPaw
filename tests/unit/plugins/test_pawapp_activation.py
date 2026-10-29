@@ -126,6 +126,8 @@ async def test_install_is_static_until_explicit_activation(
         wraps=loader._ensure_dependencies_installed,
     )
     loader._ensure_dependencies_installed = dependency_install
+    preflight = AsyncMock(wraps=loader.lifecycle.preflight_backend)
+    loader.lifecycle.preflight_backend = preflight
 
     if offline:
         record = await loader.install_plugin_files(source)
@@ -138,6 +140,7 @@ async def test_install_is_static_until_explicit_activation(
 
     assert record.enabled is False
     assert record.diagnostics == ["installed_not_activated"]
+    preflight.assert_not_awaited()
     assert loader.get_loaded_plugin("review-app") is None
     assert not sentinel.exists()
     dependency_install.assert_not_awaited()

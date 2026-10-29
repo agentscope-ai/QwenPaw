@@ -369,9 +369,12 @@ jobs:
       - name: Install build dependencies
         run: |
           pip install setuptools wheel build
+          pip install -r scripts/pack/channel-contract-requirements.txt
 
       - name: Build package
-        run: python -m build
+        run: |
+          python scripts/pack/validate_channel_contracts.py
+          python -m build
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
@@ -446,6 +449,9 @@ jobs:
             npm --prefix "$frontend_dir" ci
             npm --prefix "$frontend_dir" run build
           done
+
+      - name: Install channel contract preflight dependencies
+        run: python -m pip install -r scripts/pack/channel-contract-requirements.txt
 
       - name: Pack plugins and build index
         # qwenpaw-creator and qwenpaw-data are released through their own

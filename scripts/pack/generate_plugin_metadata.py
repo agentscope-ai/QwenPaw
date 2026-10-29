@@ -12,6 +12,7 @@ Layout produced under ``--dist``::
         tool/<plugin_id>/<id>-<version>.zip
         memory/<plugin_id>/<id>-<version>.zip
         apps/<plugin_id>/<id>-<version>.zip
+        channel/<plugin_id>/<id>-<version>.zip
         index.json
 
 Each plugin is stored under its own directory on the CDN
@@ -56,12 +57,14 @@ import json
 import os
 import shutil
 import sys
+import tomllib
+import runpy
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-KIND_DIRS = ("bundle", "tool", "memory", "apps", "hub")
+KIND_DIRS = ("bundle", "tool", "memory", "apps", "channel", "hub")
 
 EXCLUDE_PATTERNS = (
     "__pycache__",
@@ -243,11 +246,109 @@ def _iter_tree_relpaths(
     return rels
 
 
+# Closed descriptor guards are deliberately kept beside each validated shape.
+# pylint: disable=too-many-boolean-expressions
+def _validate_channel_candidate(
+    plugin_dir: Path, manifest: dict[str, Any]
+) -> None:
+    """Check static Channel packaging with stdlib only, without executing it.
+
+    Full schema/requirements validation belongs to host discovery. Release
+    packaging must also work before the application dependencies are installed.
+    """
+    entry = manifest.get("entry") or {}
+    if "descriptor" not in entry:
+        return
+    relative = entry["descriptor"]
+    if (
+        not isinstance(relative, str)
+        or not relative
+        or relative != relative.strip()
+        or "\\" in relative
+        or ":" in relative
+        or any(part in {"", ".", ".."} for part in relative.split("/"))
+        or not relative.endswith(".json")
+        or manifest.get("type") != "channel"
+        or entry.get("backend") is not None
+        or manifest.get("entry_point")
+    ):
+        raise ValueError("Invalid Channel descriptor entry")
+    root = plugin_dir.resolve()
+
+    def required(path: Path) -> None:
+        if not path.resolve().is_relative_to(root):
+            raise ValueError("Channel package path escapes plugin root")
+        if path.is_symlink():
+            raise ValueError("Channel package cannot contain symlinks")
+        if not path.is_file():
+            raise FileNotFoundError(path)
+
+    descriptor_path = root / relative
+    required(descriptor_path)
+    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+    fields = {
+        "schema_version",
+        "channel_key",
+        "label",
+        "process_mode",
+        "dependency_mode",
+        "entrypoint",
+        "requirements_file",
+        "config_schema",
+        "config_fields",
+        "capabilities",
+    }
+    if not isinstance(descriptor, dict) or set(descriptor) != fields:
+        raise ValueError("Invalid shared Channel descriptor shape")
+    if (
+        type(descriptor["schema_version"]) is not int
+        or descriptor["schema_version"] != 2
+        or descriptor["process_mode"] != "runner_process"
+        or descriptor["dependency_mode"] != "shared"
+        or descriptor["requirements_file"] != "requirements.txt"
+        or descriptor_path.parent != root
+    ):
+        raise ValueError("Invalid shared Channel descriptor metadata")
+    target = descriptor["entrypoint"]
+    key = descriptor["channel_key"]
+    if (
+        not isinstance(key, str)
+        or not key.isidentifier()
+        or not isinstance(target, dict)
+        or set(target) != {"scope", "module", "qualname"}
+        or target["scope"] != "runner"
+        or not isinstance(target.get("module"), str)
+        or not all(part.isidentifier() for part in target["module"].split("."))
+        or not isinstance(target["qualname"], str)
+        or not all(
+            part.isidentifier() for part in target["qualname"].split(".")
+        )
+    ):
+        raise ValueError("Invalid Channel driver entrypoint")
+    parts = target["module"].split(".")
+    module_file = "/".join(parts) + ".py"
+    package_files = {
+        "/".join(parts[:index]) + "/__init__.py"
+        for index in range(1, len(parts))
+    }
+    runtime_files = {"requirements.txt", module_file, *package_files}
+    for rel in runtime_files:
+        required(root / rel)
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("Channel package cannot contain symlinks")
+    packed = set(_iter_tree_relpaths(plugin_dir, manifest))
+    if not {relative, *runtime_files} <= packed:
+        raise ValueError("Channel package excludes required runtime files")
+
+
+# pylint: enable=too-many-boolean-expressions
 def _validate_declared_entries(
     plugin_dir: Path,
     manifest: dict[str, Any],
 ) -> None:
     """Fail closed when a manifest entry point is absent from the tree."""
+    _validate_channel_candidate(plugin_dir, manifest)
     entry = manifest.get("entry")
     if not isinstance(entry, dict):
         return
@@ -273,15 +374,163 @@ def _zip_plugin(
     plugin_dir: Path,
     out_zip: Path,
     manifest: dict[str, Any] | None = None,
+    *,
+    deterministic: bool = False,
 ) -> None:
     if manifest is not None:
         _validate_declared_entries(plugin_dir, manifest)
+    root_name = (
+        str(manifest.get("id") or plugin_dir.name)
+        if manifest
+        else plugin_dir.name
+    )
+    if (
+        not root_name
+        or Path(root_name).name != root_name
+        or root_name in {".", ".."}
+        or any(char in root_name for char in "\\:")
+    ):
+        raise ValueError("Invalid plugin archive root")
     out_zip.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         for rel in _iter_tree_relpaths(plugin_dir, manifest):
-            zf.write(plugin_dir / rel, f"{plugin_dir.name}/{rel}")
+            name = f"{root_name}/{rel}"
+            if deterministic:
+                info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = 3
+                info.external_attr = 0o100644 << 16
+                zf.writestr(info, (plugin_dir / rel).read_bytes())
+            else:
+                zf.write(plugin_dir / rel, name)
 
 
+# Keep the independent closed inventory identity checks together.
+# pylint: disable=too-many-boolean-expressions
+def build_official_channel_bundle(
+    project_root: Path, destination: Path, *, host_version: str
+) -> Path:
+    """Build private dormant sources without changing public publication."""
+    rows, requirements = [], set()
+    destination.mkdir(parents=True, exist_ok=True)
+    inventory_path = (
+        project_root / "src/qwenpaw/plugins/official_channel_catalog.py"
+    )
+    inventory = runpy.run_path(str(inventory_path))["OFFICIAL_CHANNELS"]
+    seen_keys, seen_ids, seen_sources = set(), set(), set()
+    for official in sorted(inventory, key=lambda row: row["plugin_id"]):
+        plugin_id = official["plugin_id"]
+        key, source_dir = official["channel_key"], official["source_dir"]
+        if (
+            not isinstance(key, str)
+            or not key.isidentifier()
+            or not isinstance(plugin_id, str)
+            or not plugin_id
+            or any(char in plugin_id for char in "\\:/")
+            or plugin_id in {".", ".."}
+            or not isinstance(source_dir, str)
+            or not source_dir
+            or Path(source_dir).name != source_dir
+            or any(char in source_dir for char in "\\:")
+            or source_dir in {".", ".."}
+            or key in seen_keys
+            or plugin_id in seen_ids
+            or source_dir in seen_sources
+        ):
+            raise ValueError("Invalid official channel inventory identity")
+        seen_keys.add(key)
+        seen_ids.add(plugin_id)
+        seen_sources.add(source_dir)
+        source = project_root / "plugins/channel" / source_dir
+        manifest = json.loads((source / "plugin.json").read_text("utf-8"))
+        if manifest.get("id") != plugin_id:
+            raise ValueError("Official bundle owner identity mismatch")
+        _validate_channel_candidate(source, manifest)
+        descriptor_file = manifest.get("entry", {}).get("descriptor")
+        if not descriptor_file:
+            raise ValueError("Official bundle requires a channel descriptor")
+        descriptor_path = source / descriptor_file
+        descriptor = json.loads(descriptor_path.read_text("utf-8"))
+        if descriptor["channel_key"] != key:
+            raise ValueError("Official bundle channel identity mismatch")
+        packed = set(_iter_tree_relpaths(source, manifest))
+        # Every runtime/auxiliary file is needed unless it is a known build
+        # artifact. pack_exclude must never quietly amputate an official ZIP.
+        required = {
+            "plugin.json",
+            descriptor_file,
+            "requirements.txt",
+            "README.md",
+            *(
+                path.relative_to(source).as_posix()
+                for path in source.rglob("*")
+                if path.is_file()
+                and not any(
+                    _is_excluded(part)
+                    for part in path.relative_to(source).parts
+                )
+            ),
+        }
+        if not required <= packed:
+            raise ValueError("Official bundle excludes runtime source files")
+        requirements.update(
+            line.strip()
+            for line in (source / "requirements.txt")
+            .read_text("utf-8")
+            .splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        filename = f"{plugin_id}-{manifest['version']}.zip"
+        if Path(filename).name != filename or any(
+            c in filename for c in "\\:"
+        ):
+            raise ValueError("Invalid official archive filename")
+        archive = destination / filename
+        _zip_plugin(source, archive, manifest, deterministic=True)
+        rows.append(
+            {
+                "plugin_id": plugin_id,
+                "version": manifest["version"],
+                "filename": filename,
+                "sha256": _sha256_of_file(archive),
+                "descriptor_sha256": _sha256_of_file(descriptor_path),
+                "requirements_sha256": _sha256_of_file(
+                    source / "requirements.txt"
+                ),
+                "qwenpaw_version": manifest["qwenpaw_version"],
+            }
+        )
+    project = tomllib.loads(
+        (project_root / "pyproject.toml").read_text("utf-8")
+    )
+    declared = project["project"]["optional-dependencies"]["channels"]
+    if set(declared) != requirements:
+        raise ValueError(
+            "channels extra must match official requirements.txt files"
+        )
+    index = destination / "index.json"
+    index.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "host_version": host_version,
+                "plugins": rows,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    # A rebuild cannot retain archives belonging to an earlier plugin version.
+    expected = {row["filename"] for row in rows}
+    for stale in destination.glob("*.zip"):
+        if stale.name not in expected:
+            stale.unlink()
+    return index
+
+
+# pylint: enable=too-many-boolean-expressions
 def _read_manifest(plugin_dir: Path) -> dict[str, Any] | None:
     manifest_path = plugin_dir / "plugin.json"
     if not manifest_path.is_file():
@@ -606,6 +855,36 @@ def main() -> int:
     if args.dry_run:
         _dry_run_scan(plugins_root, args.only, args.exclude)
         return 0
+
+    project_root = plugins_root.parent
+    inventory_path = (
+        project_root / "src/qwenpaw/plugins/official_channel_catalog.py"
+    )
+    if inventory_path.is_file():
+        inventory = runpy.run_path(str(inventory_path))["OFFICIAL_CHANNELS"]
+        if any(
+            _selected(
+                args.only, args.exclude, row["plugin_id"], row["source_dir"]
+            )
+            for row in inventory
+        ):
+            import subprocess
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(
+                        Path(__file__).with_name(
+                            "validate_channel_contracts.py"
+                        )
+                    ),
+                    "--project-root",
+                    str(project_root),
+                ],
+                check=False,
+            )
+            if result.returncode:
+                return result.returncode
 
     if dist_root.exists():
         # Wipe stale zips/dirs so deletions propagate cleanly.

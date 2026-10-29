@@ -839,9 +839,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     if model.generate_kwargs
                     else dict(self.generate_kwargs)
                 )
+                self._apply_thinking_config(model_id, result)
                 self._apply_agent_thinking_level(result, model_id)
                 return result
         result = dict(self.generate_kwargs)
+        self._apply_thinking_config(model_id, result)
         self._apply_agent_thinking_level(result, model_id)
         return result
 
@@ -999,9 +1001,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             level,
             _THINKING_BUDGET.get(),
         )
+        self._replace_thinking_kwargs(effective, override)
+
+    def _replace_thinking_kwargs(
+        self,
+        effective: dict,
+        override: dict,
+    ) -> None:
+        """Replace reasoning controls without mutating shared settings."""
         if not override:
             return
         for key in (
+            "enable_thinking",
             "thinking_enable",
             "thinking_budget",
             "reasoning_effort",
@@ -1023,6 +1034,15 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 "thinking",
             ):
                 extra_body.pop(key, None)
+            template = extra_body.get("chat_template_kwargs")
+            if isinstance(template, dict):
+                template = dict(template)
+                for key in ("enable_thinking", "reasoning_effort"):
+                    template.pop(key, None)
+                if template:
+                    extra_body["chat_template_kwargs"] = template
+                else:
+                    extra_body.pop("chat_template_kwargs", None)
         effective.update(self._deep_merge(effective, override))
 
     def _uses_compat_thinking_controls(self, model_id: str) -> bool:
@@ -1034,6 +1054,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         official OpenAI reasoning parameter set.
         """
         info = self.get_model_info(model_id)
+        declared = (
+            info.thinking_control if info is not None else None
+        ) or self.default_thinking_control
+        if declared is not None:
+            return declared.wire in {"compat_budget", "compat_effort"}
         return info is not None and (
             getattr(info, "thinking_enabled", None) is not None
             or getattr(info, "thinking_param_style", None) is not None

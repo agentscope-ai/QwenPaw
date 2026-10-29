@@ -4,12 +4,14 @@
 static files.  Also provides runtime install / uninstall endpoints."""
 
 import asyncio
+import http.client
 import json
 import logging
 import mimetypes
 import re
-import shutil
+import ssl
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -20,6 +22,11 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from ...plugins.dependency_upgrade import (
+    DependencyUpgradeRequired,
+    dependency_upgrades,
+)
+from ...plugins.dependency_gate import SharedDependencyError
 from ...market.registry import MarketProviderBusyError
 from ...plugins.activity import PluginBusyError
 from ...plugins.registry import MemoryBackendInUseError
@@ -27,6 +34,78 @@ from ...plugins.registry import MemoryBackendInUseError
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
+
+
+def dependency_http_error(exc):
+    """Keep upgrade decisions machine-readable for every install client."""
+    if isinstance(exc, DependencyUpgradeRequired):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "DEPENDENCY_UPGRADE_REQUIRED",
+                "message": str(exc),
+                "operation": exc.operation,
+            },
+        )
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED",
+            "message": str(exc),
+            "instructions": [
+                "Resolve the shared dependency requirements, then retry installation.",
+            ],
+        },
+    )
+
+
+def _upgrade_manager(request):
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    return dependency_upgrades(loader)
+
+
+@router.get("/dependency-upgrades/{operation_id}")
+async def dependency_upgrade_status(operation_id: str, request: Request):
+    try:
+        return await asyncio.to_thread(
+            _upgrade_manager(request).status,
+            operation_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/dependency-upgrades/{operation_id}/apply")
+async def apply_dependency_upgrade(operation_id: str, request: Request):
+    try:
+        return await _upgrade_manager(request).apply(operation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (SharedDependencyError, DependencyUpgradeRequired) as exc:
+        raise dependency_http_error(exc) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DEPENDENCY_UPGRADE_BLOCKED", "message": str(exc)},
+        ) from exc
+
+
+@router.delete("/dependency-upgrades/{operation_id}")
+async def cancel_dependency_upgrade(operation_id: str, request: Request):
+    try:
+        return await asyncio.to_thread(
+            _upgrade_manager(request).cancel,
+            operation_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _interrupt_options(interrupt_tasks: bool) -> dict[str, Any]:
@@ -173,7 +252,10 @@ def _list_plugins_with_runtime(loader) -> list[dict]:
             "version": manifest.version,
             "description": manifest.description,
             "author": manifest.author,
-            "enabled": is_plugin_enabled(_plugin_config_row(plugin_id)),
+            "enabled": (
+                (record.enabled or record.status == "failed")
+                and is_plugin_enabled(_plugin_config_row(plugin_id))
+            ),
             "loaded": True,
             "status": getattr(record, "status", "active"),
             "diagnostics": list(record.diagnostics or []),
@@ -206,15 +288,9 @@ def _safe_extract_zip(
     Raises:
         ValueError: If any member would escape extract_path
     """
-    extract_resolved = extract_path.resolve()
-    for member in zip_ref.namelist():
-        member_path = (extract_path / member).resolve()
-        if not member_path.is_relative_to(extract_resolved):
-            raise ValueError(
-                f"Zip Slip detected: {member} would extract "
-                "outside the target directory",
-            )
-    zip_ref.extractall(extract_path)
+    from ...plugins.archive import safe_extract_zip
+
+    safe_extract_zip(zip_ref, extract_path)
 
 
 def _find_plugin_dir(base: Path) -> Path:
@@ -275,7 +351,10 @@ async def _load_plugin_with_optional_force_reinstall(
         )
         del plugin_id
 
-    record = await loader.load_plugin_from_path(
+    from ...plugins.dependency_upgrade import install_with_upgrade
+
+    record = await install_with_upgrade(
+        loader,
         source_path=source_path,
         install_dir=get_plugins_dir(),
         force=force,
@@ -364,6 +443,20 @@ async def install_plugin_source(
 
     normalized = str(source or "").strip()
     temp_dir: Optional[Path] = None
+    if normalized.startswith("bundled:"):
+        from ...plugins.official_channels import async_bundled_channel_source
+
+        async with async_bundled_channel_source(
+            normalized.removeprefix("bundled:"),
+            retain=loader.retains_preparation_source,
+        ) as source_path:
+            return await _load_plugin_with_optional_force_reinstall(
+                loader,
+                request,
+                source_path,
+                force=force,
+                reload_agents=reload_agents,
+            )
     try:
         if normalized.startswith(("http://", "https://")):
             temp_dir = Path(await asyncio.to_thread(tempfile.mkdtemp))
@@ -391,7 +484,7 @@ async def install_plugin_source(
         )
     finally:
         if temp_dir is not None:
-            await asyncio.to_thread(shutil.rmtree, temp_dir, True)
+            await loader.cleanup_preparation_source(temp_dir)
 
 
 async def uninstall_plugin_source(
@@ -461,6 +554,8 @@ async def install_plugin(
         )
     except HTTPException:
         raise
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PluginBusyError as exc:
@@ -481,20 +576,16 @@ async def install_plugin(
         "version": record.manifest.version,
         "description": record.manifest.description,
         "author": record.manifest.author,
-        "loaded": record.enabled,
+        "loaded": record.status == "active",
+        "status": record.status,
+        "enabled": record.enabled,
         "diagnostics": list(record.diagnostics or []),
         "activation_required": (
             loader.requires_explicit_activation(record.manifest)
             and not record.enabled
         ),
         "message": (
-            f"Plugin '{record.manifest.name}' installed successfully"
-            + (
-                "; activation required."
-                if loader.requires_explicit_activation(record.manifest)
-                and not record.enabled
-                else "."
-            )
+            f"Plugin '{record.manifest.name}' installation: {record.status}."
         ),
     }
 
@@ -548,6 +639,8 @@ async def upload_plugin(
         )
     except HTTPException:
         raise
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PluginBusyError as exc:
@@ -563,8 +656,7 @@ async def upload_plugin(
             detail=f"Plugin installation failed: {exc}",
         ) from exc
     finally:
-        if await asyncio.to_thread(temp_dir.exists):
-            await asyncio.to_thread(shutil.rmtree, temp_dir, True)
+        await loader.cleanup_preparation_source(temp_dir)
 
     return {
         "id": record.manifest.id,
@@ -572,7 +664,9 @@ async def upload_plugin(
         "version": record.manifest.version,
         "description": record.manifest.description,
         "author": record.manifest.author,
-        "loaded": record.enabled,
+        "loaded": record.status == "active",
+        "status": record.status,
+        "enabled": record.enabled,
         "diagnostics": list(record.diagnostics or []),
         "activation_required": (
             loader.requires_explicit_activation(record.manifest)
@@ -797,6 +891,8 @@ async def repair_plugin_dependencies(plugin_id: str, request: Request):
         record = await loader.repair_dependencies(plugin_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
@@ -1062,10 +1158,19 @@ async def set_plugin_enabled(
         record = await loader.lifecycle.set_enabled(plugin_id, True)
         return {
             "id": plugin_id,
-            "enabled": True,
-            "loaded": record is not None,
-            "status": getattr(record, "status", "inactive"),
-            "message": f"Plugin '{plugin_id}' enabled.",
+            "enabled": bool(getattr(record, "enabled", False))
+            and getattr(record, "status", None) == "active",
+            "loaded": getattr(record, "status", None) == "active",
+            "status": getattr(record, "status", "failed"),
+            "diagnostics": list(
+                getattr(record, "diagnostics", None)
+                or getattr(record, "errors", []),
+            ),
+            "needs_restart": getattr(record, "needs_restart", False),
+            "message": (
+                f"Plugin '{plugin_id}' enable result: "
+                f"{getattr(record, 'status', 'failed')}."
+            ),
         }
     except HTTPException:
         raise
@@ -1076,10 +1181,9 @@ async def set_plugin_enabled(
     except Exception as exc:
         logger.error(
             "Failed to set enabled=%s for plugin '%s': %s",
-            body.enabled,
+            _log_safe(body.enabled),
             _log_safe(plugin_id),
-            exc,
-            exc_info=True,
+            _log_safe(exc),
         )
         raise HTTPException(
             status_code=500,
@@ -1219,7 +1323,7 @@ async def search_market_plugins(
 # ── Internal async helpers ────────────────────────────────────────────────
 
 
-_DOWNLOAD_TIMEOUT = 60  # seconds per read chunk; total limit is implicit
+_DOWNLOAD_TIMEOUT = 60  # seconds per socket operation; no total limit
 
 _MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 
@@ -1227,15 +1331,16 @@ _MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 async def _async_download(url: str, dest: Path) -> None:
     """Download a URL to a file using a thread pool.
 
-    Streams the response in chunks with a per-operation socket timeout
-    so a stalled server cannot hang the request indefinitely.
+    Streams the response in chunks with a per-operation socket timeout.
+    This does not impose a total download time limit.
 
     Args:
         url: HTTP(S) URL to download
         dest: Destination file path
 
     Raises:
-        RuntimeError: If the download exceeds the size cap or times out.
+        RuntimeError: If the download exceeds the size cap, times out,
+            or fails with a network or HTTP protocol error.
     """
 
     def _download() -> None:
@@ -1257,4 +1362,13 @@ async def _async_download(url: str, dest: Path) -> None:
                         )
                     fh.write(chunk)
 
-    await asyncio.to_thread(_download)
+    try:
+        await asyncio.to_thread(_download)
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        ConnectionError,
+        ssl.SSLError,
+        http.client.HTTPException,
+    ) as exc:
+        raise RuntimeError(f"Plugin download failed: {exc}") from exc

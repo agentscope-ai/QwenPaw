@@ -13,7 +13,15 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
+from ._control_state import ControlCommandState
 
 # ---------------------------------------------------------------------------
 # Enums.
@@ -267,6 +275,22 @@ class AgentRequest(BaseModel):
     user_id: Optional[str] = None
     stream: bool = True
     metadata: Optional[Dict[str, Any]] = None
+    _channel_control_state: ControlCommandState | None = PrivateAttr(
+        default=None,
+    )
+    _channel_actor_unknown: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _exclude_control_provenance(cls, value):
+        if isinstance(value, dict) and (
+            "_channel_control_state" in value
+            or "_channel_actor_unknown" in value
+        ):
+            value = dict(value)
+            value.pop("_channel_control_state", None)
+            value.pop("_channel_actor_unknown", None)
+        return value
 
 
 class AgentResponse(BaseModel):

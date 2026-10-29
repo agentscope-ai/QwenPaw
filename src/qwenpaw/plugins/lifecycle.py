@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, Literal
@@ -504,6 +505,52 @@ class PluginLifecycle:
             self._activities[plugin_id] = PluginActivity(plugin_id)
         return self._activities[plugin_id]
 
+    async def prepare_backend(
+        self,
+        binding,
+        *,
+        allow_install,
+        probe,
+        wheels=(),
+        owns_dependency_env=True,
+    ):
+        """Enforce dependency ownership for preparation and probes."""
+        owns_dependency_env = (
+            self.delegate.owns_dependency_env(
+                binding.description.manifest.id,
+            )
+            and owns_dependency_env
+        )
+        return await binding.prepare(
+            allow_install=allow_install and owns_dependency_env,
+            probe=probe,
+            wheels=wheels if owns_dependency_env else (),
+            owns_dependency_env=owns_dependency_env,
+        )
+
+    async def preflight_backend(
+        self,
+        binding,
+        *,
+        allow_install,
+        probe,
+        **kwargs,
+    ):
+        """Retain Python's independent audit before lifecycle/disk changes."""
+        from .python_backend import PythonBackend
+
+        snapshot = await self.prepare_backend(
+            binding,
+            allow_install=allow_install,
+            probe=probe,
+            **kwargs,
+        )
+        if snapshot is None and isinstance(binding.backend, PythonBackend):
+            snapshot = await binding.backend.audit_dependencies(
+                binding.description,
+            )
+        return snapshot
+
     def get_instance(self, plugin_id: str) -> PluginInstance | None:
         return self._instances.get(plugin_id)
 
@@ -684,8 +731,6 @@ class PluginLifecycle:
                 finally:
                     memory_registry.cancel_owner_unload(plugin_id)
 
-    # pylint: disable=too-many-return-statements,too-many-statements
-    # pylint: disable=too-many-branches
     async def _update_config_unlocked(
         self,
         plugin_id: str,
@@ -693,7 +738,33 @@ class PluginLifecycle:
         *,
         confirm_legacy: bool,
     ) -> ConfigUpdateReport:
+        """Keep temporary admissions owned through switch and recovery."""
+        admissions = AsyncExitStack()
+        try:
+            return await self._update_config_transaction(
+                plugin_id,
+                new_config,
+                confirm_legacy=confirm_legacy,
+                admissions=admissions,
+            )
+        finally:
+            await admissions.aclose()
+
+    # pylint: disable=too-many-return-statements,too-many-statements
+    # pylint: disable=too-many-branches
+    # Lifecycle and Loader share the same locked transaction boundaries.
+    # pylint: disable=protected-access
+    async def _update_config_transaction(
+        self,
+        plugin_id: str,
+        new_config: dict[str, Any],
+        *,
+        confirm_legacy: bool,
+        admissions,
+    ) -> ConfigUpdateReport:
         from .settings import persist_plugin_settings, runtime_config
+        from .execution_backend import probes_before_activation
+        from .loader import _DependencyAdmission
 
         if not isinstance(new_config, dict):
             return ConfigUpdateReport(
@@ -704,6 +775,24 @@ class PluginLifecycle:
             )
         inst = self._instances.get(plugin_id)
         record = self._loader.get_loaded_plugin(plugin_id)
+        previous_diagnostics = list(record.diagnostics) if record else []
+        if record is not None:
+            try:
+                binding = await self._loader._binding_for_record(record)
+                validate = getattr(
+                    binding.backend,
+                    "validate_config_update",
+                    None,
+                )
+                if validate is not None:
+                    validate(binding.description, new_config)
+            except Exception as exc:
+                return ConfigUpdateReport(
+                    plugin_id=plugin_id,
+                    ok=False,
+                    unchanged=True,
+                    errors=[str(exc)],
+                )
         if inst is None or record is None or record.instance is None:
             return ConfigUpdateReport(
                 plugin_id=plugin_id,
@@ -741,7 +830,77 @@ class PluginLifecycle:
         previous_state = inst.state
         previous_status = record.status
         previous_enabled = record.enabled
+        previous_global_enabled = record.global_enabled
+        previous_definition = record.instance
         from ..utils.io_utils import run_sync_io
+
+        candidate_admission = None
+        old_admission = None
+        try:
+            if (
+                record.global_enabled
+                if record.global_enabled is not None
+                else record.enabled
+            ):
+                candidate_admission = _DependencyAdmission(binding)
+                candidate_token = await admissions.enter_async_context(
+                    self._loader._dependency_registration(
+                        binding,
+                        admission=candidate_admission,
+                        attach=False,
+                    ),
+                )
+                await self._loader._observe_host_dependencies(
+                    binding,
+                    candidate_token,
+                )
+                snapshot = await self.prepare_backend(
+                    binding,
+                    allow_install=False,
+                    probe=probes_before_activation(binding),
+                )
+                candidate_admission.snapshot = (
+                    await self._loader._admit_dependencies(
+                        binding,
+                        candidate_token,
+                        snapshot,
+                    )
+                )
+                # Candidate cleanup must not withdraw recovery's evidence.
+                old_admission = _DependencyAdmission(binding)
+                old_token = await admissions.enter_async_context(
+                    self._loader._dependency_registration(
+                        binding,
+                        admission=old_admission,
+                        attach=False,
+                    ),
+                )
+                await self._loader._observe_host_dependencies(
+                    binding,
+                    old_token,
+                )
+                old_admission.snapshot = (
+                    await self._loader._admit_dependencies(
+                        binding,
+                        old_token,
+                        candidate_admission.snapshot,
+                    )
+                )
+        except Exception as exc:
+            return ConfigUpdateReport(
+                plugin_id=plugin_id,
+                ok=False,
+                unchanged=True,
+                needs_restart=bool(
+                    getattr(exc, "needs_restart", False)
+                    or getattr(
+                        getattr(exc, "decision", None),
+                        "require_restart",
+                        False,
+                    ),
+                ),
+                errors=[str(exc)],
+            )
 
         persisted = False
 
@@ -769,7 +928,11 @@ class PluginLifecycle:
             )
         try:
             self._loader.registry.unregister_plugin(plugin_id)
-            await self._loader.reregister_unlocked(plugin_id, incoming)
+            await self._loader.reregister_unlocked(
+                plugin_id,
+                incoming,
+                dependency_admission=candidate_admission,
+            )
             await self._loader.activate_plugin_unlocked(
                 plugin_id,
                 preserve_instance_on_failure=True,
@@ -809,7 +972,14 @@ class PluginLifecycle:
             restore_cleanup: UnloadReport | None = None
             try:
                 self._loader.registry.unregister_plugin(plugin_id)
-                await self._loader.reregister_unlocked(plugin_id, previous)
+                record.instance = previous_definition
+                record.enabled = previous_enabled
+                record.global_enabled = previous_global_enabled
+                await self._loader.reregister_unlocked(
+                    plugin_id,
+                    previous,
+                    dependency_admission=old_admission,
+                )
                 await self._loader.activate_plugin_unlocked(
                     plugin_id,
                     preserve_instance_on_failure=True,
@@ -818,6 +988,8 @@ class PluginLifecycle:
                 inst.state = previous_state
                 record.status = previous_status
                 record.enabled = previous_enabled
+                record.global_enabled = previous_global_enabled
+                record.diagnostics = previous_diagnostics
             except BaseException as restore_exc:
                 restore_cleanup = getattr(
                     restore_exc,
@@ -854,6 +1026,8 @@ class PluginLifecycle:
             )
         return ConfigUpdateReport(plugin_id=plugin_id, ok=True)
 
+    # Lifecycle and Loader share the locked load boundary.
+    # pylint: disable=protected-access
     async def set_enabled(
         self,
         plugin_id: str,
@@ -861,45 +1035,114 @@ class PluginLifecycle:
         *,
         interrupt_tasks: bool = False,
     ) -> Any:
-        """Load or unload first; persist ``enabled`` only when it is true."""
-        from .settings import persist_plugin_settings
-
+        """Persist an enable only after the bound definition activates."""
+        from .settings import persist_plugin_settings, runtime_config
+        from .execution_backend import probes_before_activation
+        from ..config.utils import load_config
         from ..utils.io_utils import run_sync_io
 
         async with self._loader.plugin_lifecycle(plugin_id):
-            loaded = plugin_id in self._loader.get_all_loaded_plugins()
-            if not enabled and loaded:
+            record = self._loader.get_loaded_plugin(plugin_id)
+            if not enabled:
+                if record is not None:
+                    report = await self._unload_unlocked(
+                        plugin_id,
+                        UnloadMode.UNLOAD,
+                        delete_files=False,
+                        interrupt_tasks=interrupt_tasks,
+                    )
+                    if not report.quiescent:
+                        return report
+                else:
+                    report = None
+                await run_sync_io(
+                    persist_plugin_settings,
+                    plugin_id,
+                    enabled=False,
+                )
+                return report
+            if (
+                record is not None
+                and record.enabled
+                and record.status == "active"
+            ):
+                await run_sync_io(
+                    persist_plugin_settings,
+                    plugin_id,
+                    enabled=True,
+                )
+                return record
+            source = (
+                record.source_path
+                if record is not None
+                else self._loader.find_installed_plugin_dir(plugin_id)
+            )
+            if source is None:
+                raise KeyError(f"Plugin '{plugin_id}' is not installed")
+            if record is not None:
+                binding = await self._loader._binding_for_record(record)
+                manifest = binding.description.manifest
+            else:
+                _, manifest = await run_sync_io(
+                    self._loader._read_source_manifest,
+                    source,
+                )
+                binding = await run_sync_io(
+                    self._loader.backend_resolver.resolve,
+                    source,
+                    manifest,
+                )
+            inst = self._instances.get(plugin_id)
+            config = (
+                dict(inst.config or {})
+                if inst is not None
+                else runtime_config(
+                    (load_config().plugins or {}).get(plugin_id),
+                )
+            )
+            await self.preflight_backend(
+                binding,
+                allow_install=False,
+                probe=probes_before_activation(binding),
+            )
+            await binding.backend.before_activate(binding.description)
+            if record is not None:
                 report = await self._unload_unlocked(
                     plugin_id,
                     UnloadMode.UNLOAD,
                     delete_files=False,
                     interrupt_tasks=interrupt_tasks,
                 )
-                if report.quiescent:
-                    await run_sync_io(
-                        persist_plugin_settings,
-                        plugin_id,
-                        enabled=False,
-                    )
-                return report
-            if enabled and not loaded:
+                if not report.quiescent:
+                    return report
+            record = await self._loader._load_plugin_unlocked(
+                manifest,
+                source,
+                {**config, "enabled": True},
+                activate=True,
+                backend_binding=binding,
+                prepared=True,
+            )
+            if record.status == "active" and record.enabled:
                 await run_sync_io(
                     persist_plugin_settings,
                     plugin_id,
                     enabled=True,
                 )
-                return await self._loader.load_installed_unlocked(plugin_id)
-            await run_sync_io(
-                persist_plugin_settings,
-                plugin_id,
-                enabled=enabled,
-            )
-            return self._loader.get_loaded_plugin(plugin_id)
+            return record
 
     async def unload_all(self, mode: UnloadMode) -> list[UnloadReport]:
         """Unload every known instance (used at process shutdown)."""
         reports: list[UnloadReport] = []
-        for plugin_id in list(self._instances):
+        for plugin_id in dict.fromkeys(
+            (
+                *self._instances,
+                *(
+                    lease.plugin_id
+                    for lease in self._loader.registry.runtime_owners.leases()
+                ),
+            ),
+        ):
             try:
                 reports.append(
                     await self.unload(plugin_id, mode, delete_files=False),
@@ -917,6 +1160,8 @@ class PluginLifecycle:
                         plugin_id=plugin_id,
                         mode=mode,
                         clean=False,
+                        quiescent=False,
+                        needs_restart=True,
                         errors=[str(exc)],
                     ),
                 )
@@ -939,3 +1184,5 @@ async def await_with_budget(
         raise TimeoutError(
             f"Plugin '{plugin_id}' {what} exceeded {seconds:.0f}s",
         ) from exc
+
+    # pylint: enable=protected-access

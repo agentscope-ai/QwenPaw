@@ -613,6 +613,7 @@ class Workspace:
                 post_init=create_channel_service,
                 start_method="start_all",
                 stop_method="stop_all",
+                require_clean_stop=True,
                 priority=30,
                 concurrent_init=False,
             ),
@@ -709,7 +710,7 @@ class Workspace:
         if self._started:
             logger.warning(
                 f"Cannot set reusable components for already started "
-                f"workspace: {self.agent_id}",
+                f"workspace: {sanitize_log_value(self.agent_id)}",
             )
             return
 
@@ -727,6 +728,9 @@ class Workspace:
             return
 
         self._start_attempted = True
+        from ...plugins.registry import PluginRegistry
+
+        PluginRegistry().projector.track_workspace(self)
 
         logger.info(
             f"Starting workspace: {sanitize_log_value(self.agent_id)}",
@@ -740,7 +744,8 @@ class Workspace:
             ensure_skill_pool_initialized()
         except Exception as e:
             logger.warning(
-                f"Skill pool initialization failed (non-fatal): {e}",
+                "Skill pool initialization failed (non-fatal): "
+                f"{sanitize_log_value(e)}",
             )
 
         try:
@@ -879,11 +884,21 @@ class Workspace:
         # Reload candidates and draining old instances may share an agent id.
         from ...plugins.registry import PluginRegistry
 
+        if self.channel_manager is not None:
+            from ...plugins.lifecycle import QuiescenceError
+
+            if not await self.channel_manager.quiesce(for_stop=True):
+                raise QuiescenceError("CHANNEL_DRAIN_TIMEOUT")
         errors: list[tuple[str, Exception]] = []
         try:
             await PluginRegistry().projector.revoke_workspace(self)
         except Exception as exc:
             errors.append(("plugin bindings", exc))
+        if self.channel_manager is not None:
+            try:
+                await self.channel_manager.stop_all()
+            except Exception as exc:
+                errors.append(("channels", exc))
 
         # Stop all services via ServiceManager (handles reuse automatically)
         try:
@@ -912,6 +927,7 @@ class Workspace:
 
         self._started = False
         self._start_attempted = False
+        PluginRegistry().projector.forget_workspace(self)
         logger.info(
             f"Workspace stopped: {sanitize_log_value(self.agent_id)}",
         )

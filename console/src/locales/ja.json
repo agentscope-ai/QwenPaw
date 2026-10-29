@@ -531,7 +531,6 @@
     "selectBuiltin": "組み込み",
     "selectNone": "クリア",
     "noPoolSkills": "プールに利用可能なスキルがありません",
-    "addSkillsToAgent": "スキルを追加",
     "copyTooltip": "エージェント設定をコピー",
     "copyDefaultTooltip": "デフォルトエージェントをテンプレートとしてコピー",
     "copyTitle": "エージェント設定をコピー",
@@ -1396,6 +1395,10 @@
     "selectAtLeastOneDay": "曜日を少なくとも1つ選択してください。"
   },
   "channels": {
+    "qrcodeInstallRequired": "QR コードをスキャンするには、プラグインをインストールしてください",
+    "runtime": {
+      "missing_code": "プラグインがインストールされていません"
+    },
     "title": "チャンネル",
     "description": "メッセージチャンネルの管理と設定",
     "loading": "チャンネルを読み込み中...",
@@ -4763,6 +4766,8 @@
     "from": "送信元：",
     "requestedBy": "リクエスト元",
     "markRead": "既読にする",
+    "unreadOnly": "未読のみ",
+    "emptyUnread": "現在の絞り込み条件に一致する未読メッセージはありません",
     "markAllRead": "すべて既読",
     "markAllReadNoUnread": "未読メッセージはありません",
     "markAllReadSuccess": "{{count}} 件を既読にしました",
@@ -4971,6 +4976,9 @@
     "retry": "再試行"
   },
   "preview": {
+    "unavailable": "プレビューできません",
+    "showDetails": "原因を表示",
+    "hideDetails": "詳細を閉じる",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "このファイルはファイルガードによりブロックされています（機密ファイル保護）。",
       "OUTSIDE_WORKSPACE": "このファイルはワークスペースの範囲外です。設定 → セキュリティ → ファイルガード で「コンソールでワークスペース外ファイルのプレビューを許可」を有効にしてください。",

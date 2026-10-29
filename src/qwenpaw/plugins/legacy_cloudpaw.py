@@ -284,6 +284,8 @@ async def prepare_uninstall(loader: Any, source: Path | None) -> dict | None:
             closers[agent_id] = ConnectionCloser(
                 client,
                 f"CloudPaw {agent_id}",
+                # The manager owns stop completion; retain its exact receipt.
+                cancel_on_interrupt=False,
             )
         await closers[agent_id]()
         closers.pop(agent_id, None)

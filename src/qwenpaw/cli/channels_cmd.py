@@ -12,6 +12,7 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ..app.channels.catalog import get_configurable_channel_catalog
 from ..app.channels.registry import get_channel_registry
 from ..config import get_available_channels, load_config
 from ..config.config import (
@@ -69,11 +70,15 @@ def _get_channel_names() -> dict[str, str]:
             cls = registry[key]
             out[key] = (
                 getattr(cls, "display_name", None)
-                or key.replace(
-                    "_",
-                    " ",
-                ).title()
+                or key.replace("_", " ").title()
             )
+    from ..plugins.registry import PluginRegistry
+
+    for key, row in PluginRegistry().get_channel_catalog().items():
+        if row.description_record is not None:
+            out[key] = row.label or key.replace("_", " ").title()
+    for key, row in get_configurable_channel_catalog().items():
+        out.setdefault(key, row.get("label") or key.replace("_", " ").title())
     return out
 
 
@@ -644,6 +649,7 @@ def _load_channel_plugins_for_cli() -> None:
         loader.load_all_plugins(
             configs=config.plugins,
             types=["channel"],
+            activate=False,
         ),
     )
     _CLI_CHANNEL_PLUGINS_LOADED = True
@@ -673,6 +679,15 @@ def get_channel_configurators() -> dict:
     """Return channel configurators (built-in + plugin get_configurator)."""
     available = get_available_channels()
     registry = get_channel_registry()
+    from ..plugins.registry import PluginRegistry
+
+    descriptors = {
+        key: row
+        for key, row in PluginRegistry().get_channel_catalog().items()
+        if row.description_record is not None
+    }
+    catalog = get_configurable_channel_catalog()
+    available = tuple(dict.fromkeys((*available, *descriptors, *catalog)))
     out = {
         k: v for k, v in _ALL_CHANNEL_CONFIGURATORS.items() if k in available
     }
@@ -715,10 +730,12 @@ def get_channel_configurators() -> dict:
         if key in out:
             continue
         ch_cls = registry.get(key)
-        if ch_cls is None:
+        if ch_cls is None and key not in descriptors and key not in catalog:
             continue
         display = (
             getattr(ch_cls, "display_name", None)
+            or (descriptors[key].label if key in descriptors else None)
+            or catalog.get(key, {}).get("label")
             or key.replace(
                 "_",
                 " ",
@@ -757,6 +774,7 @@ def configure_channels_interactive(config: Config) -> None:
     _load_channel_plugins_for_cli()
     configurators = get_channel_configurators()
     registry = get_channel_registry()
+    catalog = get_configurable_channel_catalog()
     click.echo("\n=== Channel Configuration ===")
 
     while True:
@@ -791,7 +809,10 @@ def configure_channels_interactive(config: Config) -> None:
                 if ch_cls
                 else None
             )
-            current_config = default or {"enabled": False, "bot_prefix": ""}
+            current_config = default or dict(
+                catalog.get(choice, {}).get("defaults")
+                or {"enabled": False, "bot_prefix": ""},
+            )
         updated_config = configure_func(current_config)
         setattr(config.channels, choice, updated_config)
 
@@ -813,7 +834,19 @@ def configure_channels_interactive(config: Config) -> None:
 # ── CLI commands ───────────────────────────────────────────────────
 
 
-@click.group("channels")
+class _ChannelsGroup(click.Group):
+    def list_commands(self, ctx):
+        return sorted(set(super().list_commands(ctx)) | {"receipts"})
+
+    def get_command(self, ctx, name):
+        if name == "receipts":
+            from .receipts_cmd import receipts_group
+
+            return receipts_group
+        return super().get_command(ctx, name)
+
+
+@click.group("channels", cls=_ChannelsGroup)
 def channels_group() -> None:
     """Manage channel configuration
     (iMessage/Discord/DingTalk/Feishu/QQ/Console)."""
@@ -858,6 +891,7 @@ def _channel_enabled(ch) -> bool:
 def list_cmd(agent_id: str) -> None:
     """Show current channel configuration."""
     try:
+        _load_channel_plugins_for_cli()
         agent_config = load_agent_config(agent_id)
         click.echo(f"Channels for agent: {agent_id}\n")
 
