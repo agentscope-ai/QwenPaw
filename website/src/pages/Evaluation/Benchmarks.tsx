@@ -90,6 +90,20 @@ export default function Benchmarks() {
           <p>{t("guideMetrics")}</p>
         </div>
       </section>
+      <section className="evaluation-guide-method evaluation-guide-future">
+        <h2>{t("guideFutureTitle")}</h2>
+        <div>
+          <p>{t("guideFuture")}</p>
+          <a
+            href="https://platform.agentscope.io/community"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t("guideCommunity")}
+            <ArrowUpRight size={16} />
+          </a>
+        </div>
+      </section>
       <Link to="/evaluation" className="evaluation-back">
         <ArrowLeft size={16} />
         {t("back")}

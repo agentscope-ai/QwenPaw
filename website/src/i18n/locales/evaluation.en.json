@@ -101,9 +101,9 @@
   "defaultMode": "Default",
   "goalMode": "Goal",
   "codeMode": "Code",
-  "guideTitle": "About the benchmarks",
-  "guideIntro": "Choose a QwenPaw SDK version, execution mode and model for the work you do. These four benchmarks cover information research, spreadsheets, code repair and general agent tasks.",
-  "guideScope": "Evaluated task set",
+  "guideTitle": "Benchmarks",
+  "guideIntro": "Find the right QwenPaw SDK, mode and model for research, spreadsheet work, code repair and general agent tasks.",
+  "guideScope": "QwenPaw Index task set",
   "guideScoring": "Scoring",
   "tasks": "tasks",
   "officialSource": "Official benchmark",
@@ -142,5 +142,7 @@
       "scoring": "Preserve per-task programmatic and model-grading weights. This Index uses qwen3.8-max as model judge; the official release uses Claude Opus 4.6."
     }
   },
-  "indexIntro": "Compare QwenPaw versions, modes and models for your workload."
+  "guideFutureTitle": "More domains. Harder, longer tasks.",
+  "guideFuture": "We plan to add benchmarks across more domains, with harder and longer-horizon tasks, to bring version, mode and model comparisons closer to real work. Stay tuned.",
+  "guideCommunity": "Suggest a domain or task in the QwenPaw community"
 }

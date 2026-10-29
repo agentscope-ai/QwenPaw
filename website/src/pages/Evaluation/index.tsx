@@ -267,22 +267,6 @@ export default function Evaluation() {
   );
   return (
     <main className="evaluation-page">
-      <header className="evaluation-header">
-        <div className="evaluation-brand">
-          <img
-            src={`${import.meta.env.BASE_URL}evaluation/logos/qwenpaw.png`}
-            alt=""
-          />
-          <div>
-            <h1>{t("headline")}</h1>
-            <p className="evaluation-intro">{t("indexIntro")}</p>
-          </div>
-        </div>
-        <Link to="/evaluation/benchmarks" className="evaluation-guide-link">
-          <BookOpen size={17} />
-          {t("guideTitle")}
-        </Link>
-      </header>
       {id ? (
         <section className="evaluation-detail">
           <Link to="/evaluation">{t("back")}</Link>
@@ -380,6 +364,16 @@ export default function Evaluation() {
       ) : (
         <>
           <section className="evaluation-chart-surface">
+            <header className="evaluation-card-heading">
+              <h1>{t("headline")}</h1>
+              <Link
+                to="/evaluation/benchmarks"
+                className="evaluation-guide-link"
+              >
+                <BookOpen size={16} />
+                {t("guideTitle")}
+              </Link>
+            </header>
             <div className="evaluation-controls">
               <div className="evaluation-board-controls">
                 <BenchmarkWeightsEditor

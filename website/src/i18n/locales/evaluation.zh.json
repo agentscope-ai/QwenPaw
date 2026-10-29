@@ -102,8 +102,8 @@
   "goalMode": "Goal",
   "codeMode": "Code",
   "guideTitle": "评测集说明",
-  "guideIntro": "根据实际工作，选择适合的 QwenPaw SDK 版本、运行模式与模型。四项评测分别覆盖信息研究、表格办公、代码修复与综合 Agent 任务。",
-  "guideScope": "本次采用题集",
+  "guideIntro": "按领域比较 QwenPaw 的 SDK 版本、运行模式与模型，找到适合信息研究、表格办公、代码修复与综合任务的组合。",
+  "guideScope": "QwenPaw Index 采用的题集",
   "guideScoring": "如何评分",
   "tasks": "题",
   "officialSource": "官方评测介绍",
@@ -142,5 +142,7 @@
       "scoring": "保留每题程序评分与模型评分的原有权重。本 Index 的模型 Judge 为 qwen3.8-max，官方发布使用 Claude Opus 4.6。"
     }
   },
-  "indexIntro": "按工作领域，比较 QwenPaw 版本、模式与模型。"
+  "guideFutureTitle": "更多领域，更难、更长程的任务",
+  "guideFuture": "未来计划接入更多领域的 benchmark，并加入更高难度与长程任务，让版本、模式和模型的比较更贴近真实工作。Stay tuned.",
+  "guideCommunity": "有想评测的领域或任务？欢迎到 QwenPaw 社区讨论"
 }
