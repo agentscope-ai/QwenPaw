@@ -20,6 +20,8 @@ const hoisted = vi.hoisted(() => ({
   routeSnapshot: vi.fn(),
   removePluginAppState: vi.fn(),
   warning: vi.fn(),
+  error: vi.fn(),
+  success: vi.fn(),
   uploadPlugin: vi.fn(),
 }));
 
@@ -53,8 +55,8 @@ vi.mock("@/hooks/useAppMessage", () => ({
   useAppMessage: () => ({
     message: {
       loading: vi.fn(),
-      success: vi.fn(),
-      error: vi.fn(),
+      success: hoisted.success,
+      error: hoisted.error,
       warning: hoisted.warning,
     },
   }),
@@ -186,6 +188,8 @@ describe("AppCenterPage", () => {
     hoisted.routeSnapshot.mockReset();
     hoisted.removePluginAppState.mockReset();
     hoisted.warning.mockReset();
+    hoisted.error.mockReset();
+    hoisted.success.mockReset();
     hoisted.uploadPlugin.mockReset();
     hoisted.routeSnapshot.mockReturnValue([]);
     hoisted.loadPawApp.mockResolvedValue(undefined);
@@ -276,6 +280,51 @@ describe("AppCenterPage", () => {
         "/market?tab=plugins",
       ),
     );
+  });
+
+  it("does not report install failure when the post-install listing fails", async () => {
+    hoisted.installPlugin.mockResolvedValue({
+      id: "gamma-app",
+      name: "gamma",
+    });
+    // Mount fetch resolves; the post-install verification listing rejects;
+    // the best-effort refresh afterwards resolves again.
+    hoisted.listApps
+      .mockResolvedValueOnce({ apps: [makeApp("alpha-app")], total: 1 })
+      .mockRejectedValueOnce(new Error("network blip"))
+      .mockResolvedValue({
+        apps: [makeApp("alpha-app"), makeApp("gamma-app")],
+        total: 2,
+      });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "appCenter.installApp" }),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("pluginManager.urlPlaceholder"),
+      { target: { value: "https://x/gamma.zip" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "pluginManager.installFromUrl" }),
+    );
+
+    await waitFor(() =>
+      expect(hoisted.installPlugin).toHaveBeenCalledWith("https://x/gamma.zip"),
+    );
+    // Install succeeded: success toast fired, a refresh warning is shown,
+    // but never an error toast and no forced navigation away from Apps.
+    await waitFor(() =>
+      expect(hoisted.warning).toHaveBeenCalledWith(
+        "appCenter.installedRefreshFailed",
+      ),
+    );
+    expect(hoisted.success).toHaveBeenCalledWith(
+      "pluginManager.installSuccess: gamma",
+    );
+    expect(hoisted.error).not.toHaveBeenCalled();
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+    expect(hoisted.reloadPawApp).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location").textContent).toBe("/market");
   });
 
   it("renders installed apps by default without mounting external views", async () => {

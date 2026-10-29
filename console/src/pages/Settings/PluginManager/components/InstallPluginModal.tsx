@@ -79,7 +79,7 @@ export function InstallPluginModal({
             >
               {t(
                 "appCenter.installAppHint",
-                "Only packages whose plugin.json declares meta.pawapp are apps and appear in the App Center once installed.",
+                "Only packages whose plugin.json declares meta.pawapp are apps and appear in the App Center once installed; plain plugins are taken to the Installed list on the Plugins page after install.",
               )}
             </Text>
           )}

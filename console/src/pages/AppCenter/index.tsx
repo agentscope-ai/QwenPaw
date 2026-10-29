@@ -156,12 +156,25 @@ export default function AppCenterPage() {
   // (meta.pawapp — the App Center listing criterion) before loading it
   // here; plain plugins stay on the Plugins page and get a warning.
   const handleModalInstalled = async (result: InstallPluginResult) => {
-    const data = await pawappApi.list();
+    // The install already succeeded (success toast shown, modal closed).
+    // A failed post-install listing must not be reported as an install
+    // failure, so swallow the error and refresh best-effort instead.
+    const data = await pawappApi.list().catch(() => null);
+    if (!data) {
+      message.warning(
+        t(
+          "appCenter.installedRefreshFailed",
+          "Installed, but refreshing the app list failed. Please refresh manually.",
+        ),
+      );
+      void fetchApps();
+      return;
+    }
     if (!data.apps.some((app) => app.id === result.id)) {
       message.warning(
         t(
           "appCenter.installedNotApp",
-          "Installed, but it is a plain plugin — taking you to the Installed list on the Plugins page.",
+          "Installed, but it is a plain plugin — it will not appear in the App Center. Taking you to the Installed list on the Plugins page.",
         ),
       );
       // Plain plugins live on the Plugins tab (installed sub-tab is its
