@@ -37,6 +37,9 @@ const mocks = vi.hoisted(() => ({
   getInboxEvents: vi.fn(),
   getPushMessages: vi.fn(),
   sessionList: [] as unknown[],
+  startNewSwitch: vi.fn(() => new AbortController()),
+  preloadSession: vi.fn().mockResolvedValue({ realId: "real-s-1" }),
+  finishSessionSwitch: vi.fn(),
   updateProfile: vi.fn().mockResolvedValue({}),
   changePassword: vi.fn().mockResolvedValue({}),
   restartRuntime: vi.fn().mockResolvedValue({}),
@@ -160,6 +163,9 @@ vi.mock("../pages/Chat/sessionApi", () => ({
   default: {
     getSessionList: () => Promise.resolve(mocks.sessionList),
     getEffectiveSessionId: (id: string) => `real-${id}`,
+    startNewSwitch: () => mocks.startNewSwitch(),
+    preloadSession: (...args: unknown[]) => mocks.preloadSession(...args),
+    finishSessionSwitch: () => mocks.finishSessionSwitch(),
   },
 }));
 
@@ -647,11 +653,17 @@ describe("Sidebar", () => {
     renderSidebar();
     const openBtn = await screen.findByTestId("sl-click");
     fireEvent.click(openBtn);
+    expect(mocks.startNewSwitch).toHaveBeenCalled();
+    expect(mocks.preloadSession).toHaveBeenCalledWith(
+      "s-1",
+      expect.any(AbortSignal),
+    );
     await waitFor(() => {
       expect(screen.getByTestId("probe-path").textContent).toContain(
         "real-s-1",
       );
     });
+    expect(mocks.finishSessionSwitch).toHaveBeenCalled();
   });
 
   it("dispatches the new-chat flow from the session list", async () => {

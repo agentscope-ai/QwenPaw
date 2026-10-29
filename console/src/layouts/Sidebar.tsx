@@ -538,15 +538,29 @@ export default function Sidebar({
     );
   }, []);
 
-  /**
-   * Session click: navigate directly without relying on ChatSessionInitializer.
-   * Resolve realId (backend UUID) to avoid exposing local timestamp in URL.
-   */
+  /** Preload the selected session while sidebar polling is paused. */
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
-      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildChatPath(effectiveId);
-      navigate(targetPath);
+      const controller = sessionApi.startNewSwitch();
+      void sessionApi
+        .preloadSession(sessionId, controller.signal)
+        .then(({ realId }) => {
+          if (controller.signal.aborted) return;
+          const effectiveId = sessionApi.getEffectiveSessionId(
+            sessionId,
+            realId,
+          );
+          navigate(buildChatPath(effectiveId));
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          if (error instanceof DOMException && error.name === "AbortError")
+            return;
+          navigate(buildChatPath(sessionApi.getEffectiveSessionId(sessionId)));
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) sessionApi.finishSessionSwitch();
+        });
     },
     [navigate],
   );
