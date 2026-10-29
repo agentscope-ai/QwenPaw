@@ -31,6 +31,20 @@ vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
 );
 
+// Keep the real ModelChoice/reset/form interaction. Stub only its lazy menu;
+// filtering and provider loading are covered by the shared selector suites.
+vi.mock("@/pages/Chat/ModelSelector", () => ({
+  default: ({
+    onPick,
+  }: {
+    onPick: (provider: string, model: string) => void;
+  }) => (
+    <button type="button" onClick={() => onPick("ollama", "qwen2.5:7b")}>
+      Pick test memory model
+    </button>
+  ),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -521,66 +535,51 @@ describe("memory writing model selector", () => {
 
   it("stores an explicit provider/model object and clears it to null", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue(providers);
-    renderWithProviders(<MemoryModelForm />);
-    const selector = await screen.findByRole("combobox", {
+    const onSave = vi.fn();
+    renderWithProviders(<MemoryModelForm onSave={onSave} />);
+    const selector = await screen.findByRole("button", {
       name: "agentConfig.memoryModelLabel",
     });
 
-    fireEvent.mouseDown(selector);
-    fireEvent.click(await screen.findByText("Ollama / Qwen 2.5 7B"));
+    fireEvent.click(selector);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Pick test memory model" }),
+    );
     expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
       '{"provider_id":"ollama","model":"qwen2.5:7b"}',
     );
 
-    fireEvent.mouseDown(selector);
-    fireEvent.click(await screen.findByText("agentConfig.memoryModelUseMain"));
-    expect(screen.getByTestId("memory-model-value")).toHaveTextContent("null");
-  });
-
-  it("only offers configured chat providers and keeps configured extra models", async () => {
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      ...providers,
-      {
-        id: "gemini",
-        name: "Unconfigured Gemini",
-        api_key: "",
-        models: [{ id: "gemini-2.5-flash", name: "Gemini Flash" }],
-      },
-      {
-        id: "disabled",
-        name: "Disabled",
-        enabled: false,
-        api_key: "configured-key",
-        models: [{ id: "disabled-model", name: "Disabled model" }],
-      },
-      {
-        id: "custom",
-        name: "Custom",
-        is_custom: true,
-        base_url: "http://localhost:8000/v1",
-        models: [],
-        extra_models: [
-          { id: "extra-chat", name: "Extra chat", model_type: "chat" },
-          { id: "extra-embedding", name: "Embedding", model_type: "embedding" },
-        ],
-      },
-    ] as Awaited<ReturnType<typeof api.listProviders>>);
-    renderWithProviders(<MemoryModelForm />);
-    fireEvent.mouseDown(
-      await screen.findByRole("combobox", {
-        name: "agentConfig.memoryModelLabel",
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save memory settings" }),
+    );
+    await waitFor(() =>
+      expect(onSave).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          reme_light_memory_config: expect.objectContaining({
+            memory_model: { provider_id: "ollama", model: "qwen2.5:7b" },
+          }),
+        }),
+      ),
+    );
+    fireEvent.click(selector);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "agentConfig.memoryModelUseMain",
       }),
     );
-
-    expect(await screen.findByText("Custom / Extra chat")).toBeInTheDocument();
-    expect(screen.getByText("Ollama / Qwen 2.5 7B")).toBeInTheDocument();
-    expect(
-      screen.queryByText("Unconfigured Gemini / Gemini Flash"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Disabled / Disabled model"),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("Custom / Embedding")).not.toBeInTheDocument();
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent("null");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save memory settings" }),
+    );
+    await waitFor(() =>
+      expect(onSave).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          reme_light_memory_config: expect.objectContaining({
+            memory_model: null,
+          }),
+        }),
+      ),
+    );
   });
 
   it("preserves a saved selection from an unconfigured provider", async () => {
