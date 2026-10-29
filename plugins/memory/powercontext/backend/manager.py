@@ -517,7 +517,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
         max_context_bytes: int,
         estimate_divisor: float = 4.0,
     ) -> int:
-        """Reserve bytes for synthetic tool metadata before retrieval text."""
+        """Reserve bytes for the recall wrapper before retrieval text."""
         message = self._build_auto_memory_search_msg(
             query=query,
             max_results=max_results,
@@ -526,11 +526,5 @@ class PowerContextMemoryManager(BaseMemoryManager):
         )
         overhead = 0
         for block in message.content:
-            overhead += len(str(getattr(block, "text", "")).encode("utf-8"))
-            overhead += len(
-                str(getattr(block, "thinking", "")).encode("utf-8"),
-            )
-            block_name = str(getattr(block, "name", ""))
-            block_input = str(getattr(block, "input", ""))
-            overhead += len((block_name + block_input).encode("utf-8"))
+            overhead += len(str(getattr(block, "hint", "")).encode("utf-8"))
         return max(0, max_context_bytes - overhead)
