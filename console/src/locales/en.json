@@ -589,6 +589,8 @@
     "skillBuiltinSyncFailed": "\"{{skill}}\" could not sync to: {{agents}}",
     "requestedBy": "By",
     "markRead": "Mark Read",
+    "unreadOnly": "Unread only",
+    "emptyUnread": "No unread messages match the current filters",
     "markAllRead": "Mark All Read",
     "markAllReadNoUnread": "No unread messages",
     "markAllReadSuccess": "Marked {{count}} messages as read",

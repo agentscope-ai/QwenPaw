@@ -4723,6 +4723,8 @@
     "from": "送信元：",
     "requestedBy": "リクエスト元",
     "markRead": "既読にする",
+    "unreadOnly": "未読のみ",
+    "emptyUnread": "現在の絞り込み条件に一致する未読メッセージはありません",
     "markAllRead": "すべて既読",
     "markAllReadNoUnread": "未読メッセージはありません",
     "markAllReadSuccess": "{{count}} 件を既読にしました",

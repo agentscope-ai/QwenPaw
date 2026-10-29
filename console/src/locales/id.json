@@ -3119,6 +3119,8 @@
     "from": "Dari:",
     "requestedBy": "Oleh",
     "markRead": "Tandai Dibaca",
+    "unreadOnly": "Hanya yang belum dibaca",
+    "emptyUnread": "Tidak ada pesan belum dibaca yang sesuai dengan filter saat ini",
     "markAllRead": "Tandai Semua Dibaca",
     "markAllReadNoUnread": "Tidak ada pesan yang belum dibaca",
     "markAllReadSuccess": "{{count}} pesan ditandai dibaca",

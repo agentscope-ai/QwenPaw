@@ -589,6 +589,8 @@
     "skillBuiltinSyncFailed": "“{{skill}}”未能同步至：{{agents}}",
     "requestedBy": "请求方",
     "markRead": "标记已读",
+    "unreadOnly": "仅看未读",
+    "emptyUnread": "当前筛选条件下没有未读消息",
     "markAllRead": "全部标记已读",
     "markAllReadNoUnread": "当前没有未读消息",
     "markAllReadSuccess": "已将 {{count}} 条消息标记为已读",
