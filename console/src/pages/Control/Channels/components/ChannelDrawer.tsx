@@ -13,14 +13,34 @@ import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Alert, Collapse, ConfigProvider } from "antd";
 import { Link as LinkOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { FormInstance } from "antd";
 import { getChannelLabel, isLoopbackHost, type ChannelKey } from "./constants";
 import { QrcodeAuthBlock } from "./QrcodeAuthBlock";
-import type { ChannelSchema } from "../../../../api/modules/channel";
+import type { ChannelQrcodeCustody } from "./useChannelQrcode";
+import {
+  channelApi,
+  type ChannelSchema,
+  type ChannelAuthProvenance,
+  type ChannelSaveJob,
+} from "../../../../api/modules/channel";
 import styles from "../index.module.less";
 import { useAgentStore } from "../../../../stores/agentStore";
 import { openExternalLink } from "../../../../utils/openExternalLink";
+import {
+  captureChannelSaveJob,
+  normalizeChannelSubmitValues,
+} from "./channelConfig";
+import {
+  resumePendingPluginInstalls,
+  runPluginInstall,
+} from "@/pages/Settings/PluginManager/dependencyUpgrade";
 
 const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "telegram",
@@ -150,10 +170,13 @@ interface ChannelDrawerProps {
   initialValues: Record<string, unknown> | undefined;
   isBuiltin: boolean;
   channelSchema?: ChannelSchema;
+  channelSchemaLoading?: boolean;
+  onRuntimeChange?: () => void | Promise<void>;
   onClose: () => void;
   onSubmit: (
     values: Record<string, unknown>,
   ) => void | boolean | Promise<void | boolean>;
+  onSubmitSnapshot?: (job: ChannelSaveJob) => Promise<void | boolean>;
 }
 
 export function ChannelDrawer({
@@ -164,10 +187,14 @@ export function ChannelDrawer({
   initialValues,
   isBuiltin,
   channelSchema,
+  channelSchemaLoading,
   onClose,
   onSubmit,
+  onSubmitSnapshot,
+  onRuntimeChange,
 }: ChannelDrawerProps) {
   const { t, i18n } = useTranslation();
+  const [repairing, setRepairing] = useState(false);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   useEffect(() => {
     if (open)
@@ -179,13 +206,59 @@ export function ChannelDrawer({
       setExpandedSections(Array.isArray(keys) ? keys : [keys]),
   };
   const { selectedAgent, agents } = useAgentStore();
+  const agentId = selectedAgent || "default";
+  const formRevision = useRef(0);
+  const scopeGeneration = useRef(0);
+  const authorization = useRef<{
+    provenance: ChannelAuthProvenance;
+    fields: string[];
+    receipt: { credentials?: Record<string, unknown> };
+    custody: ChannelQrcodeCustody;
+  }>();
+  const pendingValidation = useRef<Promise<boolean>>();
+  const invalidateScope = useCallback(() => {
+    scopeGeneration.current += 1;
+    formRevision.current += 1;
+    authorization.current?.custody.cancel();
+    authorization.current = undefined;
+    pendingValidation.current = undefined;
+  }, []);
+  useLayoutEffect(invalidateScope, [agentId, activeKey, open, invalidateScope]);
+  useLayoutEffect(() => {
+    const unsubscribe = useAgentStore.subscribe((next, previous) => {
+      if (next.selectedAgent !== previous.selectedAgent) invalidateScope();
+    });
+    return () => {
+      unsubscribe();
+      invalidateScope();
+    };
+  }, [invalidateScope]);
   const currentAgent = agents.find((a) => a.id === selectedAgent);
   const defaultMediaDir = currentAgent?.workspace_dir
     ? `${currentAgent.workspace_dir}/media`
     : "~/.qwenpaw/media";
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
+  const qrcodeAuthProps = {
+    available:
+      !channelSchemaLoading &&
+      (channelSchema?.qrcode_available ??
+        !["running", "stopping"].includes(channelSchema?.availability ?? "")),
+    unavailableText:
+      !channelSchemaLoading && channelSchema?.availability === "missing_code"
+        ? t("channels.qrcodeInstallRequired")
+        : undefined,
+  };
   const label = activeKey ? getChannelLabel(activeKey, t) : activeLabel;
   const { message } = useAppMessage();
+  useEffect(
+    () =>
+      resumePendingPluginInstalls(
+        t,
+        () => onRuntimeChange?.(),
+        (error) => message.error(error.message),
+      ),
+    [agentId, message, onRuntimeChange, t],
+  );
   const formInitialValues: Record<string, unknown> = {
     ...(activeKey !== "console" ? { no_text_debounce: true } : {}),
     ...(activeKey === "sip" ? { sip_mode: "dev", sip_transport: "UDP" } : {}),
@@ -249,7 +322,7 @@ export function ChannelDrawer({
 
   // ── Builtin channel-specific fields ─────────────────────────────────────
 
-  const renderBuiltinExtraFields = (key: ChannelKey) => {
+  const renderKnownChannelFields = (key: ChannelKey) => {
     switch (key) {
       case "matrix":
         return (
@@ -433,6 +506,8 @@ export function ChannelDrawer({
               />
             </ConfigProvider>
             <QrcodeAuthBlock
+              {...qrcodeAuthProps}
+              agentId={agentId}
               label={t("channels.dingtalkScanAuth")}
               buttonText={t("channels.dingtalkGetQrcode")}
               imageAlt="DingTalk QR Code"
@@ -441,12 +516,15 @@ export function ChannelDrawer({
               successStatus="success"
               successCredentialKey="client_id"
               pollInterval={5000}
-              onSuccess={(credentials) => {
-                form.setFieldsValue({
-                  client_id: credentials.client_id,
-                  client_secret: credentials.client_secret,
-                });
-                schedule();
+              onSuccess={(credentials, provenance, custody) => {
+                acceptCredentials(
+                  {
+                    client_id: credentials.client_id,
+                    client_secret: credentials.client_secret,
+                  },
+                  provenance,
+                  custody,
+                );
                 message.success(t("channels.dingtalkAuthSuccess"));
               }}
               onError={(type) => {
@@ -627,6 +705,8 @@ export function ChannelDrawer({
               />
             </ConfigProvider>
             <QrcodeAuthBlock
+              {...qrcodeAuthProps}
+              agentId={agentId}
               label={t("channels.feishuScanLogin")}
               buttonText={t("channels.feishuGetQrcode")}
               imageAlt="Feishu QR Code"
@@ -636,12 +716,15 @@ export function ChannelDrawer({
               successCredentialKey="app_id"
               pollInterval={2000}
               params={{ domain: feishuDomain }}
-              onSuccess={(credentials) => {
-                form.setFieldsValue({
-                  app_id: credentials.app_id,
-                  app_secret: credentials.app_secret,
-                });
-                schedule();
+              onSuccess={(credentials, provenance, custody) => {
+                acceptCredentials(
+                  {
+                    app_id: credentials.app_id,
+                    app_secret: credentials.app_secret,
+                  },
+                  provenance,
+                  custody,
+                );
                 message.success(t("channels.feishuAuthSuccess"));
               }}
               onError={(type) => {
@@ -701,6 +784,8 @@ export function ChannelDrawer({
               />
             </ConfigProvider>
             <QrcodeAuthBlock
+              {...qrcodeAuthProps}
+              agentId={agentId}
               label={t("channels.qqScanAuth")}
               buttonText={t("channels.qqGetQrcode")}
               imageAlt="QQ QR Code"
@@ -711,13 +796,16 @@ export function ChannelDrawer({
               pollInterval={2000}
               pollTimeout={300000}
               maxPollCount={180}
-              onSuccess={(credentials) => {
-                form.setFieldsValue({
-                  app_id: credentials.app_id,
-                  client_secret: credentials.client_secret,
-                  user_openid: credentials.user_openid,
-                });
-                schedule();
+              onSuccess={(credentials, provenance, custody) => {
+                acceptCredentials(
+                  {
+                    app_id: credentials.app_id,
+                    client_secret: credentials.client_secret,
+                    user_openid: credentials.user_openid,
+                  },
+                  provenance,
+                  custody,
+                );
                 message.success(t("channels.qqAuthSuccess"));
               }}
               onError={(type) => {
@@ -1179,6 +1267,8 @@ export function ChannelDrawer({
               />
             </ConfigProvider>
             <QrcodeAuthBlock
+              {...qrcodeAuthProps}
+              agentId={agentId}
               label={t("channels.wecomScanAuth")}
               buttonText={t("channels.loginWeCom")}
               imageAlt="WeCom QR Code"
@@ -1187,12 +1277,15 @@ export function ChannelDrawer({
               successStatus="success"
               successCredentialKey="bot_id"
               pollInterval={3000}
-              onSuccess={(credentials) => {
-                form.setFieldsValue({
-                  bot_id: credentials.bot_id,
-                  secret: credentials.secret,
-                });
-                schedule();
+              onSuccess={(credentials, provenance, custody) => {
+                acceptCredentials(
+                  {
+                    bot_id: credentials.bot_id,
+                    secret: credentials.secret,
+                  },
+                  provenance,
+                  custody,
+                );
                 message.success(t("channels.wecomAuthSuccess"));
               }}
               onError={() => {
@@ -1322,6 +1415,8 @@ export function ChannelDrawer({
               />
             </ConfigProvider>
             <QrcodeAuthBlock
+              {...qrcodeAuthProps}
+              agentId={agentId}
               label={t("channels.wechatScanLogin")}
               buttonText={t("channels.wechatGetQrcode")}
               imageAlt="WeChat QR Code"
@@ -1330,9 +1425,17 @@ export function ChannelDrawer({
               successStatus="confirmed"
               successCredentialKey="bot_token"
               pollInterval={2000}
-              onSuccess={(credentials) => {
-                form.setFieldsValue({ bot_token: credentials.bot_token });
-                schedule();
+              onSuccess={(credentials, provenance, custody) => {
+                acceptCredentials(
+                  {
+                    bot_token: credentials.bot_token,
+                    ...(credentials.base_url
+                      ? { base_url: credentials.base_url }
+                      : {}),
+                  },
+                  provenance,
+                  custody,
+                );
                 message.success(t("channels.wechatLoginSuccess"));
               }}
               onError={(type) => {
@@ -1602,6 +1705,54 @@ export function ChannelDrawer({
 
   // ── Custom channel fields (key-value editor) ─────────────────────────────
 
+  const renderStructuredField = (
+    name: string,
+    label: string,
+    kind?: "array" | "object",
+    required = false,
+    defaultValue?: unknown,
+  ) => (
+    <Form.Item
+      key={name}
+      name={name}
+      label={label}
+      required={required}
+      initialValue={defaultValue}
+      getValueProps={(value) => ({
+        value:
+          typeof value === "string" ? value : JSON.stringify(value, null, 2),
+      })}
+      normalize={(value: string) => {
+        if (!value.trim()) return undefined;
+        try {
+          return JSON.parse(value);
+        } catch {
+          return value;
+        }
+      }}
+      rules={[
+        {
+          validator: (_, value) => {
+            if (value === undefined || value === null) {
+              return required
+                ? Promise.reject(new Error(`Please enter ${label}`))
+                : Promise.resolve();
+            }
+            return typeof value === "object" &&
+              (kind === undefined ||
+                (kind === "array"
+                  ? Array.isArray(value)
+                  : !Array.isArray(value)))
+              ? Promise.resolve()
+              : Promise.reject(new Error("Enter a valid JSON object or array"));
+          },
+        },
+      ]}
+    >
+      <Input.TextArea autoSize={{ minRows: 2, maxRows: 10 }} />
+    </Form.Item>
+  );
+
   const renderCustomExtraFields = (
     values: Record<string, unknown> | undefined,
   ) => {
@@ -1614,95 +1765,105 @@ export function ChannelDrawer({
               {channelSchema.description}
             </div>
           )}
-          {channelSchema.config_fields.map((field) => {
-            const fieldLabel = resolveLocalized(field.label, i18n.language);
-            const fieldHelp =
-              resolveLocalized(field.help, i18n.language) || undefined;
-            const fieldPlaceholder = resolveLocalized(
-              field.placeholder,
-              i18n.language,
-            );
-            const rules = field.required
-              ? [{ required: true, message: `Please enter ${fieldLabel}` }]
-              : undefined;
+          {channelSchema.config_fields
+            .filter((field) => !BASE_FIELDS.includes(field.name))
+            .map((field) => {
+              const fieldLabel = resolveLocalized(field.label, i18n.language);
+              const fieldHelp =
+                resolveLocalized(field.help, i18n.language) || undefined;
+              const fieldPlaceholder = resolveLocalized(
+                field.placeholder,
+                i18n.language,
+              );
+              const rules = field.required
+                ? [{ required: true, message: `Please enter ${fieldLabel}` }]
+                : undefined;
 
-            switch (field.type) {
-              case "password":
-                return (
-                  <Form.Item
-                    key={field.name}
-                    name={field.name}
-                    label={fieldLabel}
-                    rules={rules}
-                    tooltip={fieldHelp}
-                    initialValue={field.default}
-                  >
-                    <Input.Password placeholder={fieldPlaceholder} />
-                  </Form.Item>
-                );
-              case "number":
-                return (
-                  <Form.Item
-                    key={field.name}
-                    name={field.name}
-                    label={fieldLabel}
-                    rules={rules}
-                    tooltip={fieldHelp}
-                    initialValue={field.default}
-                  >
-                    <InputNumber
-                      style={{ width: "100%" }}
-                      placeholder={fieldPlaceholder}
-                    />
-                  </Form.Item>
-                );
-              case "switch":
-                return (
-                  <Form.Item
-                    key={field.name}
-                    name={field.name}
-                    label={fieldLabel}
-                    valuePropName="checked"
-                    tooltip={fieldHelp}
-                    initialValue={field.default}
-                  >
-                    <Switch />
-                  </Form.Item>
-                );
-              case "select":
-                return (
-                  <Form.Item
-                    key={field.name}
-                    name={field.name}
-                    label={fieldLabel}
-                    rules={rules}
-                    tooltip={fieldHelp}
-                    initialValue={field.default}
-                  >
-                    <Select
-                      placeholder={fieldPlaceholder}
-                      options={(field.options || []).map((opt) => ({
-                        label: opt,
-                        value: opt,
-                      }))}
-                    />
-                  </Form.Item>
-                );
-              default:
-                return (
-                  <Form.Item
-                    key={field.name}
-                    name={field.name}
-                    label={fieldLabel}
-                    rules={rules}
-                    tooltip={fieldHelp}
-                    initialValue={field.default}
-                  >
-                    <Input placeholder={fieldPlaceholder} />
-                  </Form.Item>
-                );
-            }
-          })}
+              switch (field.type) {
+                case "json":
+                  return renderStructuredField(
+                    field.name,
+                    fieldLabel,
+                    field.json_type,
+                    field.required,
+                    field.default,
+                  );
+                case "password":
+                  return (
+                    <Form.Item
+                      key={field.name}
+                      name={field.name}
+                      label={fieldLabel}
+                      rules={rules}
+                      tooltip={fieldHelp}
+                      initialValue={field.default}
+                    >
+                      <Input.Password placeholder={fieldPlaceholder} />
+                    </Form.Item>
+                  );
+                case "number":
+                  return (
+                    <Form.Item
+                      key={field.name}
+                      name={field.name}
+                      label={fieldLabel}
+                      rules={rules}
+                      tooltip={fieldHelp}
+                      initialValue={field.default}
+                    >
+                      <InputNumber
+                        style={{ width: "100%" }}
+                        placeholder={fieldPlaceholder}
+                      />
+                    </Form.Item>
+                  );
+                case "switch":
+                  return (
+                    <Form.Item
+                      key={field.name}
+                      name={field.name}
+                      label={fieldLabel}
+                      valuePropName="checked"
+                      tooltip={fieldHelp}
+                      initialValue={field.default}
+                    >
+                      <Switch />
+                    </Form.Item>
+                  );
+                case "select":
+                  return (
+                    <Form.Item
+                      key={field.name}
+                      name={field.name}
+                      label={fieldLabel}
+                      rules={rules}
+                      tooltip={fieldHelp}
+                      initialValue={field.default}
+                    >
+                      <Select
+                        placeholder={fieldPlaceholder}
+                        options={(field.options || []).map((opt) => ({
+                          label: opt,
+                          value: opt,
+                        }))}
+                      />
+                    </Form.Item>
+                  );
+                default:
+                  return (
+                    <Form.Item
+                      key={field.name}
+                      name={field.name}
+                      label={fieldLabel}
+                      rules={rules}
+                      tooltip={fieldHelp}
+                      initialValue={field.default}
+                    >
+                      <Input placeholder={fieldPlaceholder} />
+                    </Form.Item>
+                  );
+              }
+            })}
         </>
       );
     }
@@ -1719,8 +1880,15 @@ export function ChannelDrawer({
         <div style={{ marginBottom: 8, fontWeight: 500 }}>Custom Fields</div>
         {extraKeys.map((fieldKey) => {
           const value = values[fieldKey];
+          if (value === null || typeof value === "object")
+            return renderStructuredField(fieldKey, fieldKey);
           return (
-            <Form.Item key={fieldKey} name={fieldKey} label={fieldKey}>
+            <Form.Item
+              key={fieldKey}
+              name={fieldKey}
+              label={fieldKey}
+              valuePropName={typeof value === "boolean" ? "checked" : "value"}
+            >
               {typeof value === "boolean" ? (
                 <Switch />
               ) : typeof value === "number" ? (
@@ -1809,24 +1977,176 @@ export function ChannelDrawer({
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  const { schedule, flush, requestClose } = useAutoSave(async () => {
-    // Only currently registered fields belong to this channel's payload.
-    const values = form.getFieldsValue();
+  const prepareSave = async (
+    enqueue?: (save: () => Promise<boolean>) => void,
+  ) => {
+    if (!activeKey) return undefined;
+    const readValues = () => {
+      const values = form.getFieldsValue();
+      // QR providers can return credentials without a visible form item.
+      for (const field of authorization.current?.fields ?? [])
+        values[field] = form.getFieldValue(field);
+      return values;
+    };
+    // Registration changes when conditional controls mount/unmount. Observe
+    // the full store for edits, but submit only active fields after validation.
+    const validationValues = JSON.stringify(form.getFieldsValue(true));
+    const validationFields = JSON.stringify(Object.keys(form.getFieldsValue()));
+    const revision = formRevision.current;
+    const generation = scopeGeneration.current;
+    const capturedAuthorization = authorization.current
+      ? {
+          provenance: { ...authorization.current.provenance },
+          fields: [...authorization.current.fields],
+          receipt: authorization.current.receipt,
+          custody: authorization.current.custody,
+        }
+      : undefined;
+    const currentScope = () =>
+      generation === scopeGeneration.current &&
+      (useAgentStore.getState().selectedAgent || "default") === agentId;
+    const current = () =>
+      currentScope() &&
+      revision === formRevision.current &&
+      JSON.stringify(form.getFieldsValue(true)) === validationValues;
     try {
       await form.validateFields();
-    } catch {
-      return false;
+    } catch (error) {
+      // A field's own onChange validation can supersede the eager whole-form
+      // validation. Revalidate once, only while this exact snapshot is current.
+      if (
+        !current() ||
+        !error ||
+        typeof error !== "object" ||
+        !("outOfDate" in error) ||
+        error.outOfDate !== true ||
+        !("errorFields" in error) ||
+        !Array.isArray(error.errorFields) ||
+        error.errorFields.length !== 0
+      )
+        return undefined;
+      try {
+        await form.validateFields();
+      } catch {
+        return undefined;
+      }
     }
-    if (activeKey !== "matrix") {
-      return onSubmit(values);
+    if (!current()) return undefined;
+    if (
+      JSON.stringify(Object.keys(form.getFieldsValue())) !== validationFields
+    ) {
+      try {
+        await form.validateFields();
+      } catch {
+        return undefined;
+      }
+      if (!current()) return undefined;
     }
-    const { auth_method, ...rest } = values;
-    return onSubmit(
-      auth_method === "password"
+    const snapshot = { ...initialValues, ...structuredClone(readValues()) };
+    const { auth_method, ...rest } = snapshot;
+    const body =
+      activeKey !== "matrix"
+        ? snapshot
+        : auth_method === "password"
         ? { ...rest, access_token: "" }
-        : { ...rest, password: "", encryption: false },
-    );
+        : auth_method === "token"
+        ? { ...rest, password: "", encryption: false }
+        : rest;
+    const job = captureChannelSaveJob({
+      agentId,
+      channel: activeKey,
+      body: normalizeChannelSubmitValues(activeKey, body),
+      authSession: capturedAuthorization?.provenance.token,
+      formRevision: revision,
+    });
+    // Validation transfers custody to this immutable task. Later navigation,
+    // unmount or retry must not reread the form or discard the validated write.
+    const save = async () => {
+      const committed = capturedAuthorization?.receipt.credentials;
+      const alreadyCommitted =
+        committed &&
+        job.authSession &&
+        capturedAuthorization.provenance.agentId === job.agentId &&
+        capturedAuthorization.provenance.channel === job.channel &&
+        capturedAuthorization.provenance.token === job.authSession &&
+        Object.entries(committed).every(
+          ([key, value]) => job.body[key] === value,
+        );
+      const submittedJob = alreadyCommitted
+        ? captureChannelSaveJob({ ...job, authSession: undefined })
+        : job;
+      let saved: void | boolean = undefined;
+      if (onSubmitSnapshot) saved = await onSubmitSnapshot(submittedJob);
+      else {
+        if (job.authSession)
+          throw new Error("Authorization save requires its session provenance");
+        return (await onSubmit(job.body)) !== false;
+      }
+      if (saved === false) return true;
+      if (saved === true && capturedAuthorization && submittedJob.authSession) {
+        // Only this authorization batch shares the receipt. Its queued jobs
+        // retain it across navigation; the next scope cannot acquire it.
+        capturedAuthorization.receipt.credentials = Object.fromEntries(
+          capturedAuthorization.fields.map((key) => [key, job.body[key]]),
+        );
+      }
+      if (
+        saved === true &&
+        currentScope() &&
+        authorization.current?.provenance.token === job.authSession
+      ) {
+        authorization.current = undefined;
+      }
+      return true;
+    };
+    // Claim and enqueue without an intervening await: cleanup must see either
+    // an owned QR session or a validated task already in the existing queue.
+    if (capturedAuthorization && !capturedAuthorization.custody.take())
+      return undefined;
+    enqueue?.(save);
+    return save;
+  };
+  const { schedule, flush, requestClose } = useAutoSave(async () => {
+    const save = await prepareSave();
+    return save ? save() : false;
   });
+  const validateAndSchedule = () => {
+    pendingValidation.current = prepareSave(schedule)
+      .then((save) => !!save)
+      .catch(() => {
+        message.error(t("common.autoSaveFailed"));
+        return false;
+      });
+  };
+  const scheduleSnapshot = (changed: Record<string, unknown>) => {
+    formRevision.current += 1;
+    if (authorization.current?.fields.some((field) => field in changed)) {
+      authorization.current.custody.cancel();
+      authorization.current = undefined;
+    }
+    validateAndSchedule();
+  };
+  const acceptCredentials = (
+    values: Record<string, string>,
+    provenance: ChannelAuthProvenance,
+    custody: ChannelQrcodeCustody,
+  ) => {
+    if (provenance.agentId !== agentId || provenance.channel !== activeKey)
+      return;
+    form.setFieldsValue(values);
+    formRevision.current += 1;
+    authorization.current = {
+      provenance: { ...provenance },
+      custody,
+      receipt: {},
+      fields: [
+        ...Object.keys(values),
+        "bot_token_file",
+        ...(activeKey === "wechat" ? ["base_url"] : []),
+      ],
+    };
+    validateAndSchedule();
+  };
 
   return (
     <Drawer
@@ -1834,11 +2154,61 @@ export function ChannelDrawer({
       placement="right"
       title={drawerTitle}
       open={open}
-      onClose={() => void requestClose(onClose)}
+      onClose={() => {
+        const generation = scopeGeneration.current;
+        void (async () => {
+          const validated = await pendingValidation.current;
+          if (generation !== scopeGeneration.current) return;
+          if (validated === false) schedule();
+          await requestClose(() => {
+            if (generation === scopeGeneration.current) onClose();
+          });
+        })();
+      }}
       destroyOnHidden
       footer={null}
       key={activeKey} // Force remount when switching channels
     >
+      {channelSchema?.availability && (
+        <Alert
+          type="info"
+          showIcon
+          message={t(
+            `channels.runtime.${channelSchema.availability}`,
+            channelSchema.availability.replace(/_/g, " "),
+          )}
+          description={channelSchema.diagnostic}
+          action={
+            channelSchema.repair && (
+              <Button
+                loading={repairing}
+                onClick={async () => {
+                  setRepairing(true);
+                  try {
+                    const result = await runPluginInstall(
+                      () => channelApi.repairChannel(channelSchema.repair!),
+                      t,
+                    );
+                    if (result === null) return;
+                    await onRuntimeChange?.();
+                  } catch (error) {
+                    message.error(
+                      error instanceof Error ? error.message : String(error),
+                    );
+                  } finally {
+                    setRepairing(false);
+                  }
+                }}
+              >
+                {t(
+                  `channels.runtime.${channelSchema.repair.action}`,
+                  channelSchema.repair.action,
+                )}
+              </Button>
+            )
+          }
+        />
+      )}
       {activeKey && (
         <Form
           form={form}
@@ -1853,7 +2223,7 @@ export function ChannelDrawer({
               "advanced",
             ])
           }
-          onValuesChange={schedule}
+          onValuesChange={scheduleSnapshot}
           onFinish={() => void flush()}
         >
           <Form.Item
@@ -1866,9 +2236,8 @@ export function ChannelDrawer({
             <Switch disabled={activeKey === "console"} />
           </Form.Item>
 
-          {isBuiltin
-            ? renderBuiltinExtraFields(activeKey)
-            : renderCustomExtraFields(initialValues)}
+          {renderKnownChannelFields(channelSchema?.form_kind ?? activeKey) ??
+            (isBuiltin ? null : renderCustomExtraFields(initialValues))}
 
           <Collapse
             {...disclosureProps}

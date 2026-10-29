@@ -129,6 +129,27 @@ class TestEnqueueAndCreate:
         await manager.enqueue("console", "console:u1", 0, "b")
         assert state.last_activity > before
 
+    @pytest.mark.asyncio
+    async def test_dead_consumer_with_pending_work_rejects_admission(self):
+        async def exit_without_consuming(queue, *args):
+            return
+
+        mgr = UnifiedQueueManager(consumer_fn=exit_without_consuming)
+        try:
+            assert (
+                await mgr.admit("console", "same-session", 20, "first")
+            ).accepted
+            state = mgr._queues[("console", "same-session", 20)]
+            await state.consumer_task
+            assert state.queue.qsize() == state.queue.unfinished == 1
+            result = await mgr.admit("console", "same-session", 20, "second")
+            assert not result.accepted
+            assert result.reason_code == "QUEUE_UNAVAILABLE"
+            assert result.retryable is True
+            assert state.queue.qsize() == state.queue.unfinished == 1
+        finally:
+            await mgr.stop_all()
+
 
 # ---------------------------------------------------------------------------
 # start / stop lifecycle
@@ -136,6 +157,52 @@ class TestEnqueueAndCreate:
 
 
 class TestStartStop:
+    @pytest.mark.asyncio
+    async def test_stop_timeout_retains_consumer_for_retry_without_recancelling(
+        self,
+    ):
+        started, cleaning, release, interrupted = (
+            asyncio.Event() for _ in range(4)
+        )
+
+        async def consumer(queue, *args):
+            await queue.get()
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaning.set()
+                try:
+                    await release.wait()
+                except asyncio.CancelledError:
+                    interrupted.set()
+                    raise
+                queue.task_done()
+
+        mgr = UnifiedQueueManager(consumer_fn=consumer)
+        await mgr.enqueue("console", "same-session", 20, "owned")
+        await started.wait()
+        state = mgr._queues[("console", "same-session", 20)]
+        try:
+            with pytest.raises(TimeoutError):
+                await mgr.stop_all()
+            assert cleaning.is_set() and not interrupted.is_set()
+            assert mgr._queues[("console", "same-session", 20)] is state
+            assert not state.consumer_task.done()
+            assert state.queue.unfinished == 1
+            retry = asyncio.create_task(mgr.stop_all())
+            await asyncio.sleep(0)
+            assert not retry.done() and not interrupted.is_set()
+            release.set()
+            await retry
+            assert state.consumer_task.cancelled()
+            assert not interrupted.is_set()
+            assert state.queue.unfinished == 0 and mgr._queues == {}
+        finally:
+            release.set()
+            await asyncio.gather(state.consumer_task, return_exceptions=True)
+            await mgr.stop_all()
+
     @pytest.mark.asyncio
     async def test_start_cleanup_loop_idempotent(
         self,

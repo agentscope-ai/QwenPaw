@@ -266,7 +266,13 @@ async def test_sdk_channel_cannot_replace_builtin_dingtalk(tmp_path):
 
     source = SOURCE.replace('"sdk-contract-channel"', '"dingtalk"')
     async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(SDKError, match="built-in"):
+        with pytest.raises(
+            SDKError,
+            match=(
+                "Channel 'dingtalk' is reserved by owner 'dingtalk' "
+                "and cannot be registered by plugin 'extension-contract'"
+            ),
+        ):
             await host.load(
                 make_plugin(
                     tmp_path,
@@ -274,6 +280,9 @@ async def test_sdk_channel_cannot_replace_builtin_dingtalk(tmp_path):
                     ["channels", "commands", "storage"],
                 ),
             )
+        assert (
+            host._loader.registry.get_channel_catalog_entry("dingtalk") is None
+        )
 
 
 async def test_channel_streaming_real_model_preserves_metadata_and_terminal(

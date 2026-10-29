@@ -1334,6 +1334,8 @@
     "from": "Từ:",
     "requestedBy": "Bởi",
     "markRead": "Đánh dấu đã đọc",
+    "unreadOnly": "Chỉ hiện chưa đọc",
+    "emptyUnread": "Không có tin nhắn chưa đọc phù hợp với bộ lọc hiện tại",
     "markAllRead": "Đánh dấu tất cả đã đọc",
     "markAllReadNoUnread": "Không có tin nhắn chưa đọc",
     "markAllReadSuccess": "Đã đánh dấu {{count}} tin nhắn đã đọc",
@@ -3251,6 +3253,10 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
+    "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
+    "runtime": {
+      "missing_code": "Chưa cài đặt plugin"
+    },
     "title": "Kênh",
     "description": "Quản lý và cấu hình các kênh nhắn tin",
     "loading": "Đang tải kênh...",

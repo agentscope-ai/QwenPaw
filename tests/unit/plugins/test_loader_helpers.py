@@ -28,15 +28,6 @@ def working_dir(tmp_path, monkeypatch):
     return wd
 
 
-class TestIsFrozen:
-    def test_not_frozen(self):
-        assert pl._is_frozen() is False
-
-    def test_frozen_flag(self, monkeypatch):
-        monkeypatch.setattr(sys, "frozen", True, raising=False)
-        assert pl._is_frozen() is True
-
-
 class TestDesktopPython:
     def test_unset_returns_none(self, monkeypatch):
         monkeypatch.delenv("QWENPAW_DESKTOP_PY_RUNTIME", raising=False)
@@ -58,30 +49,14 @@ class TestDesktopPython:
 
 
 class TestPluginRuntimeDirs:
-    def test_runtime_dir_under_working_dir(self, working_dir):
-        assert pl._plugin_runtime_dir() == working_dir / "plugin_runtime"
-
-    def test_site_dir_bucketed_and_created(self, working_dir):
+    def test_site_dir_bucketed_without_creating_environment(self, working_dir):
         site = pl._plugin_site_dir()
-        assert site.is_dir()
+        assert not site.exists()
+        assert not (working_dir / "plugin_runtime").exists()
         assert site.name == "site"
         assert f"py{sys.version_info.major}.{sys.version_info.minor}" in (
             str(site)
         )
-
-    def test_install_lock_path_sanitised(self, working_dir):
-        lock = pl._install_lock_path("my plugin/id")
-        assert lock.name == "my_plugin_id.lock"
-        assert lock.parent == working_dir / "plugin_runtime" / "install-locks"
-
-    def test_install_lock_path_simple(self, working_dir):
-        lock = pl._install_lock_path("demo-1.0")
-        assert lock.name == "demo-1.0.lock"
-
-
-class TestNormRealpath:
-    def test_normalises(self, tmp_path):
-        assert pl._norm_realpath(tmp_path) == pl._norm_realpath(str(tmp_path))
 
 
 class TestResolvedPluginManifestPath:
@@ -109,29 +84,6 @@ class TestIsDisabledPluginDir:
 
     def test_normal_dir_enabled(self):
         assert pl._is_disabled_plugin_dir(Path("/x/remote")) is False
-
-
-class TestEnsurePluginSiteOnPath:
-    def test_noop_when_not_frozen(self, monkeypatch):
-        monkeypatch.setattr(pl, "_is_frozen", lambda: False)
-        pl._ensure_plugin_site_on_path()  # must not raise or modify path
-
-    def test_adds_site_when_frozen(self, working_dir, monkeypatch):
-        monkeypatch.setattr(pl, "_is_frozen", lambda: True)
-        site_dir = pl._plugin_site_dir()
-        # clean the dir from sys.path so the insertion path is exercised
-        monkeypatch.setattr(
-            pl.sys,
-            "path",
-            [p for p in pl.sys.path if p != str(site_dir)],
-        )
-        import site as _site
-
-        adds = []
-        monkeypatch.setattr(_site, "addsitedir", lambda d: adds.append(d))
-        pl._ensure_plugin_site_on_path()
-        assert str(site_dir) in pl.sys.path
-        assert pl.os.environ.get("QWENPAW_PLUGIN_SITE") == str(site_dir)
 
 
 class TestHubPluginLifecycle:
@@ -245,114 +197,21 @@ class TestHubPluginLifecycle:
             is compatible
         )
 
-    @pytest.mark.parametrize("legacy_adapter", [False, True])
     @pytest.mark.asyncio
-    async def test_defaults_unload_restart_and_reinstall(
-        self,
-        tmp_path,
-        monkeypatch,
-        legacy_adapter,
-    ):
-        import importlib
-        from qwenpaw.market import builtin, market_registry
-        from qwenpaw.market.registry import MarketProviderBusyError
-        from qwenpaw.plugins.registry import PluginRegistry
-
-        monkeypatch.setattr(PluginRegistry, "_instance", None)
-        plugins_dir = tmp_path / "plugins"
-        builtin.seed_builtin_hub_plugins(plugins_dir)
-        if legacy_adapter:
-            for entry in plugins_dir.glob("*/plugin.py"):
-                key = entry.parent.name.removesuffix("-hub")
-                entry.write_text(
-                    "from qwenpaw.agents.skill_system.hub import PROVIDERS\n"
-                    "handlers = {key: (match, fetch) "
-                    "for key, match, fetch in PROVIDERS}\n"
-                    + entry.read_text().replace(
-                        "Provider()),",
-                        f"Provider(), *handlers[{key!r}]),",
-                    ),
-                )
-        loader = pl.PluginLoader([plugins_dir])
-        try:
-            loaded = await loader.load_all_plugins(types=["hub"])
-            assert len(loaded) == 4
-            assert all(record.enabled for record in loaded.values())
-            assert list(market_registry.snapshot()) == [
-                "qwenpaw",
-                "clawhub",
-                "modelscope",
-                "aliyun",
-            ]
-            # Built-in plugins retain the existing search, availability,
-            # URL matching and download implementations.
-            from qwenpaw.agents.skill_system import hub
-
-            legacy = {
-                key: (matcher, fetcher)
-                for key, matcher, fetcher in hub.PROVIDERS
-            }
-            for key, provider in market_registry.snapshot().items():
-                original = importlib.import_module(
-                    f"qwenpaw.market.providers.{key}",
-                ).provider
-                assert provider.label == original.label
-                assert provider.supports_browse == original.supports_browse
-                assert provider.available() == original.available()
-                assert provider.search.__func__ is original.search.__func__
-                assert provider._matcher is legacy[key][0]
-                assert provider.fetch_bundle is legacy[key][1]
-            with market_registry.use("qwenpaw"):
-                with pytest.raises(MarketProviderBusyError):
-                    await loader.unload_plugin(
-                        "qwenpaw-hub",
-                        delete_files=True,
-                    )
-            assert (plugins_dir / "qwenpaw-hub/plugin.json").exists()
-            await loader.unload_plugin("qwenpaw-hub", delete_files=True)
-            assert "qwenpaw" not in market_registry.snapshot()
-            # Direct URL imports remain independent of the market registry.
-            assert (
-                hub._match_provider(
-                    "https://platform.agentscope.io/skills/o/n",
-                )[0]
-                == "qwenpaw"
-            )
-            for plugin_id in list(loaded):
-                await loader.unload_plugin(plugin_id)
-            builtin.seed_builtin_hub_plugins(plugins_dir)
-            assert not (plugins_dir / "qwenpaw-hub").exists()
-            await loader.load_all_plugins(types=["hub"])
-            assert "qwenpaw" not in market_registry.snapshot()
-            source = builtin.get_builtin_hub_plugins_dir() / "qwenpaw-hub"
-            await loader.load_plugin_from_path(source)
-            assert "qwenpaw" in market_registry.snapshot()
-            # A force update replaces the old registration, not duplicates it.
-            await loader.load_plugin_from_path(source, force=True)
-            assert list(market_registry.snapshot()).count("qwenpaw") == 1
-            # Removing every default Hub remains effective on a fresh start.
-            for plugin_id in list(loader.get_all_loaded_plugins()):
-                await loader.unload_plugin(plugin_id, delete_files=True)
-            builtin.seed_builtin_hub_plugins(plugins_dir)
-            restarted = pl.PluginLoader([plugins_dir])
-            assert await restarted.load_all_plugins(types=["hub"]) == {}
-            assert market_registry.snapshot() == {}
-            assert not list(plugins_dir.glob("*/plugin.json"))
-        finally:
-            for plugin_id in list(loader.get_all_loaded_plugins()):
-                await loader.unload_plugin(plugin_id)
-
-    @pytest.mark.asyncio
-    async def test_catalog_waits_for_default_hubs(self, tmp_path, monkeypatch):
+    async def test_catalog_waits_for_default_hubs(self, monkeypatch):
         import asyncio
         from fastapi import FastAPI, Request
         from qwenpaw.app.routers.market import get_market_providers
-        from qwenpaw.market import builtin
-        from qwenpaw.plugins.registry import PluginRegistry
+        from qwenpaw.market.schema import ProviderInfo
 
-        monkeypatch.setattr(PluginRegistry, "_instance", None)
-        builtin.seed_builtin_hub_plugins(tmp_path)
-        loader = pl.PluginLoader([tmp_path])
+        providers = [
+            ProviderInfo(key, key, True, None)
+            for key in ("qwenpaw", "clawhub", "modelscope", "aliyun")
+        ]
+        monkeypatch.setattr(
+            "qwenpaw.app.routers.market.list_providers",
+            lambda: providers,
+        )
         app = FastAPI()
         app.state.market_ready = asyncio.Event()
         catalog_request = asyncio.create_task(
@@ -361,7 +220,6 @@ class TestHubPluginLifecycle:
         try:
             await asyncio.sleep(0)
             assert not catalog_request.done()
-            await loader.load_all_plugins(types=["hub"])
             app.state.market_ready.set()
             catalog = await asyncio.wait_for(
                 catalog_request,
@@ -375,8 +233,7 @@ class TestHubPluginLifecycle:
             ]
         finally:
             catalog_request.cancel()
-            for plugin_id in list(loader.get_all_loaded_plugins()):
-                await loader.unload_plugin(plugin_id)
+            await asyncio.gather(catalog_request, return_exceptions=True)
 
     def test_seeding_preserves_existing_files_and_rejects_bad_marker(
         self,

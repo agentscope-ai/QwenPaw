@@ -22,6 +22,9 @@ import pytest
 
 from qwenpaw.providers import provider_manager as _provider_manager_module
 
+# Fixture data is loaded explicitly by tests, never collected as a suite.
+collect_ignore = ["fixtures"]
+
 
 @pytest.fixture(autouse=True)
 def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:

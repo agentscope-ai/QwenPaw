@@ -37,6 +37,7 @@ import {
   useState,
   type FocusEventHandler,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { UploadConflictError, workspaceApi } from "../../api/modules/workspace";
@@ -500,6 +501,9 @@ interface FilesNavigatorProps {
   activeMemoryGraphRoot: MemoryGraphRoot | null;
   onShowMemoryGraph: (root: MemoryGraphRoot) => void;
   onShowFiles: () => void;
+  memoryTagsActive?: boolean;
+  memoryTagsPanel?: ReactNode;
+  onShowMemoryTags?: () => void;
   scope: FilesWorkspaceScope;
 }
 
@@ -509,6 +513,9 @@ export default function FilesNavigator({
   activeMemoryGraphRoot,
   onShowMemoryGraph,
   onShowFiles,
+  memoryTagsActive = false,
+  memoryTagsPanel,
+  onShowMemoryTags,
   scope,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
@@ -540,6 +547,7 @@ export default function FilesNavigator({
   const [profilePickerOpen, setProfilePickerOpen] = useState(false);
   const [profileSearch, setProfileSearch] = useState("");
   const [source, setSource] = useState<NavigatorSource>("workspace");
+  const activeSource = memoryTagsActive ? "tags" : source;
   const [activeTreeItemPath, setActiveTreeItemPath] = useState<string | null>(
     null,
   );
@@ -1152,7 +1160,7 @@ export default function FilesNavigator({
             >
               <RefreshCw size={15} />
             </button>
-            {source === "workspace" && (
+            {source === "workspace" && !memoryTagsActive && (
               <button
                 type="button"
                 className={styles.iconButton}
@@ -1182,28 +1190,39 @@ export default function FilesNavigator({
         />
       </header>
       <div className={styles.sourceTabs} role="tablist">
-        {(["workspace", "profile", "daily", "digest"] as NavigatorSource[]).map(
-          (item) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === item}
-              key={item}
-              className={`${styles.sourceTab} ${
-                source === item ? styles.sourceTabActive : ""
-              }`}
-              data-source={item}
-              onClick={() => {
-                setActiveTreeItemPath(null);
-                setSource(item);
-                onShowFiles();
-              }}
-            >
-              {t(`files.${item}`)}
-            </button>
-          ),
-        )}
+        {(
+          [
+            "workspace",
+            "profile",
+            "daily",
+            "digest",
+            ...(memoryTagsPanel ? ["tags"] : []),
+          ] as (NavigatorSource | "tags")[]
+        ).map((item) => (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSource === item}
+            key={item}
+            className={`${styles.sourceTab} ${
+              activeSource === item ? styles.sourceTabActive : ""
+            }`}
+            data-source={item}
+            onClick={() => {
+              setActiveTreeItemPath(null);
+              if (item === "tags") {
+                onShowMemoryTags?.();
+                return;
+              }
+              setSource(item);
+              onShowFiles();
+            }}
+          >
+            {t(item === "tags" ? "files.memoryTagsLabel" : `files.${item}`)}
+          </button>
+        ))}
       </div>
+      {memoryTagsActive && memoryTagsPanel}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -1216,6 +1235,7 @@ export default function FilesNavigator({
           <div
             ref={treeRef}
             className={styles.tree}
+            hidden={memoryTagsActive}
             role="tree"
             aria-busy={navigatorLoading}
             onKeyDown={handleTreeKeyDown}

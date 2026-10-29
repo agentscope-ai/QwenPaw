@@ -13,6 +13,7 @@ seeded credentials, then exercises:
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import socket
@@ -79,6 +80,11 @@ def auth_app_server(  # pylint: disable=too-many-statements
     working_dir.mkdir(parents=True, exist_ok=True)
     secret_dir.mkdir(parents=True, exist_ok=True)
     backups_dir.mkdir(parents=True, exist_ok=True)
+    # Exercise authentication even though the test server is on loopback.
+    (working_dir / "config.json").write_text(
+        json.dumps({"security": {"allow_no_auth_hosts": []}}),
+        encoding="utf-8",
+    )
 
     env = os.environ.copy()
     for key in (
@@ -268,15 +274,13 @@ def test_protected_endpoint_without_token_returns_401(
 ) -> None:
     """Test purpose:
     - Verify GET /api/agents (protected) returns 401 without a token.
-      Use X-Forwarded-For to simulate a non-localhost client (default
-      allow_no_auth_hosts whitelists 127.0.0.1/::1).
+      The fixture disables the localhost authentication exemption.
 
     API endpoints:
     - GET /api/agents
     """
     resp = auth_app_server.get(
         "/api/agents",
-        headers={"X-Forwarded-For": "203.0.113.7"},
         timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 401, resp.text
@@ -289,8 +293,8 @@ def test_protected_endpoint_with_valid_token_returns_200(
 ) -> None:
     """Test purpose:
     - Verify GET /api/agents with a valid Bearer token returns 200.
-      Uses X-Forwarded-For so the no-auth-hosts whitelist does not
-      mask the test (otherwise localhost would pass without a token).
+      The fixture disables the localhost authentication exemption so
+      the supplied token must actually authenticate the request.
 
     Test flow:
     1. POST /api/auth/login → obtain token.
@@ -315,7 +319,6 @@ def test_protected_endpoint_with_valid_token_returns_200(
         "/api/agents",
         headers={
             "Authorization": f"Bearer {token}",
-            "X-Forwarded-For": "203.0.113.7",
         },
         timeout=_HTTP_TIMEOUT,
     )

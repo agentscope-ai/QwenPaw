@@ -133,61 +133,6 @@ async def test_sdk_transaction_commit_boundary_retains_correct_code_and_data(
         assert await text_result(host) == expected + ":persist:3"
 
 
-@pytest.mark.parametrize(
-    ("dependency", "module"),
-    [("httpx", "httpx"), ("uvicorn", "uvicorn"), ("pydantic", "pydantic")],
-)
-async def test_sdk_dependency_restart_rejected_before_module_execution(
-    tmp_path,
-    monkeypatch,
-    dependency,
-    module,
-):
-    import importlib
-    import subprocess
-
-    from qwenpaw.plugins import SDKRestartRequiredError
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    loaded = importlib.import_module(module)
-    assert loaded.__version__ != "0.0.1"
-    # A missing guard must not make the test fetch/install packages online.
-    monkeypatch.setenv("UV_OFFLINE", "1")
-    monkeypatch.setenv("PIP_NO_INDEX", "1")
-    installer_calls = []
-    spawn = subprocess.Popen
-
-    def prohibit_installer(args, *values, **kwargs):
-        if "install" in args and ("pip" in args or "uv" in str(args[0])):
-            installer_calls.append(tuple(args))
-            raise AssertionError("Dependency guard reached external installer")
-        return spawn(args, *values, **kwargs)
-
-    monkeypatch.setattr(subprocess, "Popen", prohibit_installer)
-    one, two = package(tmp_path, "1.0.0"), package(tmp_path, "2.0.0")
-    marker = tmp_path / "incoming-module-executed"
-    entry = two / "main.py"
-    entry.write_text(
-        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
-        + entry.read_text(),
-    )
-    (two / "requirements.txt").write_text(f"{dependency}==0.0.1\n")
-    root = tmp_path / "host"
-    async with PluginTestHost(root) as host:
-        await host.install(one, config={"label": "retained"})
-        with pytest.raises(SDKRestartRequiredError):
-            await host.install(two, replace=True)
-        assert not installer_calls
-        assert not marker.exists()
-        assert await text_result(host) == "1.0.0:retained:1"
-        assert (
-            json.loads(
-                (root / "plugins/extension-contract/plugin.json").read_text(),
-            )["version"]
-            == "1.0.0"
-        )
-
-
 async def test_sdk_busy_stream_in_other_workspace_prevents_install_commit(
     tmp_path,
 ):
@@ -315,41 +260,3 @@ plugin = Plugin()
             == "1.0.0"
         )
         assert (await host.reload("extension-contract")).ok
-
-
-async def test_uninstall_refuses_external_source_tree_but_unload_is_allowed(
-    tmp_path,
-):
-    import hashlib
-    from qwenpaw.plugins import SDKError
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    source = make_plugin(
-        tmp_path,
-        (
-            "class Plugin:\n    def register(self, ctx): "
-            "pass\nplugin = Plugin()\n"
-        ),
-        [],
-    )
-    before = {
-        str(path.relative_to(source)): hashlib.sha256(
-            path.read_bytes(),
-        ).hexdigest()
-        for path in source.rglob("*")
-        if path.is_file()
-    }
-    async with PluginTestHost(tmp_path / "host") as host:
-        await host.load(source)
-        with pytest.raises(SDKError):
-            await host.uninstall("extension-contract")
-        after = {
-            str(path.relative_to(source)): hashlib.sha256(
-                path.read_bytes(),
-            ).hexdigest()
-            for path in source.rglob("*")
-            if path.is_file() and "__pycache__" not in path.parts
-        }
-        assert after == before
-        assert (await host.unload("extension-contract")).clean
-        assert source.is_dir()

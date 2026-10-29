@@ -746,7 +746,7 @@ async def test_channel_failed_projection_can_retry_cleanup(
         lambda *a, **k: ch,
     )
     monkeypatch.setattr(
-        "qwenpaw.plugins.workspace_projector.channel_passes_gates",
+        "qwenpaw.plugins.api.channel_passes_gates",
         lambda *_: True,
     )
     loader = PluginLoader([])
@@ -947,14 +947,27 @@ async def test_workspace_stop_continues_after_failed_plugin_revoke(
     old = Workspace.__new__(Workspace)
     old.agent_id = "retiring"
     old._started = old._start_attempted = True
-    old._service_manager = SimpleNamespace(stop_all=AsyncMock())
+    old._service_manager = SimpleNamespace(stop_all=AsyncMock(), services={})
     harness = SimpleNamespace(stop=AsyncMock())
     old._harness_runtime = harness
-    registry.projector = SimpleNamespace(
-        revoke_workspace=AsyncMock(
-            side_effect=[QuiescenceError("plugin still alive"), None],
-        ),
+    registry.projector = WorkspaceProjector(lambda: [])
+    registry.projector.track_workspace(old)
+    token, revokes = object(), []
+
+    async def revoke(workspace, binding):
+        assert workspace is old and binding is token
+        revokes.append(binding)
+        if len(revokes) == 1:
+            raise QuiescenceError("plugin still alive")
+
+    registry.projector.intend(
+        "worker",
+        "retiring-worker",
+        "recovery",
+        lambda _ws: token,
+        revoke,
     )
+    await registry.projector.project_workspace(old)
 
     with pytest.raises(QuiescenceError, match="plugin still alive"):
         await old.stop(final=final, preserve_reused=preserve_reused)
@@ -966,10 +979,13 @@ async def test_workspace_stop_continues_after_failed_plugin_revoke(
     harness.stop.assert_awaited_once()
     assert old._started and old._start_attempted
     assert old._harness_runtime is None
+    assert old in registry.projector.workspaces()
 
     await old.stop(final=final, preserve_reused=preserve_reused)
     assert not old._started and not old._start_attempted
     harness.stop.assert_awaited_once()
+    assert old not in registry.projector.workspaces()
+    assert revokes == [token, token]
 
 
 @pytest.mark.asyncio
@@ -981,22 +997,26 @@ async def test_workspace_stop_retains_failed_harness_for_retry(registry):
     old._started = old._start_attempted = True
     old._service_manager = SimpleNamespace(
         stop_all=AsyncMock(side_effect=[RuntimeError("service busy"), None]),
+        services={},
     )
     harness = SimpleNamespace(
         stop=AsyncMock(side_effect=[RuntimeError("harness busy"), None]),
     )
     old._harness_runtime = harness
-    registry.projector = SimpleNamespace(revoke_workspace=AsyncMock())
+    registry.projector = WorkspaceProjector(lambda: [])
+    registry.projector.track_workspace(old)
     with pytest.raises(RuntimeError) as raised:
         await old.stop(final=False)
     assert "service busy" in str(raised.value)
     assert "harness busy" in str(raised.value)
     assert old._harness_runtime is harness
     assert old._started and old._start_attempted
+    assert old in registry.projector.workspaces()
     await old.stop(final=False)
     assert old._harness_runtime is None
     assert not old._started and not old._start_attempted
     assert harness.stop.await_count == 2
+    assert old not in registry.projector.workspaces()
 
 
 @pytest.mark.asyncio

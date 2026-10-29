@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 import click
 import uvicorn
@@ -17,6 +18,7 @@ from ..utils.platform import warn_unelevated_sandbox
 from .windows_shutdown import install_shutdown_handlers
 
 logger = logging.getLogger(__name__)
+_dependency_restart = None
 
 
 def _format_bind_address(host: str, port: int) -> str:
@@ -60,6 +62,9 @@ def configure_server_process(
     reload: bool = False,
 ) -> None:
     """Configure shared process state for an HTTP server command."""
+    from ..app.server_context import set_server_port
+
+    set_server_port(port)
     os.environ["QWENPAW_RUNTIME_MODE"] = (
         "hub" if os.environ.get("QWENPAW_RUNTIME_ID") else "standalone"
     )
@@ -131,6 +136,9 @@ def app_cmd(
     hide_access_paths: tuple[str, ...],
 ) -> None:
     """Run QwenPaw FastAPI app."""
+    global _dependency_restart  # pylint: disable=global-statement
+    _dependency_restart = None
+
     # NOTE: the server intentionally runs UNPRIVILEGED. The Windows
     # restricted-token sandbox no longer requires the whole server to be
     # elevated (which PR #5931 forced via ShellExecuteW("runas"), breaking
@@ -172,12 +180,28 @@ def app_cmd(
     _warn_if_auth_off_non_loopback_bind(host, port)
     install_shutdown_handlers()
 
+    # This is launcher-owned state, not request-supplied restart arguments.
+    # Supervisor supplies native process metadata and owns its child's restart.
+    if not reload and not any(
+        key in os.environ
+        for key in (
+            "SUPERVISOR_ENABLED",
+            "SUPERVISOR_PROCESS_NAME",
+            "SUPERVISOR_GROUP_NAME",
+        )
+    ):
+        _dependency_restart = {
+            "command": [sys.executable, *sys.orig_argv[1:]],
+            "cwd": os.getcwd(),
+        }
+
     uvicorn.run(
         "qwenpaw.app._app:app",
         host=host,
         port=port,
         reload=reload,
         workers=1,
+        proxy_headers=False,
         log_level=log_level,
         # Bound shutdown so workspace SSE connections cannot block exit.
         timeout_graceful_shutdown=5,

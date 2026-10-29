@@ -1,0 +1,283 @@
+{
+  "schema_version": 2,
+  "channel_key": "sip",
+  "label": {
+    "en": "SIP",
+    "zh": "SIP语音"
+  },
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {
+    "scope": "runner",
+    "module": "qwenpaw_channel_sip.driver",
+    "qualname": "SIPDriver"
+  },
+  "requirements_file": "requirements.txt",
+  "config_schema": {
+    "properties": {
+      "enabled": {
+        "title": "Enabled",
+        "type": "boolean",
+        "default": false
+      },
+      "bot_prefix": {
+        "title": "Bot Prefix",
+        "type": "string",
+        "default": ""
+      },
+      "show_tool_calls": {
+        "title": "Show Tool Calls",
+        "type": "boolean",
+        "default": true
+      },
+      "show_tool_results": {
+        "title": "Show Tool Results",
+        "type": "boolean",
+        "default": true
+      },
+      "tool_call_max_length": {
+        "title": "Tool Call Max Length",
+        "minimum": 0,
+        "type": "integer",
+        "default": 200
+      },
+      "tool_result_max_length": {
+        "title": "Tool Result Max Length",
+        "minimum": 0,
+        "type": "integer",
+        "default": 500
+      },
+      "show_thinking": {
+        "title": "Show Thinking",
+        "type": "boolean",
+        "default": true
+      },
+      "dm_policy": {
+        "title": "Dm Policy",
+        "type": "string",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "default": "open"
+      },
+      "group_policy": {
+        "title": "Group Policy",
+        "type": "string",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "default": "open"
+      },
+      "allow_from": {
+        "title": "Allow From",
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      },
+      "deny_message": {
+        "title": "Deny Message",
+        "type": "string",
+        "default": ""
+      },
+      "require_mention": {
+        "title": "Require Mention",
+        "type": "boolean",
+        "default": false
+      },
+      "no_text_debounce": {
+        "title": "No Text Debounce",
+        "type": "boolean",
+        "default": true
+      },
+      "access_control_dm": {
+        "title": "Access Control Dm",
+        "type": "boolean",
+        "default": false
+      },
+      "access_control_group": {
+        "title": "Access Control Group",
+        "type": "boolean",
+        "default": false
+      },
+      "dm_disabled": {
+        "title": "Dm Disabled",
+        "type": "boolean",
+        "default": false
+      },
+      "group_disabled": {
+        "title": "Group Disabled",
+        "type": "boolean",
+        "default": false
+      },
+      "sip_mode": {
+        "title": "Sip Mode",
+        "type": "string",
+        "default": "dev"
+      },
+      "sip_host": {
+        "title": "Sip Host",
+        "type": "string",
+        "default": "0.0.0.0"
+      },
+      "sip_port": {
+        "title": "Sip Port",
+        "type": "integer",
+        "default": 5061
+      },
+      "sip_username": {
+        "title": "Sip Username",
+        "type": "string",
+        "default": ""
+      },
+      "sip_password": {
+        "title": "Sip Password",
+        "type": "string",
+        "default": ""
+      },
+      "sip_server": {
+        "title": "Sip Server",
+        "type": "string",
+        "default": ""
+      },
+      "sip_transport": {
+        "title": "Sip Transport",
+        "type": "string",
+        "default": "UDP"
+      },
+      "rtp_port_low": {
+        "title": "Rtp Port Low",
+        "type": "integer",
+        "default": 10000
+      },
+      "rtp_port_high": {
+        "title": "Rtp Port High",
+        "type": "integer",
+        "default": 20000
+      },
+      "dashscope_api_key": {
+        "title": "Dashscope Api Key",
+        "type": "string",
+        "default": ""
+      },
+      "tts_provider": {
+        "title": "Tts Provider",
+        "type": "string",
+        "default": "aliyun"
+      },
+      "tts_voice": {
+        "title": "Tts Voice",
+        "type": "string",
+        "default": ""
+      },
+      "stt_provider": {
+        "title": "Stt Provider",
+        "type": "string",
+        "default": "aliyun"
+      },
+      "language": {
+        "title": "Language",
+        "type": "string",
+        "default": "zh-CN"
+      },
+      "welcome_greeting": {
+        "title": "Welcome Greeting",
+        "type": "string",
+        "default": "你好，我是QwenPaw"
+      },
+      "call_timeout": {
+        "title": "Call Timeout",
+        "type": "number",
+        "default": 120.0
+      },
+      "livekit_url": {
+        "title": "Livekit Url",
+        "type": "string",
+        "default": ""
+      },
+      "livekit_api_key": {
+        "title": "Livekit Api Key",
+        "type": "string",
+        "default": ""
+      },
+      "livekit_api_secret": {
+        "title": "Livekit Api Secret",
+        "type": "string",
+        "default": ""
+      },
+      "livekit_sip_trunk_id": {
+        "title": "Livekit Sip Trunk Id",
+        "type": "string",
+        "default": ""
+      },
+      "livekit_room_name": {
+        "title": "Livekit Room Name",
+        "type": "string",
+        "default": "sip-inbound"
+      },
+      "livekit_output_sample_rate": {
+        "title": "Livekit Output Sample Rate",
+        "type": "integer",
+        "default": 24000
+      },
+      "max_concurrent_calls": {
+        "title": "Max Concurrent Calls",
+        "type": "integer",
+        "default": 5
+      }
+    },
+    "title": "SIPChannelConfig",
+    "type": "object"
+  },
+  "config_fields": [
+    "enabled",
+    "bot_prefix",
+    "show_tool_calls",
+    "show_tool_results",
+    "tool_call_max_length",
+    "tool_result_max_length",
+    "show_thinking",
+    "dm_policy",
+    "group_policy",
+    "allow_from",
+    "deny_message",
+    "require_mention",
+    "no_text_debounce",
+    "access_control_dm",
+    "access_control_group",
+    "dm_disabled",
+    "group_disabled",
+    "sip_mode",
+    "sip_host",
+    "sip_port",
+    "sip_username",
+    "sip_password",
+    "sip_server",
+    "sip_transport",
+    "rtp_port_low",
+    "rtp_port_high",
+    "dashscope_api_key",
+    "tts_provider",
+    "tts_voice",
+    "stt_provider",
+    "language",
+    "welcome_greeting",
+    "call_timeout",
+    "livekit_url",
+    "livekit_api_key",
+    "livekit_api_secret",
+    "livekit_sip_trunk_id",
+    "livekit_room_name",
+    "livekit_output_sample_rate",
+    "max_concurrent_calls"
+  ],
+  "capabilities": [
+    "channel.generic.v1",
+    "event.unknown_actor.v1",
+    "send.content_source.v1",
+    "send.raw_completed_text.v1"
+  ]
+}

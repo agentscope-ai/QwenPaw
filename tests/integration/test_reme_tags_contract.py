@@ -10,6 +10,7 @@ from qwenpaw.agents.memory.reme_light_memory_manager import (
     _load_validated_reme_app,
 )
 from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.agents.memory.reme_tags import list_tag_files
 
 pytestmark = [pytest.mark.integration, pytest.mark.p1]
 
@@ -83,6 +84,10 @@ async def test_tagged_memory_is_discoverable_and_filterable(
                 await asyncio.sleep(0.05)
         assert listed.success, listed.answer
         assert ("赵六", 1) in listed.answer["items"]
+        browsed = await list_tag_files(app, tag="赵六")
+        assert browsed["total_files"] == 1
+        assert browsed["items"][0]["path"] == note_path
+        assert browsed["items"][0]["memory_tags"] == ["赵六", "orion"]
 
         found = await app.run_job("search", query="Orion", tags=["赵六"])
         assert found.success, found.answer

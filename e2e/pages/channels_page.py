@@ -290,34 +290,10 @@ class ChannelsPage(BasePage):
         except Exception:
             return ""
 
-    # Built-in channel labels (aligned with console/src/pages/Control/Channels/
-    # components/constants.ts::CHANNEL_LABELS and the backend
-    # src/qwenpaw/app/channels/registry.py::_BUILTIN_SPECS).
-    #
-    # In v2.0.0 (PR #5504) built-in channels rendered in the Available section
-    # use <ChannelAvailableItem> and no longer show a "内置 / Built-in" tag,
-    # so DOM-based detection is not reliable. We match on channel label
-    # instead — this matches the source of truth (frontend + backend).
-    _BUILTIN_LABELS = frozenset({
-        "iMessage", "Discord", "DingTalk", "Feishu", "QQ", "Telegram",
-        "Slack", "MQTT", "Mattermost", "Matrix", "Console", "Twilio",
-        "SIP", "WeCom", "XiaoYi", "WeChat", "OneBot", "Yuanbao",
-    })
-
     def is_builtin_channel(self, channel_name: str) -> bool:
-        """
-        Return whether the channel is a built-in channel.
-
-        v2.0.0 note: since PR #5504 the Available section uses
-        <ChannelAvailableItem>, which does not render a Built-in tag.
-        We resolve built-in vs custom via the frontend/backend label
-        list rather than DOM inspection. This also removes false
-        negatives caused by aliases (e.g. "钉钉" vs "DingTalk").
-        """
-        for candidate in self._resolve_channel_aliases(channel_name):
-            if candidate in self._BUILTIN_LABELS:
-                return True
-        return False
+        """Read the built-in tag of an enabled channel card."""
+        card = self.find_channel_card(channel_name)
+        return card is not None and card.locator('[class*=builtinTag]').count() > 0
 
     # ========== Edit dialog/drawer operations ==========
 
@@ -451,26 +427,15 @@ class ChannelsPage(BasePage):
         return actual_count == expected_count
 
     def _card_label_matches_builtin(self, card: Locator) -> Optional[bool]:
-        """
-        Inspect a card/available item and decide whether its channel label
-        maps to a built-in channel.
+        """Only Console is built in; official platform channels are plugins.
 
-        Returns:
-            True  — built-in label was found in the card text
-            False — the card carries a recognizable non-built-in label
-            None  — could not determine (empty text / unreadable)
+        Available tiles have no type tag, so read their exact name instead
+        of matching arbitrary card text such as a user-provided bot prefix.
         """
-        try:
-            text = card.inner_text()
-        except Exception:
-            return None
-        for label in self._BUILTIN_LABELS:
-            if label in text:
-                return True
-        # No built-in label matched. If the text is non-empty, treat as
-        # custom (there is a visible label but it is not on the built-in
-        # list). Empty text stays as "unknown" (None).
-        return False if text.strip() else None
+        label = card.get_attribute("aria-label")
+        if label is None:
+            label = card.locator('[class*=availableItemName]').inner_text()
+        return label.strip() in {"Console", "控制台"} if label.strip() else None
 
     def verify_filter_result(self, filter_type: str) -> bool:
         """
@@ -484,12 +449,12 @@ class ChannelsPage(BasePage):
             return len(cards) > 0
         if filter_type == 'builtin':
             for card in cards:
-                if self._card_label_matches_builtin(card) is False:
+                if self._card_label_matches_builtin(card) is not True:
                     return False
             return len(cards) > 0
         if filter_type == 'custom':
             for card in cards:
-                if self._card_label_matches_builtin(card) is True:
+                if self._card_label_matches_builtin(card) is not False:
                     return False
             return len(cards) > 0
         return False

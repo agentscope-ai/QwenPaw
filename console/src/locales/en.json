@@ -589,6 +589,8 @@
     "skillBuiltinSyncFailed": "\"{{skill}}\" could not sync to: {{agents}}",
     "requestedBy": "By",
     "markRead": "Mark Read",
+    "unreadOnly": "Unread only",
+    "emptyUnread": "No unread messages match the current filters",
     "markAllRead": "Mark All Read",
     "markAllReadNoUnread": "No unread messages",
     "markAllReadSuccess": "Marked {{count}} messages as read",
@@ -1985,6 +1987,10 @@
     "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "runtime": {
+      "missing_code": "Plugin not installed"
+    },
+    "qrcodeInstallRequired": "Install the plugin to scan a QR code",
     "manualCredentials": "Manual credentials",
     "deliverySettings": "Delivery options",
     "presentationSettings": "Message presentation",
@@ -3080,6 +3086,22 @@
     "memory": "Long-term Memory",
     "daily": "Daily",
     "digest": "Knowledge Base",
+    "memoryTags": "Memory tags",
+    "memoryTagsLabel": "Tags",
+    "memoryTagBrowse": "Search indexed memories tagged {{tag}}",
+    "memoryTagsAll": "All tags",
+    "memoryTagsScope": "Searches indexed memories. The current file may not be indexed.",
+    "memoryTagsRefresh": "Refresh memory tags",
+    "memoryTagsCount_one": "{{count}} tag",
+    "memoryTagsCount_other": "{{count}} tags",
+    "memoryTagFilesCount_one": "{{count}} file",
+    "memoryTagFilesCount_other": "{{count}} files",
+    "memoryTagsLoadFailed": "Memory tags are unavailable. Please try again.",
+    "memoryTagsEmpty": "No memory tags yet.",
+    "memoryTagFilesEmpty": "No indexed memories carry this tag.",
+    "memoryTagsPrevious": "Previous page",
+    "memoryTagsNext": "Next page",
+    "memoryTagsPage": "{{page}} / {{total}}",
     "memoryGraph": "Memory Graph",
     "memoryGraphShort": "Graph",
     "memoryGraphLoading": "Loading memory graph…",
@@ -5364,17 +5386,28 @@
     "details": "Details"
   },
   "pluginManager": {
-    "busyTitle": "Plugin tasks are running",
-    "busy": {
-      "update": {
-        "warning": "Forcing this update will interrupt running tasks. Unfinished tasks may fail.",
-        "confirm": "Force update",
-        "cancel": "Not now"
-      },
-      "uninstall": {
-        "warning": "Forcing this uninstall will interrupt running tasks. Unfinished tasks may fail.",
-        "confirm": "Force uninstall",
-        "cancel": "Not now"
+    "dependencyUpgrade": {
+      "title": "Confirm shared dependency upgrade",
+      "confirm": "Upgrade and install",
+      "progress": "Updating shared dependencies",
+      "changes": "Shared package changes",
+      "affected": "Affected plugin instances",
+      "noInstances": "No plugin instances are affected.",
+      "restart": "The backend must restart to complete this upgrade. Installation will continue after it reconnects.",
+      "background": "Track in background",
+      "resume": "Tracking was interrupted. Reopen Plugin Manager after the backend reconnects to check the installation.",
+      "invalid": "The dependency upgrade response does not match this installation. Reopen Plugin Manager to check its status.",
+      "notStarted": "The dependency upgrade has not started. Reopen Plugin Manager to review and confirm it again.",
+      "cancelFailed": "The upgrade could not be cancelled. Reopen Plugin Manager to check its status.",
+      "failed": "The shared dependency upgrade failed.",
+      "status": {
+        "needs_confirmation": "Waiting for confirmation",
+        "preparing": "Preparing the upgrade",
+        "applying": "Applying the upgrade",
+        "waiting_restart": "Waiting for the backend to restart",
+        "succeeded": "Installation completed",
+        "failed": "Upgrade failed",
+        "cancelled": "Upgrade cancelled"
       }
     },
     "title": "Plugin Manager",
@@ -5455,7 +5488,20 @@
     "marketSortFavorites": "Most favorited",
     "compatWarningTitle": "Compatibility Warning",
     "compatWarningContent": "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
-    "compatWarningConfirm": "Install anyway"
+    "compatWarningConfirm": "Install anyway",
+    "busyTitle": "Plugin tasks are running",
+    "busy": {
+      "update": {
+        "warning": "Forcing this update will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force update",
+        "cancel": "Not now"
+      },
+      "uninstall": {
+        "warning": "Forcing this uninstall will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force uninstall",
+        "cancel": "Not now"
+      }
+    }
   },
   "codingMode": {
     "toolPresentationHelp": "When enabled, the agent uses a single code tool. It searches, processes files, and performs other tool operations by writing and running Python code.",

@@ -116,7 +116,7 @@ def _apply_to_environ(
     """
     seen: set[str] = set()
     for key, value in envs.items():
-        if is_managed_control_key(key):
+        if is_internal_env_key(key) or is_managed_control_key(key):
             continue
         identity = env_key_identity(key)
         if identity in seen:
@@ -135,6 +135,8 @@ def _apply_to_environ(
 
 def _remove_from_environ(key: str) -> None:
     """Restore the inherited value for *key*, or remove it if absent."""
+    if is_internal_env_key(key):
+        return
     host_key = env_key_identity(key) if os.name == "nt" else key
     inherited = _HOST_ENV_VALUES.get(host_key)
     if inherited is None:
@@ -262,8 +264,12 @@ def _save_envs_unlocked(
     old: dict[str, str],
 ) -> None:
     validate_unique_env_keys(envs)
-    for key in envs:
-        if is_managed_control_key(key):
+    for key, value in envs.items():
+        if is_internal_env_key(key):
+            # Preserve legacy data during unrelated edits without injecting it.
+            if key not in old or old[key] != value:
+                raise ValueError(f"Environment variable is managed: {key}")
+        elif is_managed_control_key(key):
             raise ValueError(f"Environment variable is managed: {key}")
     if path.exists() and not path.is_file():
         raise IsADirectoryError(
