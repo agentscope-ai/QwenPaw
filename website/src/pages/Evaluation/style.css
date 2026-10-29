@@ -87,7 +87,7 @@
 .evaluation-controls {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px 24px;
   min-height: 76px;
   padding: 14px 24px;
@@ -446,10 +446,15 @@
   align-items: center;
   gap: 12px 24px;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+.evaluation-board-controls {
+  flex: 1;
 }
 .evaluation-display-controls {
+  flex: 0 0 auto;
   margin-left: auto;
+  justify-content: flex-end;
 }
 .evaluation-controls label {
   white-space: nowrap;
@@ -551,19 +556,13 @@
 .evaluation-board-select .evaluation-select {
   width: clamp(230px, 22vw, 320px);
 }
-@media (max-width: 1100px) {
-  .evaluation-display-controls {
-    margin-left: 0;
-    width: 100%;
-    justify-content: flex-start;
-  }
-  .evaluation-board-controls {
-    width: 100%;
-  }
-}
 @media (max-width: 700px) {
   .evaluation-controls {
     gap: 12px;
+    overflow-x: auto;
+  }
+  .evaluation-board-controls {
+    flex: 0 0 auto;
   }
   .evaluation-board-select {
     width: 100%;
@@ -718,6 +717,7 @@
 }
 .evaluation-benchmark-tabs {
   display: flex;
+  flex: 1;
   gap: 6px;
   align-items: stretch;
   overflow-x: auto;
@@ -895,13 +895,6 @@
   background: var(--eval-surface);
   box-shadow: 0 1px 4px #00000012;
 }
-.evaluation-display-controls {
-  width: 100%;
-  justify-content: flex-end;
-}
-.evaluation-board-controls {
-  width: 100%;
-}
 .evaluation-legend[data-style="logos"] .evaluation-dot-legend {
   display: none;
 }
@@ -1051,16 +1044,14 @@
 }
 @media (max-width: 700px) {
   .evaluation-weight-control {
-    flex-wrap: wrap;
+    width: max-content;
   }
   .evaluation-benchmark-tabs {
-    width: 100%;
+    flex: none;
+    overflow: visible;
   }
   .evaluation-page .evaluation-tab-close {
     min-width: 44px;
-  }
-  .evaluation-display-controls {
-    justify-content: space-between;
   }
   .evaluation-benchmark-grid {
     grid-template-columns: 1fr;
