@@ -1,0 +1,26 @@
+name: airport-sms-ci
+
+on:
+  push:
+    paths:
+      - "packages/airport_sms/**"
+      - ".github/workflows/airport-sms-ci.yml"
+  pull_request:
+    paths:
+      - "packages/airport_sms/**"
+      - ".github/workflows/airport-sms-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: python -m pip install -e "packages/airport_sms[dev]"
+      - name: Ruff
+        run: ruff check packages/airport_sms
+      - name: Pytest
+        run: pytest packages/airport_sms/tests/test_health.py -q
