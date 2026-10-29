@@ -1135,7 +1135,6 @@
     "selectBuiltin": "Builtin",
     "selectNone": "None",
     "noPoolSkills": "No skills available in pool",
-    "addSkillsToAgent": "Add Skills",
     "backend": {
       "column": "Backend",
       "eyebrow": "Agent architecture",
@@ -1548,6 +1547,9 @@
     "updateFailed": "Update failed",
     "broadcastSuccess": "Broadcast completed",
     "broadcastFailed": "Broadcast failed",
+    "downloading": "Downloading…",
+    "cancelling": "Cancelling…",
+    "cancelFailed": "Failed to cancel the download",
     "overwriteConfirm": "Overwrite existing skills?",
     "overwriteTargetsContent": "The following existing targets will be overwritten:",
     "builtinOverwriteTargetsContent": "The following built-in targets have different versions and will be overwritten:",
@@ -2726,7 +2728,8 @@
       "token_plan": "Token Plan",
       "token_plan_intl": "Token (International)",
       "china": "China",
-      "international": "International"
+      "international": "International",
+      "chatgpt": "ChatGPT Subscription"
     },
     "configuredGroup": "Configured",
     "configuredOnline": "providers online",
@@ -3037,6 +3040,34 @@
     "scope": {
       "global": "Global models",
       "agent": "Current agent"
+    },
+    "apiPricing": {
+      "standard": "Standard · USD per 1M tokens",
+      "prompt": "Input",
+      "completion": "Output",
+      "input_cache_read": "Cached input",
+      "longContext": "Above {{threshold}} input tokens, the full request costs {{inputMultiplier}}× for input/cache reads and {{outputMultiplier}}× for output.",
+      "cacheWrite": "Cache writes: 30 minutes at {{shortMultiplier}}× input, 12 hours at {{longMultiplier}}× input.",
+      "exclusions": "API rates; excludes tools, regional premiums and ChatGPT plan usage.",
+      "checked": "Checked {{date}}"
+    },
+    "chatgpt": {
+      "contextHelp": "Account-reported limit: {{maximum}} tokens; default session budget: {{default}} tokens.",
+      "localHelp": "Due to OpenAI access policies and the local OAuth callback requirement, one-click sign-in is available only when QwenPaw and your browser run on the same computer.",
+      "account": "ChatGPT account",
+      "connected": "ChatGPT subscription connected",
+      "disconnected": "Not connected",
+      "permissionMissing": "Plan usage not authorized",
+      "failed": "Sign-in was not completed. Please try again.",
+      "usage": "Manage usage",
+      "reconnect": "Sign in again",
+      "changeAccount": "Switch account",
+      "accountActions": "ChatGPT account actions",
+      "connectedShort": "Connected",
+      "signOut": "Sign out",
+      "revokeWarning": "Signed out locally. Remote revocation was not confirmed; disconnect QwenPaw in ChatGPT Settings.",
+      "modelHelp": "Models come from this ChatGPT account. Usage counts against your plan or credits. Sampling and output-token settings are not supported by this access route.",
+      "oauthDescription": "A browser window will open to authorize use of your ChatGPT plan. Return to QwenPaw when you are done."
     }
   },
   "files": {
@@ -4546,6 +4577,7 @@
       "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
       "modeBlock": "Block",
       "modeWarn": "Warn Only",
+      "modeOff": "Off",
       "timeout": "Scan Timeout (seconds)",
       "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
       "saveSuccess": "Skill scanner settings saved",
@@ -5723,6 +5755,9 @@
     }
   },
   "preview": {
+    "unavailable": "Preview unavailable",
+    "showDetails": "View details",
+    "hideDetails": "Hide details",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "This file is blocked by File Guard (sensitive file protection).",
       "OUTSIDE_WORKSPACE": "This file is outside the workspace scope. Enable \"Allow Console Preview Outside Workspace\" in Settings → Security → File Guard.",

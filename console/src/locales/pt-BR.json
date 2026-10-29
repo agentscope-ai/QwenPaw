@@ -868,7 +868,6 @@
     "selectBuiltin": "Builtin",
     "selectNone": "Nenhum",
     "noPoolSkills": "No skills available in pool",
-    "addSkillsToAgent": "Adicionar Skills",
     "model": "Modelo",
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
     "modelPlaceholder": "Use global Padrao",
@@ -2524,6 +2523,27 @@
     },
     "billing": {
       "free": "Free"
+    },
+    "chatgpt": {
+      "contextHelp": "Limite da conta: {{maximum}} tokens; orçamento padrão da sessão: {{default}} tokens.",
+      "localHelp": "Devido às políticas da OpenAI e ao retorno OAuth local, o QwenPaw e o navegador devem estar no mesmo computador.",
+      "account": "Conta ChatGPT",
+      "connected": "Assinatura ChatGPT conectada",
+      "disconnected": "Não conectado",
+      "permissionMissing": "Uso da assinatura não autorizado",
+      "failed": "O login não foi concluído. Tente novamente.",
+      "usage": "Gerenciar uso",
+      "reconnect": "Entrar novamente",
+      "changeAccount": "Trocar conta",
+      "accountActions": "Ações da conta ChatGPT",
+      "connectedShort": "Conectado",
+      "signOut": "Sair",
+      "revokeWarning": "Você saiu localmente. A revogação não foi confirmada; desconecte o QwenPaw nas configurações do ChatGPT.",
+      "modelHelp": "Os modelos vêm da conta ChatGPT atual. O uso consome os limites da assinatura ou créditos. Configurações de amostragem e limite de tokens de saída não são compatíveis com este acesso.",
+      "oauthDescription": "O navegador será aberto para autorizar o uso da sua assinatura ChatGPT. Volte ao QwenPaw ao concluir."
+    },
+    "providerVariants": {
+      "chatgpt": "Assinatura ChatGPT"
     }
   },
   "files": {
@@ -4957,6 +4977,9 @@
     "retry": "Tentar novamente"
   },
   "preview": {
+    "unavailable": "Visualização indisponível",
+    "showDetails": "Ver motivo",
+    "hideDetails": "Ocultar detalhes",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "Este arquivo está bloqueado pelo File Guard (proteção de arquivos sensíveis).",
       "OUTSIDE_WORKSPACE": "Este arquivo está fora do escopo do workspace. Ative \"Permitir Preview Fora do Workspace no Console\" em Configurações → Segurança → File Guard.",

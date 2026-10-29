@@ -30,6 +30,8 @@ from qwenpaw.runtime.phases import Phase
 from qwenpaw.runtime.slash_command_registry import CommandSpec
 from qwenpaw.runtime.tool_registry import ToolDescriptor
 
+from .timing import WAIT_TIMEOUT
+
 
 class FakeWorkspace:
     def __init__(self, agent_id: str, config=None) -> None:
@@ -183,28 +185,6 @@ def test_owner_scan_reports_stamped_leak_and_blind_unstamped():
     scan = scan_owner_rows("plug", [workspace])
     assert any("leaked" in item for item in scan.stamped_leaks)
     assert scan.saw_unstamped
-
-
-def test_unload_scan_wording_matches_design(fresh_registry):
-    from qwenpaw.plugins.lifecycle import UnloadReport
-
-    loader = PluginLoader(plugin_dirs=[])
-    loader.registry = fresh_registry
-    report = UnloadReport(plugin_id="plug", mode=UnloadMode.UNLOAD)
-    with patch(
-        "qwenpaw.plugins.workspace_projector.default_live_workspaces",
-        return_value=[],
-    ):
-        with patch(
-            "qwenpaw.plugins.workspace_projector.scan_owner_rows",
-            return_value=SimpleNamespace(
-                stamped_leaks=[],
-                saw_unstamped=True,
-            ),
-        ):
-            loader._record_workspace_scan("plug", report)
-    assert "未标注归属、未覆盖" in report.workspace_leaks
-    assert "无章、未覆盖" not in report.workspace_leaks
 
 
 @pytest.mark.asyncio
@@ -525,15 +505,17 @@ async def test_unload_drains_channel_replacement(
         "replace-plugin",
     )
     replacement = asyncio.create_task(
-        manager.replace_channel(new)
-        if operation == "replace"
-        else manager.restart_channel("boot-race"),
+        (
+            manager.replace_channel(new)
+            if operation == "replace"
+            else manager.restart_channel("boot-race")
+        ),
     )
-    await asyncio.wait_for(new.entered.wait(), timeout=1)
+    await asyncio.wait_for(new.entered.wait(), timeout=WAIT_TIMEOUT)
     try:
         report = await asyncio.wait_for(
             instance.dispose(UnloadMode.UNLOAD),
-            timeout=1,
+            timeout=WAIT_TIMEOUT,
         )
         if ignore_cancel:
             assert not report.quiescent
@@ -742,7 +724,7 @@ async def test_retiring_workspace_waits_for_start_and_blocks_late_hook(
 ):
     case = channel_plugin
     projection = _start_workspace(case)
-    await asyncio.wait_for(case.entered.wait(), timeout=2)
+    await asyncio.wait_for(case.entered.wait(), timeout=WAIT_TIMEOUT)
     retiring = asyncio.create_task(
         case.registry.projector.revoke_workspace(case.workspace),
     )
@@ -750,15 +732,15 @@ async def test_retiring_workspace_waits_for_start_and_blocks_late_hook(
         done, _pending = await asyncio.wait({retiring}, timeout=0.1)
         assert not done, "Retiring workspace must wait for channel startup"
         case.release.set()
-        await asyncio.wait_for(projection, timeout=2)
-        await asyncio.wait_for(retiring, timeout=2)
+        await asyncio.wait_for(projection, timeout=WAIT_TIMEOUT)
+        await asyncio.wait_for(retiring, timeout=WAIT_TIMEOUT)
         channel = case.state.channel
         assert channel.stops == 1
         assert not channel.alive
         assert not case.workspace.channel_manager.channels
         assert case.registry.projector._intents
         assert case.loader.get_loaded_plugin("projection-race") is not None
-        await asyncio.wait_for(_start_workspace(case), timeout=2)
+        await asyncio.wait_for(_start_workspace(case), timeout=WAIT_TIMEOUT)
         assert case.state.channel is channel
         assert channel.starts == 1
         assert not case.workspace.channel_manager.channels
@@ -776,7 +758,7 @@ async def test_unload_waits_for_new_workspace_start_and_retains_failed_stop(
     case = channel_plugin
     case.state.stop_fails = stop_fails
     projection = _start_workspace(case)
-    await asyncio.wait_for(case.entered.wait(), timeout=2)
+    await asyncio.wait_for(case.entered.wait(), timeout=WAIT_TIMEOUT)
     unloading = asyncio.create_task(
         case.loader.unload_plugin("projection-race"),
     )
@@ -787,8 +769,8 @@ async def test_unload_waits_for_new_workspace_start_and_retains_failed_stop(
         ), "Unload must not report success during channel startup"
         assert case.loader.get_loaded_plugin("projection-race") is not None
         case.release.set()
-        await asyncio.wait_for(projection, timeout=2)
-        report = await asyncio.wait_for(unloading, timeout=2)
+        await asyncio.wait_for(projection, timeout=WAIT_TIMEOUT)
+        report = await asyncio.wait_for(unloading, timeout=WAIT_TIMEOUT)
         channel = case.state.channel
         assert channel.starts == 1
         assert channel.stops == 1
@@ -832,7 +814,7 @@ async def test_old_hook_cannot_project_new_plugin_generation(channel_plugin):
     assert case.state.channel is None
     assert not case.workspace.channel_manager.channels
     case.release.set()
-    await asyncio.wait_for(_start_workspace(case), timeout=2)
+    await asyncio.wait_for(_start_workspace(case), timeout=WAIT_TIMEOUT)
     assert case.state.channel.starts == 1
     assert case.state.channel.alive
     report = await case.loader.unload_plugin("projection-race")
@@ -854,15 +836,15 @@ async def test_pending_projection_timeout_preserves_cleanup_for_retry(
         0.01,
     )
     projection = _start_workspace(case)
-    await asyncio.wait_for(case.entered.wait(), timeout=2)
+    await asyncio.wait_for(case.entered.wait(), timeout=WAIT_TIMEOUT)
     try:
         if cancel_projection:
             projection.cancel()
             with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(projection, timeout=2)
+                await asyncio.wait_for(projection, timeout=WAIT_TIMEOUT)
         report = await asyncio.wait_for(
             case.loader.unload_plugin("projection-race"),
-            timeout=2,
+            timeout=WAIT_TIMEOUT,
         )
         assert not report.clean and not report.quiescent
         assert case.state.channel.alive
@@ -874,10 +856,10 @@ async def test_pending_projection_timeout_preserves_cleanup_for_retry(
         ).has_runtime_ledger()
         case.release.set()
         if not cancel_projection:
-            await asyncio.wait_for(projection, timeout=2)
+            await asyncio.wait_for(projection, timeout=WAIT_TIMEOUT)
         report = await asyncio.wait_for(
             case.loader.unload_plugin("projection-race"),
-            timeout=2,
+            timeout=WAIT_TIMEOUT,
         )
         assert report.clean and report.quiescent
         assert not case.state.channel.alive

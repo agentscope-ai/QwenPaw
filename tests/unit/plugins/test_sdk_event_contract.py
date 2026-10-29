@@ -7,6 +7,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 SOURCE = """
 import asyncio
 import time
@@ -147,25 +149,27 @@ async def test_observer_failure_or_blocking_preserves_real_runtime_output(
                     )
                 ]
 
-            candidate = await asyncio.wait_for(consume(), 2)
+            candidate = await asyncio.wait_for(consume(), WAIT_TIMEOUT)
             assert business_events(candidate) == business_events(baseline)
             if observer == "blocked":
-                for _ in range(100):
-                    if (tmp_path / "observer-entered").exists():
-                        break
-                    await asyncio.sleep(0.01)
+                async with asyncio.timeout(WAIT_TIMEOUT):
+                    while True:
+                        if (tmp_path / "observer-entered").exists():
+                            break
+                        await asyncio.sleep(0.01)
                 assert (tmp_path / "observer-entered").exists()
                 with pytest.raises(PluginBusyError):
                     await host.reload("extension-contract")
             else:
-                for _ in range(100):
-                    events = ctx.storage.read_json("events.json", [])
-                    if events and (
-                        observer == "cancel"
-                        or events[-1]["kind"] == "run.completed"
-                    ):
-                        break
-                    await asyncio.sleep(0.01)
+                async with asyncio.timeout(WAIT_TIMEOUT):
+                    while True:
+                        events = ctx.storage.read_json("events.json", [])
+                        if events and (
+                            observer == "cancel"
+                            or events[-1]["kind"] == "run.completed"
+                        ):
+                            break
+                        await asyncio.sleep(0.01)
                 assert events
                 if observer != "cancel":
                     assert (
@@ -184,15 +188,16 @@ async def test_observer_failure_or_blocking_preserves_real_runtime_output(
                     assert sequences == sorted(set(sequences))
         finally:
             (tmp_path / "observer-release").touch()
-            for _ in range(100):
-                if (
-                    host.resource_snapshot("extension-contract")[
-                        "active_calls"
-                    ]
-                    == 0
-                ):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (
+                        host.resource_snapshot("extension-contract")[
+                            "active_calls"
+                        ]
+                        == 0
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
             assert (
                 host.resource_snapshot("extension-contract")["active_calls"]
                 == 0
@@ -236,17 +241,18 @@ async def test_full_observer_queue_reports_gap_without_changing_chat_results(
             assert "command answer:same" in str(business_events(runs[0]))
         finally:
             (tmp_path / "observer-release").touch()
-            for _ in range(100):
-                events = ctx.storage.read_json("events.json", [])
-                if (
-                    any(event["kind"] == "gap" for event in events)
-                    and host.resource_snapshot("extension-contract")[
-                        "active_calls"
-                    ]
-                    == 0
-                ):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    events = ctx.storage.read_json("events.json", [])
+                    if (
+                        any(event["kind"] == "gap" for event in events)
+                        and host.resource_snapshot("extension-contract")[
+                            "active_calls"
+                        ]
+                        == 0
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
         gaps = [event for event in events if event["kind"] == "gap"]
         assert gaps and sum(event["lost"] for event in gaps) > 0
         terminal_runs = [
@@ -287,18 +293,22 @@ async def test_observer_workspace_filter_and_reload_do_not_duplicate_events(
             ):
                 pass
             ctx = host.context("extension-contract")
-            for _ in range(100):
-                events = ctx.storage.read_json("events.json", [])
-                if (
-                    sum(event["kind"] == "run.completed" for event in events)
-                    == index + 1
-                    and host.resource_snapshot("extension-contract")[
-                        "active_calls"
-                    ]
-                    == 0
-                ):
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    events = ctx.storage.read_json("events.json", [])
+                    if (
+                        sum(
+                            event["kind"] == "run.completed"
+                            for event in events
+                        )
+                        == index + 1
+                        and host.resource_snapshot("extension-contract")[
+                            "active_calls"
+                        ]
+                        == 0
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
             assert (
                 sum(event["kind"] == "run.completed" for event in events)
                 == index + 1
@@ -406,15 +416,16 @@ plugin = Plugin()
             assert "model answer" in str(business_events(events))
             outputs.append(business_events(events))
             if observe:
-                for _ in range(100):
-                    if (
-                        ctx.storage.read_json("observer-ran.json", False)
-                        and host.resource_snapshot("extension-contract")[
-                            "active_calls"
-                        ]
-                        == 0
-                    ):
-                        break
-                    await asyncio.sleep(0.01)
+                async with asyncio.timeout(WAIT_TIMEOUT):
+                    while True:
+                        if (
+                            ctx.storage.read_json("observer-ran.json", False)
+                            and host.resource_snapshot("extension-contract")[
+                                "active_calls"
+                            ]
+                            == 0
+                        ):
+                            break
+                        await asyncio.sleep(0.01)
                 assert ctx.storage.read_json("observer-ran.json", False)
     assert outputs[0] == outputs[1]

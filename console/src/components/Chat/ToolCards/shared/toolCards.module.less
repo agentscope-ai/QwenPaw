@@ -175,6 +175,100 @@
   margin: 6px 0 4px 18px;
 }
 
+.mediaErrorCard {
+  width: fit-content;
+  min-width: min(240px, 100%);
+  max-width: min(360px, 100%);
+  box-sizing: border-box;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+}
+
+.mediaErrorTrigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease-out;
+
+  &:hover {
+    background: var(--app-state-hover-bg);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 2px;
+  }
+
+  &[aria-expanded="true"] .mediaErrorChevron {
+    transform: rotate(90deg);
+  }
+}
+
+.mediaErrorIcon {
+  flex: 0 0 auto;
+  color: var(--app-warning);
+}
+
+.mediaErrorLabel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mediaErrorName {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: var(--app-font-secondary);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mediaErrorStatus,
+.mediaErrorDetails {
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
+  line-height: 1.5;
+}
+
+.mediaErrorChevron {
+  flex: 0 0 auto;
+  color: var(--app-text-secondary);
+  transition: transform 150ms ease-out;
+}
+
+.mediaErrorDetails {
+  padding: 10px 12px;
+  border-top: 1px solid var(--app-border);
+  overflow-wrap: anywhere;
+}
+
+.mediaErrorFullName {
+  margin-bottom: 6px;
+  color: var(--app-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mediaErrorTrigger,
+  .mediaErrorChevron {
+    transition: none;
+  }
+}
+
 .toolCallImage {
   max-width: 256px;
   border-radius: 8px;

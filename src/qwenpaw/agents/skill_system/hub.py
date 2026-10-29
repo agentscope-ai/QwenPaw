@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import contextvars
 import io
 import json
 import logging
@@ -14,7 +13,7 @@ import re
 import time
 import zipfile
 from collections import OrderedDict
-from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -24,7 +23,8 @@ import frontmatter
 import httpx
 import yaml
 
-from ...exceptions import (
+# ``SkillImportCancelled`` is re-exported: callers import it from here.
+from ...exceptions import (  # pylint: disable=unused-import
     ConfigurationException,
     SkillConflictError,
     SkillImportCancelled,
@@ -32,7 +32,15 @@ from ...exceptions import (
 )
 from ...constant import EnvVarLoader
 from .pool_service import SkillPoolService
-from .store import suggest_conflict_name
+
+# ``_cancel_checker_ctx`` is re-exported: callers and tests reach the
+# cancel primitives through this module.
+from .store import (  # pylint: disable=unused-import
+    _cancel_checker_ctx,
+    ensure_not_cancelled as _ensure_not_cancelled,
+    suggest_conflict_name,
+    with_cancel_checker as _with_cancel_checker,
+)
 from .workspace_service import SkillService
 
 logger = logging.getLogger(__name__)
@@ -126,11 +134,10 @@ _in_flight: int = 0
 _drain_event: asyncio.Event = asyncio.Event()
 _drain_event.set()
 
-# Cancel checker (callable returning bool), propagated by contextvar so
-# nested install tasks each carry their own checker without interference.
-_cancel_checker_ctx: contextvars.ContextVar[
-    Any | None
-] = contextvars.ContextVar("skills_hub_cancel_checker", default=None)
+# The cancel checker is owned by ``store``, beside the copy it guards, so the
+# hub installer and the pool download observe one mechanism instead of two.
+# It is imported and re-exported at the top of this module under the names
+# this module has always used.
 
 
 # ---------- Env-driven config ----------------------------------------------
@@ -227,29 +234,12 @@ def _join_url(base: str, path: str) -> str:
 
 
 # ---------- Cancellation hooks ---------------------------------------------
-
-
-def _ensure_not_cancelled() -> None:
-    checker = _cancel_checker_ctx.get()
-    if checker is None:
-        return
-    try:
-        if bool(checker()):
-            raise SkillImportCancelled("Skill import cancelled by user")
-    except SkillImportCancelled:
-        raise
-    except Exception:
-        # Ignore checker failures and continue.
-        return
-
-
-@contextmanager
-def _with_cancel_checker(checker: Any | None):
-    token = _cancel_checker_ctx.set(checker)
-    try:
-        yield
-    finally:
-        _cancel_checker_ctx.reset(token)
+#
+# ``_ensure_not_cancelled`` and ``_with_cancel_checker`` are re-exported from
+# ``store`` in the import block above so that a hub install and a pool
+# download can never disagree about whether they were cancelled. They are
+# used throughout this module; this heading just keeps them findable where
+# they used to be defined.
 
 
 # ---------- GitHub response cache ------------------------------------------
@@ -735,7 +725,7 @@ def _safe_path_parts(path: str) -> list[str] | None:
 def _tree_insert(
     tree: dict[str, Any],
     parts: list[str],
-    content: str,
+    content: str | bytes,
 ) -> None:
     node = tree
     for part in parts[:-1]:
@@ -748,12 +738,12 @@ def _tree_insert(
 
 
 def _files_to_tree(
-    files: dict[str, str],
+    files: dict[str, str | bytes],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     references: dict[str, Any] = {}
     scripts: dict[str, Any] = {}
     for rel, content in files.items():
-        if not isinstance(rel, str) or not isinstance(content, str):
+        if not isinstance(rel, str) or not isinstance(content, (str, bytes)):
             continue
         parts = _safe_path_parts(rel)
         if not parts:
@@ -776,7 +766,7 @@ def _sanitize_tree(tree: Any) -> dict[str, Any]:
             continue
         if isinstance(value, dict):
             out[key] = _sanitize_tree(value)
-        elif isinstance(value, str):
+        elif isinstance(value, (str, bytes)):
             out[key] = value
     return out
 
@@ -792,7 +782,10 @@ def _bundle_has_content(payload: Any) -> bool:
     if isinstance(content, str) and content.strip():
         return True
     files = payload.get("files")
-    if isinstance(files, dict) and isinstance(files.get("SKILL.md"), str):
+    if isinstance(files, dict) and isinstance(
+        files.get("SKILL.md"),
+        (str, bytes),
+    ):
         return True
     return False
 
@@ -854,9 +847,21 @@ def _normalize_bundle(
         if not scripts:
             scripts = scr2
         for rel, file_content in files.items():
-            if not isinstance(rel, str) or not isinstance(file_content, str):
+            if not isinstance(rel, str) or not isinstance(
+                file_content,
+                (str, bytes),
+            ):
                 continue
             if rel == "SKILL.md":
+                if isinstance(file_content, bytes):
+                    try:
+                        content = file_content.decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        raise SkillsError(
+                            message="SKILL.md is not valid UTF-8 text",
+                        ) from exc
+                elif not content:
+                    content = file_content
                 continue
             parts = _safe_path_parts(rel)
             if not parts:
@@ -864,9 +869,6 @@ def _normalize_bundle(
             if parts[0] in ("references", "scripts"):
                 continue
             _tree_insert(extra_files, parts, file_content)
-        if not content and isinstance(files.get("SKILL.md"), str):
-            content = files["SKILL.md"]
-
     if not content:
         raise SkillsError(message="Hub bundle missing SKILL.md content")
 
@@ -1277,19 +1279,16 @@ async def _github_get_dir_entries(
     )
 
 
-async def _github_read_file(entry: dict[str, Any]) -> str:
+async def _github_read_file(entry: dict[str, Any]) -> bytes:
     download_url = entry.get("download_url")
     if isinstance(download_url, str) and download_url:
-        return await _http_text_get(download_url)
+        return await _http_bytes_get(download_url)
 
     content = entry.get("content")
     if isinstance(content, str) and content:
         try:
             normalized = content.replace("\n", "")
-            return base64.b64decode(normalized).decode(
-                "utf-8",
-                errors="replace",
-            )
+            return base64.b64decode(normalized)
         except Exception:
             pass
 
@@ -1317,8 +1316,8 @@ async def _github_collect_tree_files(
     ref: str,
     root: str,
     max_files: int = 4096,
-) -> dict[str, str]:
-    files: dict[str, str] = {}
+) -> dict[str, bytes]:
+    files: dict[str, bytes] = {}
     pending = [root] if root else [""]
     visited = 0
     while pending:
@@ -1508,7 +1507,7 @@ async def _fetch_bundle_from_repo_and_skill_hint(
             "https://github.com/owner/repo/tree/master/skills/skill-name",
         )
 
-    files: dict[str, str] = {
+    files: dict[str, str | bytes] = {
         "SKILL.md": await _github_read_file(skill_md_entry),
     }
     files.update(

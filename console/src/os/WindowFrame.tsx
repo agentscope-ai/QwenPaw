@@ -502,7 +502,7 @@ export default function WindowFrame({
           {title}
         </div>
         {/* Right spacer keeps the title visually centred. */}
-        <div style={{ width: 70 }} />
+        <div aria-hidden="true" />
       </div>
 
       <OsAppHost

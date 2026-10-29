@@ -903,7 +903,6 @@
     "selectBuiltin": "内置",
     "selectNone": "清空",
     "noPoolSkills": "技能池中暂无可用技能",
-    "addSkillsToAgent": "添加技能",
     "backend": {
       "column": "后端",
       "eyebrow": "智能体架构",
@@ -1387,6 +1386,9 @@
     "updateFailed": "更新失败",
     "broadcastSuccess": "广播完成",
     "broadcastFailed": "广播失败",
+    "downloading": "正在下载…",
+    "cancelling": "正在取消…",
+    "cancelFailed": "取消下载失败",
     "overwriteConfirm": "覆盖已存在的技能？",
     "overwriteTargetsContent": "以下目标中已存在该技能，确认后将直接覆盖：",
     "builtinOverwriteTargetsContent": "以下目标中的内置技能版本不同，确认后将直接覆盖：",
@@ -2585,7 +2587,8 @@
       "token_plan": "Token Plan",
       "token_plan_intl": "Token（国际区）",
       "china": "中国区",
-      "international": "国际区"
+      "international": "国际区",
+      "chatgpt": "ChatGPT 订阅"
     },
     "configuredGroup": "已配置",
     "configuredOnline": "个提供商在线",
@@ -2896,6 +2899,34 @@
     "scope": {
       "global": "全局模型",
       "agent": "当前智能体"
+    },
+    "apiPricing": {
+      "standard": "标准处理 · 美元 / 百万 token",
+      "prompt": "输入",
+      "completion": "输出",
+      "input_cache_read": "缓存读取",
+      "longContext": "输入超过 {{threshold}} token 时，整次请求的输入及缓存读取费率为 {{inputMultiplier}} 倍，输出为 {{outputMultiplier}} 倍。",
+      "cacheWrite": "缓存写入：30 分钟按输入价的 {{shortMultiplier}} 倍，12 小时按 {{longMultiplier}} 倍计费。",
+      "exclusions": "API 费率；不含工具、区域附加费用及 ChatGPT 订阅用量。",
+      "checked": "核对日期：{{date}}"
+    },
+    "chatgpt": {
+      "contextHelp": "账号接口报告的上限：{{maximum}} tokens；当前会话默认预算：{{default}} tokens。",
+      "localHelp": "由于 OpenAI 接入政策及本地 OAuth 回调限制，一键登录仅支持本地运行的 QwenPaw，浏览器和 QwenPaw 必须在同一台电脑。",
+      "account": "ChatGPT 账号",
+      "connected": "已连接 ChatGPT 订阅",
+      "disconnected": "未连接",
+      "permissionMissing": "尚未授权使用订阅额度",
+      "failed": "登录未完成，请重试。",
+      "usage": "管理用量",
+      "reconnect": "重新登录",
+      "changeAccount": "更换账号",
+      "accountActions": "ChatGPT 账号操作",
+      "connectedShort": "已连接",
+      "signOut": "退出登录",
+      "revokeWarning": "已在本地退出，但未能确认远端授权已撤销；请在 ChatGPT 设置中断开 QwenPaw。",
+      "modelHelp": "模型来自当前 ChatGPT 账号，使用订阅额度或 credits。此接入方式不支持采样参数及输出 token 限制。",
+      "oauthDescription": "将打开浏览器以授权使用 ChatGPT 订阅额度，完成后请返回 QwenPaw。"
     }
   },
   "files": {
@@ -4404,6 +4435,7 @@
       "modeTooltip": "控制扫描器如何处理不安全的技能：拦截、仅提醒或关闭",
       "modeBlock": "拦截",
       "modeWarn": "仅提醒",
+      "modeOff": "关闭",
       "timeout": "扫描超时（秒）",
       "timeoutTooltip": "等待扫描完成的最长时间（5-300秒）",
       "saveSuccess": "技能扫描器设置已保存",
@@ -5742,6 +5774,9 @@
     }
   },
   "preview": {
+    "unavailable": "预览不可用",
+    "showDetails": "查看原因",
+    "hideDetails": "收起详情",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "该文件被文件防护拦截（敏感文件保护）。",
       "OUTSIDE_WORKSPACE": "该文件位于工作区范围之外。请在 设置 → 安全 → 文件防护 中启用「允许控制台预览工作区外文件」。",

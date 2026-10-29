@@ -378,7 +378,8 @@ LLM_ACQUIRE_TIMEOUT = EnvVarLoader.get_float(
     min_value=10.0,
 )
 
-# Maximum upstream wait (seconds) for the first content-bearing stream chunk.
+# Maximum upstream wait (seconds) for startup and the first content chunk.
+# Queueing for a rate-limit slot uses LLM_ACQUIRE_TIMEOUT separately.
 # Set to 0 to disable the first-content timeout.
 LLM_STREAM_FIRST_CONTENT_TIMEOUT = EnvVarLoader.get_float(
     "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",

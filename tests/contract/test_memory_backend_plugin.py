@@ -9,6 +9,8 @@ import pytest
 from agentscope.message import Msg
 from agentscope.tool import ToolChunk
 
+from tests.unit.plugins.timing import WAIT_TIMEOUT
+
 from qwenpaw.memory import (
     BaseMemoryManager,
     MemoryBackendContext,
@@ -81,7 +83,7 @@ def test_owner_unload_cannot_race_backend_construction(tmp_path: Path) -> None:
     class BlockingBackend(ContractBackend):
         def __init__(self, context: MemoryBackendContext) -> None:
             constructor_entered.set()
-            assert release_constructor.wait(timeout=2)
+            assert release_constructor.wait(timeout=WAIT_TIMEOUT * 2)
             super().__init__(context)
 
     context = MemoryBackendContext(
@@ -109,12 +111,12 @@ def test_owner_unload_cannot_race_backend_construction(tmp_path: Path) -> None:
                 backend_id,
                 context,
             )
-            assert constructor_entered.wait(timeout=2)
+            assert constructor_entered.wait(timeout=WAIT_TIMEOUT)
             unloading = executor.submit(begin_unload)
-            assert unload_started.wait(timeout=2)
-            assert unloading.result(timeout=2) == ["agent"]
+            assert unload_started.wait(timeout=WAIT_TIMEOUT)
+            assert unloading.result(timeout=WAIT_TIMEOUT) == ["agent"]
             release_constructor.set()
-            instance = construction.result(timeout=2)
+            instance = construction.result(timeout=WAIT_TIMEOUT)
 
         assert memory_registry.begin_owner_unload(owner) == ["agent"]
         assert get_memory_manager_backend(backend_id) is BlockingBackend

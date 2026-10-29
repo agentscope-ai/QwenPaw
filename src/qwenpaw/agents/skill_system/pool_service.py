@@ -29,6 +29,7 @@ from .store import (
     copy_pool_skill_automation,
     copy_skill_dir,
     default_workspace_manifest,
+    ensure_not_cancelled,
     extract_zip_skills,
     get_pool_skill_manifest_path,
     get_skill_pool_dir,
@@ -1091,6 +1092,14 @@ class SkillPoolService:
         copy, which keeps ``enabled`` / ``channels`` / ``config`` instead of
         resetting them as if the skill were being installed for the first
         time.
+
+        Cancellation is observed by the copies themselves, which check the
+        armed checker between whole files. That always fires before the
+        manifest write, so a cancelled download leaves the workspace holding
+        the skill it already had — including its ``enabled`` / ``channels`` /
+        ``config`` — and the caller's rollback owns the cleanup. Cancellation
+        is best-effort: one that arrives after the last copy loses, and the
+        download completes.
         """
         try:
             skill_name = normalize_skill_dir_name(skill_name)
@@ -1133,6 +1142,10 @@ class SkillPoolService:
         with staged_skill_dir(final_name) as staged_dir:
             copy_skill_dir(source_dir, staged_dir)
             scan_skill_dir_or_raise(staged_dir, final_name)
+            # Cheap early-out before the workspace itself is replaced: a
+            # cancellation seen here costs nothing to honour, because the
+            # target directory is still exactly what it was.
+            ensure_not_cancelled()
             copy_skill_dir(staged_dir, target_dir)
 
         pool_config = entry.get("config") or {}

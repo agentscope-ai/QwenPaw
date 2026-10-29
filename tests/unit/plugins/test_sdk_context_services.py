@@ -443,23 +443,10 @@ plugin = Plugin()
         )
 
 
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        {"provider_id": "context-provider"},
-        {"model_id": "default-model"},
-        {"provider_id": "missing", "model_id": "missing"},
-        {"options": {"messages": []}},
-        {"options": {"api_key": "must-not-override"}},
-        {"options": {"unknown_generation_option": True}},
-        {"timeout": 0},
-    ],
-)
 async def test_model_service_rejects_invalid_selection_and_reserved_options(
     tmp_path,
-    arguments,
 ):
-    from qwenpaw.plugins import SDKError
+    from qwenpaw.plugins import SDKError, StaleContextError
     from qwenpaw.plugins.testing import PluginTestHost
 
     source = """
@@ -511,14 +498,26 @@ plugin = Plugin()
             "default-model",
             workspace_id="one",
         )
-        with pytest.raises(SDKError):
-            await host.call_tool(
-                "invalid_bound_model",
-                arguments,
-                workspace_id="one",
-                session_id="rejected",
+        for arguments in [
+            {"provider_id": "context-provider"},
+            {"model_id": "default-model"},
+            {"provider_id": "missing", "model_id": "missing"},
+            {"options": {"messages": []}},
+            {"options": {"api_key": "must-not-override"}},
+            {"options": {"unknown_generation_option": True}},
+            {"timeout": 0},
+        ]:
+            with pytest.raises(SDKError) as error:
+                await host.call_tool(
+                    "invalid_bound_model",
+                    arguments,
+                    workspace_id="one",
+                    session_id="rejected",
+                )
+            assert not isinstance(error.value, StaleContextError)
+            assert (
+                provider.storage.read_json("one-rejected.json", None) is None
             )
-        assert provider.storage.read_json("one-rejected.json", None) is None
 
 
 async def test_unconfigured_workspace_does_not_use_another_model(

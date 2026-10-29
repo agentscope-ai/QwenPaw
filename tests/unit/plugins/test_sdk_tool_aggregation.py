@@ -99,11 +99,9 @@ def aggregation_plugin(root):
 
 
 @pytest.mark.parametrize("error", [False, True])
-@pytest.mark.parametrize("part", ["content", "error", "metadata"])
 async def test_call_tool_preserves_all_incremental_results(
     tmp_path,
     error,
-    part,
 ):
     from qwenpaw.plugins.testing import PluginTestHost
 
@@ -113,33 +111,30 @@ async def test_call_tool_preserves_all_incremental_results(
             "sdk_public_aggregate",
             {"mode": "mixed", "error": error},
         )
-        if part == "content":
-            assert [block.type for block in result.content] == [
-                "text",
-                "file",
-                "text",
-            ]
-            assert [block.text for block in result.content] == [
-                "prefix:first",
-                "",
-                "last",
-            ]
-            assert (
-                result.content[1].attachment.url
-                == "https://example.invalid/result.txt"
-            )
-            assert (
-                result.content[1].attachment.preview_url
-                == "/api/files/preview?path=result.txt"
-            )
-        elif part == "error":
-            assert result.is_error is error
-        else:
-            assert result.metadata == {
-                "first": 1,
-                "last": 2,
-                "collision": "new",
-            }
+        assert [block.type for block in result.content] == [
+            "text",
+            "file",
+            "text",
+        ]
+        assert [block.text for block in result.content] == [
+            "prefix:first",
+            "",
+            "last",
+        ]
+        assert (
+            result.content[1].attachment.url
+            == "https://example.invalid/result.txt"
+        )
+        assert (
+            result.content[1].attachment.preview_url
+            == "/api/files/preview?path=result.txt"
+        )
+        assert result.is_error is error
+        assert result.metadata == {
+            "first": 1,
+            "last": 2,
+            "collision": "new",
+        }
 
 
 @pytest.mark.parametrize(

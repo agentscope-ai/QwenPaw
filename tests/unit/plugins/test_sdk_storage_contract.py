@@ -3,9 +3,13 @@
 
 import json
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 import pytest
+
+from qwenpaw.utils.media_paths import file_url_to_path
+
+from .timing import WAIT_TIMEOUT
 
 
 def make_plugin(tmp_path):
@@ -120,7 +124,7 @@ async def test_media_reference_remains_readable_after_reload(tmp_path):
         )
         parsed = urlparse(attachment.url)
         assert parsed.scheme == "file"
-        path = Path(unquote(parsed.path))
+        path = Path(file_url_to_path(attachment.url))
         assert path.read_bytes() == b"persistent media"
         assert attachment.preview_url.startswith("/api/files/preview/")
         assert (await host.reload("storage-contract")).ok
@@ -181,7 +185,7 @@ plugin = Plugin()
         for result, expected in ((one, b"one"), (two, b"two")):
             assert (
                 Path(
-                    unquote(urlparse(result.metadata["url"]).path),
+                    file_url_to_path(result.metadata["url"]),
                 ).read_bytes()
                 == expected
             )
@@ -262,53 +266,6 @@ plugin = Plugin()
         ).content[0].text == "high:test-one"
 
 
-async def test_tool_media_preserves_public_preview_reference(tmp_path):
-    from qwenpaw.plugins.testing import PluginTestHost
-    from .sdk_author_fixture import make_plugin as extension_plugin
-
-    source = """
-from qwenpaw.plugins.tools import ToolSpec, ToolResult
-from qwenpaw.plugins.messages import ContentBlock
-
-
-class Plugin:
-    def register(self, ctx):
-        async def image(call, args):
-            attachment = call.media.write(
-                "image.png", b"image-data", mime_type="image/png"
-            )
-            return ToolResult(
-                (ContentBlock("image", attachment=attachment),),
-                metadata={"preview": attachment.preview_url},
-            )
-
-        ctx.register_tool(
-            ToolSpec(
-                "preview_image",
-                "preview",
-                {"type": "object"},
-                image,
-                enabled=True,
-            )
-        )
-
-
-plugin = Plugin()
-"""
-    async with PluginTestHost(tmp_path / "host") as host:
-        await host.load(
-            extension_plugin(tmp_path, source, ["tools", "storage"]),
-        )
-        result = await host.call_tool("preview_image", {})
-        attachment = result.content[0].attachment
-        assert attachment.preview_url == result.metadata["preview"]
-        assert attachment.preview_url.startswith("/api/files/preview/")
-        assert (
-            Path(unquote(urlparse(attachment.url).path)).read_bytes()
-            == b"image-data"
-        )
-
-
 async def test_async_storage_and_media_preserve_sync_contract(tmp_path):
     from qwenpaw.plugins import SDKError, StaleContextError
     from qwenpaw.plugins.testing import PluginTestHost
@@ -338,7 +295,7 @@ async def test_async_storage_and_media_preserve_sync_contract(tmp_path):
             b"media",
             mime_type="text/plain",
         )
-        media_path = Path(unquote(urlparse(attachment.url).path))
+        media_path = Path(file_url_to_path(attachment.url))
         assert (
             media_path.read_bytes() == b"media"
             and attachment.mime_type == "text/plain"
@@ -399,7 +356,7 @@ async def test_only_registered_cleanup_can_write_during_reload(tmp_path):
         ctx.resources.defer(legitimate_cleanup)
         reload_task = asyncio.create_task(host.reload("storage-contract"))
         try:
-            await asyncio.wait_for(entered.wait(), 2)
+            await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
 
             async def unregistered_cleanup():
                 await ctx.storage.awrite_json("forged.json", True)

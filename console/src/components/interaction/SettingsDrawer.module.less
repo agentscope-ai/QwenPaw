@@ -1,17 +1,10 @@
+@import (reference) "../../styles/controlIcons.less";
+
 .form {
   padding-top: var(--app-space-3);
 }
 .editor {
-  :global(.ant-btn-icon),
-  :global(.qwenpaw-btn-icon) {
-    display: inline-flex;
-    align-items: center;
-    > svg {
-      width: 16px;
-      height: 16px;
-      flex: 0 0 16px;
-    }
-  }
+  .button-icon-alignment();
   :global(.ant-modal-content),
   :global(.qwenpaw-modal-content) {
     padding: var(--app-space-6);

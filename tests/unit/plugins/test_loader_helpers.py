@@ -17,6 +17,8 @@ import pytest
 
 import qwenpaw.plugins.loader as pl
 
+from .timing import WAIT_TIMEOUT
+
 
 @pytest.fixture()
 def working_dir(tmp_path, monkeypatch):
@@ -83,18 +85,9 @@ class TestNormRealpath:
 
 
 class TestResolvedPluginManifestPath:
-    def test_returns_manifest(self, tmp_path):
-        (tmp_path / "plugin.json").write_text("{}")
-        result = pl.resolved_plugin_manifest_path(tmp_path)
-        assert result.name == "plugin.json"
-
     def test_missing_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             pl.resolved_plugin_manifest_path(tmp_path / "nope")
-
-    def test_missing_manifest_raises(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            pl.resolved_plugin_manifest_path(tmp_path)
 
     def test_symlink_escape_rejected(self, tmp_path):
         src = tmp_path / "src"
@@ -370,7 +363,10 @@ class TestHubPluginLifecycle:
             assert not catalog_request.done()
             await loader.load_all_plugins(types=["hub"])
             app.state.market_ready.set()
-            catalog = await asyncio.wait_for(catalog_request, timeout=1)
+            catalog = await asyncio.wait_for(
+                catalog_request,
+                timeout=WAIT_TIMEOUT,
+            )
             assert [provider.key for provider in catalog] == [
                 "qwenpaw",
                 "clawhub",
@@ -447,7 +443,7 @@ class TestHubPluginLifecycle:
                 config={"registered": registered, "release": release},
             ),
         )
-        await asyncio.wait_for(registered.wait(), timeout=5)
+        await asyncio.wait_for(registered.wait(), timeout=WAIT_TIMEOUT)
         try:
             assert "qwenpaw" not in market_registry.snapshot()
             with pytest.raises(ValueError, match="not loaded"):

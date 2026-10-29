@@ -5,6 +5,10 @@
   "remote_id": "openai",
   "template_owner": false,
   "default_model_ids": [
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
     "gpt-5.2",
     "gpt-5",
     "gpt-5-mini",
@@ -19,18 +23,428 @@
   ],
   "models": [
     {
+      "id": "gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "source": "builtin",
+      "availability_status": "unverified",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        }
+      },
+      "is_recommended": true,
+      "input_token_limit_source": "catalog",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "input_token_limit": 922000,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "supports_tool_calling": true,
+      "probe_source": "documentation",
+      "max_output_length_source": "catalog",
+      "max_output_length_updated_at": "2026-10-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "native"
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000001"
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
+    },
+    {
+      "id": "gpt-6-astra",
+      "name": "GPT-6 Astra",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-09-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 922000,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "native"
+      },
+      "pricing": {
+        "prompt": "0.00001",
+        "completion": "0.00005",
+        "input_cache_read": "0.000001"
+      },
+      "billing_checked_at": "2026-10-26"
+    },
+    {
+      "id": "gpt-6-luna",
+      "name": "GPT-6 Luna",
+      "source": "builtin",
+      "availability_status": "unverified",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "input_token_limit": 922000,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "supports_tool_calling": true,
+      "probe_source": "documentation",
+      "max_output_length_source": "catalog",
+      "max_output_length_updated_at": "2026-10-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "native"
+      },
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000005",
+        "input_cache_read": "0.00000001"
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "name": "GPT-5.6 Sol",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 922000,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "native"
+      },
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.00002",
+        "input_cache_read": "0.0000004"
+      },
+      "billing_checked_at": "2026-10-26"
+    },
+    {
       "id": "gpt-5.2",
       "name": "GPT-5.2",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
-      "is_recommended": true,
+      "is_recommended": false,
       "source": "builtin",
       "availability_status": "unverified",
       "availability_retryable": true,
       "config_overrides": [],
-      "max_input_length": 272000,
+      "max_input_length": 400000,
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
@@ -42,15 +456,62 @@
       "released_at": "2025-12-11",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00000175",
+        "completion": "0.000014",
+        "input_cache_read": "0.000000175"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5",
       "name": "GPT-5",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -69,15 +530,70 @@
       "released_at": "2025-08-07",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 272000,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00000125",
+        "completion": "0.00001",
+        "input_cache_read": "0.000000125"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5-mini",
       "name": "GPT-5 Mini",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -96,15 +612,70 @@
       "released_at": "2025-08-07",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 272000,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00000025",
+        "completion": "0.000002",
+        "input_cache_read": "0.000000025"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5-nano",
-      "name": "GPT-5 Nano",
+      "name": "GPT-5 nano",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -123,15 +694,70 @@
       "released_at": "2025-08-07",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 272000,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00000005",
+        "completion": "0.0000004",
+        "input_cache_read": "0.000000005"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4.1",
       "name": "GPT-4.1",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -150,15 +776,63 @@
       "released_at": "2025-04-14",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000008",
+        "input_cache_read": "0.0000005"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4.1-mini",
       "name": "GPT-4.1 Mini",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -177,15 +851,63 @@
       "released_at": "2025-04-14",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.0000004",
+        "completion": "0.0000016",
+        "input_cache_read": "0.0000001"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4.1-nano",
-      "name": "GPT-4.1 Nano",
+      "name": "GPT-4.1 nano",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -204,9 +926,57 @@
       "released_at": "2025-04-14",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000004",
+        "input_cache_read": "0.000000025"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "o3",
@@ -231,15 +1001,63 @@
       "released_at": "2025-04-16",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000008",
+        "input_cache_read": "0.0000005"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "o4-mini",
       "name": "o4-mini",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -258,15 +1076,63 @@
       "released_at": "2025-04-16",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.0000011",
+        "completion": "0.0000044",
+        "input_cache_read": "0.000000275"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4o",
       "name": "GPT-4o",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -285,15 +1151,63 @@
       "released_at": "2024-05-13",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.0000025",
+        "completion": "0.00001",
+        "input_cache_read": "0.00000125"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4o-mini",
       "name": "GPT-4o Mini",
       "supports_image": true,
-      "supports_video": true,
+      "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
       "source": "builtin",
@@ -312,9 +1226,57 @@
       "released_at": "2024-07-18",
       "capability_provenance": {
         "billing": {
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00000015",
+        "completion": "0.0000006",
+        "input_cache_read": "0.000000075"
+      },
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4o-2024-05-13",
@@ -341,7 +1303,7 @@
     },
     {
       "id": "gpt-5-pro",
-      "name": "gpt-5-pro",
+      "name": "GPT-5 Pro",
       "max_input_length": 400000,
       "max_output_length": 272000,
       "max_output_length_source": "catalog",
@@ -357,33 +1319,54 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
-        }
-      }
-    },
-    {
-      "id": "gpt-5.6-sol",
-      "name": "gpt-5.6-sol",
-      "max_input_length": 1050000,
-      "max_output_length": 128000,
-      "max_output_length_source": "catalog",
-      "supports_tool_calling": true,
-      "supports_image": true,
-      "supports_audio": false,
-      "supports_video": false,
-      "released_at": "2026-07-09",
-      "billing": "paid",
-      "is_free": false,
-      "billing_source": "catalog",
-      "capability_provenance": {
-        "billing": {
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.000015",
+        "completion": "0.00012"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4o-2024-08-06",
@@ -409,31 +1392,8 @@
       }
     },
     {
-      "id": "gpt-6-astra",
-      "name": "gpt-6-astra",
-      "max_input_length": 1050000,
-      "max_output_length": 128000,
-      "max_output_length_source": "catalog",
-      "supports_tool_calling": true,
-      "supports_image": true,
-      "supports_audio": false,
-      "supports_video": false,
-      "released_at": "2026-09-04",
-      "billing": "paid",
-      "is_free": false,
-      "billing_source": "catalog",
-      "capability_provenance": {
-        "billing": {
-          "source": "documentation",
-          "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
-        }
-      }
-    },
-    {
       "id": "gpt-5.2-pro",
-      "name": "gpt-5.2-pro",
+      "name": "GPT-5.2 Pro",
       "max_input_length": 400000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -449,10 +1409,54 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.000021",
+        "completion": "0.000168"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.3-codex-spark",
@@ -479,7 +1483,7 @@
     },
     {
       "id": "gpt-5.4",
-      "name": "gpt-5.4",
+      "name": "GPT-5.4",
       "max_input_length": 1050000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -495,14 +1499,65 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.0000025",
+        "completion": "0.000015",
+        "input_cache_read": "0.00000025"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4-turbo",
-      "name": "gpt-4-turbo",
+      "name": "GPT-4 Turbo",
       "max_input_length": 128000,
       "max_output_length": 4096,
       "max_output_length_source": "catalog",
@@ -518,14 +1573,58 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00001",
+        "completion": "0.00003"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.1",
-      "name": "gpt-5.1",
+      "name": "GPT-5.1",
       "max_input_length": 400000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -541,10 +1640,55 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.1",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.1",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00000125",
+        "completion": "0.00001",
+        "input_cache_read": "0.000000125"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "o1",
@@ -564,14 +1708,59 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.000015",
+        "completion": "0.00006",
+        "input_cache_read": "0.0000075"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.6-luna",
-      "name": "gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
       "max_input_length": 1050000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -587,14 +1776,93 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 922000,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "native"
+      },
+      "pricing": {
+        "prompt": "0.0000002",
+        "completion": "0.0000012",
+        "input_cache_read": "0.00000002"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.3-codex",
-      "name": "gpt-5.3-codex",
+      "name": "GPT-5.3-Codex",
       "max_input_length": 400000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -610,10 +1878,62 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 272000,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00000175",
+        "completion": "0.000014",
+        "input_cache_read": "0.000000175"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "o1-pro",
@@ -633,10 +1953,54 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1-pro",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o1-pro",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00015",
+        "completion": "0.0006"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "text-embedding-ada-002",
@@ -648,11 +2012,12 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2022-12-15"
+      "released_at": "2022-12-15",
+      "capability_provenance": {}
     },
     {
       "id": "gpt-5.4-nano",
-      "name": "gpt-5.4-nano",
+      "name": "GPT-5.4 nano",
       "max_input_length": 400000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -668,14 +2033,66 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 272000,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.0000002",
+        "completion": "0.00000125",
+        "input_cache_read": "0.00000002"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.5-pro",
-      "name": "gpt-5.5-pro",
+      "name": "GPT-5.5 Pro",
       "max_input_length": 1050000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -691,14 +2108,64 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00003",
+        "completion": "0.00018"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.4-mini",
-      "name": "gpt-5.4-mini",
+      "name": "GPT-5.4 Mini",
       "max_input_length": 400000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -714,14 +2181,66 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 272000,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00000075",
+        "completion": "0.0000045",
+        "input_cache_read": "0.000000075"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-3.5-turbo",
-      "name": "gpt-3.5-turbo",
+      "name": "GPT-3.5 Turbo",
       "max_input_length": 16385,
       "max_output_length": 4096,
       "max_output_length_source": "catalog",
@@ -737,14 +2256,58 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-3.5-turbo",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.0000005",
+        "completion": "0.0000015"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.6",
-      "name": "gpt-5.6",
+      "name": "GPT-5.6 Sol",
       "max_input_length": 1050000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -760,10 +2323,89 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 922000,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "native"
+      },
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.00002",
+        "input_cache_read": "0.0000004"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "text-embedding-3-small",
@@ -775,11 +2417,12 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-01-25"
+      "released_at": "2024-01-25",
+      "capability_provenance": {}
     },
     {
       "id": "gpt-5.4-pro",
-      "name": "gpt-5.4-pro",
+      "name": "GPT-5.4 Pro",
       "max_input_length": 1050000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -795,10 +2438,60 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00003",
+        "completion": "0.00018"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "text-embedding-3-large",
@@ -810,11 +2503,12 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-01-25"
+      "released_at": "2024-01-25",
+      "capability_provenance": {}
     },
     {
       "id": "gpt-5.6-terra",
-      "name": "gpt-5.6-terra",
+      "name": "GPT-5.6 Terra",
       "max_input_length": 1050000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -830,18 +2524,97 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
         }
-      }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "input_token_limit": 922000,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "native"
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000012",
+        "input_cache_read": "0.0000002"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4",
-      "name": "gpt-4",
+      "name": "GPT-4",
       "max_input_length": 8192,
       "max_output_length": 8192,
       "max_output_length_source": "catalog",
-      "supports_tool_calling": true,
+      "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
@@ -853,14 +2626,58 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-4",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00003",
+        "completion": "0.00006"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.2-chat-latest",
-      "name": "gpt-5.2-chat-latest",
+      "name": "GPT-5.2 Chat",
       "max_input_length": 128000,
       "max_output_length": 16384,
       "max_output_length_source": "catalog",
@@ -878,8 +2695,41 @@
           "reference": "https://developers.openai.com/api/docs/pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest",
+          "updated_at": "2026-10-26"
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26"
     },
     {
       "id": "gpt-realtime-2.1",
@@ -922,10 +2772,55 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-mini",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-mini",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-mini",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.0000011",
+        "completion": "0.0000044",
+        "input_cache_read": "0.00000055"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "o3-pro",
@@ -945,14 +2840,58 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-pro",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-pro",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/o3-pro",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage."
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.00002",
+        "completion": "0.00008"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-5.3-chat-latest",
-      "name": "gpt-5.3-chat-latest",
+      "name": "GPT-5.3 Chat",
       "max_input_length": 128000,
       "max_output_length": 16384,
       "max_output_length_source": "catalog",
@@ -970,12 +2909,45 @@
           "reference": "https://developers.openai.com/api/docs/pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest",
+          "updated_at": "2026-10-26"
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26"
     },
     {
       "id": "gpt-5.5",
-      "name": "gpt-5.5",
+      "name": "GPT-5.5",
       "max_input_length": 1050000,
       "max_output_length": 128000,
       "max_output_length_source": "catalog",
@@ -991,10 +2963,61 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20",
-          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5
+        },
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-5.5",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5
         }
-      }
+      },
+      "is_recommended": false,
+      "probe_source": "documentation",
+      "max_output_length_updated_at": "2026-10-26",
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.00003",
+        "input_cache_read": "0.0000005"
+      },
+      "billing_checked_at": "2026-10-26"
     },
     {
       "id": "gpt-4o-2024-11-20",
@@ -1018,6 +3041,109 @@
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
+    },
+    {
+      "id": "gpt-6-sol",
+      "name": "GPT-6 Sol",
+      "source": "builtin",
+      "availability_status": "unverified",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "input_token_limit": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_audio": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_video": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+          "updated_at": "2026-10-26"
+        },
+        "pricing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-10-26",
+          "note": "USD per token. Standard processing; excludes tools, regional premiums and subscription usage.",
+          "context_threshold": 272000,
+          "long_context_input_multiplier": 2,
+          "long_context_output_multiplier": 1.5,
+          "cache_write_30m_multiplier": 1.25,
+          "cache_write_12h_multiplier": 2.5
+        }
+      },
+      "is_recommended": false,
+      "input_token_limit_source": "catalog",
+      "max_input_length": 1050000,
+      "max_output_length": 128000,
+      "input_token_limit": 922000,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "supports_tool_calling": true,
+      "probe_source": "documentation",
+      "max_output_length_source": "catalog",
+      "max_output_length_updated_at": "2026-10-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "native"
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000002"
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "billing_checked_at": "2026-10-26"
     }
   ]
 }

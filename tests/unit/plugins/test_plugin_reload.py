@@ -43,6 +43,8 @@ from qwenpaw.plugins.updates import (
 from qwenpaw.plugins.workspace_projector import WorkspaceProjector
 from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 
+from .timing import WAIT_TIMEOUT
+
 
 def _write_plugin(
     root: Path,
@@ -837,7 +839,7 @@ async def test_boot_recovers_leftover_provision_under_lifecycle_lock(
         pending = not recovery.done()
         content_while_locked = (dest / "version.txt").read_text()
         backup_while_locked = backup.exists()
-    await asyncio.wait_for(recovery, timeout=5)
+    await asyncio.wait_for(recovery, timeout=WAIT_TIMEOUT)
     assert pending
     assert content_while_locked == "2.0.0"
     assert backup_while_locked
@@ -1302,7 +1304,9 @@ async def test_cancel_during_completed_swap_restores_old_disk(
         result = move(src, dest, *args, **kwargs)
         if source.name.endswith(".staging") and Path(dest) == installed:
             loop.call_soon_threadsafe(cancel_reload)
-            assert cancelled.wait(5), "reload cancellation was not delivered"
+            assert cancelled.wait(
+                WAIT_TIMEOUT * 2,
+            ), "reload cancellation was not delivered"
         return result
 
     monkeypatch.setattr(shutil, "move", move_then_cancel)

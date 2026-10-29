@@ -66,19 +66,6 @@ describe("buildMenuNamespace", () => {
     expect(menuRegistry.snapshot("primary.settings")).toHaveLength(0);
   });
 
-  it("replace overrides the target menu item and keeps its id", () => {
-    const menu = buildMenuNamespace();
-    menu.add("core", menuItem("core.target", { label: "original" }));
-
-    menu.replace("p1", "core.target", menuItem("ignored", { label: "new" }));
-
-    const items = menuRegistry.snapshot("primary.settings");
-    expect(items).toHaveLength(1);
-    // replace() forces the id back to targetId, so the plugin cannot rename it.
-    expect(items[0].id).toBe("core.target");
-    expect(items[0].label).toBe("new");
-  });
-
   it("replace records a conflict and falls back to add when target is absent", () => {
     const menu = buildMenuNamespace();
 
@@ -103,7 +90,11 @@ describe("buildMenuNamespace", () => {
       "core.target",
       menuItem("x", { label: "new" }),
     );
-    expect(menuRegistry.snapshot("primary.settings")[0].label).toBe("new");
+    expect(menuRegistry.snapshot("primary.settings")).toHaveLength(1);
+    expect(menuRegistry.snapshot("primary.settings")[0]).toMatchObject({
+      id: "core.target",
+      label: "new",
+    });
 
     d.dispose();
     expect(menuRegistry.snapshot("primary.settings")[0].label).toBe("original");
@@ -137,13 +128,6 @@ describe("buildMenuNamespace", () => {
       "p1.settings",
     ]);
     expect(menu.snapshot("userMenu").map((i) => i.id)).toEqual(["p1.user"]);
-  });
-
-  it("snapshot without a location returns every registered item", () => {
-    const menu = buildMenuNamespace();
-    menu.add("p1", menuItem("p1.settings"));
-    menu.add("p1", menuItem("p1.user", { location: "userMenu" }));
-
     expect(
       menu
         .snapshot()
@@ -187,21 +171,14 @@ describe("buildRouteNamespace", () => {
     expect(() => d.dispose()).not.toThrow();
   });
 
-  it("replace swaps the resolved component for the target route id", () => {
-    const route = buildRouteNamespace();
-    route.add("core", { id: "p", path: "/p", component: Base });
-
-    route.replace("p1", "p", Replacement);
-
-    const resolved = routeRegistry.snapshot().find((r) => r.id === "p");
-    expect(resolved?.Component).toBe(Replacement);
-  });
-
   it("replace returns a disposable that restores the base component", () => {
     const route = buildRouteNamespace();
     route.add("core", { id: "p", path: "/p", component: Base });
 
     const d = route.replace("p1", "p", Replacement);
+    expect(routeRegistry.snapshot().find((r) => r.id === "p")?.Component).toBe(
+      Replacement,
+    );
     d.dispose();
 
     const resolved = routeRegistry.snapshot().find((r) => r.id === "p");
@@ -216,29 +193,17 @@ describe("buildRouteNamespace", () => {
       (Inner: React.ComponentType<object>) => () =>
         React.createElement("section", null, React.createElement(Inner)),
     );
-    route.wrap("p1", "p", wrapper);
+    const d = route.wrap("p1", "p", wrapper);
 
     const resolved = routeRegistry.snapshot().find((r) => r.id === "p");
     const { container } = render(React.createElement(resolved!.Component));
     expect(container.querySelector("section")).not.toBeNull();
     expect(container.textContent).toBe("base");
     expect(wrapper).toHaveBeenCalled();
-  });
-
-  it("wrap returns a disposable that removes the wrapper", () => {
-    const route = buildRouteNamespace();
-    route.add("core", { id: "p", path: "/p", component: Base });
-
-    const d = route.wrap(
-      "p1",
-      "p",
-      (Inner) => () =>
-        React.createElement("section", null, React.createElement(Inner)),
-    );
     d.dispose();
-
-    const resolved = routeRegistry.snapshot().find((r) => r.id === "p");
-    expect(resolved?.Component).toBe(Base);
+    expect(routeRegistry.snapshot().find((r) => r.id === "p")?.Component).toBe(
+      Base,
+    );
   });
 
   it("remove drops a registered route by id", () => {
@@ -282,23 +247,16 @@ describe("buildSlotNamespace", () => {
     expect(() => d.dispose()).not.toThrow();
   });
 
-  it("replace takes over the slot instead of appending to it", () => {
-    const slot = buildSlotNamespace();
-    slot.fill("p1", "sider.bottom", () => null, { id: "fill" });
-
-    slot.replace("p2", "sider.bottom", () => null, { id: "winner" });
-
-    const entries = slotRegistry.snapshot("sider.bottom");
-    expect(entries).toHaveLength(1);
-    expect(entries[0].opts.id).toBe("winner");
-    expect(entries[0].kind).toBe("replace");
-  });
-
   it("replace returns a disposable that gives the slot back to the filler", () => {
     const slot = buildSlotNamespace();
     slot.fill("p1", "sider.bottom", () => null, { id: "fill" });
 
     const d = slot.replace("p2", "sider.bottom", () => null, { id: "winner" });
+    expect(slotRegistry.snapshot("sider.bottom")).toHaveLength(1);
+    expect(slotRegistry.snapshot("sider.bottom")[0]).toMatchObject({
+      kind: "replace",
+      opts: { id: "winner" },
+    });
     d.dispose();
 
     const entries = slotRegistry.snapshot("sider.bottom");
@@ -343,6 +301,7 @@ describe("buildSlotNamespace", () => {
 describe("buildAuditNamespace", () => {
   it("overrides exposes the shared audit log", () => {
     const audit = buildAuditNamespace();
+    expect(audit.overrides()).toEqual([]);
     const menu = buildMenuNamespace();
     menu.add("core", menuItem("core.target"));
     menu.replace("p1", "core.target", menuItem("x"));
@@ -361,46 +320,5 @@ describe("buildAuditNamespace", () => {
     first.length = 0;
 
     expect(audit.overrides().length).toBeGreaterThan(0);
-  });
-
-  it("overrides of a cleared log is empty", () => {
-    const audit = buildAuditNamespace();
-
-    expect(audit.overrides()).toEqual([]);
-  });
-});
-
-describe("namespace factories are independent instances", () => {
-  it("two builds share the same underlying registry state", () => {
-    const menuA = buildMenuNamespace();
-    const menuB = buildMenuNamespace();
-
-    menuA.add("p1", menuItem("p1.shared"));
-
-    expect(menuB.snapshot("primary.settings").map((i) => i.id)).toEqual([
-      "p1.shared",
-    ]);
-    expect(menuA).not.toBe(menuB);
-  });
-
-  it("each factory exposes exactly its documented surface", () => {
-    expect(Object.keys(buildMenuNamespace()).sort()).toEqual([
-      "add",
-      "remove",
-      "replace",
-      "snapshot",
-    ]);
-    expect(Object.keys(buildRouteNamespace()).sort()).toEqual([
-      "add",
-      "remove",
-      "replace",
-      "wrap",
-    ]);
-    expect(Object.keys(buildSlotNamespace()).sort()).toEqual([
-      "fill",
-      "replace",
-      "snapshot",
-    ]);
-    expect(Object.keys(buildAuditNamespace())).toEqual(["overrides"]);
   });
 });

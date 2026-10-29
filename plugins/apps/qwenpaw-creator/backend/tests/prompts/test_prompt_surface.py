@@ -303,6 +303,31 @@ def test_model_with_system_voices_presents_design_as_optional(
     assert "Cherry" in editing
 
 
+def test_native_voice_is_the_default_and_synthesis_the_exception(
+    monkeypatch,
+) -> None:
+    """Narration was advertised as a TTS capability first; that is reversed.
+
+    Synthesis stays offered for a timbre the user supplied, and for carriers
+    that cannot speak (motion overlays, edits, s2v driving audio).
+    """
+    _tts(monkeypatch, model="qwen3-tts-flash")
+    delegator = render_creator_system_prompt(
+        project_id="project-guidance-test",
+        workspace_schema="SCHEMA",
+    )
+    assert "台词与旁白优先由视频模型原生生成" in delegator
+    assert "只有两种例外才允许 TTS" in delegator
+    assert "用户提供了自己的音色音频文件" in delegator
+    assert "s2v 数字人" in delegator
+    # The old invitation promised synthesis whatever the user supplied.
+    assert "不需要用户提供音频文件" not in delegator
+    assert "具备旁白生成能力" not in delegator
+    editing = _specialist_prompt(SpecialistRole.AI_EDITING_DIRECTOR)
+    assert "先判画面能不能自己发声" in editing
+    assert "不要用系统音色硬凑" in editing
+
+
 def test_model_without_system_voices_makes_design_a_prerequisite(
     monkeypatch,
 ) -> None:

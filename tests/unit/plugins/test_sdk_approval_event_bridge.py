@@ -11,6 +11,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 SOURCE = """
 from dataclasses import FrozenInstanceError
 from qwenpaw.plugins.events import EventSubscription
@@ -127,11 +129,12 @@ async def test_approval_resolve_supersede_cancel_and_gc_results(
             cancelled.request_id: "approval.cancelled",
             expired.request_id: "approval.timeout",
         }
-        for _ in range(100):
-            observed = ctx.storage.read_json("approvals.json", [])
-            if len(observed) >= 8:
-                break
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(WAIT_TIMEOUT):
+            while True:
+                observed = ctx.storage.read_json("approvals.json", [])
+                if len(observed) >= 8:
+                    break
+                await asyncio.sleep(0.01)
         for request_id, terminal in expected.items():
             rows = [row for row in observed if row[0] == request_id]
             assert [row[1] for row in rows] == ["approval.pending", terminal]

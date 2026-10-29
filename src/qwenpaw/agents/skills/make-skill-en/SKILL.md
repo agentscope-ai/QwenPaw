@@ -2,7 +2,7 @@
 name: make-skill
 description: "Create a focused workspace Skill from reusable decisions, knowledge, templates, or workflows in the current conversation. Use for /make-skill with a focus argument and requests such as save this workflow or turn this into a skill; do not use for one-off summaries or ordinary file creation."
 metadata:
-  builtin_skill_version: "2.1"
+  builtin_skill_version: "2.2"
   qwenpaw:
     emoji: "✍️"
     requires: {}
@@ -16,7 +16,9 @@ Resolve `<workspace>` from the runtime directory context: use the current agent'
 
 ## Script interface
 
-Run `python scripts/<script>` through `execute_shell_command`, setting `cwd` to this Skill's `<dir>` from the available-skills entry. Each script reads one JSON object from stdin (or `--input <file>`) and returns one JSON object. Every input includes `workspace`; the table lists the other top-level fields.
+Run `<python> scripts/<script>` through `execute_shell_command`, setting `cwd` to this Skill's `<dir>` from the available-skills entry. Use the executable path in `QWENPAW_DESKTOP_PY_RUNTIME` as `<python>` when set; otherwise use `python`.
+
+Each script reads one JSON object from stdin (or `--input <file>`) and returns one JSON object. Every input includes `workspace`; the table lists the other top-level fields.
 
 | Operation | Script | Other input fields | Successful result |
 |---|---|---|---|

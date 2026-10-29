@@ -46,6 +46,7 @@ from services.runtime_files.models import (
 )
 
 from .commit import (
+    DIFF_SEMANTICS_MIGRATED,
     CommitJournalState,
     ProjectCommitJournal,
     _candidate_hash,
@@ -666,7 +667,24 @@ class ProjectCommitRecoveryCoordinator:
                     "prepared final generation must equal or follow latest generation",
                 )
 
-        requested = diff_json(base_data, candidate_data)
+        # touched_pointers were recorded against the representation the
+        # committing boundary diffed, tagged by journal.diff_semantics.  A
+        # current (MIGRATED) journal normalized base.json to the model_dump --
+        # the same representation candidate.json is built from -- so system
+        # normalization (defaulted fields, timestamp canonicalisation) is not
+        # mistaken for a user edit.  A legacy (SOURCE) journal diffed the raw
+        # base.json verbatim; replaying it against the migrated model_dump
+        # would surface a load-time repair (e.g. muting an older overlapping
+        # narration) as a phantom edit and brick an otherwise valid
+        # transaction.  See _diff_base_document / commit._snapshot_document.
+        requested = diff_json(
+            _diff_base_document(
+                journal.diff_semantics,
+                base_data,
+                base_project,
+            ),
+            candidate_data,
+        )
         protected = sorted(
             change.pointer
             for change in requested
@@ -827,7 +845,18 @@ class ProjectCommitRecoveryCoordinator:
                 raise _IntegrityProblem(
                     "current Project differs from prepared final.json",
                 )
-            changes = _business_changes(inputs.latest_data, inputs.final_data)
+            # Recompute against the representation the journal recorded
+            # (journal.diff_semantics) so this matches the ChangeSet commit
+            # persisted from its own base/candidate documents; see
+            # _diff_latest_document and _business_changes.
+            changes = _business_changes(
+                _diff_latest_document(
+                    inputs.journal.diff_semantics,
+                    inputs.latest_data,
+                    inputs.latest_project,
+                ),
+                inputs.final_data,
+            )
             if not changes:
                 raise _IntegrityProblem(
                     "prepared Project publication has no business changes",
@@ -839,9 +868,18 @@ class ProjectCommitRecoveryCoordinator:
                 "pre-publish latest cannot be reconstructed safely",
             )
         candidate_changes = _business_changes(
-            inputs.base_data,
+            _diff_base_document(
+                inputs.journal.diff_semantics,
+                inputs.base_data,
+                inputs.base_project,
+            ),
             inputs.candidate_data,
         )
+        # ``current`` is always freshly loaded and normalized, and
+        # base_project.model_dump() is the matching normalized base, so this
+        # side is representation-independent: each pair is internally
+        # consistent and a load-time repair cancels out.  Only the raw
+        # candidate side above must follow the journal's recorded semantics.
         current_changes = _business_changes(
             inputs.base_project.model_dump(mode="json"),
             current.project.model_dump(mode="json"),
@@ -1402,7 +1440,61 @@ def _replace_journal(
     )
 
 
+def _diff_base_document(
+    diff_semantics: int,
+    base_data: dict[str, Any],
+    base_project: Project,
+) -> dict[str, Any]:
+    """Base document to diff, matching the journal's recorded semantics.
+
+    A ``DIFF_SEMANTICS_MIGRATED`` journal recorded ``touched_pointers`` and
+    business changes against the migrated ``model_dump`` (the representation
+    ``candidate.json`` is built from), so recovery replays that.  A legacy
+    ``DIFF_SEMANTICS_SOURCE`` journal -- including any persisted before the
+    field existed, which default to source -- diffed the raw ``base.json``
+    verbatim; replaying it against the ``model_dump`` would resurface a
+    load-time repair (e.g. muting an older overlapping narration) as a phantom
+    edit and brick an otherwise valid transaction.  See
+    ``commit._snapshot_document``.
+    """
+
+    if diff_semantics >= DIFF_SEMANTICS_MIGRATED:
+        return base_project.model_dump(mode="json")
+    return base_data
+
+
+def _diff_latest_document(
+    diff_semantics: int,
+    latest_data: dict[str, Any] | None,
+    latest_project: Project | None,
+) -> dict[str, Any] | None:
+    """Pre-publish latest document to diff; see :func:`_diff_base_document`.
+
+    ``None`` when the transaction never prepared a ``latest.json`` snapshot.
+    """
+
+    if latest_project is None:
+        return None
+    if diff_semantics >= DIFF_SEMANTICS_MIGRATED:
+        return latest_project.model_dump(mode="json")
+    return latest_data
+
+
 def _business_changes(before: Any, after: Any) -> tuple[JsonChange, ...]:
+    """Non-protected changes between two documents of one representation.
+
+    Both sides must be the SAME representation, selected by the journal's
+    ``diff_semantics`` via :func:`_diff_base_document` /
+    :func:`_diff_latest_document`.  For a ``DIFF_SEMANTICS_MIGRATED`` journal
+    that is the normalized ``model_dump`` on both sides, so system
+    normalization (defaulted fields, timestamp canonicalisation) and load-time
+    repairs never surface as phantom user edits.  For a legacy
+    ``DIFF_SEMANTICS_SOURCE`` journal it is the raw persisted source on both
+    sides, so recovery replays exactly what the committing boundary recorded.
+    Mixing the two -- a migrated base against a raw candidate -- is what
+    diverges from the ChangeSet ``commit`` persisted and bricks recovery.
+    """
+
     return tuple(
         change
         for change in diff_json(before, after)
@@ -1413,9 +1505,23 @@ def _business_changes(before: Any, after: Any) -> tuple[JsonChange, ...]:
 def _prepared_business_changes(
     inputs: _RecoveryInputs,
 ) -> tuple[JsonChange, ...]:
-    if inputs.latest_data is not None and inputs.final_data is not None:
-        return _business_changes(inputs.latest_data, inputs.final_data)
-    return _business_changes(inputs.base_data, inputs.candidate_data)
+    if inputs.latest_project is not None and inputs.final_data is not None:
+        return _business_changes(
+            _diff_latest_document(
+                inputs.journal.diff_semantics,
+                inputs.latest_data,
+                inputs.latest_project,
+            ),
+            inputs.final_data,
+        )
+    return _business_changes(
+        _diff_base_document(
+            inputs.journal.diff_semantics,
+            inputs.base_data,
+            inputs.base_project,
+        ),
+        inputs.candidate_data,
+    )
 
 
 def _change_signatures(

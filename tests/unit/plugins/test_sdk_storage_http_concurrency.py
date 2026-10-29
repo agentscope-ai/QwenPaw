@@ -12,6 +12,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT, wait_for_thread_progress
+
 pytestmark = pytest.mark.p1
 
 APP_SOURCE = """
@@ -58,7 +60,7 @@ async def test_standard_http_storage_keeps_loop_responsive(
 
         def observe_delay():
             before = len(ticks)
-            time.sleep(0.15)
+            wait_for_thread_progress(lambda: len(ticks) > before)
             observations.append(
                 (threading.current_thread().name, len(ticks) - before),
             )
@@ -167,7 +169,7 @@ async def test_cancelled_http_write_blocks_reload_until_disk_finishes(
     tmp_path,
     monkeypatch,
 ):
-    from qwenpaw.plugins import PluginBusyError
+    from qwenpaw.plugins import PluginBusyError, activity
     from qwenpaw.plugins.testing import PluginTestHost
 
     entered, release, finished = (
@@ -181,7 +183,9 @@ async def test_cancelled_http_write_blocks_reload_until_disk_finishes(
     def controlled_fsync(fd):
         threads.append(threading.current_thread().name)
         entered.set()
-        assert release.wait(15), "Test did not release actual disk operation"
+        assert release.wait(
+            WAIT_TIMEOUT * 2,
+        ), "Test did not release actual disk operation"
         result = original(fd)
         finished.set()
         return result
@@ -195,11 +199,13 @@ async def test_cancelled_http_write_blocks_reload_until_disk_finishes(
         task = None
         try:
             with monkeypatch.context() as patch:
+                # Keep successful retries on the normal budget after release.
+                patch.setattr(activity, "INTERRUPT_TIMEOUT_SECONDS", 0.2)
                 patch.setattr(os, "fsync", controlled_fsync)
                 task = asyncio.create_task(
                     host.request("PUT", path, json={"value": 9}),
                 )
-                async with asyncio.timeout(3):
+                async with asyncio.timeout(WAIT_TIMEOUT):
                     while not entered.is_set():
                         await asyncio.sleep(0.005)
                 task.cancel()
@@ -218,7 +224,7 @@ async def test_cancelled_http_write_blocks_reload_until_disk_finishes(
                     > 0
                 )
                 release.set()
-                assert await asyncio.to_thread(finished.wait, 2)
+                assert await asyncio.to_thread(finished.wait, WAIT_TIMEOUT)
                 await asyncio.gather(task, return_exceptions=True)
             assert threads and all(
                 thread != "MainThread" for thread in threads

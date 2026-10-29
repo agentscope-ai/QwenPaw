@@ -2051,6 +2051,22 @@ def _validate_mail_config(mail: AgentMailConfig) -> None:
             ),
         )
 
+    # A legacy full address in name must name the same domain the
+    # monitor uses. Otherwise MCP logs into one provider and IMAP
+    # into another (user@qq.com + domain 163.com).
+    account_name = credential.name or ""
+    if "@" in account_name:
+        address_domain = account_name.rsplit("@", 1)[-1].strip()
+        if address_domain and domain and address_domain.lower() != domain:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Account name domain '{address_domain}' "
+                    "conflicts with credential.domain "
+                    f"'{credential.domain}'"
+                ),
+            )
+
     if mail.push is not None:
         if len(mail.push.rules) > 50:
             raise HTTPException(

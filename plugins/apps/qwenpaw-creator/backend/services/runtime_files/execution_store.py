@@ -14,7 +14,7 @@ shared lifecycle lock. Provider/model calls must happen outside these locks.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,6 +29,7 @@ from uuid import uuid4
 
 from domain.enums import (
     TERMINAL_SPECIALIST_STATUSES,
+    TERMINAL_TASK_STATUSES,
     SpecialistRunStatus,
     TaskStatus,
 )
@@ -226,6 +227,7 @@ class ProjectExecutionStore:
         data_root: str | os.PathLike[str],
         *,
         lock_timeout_seconds: float | None = 10.0,
+        on_task_terminal: Callable[[TaskRecord], None] | None = None,
     ) -> None:
         raw_root = Path(data_root).expanduser()
         if not raw_root.is_absolute():
@@ -237,6 +239,26 @@ class ProjectExecutionStore:
         if not self.data_root.is_dir():
             raise UnsafeExecutionPath("Runtime data root must be a directory")
         self.lock_timeout_seconds = lock_timeout_seconds
+        # Scratch owners subscribe here so finished work files can go away at
+        # once.  The store itself never deletes media: it only announces that a
+        # Task stopped being able to produce more of it.
+        self.on_task_terminal = on_task_terminal
+
+    def _notify_task_terminal(self, task: TaskRecord) -> None:
+        """Announce a terminal Task, tolerating a listener that cannot clean up."""
+
+        listener = self.on_task_terminal
+        if listener is None or task.status not in TERMINAL_TASK_STATUSES:
+            return
+        try:
+            listener(task)
+        except Exception:  # noqa: BLE001 - cleanup cannot roll back state
+            logger.warning(
+                "terminal Task listener failed: project=%s task=%s",
+                task.project_id,
+                task.task_id,
+                exc_info=True,
+            )
 
     # -- current SpecialistRun state -------------------------------------
 
@@ -800,7 +822,7 @@ class ProjectExecutionStore:
         ):
             snapshot = self._task_store(project_id, task_id).read_snapshot()
             self._assert_task_identity(snapshot.value, project_id, task_id)
-            return self._transition_task_unlocked(
+            result = self._transition_task_unlocked(
                 project_id,
                 task_id,
                 snapshot,
@@ -810,6 +832,7 @@ class ProjectExecutionStore:
                 expected_checksum=expected_checksum,
                 updated_at=updated_at,
             )
+        return result
 
     def append_task_attempt(
         self,
@@ -1526,6 +1549,13 @@ class ProjectExecutionStore:
             current.status.value,
             target.value,
         )
+        # The one place that knows a Task can never write again: transition,
+        # attempt-head replay and quarantine all end here, so no engine has to
+        # remember to clean up.  The release runs while the Project lock is
+        # held; that hold is a handful of unlink calls against one Task's own
+        # scratch, while forgetting them would leave hundreds of megabytes
+        # behind until the next restart.
+        self._notify_task_terminal(result)
         return result
 
     # -- validation and paths -------------------------------------------

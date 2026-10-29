@@ -1859,7 +1859,7 @@ class Project(StrictModel):
                     element_timelines[element_id].ticks_per_second,
                 )
 
-        _validate_narration_voiced_overlap(self.timelines)
+        _validate_narration_overlap(self.timelines)
         _validate_render_source_cycles(elements)
         return self
 
@@ -2025,36 +2025,44 @@ def _require_all(mapping: dict[str, Any], keys: list[str], label: str) -> None:
         _require_key(mapping, key, label)
 
 
-def _validate_narration_voiced_overlap(
+def _validate_narration_overlap(
     timelines: EntityCollection[Timeline],
 ) -> None:
-    """Reject overlap with S2V's explicit driving voice.
+    """Reject narration that collides with S2V driving voice or itself.
 
-    R2V narrative is not a timed speech annotation. Its actual audio must be
-    assessed from the produced media, never inferred from retired plan rows.
+    Two collisions make a timeline speak over itself:
+
+    - narration over an S2V interval, where the generated video natively
+      voices that span (s2v driving voice);
+    - narration over another narration, i.e. two voices at once. This is the
+      "switched the voice but both play" defect: re-voicing a segment must
+      rebind the existing Element (or delete it), never stack a second
+      narration over the same span.
+
+    ``bgm``/``sfx`` are exempt — a music bed and layered effects run under
+    narration on purpose — and adjacent narration segments ([a,b) then
+    [b,c)) do not overlap on the half-open interval. R2V narrative is not a
+    timed speech annotation: its audio is assessed from the produced media,
+    never inferred from retired plan rows.
     """
 
     for timeline in timelines.items.values():
         voiced_spans: list[tuple[str, TimelineSpan]] = []
+        narration_spans: list[tuple[str, TimelineSpan]] = []
         for element_id, element in timeline.elements_by_id.items():
             if not element.enabled:
                 continue
             creation = element.creation
             if isinstance(creation, S2VCreation):
                 voiced_spans.append((element_id, element.span))
-                continue
-        if not voiced_spans:
-            continue
-        for element_id, element in timeline.elements_by_id.items():
-            creation = element.creation
-            if (
-                not element.enabled
-                or not isinstance(creation, AudioCreation)
-                or creation.role != "narration"
+            elif (
+                isinstance(creation, AudioCreation)
+                and creation.role == "narration"
             ):
-                continue
+                narration_spans.append((element_id, element.span))
+        for element_id, span in narration_spans:
             for voiced_id, voiced_span in voiced_spans:
-                if element.span.overlaps(voiced_span):
+                if span.overlaps(voiced_span):
                     raise ValueError(
                         f"narration audio {element_id} overlaps the voiced "
                         f"interval [{voiced_span.start_tick}, "
@@ -2062,6 +2070,17 @@ def _validate_narration_voiced_overlap(
                         "the generated video natively voices that interval "
                         "(s2v driving voice); move the narration "
                         "span or adjust the driving voice clip",
+                    )
+        for index, (element_id, span) in enumerate(narration_spans):
+            for other_id, other_span in narration_spans[index + 1 :]:
+                if span.overlaps(other_span):
+                    raise ValueError(
+                        f"narration audio {element_id} overlaps narration "
+                        f"{other_id} on [{span.start_tick}, "
+                        f"{span.end_tick}): two narration tracks speak at "
+                        "once (double voice); re-voice a segment by "
+                        "rebinding or deleting the original Element, not "
+                        "by adding a second narration",
                     )
 
 

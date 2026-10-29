@@ -527,7 +527,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 )
             return await self._ensure_requirements_installed(
                 requirements_file,
-                source_path,
                 plugin_id,
                 allow_install=allow_install,
             )
@@ -537,7 +536,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
     async def _ensure_requirements_installed(
         self,
         requirements_file: Path,
-        source_path: Path,
         plugin_id: str,
         *,
         allow_install: bool,
@@ -552,28 +550,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         )
         if decision.unsupported:
             return decision
-        if decision.missing:
-            from ._sdk_dependencies import loaded_sdk_conflicts
-
-            conflicts = await run_sync_io(
-                loaded_sdk_conflicts,
-                source_path,
-                decision.missing,
-            )
-            if conflicts:
-                return GateDecision(
-                    allow_install=False,
-                    already_satisfied=False,
-                    missing=decision.missing,
-                    host_conflicts=conflicts,
-                    require_restart=True,
-                    reason=(
-                        f"Plugin '{plugin_id}' cannot safely replace "
-                        "distributions in this process "
-                        f"({', '.join(conflicts)}). "
-                        "Restart the backend to apply."
-                    ),
-                )
         if decision.already_satisfied or not decision.allow_install:
             return decision
         logger.info(
@@ -583,16 +559,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             len(decision.missing),
             ", ".join(decision.missing),
         )
-        source = (
-            {"source_path": source_path}
-            if requirements_file.parent != source_path
-            else {}
-        )
         await run_sync_io(
             self._install_requirements_locked,
             requirements_file,
             plugin_id,
-            **source,
         )
         recheck = await run_sync_io(
             DependencyGate().evaluate,
@@ -614,8 +584,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         self,
         requirements_file: Path,
         plugin_id: str,
-        *,
-        source_path: Path | None = None,
     ) -> None:
         """Install deps under a per-plugin inter-process lock (blocking).
 
@@ -634,20 +602,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             _ensure_plugin_site_on_path()
             importlib.invalidate_caches()
             missing = self._find_unsatisfied_dependencies(requirements_file)
-            from ._sdk_dependencies import loaded_sdk_conflicts
-
-            conflicts = loaded_sdk_conflicts(
-                source_path or requirements_file.parent,
-                missing,
-            )
-            if conflicts:
-                from .errors import SDKRestartRequiredError
-
-                raise SDKRestartRequiredError(
-                    f"Plugin '{plugin_id}' cannot safely replace "
-                    "distributions in this process "
-                    f"({', '.join(conflicts)}). Restart the backend to apply.",
-                )
             if not missing:
                 logger.info(
                     "Plugin '%s' dependencies already satisfied by a "
@@ -655,14 +609,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     plugin_id,
                 )
                 return
-            if source_path is None:
-                self._install_requirements(requirements_file, plugin_id)
-            else:
-                self._install_requirements(
-                    requirements_file,
-                    plugin_id,
-                    source_path=source_path,
-                )
+            self._install_requirements(requirements_file, plugin_id)
 
     def _validate_entry_points(
         self,
@@ -1500,8 +1447,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         self,
         requirements_file: Path,
         plugin_id: str,
-        *,
-        source_path: Path | None = None,
     ) -> None:
         """Install Python dependencies for a plugin (blocking).
 
@@ -1527,24 +1472,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 "ask the administrator to install the requirements, "
                 "or use Docker for independently managed dependencies.",
             )
-        from ._sdk_dependencies import is_sdk_source, install_sdk_requirements
-
-        if is_sdk_source(source_path or requirements_file.parent):
-            python = _desktop_python() if _is_frozen() else sys.executable
-            if python is None:
-                raise RuntimeError(
-                    "The bundled dependency runtime is unavailable",
-                )
-            install_sdk_requirements(
-                requirements_file,
-                plugin_id,
-                python=str(python),
-                target=str(_plugin_site_dir()) if _is_frozen() else None,
-                run=self._run_subprocess_with_streaming_log,
-                find_uv=self._find_uv,
-            )
-            importlib.invalidate_caches()
-            return
         logger.info(
             f"Installing dependencies for plugin '{plugin_id}'...",
         )

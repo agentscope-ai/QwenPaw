@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Public channel identities and run callbacks through the real shared queue.
-"""
+"""Public channel identities and callbacks through the real shared queue."""
 
 import asyncio
 
@@ -11,6 +10,8 @@ from qwenpaw.plugins.messages import ContentBlock
 from qwenpaw.plugins.testing import PluginTestHost
 
 from .sdk_author_fixture import make_plugin
+
+from .timing import WAIT_TIMEOUT
 
 CHANNEL = "contract-routed-channel"
 SOURCE = """
@@ -155,7 +156,7 @@ plugin = Plugin()
 
 
 async def wait_for(predicate):
-    async with asyncio.timeout(5):
+    async with asyncio.timeout(WAIT_TIMEOUT):
         while not predicate():
             await asyncio.sleep(0.01)
 
@@ -331,7 +332,7 @@ async def test_late_start_callback_retains_exactly_one_terminal_notification(
         try:
             # The first callback outlives its real five-second budget. Business
             # output proceeds, but the live callback remains generation-owned.
-            async with asyncio.timeout(8):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not ctx.storage.read_json("model-finished.json", []):
                     await asyncio.sleep(0.01)
             assert ctx.storage.read_json("events.json")[0]["phase"] == "start"
@@ -634,7 +635,7 @@ async def test_channel_stop_retains_provider_tail_and_other_run(
             assert ctx.storage.read_json("tail-finished.json", False) is False
             with pytest.raises(PluginBusyError):
                 await host.reload("extension-contract")
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 events = [
                     event
                     async for event in host.stream_chat(
@@ -936,7 +937,10 @@ plugin = Plugin()
         try:
             if timeout_then_retry:
                 with pytest.raises(SDKError):
-                    await asyncio.wait_for(asyncio.shield(stopping), 7)
+                    await asyncio.wait_for(
+                        asyncio.shield(stopping),
+                        WAIT_TIMEOUT,
+                    )
                 assert (
                     host.resource_snapshot("extension-contract")[
                         "active_calls"
