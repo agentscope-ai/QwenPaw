@@ -196,7 +196,7 @@ class AgentBuilder:
             return make_toolkit(skills_or_loaders=skills)
 
         from ..agents.skill_system import (
-            get_workspace_skills_dir,
+            resolve_workspace_skill_dir,
             select_preload_skills,
         )
         from ..constant import WORKING_DIR
@@ -209,10 +209,16 @@ class AgentBuilder:
             skills_workspace,
             effective_skills,
         )
-        workspace_skills_dir = get_workspace_skills_dir(skills_workspace)
         preload_dirs = {
-            (workspace_skills_dir / name).resolve(strict=False)
+            resolved.resolve(strict=False)
             for name in preload_skill_names
+            if (
+                resolved := resolve_workspace_skill_dir(
+                    skills_workspace,
+                    name,
+                )
+            )
+            is not None
         }
         preloaded_skills: dict[str, Any] = {}
         viewer_skills: list[Any] = []
@@ -284,14 +290,14 @@ class AgentBuilder:
         if not names:
             return []
 
-        from ..agents.skill_system import get_workspace_skills_dir
+        from ..agents.skill_system import resolve_workspace_skill_dir
         from ..constant import WORKING_DIR
 
-        base = get_workspace_skills_dir(Path(workspace_dir or WORKING_DIR))
+        base = Path(workspace_dir or WORKING_DIR)
         dirs: list[str] = []
         for name in names:
-            skill_dir = base / name
-            if (skill_dir / "SKILL.md").exists():
+            skill_dir = resolve_workspace_skill_dir(base, name)
+            if skill_dir is not None and (skill_dir / "SKILL.md").exists():
                 dirs.append(str(skill_dir))
             else:
                 _logger.debug(

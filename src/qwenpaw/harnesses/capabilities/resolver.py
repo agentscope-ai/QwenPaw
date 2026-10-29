@@ -12,8 +12,8 @@ from typing import Any
 
 from ...agents.skill_system import (
     ensure_skills_initialized,
-    get_workspace_skills_dir,
     resolve_effective_skills,
+    resolve_workspace_skill_dir,
 )
 from ...agents.skill_system.store import read_skill_from_dir
 from ...app.driver_config_service import DriverConfigService
@@ -78,10 +78,12 @@ class HarnessCapabilityResolver:
 
     def _resolve_skills(self, channel: str) -> list[HarnessSkillDefinition]:
         ensure_skills_initialized(self._workspace_dir)
-        skills_dir = get_workspace_skills_dir(self._workspace_dir)
         result: list[HarnessSkillDefinition] = []
         for name in resolve_effective_skills(self._workspace_dir, channel):
-            directory = (skills_dir / name).resolve()
+            resolved = resolve_workspace_skill_dir(self._workspace_dir, name)
+            if resolved is None:
+                continue
+            directory = resolved.resolve()
             info = read_skill_from_dir(directory, "workspace")
             if info is None:
                 continue

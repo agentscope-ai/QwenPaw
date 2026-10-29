@@ -420,7 +420,7 @@ class TestWorkspaceSkillInventory:
 
         inventory = reg._workspace_skill_inventory(workspace)
 
-        assert [name for name, _, _ in inventory.skills] == ["alpha"]
+        assert [name for name, _, _, _ in inventory.skills] == ["alpha"]
         assert inventory.manifest is None
 
     def test_manifest_signature_is_present_once_written(self, tmp_path):
@@ -443,7 +443,7 @@ class TestWorkspaceSkillInventory:
 
         inventory = reg._workspace_skill_inventory(workspace)
 
-        assert [name for name, _, _ in inventory.skills] == ["alpha"]
+        assert [name for name, _, _, _ in inventory.skills] == ["alpha"]
 
     def test_dangling_symlink_is_skipped_not_fatal(self, tmp_path):
         workspace = tmp_path / "ws"
@@ -456,7 +456,7 @@ class TestWorkspaceSkillInventory:
 
         inventory = reg._workspace_skill_inventory(workspace)
 
-        assert [name for name, _, _ in inventory.skills] == ["alpha"]
+        assert [name for name, _, _, _ in inventory.skills] == ["alpha"]
 
     def test_missing_skill_root_yields_an_empty_inventory(self, tmp_path):
         inventory = reg._workspace_skill_inventory(tmp_path / "nope")
