@@ -10,6 +10,7 @@ Transcription is only attempted when explicitly enabled via the
 """
 
 import asyncio
+import importlib.util
 import logging
 import shutil
 import threading
@@ -123,6 +124,15 @@ def get_configured_transcription_provider_id() -> str:
 def check_local_whisper_available() -> dict:
     """Check whether the local whisper provider can be used.
 
+    The probe resolves the ``whisper`` module with
+    :func:`importlib.util.find_spec` instead of importing it.  Importing
+    ``whisper`` eagerly loads ``torch`` and the CUDA runtime libraries,
+    which adds hundreds of megabytes of RSS to the server process.  This
+    function backs a read-only status endpoint that the Console calls on
+    the Voice Transcription settings page, so it must stay cheap.  Actual
+    import errors (broken install, missing shared library) still surface
+    when local transcription is used.
+
     Returns a dict with::
 
         {
@@ -133,13 +143,12 @@ def check_local_whisper_available() -> dict:
     """
     ffmpeg_ok = shutil.which("ffmpeg") is not None
 
-    whisper_ok = False
     try:
-        import whisper as _whisper  # noqa: F401
-
-        whisper_ok = True
-    except ImportError:
-        pass
+        whisper_ok = importlib.util.find_spec("whisper") is not None
+    except (ImportError, ValueError):
+        # A module in sys.modules without a usable __spec__ cannot be
+        # imported either, so treat it as not installed.
+        whisper_ok = False
 
     return {
         "available": ffmpeg_ok and whisper_ok,
