@@ -15,6 +15,7 @@ from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.config.config import LightContextConfig
+from qwenpaw.utils.io_utils import run_sync_io
 
 
 def _history_workspace(tmp_path, filename="history.db", strategy="scroll"):
@@ -36,7 +37,7 @@ def _history_workspace(tmp_path, filename="history.db", strategy="scroll"):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "reload_kind",
-    ["same", "path", "native", "discard", "shutdown"],
+    ["same", "path", "native", "discard"],
 )
 # pylint: disable-next=too-many-statements
 async def test_workspace_history_survives_requests_and_reload(
@@ -78,30 +79,6 @@ async def test_workspace_history_survives_requests_and_reload(
         )
         assert store.count("second") == 1
 
-        if reload_kind == "shutdown":
-            multi = MultiAgentManager()
-            multi.agents["agent"] = old
-            old._started = old._start_attempted = True
-            stopping = asyncio.create_task(multi.stop_agent("agent"))
-            while not store._close_requested:
-                await asyncio.sleep(0)
-            assert not stopping.done()
-            # Final shutdown cannot cut off the request's last durable write.
-            assert not store.closed
-            store.append(
-                session_id="second",
-                entry=LogEntry(kind="model_turn", content="last write"),
-            )
-            assert store.count("second") == 2
-            with pytest.raises(RuntimeError, match="shutting down"):
-                store.acquire()
-            managers[1].close()
-            assert await asyncio.wait_for(stopping, timeout=2)
-            assert store.closed and not old._started
-            assert "agent" not in multi.agents
-            assert not multi._agent_stop_tasks
-            return
-
         reusable = old_manager.get_reusable_services()
         await new.set_reusable_components(reusable)
         await new_manager.start_all()
@@ -132,6 +109,79 @@ async def test_workspace_history_survives_requests_and_reload(
         await old_manager.stop_all(final=True)
         await new_manager.stop_all(final=True)
     assert store.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retired", [False, True])
+async def test_final_stop_cancels_request_and_persists_history(
+    tmp_path,
+    retired,
+):
+    ws = _history_workspace(tmp_path)
+    await ws._service_manager.start_all()
+    ws._started = ws._start_attempted = True
+    multi = MultiAgentManager()
+    multi.agents["agent"] = ws
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    store = ws.history_store
+
+    async def request(_payload):
+        components = await AgentBuilder._build_scroll_components(
+            SimpleNamespace(workspace=ws, session_id="s"),
+            ws.config,
+            model=None,
+        )
+        assert components is not None
+        started.set()
+        try:
+            await asyncio.Event().wait()  # A cancellable model/tool wait.
+            yield "unused"
+        finally:
+            cancelled.set()
+            try:
+                await run_sync_io(
+                    store.append,
+                    session_id="s",
+                    entry=LogEntry(kind="model_turn", content="final write"),
+                )
+            finally:
+                await run_sync_io(components.context_manager.close)
+
+    await ws.task_tracker.attach_or_start("request", None, request, owner=ws)
+    await asyncio.wait_for(started.wait(), timeout=2)
+    if retired:
+        replacement = _history_workspace(tmp_path, filename="replacement.db")
+        replacement.set_task_tracker(ws.task_tracker)
+        await replacement._service_manager.start_all()
+        replacement._started = replacement._start_attempted = True
+        multi.agents["agent"] = replacement
+        multi._mark_rejected_reusable_services_for_cleanup(
+            ws,
+            replacement,
+            ws._service_manager.get_reusable_services(),
+        )
+        await multi._graceful_stop_old_instance(ws, "agent")
+        assert not cancelled.is_set()  # Reload itself must leave it running.
+    stopping = asyncio.create_task(multi.stop_agent("agent"))
+    try:
+        # Bound the assertion without cancelling the shutdown task on failure.
+        await asyncio.wait_for(cancelled.wait(), timeout=2)
+        assert await asyncio.wait_for(asyncio.shield(stopping), timeout=2)
+        assert store.closed and not ws._started
+        assert "agent" not in multi.agents
+        assert not multi._agent_stop_tasks
+        assert not await ws.task_tracker.has_active_tasks()
+        from qwenpaw.agents.context.scroll.history import HistoryStore
+
+        reopened = HistoryStore(store.path)
+        try:
+            assert reopened.count("s") == 1
+        finally:
+            reopened.close()
+    finally:
+        await ws.task_tracker.request_stop("request")
+        await stopping
 
 
 @pytest.mark.asyncio
