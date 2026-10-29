@@ -1,0 +1,3039 @@
+{
+  "schema_version": 4,
+  "runs": [
+    {
+      "schema_version": 4,
+      "kind": "official",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw Index",
+        "group_by": "model_harness"
+      },
+      "index_version": "index-v1",
+      "index_definition": {
+        "id": "index-v1",
+        "order": 1,
+        "directions": {
+          "research": {
+            "name": "研究",
+            "weight": 0.25,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "office": {
+            "name": "办公",
+            "weight": 0.25,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "coding": {
+            "name": "编程",
+            "weight": 0.25,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          },
+          "general": {
+            "name": "综合Agent任务",
+            "weight": 0.25,
+            "benchmarks": {
+              "pawbench": 1
+            }
+          }
+        },
+        "benchmarks": {
+          "gaia": {
+            "id": "gaia",
+            "name": "GAIA",
+            "revision": "1.0",
+            "expected": 165,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-gaia@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "spreadsheetbench-verified": {
+            "id": "spreadsheetbench-verified",
+            "name": "SpreadsheetBench Verified",
+            "revision": "1.0",
+            "expected": 400,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-spreadsheetbench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "swebench-verified": {
+            "id": "swebench-verified",
+            "name": "SWE-bench Verified",
+            "revision": "1.0",
+            "expected": 500,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-swebench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "pawbench": {
+            "id": "pawbench",
+            "name": "PawBench",
+            "revision": "agentscope-ai/pawbench@4",
+            "expected": 150,
+            "judge": {
+              "kind": "llm",
+              "model": "qwen3.8-max",
+              "scorer": null,
+              "official_model": "claude-opus-4.6",
+              "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+              "parity_note": ""
+            }
+          }
+        }
+      },
+      "id": "qwenpaw-2.3.0-default-qwen3.8-max-2026-10-29--index-v1",
+      "date": "2026-10-29T02:13:29Z",
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "exchange_rate": {
+        "cny_per_usd": 7,
+        "basis": "fixed"
+      },
+      "workflow_url": "",
+      "source_results": [
+        {
+          "id": "qwenpaw-2.3.0-default-qwen3.8-max-2026-10-29-gaia",
+          "date": "2026-10-27T02:04:13Z",
+          "benchmark": "gaia",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-default-qwen3.8-max-2026-10-29-swebench-verified",
+          "date": "2026-10-27T03:58:49Z",
+          "benchmark": "swebench-verified",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-default-qwen3.8-max-2026-10-29-spreadsheetbench-verified",
+          "date": "2026-10-27T09:01:42Z",
+          "benchmark": "spreadsheetbench-verified",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-default-qwen3.8-max-2026-10-29-pawbench",
+          "date": "2026-10-29T02:13:29Z",
+          "benchmark": "pawbench",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        }
+      ],
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "1.0",
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-gaia@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "1.0",
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-spreadsheetbench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "1.0",
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-swebench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "pawbench",
+          "name": "PawBench",
+          "revision": "agentscope-ai/pawbench@4",
+          "expected": 150,
+          "judge": {
+            "kind": "llm",
+            "model": "qwen3.8-max",
+            "scorer": null,
+            "official_model": "claude-opus-4.6",
+            "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+            "parity_note": ""
+          }
+        }
+      ],
+      "complete": true,
+      "records": [
+        {
+          "model": "qwen3.8-max",
+          "provider": "dashscope",
+          "harness": "qwenpaw",
+          "sdk_version": "2.3.0",
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-gaia@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 86.66666666666667,
+              "mean_runtime_seconds": 739.0910890969698,
+              "mean_model_cost_usd": 0.2949838961038961,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.0648872727272725
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 165,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 165,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-spreadsheetbench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 89.25,
+              "mean_runtime_seconds": 651.37946066,
+              "mean_model_cost_usd": 0.21916670142857145,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.5341669100000002
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 400,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 400,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "swebench-verified",
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-swebench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 98.2,
+              "mean_runtime_seconds": 1045.976648088,
+              "mean_model_cost_usd": 0.426979512,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.988856584
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 500,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 500,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "pawbench",
+              "name": "PawBench",
+              "judge": {
+                "kind": "llm",
+                "model": "qwen3.8-max",
+                "scorer": null,
+                "official_model": null,
+                "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+                "parity_note": ""
+              },
+              "domains": [
+                "general"
+              ],
+              "expected": 150,
+              "scored": 150,
+              "score": 73.76026533333334,
+              "mean_runtime_seconds": 1161.47320634,
+              "mean_model_cost_usd": 0.3290666971428572,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.30346688
+              },
+              "mean_judge_cost_usd": 0.06794116571428571,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.47558816
+              },
+              "cost_sources": {
+                "snapshot_estimated": 150,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 150,
+                "unknown": 0
+              },
+              "failures": {
+                "scoring_error": 1,
+                "execution_error": 1
+              },
+              "failed": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 4,
+      "kind": "official",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw Index",
+        "group_by": "model_harness"
+      },
+      "index_version": "index-v1",
+      "index_definition": {
+        "id": "index-v1",
+        "order": 1,
+        "directions": {
+          "research": {
+            "name": "研究",
+            "weight": 0.25,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "office": {
+            "name": "办公",
+            "weight": 0.25,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "coding": {
+            "name": "编程",
+            "weight": 0.25,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          },
+          "general": {
+            "name": "综合Agent任务",
+            "weight": 0.25,
+            "benchmarks": {
+              "pawbench": 1
+            }
+          }
+        },
+        "benchmarks": {
+          "gaia": {
+            "id": "gaia",
+            "name": "GAIA",
+            "revision": "1.0",
+            "expected": 165,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-gaia@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "spreadsheetbench-verified": {
+            "id": "spreadsheetbench-verified",
+            "name": "SpreadsheetBench Verified",
+            "revision": "1.0",
+            "expected": 400,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-spreadsheetbench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "swebench-verified": {
+            "id": "swebench-verified",
+            "name": "SWE-bench Verified",
+            "revision": "1.0",
+            "expected": 500,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-swebench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "pawbench": {
+            "id": "pawbench",
+            "name": "PawBench",
+            "revision": "agentscope-ai/pawbench@4",
+            "expected": 150,
+            "judge": {
+              "kind": "llm",
+              "model": "qwen3.8-max",
+              "scorer": null,
+              "official_model": "claude-opus-4.6",
+              "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+              "parity_note": ""
+            }
+          }
+        }
+      },
+      "id": "qwenpaw-2.3.0-goal-glm-5.2-2026-10-28--index-v1",
+      "date": "2026-10-28T14:27:47Z",
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "exchange_rate": {
+        "cny_per_usd": 7,
+        "basis": "fixed"
+      },
+      "workflow_url": "",
+      "source_results": [
+        {
+          "id": "qwenpaw-2.3.0-goal-glm-5.2-2026-10-28-gaia",
+          "date": "2026-10-25T09:12:52Z",
+          "benchmark": "gaia",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-goal-glm-5.2-2026-10-28-spreadsheetbench-verified",
+          "date": "2026-10-25T09:39:34Z",
+          "benchmark": "spreadsheetbench-verified",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-goal-glm-5.2-2026-10-28-swebench-verified",
+          "date": "2026-10-27T03:19:38Z",
+          "benchmark": "swebench-verified",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-goal-glm-5.2-2026-10-28-pawbench",
+          "date": "2026-10-28T14:27:47Z",
+          "benchmark": "pawbench",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        }
+      ],
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "1.0",
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-gaia@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "1.0",
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-spreadsheetbench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "1.0",
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-swebench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "pawbench",
+          "name": "PawBench",
+          "revision": "agentscope-ai/pawbench@4",
+          "expected": 150,
+          "judge": {
+            "kind": "llm",
+            "model": "qwen3.8-max",
+            "scorer": null,
+            "official_model": "claude-opus-4.6",
+            "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+            "parity_note": ""
+          }
+        }
+      ],
+      "complete": true,
+      "records": [
+        {
+          "model": "glm-5.2",
+          "provider": "dashscope",
+          "harness": "qwenpaw-goal",
+          "sdk_version": "2.3.0",
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-gaia@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 73.93939393939394,
+              "mean_runtime_seconds": 682.0225968666666,
+              "mean_model_cost_usd": 0.4670534787878788,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 3.2693743515151517
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 165,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 165,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-spreadsheetbench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 87.5,
+              "mean_runtime_seconds": 541.51989099,
+              "mean_model_cost_usd": 0.2558173357142857,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.79072135
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 400,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 400,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "swebench-verified",
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-swebench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 95.6,
+              "mean_runtime_seconds": 767.215529586,
+              "mean_model_cost_usd": 0.8463130354285715,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 5.9241912480000005
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 500,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 500,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "pawbench",
+              "name": "PawBench",
+              "judge": {
+                "kind": "llm",
+                "model": "qwen3.8-max",
+                "scorer": null,
+                "official_model": null,
+                "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+                "parity_note": ""
+              },
+              "domains": [
+                "general"
+              ],
+              "expected": 150,
+              "scored": 150,
+              "score": 71.32668133333333,
+              "mean_runtime_seconds": 882.3799161066665,
+              "mean_model_cost_usd": 0.34751181333333336,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.4325826933333334
+              },
+              "mean_judge_cost_usd": 0.061786068571428564,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.43250247999999997
+              },
+              "cost_sources": {
+                "snapshot_estimated": 150,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 150,
+                "unknown": 0
+              },
+              "failures": {
+                "scoring_error": 1
+              },
+              "failed": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 4,
+      "kind": "official",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw Index",
+        "group_by": "model_harness"
+      },
+      "index_version": "index-v1",
+      "index_definition": {
+        "id": "index-v1",
+        "order": 1,
+        "directions": {
+          "research": {
+            "name": "研究",
+            "weight": 0.25,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "office": {
+            "name": "办公",
+            "weight": 0.25,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "coding": {
+            "name": "编程",
+            "weight": 0.25,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          },
+          "general": {
+            "name": "综合Agent任务",
+            "weight": 0.25,
+            "benchmarks": {
+              "pawbench": 1
+            }
+          }
+        },
+        "benchmarks": {
+          "gaia": {
+            "id": "gaia",
+            "name": "GAIA",
+            "revision": "1.0",
+            "expected": 165,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-gaia@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "spreadsheetbench-verified": {
+            "id": "spreadsheetbench-verified",
+            "name": "SpreadsheetBench Verified",
+            "revision": "1.0",
+            "expected": 400,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-spreadsheetbench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "swebench-verified": {
+            "id": "swebench-verified",
+            "name": "SWE-bench Verified",
+            "revision": "1.0",
+            "expected": 500,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-swebench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "pawbench": {
+            "id": "pawbench",
+            "name": "PawBench",
+            "revision": "agentscope-ai/pawbench@4",
+            "expected": 150,
+            "judge": {
+              "kind": "llm",
+              "model": "qwen3.8-max",
+              "scorer": null,
+              "official_model": "claude-opus-4.6",
+              "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+              "parity_note": ""
+            }
+          }
+        }
+      },
+      "id": "qwenpaw-2.3.0-goal-qwen3.8-max-2026-10-28--index-v1",
+      "date": "2026-10-28T12:07:00Z",
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "exchange_rate": {
+        "cny_per_usd": 7,
+        "basis": "fixed"
+      },
+      "workflow_url": "",
+      "source_results": [
+        {
+          "id": "qwenpaw-2.3.0-goal-qwen3.8-max-2026-10-28-gaia",
+          "date": "2026-10-25T08:17:40Z",
+          "benchmark": "gaia",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-goal-qwen3.8-max-2026-10-28-spreadsheetbench-verified",
+          "date": "2026-10-25T09:28:50Z",
+          "benchmark": "spreadsheetbench-verified",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-goal-qwen3.8-max-2026-10-28-swebench-verified",
+          "date": "2026-10-27T04:01:59Z",
+          "benchmark": "swebench-verified",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-goal-qwen3.8-max-2026-10-28-pawbench",
+          "date": "2026-10-28T12:07:00Z",
+          "benchmark": "pawbench",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        }
+      ],
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "1.0",
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-gaia@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "1.0",
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-spreadsheetbench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "1.0",
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-swebench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "pawbench",
+          "name": "PawBench",
+          "revision": "agentscope-ai/pawbench@4",
+          "expected": 150,
+          "judge": {
+            "kind": "llm",
+            "model": "qwen3.8-max",
+            "scorer": null,
+            "official_model": "claude-opus-4.6",
+            "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+            "parity_note": ""
+          }
+        }
+      ],
+      "complete": true,
+      "records": [
+        {
+          "model": "qwen3.8-max",
+          "provider": "dashscope",
+          "harness": "qwenpaw-goal",
+          "sdk_version": "2.3.0",
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-gaia@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 83.03030303030303,
+              "mean_runtime_seconds": 743.1991940545454,
+              "mean_model_cost_usd": 0.3330652051948052,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.3314564363636365
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 165,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 165,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-spreadsheetbench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 89,
+              "mean_runtime_seconds": 708.865867535,
+              "mean_model_cost_usd": 0.3090456342857143,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.16331944
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 400,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 400,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "swebench-verified",
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-swebench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 98.8,
+              "mean_runtime_seconds": 1088.019194014,
+              "mean_model_cost_usd": 0.4907816605714285,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 3.435471624
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 500,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 500,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "pawbench",
+              "name": "PawBench",
+              "judge": {
+                "kind": "llm",
+                "model": "qwen3.8-max",
+                "scorer": null,
+                "official_model": null,
+                "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+                "parity_note": ""
+              },
+              "domains": [
+                "general"
+              ],
+              "expected": 150,
+              "scored": 150,
+              "score": 75.70917133333333,
+              "mean_runtime_seconds": 1450.4290377,
+              "mean_model_cost_usd": 0.4950816114285714,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 3.46557128
+              },
+              "mean_judge_cost_usd": 0.06749601142857144,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.47247208
+              },
+              "cost_sources": {
+                "snapshot_estimated": 150,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 150,
+                "unknown": 0
+              },
+              "failures": {
+                "scoring_error": 1
+              },
+              "failed": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 4,
+      "kind": "official",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw Index",
+        "group_by": "model_harness"
+      },
+      "index_version": "index-v1",
+      "index_definition": {
+        "id": "index-v1",
+        "order": 1,
+        "directions": {
+          "research": {
+            "name": "研究",
+            "weight": 0.25,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "office": {
+            "name": "办公",
+            "weight": 0.25,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "coding": {
+            "name": "编程",
+            "weight": 0.25,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          },
+          "general": {
+            "name": "综合Agent任务",
+            "weight": 0.25,
+            "benchmarks": {
+              "pawbench": 1
+            }
+          }
+        },
+        "benchmarks": {
+          "gaia": {
+            "id": "gaia",
+            "name": "GAIA",
+            "revision": "1.0",
+            "expected": 165,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-gaia@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "spreadsheetbench-verified": {
+            "id": "spreadsheetbench-verified",
+            "name": "SpreadsheetBench Verified",
+            "revision": "1.0",
+            "expected": 400,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-spreadsheetbench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "swebench-verified": {
+            "id": "swebench-verified",
+            "name": "SWE-bench Verified",
+            "revision": "1.0",
+            "expected": 500,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-swebench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "pawbench": {
+            "id": "pawbench",
+            "name": "PawBench",
+            "revision": "agentscope-ai/pawbench@4",
+            "expected": 150,
+            "judge": {
+              "kind": "llm",
+              "model": "qwen3.8-max",
+              "scorer": null,
+              "official_model": "claude-opus-4.6",
+              "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+              "parity_note": ""
+            }
+          }
+        }
+      },
+      "id": "qwenpaw-2.3.0-default-glm-5.2-2026-10-28--index-v1",
+      "date": "2026-10-28T11:52:02Z",
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "exchange_rate": {
+        "cny_per_usd": 7,
+        "basis": "fixed"
+      },
+      "workflow_url": "",
+      "source_results": [
+        {
+          "id": "qwenpaw-2.3.0-default-glm-5.2-2026-10-28-gaia",
+          "date": "2026-10-24T13:59:16Z",
+          "benchmark": "gaia",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-default-glm-5.2-2026-10-28-spreadsheetbench-verified",
+          "date": "2026-10-27T02:56:13Z",
+          "benchmark": "spreadsheetbench-verified",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-default-glm-5.2-2026-10-28-swebench-verified",
+          "date": "2026-10-27T03:06:34Z",
+          "benchmark": "swebench-verified",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-default-glm-5.2-2026-10-28-pawbench",
+          "date": "2026-10-28T11:52:02Z",
+          "benchmark": "pawbench",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        }
+      ],
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "1.0",
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-gaia@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "1.0",
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-spreadsheetbench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "1.0",
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-swebench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "pawbench",
+          "name": "PawBench",
+          "revision": "agentscope-ai/pawbench@4",
+          "expected": 150,
+          "judge": {
+            "kind": "llm",
+            "model": "qwen3.8-max",
+            "scorer": null,
+            "official_model": "claude-opus-4.6",
+            "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+            "parity_note": ""
+          }
+        }
+      ],
+      "complete": true,
+      "records": [
+        {
+          "model": "glm-5.2",
+          "provider": "dashscope",
+          "harness": "qwenpaw",
+          "sdk_version": "2.3.0",
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-gaia@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 73.33333333333333,
+              "mean_runtime_seconds": 606.5883795757576,
+              "mean_model_cost_usd": 0.4105104311688312,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.873573018181818
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 165,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 165,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-spreadsheetbench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 86,
+              "mean_runtime_seconds": 495.66367604500005,
+              "mean_model_cost_usd": 0.19766457285714287,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.38365201
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 400,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 400,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "swebench-verified",
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-swebench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 92,
+              "mean_runtime_seconds": 744.9223006240001,
+              "mean_model_cost_usd": 0.7286291531428571,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 5.100404072
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 500,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 500,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "pawbench",
+              "name": "PawBench",
+              "judge": {
+                "kind": "llm",
+                "model": "qwen3.8-max",
+                "scorer": null,
+                "official_model": null,
+                "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+                "parity_note": ""
+              },
+              "domains": [
+                "general"
+              ],
+              "expected": 150,
+              "scored": 150,
+              "score": 72.52324933333334,
+              "mean_runtime_seconds": 746.1157942066667,
+              "mean_model_cost_usd": 0.2644418819047619,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.8510931733333333
+              },
+              "mean_judge_cost_usd": 0.06002421714285714,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.42016951999999996
+              },
+              "cost_sources": {
+                "snapshot_estimated": 150,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 150,
+                "unknown": 0
+              },
+              "failures": {
+                "scoring_error": 1
+              },
+              "failed": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 4,
+      "kind": "official",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw Index",
+        "group_by": "model_harness"
+      },
+      "index_version": "index-v1",
+      "index_definition": {
+        "id": "index-v1",
+        "order": 1,
+        "directions": {
+          "research": {
+            "name": "研究",
+            "weight": 0.25,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "office": {
+            "name": "办公",
+            "weight": 0.25,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "coding": {
+            "name": "编程",
+            "weight": 0.25,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          },
+          "general": {
+            "name": "综合Agent任务",
+            "weight": 0.25,
+            "benchmarks": {
+              "pawbench": 1
+            }
+          }
+        },
+        "benchmarks": {
+          "gaia": {
+            "id": "gaia",
+            "name": "GAIA",
+            "revision": "1.0",
+            "expected": 165,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-gaia@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "spreadsheetbench-verified": {
+            "id": "spreadsheetbench-verified",
+            "name": "SpreadsheetBench Verified",
+            "revision": "1.0",
+            "expected": 400,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-spreadsheetbench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "swebench-verified": {
+            "id": "swebench-verified",
+            "name": "SWE-bench Verified",
+            "revision": "1.0",
+            "expected": 500,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-swebench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "pawbench": {
+            "id": "pawbench",
+            "name": "PawBench",
+            "revision": "agentscope-ai/pawbench@4",
+            "expected": 150,
+            "judge": {
+              "kind": "llm",
+              "model": "qwen3.8-max",
+              "scorer": null,
+              "official_model": "claude-opus-4.6",
+              "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+              "parity_note": ""
+            }
+          }
+        }
+      },
+      "id": "qwenpaw-2.3.0-code-glm-5.2-2026-10-28--index-v1",
+      "date": "2026-10-28T11:43:07Z",
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "exchange_rate": {
+        "cny_per_usd": 7,
+        "basis": "fixed"
+      },
+      "workflow_url": "",
+      "source_results": [
+        {
+          "id": "qwenpaw-2.3.0-code-glm-5.2-2026-10-28-gaia",
+          "date": "2026-10-27T03:10:36Z",
+          "benchmark": "gaia",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-code-glm-5.2-2026-10-28-spreadsheetbench-verified",
+          "date": "2026-10-27T09:27:16Z",
+          "benchmark": "spreadsheetbench-verified",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-code-glm-5.2-2026-10-28-swebench-verified",
+          "date": "2026-10-27T14:14:42Z",
+          "benchmark": "swebench-verified",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-code-glm-5.2-2026-10-28-pawbench",
+          "date": "2026-10-28T11:43:07Z",
+          "benchmark": "pawbench",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        }
+      ],
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "1.0",
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-gaia@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "1.0",
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-spreadsheetbench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "1.0",
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-swebench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "pawbench",
+          "name": "PawBench",
+          "revision": "agentscope-ai/pawbench@4",
+          "expected": 150,
+          "judge": {
+            "kind": "llm",
+            "model": "qwen3.8-max",
+            "scorer": null,
+            "official_model": "claude-opus-4.6",
+            "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+            "parity_note": ""
+          }
+        }
+      ],
+      "complete": true,
+      "records": [
+        {
+          "model": "glm-5.2",
+          "provider": "dashscope",
+          "harness": "qwenpaw-code",
+          "sdk_version": "2.3.0",
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-gaia@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 76.36363636363637,
+              "mean_runtime_seconds": 639.4980778787879,
+              "mean_model_cost_usd": 0.4065835463203463,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.8460848242424244
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 165,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 165,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-spreadsheetbench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 88.25,
+              "mean_runtime_seconds": 485.9705517025,
+              "mean_model_cost_usd": 0.18441813857142855,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.29092697
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 400,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 400,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "swebench-verified",
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-swebench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 89.4,
+              "mean_runtime_seconds": 812.9188321500001,
+              "mean_model_cost_usd": 0.7474524937142857,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 5.232167456
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 500,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 500,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "pawbench",
+              "name": "PawBench",
+              "judge": {
+                "kind": "llm",
+                "model": "qwen3.8-max",
+                "scorer": null,
+                "official_model": null,
+                "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+                "parity_note": ""
+              },
+              "domains": [
+                "general"
+              ],
+              "expected": 150,
+              "scored": 150,
+              "score": 69.56301133333334,
+              "mean_runtime_seconds": 611.22837798,
+              "mean_model_cost_usd": 0.3028253028571429,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.11977712
+              },
+              "mean_judge_cost_usd": 0.05875633142857143,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.41129432
+              },
+              "cost_sources": {
+                "snapshot_estimated": 150,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 150,
+                "unknown": 0
+              },
+              "failures": {
+                "scoring_error": 1
+              },
+              "failed": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 4,
+      "kind": "official",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw Index",
+        "group_by": "model_harness"
+      },
+      "index_version": "index-v1",
+      "index_definition": {
+        "id": "index-v1",
+        "order": 1,
+        "directions": {
+          "research": {
+            "name": "研究",
+            "weight": 0.25,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "office": {
+            "name": "办公",
+            "weight": 0.25,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "coding": {
+            "name": "编程",
+            "weight": 0.25,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          },
+          "general": {
+            "name": "综合Agent任务",
+            "weight": 0.25,
+            "benchmarks": {
+              "pawbench": 1
+            }
+          }
+        },
+        "benchmarks": {
+          "gaia": {
+            "id": "gaia",
+            "name": "GAIA",
+            "revision": "1.0",
+            "expected": 165,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-gaia@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "spreadsheetbench-verified": {
+            "id": "spreadsheetbench-verified",
+            "name": "SpreadsheetBench Verified",
+            "revision": "1.0",
+            "expected": 400,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-spreadsheetbench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "swebench-verified": {
+            "id": "swebench-verified",
+            "name": "SWE-bench Verified",
+            "revision": "1.0",
+            "expected": 500,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-swebench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "pawbench": {
+            "id": "pawbench",
+            "name": "PawBench",
+            "revision": "agentscope-ai/pawbench@4",
+            "expected": 150,
+            "judge": {
+              "kind": "llm",
+              "model": "qwen3.8-max",
+              "scorer": null,
+              "official_model": "claude-opus-4.6",
+              "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+              "parity_note": ""
+            }
+          }
+        }
+      },
+      "id": "qwenpaw-2.3.0-code-qwen3.8-max-2026-10-28--index-v1",
+      "date": "2026-10-28T11:41:10Z",
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "exchange_rate": {
+        "cny_per_usd": 7,
+        "basis": "fixed"
+      },
+      "workflow_url": "",
+      "source_results": [
+        {
+          "id": "qwenpaw-2.3.0-code-qwen3.8-max-2026-10-28-gaia",
+          "date": "2026-10-27T14:12:18Z",
+          "benchmark": "gaia",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-code-qwen3.8-max-2026-10-28-spreadsheetbench-verified",
+          "date": "2026-10-28T01:30:19Z",
+          "benchmark": "spreadsheetbench-verified",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-code-qwen3.8-max-2026-10-28-swebench-verified",
+          "date": "2026-10-28T01:57:52Z",
+          "benchmark": "swebench-verified",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.3.0-code-qwen3.8-max-2026-10-28-pawbench",
+          "date": "2026-10-28T11:41:10Z",
+          "benchmark": "pawbench",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        }
+      ],
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "1.0",
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-gaia@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "1.0",
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-spreadsheetbench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "1.0",
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-swebench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "pawbench",
+          "name": "PawBench",
+          "revision": "agentscope-ai/pawbench@4",
+          "expected": 150,
+          "judge": {
+            "kind": "llm",
+            "model": "qwen3.8-max",
+            "scorer": null,
+            "official_model": "claude-opus-4.6",
+            "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+            "parity_note": ""
+          }
+        }
+      ],
+      "complete": true,
+      "records": [
+        {
+          "model": "qwen3.8-max",
+          "provider": "dashscope",
+          "harness": "qwenpaw-code",
+          "sdk_version": "2.3.0",
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-gaia@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 85.45454545454545,
+              "mean_runtime_seconds": 685.1727991212122,
+              "mean_model_cost_usd": 0.2921361142857143,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.0449528
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 165,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 165,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-spreadsheetbench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 88.5,
+              "mean_runtime_seconds": 565.9380523725,
+              "mean_model_cost_usd": 0.18896532428571428,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.3227572699999999
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 400,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 400,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "swebench-verified",
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-swebench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 94.39999999999999,
+              "mean_runtime_seconds": 977.165434898,
+              "mean_model_cost_usd": 0.39040936114285707,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.7328655279999996
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 500,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 500,
+                "unknown": 0
+              },
+              "failures": {},
+              "failed": 0
+            },
+            {
+              "benchmark": "pawbench",
+              "name": "PawBench",
+              "judge": {
+                "kind": "llm",
+                "model": "qwen3.8-max",
+                "scorer": null,
+                "official_model": null,
+                "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+                "parity_note": ""
+              },
+              "domains": [
+                "general"
+              ],
+              "expected": 150,
+              "scored": 150,
+              "score": 71.56955,
+              "mean_runtime_seconds": 1007.3264011533333,
+              "mean_model_cost_usd": 0.3749120914285714,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.6243846399999997
+              },
+              "mean_judge_cost_usd": 0.06442479999999999,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.4509736
+              },
+              "cost_sources": {
+                "snapshot_estimated": 150,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 150,
+                "unknown": 0
+              },
+              "failures": {
+                "scoring_error": 1
+              },
+              "failed": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 4,
+      "kind": "official",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw Index",
+        "group_by": "model_harness"
+      },
+      "index_version": "index-v1",
+      "index_definition": {
+        "id": "index-v1",
+        "order": 1,
+        "directions": {
+          "research": {
+            "name": "研究",
+            "weight": 0.25,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "office": {
+            "name": "办公",
+            "weight": 0.25,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "coding": {
+            "name": "编程",
+            "weight": 0.25,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          },
+          "general": {
+            "name": "综合Agent任务",
+            "weight": 0.25,
+            "benchmarks": {
+              "pawbench": 1
+            }
+          }
+        },
+        "benchmarks": {
+          "gaia": {
+            "id": "gaia",
+            "name": "GAIA",
+            "revision": "1.0",
+            "expected": 165,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-gaia@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "spreadsheetbench-verified": {
+            "id": "spreadsheetbench-verified",
+            "name": "SpreadsheetBench Verified",
+            "revision": "1.0",
+            "expected": 400,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-spreadsheetbench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "swebench-verified": {
+            "id": "swebench-verified",
+            "name": "SWE-bench Verified",
+            "revision": "1.0",
+            "expected": 500,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-swebench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "pawbench": {
+            "id": "pawbench",
+            "name": "PawBench",
+            "revision": "agentscope-ai/pawbench@4",
+            "expected": 150,
+            "judge": {
+              "kind": "llm",
+              "model": "qwen3.8-max",
+              "scorer": null,
+              "official_model": "claude-opus-4.6",
+              "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+              "parity_note": ""
+            }
+          }
+        }
+      },
+      "id": "qwenpaw-2.2.2-default-glm-5.2-2026-10-16--index-v1",
+      "date": "2026-10-17T14:23:34Z",
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "exchange_rate": {
+        "cny_per_usd": 7,
+        "basis": "fixed"
+      },
+      "workflow_url": "",
+      "source_results": [
+        {
+          "id": "qwenpaw-2.2.2-default-glm-5.2-2026-10-16-pawbench",
+          "date": "2026-10-16T18:37:23Z",
+          "benchmark": "pawbench",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.2.2-default-glm-5.2-2026-10-16-spreadsheetbench-verified",
+          "date": "2026-10-16T19:00:21Z",
+          "benchmark": "spreadsheetbench-verified",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.2.2-default-glm-5.2-2026-10-16-gaia",
+          "date": "2026-10-16T19:40:02Z",
+          "benchmark": "gaia",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.2.2-default-glm-5.2-2026-10-16-swebench-verified",
+          "date": "2026-10-17T14:23:34Z",
+          "benchmark": "swebench-verified",
+          "parameters": {
+            "max_context_length": 1048576,
+            "max_response_length": 131072
+          }
+        }
+      ],
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "1.0",
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-gaia@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "1.0",
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-spreadsheetbench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "1.0",
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-swebench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "pawbench",
+          "name": "PawBench",
+          "revision": "agentscope-ai/pawbench@4",
+          "expected": 150,
+          "judge": {
+            "kind": "llm",
+            "model": "qwen3.8-max",
+            "scorer": null,
+            "official_model": "claude-opus-4.6",
+            "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+            "parity_note": ""
+          }
+        }
+      ],
+      "complete": true,
+      "records": [
+        {
+          "model": "glm-5.2",
+          "provider": "dashscope",
+          "harness": "qwenpaw",
+          "sdk_version": "2.2.2",
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-gaia@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 67.87878787878789,
+              "mean_runtime_seconds": 509.8198158545455,
+              "mean_model_cost_usd": 0.3919416865800866,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.743591806060606
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 165,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 165,
+                "unknown": 0
+              },
+              "failures": {
+                "execution_error": 5
+              },
+              "failed": 5
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-spreadsheetbench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 85.75,
+              "mean_runtime_seconds": 379.2413101725,
+              "mean_model_cost_usd": 0.17740844,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.24185908
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 400,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 400,
+                "unknown": 0
+              },
+              "failures": {
+                "execution_error": 1
+              },
+              "failed": 1
+            },
+            {
+              "benchmark": "swebench-verified",
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-swebench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 91.2,
+              "mean_runtime_seconds": 722.6951501703406,
+              "mean_model_cost_usd": 0.7453179748571428,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 5.217225824
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 500,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 500,
+                "unknown": 0
+              },
+              "failures": {
+                "execution_error": 2,
+                "artifact_error": 1
+              },
+              "failed": 3
+            },
+            {
+              "benchmark": "pawbench",
+              "name": "PawBench",
+              "judge": {
+                "kind": "llm",
+                "model": "qwen3.8-max",
+                "scorer": null,
+                "official_model": "claude-opus-4.6",
+                "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+                "parity_note": ""
+              },
+              "domains": [
+                "general"
+              ],
+              "expected": 150,
+              "scored": 150,
+              "score": 70.31145333333333,
+              "mean_runtime_seconds": 549.5014132733334,
+              "mean_model_cost_usd": 0.27365592,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.9155914399999998
+              },
+              "mean_judge_cost_usd": 0.059835440000000004,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.41884808
+              },
+              "cost_sources": {
+                "snapshot_estimated": 150,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 150,
+                "unknown": 0
+              },
+              "failures": {
+                "scoring_error": 2,
+                "execution_error": 1
+              },
+              "failed": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schema_version": 4,
+      "kind": "official",
+      "board": {
+        "id": "qwenpaw",
+        "name": "QwenPaw Index",
+        "group_by": "model_harness"
+      },
+      "index_version": "index-v1",
+      "index_definition": {
+        "id": "index-v1",
+        "order": 1,
+        "directions": {
+          "research": {
+            "name": "研究",
+            "weight": 0.25,
+            "benchmarks": {
+              "gaia": 1
+            }
+          },
+          "office": {
+            "name": "办公",
+            "weight": 0.25,
+            "benchmarks": {
+              "spreadsheetbench-verified": 1
+            }
+          },
+          "coding": {
+            "name": "编程",
+            "weight": 0.25,
+            "benchmarks": {
+              "swebench-verified": 1
+            }
+          },
+          "general": {
+            "name": "综合Agent任务",
+            "weight": 0.25,
+            "benchmarks": {
+              "pawbench": 1
+            }
+          }
+        },
+        "benchmarks": {
+          "gaia": {
+            "id": "gaia",
+            "name": "GAIA",
+            "revision": "1.0",
+            "expected": 165,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-gaia@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "spreadsheetbench-verified": {
+            "id": "spreadsheetbench-verified",
+            "name": "SpreadsheetBench Verified",
+            "revision": "1.0",
+            "expected": 400,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-spreadsheetbench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "swebench-verified": {
+            "id": "swebench-verified",
+            "name": "SWE-bench Verified",
+            "revision": "1.0",
+            "expected": 500,
+            "judge": {
+              "kind": "programmatic",
+              "model": null,
+              "scorer": "harbor-swebench-verified@1.0",
+              "official_model": null,
+              "prompt_revision": null,
+              "parity_note": ""
+            }
+          },
+          "pawbench": {
+            "id": "pawbench",
+            "name": "PawBench",
+            "revision": "agentscope-ai/pawbench@4",
+            "expected": 150,
+            "judge": {
+              "kind": "llm",
+              "model": "qwen3.8-max",
+              "scorer": null,
+              "official_model": "claude-opus-4.6",
+              "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+              "parity_note": ""
+            }
+          }
+        }
+      },
+      "id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16--index-v1",
+      "date": "2026-10-16T19:08:48Z",
+      "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+      "exchange_rate": {
+        "cny_per_usd": 7,
+        "basis": "fixed"
+      },
+      "workflow_url": "",
+      "source_results": [
+        {
+          "id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16-spreadsheetbench-verified",
+          "date": "2026-10-16T18:02:41Z",
+          "benchmark": "spreadsheetbench-verified",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16-gaia",
+          "date": "2026-10-16T18:31:55Z",
+          "benchmark": "gaia",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16-pawbench",
+          "date": "2026-10-16T19:03:15Z",
+          "benchmark": "pawbench",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        },
+        {
+          "id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16-swebench-verified",
+          "date": "2026-10-16T19:08:48Z",
+          "benchmark": "swebench-verified",
+          "parameters": {
+            "max_context_length": 1000000,
+            "max_response_length": 131072
+          }
+        }
+      ],
+      "benchmark_versions": [
+        {
+          "id": "gaia",
+          "name": "GAIA",
+          "revision": "1.0",
+          "expected": 165,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-gaia@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "name": "SpreadsheetBench Verified",
+          "revision": "1.0",
+          "expected": 400,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-spreadsheetbench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "swebench-verified",
+          "name": "SWE-bench Verified",
+          "revision": "1.0",
+          "expected": 500,
+          "judge": {
+            "kind": "programmatic",
+            "model": null,
+            "scorer": "harbor-swebench-verified@1.0",
+            "official_model": null,
+            "prompt_revision": null,
+            "parity_note": ""
+          }
+        },
+        {
+          "id": "pawbench",
+          "name": "PawBench",
+          "revision": "agentscope-ai/pawbench@4",
+          "expected": 150,
+          "judge": {
+            "kind": "llm",
+            "model": "qwen3.8-max",
+            "scorer": null,
+            "official_model": "claude-opus-4.6",
+            "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+            "parity_note": ""
+          }
+        }
+      ],
+      "complete": true,
+      "records": [
+        {
+          "model": "qwen3.8-max",
+          "provider": "dashscope",
+          "harness": "qwenpaw",
+          "sdk_version": "2.2.2",
+          "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+          "complete": true,
+          "benchmarks": [
+            {
+              "benchmark": "gaia",
+              "name": "GAIA",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-gaia@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "research"
+              ],
+              "expected": 165,
+              "scored": 165,
+              "score": 81.81818181818183,
+              "mean_runtime_seconds": 611.1594107757576,
+              "mean_model_cost_usd": 0.2941251324675324,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.058875927272727
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 165,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 165,
+                "unknown": 0
+              },
+              "failures": {
+                "timeout": 3
+              },
+              "failed": 3
+            },
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "name": "SpreadsheetBench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-spreadsheetbench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 400,
+              "score": 88.25,
+              "mean_runtime_seconds": 561.2130801225001,
+              "mean_model_cost_usd": 0.22416211285714285,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.56913479
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 400,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 400,
+                "unknown": 0
+              },
+              "failures": {
+                "execution_error": 5
+              },
+              "failed": 5
+            },
+            {
+              "benchmark": "swebench-verified",
+              "name": "SWE-bench Verified",
+              "judge": {
+                "kind": "programmatic",
+                "model": null,
+                "scorer": "harbor-swebench-verified@1.0",
+                "official_model": null,
+                "prompt_revision": null,
+                "parity_note": ""
+              },
+              "domains": [
+                "coding"
+              ],
+              "expected": 500,
+              "scored": 500,
+              "score": 93.8,
+              "mean_runtime_seconds": 957.455680724,
+              "mean_model_cost_usd": 0.4377208731428572,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 3.064046112
+              },
+              "mean_judge_cost_usd": 0,
+              "original_judge_cost": {
+                "currency": "USD",
+                "mean_amount": 0
+              },
+              "cost_sources": {
+                "snapshot_estimated": 500,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 500,
+                "unknown": 0
+              },
+              "failures": {
+                "execution_error": 10,
+                "timeout": 9
+              },
+              "failed": 19
+            },
+            {
+              "benchmark": "pawbench",
+              "name": "PawBench",
+              "judge": {
+                "kind": "llm",
+                "model": "qwen3.8-max",
+                "scorer": null,
+                "official_model": "claude-opus-4.6",
+                "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+                "parity_note": ""
+              },
+              "domains": [
+                "general"
+              ],
+              "expected": 150,
+              "scored": 150,
+              "score": 75.27946,
+              "mean_runtime_seconds": 829.2559762666666,
+              "mean_model_cost_usd": 0.3018049028571429,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.11263432
+              },
+              "mean_judge_cost_usd": 0.06192328000000001,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.43346296000000006
+              },
+              "cost_sources": {
+                "snapshot_estimated": 150,
+                "unknown": 0
+              },
+              "cost_bases": {
+                "exact": 150,
+                "unknown": 0
+              },
+              "failures": {
+                "scoring_error": 2,
+                "execution_error": 2,
+                "timeout": 2
+              },
+              "failed": 6
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

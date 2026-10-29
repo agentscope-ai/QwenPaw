@@ -30,6 +30,58 @@ walk through each feature in order.
 > **Not seeing the Console?** Make sure the frontend has been built. See
 > [CLI](./cli).
 
+## Reverse-proxy subpath deployment
+
+To serve the Console at a path such as `https://example.com/qwenpaw/`, set
+the build-time variables in `console/.env.production.local`:
+
+```dotenv
+VITE_CONSOLE_BASENAME=/qwenpaw
+VITE_API_BASE_URL=/qwenpaw
+```
+
+Build from the repository root:
+
+```bash
+cd console
+npm install
+npm run build
+```
+
+`VITE_CONSOLE_BASENAME` sets the router prefix and the asset URL prefix
+(for example, `/qwenpaw/assets/`). Leading and trailing slashes are normalized;
+nested prefixes such as `/apps/qwenpaw` are supported. If it is unset or empty,
+the existing root and `/console` routes remain available and assets stay at
+`/assets/`. Set it to `/` for an explicitly root-only router.
+
+`VITE_API_BASE_URL` independently sets the backend URL before `/api`. Use
+`/qwenpaw` when the proxy also exposes the API at `/qwenpaw/api/`; leave it empty
+when the API is served at `/api/`, or set it to the backend's external origin.
+These variables are embedded during the build. Changing the server environment
+afterward requires rebuilding the frontend.
+
+Point `QWENPAW_CONSOLE_STATIC_DIR` to the absolute path of the resulting
+`console/dist` directory in the environment that runs `qwenpaw app`. This also
+lets a pip/uv installation serve the custom build without replacing package
+files. For Docker, include the custom build in the image or mount it and set
+`QWENPAW_CONSOLE_STATIC_DIR` to its path inside the container.
+
+Configure the proxy to strip `/qwenpaw` before forwarding every request,
+including SPA deep links, assets, API requests, and WebSockets. For example,
+with Caddy:
+
+```caddyfile
+example.com {
+    redir /qwenpaw /qwenpaw/ 308
+    handle_path /qwenpaw/* {
+        reverse_proxy 127.0.0.1:8088
+    }
+}
+```
+
+Open `https://example.com/qwenpaw/`. Forwarding the prefix unchanged would make
+asset requests reach the SPA fallback and return HTML instead of JavaScript.
+
 ---
 
 ## Chat
@@ -42,7 +94,15 @@ This is where you talk to QwenPaw. It is the default page when the Console opens
 
 **Choose a model:**
 Use the control at the **top-right** of the chat page to pick the model for the
-current agent.
+current conversation. This selection is saved with the conversation and leaves
+the agent default unchanged. Clear the conversation override in the selector to
+inherit the agent default again.
+
+Normal replies, manual `/compact`, `/history` context limits, and automatic
+chat-title generation follow this selection. Reasoning preferences are stored
+separately for each provider/model in the conversation. Image/video capability
+checks and on-demand probes follow the model executing the turn, including a
+configured fallback model when one is used.
 
 **Send a message:**
 Type in the input box at the bottom, then press **Enter** or click the send
@@ -253,6 +313,17 @@ Edit files that define QwenPaw's persona and behavior — `SOUL.md`, `AGENTS.md`
 **View daily memory:**
 If `MEMORY.md` exists, click the **▶** arrow to expand date-based entries. Click a
 date to view or edit that day's memory.
+
+**Browse memory tags:**
+With ReMe Light, select **Tags** beside Workspace, Profile, Daily and Knowledge
+Base to see tags and their file counts. Select a tag to browse matching files,
+or click a tag in a memory file's preview to open the same list. Results are
+paginated, and opening a result reuses the existing file editor.
+Tag browsing searches the existing memory index, which automatically indexes
+the configured daily and digest directories. A preview tag can find related
+indexed memories even when the current workspace file is outside those
+directories; that file will not appear unless it has been indexed. Other
+memory backends do not expose the Tags tab or clickable preview tags.
 
 **Download workspace:**
 Click **Download** to export the entire workspace as a `.zip` to your machine.

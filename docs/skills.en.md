@@ -416,9 +416,10 @@ skill run a predictable series of tool actions in one go, which is useful for
 fixed, repeatable work. Leave it disabled when the agent needs to adapt each
 step based on what it finds. If you're unsure, keep the agent's recommendation.
 
-The plan also offers three testing levels. **No test** is fastest and still
-keeps the normal safety checks. **Smoke test** tries the new Skill once on a
-small end-to-end task. **Eval** compares the same representative task without
+The plan also offers three testing levels. **No test** skips behavioral
+execution; static package and declared dependency checks still run.
+**Smoke test** tries the new Skill once on a small end-to-end task.
+**Eval** compares the same representative task without
 and with the new Skill, giving stronger evidence that the Skill actually helps,
 but taking more time. Testing and Batch are separate choices.
 
