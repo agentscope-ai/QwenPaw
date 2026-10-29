@@ -2,6 +2,7 @@
 # pylint: disable=protected-access
 """Tests for the configurable memory-writing model slot."""
 
+import asyncio
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -124,6 +125,78 @@ async def test_inherited_hub_catalog_lookup_runs_off_event_loop(monkeypatch):
     assert factory.await_args_list[1].kwargs["model_slot_override"] == (
         ModelSlotConfig(provider_id="hub-managed", model="memory")
     )
+
+
+@pytest.mark.parametrize(
+    "main_error",
+    [
+        ProviderError("Main provider removed"),
+        ValueError("No main API key"),
+    ],
+)
+async def test_main_construction_failure_allows_dedicated_model(
+    monkeypatch,
+    main_error,
+):
+    memory_model = SimpleNamespace(model="memory")
+    factory = AsyncMock(side_effect=[main_error, (memory_model, None)])
+    fallback = _patch_deps(
+        monkeypatch,
+        agent_config=_agent_config(
+            memory_model=ModelSlotConfig(
+                provider_id="memory-provider",
+                model="memory",
+            ),
+        ),
+        factory=factory,
+    )
+    manager = _build_manager()
+
+    assert await manager._update_qwenpaw_model() is memory_model
+    fallback.assert_not_called()
+    assert factory.await_count == 2
+
+
+async def test_both_model_construction_failures_are_not_hidden(monkeypatch):
+    factory = AsyncMock(
+        side_effect=[
+            ProviderError("Main provider removed"),
+            ValueError("Memory key missing"),
+        ],
+    )
+    _patch_deps(
+        monkeypatch,
+        agent_config=_agent_config(
+            memory_model=ModelSlotConfig(
+                provider_id="memory-provider",
+                model="memory",
+            ),
+        ),
+        factory=factory,
+    )
+    manager = _build_manager()
+    with pytest.raises(ValueError, match="Memory key missing"):
+        await manager._update_qwenpaw_model()
+    manager._reme.update_component.assert_not_awaited()
+
+
+async def test_main_construction_cancellation_does_not_try_memory(monkeypatch):
+    factory = AsyncMock(side_effect=asyncio.CancelledError())
+    _patch_deps(
+        monkeypatch,
+        agent_config=_agent_config(
+            memory_model=ModelSlotConfig(
+                provider_id="memory-provider",
+                model="memory",
+            ),
+        ),
+        factory=factory,
+    )
+    manager = _build_manager()
+    with pytest.raises(asyncio.CancelledError):
+        await manager._update_qwenpaw_model()
+    factory.assert_awaited_once()
+    manager._reme.update_component.assert_not_awaited()
 
 
 @pytest.mark.parametrize("inherited", [False, True])

@@ -578,6 +578,9 @@ See [Decision model compaction](./context#optional-decision-model-compaction) fo
 
 Enable **Include images in auto-memory** in the Agent's memory settings to remember visual details. ReMe uses `memory_model`
 when set, otherwise the Agent's main model (or the inherited global model); a chat session's temporary model selection does not change it.
+
+When an explicit `memory_model` is configured, it can still run if the main model cannot be constructed; the main model is then omitted from the fallback chain. When both models cannot be constructed, the memory job reports an error. Unset or `null` retains the existing main-model behavior.
+
 Image support must be recognized (`supports_image: true`); unknown capability leaves images disabled. Image jobs retain
 only fallback models with confirmed image support, including the Agent's main model when used as a fallback for `memory_model`. The default ReMe
 wrapper limit is **5 images per Auto-Memory invocation**, including all conversation turns submitted together.

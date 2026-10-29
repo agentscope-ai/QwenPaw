@@ -570,14 +570,29 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             "require_image_support": require_image_support,
             "resize_images_to_max_bytes": True,
         }
-        main_model, _formatter = await create_model_and_formatter_async(
-            self.agent_id,
-            **model_kwargs,
-        )
+        try:
+            main_model, _formatter = await create_model_and_formatter_async(
+                self.agent_id,
+                **model_kwargs,
+            )
+        except Exception as exc:
+            if memory_slot is None:
+                raise
+            logger.warning(
+                "Main model unavailable for agent '%s'; trying the "
+                "dedicated memory model without a main-model fallback: %s",
+                self.agent_id,
+                exc,
+            )
+            main_model = None
         model = main_model
-        if memory_slot is not None and get_model_identity(main_model) != (
-            memory_slot.provider_id,
-            memory_slot.model,
+        if memory_slot is not None and (
+            main_model is None
+            or get_model_identity(main_model)
+            != (
+                memory_slot.provider_id,
+                memory_slot.model,
+            )
         ):
             try:
                 (
@@ -589,6 +604,8 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     **model_kwargs,
                 )
             except Exception as exc:
+                if main_model is None:
+                    raise
                 # Provider SDKs can reject credentials during construction
                 # with ValueError, before model-call fallback exists.
                 logger.warning(
@@ -601,7 +618,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             else:
                 from ..prompt import get_model_supports_image
 
-                if (
+                if main_model is None or (
                     require_image_support
                     and await run_sync_io(
                         get_model_supports_image,

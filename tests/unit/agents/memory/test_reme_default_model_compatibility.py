@@ -52,11 +52,52 @@ def fixture_local_models(monkeypatch):
     )
     providers = SimpleNamespace(
         active_model=ModelSlotConfig(provider_id="ollama", model="global"),
-        get_provider=lambda _provider_id: provider,
+        get_provider=lambda provider_id: (
+            provider if provider_id == "ollama" else None
+        ),
     )
     providers.get_active_model = lambda: providers.active_model
     monkeypatch.setattr(ProviderManager, "_instance", providers)
     return providers
+
+
+@pytest.mark.parametrize("require_images", [False, True])
+async def test_dedicated_local_model_survives_missing_main_provider(
+    monkeypatch,
+    local_models,
+    require_images,
+):
+    profile = AgentProfileConfig(
+        id="compatibility",
+        name="Compatibility",
+        active_model=ModelSlotConfig(provider_id="removed", model="broken"),
+    )
+    profile.running.reme_light_memory_config.memory_model = ModelSlotConfig(
+        provider_id="ollama",
+        model="agent",
+    )
+    monkeypatch.setattr(
+        memory_module,
+        "load_agent_config_async",
+        AsyncMock(return_value=profile),
+    )
+    manager = _manager()
+
+    actual = await manager._update_qwenpaw_model(
+        require_image_support=require_images,
+    )
+
+    assert isinstance(actual, RetryChatModel)
+    assert actual.model == "agent"
+    assert actual.formatter.resize_images_to_max_bytes is True
+    assert local_models.get_provider("ollama") is not None
+    manager._reme.update_component.assert_awaited_once_with(
+        "as_llm",
+        "default",
+        model=actual,
+    )
+    await manager.start()
+    manager._reme.start.assert_awaited_once_with()
 
 
 def _routing_snapshot(model):

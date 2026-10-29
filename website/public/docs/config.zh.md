@@ -504,6 +504,8 @@ ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 | `memory_model`                   | object \| string \| null | `null`                           | 记忆写入（auto-memory / auto-dream / Daily Paper / Auto Fin）使用的可选模型槽。规范格式为 `{"provider_id": "...", "model": "..."}`；字符串始终视为继承主模型 provider 的纯模型名，包括 `qwen2.5:7b` 等带版本标签的名称。未配置时使用 Agent 主模型 |
 | `needs_reindex`                  | bool                     | `false`                          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                                                                                                                                                                  |
 
+显式配置 `memory_model` 后，即使主模型构造失败，独立记忆模型仍可运行，此时主模型不会加入回退链。两个模型均无法构造时，记忆任务会报错。未配置或设为 `null` 时，保留原有主模型行为。
+
 在智能体的记忆设置中开启**在自动记忆中包含图片**，即可记住图片中的视觉信息，默认关闭。ReMe 优先使用 `memory_model`，
 未配置时使用 Agent 主模型（或继承的全局模型）；聊天会话中临时选择的模型不会改变记忆模型。模型必须已识别为支持图片输入
 （`supports_image: true`），能力未知时不启用图片；处理图片时也只保留已确认支持图片的回退模型，包括作为 `memory_model` 回退的 Agent 主模型。
