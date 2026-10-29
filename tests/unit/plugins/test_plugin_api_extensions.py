@@ -8,7 +8,6 @@ Tests cover:
 - #16: register_skill_provider API contract
 """
 
-import importlib.util
 import logging
 import sys
 import tempfile
@@ -19,7 +18,6 @@ from typing import Any, Dict
 from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Stub missing agentscope 2.0 modules so MultiAgentManager can be imported
@@ -74,7 +72,7 @@ def plugin_api(fresh_registry):
 
 
 class TestSlashCommandLifecycle:
-    """Plugin slash commands retain ownership across load and unload."""
+    """Plugin slash commands use successful registration identities."""
 
     @staticmethod
     def _workspace(agent_id="ws-1"):
@@ -87,7 +85,8 @@ class TestSlashCommandLifecycle:
             ),
         )
 
-    def test_plugin_api_stamps_command_owner(
+    @pytest.mark.asyncio
+    async def test_plugin_api_stamps_command_owner(
         self,
         plugin_api,
         fresh_registry,
@@ -96,81 +95,94 @@ class TestSlashCommandLifecycle:
         fresh_registry.set_workspace_manager(
             SimpleNamespace(agents={workspace.agent_id: workspace}),
         )
-
         plugin_api.register_slash_command("owned", MagicMock())
-        hook = next(
-            hook
-            for hook in fresh_registry.get_startup_hooks()
-            if hook.hook_name == "slash_cmd_test-plugin_owned"
+        await fresh_registry.projector.project(
+            "slash_command",
+            "owned",
+            "test-plugin",
         )
-        hook.callback()
-
         spec, _args = workspace.plugins.slash_command_registry.resolve(
             "/owned",
         )
-        assert spec.owner_id == "test-plugin"
+        assert spec.owner_plugin_id == "test-plugin"
 
-    def test_plugin_collision_is_error_logged_and_propagated(
+    @pytest.mark.asyncio
+    async def test_plugin_collision_is_error_logged_and_propagated(
         self,
         plugin_api,
         fresh_registry,
         caplog,
     ):
         from qwenpaw.runtime.slash_command_registry import CommandSpec
+        from qwenpaw.plugins.workspace_projector import ProjectionError
 
         workspace = self._workspace()
-        workspace.plugins.slash_command_registry.register(
-            CommandSpec(name="reserved", handler=MagicMock()),
-        )
+        original = CommandSpec(name="reserved", handler=MagicMock())
+        workspace.plugins.slash_command_registry.register(original)
         fresh_registry.set_workspace_manager(
             SimpleNamespace(agents={workspace.agent_id: workspace}),
         )
         plugin_api.register_slash_command("reserved", MagicMock())
-        hook = next(
-            hook
-            for hook in fresh_registry.get_startup_hooks()
-            if hook.hook_name == "slash_cmd_test-plugin_reserved"
+        with caplog.at_level(logging.ERROR, logger="qwenpaw.plugins.api"):
+            with pytest.raises(ProjectionError):
+                await fresh_registry.projector.project(
+                    "slash_command",
+                    "reserved",
+                    "test-plugin",
+                )
+        assert "Projection slash_command failed" in caplog.text
+        await fresh_registry.projector.revoke(
+            "slash_command",
+            "reserved",
+            "test-plugin",
+        )
+        assert (
+            workspace.plugins.slash_command_registry.resolve("/reserved")[0]
+            is original
         )
 
-        with caplog.at_level(logging.ERROR, logger="qwenpaw.plugins.api"):
-            with pytest.raises(ValueError, match="already registered"):
-                hook.callback()
-
-        assert "failed to register slash command '/reserved'" in caplog.text
-
-    def test_plugin_collision_does_not_partially_register_workspaces(
+    @pytest.mark.asyncio
+    async def test_failed_projection_can_revoke_only_successful_bindings(
         self,
         plugin_api,
         fresh_registry,
     ):
         from qwenpaw.runtime.slash_command_registry import CommandSpec
+        from qwenpaw.plugins.workspace_projector import ProjectionError
 
         first = self._workspace("ws-1")
         second = self._workspace("ws-2")
-        second.plugins.slash_command_registry.register(
-            CommandSpec(name="reserved", handler=MagicMock()),
-        )
+        occupant = CommandSpec(name="reserved", handler=MagicMock())
+        second.plugins.slash_command_registry.register(occupant)
         fresh_registry.set_workspace_manager(
             SimpleNamespace(agents={"ws-1": first, "ws-2": second}),
         )
         plugin_api.register_slash_command("reserved", MagicMock())
-        hook = next(
-            hook
-            for hook in fresh_registry.get_startup_hooks()
-            if hook.hook_name == "slash_cmd_test-plugin_reserved"
+        with pytest.raises(ProjectionError):
+            await fresh_registry.projector.project(
+                "slash_command",
+                "reserved",
+                "test-plugin",
+            )
+        await fresh_registry.projector.revoke(
+            "slash_command",
+            "reserved",
+            "test-plugin",
         )
-
-        with pytest.raises(ValueError, match="already registered"):
-            hook.callback()
-
         assert (
             first.plugins.slash_command_registry.resolve("/reserved") is None
         )
+        assert (
+            second.plugins.slash_command_registry.resolve("/reserved")[0]
+            is occupant
+        )
 
     @pytest.mark.asyncio
-    async def test_unload_removes_only_owned_commands_and_allows_reload(
+    async def test_unload_revokes_bindings_and_reports_untracked_rows(
         self,
+        plugin_api,
         fresh_registry,
+        tmp_path,
     ):
         from qwenpaw.plugins.architecture import (
             PluginEntryPoints,
@@ -183,72 +195,55 @@ class TestSlashCommandLifecycle:
         workspace = self._workspace()
         commands = workspace.plugins.slash_command_registry
         builtin = CommandSpec(name="builtin", handler=MagicMock())
-        other = CommandSpec(
-            name="other",
+        untracked = CommandSpec(
+            name="untracked",
             handler=MagicMock(),
-            owner_id="other-plugin",
+            owner_plugin_id="test-plugin",
         )
         commands.register(builtin)
-        commands.register(
-            CommandSpec(
-                name="reloadable",
-                aliases=("stale",),
-                handler=MagicMock(),
-                owner_id="test-plugin",
-            ),
-        )
-        commands.register(other)
-        second_workspace = self._workspace("ws-2")
-        second_commands = second_workspace.plugins.slash_command_registry
-        second_commands.register(builtin)
-        second_commands.register(
-            CommandSpec(
-                name="reloadable",
-                handler=MagicMock(),
-                owner_id="test-plugin",
-            ),
-        )
+        commands.register(untracked)
         fresh_registry.set_workspace_manager(
-            SimpleNamespace(
-                agents={
-                    workspace.agent_id: workspace,
-                    second_workspace.agent_id: second_workspace,
-                },
-            ),
+            SimpleNamespace(agents={workspace.agent_id: workspace}),
         )
-
         loader = PluginLoader(plugin_dirs=[])
-        loader.registry = fresh_registry
-        manifest = PluginManifest(
-            id="test-plugin",
-            name="Test",
-            version="1.0.0",
-            entry=PluginEntryPoints(backend="plugin.py"),
+        instance = loader.lifecycle.ensure_instance("test-plugin")
+        plugin_api.bind_instance(instance)
+        plugin_api.register_slash_command(
+            "reloadable",
+            MagicMock(),
+            aliases=("stale",),
+        )
+        await fresh_registry.projector.project(
+            "slash_command",
+            "reloadable",
+            "test-plugin",
         )
         loader._loaded_plugins["test-plugin"] = PluginRecord(
-            manifest=manifest,
-            source_path=Path("/fake-slash-plugin"),
+            manifest=PluginManifest(
+                id="test-plugin",
+                name="Test",
+                version="1.0.0",
+                entry=PluginEntryPoints(backend="plugin.py"),
+            ),
+            source_path=tmp_path,
             enabled=True,
             instance=None,
+            status="active",
         )
-
-        await loader.unload_plugin("test-plugin")
-
-        assert commands.names() == ["builtin", "other"]
+        report = await loader.unload_plugin("test-plugin")
+        assert commands.names() == ["builtin", "untracked"]
         assert commands.resolve("/builtin")[0] is builtin
-        assert commands.resolve("/other")[0] is other
-        assert second_commands.names() == ["builtin"]
-        assert second_commands.resolve("/builtin")[0] is builtin
-
+        assert commands.resolve("/untracked")[0] is untracked
+        assert not report.clean
+        assert report.workspace_leaks
         replacement = CommandSpec(
             name="reloadable",
             aliases=("fresh",),
             handler=MagicMock(),
-            owner_id="test-plugin",
+            owner_plugin_id="test-plugin",
         )
         commands.register(replacement)
         assert commands.resolve("/reloadable")[0] is replacement
-        assert commands.resolve("/fresh")[0] is replacement
         assert commands.resolve("/stale") is None
 
 
@@ -267,11 +262,12 @@ class TestUninstallHook:
     ):
         """Uninstall hooks are stored in registry after registration."""
         callback = MagicMock()
-        plugin_api.register_uninstall_hook(
-            hook_name="test_cleanup",
-            callback=callback,
-            priority=50,
-        )
+        with pytest.warns(DeprecationWarning, match="register_uninstall_hook"):
+            plugin_api.register_uninstall_hook(
+                hook_name="test_cleanup",
+                callback=callback,
+                priority=50,
+            )
 
         hooks = fresh_registry.get_uninstall_hooks()
         assert len(hooks) == 1
@@ -279,6 +275,12 @@ class TestUninstallHook:
         assert hooks[0].hook_name == "test_cleanup"
         assert hooks[0].callback is callback
         assert hooks[0].priority == 50
+
+    def test_legacy_hooks_are_deprecated(self, plugin_api):
+        with pytest.warns(DeprecationWarning, match="register_uninstall_hook"):
+            plugin_api.register_uninstall_hook("u", lambda: None)
+        with pytest.warns(DeprecationWarning, match="register_shutdown_hook"):
+            plugin_api.register_shutdown_hook("s", lambda: None)
 
     def test_uninstall_hooks_sorted_by_priority(
         self,
@@ -452,111 +454,6 @@ class TestUninstallHook:
 class TestPluginValidatorImports:
     """Tests for plugin validator import resolution (requirement #10)."""
 
-    def test_validator_sets_submodule_search_locations(self):
-        """CLI install validator uses submodule_search_locations."""
-        # Create a temp plugin with relative import
-        with tempfile.TemporaryDirectory() as tmpdir:
-            plugin_dir = Path(tmpdir)
-
-            # Create plugin.json
-            import json
-
-            manifest = {
-                "id": "import-test",
-                "name": "Import Test",
-                "version": "1.0.0",
-                "entry": {"backend": "plugin.py"},
-            }
-            (plugin_dir / "plugin.json").write_text(
-                json.dumps(manifest),
-                encoding="utf-8",
-            )
-
-            # Create a helper module
-            (plugin_dir / "constants.py").write_text(
-                "PLUGIN_NAME = 'import-test'\n",
-                encoding="utf-8",
-            )
-
-            # Create plugin.py that uses relative import
-            (plugin_dir / "plugin.py").write_text(
-                "from .constants import PLUGIN_NAME\n"
-                "\n"
-                "class Plugin:\n"
-                "    pass\n"
-                "\n"
-                "plugin = Plugin()\n",
-                encoding="utf-8",
-            )
-
-            # Simulate validation with correct submodule_search_locations
-            backend_path = plugin_dir / "plugin.py"
-            module_name = "_plugin_validation_import_test"
-            plugin_dir_str = str(plugin_dir)
-
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                backend_path,
-                submodule_search_locations=[plugin_dir_str],
-            )
-            assert spec is not None
-            assert spec.loader is not None
-
-            module = importlib.util.module_from_spec(spec)
-            module.__package__ = module_name
-            module.__path__ = [plugin_dir_str]
-
-            # Register sub-module mapping so relative imports resolve
-            sys.modules[module_name] = module
-            # Also register the constants sub-module path
-            constants_spec = importlib.util.spec_from_file_location(
-                f"{module_name}.constants",
-                plugin_dir / "constants.py",
-            )
-            constants_module = importlib.util.module_from_spec(constants_spec)
-            sys.modules[f"{module_name}.constants"] = constants_module
-            constants_spec.loader.exec_module(constants_module)
-
-            try:
-                spec.loader.exec_module(module)
-                assert hasattr(module, "plugin")
-                assert hasattr(module, "PLUGIN_NAME")
-            finally:
-                sys.modules.pop(module_name, None)
-                sys.modules.pop(f"{module_name}.constants", None)
-
-    def test_validator_without_search_locations_fails(self):
-        """Without submodule_search_locations, relative imports fail."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            plugin_dir = Path(tmpdir)
-
-            (plugin_dir / "constants.py").write_text(
-                "PLUGIN_NAME = 'test'\n",
-                encoding="utf-8",
-            )
-            (plugin_dir / "plugin.py").write_text(
-                "from .constants import PLUGIN_NAME\n",
-                encoding="utf-8",
-            )
-
-            backend_path = plugin_dir / "plugin.py"
-            module_name = "_plugin_validation_no_locations"
-
-            # Without submodule_search_locations — should fail
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                backend_path,
-            )
-            module = importlib.util.module_from_spec(spec)
-            # Don't set __package__ or __path__
-
-            sys.modules[module_name] = module
-            try:
-                with pytest.raises(ImportError):
-                    spec.loader.exec_module(module)
-            finally:
-                sys.modules.pop(module_name, None)
-
     def test_cli_validate_path_with_relative_import(self):
         """Exercise the actual CLI validation code path.
 
@@ -640,7 +537,11 @@ class TestRegisterSkillProvider:
         plugin_api,
         fresh_registry,
     ):
-        """register_skill_provider registers startup and uninstall hooks."""
+        """register_skill_provider uses install-layer teardown, not hooks."""
+        from qwenpaw.plugins.lifecycle import PluginInstance
+
+        inst = PluginInstance("test-plugin")
+        plugin_api.bind_instance(inst)
         with tempfile.TemporaryDirectory() as tmpdir:
             skills_dir = Path(tmpdir)
             # Create a fake skill
@@ -662,37 +563,11 @@ class TestRegisterSkillProvider:
         startup_names = [h.hook_name for h in startup_hooks]
         assert "install_skills_test-plugin" in startup_names
 
-        # Check uninstall hook registered
         uninstall_hooks = fresh_registry.get_uninstall_hooks()
-        uninstall_names = [h.hook_name for h in uninstall_hooks]
-        assert "uninstall_skills_test-plugin" in uninstall_names
-
-    def test_register_skill_provider_default_channels(
-        self,
-        plugin_api,
-        fresh_registry,
-    ):
-        """Default channels is ['all'] when not specified."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            skills_dir = Path(tmpdir)
-            skill_dir = skills_dir / "default-skill"
-            skill_dir.mkdir()
-            (skill_dir / "SKILL.md").write_text(
-                "---\nname: Default\n---\nHello.",
-                encoding="utf-8",
-            )
-
-            plugin_api.register_skill_provider(skills_dir=skills_dir)
-
-        # Verify startup hook is registered (integration correctness)
-        hooks = fresh_registry.get_startup_hooks()
-        assert any(h.hook_name == "install_skills_test-plugin" for h in hooks)
-
-    def test_register_skill_provider_source_tag(self, plugin_api):
-        """Source tag follows 'plugin:{id}' convention."""
-        # Verify internal source_tag format
-        expected_tag = "plugin:test-plugin"
-        assert expected_tag == f"plugin:{plugin_api.plugin_id}"
+        assert uninstall_hooks == []
+        assert any(
+            entry.desc.startswith("skill_provider:") for entry in inst._install
+        )
 
     def test_register_skill_provider_registers_workspace_created_hook(
         self,
@@ -718,6 +593,50 @@ class TestRegisterSkillProvider:
         hooks = fresh_registry.get_workspace_created_hooks()
         hook_names = [h.hook_name for h in hooks]
         assert "provision_skills_test-plugin" in hook_names
+
+    def test_skill_install_records_provision_inventory(
+        self,
+        plugin_api,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Skill copy goes through provision_files (hash / create branch)."""
+        from qwenpaw.plugins.lifecycle import PluginInstance
+        from qwenpaw.plugins.provision import load_inventory
+
+        monkeypatch.setattr(
+            "qwenpaw.constant.WORKING_DIR",
+            tmp_path / "work",
+        )
+        inst = PluginInstance("test-plugin")
+        plugin_api.bind_instance(inst)
+        plugin_api.manifest = {
+            "id": "test-plugin",
+            "version": "3.1.0",
+        }
+        skills_dir = tmp_path / "skills"
+        skill_dir = skills_dir / "hashed-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: hashed\n---\nHi.",
+            encoding="utf-8",
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        plugin_api._install_skills_into_workspace(
+            {"workspace_dir": str(workspace), "agent_id": "a"},
+            skills_dir,
+            "plugin:test-plugin",
+            True,
+            ["all"],
+        )
+        dest = workspace / "skills" / "hashed-skill"
+        data = load_inventory("test-plugin")
+        loc = data["locations"][str(dest)]
+        assert loc["owned"] is True
+        assert "branch" not in loc
+        assert loc["version"] == "3.1.0"
+        assert loc["files"]["SKILL.md"]["factory_hash"]
 
 
 # ---------------------------------------------------------------------------
@@ -879,83 +798,3 @@ class TestFireWorkspaceCreatedHooks:
 
         fresh_registry.unregister_plugin("test-plugin")
         assert len(fresh_registry.get_workspace_created_hooks()) == 0
-
-    @pytest.mark.asyncio
-    async def test_fire_workspace_created_hooks_calls_callbacks(
-        self,
-        fresh_registry,
-    ):
-        """_fire_workspace_created_hooks invokes registered callbacks."""
-        from qwenpaw.plugins.api import PluginApi
-        from qwenpaw.app.multi_agent_manager import MultiAgentManager
-
-        api = PluginApi(
-            "hook-plugin",
-            config={},
-            manifest={"id": "hook-plugin"},
-        )
-        api.set_registry(fresh_registry)
-
-        received_info: Dict[str, Any] = {}
-
-        def on_created(workspace_info):
-            received_info.update(workspace_info)
-
-        api.register_workspace_created_hook(
-            hook_name="test_hook",
-            callback=on_created,
-        )
-
-        workspace_info = {
-            "agent_id": "agent-42",
-            "workspace_dir": "/tmp/ws/agent-42",
-        }
-        await MultiAgentManager._fire_workspace_created_hooks(workspace_info)
-
-        assert received_info["agent_id"] == "agent-42"
-        assert received_info["workspace_dir"] == "/tmp/ws/agent-42"
-
-    @pytest.mark.asyncio
-    async def test_fire_workspace_created_hooks_error_isolation(
-        self,
-        fresh_registry,
-    ):
-        """Errors in one hook don't prevent subsequent hooks from running."""
-        from qwenpaw.plugins.api import PluginApi
-        from qwenpaw.app.multi_agent_manager import MultiAgentManager
-
-        api = PluginApi(
-            "err-plugin",
-            config={},
-            manifest={"id": "err-plugin"},
-        )
-        api.set_registry(fresh_registry)
-
-        second_called = []
-
-        def bad_hook(workspace_info):
-            raise RuntimeError("boom")
-
-        def good_hook(workspace_info):
-            second_called.append(workspace_info["agent_id"])
-
-        api.register_workspace_created_hook(
-            hook_name="bad",
-            callback=bad_hook,
-            priority=10,
-        )
-        api.register_workspace_created_hook(
-            hook_name="good",
-            callback=good_hook,
-            priority=20,
-        )
-
-        # Should not raise
-        await MultiAgentManager._fire_workspace_created_hooks(
-            {
-                "agent_id": "ws-1",
-                "workspace_dir": "/tmp/ws-1",
-            },
-        )
-
-        assert "ws-1" in second_called

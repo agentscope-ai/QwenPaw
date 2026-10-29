@@ -217,12 +217,18 @@ async def create_channel_service(
             agent_id=ws.agent_id,
         )
 
+    def process(request, *args, **kwargs):
+        """Resolve the current entrypoint without wrapping its iterator."""
+        return ws.stream_query(request, *args, **kwargs)
+
     cm = ChannelManager.from_config(
-        process=ws.stream_query,
+        process=process,
         config=temp_config,
         on_last_dispatch=on_last_dispatch,
         workspace_dir=ws.workspace_dir,
+        defer_process_channels=True,
     )
+    cm._defer_channel_start = getattr(ws, "_defer_channel_start", False)
     publish(cm)
 
     cm.set_workspace(ws)

@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "跳到主要内容"
+  },
   "terminal": {
     "authRequired": "使用终端前，请设置 QWENPAW_AUTH_ENABLED=true，重启服务并登录。",
     "dependencyMissing": "终端不可用：请在后端 Python 环境安装 pywinpty 并重启服务。",
@@ -30,6 +33,7 @@
     "download": "下载",
     "refresh": "刷新",
     "retry": "重试",
+    "switchError": "切换模式失败，请重试。",
     "search": "搜索",
     "enable": "启用",
     "disable": "禁用",
@@ -40,6 +44,7 @@
     "view": "查看",
     "content": "内容",
     "loading": "加载中...",
+    "loadMore": "加载更多",
     "saving": "保存中...",
     "copy": "复制",
     "copied": "已复制到剪贴板",
@@ -67,15 +72,36 @@
     "increase": "增加"
   },
   "desktop": {
+    "update": {
+      "title": "更新 QwenPaw？",
+      "otherWindows": "还有 {{count}} 个窗口正在使用。",
+      "otherWindows_one": "还有 {{count}} 个窗口正在使用。",
+      "otherWindows_other": "还有 {{count}} 个窗口正在使用。",
+      "description": "更新将关闭所有 QwenPaw 窗口，并中断正在运行的任务。",
+      "confirm": "关闭并更新",
+      "preparing": "正在关闭窗口…"
+    },
     "closeWindow": {
-      "title": "关闭窗口",
-      "description": "关闭窗口时您希望执行什么操作？退出应用将停止所有正在运行的任务和定时任务。",
+      "title": "退出 QwenPaw？",
+      "description": "后台继续运行会保留任务；完全退出会结束正在运行的任务。",
       "remember": "记住我的选择",
       "showWindow": "显示窗口",
       "minimizeToTray": "最小化到托盘",
       "quitApp": "退出应用",
+      "keepRunning": "后台运行",
+      "quitting": "正在退出…",
+      "stopService": "完全退出",
+      "stopBlocked": "QwenPaw 仍在其他窗口或应用中使用，请先关闭它们，再完全退出。",
       "preference": "关闭窗口",
       "askEveryTime": "每次询问"
+    },
+    "host": {
+      "connecting": "正在准备…",
+      "failed": "暂时无法打开，请重试",
+      "details": "查看详情",
+      "retry": "重试",
+      "theme": "切换外观",
+      "controls": "桌面控制"
     }
   },
   "chunkError": {
@@ -563,6 +589,8 @@
     "skillBuiltinSyncFailed": "“{{skill}}”未能同步至：{{agents}}",
     "requestedBy": "请求方",
     "markRead": "标记已读",
+    "unreadOnly": "仅看未读",
+    "emptyUnread": "当前筛选条件下没有未读消息",
     "markAllRead": "全部标记已读",
     "markAllReadNoUnread": "当前没有未读消息",
     "markAllReadSuccess": "已将 {{count}} 条消息标记为已读",
@@ -587,6 +615,7 @@
     "createSuccess": "Harvest 创建成功",
     "emptyApprovals": "暂无待审批项",
     "emptyPush": "暂无推送消息",
+    "loadFailed": "无法加载推送消息，请重试。",
     "wobbleEnable": "开启审批震动提醒",
     "wobbleDisable": "关闭审批震动提醒",
     "emptyHarvests": "暂无 Harvest 任务",
@@ -876,7 +905,6 @@
     "selectBuiltin": "内置",
     "selectNone": "清空",
     "noPoolSkills": "技能池中暂无可用技能",
-    "addSkillsToAgent": "添加技能",
     "backend": {
       "column": "后端",
       "eyebrow": "智能体架构",
@@ -1041,6 +1069,7 @@
   "acp": {
     "title": "ACP 协议接入",
     "loading": "加载 ACP 配置中...",
+    "loadError": "ACP 配置加载失败。",
     "builtin": "预设",
     "custom": "自定义",
     "create": "添加 ACP 接入",
@@ -1359,6 +1388,9 @@
     "updateFailed": "更新失败",
     "broadcastSuccess": "广播完成",
     "broadcastFailed": "广播失败",
+    "downloading": "正在下载…",
+    "cancelling": "正在取消…",
+    "cancelFailed": "取消下载失败",
     "overwriteConfirm": "覆盖已存在的技能？",
     "overwriteTargetsContent": "以下目标中已存在该技能，确认后将直接覆盖：",
     "builtinOverwriteTargetsContent": "以下目标中的内置技能版本不同，确认后将直接覆盖：",
@@ -1794,6 +1826,10 @@
     "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
+    "runtime": {
+      "missing_code": "插件未安装"
+    },
+    "qrcodeInstallRequired": "安装插件后可扫码",
     "manualCredentials": "手动填写凭据",
     "deliverySettings": "发送方式",
     "presentationSettings": "消息呈现",
@@ -1801,6 +1837,7 @@
     "title": "频道",
     "description": "管理和配置消息频道",
     "loading": "正在加载频道...",
+    "loadFailed": "加载频道失败，请重试。",
     "configSaved": "配置保存成功",
     "configFailed": "配置保存失败",
     "botConflictTitle": "机器人已被使用",
@@ -2110,6 +2147,8 @@
     "title": "会话",
     "description": "查看和管理活动聊天会话",
     "loading": "正在加载会话...",
+    "selectSession": "选择 {{name}}",
+    "loadFailed": "加载会话失败，请重试。",
     "confirmDelete": "确认删除",
     "deleteConfirm": "确定要删除此会话吗？",
     "batchDeleteConfirm": "确定要删除选中的 {{count}} 个会话吗？",
@@ -2420,9 +2459,8 @@
     "defaultModels": "默认模型",
     "defaultChatModel": "对话模型",
     "defaultDecisionModel": "决策模型",
-    "defaultLlm": "默认LLM",
+    "defaultLlm": "全局默认模型",
     "notConfiguredYet": "尚未配置",
-    "llmDescription": "在这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。",
     "configureProvider": "配置 {{name}}",
     "baseURL": "基础 URL",
     "getApiKey": "获取 API Key",
@@ -2542,9 +2580,26 @@
     "paidGroup": "付费",
     "localCustomGroup": "本地 & 自定义",
     "cloudGroup": "云端提供商",
+    "providerVariants": {
+      "dashscope": "DashScope",
+      "chat_completions": "Chat Completions",
+      "responses": "Responses API",
+      "open_platform": "开放平台",
+      "open_platform_cn": "开放平台（中国区）",
+      "open_platform_intl": "开放平台（国际区）",
+      "coding_plan": "Coding Plan",
+      "coding_plan_cn": "Coding（中国区）",
+      "coding_plan_intl": "Coding（国际区）",
+      "token_plan": "Token Plan",
+      "token_plan_intl": "Token（国际区）",
+      "china": "中国区",
+      "international": "国际区",
+      "chatgpt": "ChatGPT 订阅"
+    },
     "configuredGroup": "已配置",
     "configuredOnline": "个提供商在线",
     "noConfigured": "尚未配置任何提供商，请在下方选择一个开始使用",
+    "noSearchResults": "没有与“{{query}}”匹配的提供商，请尝试其他关键词。",
     "goConfigureBtn": "去配置",
     "availableGroup": "可用提供商",
     "clickToConfigure": "点击配置",
@@ -2785,7 +2840,7 @@
       "modelCount": "模型 {{count}} / {{total}}",
       "enableAllConfirm": "启用全部 {{count}} 个模型？",
       "enableAll": "全部启用",
-      "disableAll": "全部关闭",
+      "disableAll": "全部停用",
       "unsupported": "此提供商地址不支持模型列表接口，已保留内置目录和已有模型。可手动添加模型。",
       "candidates": "候选模型 ({{count}})",
       "selected": "已选模型 ({{count}})",
@@ -2844,9 +2899,40 @@
     },
     "includesFreeModels": "含免费模型",
     "agentDefaults": "智能体默认模型",
+    "primaryModel": "主模型",
+    "agentRuntimeHint": "为当前智能体设置主模型、思考强度、子智能体模型和备用模型。更改会自动保存；思考强度同时作用于这些模型，并按各模型能力适配。",
+    "agentRuntimeLoadFailed": "模型数据加载失败，请重试。",
     "scope": {
       "global": "全局模型",
       "agent": "当前智能体"
+    },
+    "apiPricing": {
+      "standard": "标准处理 · 美元 / 百万 token",
+      "prompt": "输入",
+      "completion": "输出",
+      "input_cache_read": "缓存读取",
+      "longContext": "输入超过 {{threshold}} token 时，整次请求的输入及缓存读取费率为 {{inputMultiplier}} 倍，输出为 {{outputMultiplier}} 倍。",
+      "cacheWrite": "缓存写入：30 分钟按输入价的 {{shortMultiplier}} 倍，12 小时按 {{longMultiplier}} 倍计费。",
+      "exclusions": "API 费率；不含工具、区域附加费用及 ChatGPT 订阅用量。",
+      "checked": "核对日期：{{date}}"
+    },
+    "chatgpt": {
+      "contextHelp": "账号接口报告的上限：{{maximum}} tokens；当前会话默认预算：{{default}} tokens。",
+      "localHelp": "由于 OpenAI 接入政策及本地 OAuth 回调限制，一键登录仅支持本地运行的 QwenPaw，浏览器和 QwenPaw 必须在同一台电脑。",
+      "account": "ChatGPT 账号",
+      "connected": "已连接 ChatGPT 订阅",
+      "disconnected": "未连接",
+      "permissionMissing": "尚未授权使用订阅额度",
+      "failed": "登录未完成，请重试。",
+      "usage": "管理用量",
+      "reconnect": "重新登录",
+      "changeAccount": "更换账号",
+      "accountActions": "ChatGPT 账号操作",
+      "connectedShort": "已连接",
+      "signOut": "退出登录",
+      "revokeWarning": "已在本地退出，但未能确认远端授权已撤销；请在 ChatGPT 设置中断开 QwenPaw。",
+      "modelHelp": "模型来自当前 ChatGPT 账号，使用订阅额度或 credits。此接入方式不支持采样参数及输出 token 限制。",
+      "oauthDescription": "将打开浏览器以授权使用 ChatGPT 订阅额度，完成后请返回 QwenPaw。"
     }
   },
   "files": {
@@ -2859,6 +2945,20 @@
     "memory": "长期记忆",
     "daily": "日记",
     "digest": "知识库",
+    "memoryTags": "记忆标签",
+    "memoryTagsLabel": "标签",
+    "memoryTagBrowse": "搜索带有“{{tag}}”标签的已索引记忆",
+    "memoryTagsAll": "全部标签",
+    "memoryTagsScope": "仅搜索已索引的记忆，当前文件可能尚未被索引。",
+    "memoryTagsRefresh": "刷新记忆标签",
+    "memoryTagsCount": "{{count}} 个标签",
+    "memoryTagFilesCount": "{{count}} 篇记忆",
+    "memoryTagsLoadFailed": "记忆标签暂不可用，请重试。",
+    "memoryTagsEmpty": "还没有记忆标签。",
+    "memoryTagFilesEmpty": "没有带此标签的已索引记忆。",
+    "memoryTagsPrevious": "上一页",
+    "memoryTagsNext": "下一页",
+    "memoryTagsPage": "{{page}} / {{total}} 页",
     "memoryGraph": "记忆图谱",
     "memoryGraphShort": "Graph",
     "memoryGraphLoading": "正在加载记忆图谱…",
@@ -2998,9 +3098,6 @@
     "changeProjectDirectory": "管理",
     "manageDefaultFolders": "默认工作区",
     "projectDirectoryWorkspaceFallback": "当前使用智能体配置目录",
-    "enhancedCodeCapability": "增强代码能力",
-    "enhancedCodeCapabilityTooltip": "增加代码工具，但不会改变项目目录。",
-    "enhancedCodeCapabilityDescription": "启用 AST、LSP、代码提示词、Git 上下文和源码管理。",
     "description": "配置智能体运行参数",
     "reactAgentTitle": "ReAct 智能体",
     "llmRetryTitle": "LLM 自动重试",
@@ -3067,6 +3164,8 @@
       "defaultTab": "标准",
       "goalTab": "目标",
       "missionTab": "任务",
+      "advisorTab": "顾问",
+      "advisorPipeline": "顾问流程",
       "defaultDescription": "未启用显式模式时使用的标准受控 ReAct Loop。",
       "goalDescription": "面向具体、可验证目标的有界持续 Loop。",
       "missionDescription": "面向长时、多步骤任务的持续执行流程。",
@@ -3081,7 +3180,7 @@
       "goalTurnDescription": "限制单个活动目标内的执行轮次。",
       "maxGoalTurns": "最大目标轮次",
       "goalBudgetTitle": "目标 Token 预算",
-      "goalBudgetDescription": "完整目标达到预算时停止。",
+      "goalBudgetDescription": "目标达到预算时停止；-1 或 0 表示无上限。",
       "maxGoalTokens": "最大目标 Token 数",
       "goalCompletionTitle": "目标完成检查",
       "goalCompletionDescription": "停止前读取明确的目标状态。",
@@ -3187,7 +3286,40 @@
       "safeTemplate": "安全运行",
       "researchTemplate": "预算研究",
       "qualityTemplate": "质量优先",
-      "blankTemplate": "空白流程"
+      "blankTemplate": "空白流程",
+      "advisor": "顾问模式",
+      "advisorDescription": "主模型在智能体开始前写好计划，并在其反复失败时介入。智能体本身使用 Sub-agent 模型运行。",
+      "advisorEnableDescription": "允许该智能体使用顾问模式（实验性）。",
+      "advisorModels": "顾问：{{advisor}} · Worker：{{worker}}",
+      "advisorEnableHelp": "对话仍然从默认循环开始。开启后，输入栏的 Loop 模式菜单里会出现「顾问」，/advisor 命令也可以使用。每个对话单独选择是否启用。在渠道和定时任务的提示词里发送 /advisor on。",
+      "advisorModelsTitle": "顾问模型与 Worker 模型",
+      "advisorModelsHelp": "默认情况下，顾问使用智能体的主模型，Worker（智能体本身）使用 Sub-agent 模型。两者都在聊天的模型选择器里设置，Sub-agent 模型在其中的「Agent 模型路由」里。要把任一角色固定到其它模型，从 Loop 模式菜单或旁边的模型胶囊打开「顾问模型」面板。",
+      "advisorSameAsAdvisor": "与顾问相同",
+      "advisorThinking": "顾问思考",
+      "advisorThinkingTooltip": "顾问自身调用的思考档位。关闭时计划出得最快。「模型默认」跟随智能体和模型的设置。",
+      "advisorPlanTitle": "开场计划",
+      "advisorPlanDescription": "智能体迈出第一步前，先由顾问写一份计划。",
+      "advisorPlanHelp": "计划以 consult_advisor 调用及其结果的形式注入智能体上下文，并在聊天中边写边显示。",
+      "advisorFollowupTitle": "中途自动介入",
+      "advisorFollowupDescription": "QwenPaw 监测工具结果，智能体反复失败时自动咨询顾问。",
+      "advisorFollowupHelp": "连续失败或最近窗口内失败达到下方设定的次数时触发，每次运行最多介入设定的次数。每次介入后计数器重置。顾问回复 CONTINUE，或 ADJUST 加一份修正计划。",
+      "advisorOnDemandTitle": "主动咨询",
+      "advisorOnDemandDescription": "允许智能体通过 consult_advisor 工具主动向顾问提问。",
+      "advisorOnDemandHelp": "工具描述会告诉智能体只在真正的决策点提问。超过下方上限后，工具只返回一条简短提示，智能体继续执行。",
+      "advisorMaxConsults": "每个对话最多咨询次数",
+      "advisorMaxConsultsTooltip": "只统计智能体自己发起的 consult_advisor 调用，开场计划和自动介入不计入。",
+      "advisorIntervention": {
+        "consecutive_failures": "连续失败次数",
+        "consecutive_failuresTooltip": "工具调用连续失败达到该次数时咨询顾问。",
+        "window_failures": "窗口内失败次数",
+        "window_failuresTooltip": "最近窗口内工具调用失败达到该次数时咨询顾问。",
+        "window_size": "窗口大小（步）",
+        "window_sizeTooltip": "失败窗口覆盖最近多少次工具调用。",
+        "max_interventions": "每次运行最多介入次数",
+        "max_interventionsTooltip": "一次运行中允许的自动介入次数，0 表示关闭。",
+        "cooldown_steps": "冷却（步）",
+        "cooldown_stepsTooltip": "一次介入后再经过多少次工具调用才允许下一次触发。"
+      }
     },
     "doomLoopEnabled": "重复行为保护",
     "doomLoopEnabledTooltip": "当 Agent 陷入重复相同操作时自动介入",
@@ -3389,8 +3521,8 @@
     "embeddingBackendTooltip": "选择用于调用向量模型的 SDK 类型",
     "embeddingBackendPlaceholder": "请选择 SDK 类型",
     "embeddingApiKey": "API Key",
-    "embeddingApiKeyTooltip": "向量模型提供方的 API Key，无需认证时留空",
-    "embeddingApiKeyPlaceholder": "无需认证时留空",
+    "embeddingApiKeyTooltip": "除 Ollama 外，当前向量后端均需填写 API Key 才会启用；留空时只使用 BM25 关键词检索。无需认证的兼容服务请按其要求填写占位值。",
+    "embeddingApiKeyPlaceholder": "填写 API Key 以启用向量检索",
     "embeddingBaseUrl": "Base URL",
     "embeddingBaseUrlTooltip": "向量模型 API 的 Base URL。OpenAI 兼容后端中该自定义地址为可选项，API Key 和模型名称为必填项",
     "embeddingBaseUrlPlaceholder": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -3443,7 +3575,7 @@
     "embeddingCapabilityDisabled": "未开启",
     "embeddingIndexTitle": "索引与缓存",
     "embeddingIndexDescription": "控制 ReMe 的向量存储和批处理行为",
-    "memoryPageDescription": "让智能体从历史对话中提取、整理并召回有用信息。日常设置会立即生效，语义搜索配置为可选项。",
+    "memoryPageDescription": "让智能体从历史对话中提取、整理并召回有用信息。设置自动保存后生效，向量检索为可选项。",
     "memoryPoweredBy": "Powered by",
     "memoryDocumentation": "使用文档",
     "memoryOverviewTitle": "长期记忆中心",
@@ -3473,7 +3605,7 @@
     },
     "memoryQueueSummary": "{{running}} 项处理中 · {{pending}} 项等待",
     "memoryQueueIdleSummary": "空闲 · 无等待任务",
-    "memoryAutoRecordDisabledHint": "自动对话记忆已关闭",
+    "memoryAutoRecordDisabledHint": "定期自动记忆已关闭",
     "memoryAutoMemoryEnabledSummary": "自动记忆已开启 · 每 {{interval}} 轮对话触发",
     "memoryRuntimeActivityDescription": "自动和手动触发的自动记忆任务会在后台依次处理，不会阻塞当前对话",
     "memoryLastError": "最近一次错误",
@@ -3497,8 +3629,8 @@
     },
     "memoryResourceUsageDescription": "当前 ReMe 组件估算与 QwenPaw 进程内存",
     "memoryDiagnostics": "资源与诊断",
-    "memoryComponentsMetric": "组件",
-    "memoryProcessMetric": "进程",
+    "memoryComponentsMetric": "组件内存",
+    "memoryProcessMetric": "进程内存",
     "memoryDiagnosticsHint": "查看组件占用与运行明细",
     "remeStatusComponent": {
       "embedding_store": "向量存储",
@@ -3513,18 +3645,22 @@
     "memoryExternalSourcesDevelopingLabel": "持续开发中",
     "memoryExternalSourcesTitle": "外部知识日记",
     "dailyPaperDocumentation": "查看使用指南",
-    "memoryAutoRecordTitle": "启用对话记忆",
-    "memoryAutoRecordDescription": "按设定轮次持续提取新的长期记忆",
-    "memoryAutoRecordFrequency": "记录频率（对话轮数）",
+    "memoryAutoRecordTitle": "启用定期自动记忆",
+    "memoryAutoRecordDescription": "每隔设定次数的用户查询，在回复结束后提取长期记忆",
+    "memoryAutoRecordFrequency": "提取间隔（用户查询数）",
+    "memoryImagesTitle": "在自动记忆中包含图片",
+    "memoryTagsTitle": "生成记忆标签",
+    "memoryTagsDescription": "自动记忆保存笔记后生成实体标签，会增加模型调用。可用 memory_list_tags 查看标签，按需给 memory_search 传入 tags 筛选。",
+    "memoryImagesDescription": "当智能体的记忆模型已识别为支持图片输入时，记住对话图片中的视觉信息。能力未知时，请先在模型设置中确认图片支持。聊天中临时选择的模型不会改变记忆模型。",
     "memoryNotifyTitle": "收件箱通知",
-    "memoryNotifyDescription": "仅在对话日记有变化或任务失败时发送到收件箱",
+    "memoryNotifyDescription": "仅在自动记忆生成或更新笔记、或任务失败时发送到收件箱",
     "dailyPaperNotifyDescription": "每日论文生成后发送到收件箱",
     "autoDreamNotifyDescription": "仅在记忆整理有变化或任务失败时发送到收件箱",
     "memoryOrganizeSectionTitle": "记忆整理",
     "memoryOrganizeSectionDescription": "定期归纳、合并并优化已有长期记忆",
     "memoryOrganizeTitle": "梦境整理",
     "memoryScheduledOrganizeTitle": "启用梦境整理",
-    "memoryScheduledOrganizeDescription": "通过梦境任务在后台维护记忆质量",
+    "memoryScheduledOrganizeDescription": "通过 Auto-Dream 定期将每日记忆整合到长期记忆摘要（digest）",
     "memoryRecallTitle": "记忆搜索工具",
     "memorySearchSectionTitle": "记忆搜索",
     "memorySearchSectionDescription": "控制智能体主动搜索和回复前自动召回记忆的方式",
@@ -3539,7 +3675,7 @@
     "rerankerExpandDetails": "展开重排序设置",
     "rerankerCollapseDetails": "折叠重排序设置",
     "rerankerTitle": "重排序搜索",
-    "rerankerEnableHint": "启用后，记忆搜索结果会先通过过召回（N × multiplier），再由 reranker API 重新排序后返回 Top-N，提升相关性",
+    "rerankerEnableHint": "启用后先召回 N × 候选倍数条结果，再调用重排 API 选出前 N 条。可提升相关性，但会增加 API 调用和延迟。",
     "rerankerEnabled": "启用重排序",
     "rerankerEnabledTooltip": "开启后，记忆搜索将使用外部 reranker API 对结果重新排序",
     "rerankerBaseUrl": "API 地址",
@@ -3571,6 +3707,13 @@
       "strictDesc": "每次工具调用和外部文件访问前均需审批",
       "smart": "智能模式",
       "smartDesc": "低风险工具调用和外部文件访问操作自动执行，中高风险需审批",
+      "jev": "决策模型模式",
+      "jevDesc": "先执行本地安全规则，规则外操作由决策模型评估风险",
+      "jevRequiresDecision": "请先打开「使用决策模型」",
+      "decisionModelPrivacy": "工具名、操作、目标和参数名可能发送给决策模型提供商；不会发送聊天记录或文件正文。",
+      "decisionModelConnected": "已配置决策模型提供商的 API Key",
+      "decisionModelNotConnected": "决策模型提供商尚未配置 API Key；旧版决策模型密钥仍可临时使用，请在模型页面统一管理。",
+      "decisionModelConfigure": "配置决策模型提供商",
       "auto": "自动模式",
       "autoDesc": "仅命中工具和文件审批规则的操作需审批（默认）",
       "off": "关闭模式",
@@ -3661,6 +3804,7 @@
     "autoMemoryInterval": "自动记忆间隔",
     "autoMemoryIntervalTooltip": "每隔 N 次用户查询触发一次自动记忆。0 表示禁用定期自动记忆，1 表示每次查询后自动记忆，推荐设置 2-5；设置 1 需要注意高 token 消耗。",
     "autoMemoryIntervalPlaceholder": "输入 0 禁用定期自动记忆",
+    "memoryPositiveIntegerRequired": "请输入不小于 1 的整数",
     "autoMemoryIntervalRequired": "请输入自动记忆间隔",
     "autoMemoryIntervalMin": "自动记忆间隔必须大于等于 0",
     "contextManagerBackend": "上下文管理后端",
@@ -3668,7 +3812,27 @@
     "contextStrategy": "上下文策略",
     "contextStrategyTooltip": "智能体如何管理长上下文。Scroll（推荐）将驱逐的对话轮次持久化到历史库并按需召回；Native 使用就地压缩。更改后需重启 QwenPaw 生效。",
     "contextStrategyScroll": "Scroll",
-    "contextStrategyNative": "Native"
+    "contextStrategyNative": "Native",
+    "decisionCompactLabel": "决策模型压缩",
+    "decisionCompactEnabled": "启用决策模型压缩",
+    "decisionCompactDescription": "默认关闭，复用智能体的决策模型，未选择时使用全局默认决策模型，请在模型设置中配置。自动触发上下文压缩时，ReMe 先将低相关性工具结果替换为带恢复引用的短预览，再继续现有压缩流程。支持 Scroll 和原生策略，独立于长期记忆及聊天决策开关，需要开启自动上下文压缩。决策请求会将有界的对话证据发送至配置的供应商。",
+    "decisionCompactAdvanced": "请求限制",
+    "decisionCompact_drop_threshold": "低相关性阈值",
+    "decisionCompact_drop_thresholdHelp": "仅缩短相关性概率不高于该值的结果；数值越低，保留原文越多。",
+    "decisionCompact_preserve_recent_messages": "保护最近消息数",
+    "decisionCompact_preserve_recent_messagesHelp": "最近这些消息保持原文，当前完整轮次始终受保护。",
+    "decisionCompact_preview_chars": "预览字符数",
+    "decisionCompact_preview_charsHelp": "保留的原文预览长度上限，不含恢复引用。",
+    "decisionCompact_total_timeout_seconds": "总超时（秒）",
+    "decisionCompact_total_timeout_secondsHelp": "单次决策模型压缩的最长等待时间，超时后继续现有压缩。",
+    "decisionCompact_max_state_tokens": "决策状态 token 上限",
+    "decisionCompact_max_state_tokensHelp": "ReMe 对有界对话状态的估算，与聊天模型的 token 计数独立。",
+    "decisionCompact_max_request_tokens": "单次决策请求 token 上限",
+    "decisionCompact_max_request_tokensHelp": "ReMe 对包含问题的单次决策请求的估算上限。",
+    "decisionCompact_evidence_chars": "每条结果的证据字符数",
+    "decisionCompact_evidence_charsHelp": "发送给决策模型用于相关性判断的工具结果摘录长度上限。",
+    "decisionCompact_max_concurrency": "决策请求并发数",
+    "decisionCompact_max_concurrencyHelp": "一次压缩过程中最多同时执行的决策请求数。"
   },
   "tools": {
     "search": "搜索工具",
@@ -3742,10 +3906,6 @@
       "glob_search": {
         "name": "查找文件",
         "description": "按文件名或路径模式定位文件。"
-      },
-      "ast_search": {
-        "name": "搜索代码结构",
-        "description": "按语法结构查找代码中的匹配片段。"
       },
       "desktop_screenshot": {
         "name": "桌面截图",
@@ -3899,7 +4059,9 @@
       "asFile": "作为附件",
       "characters": "{{count}} 个字符"
     },
-    "historyLoadFailed": "会话加载失败，请重新打开此会话。",
+    "historyLoadFailed": "会话加载失败，请重试。",
+    "routeNotFound": "此会话不可用或已被删除。",
+    "routeAmbiguous": "此链接对应多个会话，请从侧边栏选择要打开的会话。",
     "switchSession": "切换会话",
     "lastActive": "上次活跃 · {{time}}",
     "fileReference": {
@@ -3924,6 +4086,11 @@
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
     "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令",
+    "composer": {
+      "attach": "添加附件",
+      "send": "发送消息",
+      "stop": "停止生成"
+    },
     "emptyOutputError": "助手返回了空响应。",
     "commands": {
       "clear": {
@@ -4750,6 +4917,9 @@
         "memberDefaultsHint": "新会话默认使用此模型，成员可切换到其他已授权模型。",
         "settingsSaved": "模型设置已保存",
         "defaultModel": "默认模型",
+        "gatewayTimeout": "网关超时（秒）",
+        "gatewayTimeoutHelp": "默认为 600 秒，最小为 60 秒。保存后对新请求生效，包括流式响应。连接超时保持为 10 秒。",
+        "gatewayTimeoutInvalid": "请输入不小于 60 的整数秒数。",
         "chooseDefault": "选择全体成员可用的模型",
         "saveSettings": "保存模型设置",
         "providers": "供应商连接",
@@ -5201,6 +5371,12 @@
   },
   "approval": {
     "title": "安全审批",
+    "queue": {
+      "title": "待审批队列",
+      "position": "{{current}} / {{total}}",
+      "previous": "上一条审批",
+      "next": "下一条审批"
+    },
     "agent": "Agent",
     "ownerAgent": "归属Agent",
     "executingAgent": "执行Agent",
@@ -5227,6 +5403,30 @@
     "details": "详细信息"
   },
   "pluginManager": {
+    "dependencyUpgrade": {
+      "title": "确认升级共享依赖",
+      "confirm": "升级并安装",
+      "progress": "正在升级共享依赖",
+      "changes": "共享依赖版本变更",
+      "affected": "受影响的插件实例",
+      "noInstances": "没有受影响的插件实例。",
+      "restart": "此次升级需要重启后端，重新连接后将继续安装插件。",
+      "background": "在后台跟踪",
+      "resume": "进度跟踪已中断。后端重新连接后，请重新打开插件管理查看安装结果。",
+      "invalid": "依赖升级响应与当前安装不匹配，请重新打开插件管理查看状态。",
+      "notStarted": "依赖升级尚未开始，请重新打开插件管理，查看计划并再次确认。",
+      "cancelFailed": "未能取消依赖升级，请重新打开插件管理查看状态。",
+      "failed": "共享依赖升级失败。",
+      "status": {
+        "needs_confirmation": "等待确认",
+        "preparing": "正在准备升级",
+        "applying": "正在应用升级",
+        "waiting_restart": "等待后端重启",
+        "succeeded": "插件安装完成",
+        "failed": "升级失败",
+        "cancelled": "已取消升级"
+      }
+    },
     "title": "插件管理",
     "description": "安装、管理和卸载插件，无需重启服务。",
     "installed": "已安装插件",
@@ -5257,6 +5457,7 @@
     "uninstalling": "卸载中...",
     "uninstallSuccess": "插件卸载成功",
     "uninstallFailed": "插件卸载失败",
+    "statusError": "状态异常",
     "statusLoaded": "运行中",
     "statusUnloaded": "未加载",
     "type": "类型",
@@ -5304,10 +5505,29 @@
     "marketSortFavorites": "收藏量最多",
     "compatWarningTitle": "兼容性警告",
     "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
-    "compatWarningConfirm": "仍然安装"
+    "compatWarningConfirm": "仍然安装",
+    "busyTitle": "插件正在执行任务",
+    "busy": {
+      "update": {
+        "warning": "强制更新将中断当前任务，未完成的任务可能失败。",
+        "confirm": "强制更新",
+        "cancel": "暂不更新"
+      },
+      "uninstall": {
+        "warning": "强制卸载将中断当前任务，未完成的任务可能失败。",
+        "confirm": "强制卸载",
+        "cancel": "暂不卸载"
+      }
+    }
   },
   "codingMode": {
-    "title": "编程模式",
+    "toolPresentationHelp": "开启后，智能体只使用一个代码工具。搜索、文件处理等操作，统一通过编写并执行 Python 代码完成。",
+    "loadFailed": "无法加载代码模式，请重试。",
+    "updateFailed": "Code Mode 保存失败，请重试。",
+    "runCode": "执行 Python",
+    "script": "代码",
+    "output": "输出",
+    "title": "代码模式",
     "experimental": "实验性功能",
     "experimentalDesc": "编程模式将 QwenPaw 转变为一个轻量级 Web IDE，提供代码编辑器、文件树、Git 集成和 AI 辅助编程能力。",
     "experimentalNote": "该功能目前为实验性阶段，仍在持续开发中，部分功能可能受限或在后续版本中有所变动。",
@@ -5598,6 +5818,9 @@
     }
   },
   "preview": {
+    "unavailable": "预览不可用",
+    "showDetails": "查看原因",
+    "hideDetails": "收起详情",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "该文件被文件防护拦截（敏感文件保护）。",
       "OUTSIDE_WORKSPACE": "该文件位于工作区范围之外。请在 设置 → 安全 → 文件防护 中启用「允许控制台预览工作区外文件」。",
@@ -5643,13 +5866,28 @@
       "mission": {
         "name": "任务",
         "description": "运行结构化、可持续的多步骤任务。"
+      },
+      "advisor": {
+        "name": "顾问",
+        "description": "让更强的模型规划并在卡住时介入，便宜的模型干活。"
       }
+    },
+    "advisorSetup": {
+      "title": "顾问模型",
+      "hint": "默认跟随智能体的主模型（顾问）和 Sub-agent 模型（Worker）。这里的选择会为该智能体保存。",
+      "advisorModel": "顾问模型",
+      "workerModel": "Worker 模型",
+      "subagentDefault": "{{model}} · 默认：Sub-agent 模型",
+      "noSubagent": "与顾问相同 · 默认：未设置 Sub-agent 模型",
+      "pairTooltip": "本对话的顾问 → Worker 模型",
+      "primaryModelDefault": "{{model}} · 默认：主模型"
     }
   },
   "thinkingControl": {
     "default": "默认",
     "resetModel": "恢复默认模型",
     "title": "思考强度",
+    "modelSettingHint": "设置该模型的默认思考强度。“默认”表示沿用模型或提供商配置；会话或智能体设置可以覆盖此处。保存后从后续请求开始生效。",
     "reset": "恢复默认设置",
     "inherit": "跟随默认",
     "off": "关闭思考",
@@ -5697,7 +5935,7 @@
     "modelSource": {
       "session": "当前会话指定",
       "agent": "跟随 Agent 模型",
-      "global": "跟随默认 LLM"
+      "global": "跟随全局模型"
     }
   },
   "runtimeDesign": {

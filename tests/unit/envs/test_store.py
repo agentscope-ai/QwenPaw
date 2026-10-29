@@ -84,6 +84,7 @@ def test_missing_store_stays_sparse(isolated_store) -> None:
         "LD_PRELOAD",
         "QWENPAW_HUB_MODEL_TOKEN",
         "HOME",
+        "QWENPAW_DEPENDENCY_STATE_DIR",
     ],
 )
 def test_managed_runtime_rejects_persisted_control_overrides(
@@ -98,6 +99,20 @@ def test_managed_runtime_rejects_persisted_control_overrides(
     before = store.os.environ.get(key)
     store.load_envs_into_environ()
     assert store.os.environ.get(key) == before
+    if key == "QWENPAW_DEPENDENCY_STATE_DIR":
+        monkeypatch.delenv("QWENPAW_RUNTIME_ID")
+        with pytest.raises(ValueError, match="managed"):
+            store.update_env_vars({key: "changed"})
+        store._apply_to_environ({key: "injected"})
+        assert store.os.environ.get(key) == before
+        store._sync_environ({key: before}, {})
+        assert store.os.environ.get(key) == before
+        assert json.loads(isolated_store.read_text())[key] == "enc:injected"
+        monkeypatch.delenv("ORDINARY_VALUE", raising=False)
+        store.update_env_vars({"ORDINARY_VALUE": "allowed"})
+        assert store.os.environ["ORDINARY_VALUE"] == "allowed"
+        assert store.os.environ.get(key) == before
+        assert json.loads(isolated_store.read_text())[key] == "enc:injected"
 
 
 def test_managed_runtime_does_not_migrate_shared_envs(tmp_path, monkeypatch):

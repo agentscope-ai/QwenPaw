@@ -687,19 +687,15 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
     expect(typeof ext.messages[0].cards[0].code).toBe("string");
   });
 
-  it("returns an empty session (no white-screen) when getChat throws 'Chat not found'", async () => {
-    // Regression: historically a 404 on a stale large session would propagate
-    // the error and blank the page. The fix returns an empty session so the
-    // user sees the chat shell instead of a crash.
+  it("reports a missing persisted Chat to the history failure boundary", async () => {
     const apiImport = await import("../../../api");
     vi.spyOn(apiImport.api, "getChat").mockRejectedValue(
       new Error("Chat not found"),
     );
 
-    const session = await sessionApiDefaultExport.getSession("uuid-missing");
-    expect(session).toBeDefined();
-    expect((session as any).messages).toEqual([]);
-    expect((session as any).id).toBe("uuid-missing");
+    await expect(
+      sessionApiDefaultExport.getSession("uuid-missing"),
+    ).rejects.toThrow("Chat not found");
   });
 
   it("loads a UUID-looking runtime session_id through its unique Chat UUID", async () => {

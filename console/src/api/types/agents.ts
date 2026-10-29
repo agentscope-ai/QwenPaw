@@ -95,6 +95,31 @@ export interface MemoryGraphSnapshot {
   edges: MemoryGraphEdge[];
 }
 
+export interface MemoryTagPage {
+  items: { tag: string; file_count: number }[];
+  total_tags: number;
+  page: number;
+  page_size: number;
+}
+
+export interface MemoryTagFile {
+  path: string;
+  source: "daily" | "digest" | "workspace";
+  relative_path: string;
+  name: string;
+  description: string;
+  modified_at: number;
+  memory_tags: string[];
+}
+
+export interface MemoryTagFilePage {
+  tag: string;
+  items: MemoryTagFile[];
+  total_files: number;
+  page: number;
+  page_size: number;
+}
+
 export interface AgentProfileConfig {
   id: string;
   name: string;

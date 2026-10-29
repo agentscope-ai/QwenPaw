@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/pageHeader.less";
+
 .heartbeatPage {
   :global {
     .qwenpaw-spark-card-wrapper {
@@ -25,36 +27,7 @@
 }
 
 .pageHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: relative;
-  padding: 20px;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.breadcrumbHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  flex: 1;
-}
-
-.breadcrumbParent {
-  color: var(--app-text-tertiary);
-  font-weight: 400;
-}
-
-.breadcrumbSeparator {
-  color: var(--app-text-quaternary);
-  margin: 0 4px;
-}
-
-.breadcrumbCurrent {
-  color: var(--app-text);
-  font-weight: 600;
-  font-size: 20px;
+  .page-header-frame();
 }
 
 .title {
@@ -280,6 +253,7 @@
     }
   }
 }
+
 .sliderControl {
   display: flex;
   align-items: center;
@@ -345,6 +319,15 @@
 .loading {
   padding: 64px 24px;
   text-align: center;
+}
+.loadError {
+  padding: 32px 16px;
+
+  :global(.ant-alert),
+  :global(.qwenpaw-alert) {
+    max-width: 640px;
+    margin-inline: auto;
+  }
 }
 .heartbeatPage .pulseCard {
   --reflection-highlight: var(--app-accent-faint);
@@ -468,5 +451,50 @@
   .settingRow :global(.ant-segmented),
   .settingRow :global(.qwenpaw-segmented) {
     max-width: 100%;
+  }
+}
+
+@media (max-width: 390px) {
+  .settingRow {
+    align-items: stretch;
+  }
+
+  .settingRow h2 {
+    width: 100%;
+  }
+
+  .settingRow :global(.ant-segmented),
+  .settingRow :global(.qwenpaw-segmented),
+  .settingRow :global(.ant-segmented-group),
+  .settingRow :global(.qwenpaw-segmented-group) {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .settingRow :global(.ant-segmented-group),
+  .settingRow :global(.qwenpaw-segmented-group) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settingRow :global(.ant-segmented-item),
+  .settingRow :global(.qwenpaw-segmented-item) {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  .settingRow :global(.ant-segmented-item-label),
+  .settingRow :global(.qwenpaw-segmented-item-label) {
+    min-height: 44px;
+    height: auto;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    line-height: 1.35;
   }
 }

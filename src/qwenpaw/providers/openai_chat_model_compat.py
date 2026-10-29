@@ -690,6 +690,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
       (used for DashScope tracking headers, etc.).
     * ``extra_generate_kwargs`` — merged into every ``_call_api`` invocation
       (provider-level ``generate_kwargs`` that don't map to ``Parameters``).
+    * ``disable_thinking_kwargs`` — model-declared wire parameters used to
+      translate the internal ``disable_thinking`` request flag.
     """
 
     def __init__(
@@ -698,6 +700,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         provider_id: str | None = None,
         default_headers: dict[str, str] | None = None,
         extra_generate_kwargs: dict[str, Any] | None = None,
+        disable_thinking_kwargs: dict[str, Any] | None = None,
         output_token_param: str = "max_tokens",
         usage_guard: Callable[[], None] | None = None,
         request_policy: Callable | None = None,
@@ -716,6 +719,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             kwargs[f"client_kwargs"] = client_kwargs
         self._default_headers = default_headers
         self._extra_generate_kwargs = extra_generate_kwargs or {}
+        self._disable_thinking_kwargs = disable_thinking_kwargs or {}
         self._output_token_param = output_token_param
         self._usage_guard = usage_guard
         self._request_policy = request_policy
@@ -840,21 +844,26 @@ class OpenAIChatModelCompat(OpenAIChatModel):
 
     def _consume_disable_thinking(self, call_kwargs: dict) -> None:
         """Translate the neutral ``disable_thinking`` flag into OpenAI-compat
-        wire params, merging into *call_kwargs* in place.
+        wire params declared for this model, merging into *call_kwargs* in
+        place.
 
-        Qwen via ``enable_thinking``, DeepSeek/Moonshot-style via
-        ``thinking``.
+        An unknown model control intentionally adds no wire parameter.  A
+        compatibility endpoint may reject a parameter from another dialect,
+        so sending both known disable shapes is not a safe fallback.
         """
         if not call_kwargs.pop("disable_thinking", False):
             return
+        translated = dict(self._disable_thinking_kwargs)
+        # This is an internal signal, never an OpenAI SDK parameter.  Keep
+        # the boundary defensive even if a provider supplies it by mistake.
+        translated.pop("disable_thinking", None)
+        translated_body = translated.pop("extra_body", None)
+        call_kwargs.update(translated)
+        if not translated_body:
+            return
         body = dict(getattr(self, "extra_body", None) or {})
         body.update(call_kwargs.get("extra_body") or {})
-        body.update(
-            {
-                "enable_thinking": False,
-                "thinking": {"type": "disabled"},
-            },
-        )
+        body.update(translated_body)
         call_kwargs["extra_body"] = body
 
     def _format_tools(

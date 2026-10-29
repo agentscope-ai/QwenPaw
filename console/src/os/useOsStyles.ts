@@ -970,9 +970,14 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   `,
   // ── macOS traffic lights (window header, left side) ───────────────────
   headerMac: css`
+    --os-window-control-size: 40px;
+    --os-window-controls-width: calc(var(--os-window-control-size) * 3);
     height: 42px;
     flex: 0 0 42px;
-    display: flex;
+    display: grid;
+    grid-template-columns:
+      var(--os-window-controls-width) minmax(0, 1fr)
+      var(--os-window-controls-width);
     align-items: center;
     padding: 0 13px;
     background: ${p.barBg};
@@ -987,18 +992,24 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     &[data-active="false"] {
       opacity: 0.86;
     }
+    @media (max-width: 600px), (any-pointer: coarse) {
+      --os-window-control-size: var(--app-hit-touch);
+      height: 52px;
+      flex-basis: 52px;
+      padding: 0 4px;
+    }
   `,
   lights: css`
     display: flex;
     align-items: center;
-    gap: 2px;
-    width: 76px;
-    height: 40px;
+    width: var(--os-window-controls-width);
+    height: var(--os-window-control-size);
   `,
   light: css`
     position: relative;
-    width: 24px;
-    height: 34px;
+    width: var(--os-window-control-size);
+    height: var(--os-window-control-size);
+    flex: 0 0 var(--os-window-control-size);
     border-radius: 8px;
     border: none;
     padding: 0;
@@ -1634,6 +1645,10 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   settingsRoot: css`
     display: flex;
     height: 100%;
+    min-width: 0;
+    @media (max-width: 600px) {
+      flex-direction: column;
+    }
   `,
   settingsSidebar: css`
     flex: 0 0 220px;
@@ -1642,6 +1657,21 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     padding: 10px;
     border-right: 1px solid ${p.border};
     background: ${p.sideBg};
+    @media (max-width: 600px) {
+      width: 100%;
+      flex: 0 0 auto;
+      display: flex;
+      gap: 4px;
+      padding: 6px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-right: 0;
+      border-bottom: 1px solid ${p.border};
+      scrollbar-width: none;
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
   `,
   settingsNavItem: css`
     display: flex;
@@ -1653,9 +1683,24 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     color: ${p.textSecondary};
     font-size: 13px;
     margin-bottom: 2px;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    text-align: left;
     transition: background 0.12s ease;
     &:hover {
       background: ${p.subtleBg};
+    }
+    &:focus-visible {
+      box-shadow: inset 0 0 0 2px ${ACCENT};
+      outline: none;
+    }
+    @media (max-width: 600px) {
+      min-width: 44px;
+      min-height: 44px;
+      flex: 0 0 auto;
+      margin-bottom: 0;
+      white-space: nowrap;
     }
   `,
   settingsNavActive: css`
@@ -1664,8 +1709,21 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   `,
   settingsPane: css`
     flex: 1;
+    min-width: 0;
+    min-height: 0;
     overflow: auto;
     position: relative;
+    @media (max-width: 600px) {
+      .qwenpaw-btn {
+        min-height: 44px;
+      }
+      .qwenpaw-btn-icon-only {
+        min-width: 44px;
+      }
+      .qwenpaw-select-selector {
+        min-height: 44px !important;
+      }
+    }
   `,
   // ── Boot / power-on splash ────────────────────────────────────────
   boot: css`

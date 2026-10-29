@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# CHAN-001: Full channel list display + All/Built-in/Custom filter + Built-in tag verification
+# CHAN-001: Full channel list + Console/official-plugin classification and filters
 # Channels covered: Console, DingTalk, Feishu, Discord, Telegram, QQ, XiaoYi, Mattermost, MQTT, WeCom, WeChat, OneBot, etc.
 # ============================================================================
 
@@ -39,10 +39,10 @@ class TestChannelListAndFilter:
 
     Combined coverage:
     1. Channels page access and load
-    2. Channel list display (15+ built-in channel cards)
+    2. Channel list display (Console plus official channel plugins)
     3. Filter button visibility and switching (All / Built-in / Custom)
     4. Correctness of Built-in / Custom filter results
-    5. Built-in tag recognition on built-in channels
+    5. Built-in tag recognition on Console
 
     Business scenario:
     The user opens the Channels page, browses the channel list, uses the
@@ -59,7 +59,7 @@ class TestChannelListAndFilter:
         1. Open the Channels page and verify the page title
         2. Verify the All / Built-in / Custom filter buttons are visible
         3. Under the default All view there are >= 15 channel cards
-        4. Verify several built-in channels show the Built-in tag
+        4. Verify Console shows the Built-in tag
         5. Click the Built-in filter and verify results are all built-in channels
         6. Click the Custom filter and verify results are all custom channels (may be empty)
         7. Click the All filter and verify all channels are restored
@@ -79,34 +79,32 @@ class TestChannelListAndFilter:
         log_test_step("3. Default All view shows the full channel roster")
         # v2.0.0 (PR #5504) split the page into Enabled + Available sections;
         # `get_channel_card_count` counts the union of both. The frontend
-        # `builtinOrder` in useChannels.ts lists 13 built-in channels; the
+        # `builtinOrder` in useChannels.ts orders official channels; the
         # exact count varies by build (e.g. matrix/sip may be gated), so we
         # assert the roster is populated rather than a tight upper bound.
         all_count = channels_page.get_channel_card_count()
         assert all_count >= 10, f"Not enough channel cards: {all_count} < 10"
         logger.info(f"All view channel count: {all_count}")
 
-        log_test_step("4. Verify Built-in tags on several built-in channels")
-        builtin_channels = ["Console", "DingTalk", "Discord", "Telegram", "Feishu", "QQ", "WeCom", "WeChat"]
-        for channel_name in builtin_channels:
-            card = channels_page.find_channel_card(channel_name)
-            if card:
-                assert channels_page.is_builtin_channel(channel_name), \
-                    f"{channel_name} should be tagged as built-in"
-                logger.info(f"{channel_name} correctly tagged as Built-in")
+        log_test_step("4. Verify Console's Built-in tag")
+        assert channels_page.is_builtin_channel("Console"), "Console must show its Built-in tag"
 
         log_test_step("5. Click the Built-in filter and verify results")
         channels_page.click_filter_builtin()
         builtin_count = channels_page.get_channel_card_count()
         assert builtin_count > 0, "No channels shown after Built-in filter"
         assert channels_page.verify_filter_result('builtin'), "Built-in filter results include non-built-in channels"
+        assert channels_page.find_channel_card("Console") is not None
         logger.info(f"Built-in filter shows {builtin_count} channel(s)")
 
         log_test_step("6. Click the Custom filter and verify results")
         channels_page.click_filter_custom()
         custom_count = channels_page.get_channel_card_count()
-        if custom_count > 0:
-            assert channels_page.verify_filter_result('custom'), "Custom filter results include non-custom channels"
+        assert custom_count > 0, "Official channel plugins must appear under Custom"
+        assert channels_page.verify_filter_result('custom'), "Custom filter results include non-custom channels"
+        for channel_name in ("DingTalk", "Feishu"):
+            assert channels_page.find_channel_card(channel_name) is not None, f"Missing official plugin: {channel_name}"
+        assert builtin_count + custom_count == all_count, "Filters must partition the full channel roster"
         logger.info(f"Custom filter shows {custom_count} channel(s)")
 
         log_test_step("7. Click the All filter and verify all channels are restored")
@@ -427,7 +425,7 @@ class TestMattermostComboOperations:
     Channels covered: Mattermost.
 
     Combined coverage:
-    1. Built-in filter
+    1. Custom filter
     2. Find Mattermost
     3. Open the drawer
     4. Edit Bot Prefix
@@ -435,7 +433,7 @@ class TestMattermostComboOperations:
     6. Verify unchanged
 
     Business scenario:
-    Under the Built-in filter the user finds the Mattermost channel,
+    Under the Custom filter the user finds the Mattermost channel,
     opens the edit drawer, modifies Bot Prefix and cancels, and verifies
     that the cancel did not modify the config.
     """
@@ -443,11 +441,11 @@ class TestMattermostComboOperations:
     @pytest.mark.test_id("CHAN-005")
     def test_mattermost_filter_edit_cancel(self, channels_page: ChannelsPage, request: pytest.FixtureRequest):
         """
-        Verify the Mattermost edit+cancel combination under the Built-in filter.
+        Verify the Mattermost edit+cancel combination under the Custom filter.
 
         Steps:
         1. Open the Channels page
-        2. Click the Built-in filter
+        2. Click the Custom filter
         3. Find the Mattermost card and click it
         4. Verify the drawer opens
         5. Record the original Bot Prefix
@@ -460,13 +458,13 @@ class TestMattermostComboOperations:
         log_test_step("1. Open the Channels page")
         channels_page.open()
 
-        log_test_step("2. Click the Built-in filter")
-        channels_page.click_filter_builtin()
+        log_test_step("2. Click the Custom filter")
+        channels_page.click_filter_custom()
         channels_page.page.wait_for_timeout(500)
 
         log_test_step(f"3. Find the {channel_name} card and click it")
         card = channels_page.find_channel_card(channel_name)
-        assert card is not None, f"{channel_name} channel not found under the Built-in filter"
+        assert card is not None, f"{channel_name} channel not found under the Custom filter"
         channels_page.click_channel_card(channel_name)
 
         log_test_step("4. Verify the drawer opens")

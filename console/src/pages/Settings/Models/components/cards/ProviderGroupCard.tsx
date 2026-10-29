@@ -1,3 +1,4 @@
+import { ChatGPTCredentialField } from "./ChatGPTCredentialField";
 import { ProviderCredentialField } from "./ProviderCredentialField";
 import { ProviderCardStatus } from "./ProviderCardStatus";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
@@ -18,21 +19,22 @@ interface ProviderGroupCardProps {
   onOpenModels: (provider: ProviderInfo) => void;
 }
 
-const VARIANT_LABELS: Record<string, string> = {
-  dashscope: "DashScope",
-  chat_completions: "Chat Completions",
-  responses: "Responses",
-  open_platform: "Open Platform",
-  open_platform_cn: "China",
-  open_platform_intl: "International",
-  coding_plan: "Coding Plan",
-  coding_plan_cn: "Coding (CN)",
-  coding_plan_intl: "Coding (Intl)",
-  token_plan: "Token Plan",
-  token_plan_intl: "Token (Intl)",
-  china: "China",
-  international: "International",
-};
+const KNOWN_VARIANTS = new Set([
+  "dashscope",
+  "chatgpt",
+  "chat_completions",
+  "responses",
+  "open_platform",
+  "open_platform_cn",
+  "open_platform_intl",
+  "coding_plan",
+  "coding_plan_cn",
+  "coding_plan_intl",
+  "token_plan",
+  "token_plan_intl",
+  "china",
+  "international",
+]);
 
 export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   group,
@@ -41,15 +43,27 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   onOpenModels,
 }: ProviderGroupCardProps) {
   const { t } = useTranslation();
-  const [activeIdx, setActiveIdx] = useState(0);
+  const openaiOrder = ["openai", "openai-response", "openai-chatgpt"];
+  const providers =
+    group.groupKey === "openai"
+      ? [...group.providers].sort(
+          (a, b) => openaiOrder.indexOf(a.id) - openaiOrder.indexOf(b.id),
+        )
+      : group.providers;
+  const [activeId, setActiveId] = useState(() =>
+    group.groupKey === "openai"
+      ? (providers.find(getIsConfigured) ?? providers[0]).id
+      : providers[0].id,
+  );
 
-  const activeProvider = group.providers[activeIdx] || group.providers[0];
+  const activeProvider =
+    providers.find((provider) => provider.id === activeId) ?? providers[0];
   const totalModels = new Set(
     [...activeProvider.models, ...activeProvider.extra_models].map(
       (model) => model.id,
     ),
   ).size;
-  const liveCount = group.providers.filter(getIsConfigured).length;
+  const liveCount = providers.filter(getIsConfigured).length;
   const hasFreeTier = activeProvider.is_free_tier;
 
   return (
@@ -59,13 +73,18 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       tilt={2}
     >
       <ProviderCloseButton
-        ids={group.providers.map((provider) => provider.id)}
+        ids={providers.map((provider) => provider.id)}
+        providerName={group.groupName}
         onSaved={onSaved}
         onConfigure={() => onOpenConfig(activeProvider)}
       />
       {/* Header */}
       <div className={styles.groupCardHeader}>
-        <ProviderIcon providerId={group.providers[0]?.id ?? ""} size={36} />
+        <ProviderIcon
+          providerId={providers[0]?.id ?? ""}
+          size={36}
+          decorative
+        />
         <span className={styles.groupCardName}>{group.groupName}</span>
       </div>
       <ProviderCardStatus
@@ -76,20 +95,24 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
 
       {/* Segmented Control */}
       <div className={styles.groupSegmented}>
-        {group.providers.map((provider, idx) => {
+        {providers.map((provider) => {
           const configured = getIsConfigured(provider);
-          const label =
-            VARIANT_LABELS[provider.provider_variant || ""] || provider.name;
+          const variant = provider.provider_variant || "";
+          const label = KNOWN_VARIANTS.has(variant)
+            ? t(`models.providerVariants.${variant}`)
+            : provider.name;
           return (
             <button
               type="button"
-              aria-pressed={idx === activeIdx}
+              aria-pressed={provider.id === activeProvider.id}
               key={provider.id}
               className={[
                 styles.groupSegBtn,
-                idx === activeIdx ? styles.groupSegBtnActive : "",
+                provider.id === activeProvider.id
+                  ? styles.groupSegBtnActive
+                  : "",
               ].join(" ")}
-              onClick={() => setActiveIdx(idx)}
+              onClick={() => setActiveId(provider.id)}
             >
               <span
                 className={[
@@ -114,10 +137,18 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           </div>
         </div>
 
-        <ProviderCredentialField
-          provider={activeProvider}
-          onEdit={onOpenConfig}
-        />
+        {activeProvider.id === "openai-chatgpt" ? (
+          <ChatGPTCredentialField
+            provider={activeProvider}
+            onConfigure={() => onOpenConfig(activeProvider)}
+          />
+        ) : (
+          <ProviderCredentialField
+            key={activeProvider.id}
+            provider={activeProvider}
+            onSaved={onSaved}
+          />
+        )}
 
         <button
           type="button"

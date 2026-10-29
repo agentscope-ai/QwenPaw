@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from acp.schema import AllowedOutcome, RequestPermissionResponse
 
 from qwenpaw.agents.acp.meta import ACP_APPROVAL_EXPIRES_AT_META_KEY
@@ -173,17 +175,22 @@ async def test_new_session_advertises_commands():
     conn = _FakeConn()
     agent.on_connect(conn)
 
-    response = await agent.new_session(cwd="/tmp")
-    await _drain(conn)
+    try:
+        response = await agent.new_session(cwd="/tmp")
+        await _drain(conn)
 
-    assert conn.updates, "expected an available_commands_update notification"
-    session_id, update = conn.updates[0]
-    assert session_id == response.session_id
-    assert update.session_update == "available_commands_update"
+        assert (
+            conn.updates
+        ), "expected an available_commands_update notification"
+        session_id, update = conn.updates[0]
+        assert session_id == response.session_id
+        assert update.session_update == "available_commands_update"
 
-    # Commands are now dynamically queried from registry; verify structure
-    # All advertised commands should have descriptions
-    assert all(c.description for c in update.available_commands)
+        # Commands are now dynamically queried from registry; verify structure
+        # All advertised commands should have descriptions
+        assert all(c.description for c in update.available_commands)
+    finally:
+        await agent._shutdown_workspace()
 
 
 async def test_load_session_advertises_commands():
@@ -191,13 +198,16 @@ async def test_load_session_advertises_commands():
     conn = _FakeConn()
     agent.on_connect(conn)
 
-    await agent.load_session(cwd="/tmp", session_id="sess-123")
-    await _drain(conn)
+    try:
+        await agent.load_session(cwd="/tmp", session_id="sess-123")
+        await _drain(conn)
 
-    assert conn.updates
-    session_id, update = conn.updates[0]
-    assert session_id == "sess-123"
-    assert update.session_update == "available_commands_update"
+        assert conn.updates
+        session_id, update = conn.updates[0]
+        assert session_id == "sess-123"
+        assert update.session_update == "available_commands_update"
+    finally:
+        await agent._shutdown_workspace()
 
 
 async def test_new_session_reports_agent_id_in_meta():
@@ -472,7 +482,11 @@ async def test_approval_bridge_resolves_pattern_scope(monkeypatch):
     }
 
 
-async def test_approval_bridge_expires_when_pending_times_out(monkeypatch):
+@pytest.mark.parametrize(f"cancel_bridge", [False, True])
+async def test_approval_bridge_expires_when_pending_times_out(
+    monkeypatch,
+    cancel_bridge,
+):
     from qwenpaw.app.approvals.service import ApprovalService
     from qwenpaw.security.tool_guard.approval import ApprovalDecision
     from qwenpaw.security.tool_guard.models import (
@@ -530,10 +544,18 @@ async def test_approval_bridge_expires_when_pending_times_out(monkeypatch):
     )
     await asyncio.wait_for(conn.started.wait(), timeout=1.0)
 
+    if cancel_bridge:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1.0)
+        assert conn.cancelled is True
+
     await approval_svc.resolve_request(
         pending.request_id,
         ApprovalDecision.TIMEOUT,
     )
+    if cancel_bridge:
+        return
     await asyncio.wait_for(task, timeout=1.0)
 
     assert conn.cancelled is True

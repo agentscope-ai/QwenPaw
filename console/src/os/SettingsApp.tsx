@@ -20,6 +20,7 @@ import {
   Mic,
   Bug,
   SlidersHorizontal,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
@@ -68,6 +69,12 @@ const SETTINGS_ITEMS: SettingsItem[] = [
     labelKey: "nav.security",
     fallback: "Security",
     Icon: ShieldCheck,
+  },
+  {
+    routeId: "core.offload-policy",
+    labelKey: "nav.offloadPolicy",
+    fallback: "Tool Offload",
+    Icon: Wrench,
   },
   {
     routeId: "core.token-usage",
@@ -137,7 +144,8 @@ export default function SettingsApp() {
         {items.map((i) => {
           const Icon = i.Icon;
           return (
-            <div
+            <button
+              type="button"
               key={i.routeId}
               className={cx(
                 styles.settingsNavItem,
@@ -147,7 +155,7 @@ export default function SettingsApp() {
             >
               <Icon size={16} />
               <span>{t(i.labelKey, i.fallback)}</span>
-            </div>
+            </button>
           );
         })}
       </div>

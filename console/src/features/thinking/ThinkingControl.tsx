@@ -1,4 +1,10 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { InputNumber, Slider, Tooltip } from "antd";
 import NumberFlow from "@number-flow/react";
 import { LockKeyhole, RotateCcw, ChevronRight } from "lucide-react";
@@ -31,13 +37,21 @@ export function ThinkingControl({
 }) {
   const { t } = useTranslation();
   const displayed = value.level === "inherit" ? effective ?? value : value;
-  const efforts = control.supports_off
-    ? ["off" as const, ...control.efforts.filter((level) => level !== "off")]
-    : control.efforts;
+  const efforts = useMemo(
+    () =>
+      control.supports_off
+        ? [
+            "off" as const,
+            ...control.efforts.filter((level) => level !== "off"),
+          ]
+        : control.efforts,
+    [control.efforts, control.supports_off],
+  );
   const low = control.budget_min ?? 1;
   const high = control.budget_max ?? low;
   const offPosition = low - Math.max(1, Math.round((high - low) * 0.12));
   const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetEdited, setBudgetEdited] = useState(false);
   const initial = Math.min(
     high,
     Math.max(low, displayed.budget_tokens ?? control.budget_default ?? low),
@@ -54,7 +68,7 @@ export function ThinkingControl({
   useEffect(() => {
     setEffortIndex(Math.max(0, efforts.indexOf(displayed.level)));
     setAdjusting(false);
-  }, [displayed.level, control]);
+  }, [displayed.level, efforts]);
   const unresolved = displayed.level === "inherit" && !adjusting;
   const ratio = isBudget
     ? Math.min(1, Math.max(0, (budget - low) / Math.max(1, high - low)))
@@ -67,7 +81,13 @@ export function ThinkingControl({
       : ratio < 0.85
       ? "deep"
       : "intensive";
-  const label = unresolved
+  const label = unsupported
+    ? t(
+        control.kind === "unknown"
+          ? "thinkingControl.unknown"
+          : "thinkingControl.unsupported",
+      )
+    : unresolved
     ? t("thinkingControl.default")
     : isBudget && adjusting && budget < low
     ? t("thinkingControl.off")
@@ -79,6 +99,7 @@ export function ThinkingControl({
   function commitBudget(next: number) {
     const bounded = Math.min(high, Math.max(low, Math.round(next)));
     setBudget(bounded);
+    setBudgetEdited(false);
     setAdjusting(false);
     onChange({ level: "budget", budget_tokens: bounded });
   }
@@ -95,9 +116,6 @@ export function ThinkingControl({
           }), var(--thinking-${ratio < 0.5 ? "mid" : "end"}) ${Math.round(
             (ratio < 0.5 ? ratio * 2 : (ratio - 0.5) * 2) * 100,
           )}%)`,
-          "--thinking-low-position": `${
-            ((low - offPosition) / (high - offPosition)) * 100
-          }%`,
         } as CSSProperties
       }
       onKeyDownCapture={(event) => {
@@ -165,16 +183,17 @@ export function ThinkingControl({
                 onChange={(next) => {
                   if (next !== null) {
                     setBudget(next);
+                    setBudgetEdited(true);
                     setAdjusting(true);
                     onPreview?.({ level: "budget", budget_tokens: next });
                   }
                 }}
                 onBlur={() => {
-                  if (adjusting) commitBudget(budget);
+                  if (budgetEdited) commitBudget(budget);
                   setEditingBudget(false);
                 }}
                 onPressEnter={() => {
-                  if (adjusting) commitBudget(budget);
+                  if (budgetEdited) commitBudget(budget);
                   setEditingBudget(false);
                 }}
               />

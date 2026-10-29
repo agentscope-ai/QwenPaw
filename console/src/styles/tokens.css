@@ -26,6 +26,42 @@
   --app-glass: color-mix(in srgb, var(--app-surface) 88%, transparent);
   --app-shadow-panel: 0 2px 6px rgb(0 0 0 / 3%), 0 24px 64px rgb(0 0 0 / 12%);
 
+  /* Layout and density use a 4px grid. Consumers choose a semantic density
+   * instead of introducing local control heights or row dimensions. */
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-5: 20px;
+  --app-space-6: 24px;
+  --app-space-8: 32px;
+  --app-space-10: 40px;
+  --app-space-12: 48px;
+  --app-control-sm: 32px;
+  --app-control-md: 36px;
+  --app-control-lg: 44px;
+  --app-hit-desktop: 32px;
+  --app-hit-touch: 44px;
+  --app-hit-target: var(--app-hit-desktop);
+  --app-row-compact: 36px;
+  --app-row-default: 44px;
+  --app-row-comfortable: 52px;
+
+  /* Overlay values include their mobile viewport ceiling. */
+  --app-overlay-popover-width: min(320px, calc(100vw - 32px));
+  --app-overlay-modal-width: min(560px, calc(100vw - 32px));
+  --app-overlay-drawer-width: min(520px, calc(100vw - 32px));
+
+  /* Interaction motion is short and state-driven. The distance and scale
+   * contracts let reduced-motion collapse movement without local overrides. */
+  --app-motion-fast: 120ms;
+  --app-motion-base: 180ms;
+  --app-motion-slow: 240ms;
+  --app-easing-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --app-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --app-motion-distance: 8px;
+  --app-motion-scale: 0.98;
+
   /* Typography scale. `--app-font-scale` is driven by the console font-size
    * setting (App.tsx -> applyUiFontSizeToRoot); default 1 keeps the baseline.
    * Project styles use these role tokens (px baseline * scale) so explicit
@@ -75,6 +111,10 @@
   --app-text-tertiary: rgba(20, 20, 19, 0.45);
   --app-text-quaternary: rgba(20, 20, 19, 0.25);
   --app-text-inverse: #ffffff;
+  --app-disabled-bg: rgba(20, 20, 19, 0.04);
+  --app-disabled-border: rgba(20, 20, 19, 0.12);
+  --app-disabled-text: rgba(20, 20, 19, 0.4);
+  --app-disabled-opacity: 0.55;
 
   /* Built-in brand accent (matches the OS shell accent). */
   --app-accent: #ff7f16;
@@ -92,11 +132,20 @@
   --app-accent-border: color-mix(in srgb, var(--app-accent) 42%, transparent);
   --app-accent-ring: color-mix(in srgb, var(--app-accent) 20%, transparent);
   --app-focus-ring: var(--app-accent-text);
+  --app-focus-ring-width: 2px;
+  --app-focus-ring-offset: 2px;
+
+  /* Generic interaction aliases keep hover, active and selected surfaces
+   * aligned with the theme-specific fill and accent palette. */
+  --app-state-hover-bg: var(--app-fill-subtle);
+  --app-state-active-bg: var(--app-fill);
+  --app-state-selected-bg: var(--app-selected-bg);
+  --app-state-selected-border: var(--app-selected-border);
 
   /* Navigation and selection share the current brand accent. */
   --app-nav-selected-bg: var(--app-accent-soft);
   --app-nav-selected-bg-hover: var(--app-accent-soft-hover);
-  --app-nav-selected-text: var(--app-accent-text);
+  --app-nav-selected-text: color-mix(in srgb, var(--app-accent) 65%, black);
 
   /* Selection follows the active theme in both color schemes. */
   --app-selected-bg: var(--app-accent-soft);
@@ -172,6 +221,9 @@ html.dark-mode {
   --app-text-secondary: rgba(255, 255, 255, 0.65);
   --app-text-tertiary: rgba(255, 255, 255, 0.45);
   --app-text-quaternary: rgba(255, 255, 255, 0.35);
+  --app-disabled-bg: rgba(255, 255, 255, 0.08);
+  --app-disabled-border: rgba(255, 255, 255, 0.12);
+  --app-disabled-text: rgba(255, 255, 255, 0.45);
 
   /* Accent text is mixed toward white for contrast on dark surfaces. */
   --app-accent-text: color-mix(in srgb, var(--app-accent) 60%, white);
@@ -231,4 +283,20 @@ html.dark-mode {
   /* Elevation */
   --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
   --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+@media (any-pointer: coarse) {
+  :root {
+    --app-hit-target: var(--app-hit-touch);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --app-motion-fast: 1ms;
+    --app-motion-base: 1ms;
+    --app-motion-slow: 1ms;
+    --app-motion-distance: 0px;
+    --app-motion-scale: 1;
+  }
 }

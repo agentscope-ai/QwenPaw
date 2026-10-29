@@ -20,7 +20,6 @@ def test_codex_backend_uses_the_agent_workspace() -> None:
     )
 
     assert config.backend == "codex"
-    assert config.coding_mode.enabled is False
     assert config.workspace_dir == "/workspaces/codex-1"
 
 

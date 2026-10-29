@@ -15,7 +15,24 @@
   font-weight: 500;
 }
 
+.loadError {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+  color: var(--app-error-text);
+  text-align: center;
+}
+
 @media (max-width: 768px) {
+  .headerActions :global(.ant-btn),
+  .headerActions :global(.qwenpaw-btn) {
+    min-height: var(--app-hit-touch);
+  }
+
   .pageHeader {
     flex-direction: column;
     align-items: flex-start;

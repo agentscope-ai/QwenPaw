@@ -3,12 +3,277 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import shutil
+import threading
 from pathlib import Path
 
 import pytest
 
 from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.loader import PluginLoader
+from qwenpaw.plugins.lifecycle import UnloadMode
+from qwenpaw.plugins.updates import (
+    marker_path,
+    recover_interrupted_updates,
+    write_updating_marker,
+)
+
+from .timing import WAIT_TIMEOUT
+
+
+def _snapshot(root):
+    return {
+        str(path.relative_to(root)): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+
+def _residual_install(
+    tmp_path,
+    registry,
+    monkeypatch,
+    manifest_kind="missing",
+):
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    target, source = tmp_path / "plugins/demo", tmp_path / "source"
+    (target / "data").mkdir(parents=True)
+    (target / "data/private.txt").write_bytes(b"residual user data\x00")
+    if manifest_kind != "missing":
+        (target / "plugin.json").write_text(
+            {
+                "invalid": "{broken manifest",
+                "required": "{}",
+                "shape": "[]",
+            }[manifest_kind],
+        )
+    source.mkdir()
+    (source / "plugin.json").write_text(
+        json.dumps(
+            {
+                "id": "demo",
+                "version": "2.0.0",
+                "entry": {"backend": "main.py"},
+            },
+        ),
+    )
+    (source / "main.py").write_text(
+        "class Plugin:\n"
+        "    def register(self, api):\n"
+        "        async def start():\n"
+        "            if api.config.get('fail'):\n"
+        "                raise RuntimeError('incoming startup failed')\n"
+        "        api.register_startup_hook('start', start)\n"
+        "plugin = Plugin()\n",
+    )
+    loader = PluginLoader([target.parent])
+    loader.registry = registry
+    return loader, source, target
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "manifest_kind",
+    ["missing", "invalid", "required", "shape"],
+)
+async def test_force_install_preserves_residual_directory_backup(
+    tmp_path,
+    fresh_registry,
+    monkeypatch,
+    manifest_kind,
+):
+    loader, source, target = _residual_install(
+        tmp_path,
+        fresh_registry,
+        monkeypatch,
+        manifest_kind,
+    )
+    original = _snapshot(target)
+    with pytest.raises(ValueError, match="already exists"):
+        await loader.load_plugin_from_path(source)
+    assert _snapshot(target) == original
+    try:
+        record = await loader.load_plugin_from_path(source, force=True)
+        assert record.status == "active" and record.source_path == target
+        backups = [
+            path
+            for path in target.parent.iterdir()
+            if path != target and (path / "data/private.txt").is_file()
+        ]
+        assert len(backups) == 1
+        backup = backups[0]
+        assert _snapshot(backup) == original
+        assert str(backup) in "\n".join(record.diagnostics)
+        recovery = recover_interrupted_updates()
+        assert "demo" not in recovery.blocked
+        assert _snapshot(backup) == original
+        assert (
+            json.loads((target / "plugin.json").read_text())["version"]
+            == "2.0.0"
+        )
+    finally:
+        await loader.lifecycle.unload("demo", UnloadMode.UNLOAD)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "residual_kind",
+    ["wrong-id", "linked-manifest", "escaped-manifest", "descriptor"],
+)
+async def test_force_residual_recovery_preserves_identity_and_path_checks(
+    tmp_path,
+    fresh_registry,
+    monkeypatch,
+    residual_kind,
+):
+    loader, source, target = _residual_install(
+        tmp_path,
+        fresh_registry,
+        monkeypatch,
+    )
+    manifest = json.loads((source / "plugin.json").read_text())
+    expected = ValueError
+    if residual_kind == "wrong-id":
+        manifest["id"] = "other-owner"
+        (target / "plugin.json").write_text(json.dumps(manifest))
+        reason = "different id"
+    elif residual_kind in {"linked-manifest", "escaped-manifest"}:
+        linked = (
+            target / "manifest-target.json"
+            if residual_kind == "linked-manifest"
+            else tmp_path / "outside-manifest.json"
+        )
+        linked.write_text("{invalid manifest")
+        (target / "plugin.json").symlink_to(linked)
+        if residual_kind == "linked-manifest":
+            expected = RuntimeError
+        reason = "linked manifest|escapes"
+    else:
+        manifest["type"] = "channel"
+        manifest["entry"] = {"descriptor": "channel.json"}
+        (target / "plugin.json").write_text(json.dumps(manifest))
+        (target / "channel.json").write_text("{invalid descriptor")
+        reason = "descriptor|JSON|Expecting"
+    original = _snapshot(target)
+    incoming = _snapshot(source)
+    with pytest.raises(expected, match=reason):
+        await loader.load_plugin_from_path(source, force=True)
+    assert _snapshot(target) == original
+    if residual_kind in {"linked-manifest", "escaped-manifest"}:
+        assert (target / "plugin.json").is_symlink()
+        assert (target / "plugin.json").resolve() == linked
+    assert _snapshot(source) == incoming
+    assert loader.get_loaded_plugin("demo") is None
+    assert not marker_path("demo").exists()
+    assert sorted(path.name for path in target.parent.iterdir()) == ["demo"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["startup", "cancel"])
+async def test_force_install_failure_restores_residual_without_loading_it(
+    tmp_path,
+    fresh_registry,
+    monkeypatch,
+    failure,
+):
+    loader, source, target = _residual_install(
+        tmp_path,
+        fresh_registry,
+        monkeypatch,
+    )
+    original = _snapshot(target)
+    if failure == "startup":
+        with pytest.raises(
+            RuntimeError,
+            match="incoming startup failed",
+        ) as raised:
+            await loader.load_plugin_from_path(
+                source,
+                force=True,
+                config={"fail": True},
+            )
+        assert "previous service was restored" not in str(raised.value)
+    else:
+        loop = asyncio.get_running_loop()
+        cancelled = threading.Event()
+        move = shutil.move
+        operation = None
+
+        def cancel():
+            operation.cancel()
+            cancelled.set()
+
+        def move_then_cancel(src, dest, *args, **kwargs):
+            result = move(src, dest, *args, **kwargs)
+            if Path(src).name.endswith(".staging") and Path(dest) == target:
+                loop.call_soon_threadsafe(cancel)
+                assert cancelled.wait(WAIT_TIMEOUT * 2)
+            return result
+
+        monkeypatch.setattr(shutil, "move", move_then_cancel)
+        operation = asyncio.create_task(
+            loader.load_plugin_from_path(source, force=True),
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await operation
+    assert _snapshot(target) == original
+    record = loader.get_loaded_plugin("demo")
+    assert record is None or record.status == "failed"
+    assert not marker_path("demo").exists()
+    if failure == "startup":
+        try:
+            record = await loader.load_plugin_from_path(
+                source,
+                force=True,
+                config={},
+            )
+            assert record.status == "active"
+        finally:
+            await loader.lifecycle.unload("demo", UnloadMode.UNLOAD)
+
+
+@pytest.mark.parametrize("state", ["staging", "swapped", "committed"])
+def test_residual_swap_boot_recovery_preserves_the_right_copy(
+    tmp_path,
+    fresh_registry,
+    monkeypatch,
+    state,
+):
+    _, source, target = _residual_install(
+        tmp_path,
+        fresh_registry,
+        monkeypatch,
+    )
+    original = _snapshot(target)
+    identity = target.stat()
+    backup, staging = target.with_name(".demo.bak"), target.with_name(
+        "demo.staging",
+    )
+    shutil.copytree(source, staging)
+    if state != "staging":
+        target.rename(backup)
+        shutil.copytree(source, target)
+    write_updating_marker(
+        "demo",
+        backup_path=backup,
+        target_path=target,
+        staging_path=staging,
+        status="committed" if state == "committed" else "prepared",
+        phase="staging" if state == "staging" else "swapping",
+        preserve_backup=True,
+        old_identity=(identity.st_dev, identity.st_ino),
+    )
+    recovery = recover_interrupted_updates()
+    assert not recovery.failures
+    assert not marker_path("demo").exists() and not staging.exists()
+    if state == "committed":
+        assert _snapshot(target) == _snapshot(source)
+        assert _snapshot(backup) == original
+    else:
+        assert _snapshot(target) == original
+        assert not backup.exists()
 
 
 @pytest.mark.asyncio
@@ -77,10 +342,22 @@ async def test_pawport_plugin_failure_cleans_its_prepared_target(
         encoding="utf-8",
     )
     loader = PluginLoader([install_root])
+
+    async def failed_preparation(_requirements_file, _plugin_id):
+        raise RuntimeError("install failed")
+
+    def no_network_subprocess(*_args, **_kwargs):
+        raise AssertionError("Controlled install failure attempted download")
+
     monkeypatch.setattr(
         loader,
-        "_install_requirements_locked",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("install failed")),
+        "_prepare_python_dependencies",
+        failed_preparation,
+    )
+    monkeypatch.setattr(
+        loader,
+        "_run_subprocess_with_streaming_log",
+        no_network_subprocess,
     )
 
     with pytest.raises(RuntimeError, match="install failed"):

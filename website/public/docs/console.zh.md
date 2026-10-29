@@ -30,6 +30,56 @@
 
 ---
 
+## 反向代理子路径部署
+
+如果需要通过 `https://example.com/qwenpaw/` 访问控制台，在
+`console/.env.production.local` 中设置构建变量：
+
+```dotenv
+VITE_CONSOLE_BASENAME=/qwenpaw
+VITE_API_BASE_URL=/qwenpaw
+```
+
+从仓库根目录执行：
+
+```bash
+cd console
+npm install
+npm run build
+```
+
+`VITE_CONSOLE_BASENAME` 同时设置路由前缀和静态资源 URL 前缀，例如
+`/qwenpaw/assets/`。首尾斜杠会统一处理，也支持 `/apps/qwenpaw` 等多级路径。
+未设置或留空时，保留现有根路径和 `/console` 路由，资源仍从 `/assets/` 加载。
+显式设为 `/` 时，路由仅以站点根路径为基准。
+
+`VITE_API_BASE_URL` 独立设置 `/api` 之前的后端地址。如果代理通过
+`/qwenpaw/api/` 提供 API，设为 `/qwenpaw`；如果 API 仍位于 `/api/`，留空即可，
+也可以设置为后端的外部访问地址。这些变量会在构建时写入产物，后续仅修改服务端
+环境变量不会生效，需要重新构建前端。
+
+在运行 `qwenpaw app` 的环境中，将 `QWENPAW_CONSOLE_STATIC_DIR` 设置为生成的
+`console/dist` 目录的绝对路径。pip/uv 安装也可以通过此方式使用自定义构建，无需
+替换安装包内的文件。Docker 部署时，将自定义构建放入镜像或挂载到容器，并将
+`QWENPAW_CONSOLE_STATIC_DIR` 设置为容器内的对应目录。
+
+代理转发所有请求时，需要去除 `/qwenpaw` 前缀，包括 SPA 深层路由、静态资源、
+API 和 WebSocket 请求。例如 Caddy 配置：
+
+```caddyfile
+example.com {
+    redir /qwenpaw /qwenpaw/ 308
+    handle_path /qwenpaw/* {
+        reverse_proxy 127.0.0.1:8088
+    }
+}
+```
+
+随后访问 `https://example.com/qwenpaw/`。如果转发时保留此前缀，资源请求会进入
+后端的 SPA 回退路由，返回 HTML，导致 JavaScript 模块加载失败。
+
+---
+
 ## 聊天
 
 > 侧边栏：**聊天 → 聊天**
@@ -39,7 +89,9 @@
 ![聊天](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
 
 **选择模型：**
-聊天页面右上角可以为当前智能体选择需要使用的模型。
+聊天页面右上角可以为当前会话选择模型。该选择随会话保存，不会修改 Agent 默认模型；在选择器中清除会话覆盖后，会重新继承 Agent 默认值。
+
+普通回复、手动 `/compact`、`/history` 的上下文上限和自动会话标题生成都会跟随这一选择。会话中的推理偏好按提供商和模型分别保存。图片和视频能力检查、按需探测会跟随实际执行本轮对话的模型，包括触发 fallback 后使用的模型。
 
 **发送消息：**
 在底部输入框中输入内容，按 **Enter** 或点击发送按钮（↑），QwenPaw 会实时回复。
@@ -230,6 +282,14 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 **查看每日记忆：**
 如果存在 `MEMORY.md`，点击旁边的 **▶** 箭头可展开按日期分组的条目，点击某个日期
 即可查看或编辑当天的记忆。
+
+**按标签浏览记忆：**
+使用 ReMe Light 时，点击工作区、档案、日记和知识库旁的 **标签**，即可查看标签及其文件数量。
+点击标签可分页浏览关联文件，也可以直接点击记忆文件预览中的标签进入同一列表。
+打开结果会复用现有文件编辑器。
+标签浏览仅搜索现有记忆索引，自动索引范围为配置的日记和知识库目录。
+工作区文件即使不在这些目录中，也可以通过预览标签查找相关的已索引记忆；
+当前文件只有被索引后才会出现在结果中。其他记忆 backend 不显示标签页签，预览标签也不可点击。
 
 **下载整个工作区：**
 点击 **下载** 按钮，工作区会打包为 `.zip` 文件保存到本地。

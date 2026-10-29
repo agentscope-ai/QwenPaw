@@ -4,7 +4,9 @@ import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { CHAT_BASE_PATH } from "../../../utils/sessionRoute";
 import { useAgentStore } from "../../../stores/agentStore";
 import sessionApi from "../sessionApi";
+import { rotatePendingComposer } from "../chatInputDraft";
 import { clearPendingModel } from "../../../features/session-settings/sessionModel";
+import { dispatchSessionModelChanged } from "../../../features/session-settings/sessionModelEvents";
 import { clearPendingThinking } from "../../../features/thinking/sessionThinkingApi";
 
 /**
@@ -15,6 +17,7 @@ export function useCreateNewSession(): () => Promise<void> {
   const navigate = useNavigate();
   const { setCurrentSessionId } = useChatAnywhereSessionsState();
   return useCallback(async () => {
+    rotatePendingComposer(useAgentStore.getState().selectedAgent);
     sessionApi.invalidateSessionCreation();
     sessionApi.finishSessionSwitch();
     sessionApi.lastActiveChatId = null;
@@ -25,6 +28,10 @@ export function useCreateNewSession(): () => Promise<void> {
     agents.removeLastChatId(agents.selectedAgent);
     setCurrentSessionId(undefined);
     navigate(CHAT_BASE_PATH, { replace: true });
-    window.dispatchEvent(new Event("session-model-changed"));
+    dispatchSessionModelChanged({
+      agentId: agents.selectedAgent,
+      sessionId: "new",
+      chatId: null,
+    });
   }, [navigate, setCurrentSessionId]);
 }

@@ -1,11 +1,14 @@
 //! Tauri commands for desktop auto-updates via tauri-plugin-updater.
 
 mod cache;
+pub(crate) mod coordination;
 mod events;
 mod guard;
 mod remote;
 mod signature;
 mod version;
+#[cfg(windows)]
+mod windows;
 
 use serde::Serialize;
 use tauri::AppHandle;
@@ -22,6 +25,8 @@ use remote::{check_and_download, check_installable_update};
 use signature::verify_cached_update;
 use version::version_lte;
 
+#[cfg(not(debug_assertions))]
+pub(crate) use version::compare_pep440;
 pub(crate) use version::is_remote_update_newer;
 
 #[derive(Serialize)]
@@ -47,7 +52,7 @@ pub(crate) async fn check_desktop_update(app: AppHandle) -> Result<Option<Deskto
 
 #[tauri::command]
 pub(crate) fn install_desktop_update(app: AppHandle) -> Result<(), String> {
-    let guard = begin_update()?;
+    let guard = begin_update(&app)?;
     tauri::async_runtime::spawn(async move {
         let _guard = guard;
         run_install(app).await;
@@ -60,21 +65,17 @@ async fn run_install(app: AppHandle) {
         return;
     };
 
-    log::info!(
-        "[updates] installing desktop update version={}",
-        update.version
-    );
-    emit(&app, "update:install-start", &serde_json::json!({}));
-
-    if let Err(err) = backend::stop_and_wait(&app).await {
-        return emit_error(&app, "install", &err);
+    if supports_cached_updates() {
+        if let Err(err) = persist_cached_update(&app, &update, &bytes) {
+            return emit_error(&app, "download", &err);
+        }
     }
-
-    if let Err(err) = update.install(bytes) {
-        return emit_updater_error(&app, "install", &err);
-    }
-
-    app.restart();
+    let artifact = cached_update_dir(&app).and_then(|dir| {
+        read_cached_update_meta(&dir)
+            .ok()
+            .map(|meta| cached_artifact_path(&dir, &meta))
+    });
+    install_verified(&app, Some(update), bytes, artifact).await;
 }
 
 #[tauri::command]
@@ -83,7 +84,7 @@ pub(crate) fn download_desktop_update(app: AppHandle) -> Result<(), String> {
         return Err("background update download is not supported on this platform".into());
     }
 
-    let guard = begin_update()?;
+    let guard = begin_update(&app)?;
     tauri::async_runtime::spawn(async move {
         let _guard = guard;
         run_background_download(app).await;
@@ -117,7 +118,7 @@ pub(crate) fn install_downloaded_update(app: AppHandle) -> Result<(), String> {
         return Err("cached updates are not supported on this platform".into());
     }
 
-    let guard = begin_update()?;
+    let guard = begin_update(&app)?;
     tauri::async_runtime::spawn(async move {
         let _guard = guard;
         run_cached_install(app).await;
@@ -172,84 +173,89 @@ async fn run_cached_install(app: AppHandle) {
         return emit_error(&app, "install", &err);
     }
 
-    log::info!(
-        "[updates] installing cached update version={} artifact={}",
-        meta.version,
-        artifact_path.display()
-    );
-    emit(&app, "update:install-start", &serde_json::json!({}));
-
-    match meta.platform.as_str() {
-        "windows" => {
-            if let Err(err) = backend::stop_and_wait(&app).await {
-                return emit_error(&app, "install", &err);
+    // macOS installation needs the updater's bundle metadata. Verify it before
+    // asking the user to close any windows, so network failures are harmless.
+    let update = if meta.platform == "macos" {
+        match check_installable_update(&app).await {
+            Ok(Some(update))
+                if update.version == meta.version
+                    && update.target == meta.target
+                    && update.signature == meta.signature =>
+            {
+                Some(update)
             }
-            install_cached_windows(&app, &artifact_path);
+            Ok(_) => {
+                return emit_error(
+                    &app,
+                    "install",
+                    &"The downloaded update is no longer available. Please download it again.",
+                )
+            }
+            Err(err) => return emit_updater_error(&app, "check", &err),
         }
-        "macos" => install_cached_macos(&app, &cache_dir, &meta, bytes).await,
-        _ => {
-            remove_cached_update(&cache_dir);
-            emit_error(&app, "install", &"cached update platform is unsupported");
-        }
-    }
-}
-
-fn install_cached_windows(app: &AppHandle, exe_path: &std::path::Path) {
-    if let Err(err) = std::process::Command::new(exe_path)
-        .args(["/P", "/R", "/UPDATE", "/NO_QWENPAW_PATH"])
-        .spawn()
-    {
-        return emit_error(
-            app,
-            "install",
-            &format!("failed to launch installer: {err}"),
-        );
-    }
-    // Mirrors tauri-plugin-updater's Windows path: after NSIS is launched the
-    // current process must exit so the installer can replace locked files.
-    app.cleanup_before_exit();
-    std::process::exit(0);
-}
-
-async fn install_cached_macos(
-    app: &AppHandle,
-    cache_dir: &std::path::Path,
-    meta: &cache::UpdateMeta,
-    bytes: Vec<u8>,
-) {
-    let update = match check_installable_update(app).await {
-        Ok(Some(update)) => update,
-        Ok(None) => {
-            remove_cached_update(cache_dir);
-            return emit_error(
-                app,
-                "install",
-                &"cached update is no longer available - please download again",
-            );
-        }
-        Err(err) => return emit_updater_error(app, "check", &err),
+    } else {
+        None
     };
+    install_verified(&app, update, bytes, Some(artifact_path)).await;
+}
 
-    if update.version != meta.version
-        || update.target != meta.target
-        || update.signature != meta.signature
-    {
-        remove_cached_update(cache_dir);
-        return emit_error(
-            app,
-            "install",
-            &"cached update no longer matches the latest release - please download again",
-        );
-    }
+async fn install_verified(
+    app: &AppHandle,
+    update: Option<tauri_plugin_updater::Update>,
+    bytes: Vec<u8>,
+    artifact: Option<std::path::PathBuf>,
+) {
+    let installation = match coordination::Installation::prepare(app).await {
+        Ok(Some(installation)) => installation,
+        Ok(None) => {
+            emit(app, "update:cancelled", &serde_json::json!({}));
+            return;
+        }
+        Err(err) => {
+            backend::recover_after_update(app).await;
+            return emit_error(app, "install", &err);
+        }
+    };
+    emit(app, "update:install-start", &serde_json::json!({}));
 
-    if let Err(err) = backend::stop_and_wait(app).await {
-        return emit_error(app, "install", &err);
-    }
-
-    if let Err(err) = update.install(bytes) {
-        return emit_updater_error(app, "install", &err);
+    #[cfg(windows)]
+    let result = {
+        let _ = (update, bytes);
+        install_windows(app, artifact.as_deref(), &installation)
+    };
+    #[cfg(not(windows))]
+    let result = {
+        let _ = artifact;
+        match update {
+            Some(update) => update.install(bytes).map_err(|err| {
+                emit_updater_error(app, "install", &err);
+            }),
+            None => Err(emit_error(app, "install", &"Missing update metadata")),
+        }
+    };
+    if result.is_err() {
+        // Release both admission and runtime launch leases before recovery.
+        drop(installation);
+        backend::recover_after_update(app).await;
+        return;
     }
     app.restart();
+}
+
+#[cfg(windows)]
+fn install_windows(
+    app: &AppHandle,
+    exe_path: Option<&std::path::Path>,
+    installation: &coordination::Installation,
+) -> Result<(), ()> {
+    let Some(exe_path) = exe_path else {
+        return Err(emit_error(app, "install", &"Missing downloaded installer"));
+    };
+    if let Err(err) = windows::launch_installer(exe_path, installation) {
+        return Err(emit_error(app, "install", &err));
+    }
+    app.cleanup_before_exit();
+    std::process::exit(0);
 }
 
 #[tauri::command]
@@ -258,6 +264,7 @@ pub(crate) async fn check_cached_update(app: AppHandle) -> Result<Option<String>
         return Ok(None);
     }
 
+    let _guard = begin_update(&app)?;
     let Some(cache_dir) = cached_update_dir(&app) else {
         return Ok(None);
     };

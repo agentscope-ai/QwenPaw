@@ -49,7 +49,7 @@ import {
 } from "../stores/sessionListStore";
 import { useSidebarStore } from "../stores/sidebarStore";
 import { buildChatPath } from "../utils/sessionRoute";
-import { getOsRootHref } from "../utils/navigationMode";
+import { addRouterBasename, getOsRootHref } from "../utils/navigationMode";
 import { openExternalLink } from "../utils/openExternalLink";
 import {
   getSidebarCollapsedPreference,
@@ -60,6 +60,7 @@ import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
+import { useApprovalContext } from "../contexts/ApprovalContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
 import { Slot } from "../plugins/registry/Slot";
 import { flattenMenu } from "./registry/adapter";
@@ -105,7 +106,7 @@ function readLastOpenToolsMode(): number {
     return 1;
   }
 }
-const INBOX_BADGE_POLLING_MS = 6000;
+const INBOX_BADGE_POLLING_MS = 15000;
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -153,6 +154,7 @@ export default function Sidebar({
   const [accountLoading, setAccountLoading] = useState(false);
   const [runtimeRestarting, setRuntimeRestarting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
   const [historyPopoverOpen, setHistoryPopoverOpen] = useState(false);
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [version, setVersion] = useState("");
@@ -203,6 +205,7 @@ export default function Sidebar({
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
   const [wobbleEnabled] = useInboxWobble();
+  const { approvals } = useApprovalContext();
   const currentApprovalIdsRef = useRef<Set<string>>(new Set());
   const seenApprovalIdsRef = useRef<Set<string>>(new Set());
 
@@ -353,42 +356,35 @@ export default function Sidebar({
   }, [collapsed]);
 
   useEffect(() => {
+    const currentIds = new Set(
+      approvals.map((approval) => approval.request_id),
+    );
+    currentApprovalIdsRef.current = currentIds;
+    const hasNewApprovals =
+      currentIds.size > 0 &&
+      [...currentIds].some((id) => !seenApprovalIdsRef.current.has(id));
+    setShakeInbox(hasNewApprovals);
+    setHasPendingApprovals(currentIds.size > 0);
+  }, [approvals]);
+
+  useEffect(() => {
     let inFlight = false;
+    let cancelled = false;
     const loadUnreadState = async () => {
-      if (inFlight) return;
+      if (inFlight || document.hidden) return;
       inFlight = true;
       try {
-        const [inboxResult, pushResult] = await Promise.allSettled([
-          api.getInboxEvents({
-            unread_only: true,
-            limit: 1,
-          }),
-          api.getPushMessages(),
-        ]);
-        if (
-          inboxResult.status === "rejected" ||
-          pushResult.status === "rejected"
-        ) {
-          return;
-        }
-        const inboxRes = inboxResult.value;
-        const pushRes = pushResult.value;
+        const inboxRes = await api.getInboxEvents({
+          unread_only: true,
+          limit: 1,
+        });
+        if (cancelled) return;
         const hasUnreadEvents = (inboxRes?.events?.length || 0) > 0;
-        const approvals = pushRes?.pending_approvals || [];
-        const currentIds = new Set(
-          approvals.map((a: { request_id: string }) => a.request_id),
-        );
-        currentApprovalIdsRef.current = currentIds;
-        const hasNewApprovals =
-          currentIds.size > 0 &&
-          [...currentIds].some((id) => !seenApprovalIdsRef.current.has(id));
-        setShakeInbox(hasNewApprovals);
         setUnreadCount(
           inboxRes?.unread_count ??
             inboxRes?.total ??
             (hasUnreadEvents ? 1 : 0),
         );
-        setHasPendingApprovals(currentIds.size > 0);
       } catch {
         // Keep previous state when polling fails.
       } finally {
@@ -399,7 +395,15 @@ export default function Sidebar({
     const timer = window.setInterval(() => {
       void loadUnreadState();
     }, INBOX_BADGE_POLLING_MS);
-    return () => window.clearInterval(timer);
+    const onVisibility = () => {
+      if (!document.hidden) void loadUnreadState();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   // ── Pre-fetch sessions on mount ───────────────────────────────────────────
@@ -528,7 +532,10 @@ export default function Sidebar({
 
   const handleLogout = useCallback(() => {
     clearAuthToken();
-    window.location.href = "/login";
+    window.location.href = addRouterBasename(
+      window.location.pathname,
+      "/login",
+    );
   }, []);
 
   /**
@@ -586,7 +593,10 @@ export default function Sidebar({
       setAccountModalOpen(false);
       accountForm.resetFields();
       clearAuthToken();
-      window.location.href = "/login";
+      window.location.href = addRouterBasename(
+        window.location.pathname,
+        "/login",
+      );
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : "";
       let msg = t("account.updateFailed");
@@ -634,6 +644,7 @@ export default function Sidebar({
         <button
           type="button"
           aria-label={typeof item.label === "string" ? item.label : undefined}
+          aria-current={isActive ? "page" : undefined}
           className={`${styles.collapsedNavItem} ${
             isActive ? styles.collapsedNavItemActive : ""
           }`}
@@ -667,6 +678,7 @@ export default function Sidebar({
         title={toolsMode === 2 ? null : entry.label}
         placement="top"
         trigger={["hover", "focus"]}
+        styles={{ root: { pointerEvents: "none" } }}
       >
         <button
           aria-label={typeof entry.label === "string" ? entry.label : undefined}
@@ -771,7 +783,7 @@ export default function Sidebar({
                 placement="rightTop"
                 trigger="click"
                 arrow={false}
-                overlayClassName={styles.collapsedAgentPopover}
+                classNames={{ root: styles.collapsedAgentPopover }}
                 content={
                   <div className={styles.collapsedAgentPanel}>
                     <div className={styles.collapsedPanelTitle}>
@@ -847,7 +859,7 @@ export default function Sidebar({
                 placement="rightTop"
                 trigger="click"
                 arrow={false}
-                overlayClassName={styles.collapsedHistoryPopover}
+                classNames={{ root: styles.collapsedHistoryPopover }}
                 content={
                   <div className={styles.collapsedHistoryPanel}>
                     <SidebarSessionList
@@ -1052,26 +1064,39 @@ export default function Sidebar({
             onOpenChange={setSettingsOpen}
             placement={collapsed ? "rightBottom" : "topRight"}
             trigger="click"
-            overlayClassName={styles.quickSettingsPopover}
+            classNames={{ root: styles.quickSettingsPopover }}
             destroyOnHidden
             content={
-              <SidebarSettingsPanel
-                version={version}
-                onClose={() => setSettingsOpen(false)}
-                onOpenDesktopMode={handleOpenDesktopMode}
-                onOpenSettings={handleOpenSettings}
-                authEnabled={authEnabled}
-                onOpenAccount={handleOpenAccount}
-                onLogout={handleLogout}
-              />
+              <div
+                role="dialog"
+                aria-label={t("sidebar.quickMenu.settings", "Settings")}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSettingsOpen(false);
+                  settingsTriggerRef.current?.focus();
+                }}
+              >
+                <SidebarSettingsPanel
+                  version={version}
+                  onClose={() => setSettingsOpen(false)}
+                  onOpenDesktopMode={handleOpenDesktopMode}
+                  onOpenSettings={handleOpenSettings}
+                  authEnabled={authEnabled}
+                  onOpenAccount={handleOpenAccount}
+                  onLogout={handleLogout}
+                />
+              </div>
             }
           >
             <button
+              ref={settingsTriggerRef}
               type="button"
               data-press
               title={t("sidebar.quickMenu.settings", "Settings")}
               aria-label={t("sidebar.quickMenu.settings", "Settings")}
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
               aria-expanded={settingsOpen}
               className={collapsed ? styles.collapseToggle : skin.identity}
             >

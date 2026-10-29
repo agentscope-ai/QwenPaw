@@ -101,7 +101,7 @@ const ProviderSelect = memo(function ProviderSelect({
       options={options}
       onChange={(nextValues: string[]) => onSelect(nextValues)}
       popupMatchSelectWidth={false}
-      popupClassName={styles.providerDropdown}
+      classNames={{ popup: { root: styles.providerDropdown } }}
     />
   );
 });

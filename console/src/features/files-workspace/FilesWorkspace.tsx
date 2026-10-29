@@ -1,4 +1,4 @@
-import { FileWarning, Files, GitBranch } from "lucide-react";
+import { ArrowLeft, FileWarning, Files, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { buildAuthHeaders } from "../../api/authHeaders";
@@ -20,6 +20,9 @@ import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import FilesNavigator from "./FilesNavigator";
 import MemoryGraphView from "./MemoryGraphView";
+import MemoryTagsNavigator from "./MemoryTagsNavigator";
+import { useMemoryFileConfig } from "./useMemoryTagSupport";
+import { fileTabPath, fileTabTarget, findOpenFileTab } from "./fileIdentity";
 import { projectRootPath, workspaceRoots } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
@@ -36,6 +39,7 @@ import styles from "./FilesWorkspace.module.less";
 
 interface FilesWorkspaceProps {
   initialTarget?: FileTarget;
+  initialMemoryTag?: string;
   scope: FilesWorkspaceScope;
 }
 
@@ -60,6 +64,7 @@ function inferPreviewKind(
 
 export default function FilesWorkspace({
   initialTarget,
+  initialMemoryTag,
   scope,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
@@ -71,6 +76,9 @@ export default function FilesWorkspace({
   // refetch and re-activate the initial tab on unrelated re-renders.
   const scopeKind = scope.kind;
   const agentId = scope.agentId;
+  const { config: memoryConfig, getConfig: getMemoryConfig } =
+    useMemoryFileConfig(agentId);
+  const memoryTagsSupported = memoryConfig !== null;
   const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const projectDirOverride =
     scope.kind === "session" && !scope.chatId
@@ -82,6 +90,8 @@ export default function FilesWorkspace({
     scope.kind === "session" ? { ...scope, projectDirOverride } : scope;
   const tabs = useTabsForScope(scopeKey);
   const activeTabPath = useActiveTabPathForScope(scopeKey);
+  const activeTab = tabs.find((tab) => tab.path === activeTabPath);
+  const activeTarget = activeTab ? fileTabTarget(activeTab) : undefined;
   const {
     clearProjectTabs,
     closeTab,
@@ -105,7 +115,15 @@ export default function FilesWorkspace({
   const [loadError, setLoadError] = useState("");
   const [memoryGraphRoot, setMemoryGraphRoot] =
     useState<MemoryGraphRoot | null>(null);
+  const [memoryTagsActive, setMemoryTagsActive] = useState(false);
+  const [selectedMemoryTag, setSelectedMemoryTag] = useState<string | null>(
+    null,
+  );
+  const [memoryTagsRevision, setMemoryTagsRevision] = useState(0);
   const [activity, setActivity] = useState<"files" | "git">("files");
+  const [mobilePane, setMobilePane] = useState<
+    "navigator" | "source" | "document"
+  >(tabs.length > 0 ? "document" : "navigator");
   const [directoryRevision, setDirectoryRevision] = useState(0);
   const [editorNavigation, setEditorNavigation] = useState<{
     path: string;
@@ -287,19 +305,9 @@ export default function FilesWorkspace({
   const loadTab = useCallback(
     async (tabPath: string) => {
       const tab = tabsRef.current.find((item) => item.path === tabPath);
-      const separator = tabPath.indexOf("::");
       const target =
         targetsByTab.current.get(tabPath) ??
-        ({
-          source:
-            tab?.source ??
-            (separator < 0
-              ? "workspace"
-              : (tabPath.slice(0, separator) as FileTarget["source"])),
-          path: separator < 0 ? tabPath : tabPath.slice(separator + 2),
-          root: tab?.workspaceRoot,
-          artifactUrl: tab?.artifactUrl,
-        } satisfies FileTarget);
+        fileTabTarget(tab ?? { path: tabPath, content: "", dirty: false });
       return loadTarget(target);
     },
     [loadTarget],
@@ -396,6 +404,7 @@ export default function FilesWorkspace({
       revalidatedScope.current = scopeKey;
       setLoadError("");
       setActiveTab(scopeKey, tabPath);
+      setMobilePane("document");
       void revalidateTab(tabPath);
     },
     [revalidateTab, scopeKey, setActiveTab],
@@ -403,37 +412,48 @@ export default function FilesWorkspace({
 
   const openTarget = useCallback(
     async (target: FileTarget) => {
-      const resolvedTarget = await resolveEditableTarget(target);
-      // Tab identity has to include the root: the same relative path exists in
-      // more than one bound directory, and a bare path would make two different
-      // files share one tab (and one dirty buffer). The primary keeps its bare
-      // path so previously persisted tabs still match.
-      const tabPath =
-        resolvedTarget.source === "workspace"
-          ? resolvedTarget.root === "workspace"
-            ? `workspace-root::${resolvedTarget.path}`
-            : resolvedTarget.root && resolvedTarget.root !== "project"
-            ? `${resolvedTarget.root}::${resolvedTarget.path}`
-            : resolvedTarget.path
-          : `${resolvedTarget.source}::${resolvedTarget.path}`;
-      targetsByTab.current.set(tabPath, resolvedTarget);
-      if (resolvedTarget.line) {
-        navigationSequence.current += 1;
-        setEditorNavigation({
-          path: tabPath,
-          line: resolvedTarget.line,
-          endLine: resolvedTarget.endLine ?? resolvedTarget.line,
-          column: resolvedTarget.column,
-          sequence: navigationSequence.current,
-        });
-      }
-      const existing = tabsRef.current.find((tab) => tab.path === tabPath);
-      if (existing) {
-        activateTab(tabPath);
-        return;
-      }
       try {
+        const resolvedTarget = await resolveEditableTarget(target);
+        const canAlias =
+          resolvedTarget.source === "daily" ||
+          resolvedTarget.source === "digest" ||
+          resolvedTarget.source === "memory" ||
+          (resolvedTarget.source === "workspace" &&
+            resolvedTarget.root === "workspace");
+        let memory = null;
+        try {
+          memory =
+            canAlias && tabsRef.current.length ? await getMemoryConfig() : null;
+        } catch (error) {
+          // Exact identities remain usable offline. Without one, retry later
+          // rather than opening a second buffer for a potentially dirty alias.
+          if (!findOpenFileTab(tabsRef.current, resolvedTarget, null))
+            throw error;
+        }
+        if (scopeKeyRef.current !== scopeKey) return;
+        const existing = findOpenFileTab(
+          tabsRef.current,
+          resolvedTarget,
+          memory,
+        );
+        const tabPath = existing?.path ?? fileTabPath(resolvedTarget);
+        if (resolvedTarget.line) {
+          navigationSequence.current += 1;
+          setEditorNavigation({
+            path: tabPath,
+            line: resolvedTarget.line,
+            endLine: resolvedTarget.endLine ?? resolvedTarget.line,
+            column: resolvedTarget.column,
+            sequence: navigationSequence.current,
+          });
+        }
+        if (existing) {
+          activateTab(tabPath);
+          return;
+        }
+        targetsByTab.current.set(tabPath, resolvedTarget);
         const loaded = await loadTarget(resolvedTarget);
+        if (scopeKeyRef.current !== scopeKey) return;
         setLoadError("");
         openTab(scopeKey, {
           path: tabPath,
@@ -449,12 +469,19 @@ export default function FilesWorkspace({
         });
         revalidatedScope.current = scopeKey;
         setActiveTab(scopeKey, tabPath);
-      } catch {
-        setLoadError(t("files.loadFailed"));
+        setMobilePane("document");
+      } catch (error) {
+        if (
+          scopeKeyRef.current === scopeKey &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setLoadError(t("files.loadFailed"));
+        }
       }
     },
     [
       activateTab,
+      getMemoryConfig,
       loadTarget,
       openTab,
       resolveEditableTarget,
@@ -467,7 +494,16 @@ export default function FilesWorkspace({
   useEffect(() => {
     hydratedTabs.current.clear();
     revalidationSequence.current.clear();
+    setMemoryTagsActive(false);
+    setSelectedMemoryTag(null);
   }, [scopeKey]);
+
+  const showMemoryTag = useCallback((tag: string) => {
+    setActivity("files");
+    setMemoryTagsActive(true);
+    setSelectedMemoryTag(tag);
+    setMobilePane("navigator");
+  }, []);
 
   useEffect(() => {
     if (!chatId && projectDirOverride) {
@@ -497,8 +533,21 @@ export default function FilesWorkspace({
   }, [closeTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey, t, tabs]);
 
   useEffect(() => {
-    if (initialTarget) void openTarget(initialTarget);
-  }, [initialTarget, openTarget]);
+    let cancelled = false;
+    if (initialTarget) {
+      void openTarget(initialTarget).then(() => {
+        if (!cancelled && initialMemoryTag) setMobilePane("navigator");
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [initialTarget, initialMemoryTag, openTarget]);
+
+  useEffect(() => {
+    if (initialMemoryTag && memoryTagsSupported)
+      showMemoryTag(initialMemoryTag);
+  }, [initialMemoryTag, memoryTagsSupported, scopeKey, showMemoryTag]);
 
   useEffect(() => {
     if (!activeTabPath || revalidatedScope.current === scopeKey) return;
@@ -508,9 +557,18 @@ export default function FilesWorkspace({
     if (activeTab?.content) void revalidateTab(activeTabPath);
   }, [activeTabPath, revalidateTab, scopeKey]);
 
+  useEffect(() => {
+    if (tabs.length === 0 && !memoryGraphRoot) {
+      setMobilePane(activity === "git" && codingMode ? "source" : "navigator");
+    }
+  }, [activity, codingMode, memoryGraphRoot, tabs.length]);
+
   const handleClose = (path: string) => {
     const index = tabs.findIndex((tab) => tab.path === path);
     closeTab(scopeKey, path);
+    if (tabs.length === 1 && !memoryGraphRoot) {
+      setMobilePane(activity === "git" && codingMode ? "source" : "navigator");
+    }
     if (activeTabPath === path) {
       const nextPath = tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "";
       if (nextPath) activateTab(nextPath);
@@ -525,19 +583,20 @@ export default function FilesWorkspace({
     activateTab(path);
   };
 
+  const hasDocument = tabs.length > 0 || memoryGraphRoot !== null;
+
   return (
-    <div
-      className={`${styles.workspace} ${
-        tabs.length === 0 && !memoryGraphRoot ? styles.workspaceEmpty : ""
-      }`}
-    >
+    <div className={styles.workspace} data-mobile-pane={mobilePane}>
       {codingMode && (
         <nav className={styles.activityRail} aria-label={t("files.workspace")}>
           <button
             type="button"
             className={activity === "files" ? styles.activityActive : ""}
             aria-label={t("files.navigator")}
-            onClick={() => setActivity("files")}
+            onClick={() => {
+              setActivity("files");
+              setMobilePane("navigator");
+            }}
           >
             <Files size={18} />
           </button>
@@ -546,7 +605,10 @@ export default function FilesWorkspace({
               type="button"
               className={activity === "git" ? styles.activityActive : ""}
               aria-label={t("files.sourceControl")}
-              onClick={() => setActivity("git")}
+              onClick={() => {
+                setActivity("git");
+                setMobilePane("source");
+              }}
             >
               <GitBranch size={18} />
             </button>
@@ -554,23 +616,71 @@ export default function FilesWorkspace({
         </nav>
       )}
       {activity === "files" || !codingMode ? (
-        <FilesNavigator
-          key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
-          scope={effectiveScope}
-          selectedPath={
-            tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
-            activeTabPath
-          }
-          onSelect={(target) => {
-            setMemoryGraphRoot(null);
-            void openTarget(target);
-          }}
-          activeMemoryGraphRoot={memoryGraphRoot}
-          onShowMemoryGraph={(root) => setMemoryGraphRoot(root)}
-          onShowFiles={() => setMemoryGraphRoot(null)}
-        />
+        <div className={styles.navigatorPane}>
+          {hasDocument && (
+            <button
+              type="button"
+              className={styles.mobilePaneSwitch}
+              aria-label={t("files.openFilesLabel")}
+              onClick={() => setMobilePane("document")}
+            >
+              <Files size={16} />
+              <span>{t("files.openFilesLabel")}</span>
+            </button>
+          )}
+          <FilesNavigator
+            key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
+            scope={effectiveScope}
+            selectedPath={activeTab?.displayPath ?? activeTabPath}
+            onSelect={(target) => {
+              setMemoryGraphRoot(null);
+              void openTarget(target);
+            }}
+            activeMemoryGraphRoot={memoryGraphRoot}
+            onShowMemoryGraph={(root) => {
+              setMemoryGraphRoot(root);
+              setMobilePane("document");
+            }}
+            onShowFiles={() => {
+              setMemoryTagsActive(false);
+              setMemoryGraphRoot(null);
+            }}
+            memoryTagsActive={memoryTagsSupported && memoryTagsActive}
+            onShowMemoryTags={() => setMemoryTagsActive(true)}
+            memoryTagsPanel={
+              memoryTagsSupported ? (
+                <MemoryTagsNavigator
+                  key={`${scopeKey}:${selectedMemoryTag ?? ""}`}
+                  agentId={agentId}
+                  tag={selectedMemoryTag}
+                  revision={memoryTagsRevision}
+                  memoryConfig={memoryConfig}
+                  selectedPath={activeTarget?.path ?? ""}
+                  selectedSource={activeTarget?.source}
+                  selectedRoot={activeTarget?.root}
+                  onSelectTag={setSelectedMemoryTag}
+                  onOpenFile={(target) => {
+                    setMemoryGraphRoot(null);
+                    void openTarget(target);
+                  }}
+                />
+              ) : undefined
+            }
+          />
+        </div>
       ) : (
         <aside className={styles.sourcePanel}>
+          {hasDocument && (
+            <button
+              type="button"
+              className={styles.mobilePaneSwitch}
+              aria-label={t("files.openFilesLabel")}
+              onClick={() => setMobilePane("document")}
+            >
+              <ArrowLeft size={16} />
+              <span>{t("files.openFilesLabel")}</span>
+            </button>
+          )}
           <header>
             <GitBranch size={15} />
             <span>{t("files.sourceControl")}</span>
@@ -579,6 +689,21 @@ export default function FilesWorkspace({
         </aside>
       )}
       <main className={styles.documentSurface}>
+        <button
+          type="button"
+          className={styles.mobilePaneSwitch}
+          aria-label={t(
+            activity === "git" ? "files.sourceControl" : "files.navigator",
+          )}
+          onClick={() =>
+            setMobilePane(activity === "git" ? "source" : "navigator")
+          }
+        >
+          {activity === "git" ? <GitBranch size={16} /> : <Files size={16} />}
+          <span>
+            {t(activity === "git" ? "files.sourceControl" : "files.navigator")}
+          </span>
+        </button>
         {loadError && (
           <div className={styles.loadError} role="alert">
             <FileWarning size={24} />
@@ -613,12 +738,14 @@ export default function FilesWorkspace({
             chatId={chatId}
             projectDirOverride={projectDirOverride}
             navigation={editorNavigation}
+            onMemoryTagClick={memoryTagsSupported ? showMemoryTag : undefined}
+            onFileSaved={() => setMemoryTagsRevision((value) => value + 1)}
             onDownloadFile={async (path) => {
               const tab = tabsRef.current.find((item) => item.path === path);
-              const separator = path.indexOf("::");
-              const sourcePath =
-                tab?.displayPath ??
-                (separator < 0 ? path : path.slice(separator + 2));
+              const target = fileTabTarget(
+                tab ?? { path, content: "", dirty: false },
+              );
+              const sourcePath = target.path;
               const filename = sourcePath.split("/").pop() ?? sourcePath;
               if (tab?.artifactUrl) {
                 await downloadFileFromUrl(tab.artifactUrl, filename, {
@@ -627,12 +754,9 @@ export default function FilesWorkspace({
                 });
                 return;
               }
-              if ((tab?.source ?? "workspace") === "workspace") {
+              if (target.source === "workspace") {
                 await downloadFileFromUrl(
-                  workspaceApi.getFileDownloadUrl(
-                    sourcePath,
-                    tab?.workspaceRoot,
-                  ),
+                  workspaceApi.getFileDownloadUrl(sourcePath, target.root),
                   filename,
                   {
                     headers: {
@@ -661,21 +785,22 @@ export default function FilesWorkspace({
             }}
             onSaveFile={async (path, content) => {
               const tab = tabsRef.current.find((item) => item.path === path);
-              const separator = path.indexOf("::");
-              if ((tab?.source ?? "workspace") === "workspace") {
+              const target = fileTabTarget(
+                tab ?? { path, content, dirty: true },
+              );
+              if (target.source === "workspace") {
                 const saved = await workspaceApi.saveFileContent(
-                  tab?.displayPath ?? path,
+                  target.path,
                   content,
                   tab?.etag,
                   chatId,
-                  tab?.workspaceRoot,
+                  target.root,
                   projectDirOverride,
                 );
                 setTabEtag(scopeKey, path, saved.etag);
                 return;
               }
-              const source = path.slice(0, separator);
-              const sourcePath = path.slice(separator + 2);
+              const { source, path: sourcePath } = target;
               if (source === "profile") {
                 await workspaceApi.saveFile(sourcePath, content, agentId);
               } else if (source === "daily" || source === "digest") {

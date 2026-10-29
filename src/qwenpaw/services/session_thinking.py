@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Resolve persistent session thinking without mutating agent defaults."""
+"""Resolve conversation model and thinking without mutating agent defaults."""
 
 from ..config.config import ModelSlotConfig, load_agent_config
 from ..providers.provider_manager import ProviderManager
 from ..providers.provider import Provider
+from ..providers.model_selection import (
+    request_model_override,
+    resolve_model_slot_override,
+)
 from ..providers.dashscope_provider import DashScopeProvider
 from ..providers.gemini_provider import resolve_thinking_config
 from ..providers.openai_response_provider import (
@@ -23,6 +27,7 @@ from ..providers.thinking import (
     ThinkingControl,
     ThinkingPreference,
     resolve_thinking,
+    model_default_thinking,
 )
 from ..utils.io_utils import run_sync_io
 
@@ -31,6 +36,7 @@ def _validate_thinking_parameters(params: dict) -> None:
     """Reject malformed display inputs without coercing user settings."""
     for key in (
         f"extra_body",
+        f"chat_template_kwargs",
         f"thinking",
         f"reasoning",
         f"thinking_config",
@@ -106,73 +112,29 @@ def _resolve_model_default_thinking(provider: Provider, model: str):
         )
         if thinking is None:
             return ThinkingPreference(level=f"off")
-    else:
-        thinking = None
-    params = {**params, **(params.get(f"extra_body") or {})}
-    thinking = thinking or params.get(f"thinking") or {}
-    reasoning = params.get(f"reasoning") or {}
-    config = params.get(f"thinking_config") or {}
-    enabled = params.get(
-        f"enable_thinking",
-        params.get(f"thinking_enable"),
+    return model_default_thinking(
+        params,
+        control,
+        default_enabled=info.thinking_enabled,
+        default_effort=info.reasoning_effort,
+        default_budget=info.thinking_budget,
+        native_anthropic=native_anthropic,
     )
-    effort = params.get(
-        f"reasoning_effort",
-        reasoning.get(
-            f"effort",
-            (params.get(f"output_config") or {}).get(
-                f"effort",
-                config.get(f"thinking_level"),
-            ),
-        ),
-    )
-    budget = params.get(
-        f"thinking_budget",
-        thinking.get(
-            f"budget_tokens",
-            config.get(f"thinking_budget"),
-        ),
-    )
-    if budget is None and effort is None and not native_anthropic:
-        if enabled is None:
-            enabled = info.thinking_enabled
-        effort = info.reasoning_effort
-    if (
-        enabled is False
-        or thinking.get(f"type") == f"disabled"
-        or reasoning.get(f"enabled") is False
-        or effort in {f"none", f"off"}
-        or budget == 0
-    ):
-        return ThinkingPreference(level=f"off")
-    if budget is None and effort in {
-        f"minimal",
-        f"low",
-        f"medium",
-        f"high",
-        f"xhigh",
-        f"max",
-    }:
-        if control.kind == f"effort" and effort in control.efforts:
-            return ThinkingPreference(level=effort)
-        return ThinkingPreference()
-    if control.kind == f"budget":
-        if budget is None and not native_anthropic:
-            budget = control.budget_default
-        if (
-            budget is not None
-            and control.budget_min is not None
-            and control.budget_max is not None
-            and control.budget_min <= budget <= control.budget_max
-        ):
-            return ThinkingPreference(level=f"budget", budget_tokens=budget)
-    return ThinkingPreference()
 
 
 def session_model(meta: dict | None) -> ModelSlotConfig | None:
     """Read the selected model owned by this conversation."""
     raw = ((meta or {}).get(f"runtime_context") or {}).get(f"model")
     return ModelSlotConfig.model_validate(raw) if raw is not None else None
+
+
+def select_chat_model(meta=None, *, model_override=None):
+    """Select a conversation override and its source using one precedence."""
+    selected = resolve_model_slot_override(model_override)
+    if selected is not None and selected.provider_id and selected.model:
+        return selected, "request"
+    selected = session_model(meta)
+    return selected, "session" if selected is not None else None
 
 
 def session_preference(
@@ -319,26 +281,74 @@ async def thinking_view(
     }
 
 
-async def apply_session_thinking(ctx, config):
-    """Snapshot one session's preference before creating its runtime."""
+async def get_session_chat(ctx, *, chat=None):
+    """Find settings for runtime/control contexts or an already loaded chat.
+
+    Spawned subagents use the parent conversation even when the current
+    chat is supplied, as it is for background title generation.
+    """
     workspace = getattr(ctx, f"workspace", None)
     manager = getattr(workspace, f"chat_manager", None)
-    session_id = getattr(ctx, f"session_id", None)
+    request = getattr(ctx, "request", None)
+    if request is None:
+        request = getattr(ctx, "payload", None)
+    values = (
+        request
+        if isinstance(request, dict)
+        else {
+            name: getattr(request, name, None)
+            for name in ("request_context", "channel", "user_id")
+        }
+    )
+    # Console title tasks receive the native payload, before it is converted
+    # into the AgentRequest used by execution.
+    request_context = (
+        values.get("request_context")
+        or (values.get("meta") or {}).get("request_context")
+        or {}
+    )
+    spawned = request_context.get(f"_spawn_subagent")
+    if chat is not None and not spawned:
+        return chat
+    session_id = getattr(ctx, f"session_id", None) or getattr(
+        chat,
+        "session_id",
+        None,
+    )
     if not manager or not session_id:
-        return config
-    request = getattr(ctx, f"request", None)
-    request_context = getattr(request, f"request_context", None) or {}
-    if request_context.get(f"_spawn_subagent"):
+        return None
+    channel = (
+        values.get("channel")
+        or values.get("channel_id")
+        or getattr(chat, "channel", None)
+        or "console"
+    )
+    user_id = (
+        values.get("user_id")
+        or values.get("sender_id")
+        or getattr(ctx, "user_id", None)
+        or getattr(chat, "user_id", None)
+        or None
+    )
+    if spawned:
         session_id = request_context.get(f"parent_session_id") or session_id
+        # Console submissions keep the child's transport identity separate
+        # from the parent conversation's owner and channel.
+        channel = request_context.get("channel") or channel
+        user_id = request_context.get("user_id") or user_id
     chat_id = await manager.get_chat_id_by_session(
         session_id,
-        getattr(request, f"channel", None) or f"console",
-        getattr(request, f"user_id", None) or None,
+        channel,
+        user_id,
     )
-    chat = await manager.get_chat(chat_id) if chat_id else None
-    selected = session_model(chat.meta) if chat else None
+    return await manager.get_chat(chat_id) if chat_id else None
+
+
+async def apply_chat_model_settings(config, meta=None, *, model_override=None):
+    """Resolve thinking for the final model: request > session > defaults."""
+    selected, _source = select_chat_model(meta, model_override=model_override)
     config = await run_sync_io(_with_session_model, config, selected)
-    if chat:
+    if meta:
 
         def selected_key():
             slot = config.active_model or (
@@ -347,7 +357,7 @@ async def apply_session_thinking(ctx, config):
             return f"{slot.provider_id}:{slot.model}" if slot else f""
 
         model_key = await run_sync_io(selected_key)
-        preference = session_preference(chat.meta, model_key)
+        preference = session_preference(meta, model_key)
     else:
         preference = None
     if preference is None or preference.level == f"inherit":
@@ -358,4 +368,17 @@ async def apply_session_thinking(ctx, config):
             f"thinking_budget": preference.budget_tokens,
         },
         deep=True,
+    )
+
+
+async def apply_session_thinking(ctx, config):
+    """Snapshot model and model-owned thinking for the calling request."""
+    chat = await get_session_chat(ctx)
+    request = getattr(ctx, "request", None)
+    if request is None:
+        request = getattr(ctx, "payload", None)
+    return await apply_chat_model_settings(
+        config,
+        chat.meta if chat else None,
+        model_override=request_model_override(request),
     )

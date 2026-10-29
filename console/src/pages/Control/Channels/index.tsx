@@ -1,18 +1,26 @@
 import { useAgentStore } from "@/stores/agentStore";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { Cascade } from "@/components/interaction/Cascade";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Form } from "@agentscope-ai/design";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Badge, Button, Space } from "antd";
 import {
   ShieldCheck as SafetyOutlined,
   ClipboardCheck as AuditOutlined,
+  RefreshCcw,
+  TriangleAlert,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import {
   ChannelCard,
-  ChannelDrawer,
+  ChannelFormDrawer,
   AccessControlDrawer,
   PendingApprovalsDrawer,
   useChannels,
@@ -21,36 +29,63 @@ import {
   type ChannelKey,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
-import { keepConsoleEnabled } from "./components/channelConfig";
+import {
+  captureChannelSaveJob,
+  keepConsoleEnabled,
+  normalizeChannelSubmitValues,
+} from "./components/channelConfig";
+import type { ChannelSaveJob } from "../../../api/modules/channel";
 import styles from "./index.module.less";
 
 type FilterType = "all" | "builtin" | "custom";
 
 function ChannelsPage() {
   const { t } = useTranslation();
-  const { selectedAgent } = useAgentStore();
   const { modal } = useAppMessage();
   const {
+    agentId,
     channels,
     orderedKeys,
     channelSchemas,
+    schemasLoading,
     isBuiltin,
     loading,
+    error,
+    ready,
+    canMutate,
+    fetchChannels,
     setChannels,
   } = useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
+  const [drawerAgentId, setDrawerAgentId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [aclDrawerOpen, setAclDrawerOpen] = useState(false);
+  const [aclDrawerAgentId, setAclDrawerAgentId] = useState<string | null>(null);
   const [pendingDrawerOpen, setPendingDrawerOpen] = useState(false);
+  const [pendingDrawerAgentId, setPendingDrawerAgentId] = useState<
+    string | null
+  >(null);
   const [pendingCount, setPendingCount] = useState(0);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [form] = Form.useForm<any>();
+  const scopeGeneration = useRef(0);
+  const mounted = useRef(true);
+  const agentIdRef = useRef(agentId);
+  const pendingCountRequestIdRef = useRef(0);
+  const proposalIdRef = useRef(0);
+  const conflictModalDestroyRef = useRef<(() => void) | null>(null);
+  agentIdRef.current = agentId;
 
   const fetchPendingCount = useCallback(async () => {
+    const ownerAgentId = agentIdRef.current;
+    const requestId = ++pendingCountRequestIdRef.current;
     try {
       const data = await api.getAclAllPending();
+      if (
+        requestId !== pendingCountRequestIdRef.current ||
+        ownerAgentId !== agentIdRef.current
+      )
+        return;
       setPendingCount(data.length);
     } catch {
       // ignore
@@ -58,8 +93,46 @@ function ChannelsPage() {
   }, []);
 
   useEffect(() => {
-    fetchPendingCount();
-  }, [fetchPendingCount]);
+    void fetchPendingCount();
+  }, [agentId, fetchPendingCount]);
+
+  const resetScope = useCallback(() => {
+    scopeGeneration.current += 1;
+    pendingCountRequestIdRef.current += 1;
+    proposalIdRef.current += 1;
+    conflictModalDestroyRef.current?.();
+    conflictModalDestroyRef.current = null;
+    setDrawerOpen(false);
+    setActiveKey(null);
+    setDrawerAgentId(null);
+    setAclDrawerOpen(false);
+    setAclDrawerAgentId(null);
+    setPendingDrawerOpen(false);
+    setPendingDrawerAgentId(null);
+    setPendingCount(0);
+    setSaving(false);
+  }, []);
+
+  useLayoutEffect(resetScope, [agentId, resetScope]);
+  useLayoutEffect(
+    () =>
+      useAgentStore.subscribe((next, previous) => {
+        if (next.selectedAgent !== previous.selectedAgent) {
+          agentIdRef.current = next.selectedAgent || "default";
+          resetScope();
+        }
+      }),
+    [resetScope],
+  );
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      scopeGeneration.current += 1;
+      pendingCountRequestIdRef.current += 1;
+      conflictModalDestroyRef.current?.();
+    };
+  }, []);
 
   // Sort cards: enabled first, then disabled (preserve orderedKeys order within each group)
   const { enabledCards, disabledCards } = useMemo(() => {
@@ -87,62 +160,62 @@ function ChannelsPage() {
 
   const handleCardClick = useCallback(
     (key: ChannelKey) => {
+      if (!ready) return;
+      void fetchChannels(true);
       setActiveKey(key);
+      setDrawerAgentId(agentId);
       setDrawerOpen(true);
-      const channelConfig = keepConsoleEnabled(
-        key,
-        channels[key] || { enabled: false, bot_prefix: "" },
-      );
-      form.resetFields();
-      // Migrate legacy allowlist policy to new access control fields
-      const accessControlDm =
-        channelConfig.access_control_dm ||
-        channelConfig.dm_policy === "allowlist";
-      const accessControlGroup =
-        channelConfig.access_control_group ||
-        channelConfig.group_policy === "allowlist";
-      form.setFieldsValue({
-        ...channelConfig,
-        access_control_dm: accessControlDm,
-        access_control_group: accessControlGroup,
-        show_tool_calls: channelConfig.show_tool_calls ?? true,
-        show_tool_results: channelConfig.show_tool_results ?? true,
-        tool_call_max_length: channelConfig.tool_call_max_length ?? 200,
-        tool_result_max_length: channelConfig.tool_result_max_length ?? 500,
-        show_thinking: channelConfig.show_thinking ?? true,
-      });
     },
-    [channels, form],
+    [agentId, ready, fetchChannels],
   );
 
   const handleDrawerClose = () => {
     setDrawerOpen(false);
     setActiveKey(null);
+    setDrawerAgentId(null);
   };
 
-  const handleSubmit = async (values: Record<string, unknown>) => {
-    if (!activeKey) return false;
+  const submitJob = async (job: ChannelSaveJob, detached: boolean) => {
+    const generation = scopeGeneration.current;
+    const currentScope = () =>
+      mounted.current &&
+      generation === scopeGeneration.current &&
+      agentIdRef.current === job.agentId &&
+      canMutate(job.agentId);
+    const proposalId = currentScope() ? ++proposalIdRef.current : undefined;
+    const ownsProposal = () =>
+      proposalId !== undefined &&
+      proposalIdRef.current === proposalId &&
+      currentScope();
+    if (!detached && !ownsProposal()) return false;
+    if (ownsProposal()) {
+      conflictModalDestroyRef.current?.();
+      conflictModalDestroyRef.current = null;
+      setSaving(true);
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
-    const updatedChannel = keepConsoleEnabled(activeKey, {
-      ...savedConfig,
-      ...values,
-    });
+    const { isBuiltin: _isBuiltin, ...savedConfig } = job.body;
+    const updatedChannel = normalizeChannelSubmitValues(
+      job.channel,
+      keepConsoleEnabled(job.channel, savedConfig),
+    );
     const proposedConfig = updatedChannel as unknown as Parameters<
       typeof api.updateChannelConfig
     >[1];
 
-    setSaving(true);
     try {
       if (updatedChannel.enabled === true) {
         try {
           const result = await api.checkChannelConflict(
-            activeKey,
+            job.channel,
             proposedConfig,
-            selectedAgent || "default",
+            job.agentId,
           );
+          if (!detached && !ownsProposal()) return false;
           if (result.conflict) {
+            // A conflict needs confirmation in its originating workspace.
+            if (!ownsProposal()) return false;
             const agentNames = result.agents
               .map(({ agent_id, agent_name }) =>
                 agent_name === agent_id
@@ -155,10 +228,12 @@ function ChannelsPage() {
               const settle = (value: boolean) => {
                 if (settled) return;
                 settled = true;
-                resolve(value);
+                if (proposalIdRef.current === proposalId) {
+                  conflictModalDestroyRef.current = null;
+                }
+                resolve(value && ownsProposal());
               };
-
-              modal.confirm({
+              const instance = modal.confirm({
                 centered: true,
                 title: t("channels.botConflictTitle"),
                 content: t("channels.botConflictDescription", {
@@ -171,33 +246,78 @@ function ChannelsPage() {
                 onCancel: () => settle(false),
                 afterClose: () => settle(false),
               });
+              conflictModalDestroyRef.current = instance.destroy;
             });
             if (!shouldSave) return false;
           }
         } catch (error) {
+          if (!detached && !ownsProposal()) return false;
           console.warn("Failed to check channel Bot conflicts:", error);
         }
       }
+      if (!detached && !ownsProposal()) return false;
 
-      await api.updateChannelConfig(
-        activeKey,
-        proposedConfig,
-        selectedAgent || "default",
-      );
-      setChannels((current) => ({
-        ...current,
-        [activeKey]: { ...current[activeKey], ...updatedChannel },
-      }));
+      // Validated tasks retain their captured owner and authorization after
+      // navigation; only their UI acknowledgement belongs to the live scope.
+      if (job.authSession === undefined) {
+        await api.updateChannelConfig(job.channel, proposedConfig, job.agentId);
+      } else {
+        await api.updateChannelConfig(
+          job.channel,
+          proposedConfig,
+          job.agentId,
+          job.authSession,
+        );
+      }
+      if (ownsProposal()) {
+        setChannels(job.agentId, (current) => {
+          const isBuiltin = current[job.channel]?.isBuiltin;
+          return {
+            ...current,
+            [job.channel]: {
+              ...updatedChannel,
+              ...(typeof isBuiltin === "boolean" ? { isBuiltin } : {}),
+            },
+          };
+        });
+      }
       return true;
     } catch (error) {
       console.error("Failed to update channel config:", error);
       throw error;
     } finally {
-      setSaving(false);
+      if (ownsProposal()) setSaving(false);
     }
   };
 
+  const handleSubmitSnapshot = (job: ChannelSaveJob) => submitJob(job, true);
+  const handleSubmit = async (values: Record<string, unknown>) => {
+    if (!activeKey || !drawerAgentId || !canMutate(drawerAgentId)) {
+      void fetchChannels();
+      return false;
+    }
+    return submitJob(
+      captureChannelSaveJob({
+        agentId: drawerAgentId,
+        channel: activeKey,
+        body: { ...channels[activeKey], ...values },
+        formRevision: 0,
+      }),
+      false,
+    );
+  };
+
   const activeLabel = activeKey ? getChannelLabel(activeKey, t) : "";
+  const activeValues = useMemo(
+    () =>
+      activeKey
+        ? keepConsoleEnabled(
+            activeKey,
+            channels[activeKey] || { enabled: false, bot_prefix: "" },
+          )
+        : undefined,
+    [activeKey, channels],
+  );
 
   const FILTER_TABS: { key: FilterType; label: string }[] = [
     { key: "all", label: t("channels.filterAll") },
@@ -233,14 +353,22 @@ function ChannelsPage() {
             <Badge dot={pendingCount > 0} offset={[-4, 4]}>
               <Button
                 icon={<AuditOutlined size="1em" />}
-                onClick={() => setPendingDrawerOpen(true)}
+                disabled={!ready}
+                onClick={() => {
+                  setPendingDrawerAgentId(agentId);
+                  setPendingDrawerOpen(true);
+                }}
               >
                 {t("channels.pendingApprovals")}
               </Button>
             </Badge>
             <Button
               icon={<SafetyOutlined size="1em" />}
-              onClick={() => setAclDrawerOpen(true)}
+              disabled={!ready}
+              onClick={() => {
+                setAclDrawerAgentId(agentId);
+                setAclDrawerOpen(true);
+              }}
             >
               {t("channels.manageAccessControl")}
             </Button>
@@ -251,6 +379,17 @@ function ChannelsPage() {
         {loading ? (
           <div className={styles.loading}>
             <span className={styles.loadingText}>{t("channels.loading")}</span>
+          </div>
+        ) : error ? (
+          <div className={styles.loadError} role="alert">
+            <TriangleAlert size={24} aria-hidden="true" />
+            <span>{t("channels.loadFailed")}</span>
+            <Button
+              icon={<RefreshCcw size={16} />}
+              onClick={() => void fetchChannels()}
+            >
+              {t("common.retry")}
+            </Button>
           </div>
         ) : (
           <>
@@ -321,27 +460,43 @@ function ChannelsPage() {
           </>
         )}
       </div>
-      <ChannelDrawer
+      <ChannelFormDrawer
+        key={`${agentId}:${activeKey ?? "closed"}`}
+        ownerKey={`${agentId}:${activeKey ?? "closed"}`}
         open={drawerOpen}
         activeKey={activeKey}
         activeLabel={activeLabel}
-        form={form}
         saving={saving}
-        initialValues={activeKey ? channels[activeKey] : undefined}
+        initialValues={activeValues}
         isBuiltin={activeKey ? isBuiltin(activeKey) : true}
         channelSchema={activeKey ? channelSchemas[activeKey] : undefined}
+        channelSchemaLoading={
+          schemasLoading || (!!activeKey && !channelSchemas[activeKey])
+        }
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+        onSubmitSnapshot={handleSubmitSnapshot}
+        onRuntimeChange={fetchChannels}
       />
       <AccessControlDrawer
-        open={aclDrawerOpen}
-        onClose={() => setAclDrawerOpen(false)}
+        open={aclDrawerOpen && aclDrawerAgentId !== null}
+        ownerAgentId={aclDrawerAgentId}
+        canMutate={canMutate}
+        onStale={() => void fetchChannels()}
+        onClose={() => {
+          setAclDrawerOpen(false);
+          setAclDrawerAgentId(null);
+        }}
       />
       <PendingApprovalsDrawer
-        open={pendingDrawerOpen}
+        open={pendingDrawerOpen && pendingDrawerAgentId !== null}
+        ownerAgentId={pendingDrawerAgentId}
+        canMutate={canMutate}
+        onStale={() => void fetchChannels()}
         onClose={() => {
           setPendingDrawerOpen(false);
-          fetchPendingCount();
+          setPendingDrawerAgentId(null);
+          void fetchPendingCount();
         }}
       />
     </div>
