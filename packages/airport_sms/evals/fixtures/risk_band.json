@@ -1,0 +1,6 @@
+[
+  {"hazard": "FOD low", "severity": 1, "likelihood": 1, "expected": "low"},
+  {"hazard": "bird mid", "severity": 2, "likelihood": 3, "expected": "medium"},
+  {"hazard": "fuel high", "severity": 3, "likelihood": 4, "expected": "high"},
+  {"hazard": "fire extreme", "severity": 5, "likelihood": 5, "expected": "extreme"}
+]

@@ -1,0 +1,39 @@
+[project]
+name = "airport-sms"
+version = "0.1.0"
+description = "Airport-group SMS (Safety Management System) Agent on AgentScope"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = []
+
+[project.optional-dependencies]
+# 与 QwenPaw 主仓同钉。脚手架 PR 因网络超时未强装进默认依赖，
+# Runtime 相关 PR 安装时使用 airport-sms[runtime]。
+runtime = [
+    "agentscope[model-ollama,classifier-jev]==2.0.10",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"airport_sms" = "src/airport_sms"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
