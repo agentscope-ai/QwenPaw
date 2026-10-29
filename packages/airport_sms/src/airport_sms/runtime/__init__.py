@@ -1,1 +1,5 @@
-"""runtime 层占位，后续 PR 填充。"""
+"""AgentScope 运行时组装。"""
+
+from airport_sms.runtime.runtime import AgentRequest, Runtime
+
+__all__ = ["AgentRequest", "Runtime"]
