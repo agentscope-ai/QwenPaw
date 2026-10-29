@@ -819,14 +819,15 @@ class OpenAIChatModelCompat(OpenAIChatModel):
     ) -> Any:
         if self._usage_guard is not None:
             self._usage_guard()
-        merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        # Normalize each source before merging: a per-call max_tokens must
+        # override a configured max_completion_tokens on reasoning models.
+        merged = {
+            **self._normalize_output_token_kwargs(self._extra_generate_kwargs),
+            **self._normalize_output_token_kwargs(generate_kwargs),
+        }
         if self._request_policy is not None:
             merged = self._request_policy(model_name, f"chat", merged)
         self._consume_disable_thinking(merged)
-        if self._output_token_param != "max_tokens":
-            max_tokens = merged.pop("max_tokens", None)
-            if max_tokens is not None:
-                merged.setdefault(self._output_token_param, max_tokens)
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}
@@ -841,6 +842,19 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             )
         finally:
             CACHE_RESPONSE_HEADERS.reset(token)
+
+    def _normalize_output_token_kwargs(self, kwargs: dict) -> dict:
+        """Keep one output cap, preferring the model's native parameter."""
+        normalized = dict(kwargs)
+        alternate = (
+            "max_completion_tokens"
+            if self._output_token_param == "max_tokens"
+            else "max_tokens"
+        )
+        limit = normalized.pop(alternate, None)
+        if limit is not None:
+            normalized.setdefault(self._output_token_param, limit)
+        return normalized
 
     def _consume_disable_thinking(self, call_kwargs: dict) -> None:
         """Translate the neutral ``disable_thinking`` flag into OpenAI-compat

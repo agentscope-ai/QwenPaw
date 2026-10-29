@@ -14,11 +14,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 import qwenpaw.agents.context as context_mod
 import qwenpaw.agents.context.scroll.manager as scroll_manager_mod
 from qwenpaw.agents.context import build_scroll_components
-from qwenpaw.config.config import LightContextConfig
+from qwenpaw.config.config import LightContextConfig, ScrollContextConfig
 
 
 class _DummyModel:
@@ -64,6 +65,35 @@ def test_removed_eviction_headline_settings_are_ignored():
         config.scroll_config,
         "summarize_eviction_timeout_seconds",
     )
+
+
+def test_summary_timeout_config_reaches_manager(tmp_path: Path):
+    config = _agent_config()
+    config.running.light_context_config.scroll_config.summary_timeout_seconds = (
+        600
+    )
+    # Exercise the same JSON round-trip as persisted agent configuration.
+    config.running.light_context_config = (
+        LightContextConfig.model_validate_json(
+            config.running.light_context_config.model_dump_json(),
+        )
+    )
+    components = build_scroll_components(
+        agent_config=config,
+        workspace_dir=str(tmp_path),
+        model=_DummyModel(),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    assert components is not None
+    assert components.context_manager._summary_timeout_seconds == 600
+    components.context_manager._history.close()
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+def test_summary_timeout_rejects_unbounded_or_invalid_values(timeout):
+    with pytest.raises(ValidationError):
+        ScrollContextConfig(summary_timeout_seconds=timeout)
 
 
 @pytest.mark.usefixtures("capture_qwenpaw_logs")
