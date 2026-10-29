@@ -55,6 +55,7 @@ from .lifecycle import (
     REGISTER_WALL_CLOCK_SECONDS,
 )
 from .module_isolation import (
+    refresh_import_caches,
     strip_plugin_sys_path,
     sweep_bare_tree_modules,
     unregister_namespace,
@@ -261,7 +262,7 @@ def _publish_plugin_site_path(prepared):
     site, paths = prepared
     sys.path[:] = paths
     os.environ["QWENPAW_PLUGIN_SITE"] = site
-    importlib.invalidate_caches()
+    refresh_import_caches()
 
 
 async def _ensure_plugin_site_on_path_async(site_dir=None, *, validate=None):

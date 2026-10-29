@@ -9,6 +9,7 @@ namespace, including nested and lazy (function-level) imports, while
 stdlib / third-party imports fall through untouched.
 """
 
+import importlib
 import json
 import sys
 import types
@@ -132,6 +133,73 @@ _REGISTER_OK = (
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("broken_plugin", [False, True])
+async def test_cache_refresh_failure_does_not_mask_plugin_result(
+    loader,
+    tmp_path,
+    monkeypatch,
+    caplog,
+    broken_plugin,
+):
+    plugin_dir = tmp_path / "cache-failure"
+    _write_manifest(plugin_dir)
+    (plugin_dir / "helper.py").write_text("VALUE = 42\n", encoding="utf-8")
+    (plugin_dir / "plugin.py").write_text(
+        "from helper import VALUE\n"
+        + ("raise RuntimeError('plugin error')\n" if broken_plugin else "")
+        + _REGISTER_OK,
+        encoding="utf-8",
+    )
+
+    def fail_refresh():
+        raise TypeError(
+            "MetadataPathFinder.invalidate_caches() missing 1 required "
+            "positional argument: 'cls'",
+        )
+
+    monkeypatch.setattr(importlib, "invalidate_caches", fail_refresh)
+    if broken_plugin:
+        with pytest.raises(RuntimeError, match="plugin error"):
+            await _load(loader, plugin_dir)
+    else:
+        await _load(loader, plugin_dir)
+        assert sys.modules["plugin_cache_failure"].VALUE == 42
+    assert "Import cache refresh failed" in caplog.text
+
+
+@pytest.mark.parametrize("operation", ["clear_bytecode", "publish_site"])
+def test_cache_refresh_failure_preserves_other_operations(
+    tmp_path,
+    monkeypatch,
+    caplog,
+    operation,
+):
+    from qwenpaw.plugins.loader import _publish_plugin_site_path
+    from qwenpaw.plugins.module_isolation import clear_plugin_bytecode
+
+    def fail_refresh():
+        raise TypeError("incompatible cache hook")
+
+    monkeypatch.setattr(importlib, "invalidate_caches", fail_refresh)
+    if operation == "clear_bytecode":
+        source = tmp_path / "plugin.py"
+        source.write_text("VALUE = 42\n", encoding="utf-8")
+        cache = Path(importlib.util.cache_from_source(str(source)))
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(b"stale cache")
+        clear_plugin_bytecode(tmp_path)
+        assert source.exists()
+        assert not cache.exists()
+    else:
+        monkeypatch.setattr(sys, "path", list(sys.path))
+        monkeypatch.setenv("QWENPAW_PLUGIN_SITE", "previous")
+        site = str(tmp_path)
+        _publish_plugin_site_path((site, [site, *sys.path]))
+        assert sys.path[0] == site
+    assert "Import cache refresh failed" in caplog.text
 
 
 class TestBareImportNamespaceIsolation:
