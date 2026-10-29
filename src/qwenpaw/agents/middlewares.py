@@ -507,7 +507,13 @@ class MemoryMiddleware(MiddlewareBase):
         memory_msgs: list["Msg"],
         turn_marker: str,
     ) -> list["Msg"]:
-        """Inject evidence without creating a mid-turn system role."""
+        """Attach transient recall to a copy of the current user message.
+
+        Keeping the fixed system message and conversation history untouched
+        preserves their provider prompt-cache prefix across user turns.  The
+        returned messages are request-local copies; the agent context is not
+        mutated or persisted with the recalled evidence.
+        """
         existing_ids = {msg.id for msg in messages}
         injected = [msg for msg in memory_msgs if msg.id not in existing_ids]
         if not injected:
@@ -521,14 +527,17 @@ class MemoryMiddleware(MiddlewareBase):
                 for msg in system_evidence
                 for block in msg.get_content_blocks()
             ]
-            if messages and messages[0].role == "system":
-                system_msg = deepcopy(messages[0])
-                system_msg.content.extend(evidence_blocks)
-                messages[0] = system_msg
+            for idx, msg in enumerate(messages):
+                if msg.id == turn_marker:
+                    query_msg = deepcopy(msg)
+                    query_msg.content.extend(evidence_blocks)
+                    messages[idx] = query_msg
+                    break
             else:
-                evidence_msg = deepcopy(system_evidence[0])
-                evidence_msg.content = evidence_blocks
-                messages.insert(0, evidence_msg)
+                # Do not inject the evidence at a different privilege level or
+                # attach it to an unrelated turn when the current query is not
+                # part of this provider request.
+                return messages
 
         if not injected:
             return messages

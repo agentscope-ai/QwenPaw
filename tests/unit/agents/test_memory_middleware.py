@@ -244,16 +244,23 @@ class TestOnModelCallAutomationSkip:
         )
 
         mm.auto_memory_search.assert_awaited_once()
-        assert first_input["messages"][0].id == memory_msg.id
+        assert len(first_input["messages"]) == 1
+        assert first_input["messages"][0].id == query.id
+        assert first_input["messages"][0].get_text_content() == (
+            "hello\nremembered fact"
+        )
         assert [msg.id for msg in second_input["messages"]] == [
-            memory_msg.id,
             query.id,
             tool_reply.id,
         ]
+        assert second_input["messages"][0].get_text_content() == (
+            "hello\nremembered fact"
+        )
         assert agent.state.context == [query]
+        assert query.get_text_content() == "hello"
 
     @pytest.mark.asyncio
-    async def test_search_evidence_merges_into_existing_system_message(self):
+    async def test_search_evidence_attaches_to_current_user_copy(self):
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
         agent = _make_agent(source="user")
@@ -280,11 +287,86 @@ class TestOnModelCallAutomationSkip:
         )
 
         assert len(input_kwargs["messages"]) == 2
-        assert input_kwargs["messages"][0].role == "system"
+        assert input_kwargs["messages"][0] is system
         assert input_kwargs["messages"][0].get_text_content() == (
-            "base instructions\nremembered fact"
+            "base instructions"
         )
+        request_query = input_kwargs["messages"][1]
+        assert request_query is not query
+        assert request_query.id == query.id
+        assert request_query.get_text_content() == ("hello\nremembered fact")
         assert system.get_text_content() == "base instructions"
+        assert query.get_text_content() == "hello"
+        assert agent.state.context == [query]
+
+    def test_search_evidence_change_preserves_prefix_before_current_turn(self):
+        system = Msg(
+            name="system",
+            role="system",
+            content=[TextBlock(text="base instructions")],
+        )
+        history = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="previous answer")],
+        )
+        query = _user_msg()
+
+        def build_request(evidence_text: str) -> list[Msg]:
+            evidence_block = TextBlock(text=evidence_text)
+            evidence = Msg(
+                name="auto_memory_evidence",
+                role="system",
+                content=[evidence_block],
+                metadata={
+                    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [evidence_block.id],
+                },
+            )
+            return MemoryMiddleware._inject_search_messages(
+                [system, history, query],
+                memory_msgs=[evidence],
+                turn_marker=query.id,
+            )
+
+        request_a = build_request("memory A")
+        request_b = build_request("memory B")
+
+        # The serialized provider prefix before the current turn remains
+        # identical when only transient recall changes.
+        assert [msg.model_dump() for msg in request_a[:-1]] == [
+            msg.model_dump() for msg in request_b[:-1]
+        ]
+        assert request_a[-1].get_text_content() == "hello\nmemory A"
+        assert request_b[-1].get_text_content() == "hello\nmemory B"
+        assert (
+            sum(
+                msg.metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+                == EXTERNAL_USER_QUERY_MESSAGE_TAG
+                for msg in request_a
+            )
+            == 1
+        )
+        assert query.get_text_content() == "hello"
+
+    def test_search_evidence_is_skipped_without_current_turn(self):
+        history = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="previous answer")],
+        )
+        evidence = Msg(
+            name="auto_memory_evidence",
+            role="system",
+            content=[TextBlock(text="remembered fact")],
+        )
+
+        result = MemoryMiddleware._inject_search_messages(
+            [history],
+            memory_msgs=[evidence],
+            turn_marker="missing-turn",
+        )
+
+        assert result == [history]
 
     @pytest.mark.asyncio
     async def test_new_turn_replaces_search_cache(self):
