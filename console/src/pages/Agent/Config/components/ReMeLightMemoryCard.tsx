@@ -21,6 +21,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
+import { MemoryModelChoice } from "./MemoryModelChoice";
 
 const AUTO_FIN_MAX_WINDOW_HOURS = 168;
 
@@ -331,6 +332,26 @@ export function ReMeLightMemoryCard() {
             <ChevronRight size={16} aria-hidden="true" />
           </button>
         </div>
+      </section>
+
+      <section className={styles.memoryConfigPanel}>
+        <div className={styles.memorySectionHeader}>
+          <div
+            className={`${styles.memorySectionIcon} ${styles.memorySectionIconPrimary}`}
+          >
+            LLM
+          </div>
+          <div>
+            <h3>{t("agentConfig.memoryModelTitle")}</h3>
+            <p>{t("agentConfig.memoryModelDescription")}</p>
+          </div>
+        </div>
+        <Form.Item
+          label={t("agentConfig.memoryModelLabel")}
+          name={["reme_light_memory_config", "memory_model"]}
+        >
+          <MemoryModelChoice />
+        </Form.Item>
       </section>
 
       <div className={styles.memoryConfigGrid}>

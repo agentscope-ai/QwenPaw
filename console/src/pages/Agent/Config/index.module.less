@@ -345,14 +345,14 @@
 
 .memoryServiceStatusLine {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
-  white-space: nowrap;
 }
 
 .memoryServiceStatusLine .memoryReferences {
-  flex: none;
+  flex-wrap: wrap;
   margin: 0;
   font-size: var(--app-font-caption);
   line-height: 1.35;

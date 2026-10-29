@@ -71,9 +71,15 @@ from ...config.config import (
     update_agent_config_async,
     AgentProfileConfig,
     EmbeddingModelConfig,
+    ModelSlotConfig,
     RerankerConfig,
 )
 from ...exceptions import ProviderError
+from ...providers import ProviderManager
+from ...providers.fallback_chat_model import (
+    FallbackChatModel,
+    get_model_identity,
+)
 from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
@@ -553,15 +559,104 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         *,
         require_image_support: bool = False,
     ) -> "ChatModelBase | None":
-        """Reuse QwenPaw's active model in ReMe's default LLM component."""
+        """Inject the memory-writing model into ReMe's default LLM component.
+
+        Uses the optional ``memory_model`` slot when configured, so memory
+        jobs (auto-memory / auto-dream / daily-paper / auto-fin) can run on
+        a lighter model than the agent's chat model.  Falls back to the
+        agent's main model when the configured slot is unavailable.
+        """
         if self._reme is None:
             return None
 
-        model, _formatter = await create_model_and_formatter_async(
-            self.agent_id,
-            require_image_support=require_image_support,
-            resize_images_to_max_bytes=True,
+        try:
+            agent_config = await load_agent_config_async(self.agent_id)
+        except Exception as exc:
+            # The factory already tolerates unreadable agent configuration
+            # and may still resolve a usable global model. Preserve that path.
+            logger.warning(
+                "Unable to read memory model config for agent '%s'; "
+                "using the default model factory: %s",
+                self.agent_id,
+                exc,
+            )
+            agent_config = None
+        memory_slot = (
+            await run_sync_io(self._memory_model_slot, agent_config)
+            if agent_config is not None
+            else None
         )
+        model_kwargs: dict[str, Any] = {
+            "agent_config": agent_config,
+            "require_image_support": require_image_support,
+            "resize_images_to_max_bytes": True,
+        }
+        try:
+            main_model, _formatter = await create_model_and_formatter_async(
+                self.agent_id,
+                **model_kwargs,
+            )
+        except Exception as exc:
+            if memory_slot is None:
+                raise
+            logger.warning(
+                "Main model unavailable for agent '%s'; trying the "
+                "dedicated memory model without a main-model fallback: %s",
+                self.agent_id,
+                exc,
+            )
+            main_model = None
+        model = main_model
+        if memory_slot is not None and (
+            main_model is None
+            or get_model_identity(main_model)
+            != (
+                memory_slot.provider_id,
+                memory_slot.model,
+            )
+        ):
+            try:
+                (
+                    memory_model,
+                    _formatter,
+                ) = await create_model_and_formatter_async(
+                    self.agent_id,
+                    model_slot_override=memory_slot,
+                    **model_kwargs,
+                )
+            except Exception as exc:
+                if main_model is None:
+                    raise
+                # Provider SDKs can reject credentials during construction
+                # with ValueError, before model-call fallback exists.
+                logger.warning(
+                    "Memory model '%s:%s' unavailable; using the agent's "
+                    "main model for memory jobs: %s",
+                    memory_slot.provider_id,
+                    memory_slot.model,
+                    exc,
+                )
+            else:
+                from ..prompt import get_model_supports_image
+
+                if main_model is None or (
+                    require_image_support
+                    and await run_sync_io(
+                        get_model_supports_image,
+                        memory_model,
+                    )
+                    and not await run_sync_io(
+                        get_model_supports_image,
+                        main_model,
+                    )
+                ):
+                    # Never send memory images to a text-only main model.
+                    model = memory_model
+                else:
+                    model = FallbackChatModel(
+                        [memory_model, main_model],
+                        fallback_on_any_error=True,
+                    )
         await self._reme.update_component(
             "as_llm",
             "default",
@@ -614,6 +709,44 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             "auto_memory_with_tags"
             if config.auto_memory_generate_tags
             else "auto_memory"
+        )
+
+    def _memory_model_slot(
+        self,
+        agent_config: AgentProfileConfig,
+    ) -> ModelSlotConfig | None:
+        """Return the configured memory-writing model slot, if any.
+
+        A bare model name (empty ``provider_id``) inherits the provider of
+        the agent's main model.  Returns ``None`` when no usable slot is
+        configured.
+        """
+        slot = agent_config.running.reme_light_memory_config.memory_model
+        if slot is None or not slot.model.strip():
+            if slot is not None:
+                logger.warning(
+                    "Ignoring unusable memory_model %r for agent '%s'",
+                    slot.model_dump(),
+                    self.agent_id,
+                )
+            return None
+        if slot.provider_id.strip():
+            return slot
+        active_model = agent_config.active_model
+        provider_id = active_model.provider_id if active_model else ""
+        if not provider_id:
+            global_model = ProviderManager.get_instance().get_active_model()
+            provider_id = global_model.provider_id if global_model else ""
+        if not provider_id:
+            logger.warning(
+                "Memory model '%s' has no provider and the agent's main "
+                "model does not resolve one; using the main model instead",
+                slot.model,
+            )
+            return None
+        return ModelSlotConfig(
+            provider_id=provider_id,
+            model=slot.model.strip(),
         )
 
     async def test_and_stage_embedding(
