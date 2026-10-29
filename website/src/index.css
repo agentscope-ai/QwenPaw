@@ -348,6 +348,22 @@ button {
   margin-left: auto;
 }
 
+/* Keep paired benchmark figures aligned while preserving click-to-zoom. */
+.docs-content.blog-content .blog-figure-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+  margin: 1.5rem 0;
+}
+
+.docs-content.blog-content .blog-figure-grid > img {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+}
+
 .blog-content--sessions > p:first-child,
 .blog-content--sessions > hr:first-of-type {
   display: none;
