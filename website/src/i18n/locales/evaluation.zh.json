@@ -69,16 +69,16 @@
   "sourceResults": "单项结果来源",
   "benchmarkSetting": "评测设置与官方可比性",
   "benchmarkNotes": {
-    "gaia": "使用 GAIA validation 全量 165 题，经 Harbor 与 ACP 执行，以归一化答案匹配计算准确率，异常计 0。官方主榜使用 test 集，本子榜使用公开的 validation 集。该评测不使用 LLM judge。",
-    "spreadsheetbench-verified": "使用 SpreadsheetBench V1 Verified 400 题，经 LibreOffice 重算后比较目标单元格，异常计 0。官方 V1 Full 包含 912 题，本子榜采用其中的 Verified 子集。该评测使用程序评分，不调用 LLM judge。",
-    "swebench-verified": "使用 SWE-bench Verified 全量 500 题，应用 agent 提交的补丁并运行仓库测试，以解决率计分，异常计 0。题集和测试评分遵循 SWE-bench Verified，本次通过 Harbor 与 ACP 执行并允许联网。该评测不使用 LLM judge。",
-    "pawbench": "使用 PawBench v1.0 的 150 题，按各题原有程序评分与模型评分权重计算均分，异常计 0。本子榜的模型评审使用 qwen3.8-max，官方公布成绩使用 Claude Opus 4.6。两者的 judge 模型不同，比较分数时需结合这一设置。"
+    "gaia": "使用 GAIA validation 全量 165 题，经 Harbor 与 ACP 执行，以归一化答案匹配计算准确率，无有效评分的题目计 0。官方主榜使用 test 集，本子榜使用公开的 validation 集。该评测不使用 LLM judge。",
+    "spreadsheetbench-verified": "使用 SpreadsheetBench V1 Verified 400 题，经 LibreOffice 重算后比较目标单元格，无有效评分的题目计 0。官方 V1 Full 包含 912 题，本子榜采用其中的 Verified 子集。该评测使用程序评分，不调用 LLM judge。",
+    "swebench-verified": "使用 SWE-bench Verified 全量 500 题，应用 agent 提交的补丁并运行仓库测试，以解决率计分，无有效评分的题目计 0。题集和测试评分遵循 SWE-bench Verified，本次通过 Harbor 与 ACP 执行并允许联网。该评测不使用 LLM judge。",
+    "pawbench": "使用 PawBench v1.0 的 150 题，按各题原有程序评分与模型评分权重计算均分，无有效评分的题目计 0。本子榜的模型评审使用 qwen3.8-max，官方公布成绩使用 Claude Opus 4.6。两者的 judge 模型不同，比较分数时需结合这一设置。"
   },
   "benchmarkSet": "评测集组合",
   "runBudget": "上下文上限 {{contextTokens}} tokens · 输出上限 {{output}} tokens",
   "notRecorded": "未记录",
   "costCoverage": "费用记录 {{known}}/{{total}} 题",
-  "partialCostNote": "费用按已确认调用的用量计算，未确认消耗不计入，不能视为账单总额；各评测集均值仍按 1/4 加权。用时为已记录题目的端到端平均用时，包含环境准备与评分。",
+  "partialCostNote": "费用仅计已记录的模型调用金额，不含 Judge 及未记录消耗，不能视为账单总额。成绩、费用和用时使用所选评测集权重；用时包含环境准备与评分。",
   "methodology": "统计口径",
   "qwenpawDefault": "QwenPaw · 默认模式",
   "zoomIn": "放大",
@@ -87,22 +87,12 @@
   "panRight": "向右平移",
   "resetChart": "重置视图",
   "exportChart": "导出图表",
-  "selectedBenchmarks": "已选 {{count}} 项",
-  "editWeights": "编辑",
-  "editBenchmarks": "评测集与权重",
-  "presetWeights": "预设",
   "customWeights": "自定义加权",
-  "relativeWeight": "相对权重",
   "effectiveWeight": "实际占比",
-  "weightsHelp": "输入相对权重即可自动换算百分比。例如仅选两项，输入 60 和 40，即为 60% 和 40%。成绩、费用和用时沿用同一组权重。",
   "resetWeights": "恢复预设",
-  "weightTotal": "合计 100%",
-  "invalidWeights": "请至少选择一项，并填写正数权重。",
   "applyWeights": "应用",
   "closeWeights": "关闭权重编辑",
   "scoringVersion": "评分版本",
-  "viewWeighting": "当前视图权重",
-  "weightsHelpLabel": "评测集权重说明",
   "qwenpawGoal": "QwenPaw · Goal 模式",
   "qwenpawCode": "QwenPaw · Code 模式",
   "harness": "执行模式",
@@ -110,5 +100,47 @@
   "lowerHalf": "下半圆：",
   "defaultMode": "默认",
   "goalMode": "Goal",
-  "codeMode": "Code"
+  "codeMode": "Code",
+  "guideTitle": "评测集说明",
+  "guideIntro": "根据实际工作，选择适合的 QwenPaw SDK 版本、运行模式与模型。四项评测分别覆盖信息研究、表格办公、代码修复与综合 Agent 任务。",
+  "guideScope": "本次采用题集",
+  "guideScoring": "如何评分",
+  "tasks": "题",
+  "officialSource": "官方评测介绍",
+  "guideCompareTitle": "从你的使用领域开始比较",
+  "guideCompare": "先找到接近实际工作的领域，再比较 SDK 版本、Default、Goal、Code 模式与模型。总榜默认四项各占 25%；关闭标签、添加评测集或修改占比，即可按自己的需求加权。",
+  "guideMetrics": "先计算各评测集的逐题均分，再按所选权重合成。执行报错但有有效 verifier 评分时保留该评分，没有有效评分的题目记 0。图中费用仅计已记录的模型调用金额，不含 Judge；用时包含环境准备与评分。",
+  "markerStyle": "数据点样式",
+  "splitDots": "双色圆点",
+  "logoMarkers": "Logo",
+  "editShare": "修改 {{benchmark}} 的占比",
+  "removeBenchmark": "移除 {{benchmark}}",
+  "addBenchmark": "添加评测集",
+  "keepOneBenchmark": "至少保留一个评测集",
+  "shareHelp": "其余评测集按原比例分配剩余权重，合计保持 100%。",
+  "singleBenchmarkWeight": "只选一个评测集时占比为 100%。添加其他评测集后即可调整。",
+  "invalidShare": "请输入大于 0%、小于 100% 的占比。",
+  "guideBenchmarks": {
+    "gaia": {
+      "purpose": "跨来源查找、核对与整合信息，结合网页浏览和文件处理回答事实性问题。",
+      "scope": "公开 validation 集全量 165 题；官方主榜采用 test 集。",
+      "scoring": "归一化答案匹配，不使用模型 Judge。"
+    },
+    "spreadsheetbench-verified": {
+      "purpose": "操作真实电子表格，完成数据整理、公式处理与工作簿修改。",
+      "scope": "V1 Verified 专家核验子集，共 400 题；原始 SpreadsheetBench 完整题集为 912 题。",
+      "scoring": "通过 LibreOffice 重算后比较目标单元格，不使用模型 Judge。"
+    },
+    "swebench-verified": {
+      "purpose": "解决真实 GitHub issue，考察仓库理解、代码修改与补丁验证能力。",
+      "scope": "SWE-bench Verified 人工核验全量 500 题，通过 Harbor 与 ACP 执行，允许联网。",
+      "scoring": "应用提交的补丁并运行仓库测试，按问题解决率计分。"
+    },
+    "pawbench": {
+      "purpose": "完成包含工具使用、技能执行、信息检索与产物交付的综合 Agent 工作流。",
+      "scope": "采用 PawBench v1.0 题包，全量 150 题。",
+      "scoring": "保留每题程序评分与模型评分的原有权重。本 Index 的模型 Judge 为 qwen3.8-max，官方发布使用 Claude Opus 4.6。"
+    }
+  },
+  "indexIntro": "按工作领域，比较 QwenPaw 版本、模式与模型。"
 }

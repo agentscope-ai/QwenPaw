@@ -11,6 +11,7 @@ import {
   ExternalLink,
   Search,
   CircleHelp,
+  BookOpen,
 } from "lucide-react";
 import Chart from "./Chart";
 import Dot, { providerColor } from "./Dot";
@@ -71,10 +72,23 @@ export default function Evaluation() {
   );
   const [search, setSearch] = useState("");
   const [showHistory, setShowHistory] = useState(true);
+  const [markerStyle, setMarkerStyle] = useState<"dots" | "logos">("dots");
+  const [selectedRow, setSelectedRow] = useState<string | null>(null);
   const [showTable, setShowTable] = useState(true);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [onlyFrontier, setOnlyFrontier] = useState(false);
   const [methodologyOpen, setMethodologyOpen] = useState(false);
+  const selectChartRow = (row: Row) => {
+    setSearch("");
+    setOnlyFrontier(false);
+    setShowTable(true);
+    setSelectedRow(row.id);
+    requestAnimationFrame(() => {
+      const element = document.getElementById(`evaluation-row-${row.id}`);
+      element?.scrollIntoView({ block: "center", inline: "nearest" });
+      element?.focus({ preventScroll: true });
+    });
+  };
   const kind = "official";
   const [boardId, setBoardId] = useState("");
   const [protocol, setProtocol] = useState("");
@@ -261,8 +275,13 @@ export default function Evaluation() {
           />
           <div>
             <h1>{t("headline")}</h1>
+            <p className="evaluation-intro">{t("indexIntro")}</p>
           </div>
         </div>
+        <Link to="/evaluation/benchmarks" className="evaluation-guide-link">
+          <BookOpen size={17} />
+          {t("guideTitle")}
+        </Link>
       </header>
       {id ? (
         <section className="evaluation-detail">
@@ -365,6 +384,9 @@ export default function Evaluation() {
               <div className="evaluation-board-controls">
                 <BenchmarkWeightsEditor
                   benchmarks={benchmarks}
+                  domains={Object.fromEntries(
+                    parts.map((part) => [part.benchmark, part.domains[0]]),
+                  )}
                   defaults={defaults}
                   value={customWeights}
                   onApply={setCustomWeights}
@@ -408,6 +430,22 @@ export default function Evaluation() {
                 )}
               </div>
               <div className="evaluation-display-controls">
+                <div
+                  className="evaluation-marker-switch"
+                  role="group"
+                  aria-label={t("markerStyle")}
+                >
+                  {(["dots", "logos"] as const).map((style) => (
+                    <button
+                      type="button"
+                      key={style}
+                      aria-pressed={markerStyle === style}
+                      onClick={() => setMarkerStyle(style)}
+                    >
+                      {t(style === "dots" ? "splitDots" : "logoMarkers")}
+                    </button>
+                  ))}
+                </div>
                 <label>
                   <input
                     type="checkbox"
@@ -435,18 +473,19 @@ export default function Evaluation() {
                 title={title}
                 compareHarnesses={compareHarnesses}
                 history={showHistory}
-                onSelect={navigateRow}
+                markerStyle={markerStyle}
+                onSelect={selectChartRow}
               />
             </div>
-            <div className="evaluation-legend">
-              <span>
+            <div className="evaluation-legend" data-style={markerStyle}>
+              <span className="evaluation-dot-legend">
                 {t("upperHalf")}
                 <i style={{ background: providerColor("qwen") }} />
                 Qwen
                 <i style={{ background: providerColor("glm") }} />
                 GLM
               </span>
-              <span>
+              <span className="evaluation-dot-legend">
                 {t("lowerHalf")}
                 <i style={{ background: "#FF7F16" }} />
                 QwenPaw
@@ -457,14 +496,23 @@ export default function Evaluation() {
                 ["qwenpaw-code", "codeMode"],
               ].map(([harness, label]) => (
                 <span key={harness}>
-                  <svg
-                    width={24}
-                    height={24}
-                    viewBox="-12 -12 24 24"
-                    aria-hidden="true"
-                  >
-                    <Dot model="qwen" harness={harness} radius={7} />
-                  </svg>
+                  {markerStyle === "logos" ? (
+                    <img
+                      className="evaluation-mode-logo evaluation-legend-harness"
+                      data-mode={harness}
+                      src={harnessLogo(harness)}
+                      alt=""
+                    />
+                  ) : (
+                    <svg
+                      width={24}
+                      height={24}
+                      viewBox="-12 -12 24 24"
+                      aria-hidden="true"
+                    >
+                      <Dot model="qwen" harness={harness} radius={7} />
+                    </svg>
+                  )}
                   {t(label)}
                 </span>
               ))}
@@ -660,6 +708,10 @@ export default function Evaluation() {
                     {ordered.map((row) => (
                       <tr
                         key={row.id}
+                        id={`evaluation-row-${row.id}`}
+                        tabIndex={-1}
+                        data-selected={selectedRow === row.id}
+                        aria-selected={selectedRow === row.id}
                         className={best.has(row.id) ? "best" : ""}
                       >
                         <td>
@@ -670,7 +722,13 @@ export default function Evaluation() {
                               <CircleHelp size={22} aria-hidden="true" />
                             )}
                             <div>
-                              <strong>{row.model}</strong>
+                              <button
+                                type="button"
+                                className="evaluation-row-detail"
+                                onClick={() => navigateRow(row)}
+                              >
+                                {row.model}
+                              </button>
                               {row.provider && <small>{row.provider}</small>}
                               {best.has(row.id) && (
                                 <small>{t("bestShort")}</small>

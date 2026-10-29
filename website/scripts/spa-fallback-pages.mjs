@@ -53,6 +53,7 @@ async function main() {
     "docs",
     "usage-policy",
     "evaluation",
+    "evaluation/benchmarks",
     "docs/search",
     ...DOC_SLUGS.map((s) => `docs/${s}`),
     "blog",

@@ -1,235 +1,214 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Dialog, Popover } from "radix-ui";
-import { CircleHelp, Pencil, RotateCcw, X } from "lucide-react";
+import { useState } from "react";
+import { Popover } from "radix-ui";
+import { Plus, RotateCcw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { normalizeWeights, type BenchmarkWeights } from "./types";
 
 export default function BenchmarkWeightsEditor({
   benchmarks,
+  domains,
   defaults,
   value,
   onApply,
 }: {
   benchmarks: Record<string, string>;
+  domains: Record<string, string>;
   defaults: BenchmarkWeights;
   value: BenchmarkWeights | null;
   onApply: (weights: BenchmarkWeights | null) => void;
 }) {
   const { t, i18n } = useTranslation("evaluation");
-  const [open, setOpen] = useState(false);
-  const [mobile, setMobile] = useState(
-    () => window.matchMedia("(max-width: 700px)").matches,
-  );
-  const [draft, setDraft] = useState<Record<string, string>>({});
-  const [selected, setSelected] = useState<string[]>([]);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
   const current = value ?? defaults;
+  const selected = Object.keys(current);
+  const available = Object.keys(defaults).filter((id) => !(id in current));
   const percent = (weight: number) =>
     new Intl.NumberFormat(i18n.language, {
       style: "percent",
       maximumFractionDigits: 1,
     }).format(weight);
-  useEffect(() => {
-    const query = window.matchMedia("(max-width: 700px)");
-    const update = () => setMobile(query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  const reset = (weights: BenchmarkWeights) => {
-    setSelected(Object.keys(weights));
-    setDraft(
-      Object.fromEntries(
-        Object.keys(defaults).map((id) => [
-          id,
-          String(Number(((weights[id] ?? defaults[id]) * 100).toFixed(3))),
-        ]),
-      ),
-    );
-  };
-  const changeOpen = (next: boolean) => {
-    if (next) reset(current);
-    setOpen(next);
-  };
-  const valid =
-    selected.length > 0 &&
-    selected.every(
-      (id) =>
-        draft[id]?.trim() !== "" &&
-        Number.isFinite(Number(draft[id])) &&
-        Number(draft[id]) > 0,
-    ) &&
-    Number.isFinite(selected.reduce((sum, id) => sum + Number(draft[id]), 0));
-  const normalized = valid
-    ? normalizeWeights(
-        Object.fromEntries(selected.map((id) => [id, Number(draft[id])])),
-      )
-    : {};
-  const apply = () => {
-    if (!valid) return;
+  const apply = (weights: BenchmarkWeights) => {
+    const normalized = normalizeWeights(weights);
     const preset =
-      Object.keys(defaults).length === selected.length &&
+      Object.keys(defaults).length === Object.keys(normalized).length &&
       Object.entries(defaults).every(
         ([id, weight]) => Math.abs(weight - (normalized[id] ?? 0)) < 0.00001,
       );
     onApply(preset ? null : normalized);
-    setOpen(false);
+    setEditing(null);
   };
-  const trigger = (
-    <button
-      type="button"
-      className="evaluation-weight-trigger"
-      disabled={!Object.keys(defaults).length}
-    >
-      <span>
-        {t("benchmarkSet")} ·{" "}
-        {t("selectedBenchmarks", { count: Object.keys(current).length })}
-      </span>
-      <Pencil size={14} aria-hidden="true" />
-      {t("editWeights")}
-    </button>
-  );
-  const summary = (
-    <div className="evaluation-weight-summary" aria-live="polite">
-      <strong>{t(value === null ? "presetWeights" : "customWeights")}</strong>
-      {Object.entries(current).map(([id, weight]) => (
-        <span key={id}>
-          {benchmarks[id]} <b>{percent(weight)}</b>
-        </span>
-      ))}
-    </div>
-  );
-  const body = (
-    <>
-      <div className="evaluation-weight-heading">
-        <span>{t("relativeWeight")}</span>
+  const valid =
+    draft.trim() !== "" &&
+    Number.isFinite(Number(draft)) &&
+    Number(draft) > 0 &&
+    Number(draft) < 100;
+  const setShare = (id: string, share: number) => {
+    const keys = id in current ? selected : [...selected, id];
+    apply(
+      Object.fromEntries(
+        keys.map((key) => [
+          key,
+          key === id
+            ? share
+            : (current[key] / (1 - (current[id] ?? 0))) * (1 - share),
+        ]),
+      ),
+    );
+  };
+  return (
+    <div className="evaluation-weight-control" aria-label={t("benchmarkSet")}>
+      <div className="evaluation-benchmark-tabs">
+        {selected.map((id) => (
+          <div
+            className="evaluation-benchmark-tab"
+            data-editing={editing === id}
+            key={id}
+          >
+            <Popover.Root
+              open={editing === id}
+              onOpenChange={(open) => {
+                setEditing(open ? id : null);
+                if (open)
+                  setDraft(String(Number((current[id] * 100).toFixed(3))));
+              }}
+            >
+              <Popover.Trigger asChild>
+                <button type="button" className="evaluation-tab-edit">
+                  <small>{t(`domains.${domains[id]}`)}</small>
+                  <span>{benchmarks[id]}</span>
+                  <b>{percent(current[id])}</b>
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  className="evaluation-weight-panel"
+                  align="start"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  aria-label={t("editShare", { benchmark: benchmarks[id] })}
+                >
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (selected.length > 1 && valid)
+                        setShare(id, Number(draft) / 100);
+                    }}
+                  >
+                    <header>
+                      <h2>{benchmarks[id]}</h2>
+                      <Popover.Close aria-label={t("closeWeights")}>
+                        <X size={16} />
+                      </Popover.Close>
+                    </header>
+                    <label className="evaluation-share-input">
+                      {t("effectiveWeight")}
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="any"
+                        inputMode="decimal"
+                        value={draft}
+                        disabled={selected.length === 1}
+                        onChange={(event) => setDraft(event.target.value)}
+                      />
+                      <span>%</span>
+                    </label>
+                    <p>
+                      {t(
+                        selected.length === 1
+                          ? "singleBenchmarkWeight"
+                          : "shareHelp",
+                      )}
+                    </p>
+                    {selected.length > 1 && (
+                      <div className="evaluation-weight-footer">
+                        <span role="status">{!valid && t("invalidShare")}</span>
+                        <button
+                          type="submit"
+                          className="evaluation-weight-apply"
+                          disabled={!valid}
+                        >
+                          {t("applyWeights")}
+                        </button>
+                      </div>
+                    )}
+                  </form>
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+            <button
+              type="button"
+              className="evaluation-tab-close"
+              aria-label={t("removeBenchmark", { benchmark: benchmarks[id] })}
+              title={
+                selected.length === 1
+                  ? t("keepOneBenchmark")
+                  : t("removeBenchmark", { benchmark: benchmarks[id] })
+              }
+              disabled={selected.length === 1}
+              onClick={() =>
+                apply(
+                  Object.fromEntries(
+                    Object.entries(current).filter(([key]) => key !== id),
+                  ),
+                )
+              }
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
         <Popover.Root>
           <Popover.Trigger asChild>
-            <button type="button" aria-label={t("weightsHelpLabel")}>
-              <CircleHelp size={16} />
+            <button
+              type="button"
+              className="evaluation-tab-add"
+              aria-label={t("addBenchmark")}
+              title={t("addBenchmark")}
+              disabled={!available.length}
+            >
+              <Plus size={18} />
             </button>
           </Popover.Trigger>
           <Popover.Portal>
             <Popover.Content
-              className="evaluation-methodology-tooltip"
-              sideOffset={6}
-              collisionPadding={12}
-            >
-              {t("weightsHelp")}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-        <span>{t("effectiveWeight")}</span>
-      </div>
-      <div className="evaluation-weight-rows">
-        {Object.keys(defaults).map((id) => (
-          <div className="evaluation-weight-row" key={id}>
-            <label>
-              <input
-                type="checkbox"
-                checked={selected.includes(id)}
-                onChange={(event) =>
-                  setSelected((ids) =>
-                    event.target.checked
-                      ? [...ids, id]
-                      : ids.filter((value) => value !== id),
-                  )
-                }
-              />
-              <span>{benchmarks[id]}</span>
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              inputMode="decimal"
-              aria-label={`${t("relativeWeight")} · ${benchmarks[id]}`}
-              value={draft[id] ?? ""}
-              disabled={!selected.includes(id)}
-              onChange={(event) =>
-                setDraft((values) => ({ ...values, [id]: event.target.value }))
-              }
-            />
-            <output>
-              {selected.includes(id) && valid ? percent(normalized[id]) : "—"}
-            </output>
-          </div>
-        ))}
-      </div>
-      <div className="evaluation-weight-footer">
-        <button type="button" onClick={() => reset(defaults)}>
-          <RotateCcw size={15} />
-          {t("resetWeights")}
-        </button>
-        <span
-          className={valid ? "" : "evaluation-weight-error"}
-          role={valid ? undefined : "status"}
-        >
-          {valid ? t("weightTotal") : t("invalidWeights")}
-        </span>
-        <button
-          className="evaluation-weight-apply"
-          type="submit"
-          disabled={!valid}
-        >
-          {t("applyWeights")}
-        </button>
-      </div>
-    </>
-  );
-  const close = (
-    <button
-      type="button"
-      aria-label={t("closeWeights")}
-      onClick={() => setOpen(false)}
-    >
-      <X size={18} />
-    </button>
-  );
-  const form = (title: ReactNode) => (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        apply();
-      }}
-    >
-      <header>
-        {title}
-        {close}
-      </header>
-      {body}
-    </form>
-  );
-  return (
-    <div className="evaluation-weight-control">
-      {mobile ? (
-        <Dialog.Root open={open} onOpenChange={changeOpen}>
-          <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
-          <Dialog.Portal>
-            <Dialog.Overlay className="evaluation-weight-overlay" />
-            <Dialog.Content
-              className="evaluation-weight-panel evaluation-weight-sheet"
-              aria-describedby={undefined}
-            >
-              {form(<Dialog.Title>{t("editBenchmarks")}</Dialog.Title>)}
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
-      ) : (
-        <Popover.Root open={open} onOpenChange={changeOpen}>
-          <Popover.Trigger asChild>{trigger}</Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              className="evaluation-weight-panel"
-              align="start"
+              className="evaluation-weight-panel evaluation-benchmark-add"
+              align="end"
               sideOffset={8}
               collisionPadding={12}
-              aria-label={t("editBenchmarks")}
+              aria-label={t("addBenchmark")}
             >
-              {form(<h2>{t("editBenchmarks")}</h2>)}
+              <h2>{t("addBenchmark")}</h2>
+              {available.map((id) => (
+                <Popover.Close asChild key={id}>
+                  <button
+                    type="button"
+                    onClick={() => setShare(id, defaults[id])}
+                  >
+                    <span>
+                      <small>{t(`domains.${domains[id]}`)}</small>
+                      {benchmarks[id]}
+                    </span>
+                    <Plus size={16} />
+                  </button>
+                </Popover.Close>
+              ))}
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+      </div>
+      {value !== null && (
+        <button
+          type="button"
+          className="evaluation-weight-reset"
+          onClick={() => onApply(null)}
+        >
+          <RotateCcw size={14} />
+          {t("resetWeights")}
+        </button>
       )}
-      {summary}
     </div>
   );
 }

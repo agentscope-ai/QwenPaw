@@ -10,19 +10,22 @@ import {
 } from "lucide-react";
 import { bestRows, frontier } from "./metrics";
 import Dot from "./Dot";
-import { harnessLabel, harnessLogo, logo, money, type Row } from "./types";
+import HarnessMark from "./HarnessMark";
+import { harnessLabel, logo, money, type Row } from "./types";
 
 export default function Chart({
   rows,
   title,
   compareHarnesses,
   history,
+  markerStyle,
   onSelect,
 }: {
   rows: Row[];
   title: string;
   compareHarnesses: boolean;
   history: boolean;
+  markerStyle: "dots" | "logos";
   onSelect: (row: Row) => void;
 }) {
   const { t, i18n } = useTranslation("evaluation");
@@ -121,18 +124,43 @@ export default function Chart({
       value,
     );
   const active = shown.find((r) => r.id === hovered);
-  const nearby = active
-    ? shown
-        .filter(
-          (row) =>
-            row.id === active.id ||
-            Math.hypot(
-              position(row) - position(active),
-              y(row.score!) - y(active.score!),
-            ) < 18,
-        )
-        .sort((a, b) => Number(b.id === active.id) - Number(a.id === active.id))
-    : [];
+  const pointAt = (event: { clientX: number; clientY: number }) => {
+    const bounds = svg.current!.getBoundingClientRect();
+    const pointerX = ((event.clientX - bounds.left) * width) / bounds.width;
+    const pointerY = ((event.clientY - bounds.top) * height) / bounds.height;
+    let nearest: Row | undefined;
+    let distance = 22;
+    for (const row of shown) {
+      if (position(row) < left - 16 || position(row) > right + 16) continue;
+      const dx = pointerX - position(row);
+      const dy = pointerY - y(row.score!);
+      const next =
+        markerStyle === "dots"
+          ? Math.hypot(dx, dy)
+          : Math.min(Math.hypot(dx, dy + 16), Math.hypot(dx, dy - 15));
+      if (next < distance) {
+        nearest = row;
+        distance = next;
+      }
+    }
+    return nearest;
+  };
+  const marker = (row: Row) =>
+    markerStyle === "dots" ? (
+      <Dot model={row.model} harness={row.harness} />
+    ) : (
+      <g pointerEvents="none">
+        <image href={logo(row.model)} x={-16} y={-32} width={32} height={32} />
+        <HarnessMark
+          row={row}
+          historical={row.sdk_version !== latestVersion}
+          className="evaluation-plot-harness"
+          x={-14}
+          y={1}
+          size={28}
+        />
+      </g>
+    );
   const exportImage = async () => {
     const copy = svg.current!.cloneNode(true) as SVGSVGElement;
     const style = getComputedStyle(container.current!);
@@ -222,12 +250,13 @@ export default function Chart({
       <svg
         ref={svg}
         viewBox={`0 0 ${width} ${height}`}
-        role="img"
+        role="group"
         aria-label={t("chartAlt", { title })}
         onDoubleClick={() => updateView(1, 0)}
         onPointerDown={(event) => {
           if (!event.isPrimary || event.button !== 0) return;
           dragged.current = false;
+          setHovered(pointAt(event)?.id ?? null);
           if (zoom === 1) return;
           drag.current = {
             pointerId: event.pointerId,
@@ -238,9 +267,15 @@ export default function Chart({
         }}
         onPointerMove={(event) => {
           const start = drag.current;
-          if (!start || start.pointerId !== event.pointerId) return;
+          if (!start || start.pointerId !== event.pointerId) {
+            setHovered(pointAt(event)?.id ?? null);
+            return;
+          }
           const delta = event.clientX - start.x;
-          if (!dragged.current && Math.abs(delta) < 4) return;
+          if (!dragged.current && Math.abs(delta) < 4) {
+            setHovered(pointAt(event)?.id ?? null);
+            return;
+          }
           dragged.current = true;
           setPanning(true);
           setHovered(null);
@@ -250,6 +285,11 @@ export default function Chart({
             zoom,
             start.offset - (delta * scale * range) / (end - left),
           );
+        }}
+        onPointerLeave={() => setHovered(null)}
+        onClick={(event) => {
+          const row = pointAt(event);
+          if (row) onSelect(row);
         }}
         onPointerUp={finishPan}
         onPointerCancel={finishPan}
@@ -362,11 +402,8 @@ export default function Chart({
               data-mode={r.harness}
               data-sdk={r.sdk_version}
               opacity={best.has(r.id) ? 1 : 0.55}
-              onPointerEnter={() => setHovered(r.id)}
-              onPointerLeave={() => setHovered(null)}
               onFocus={() => setHovered(r.id)}
               onBlur={() => setHovered(null)}
-              onClick={() => onSelect(r)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
@@ -381,11 +418,24 @@ export default function Chart({
                 r={22}
                 fill="transparent"
               />
-              <g transform={`translate(${position(r)},${y(r.score!)})`}>
-                <Dot model={r.model} harness={r.harness} />
+              <g
+                transform={`translate(${position(r)},${y(r.score!)})`}
+                opacity={active?.id === r.id ? 0 : 1}
+                pointerEvents="none"
+              >
+                {marker(r)}
               </g>
             </g>
           ))}
+          {active && (
+            <g
+              transform={`translate(${position(active)},${y(active.score!)})`}
+              pointerEvents="none"
+              aria-hidden="true"
+            >
+              <g className="evaluation-marker-raised">{marker(active)}</g>
+            </g>
+          )}
         </svg>
         {!shown.length && (
           <text x={width / 2} y={height / 2} textAnchor="middle">
@@ -405,89 +455,48 @@ export default function Chart({
                 position(active) + 20,
               ),
             ),
-            top: Math.max(
-              82,
-              Math.min(y(active.score!) - 80, height - 140 * nearby.length - 8),
-            ),
+            top: Math.max(82, Math.min(y(active.score!) - 80, height - 160)),
           }}
         >
-          {nearby.map((row) => (
-            <div className="evaluation-tooltip-record" key={row.id}>
-              <div className="evaluation-tooltip-heading">
-                <img src={logo(row.model)} alt="" />
-                <div>
-                  <strong>{row.model}</strong>
-                  <small>
-                    {t(harnessLabel(row.harness))} · v{row.sdk_version}
-                  </small>
-                </div>
-                <svg
-                  className="evaluation-mode-logo evaluation-tooltip-harness"
-                  data-mode={row.harness}
-                  viewBox="0 0 48 48"
-                  aria-label={`${t(harnessLabel(row.harness))} v${
-                    row.sdk_version
-                  }`}
-                >
-                  <image
-                    href={harnessLogo(row.harness)}
-                    width={48}
-                    height={48}
-                  />
-                  {row.sdk_version !== latestVersion && (
-                    <g className="evaluation-version-ring">
-                      <circle
-                        cx={24}
-                        cy={24}
-                        r={21}
-                        fill="none"
-                        stroke="white"
-                        strokeWidth={6}
-                      />
-                      <defs>
-                        <path
-                          id={`tooltip-sdk-${row.id}`}
-                          d="M 3 24 A 21 21 0 0 0 45 24"
-                        />
-                      </defs>
-                      <text fontSize={9} fontWeight={700} fill="#222222">
-                        <textPath
-                          href={`#tooltip-sdk-${row.id}`}
-                          startOffset="50%"
-                          textAnchor="middle"
-                        >
-                          v{row.sdk_version}
-                        </textPath>
-                      </text>
-                    </g>
-                  )}
-                </svg>
-              </div>
+          <div className="evaluation-tooltip-record">
+            <div className="evaluation-tooltip-heading">
+              <img src={logo(active.model)} alt="" />
               <div>
-                {t("score")}: {number(row.score!)} · {t("cost")}:{" "}
-                {money(row.cost, i18n.language, t("unknown"))}
-                {row.upperBound ? ` (${t("upperBound")})` : ""}
+                <strong>{active.model}</strong>
+                <small>
+                  {t(harnessLabel(active.harness))} · v{active.sdk_version}
+                </small>
               </div>
-              {row.partialCost && (
-                <div>
-                  {t("costCoverage", {
-                    known: row.costKnown,
-                    total: row.costTotal,
-                  })}
-                </div>
-              )}
-              <small>
-                {row.runtime === null
-                  ? t("unknown")
-                  : t("seconds", { value: number(Math.round(row.runtime)) })}
-                {" · "}
-                {new Intl.DateTimeFormat(i18n.language, {
-                  dateStyle: "medium",
-                  timeZone: "UTC",
-                }).format(new Date(row.run.date))}
-              </small>
+              <HarnessMark
+                row={active}
+                historical={active.sdk_version !== latestVersion}
+                className="evaluation-tooltip-harness"
+              />
             </div>
-          ))}
+            <div>
+              {t("score")}: {number(active.score!)} · {t("cost")}:{" "}
+              {money(active.cost, i18n.language, t("unknown"))}
+              {active.upperBound ? ` (${t("upperBound")})` : ""}
+            </div>
+            {active.partialCost && (
+              <div>
+                {t("costCoverage", {
+                  known: active.costKnown,
+                  total: active.costTotal,
+                })}
+              </div>
+            )}
+            <small>
+              {active.runtime === null
+                ? t("unknown")
+                : t("seconds", { value: number(Math.round(active.runtime)) })}
+              {" · "}
+              {new Intl.DateTimeFormat(i18n.language, {
+                dateStyle: "medium",
+                timeZone: "UTC",
+              }).format(new Date(active.run.date))}
+            </small>
+          </div>
         </div>
       )}
     </div>
