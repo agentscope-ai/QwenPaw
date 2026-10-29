@@ -226,14 +226,6 @@ export function Nav() {
                     <span>{t("nav.github")}</span>
                   </a>
                   <Link
-                    to="/evaluation"
-                    className={exploreMenuItemClass}
-                    onClick={() => setExploreOpen(false)}
-                  >
-                    <ChartNoAxesCombined size={18} />
-                    {t("evaluation:evaluation")}
-                  </Link>
-                  <Link
                     to="/release-notes"
                     className={exploreMenuItemClass}
                     onClick={() => setExploreOpen(false)}
@@ -252,6 +244,14 @@ export function Nav() {
                     <SparkChatAnywhereLineIcon size={18} />
                     <span>{t("nav.discussion")}</span>
                   </a>
+                  <Link
+                    to="/evaluation"
+                    className={exploreMenuItemClass}
+                    onClick={() => setExploreOpen(false)}
+                  >
+                    <ChartNoAxesCombined size={18} />
+                    {t("nav.index")}
+                  </Link>
                 </div>
               </div>
             )}
@@ -377,14 +377,6 @@ export function Nav() {
           <Globe size={18} strokeWidth={navIconStroke} /> {t("nav.lang")}
         </span>
         <Link
-          to="/evaluation"
-          className={navLinkOrangeClass}
-          onClick={() => setOpen(false)}
-        >
-          <ChartNoAxesCombined size={18} />
-          {t("evaluation:evaluation")}
-        </Link>
-        <Link
           to="/release-notes"
           className={navLinkOrangeClass}
           onClick={() => setOpen(false)}
@@ -402,6 +394,14 @@ export function Nav() {
           <SparkChatAnywhereLineIcon size={18} />
           {t("nav.discussion")}
         </a>
+        <Link
+          to="/evaluation"
+          className={navLinkOrangeClass}
+          onClick={() => setOpen(false)}
+        >
+          <ChartNoAxesCombined size={18} />
+          {t("nav.index")}
+        </Link>
         <Link
           to="/downloads"
           className={navLinkOrangeClass}

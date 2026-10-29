@@ -13,12 +13,14 @@ import {
   CircleHelp,
 } from "lucide-react";
 import Chart from "./Chart";
+import Dot, { providerColor } from "./Dot";
 import BenchmarkWeightsEditor from "./BenchmarkWeights";
 import EvaluationSelect from "./Select";
 import { bestRows, frontier } from "./metrics";
 import {
   defaultWeights,
   harnessLogo,
+  harnessLabel,
   type BenchmarkWeights,
   logo,
   money as formatMoney,
@@ -59,7 +61,7 @@ export default function Evaluation() {
   const listPosition = useRef<{ top: number; left: number } | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [data, setData] = useState<History>({
-    schema_version: 3,
+    schema_version: 4,
     runs: [],
   });
   const [error, setError] = useState("");
@@ -109,7 +111,7 @@ export default function Evaluation() {
       .then((history: History) => {
         if (cancelled) return;
         if (
-          history.schema_version !== 3 ||
+          history.schema_version !== 4 ||
           !Array.isArray(history.runs) ||
           history.runs.some(
             (run) =>
@@ -192,11 +194,8 @@ export default function Evaluation() {
     [rows, compareHarnesses],
   );
   const pareto = useMemo(
-    () =>
-      new Set(
-        frontier(rows.filter((row) => best.has(row.id))).map((row) => row.id),
-      ),
-    [rows, best],
+    () => new Set(frontier(rows).map((row) => row.id)),
+    [rows],
   );
   const tableRows = useMemo(
     () =>
@@ -303,17 +302,18 @@ export default function Evaluation() {
                     </div>
                   ))}
                 </dd>
-                <dt>{t("sourceSha")}</dt>
-                <dd>{detail.evaluation_sha ?? t("unknown")}</dd>
-                <dt>{t("artifactSha")}</dt>
-                <dd>{detail.artifact_sha256}</dd>
+                <dt>{t("sdk")}</dt>
+                <dd>{detailRow?.sdk_version}</dd>
+                <dt>{t("harness")}</dt>
+                <dd>{detailRow ? t(harnessLabel(detailRow.harness)) : ""}</dd>
                 <dt>{t("exchangeRate")}</dt>
                 <dd>1 USD = {detail.exchange_rate.cny_per_usd} CNY</dd>
                 <dt>{t("sourceResults")}</dt>
                 <dd>
                   {detail.source_results.map((source) => (
                     <div key={source.id}>
-                      {source.benchmark} · {date(source.date)} · {source.id}
+                      {benchmarks[source.benchmark] ?? source.benchmark} ·{" "}
+                      {date(source.date)}
                       <div>
                         {t("runBudget", {
                           contextTokens:
@@ -327,8 +327,6 @@ export default function Evaluation() {
                     </div>
                   ))}
                 </dd>
-                <dt>ID</dt>
-                <dd>{detail.id}</dd>
               </dl>
               {safeWorkflow(detail.workflow_url) && (
                 <a href={detail.workflow_url} target="_blank" rel="noreferrer">
@@ -442,9 +440,34 @@ export default function Evaluation() {
             </div>
             <div className="evaluation-legend">
               <span>
-                <i />
-                {t("best")}
+                {t("upperHalf")}
+                <i style={{ background: providerColor("qwen") }} />
+                Qwen
+                <i style={{ background: providerColor("glm") }} />
+                GLM
               </span>
+              <span>
+                {t("lowerHalf")}
+                <i style={{ background: "#FF7F16" }} />
+                QwenPaw
+              </span>
+              {[
+                ["qwenpaw", "defaultMode"],
+                ["qwenpaw-goal", "goalMode"],
+                ["qwenpaw-code", "codeMode"],
+              ].map(([harness, label]) => (
+                <span key={harness}>
+                  <svg
+                    width={24}
+                    height={24}
+                    viewBox="-12 -12 24 24"
+                    aria-hidden="true"
+                  >
+                    <Dot model="qwen" harness={harness} radius={7} />
+                  </svg>
+                  {t(label)}
+                </span>
+              ))}
               <span>
                 <i className="faded" />
                 {t("history")}
@@ -572,7 +595,7 @@ export default function Evaluation() {
                   <thead>
                     <tr>
                       <th>{t("model")}</th>
-                      {compareHarnesses && <th>Harness</th>}
+                      {compareHarnesses && <th>{t("harness")}</th>}
                       <th>{t("sdk")}</th>
                       <th
                         className="evaluation-numeric"
@@ -631,7 +654,6 @@ export default function Evaluation() {
                       </th>
                       <th>{t("coverage")}</th>
                       <th>{t("failureRate")}</th>
-                      <th>{t("evidence")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -665,20 +687,18 @@ export default function Evaluation() {
                           <td>
                             <div className="evaluation-model">
                               {harnessLogo(row.harness) && (
-                                <img alt="" src={harnessLogo(row.harness)} />
+                                <img
+                                  alt=""
+                                  src={harnessLogo(row.harness)}
+                                  className="evaluation-mode-logo"
+                                  data-mode={row.harness}
+                                />
                               )}
-                              {row.harness === "qwenpaw"
-                                ? t("qwenpawDefault")
-                                : row.harness}
+                              {t(harnessLabel(row.harness))}
                             </div>
                           </td>
                         )}
-                        <td>
-                          {row.sdk_version}
-                          <small>
-                            {row.source_sha?.slice(0, 8) ?? t("unknown")}
-                          </small>
-                        </td>
+                        <td>{row.sdk_version}</td>
                         <td className="evaluation-score evaluation-numeric">
                           {(row.score === null
                             ? undefined
@@ -766,12 +786,6 @@ export default function Evaluation() {
                           {row.failureRate === null
                             ? "—"
                             : `${(row.failureRate * 100).toFixed(1)}%`}
-                        </td>
-                        <td>
-                          <button onClick={() => navigateRow(row)}>
-                            {t("record")}
-                            <ExternalLink size={13} />
-                          </button>
                         </td>
                       </tr>
                     ))}

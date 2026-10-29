@@ -9,7 +9,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { bestRows, frontier } from "./metrics";
-import { logo, money, type Row } from "./types";
+import Dot from "./Dot";
+import { harnessLabel, harnessLogo, logo, money, type Row } from "./types";
 
 export default function Chart({
   rows,
@@ -57,9 +58,13 @@ export default function Chart({
   const top = mobile ? 116 : 66,
     bottom = height - 64;
   const best = bestRows(rows, compareHarnesses);
-  const shown = rows.filter(
-    (r) => r.score !== null && (history || best.has(r.id)),
-  );
+  const shown = rows
+    .filter((r) => r.score !== null && (history || best.has(r.id)))
+    .sort((a, b) => Number(best.has(a.id)) - Number(best.has(b.id)));
+  const sdkVersions = shown
+    .map((row) => row.sdk_version)
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const latestVersion = sdkVersions[sdkVersions.length - 1];
   const known = shown.filter((r) => r.cost !== null && r.cost > 0);
   const missing = shown.filter((r) => r.cost === null || r.cost === 0);
   const end = missing.length ? left + (right - left) * 0.87 : right;
@@ -99,9 +104,7 @@ export default function Chart({
     r.cost !== null && r.cost > 0
       ? x(r.cost)
       : end + (right - end) * (0.4 + (missing.indexOf(r) % 4) * 0.18);
-  const pareto = frontier(shown.filter((r) => best.has(r.id))).filter(
-    (r) => r.cost! > 0,
-  );
+  const pareto = frontier(shown).filter((r) => r.cost! > 0);
   const ticks: number[] = [];
   for (
     let exponent = Math.floor(low);
@@ -118,13 +121,25 @@ export default function Chart({
       value,
     );
   const active = shown.find((r) => r.id === hovered);
+  const nearby = active
+    ? shown
+        .filter(
+          (row) =>
+            row.id === active.id ||
+            Math.hypot(
+              position(row) - position(active),
+              y(row.score!) - y(active.score!),
+            ) < 18,
+        )
+        .sort((a, b) => Number(b.id === active.id) - Number(a.id === active.id))
+    : [];
   const exportImage = async () => {
     const copy = svg.current!.cloneNode(true) as SVGSVGElement;
     const style = getComputedStyle(container.current!);
     copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     copy.style.color = style.getPropertyValue("--eval-text");
     copy.style.background = style.getPropertyValue("--eval-surface");
-    for (const name of ["--eval-border", "--eval-accent"])
+    for (const name of ["--eval-border", "--eval-accent", "--eval-surface"])
       copy.style.setProperty(name, style.getPropertyValue(name));
     await Promise.all(
       Array.from(copy.querySelectorAll("image")).map(async (image) => {
@@ -335,25 +350,18 @@ export default function Chart({
             strokeWidth={1.5}
             strokeDasharray="7 6"
           />
-          {pareto.map((r) => (
-            <text
-              key={r.id}
-              x={position(r)}
-              y={y(r.score!) - 23}
-              textAnchor="middle"
-              fontSize={mobile ? 9 : 11}
-            >
-              {r.model}
-            </text>
-          ))}
           {shown.map((r) => (
             <g
               key={r.id}
               className="evaluation-chart-point"
               tabIndex={0}
               role="button"
-              aria-label={`${r.model}: ${number(r.score!)}`}
-              opacity={best.has(r.id) ? 1 : 0.23}
+              aria-label={`${r.model} · ${t(harnessLabel(r.harness))} · v${
+                r.sdk_version
+              }: ${number(r.score!)}`}
+              data-mode={r.harness}
+              data-sdk={r.sdk_version}
+              opacity={best.has(r.id) ? 1 : 0.55}
               onPointerEnter={() => setHovered(r.id)}
               onPointerLeave={() => setHovered(null)}
               onFocus={() => setHovered(r.id)}
@@ -363,32 +371,19 @@ export default function Chart({
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   if (!e.repeat) onSelect(r);
-                }
+                } else if (e.key === "Escape") setHovered(null);
               }}
             >
               <circle
+                className="evaluation-point-hit"
                 cx={position(r)}
                 cy={y(r.score!)}
-                r={20}
+                r={22}
                 fill="transparent"
               />
-              {logo(r.model) ? (
-                <image
-                  href={logo(r.model)}
-                  x={position(r) - 16}
-                  y={y(r.score!) - 16}
-                  width={32}
-                  height={32}
-                  pointerEvents="none"
-                />
-              ) : (
-                <circle
-                  cx={position(r)}
-                  cy={y(r.score!)}
-                  r={7}
-                  fill="var(--eval-accent)"
-                />
-              )}
+              <g transform={`translate(${position(r)},${y(r.score!)})`}>
+                <Dot model={r.model} harness={r.harness} />
+              </g>
             </g>
           ))}
         </svg>
@@ -406,44 +401,93 @@ export default function Chart({
             left: Math.max(
               8,
               Math.min(
-                width - Math.min(290, width - 16),
+                width - Math.min(330, width - 16) - 8,
                 position(active) + 20,
               ),
             ),
-            top: Math.max(44, y(active.score!) - 140),
+            top: Math.max(
+              82,
+              Math.min(y(active.score!) - 80, height - 140 * nearby.length - 8),
+            ),
           }}
         >
-          <strong>{active.model}</strong>
-          <br />
-          {active.harness === "qwenpaw"
-            ? t("qwenpawDefault")
-            : active.harness}{" "}
-          · SDK {active.sdk_version}
-          <br />
-          {t("score")}: {number(active.score!)}
-          <br />
-          {t("averageCost")}: {money(active.cost, i18n.language, t("unknown"))}
-          {active.upperBound ? ` (${t("upperBound")})` : ""}
-          <br />
-          {active.partialCost && (
-            <>
-              {t("costCoverage", {
-                known: active.costKnown,
-                total: active.costTotal,
-              })}
-              <br />
-            </>
-          )}
-          {t("averageRuntime")}:{" "}
-          {active.runtime === null
-            ? t("unknown")
-            : t("seconds", { value: number(Math.round(active.runtime)) })}
-          <br />
-          {new Intl.DateTimeFormat(i18n.language, {
-            dateStyle: "medium",
-            timeZone: "UTC",
-          }).format(new Date(active.run.date))}{" "}
-          · {best.has(active.id) ? t("bestShort") : t("history")}
+          {nearby.map((row) => (
+            <div className="evaluation-tooltip-record" key={row.id}>
+              <div className="evaluation-tooltip-heading">
+                <img src={logo(row.model)} alt="" />
+                <div>
+                  <strong>{row.model}</strong>
+                  <small>
+                    {t(harnessLabel(row.harness))} · v{row.sdk_version}
+                  </small>
+                </div>
+                <svg
+                  className="evaluation-mode-logo evaluation-tooltip-harness"
+                  data-mode={row.harness}
+                  viewBox="0 0 48 48"
+                  aria-label={`${t(harnessLabel(row.harness))} v${
+                    row.sdk_version
+                  }`}
+                >
+                  <image
+                    href={harnessLogo(row.harness)}
+                    width={48}
+                    height={48}
+                  />
+                  {row.sdk_version !== latestVersion && (
+                    <g className="evaluation-version-ring">
+                      <circle
+                        cx={24}
+                        cy={24}
+                        r={21}
+                        fill="none"
+                        stroke="white"
+                        strokeWidth={6}
+                      />
+                      <defs>
+                        <path
+                          id={`tooltip-sdk-${row.id}`}
+                          d="M 3 24 A 21 21 0 0 0 45 24"
+                        />
+                      </defs>
+                      <text fontSize={9} fontWeight={700} fill="#222222">
+                        <textPath
+                          href={`#tooltip-sdk-${row.id}`}
+                          startOffset="50%"
+                          textAnchor="middle"
+                        >
+                          v{row.sdk_version}
+                        </textPath>
+                      </text>
+                    </g>
+                  )}
+                </svg>
+              </div>
+              <div>
+                {t("score")}: {number(row.score!)} · {t("cost")}:{" "}
+                {money(row.cost, i18n.language, t("unknown"))}
+                {row.upperBound ? ` (${t("upperBound")})` : ""}
+              </div>
+              {row.partialCost && (
+                <div>
+                  {t("costCoverage", {
+                    known: row.costKnown,
+                    total: row.costTotal,
+                  })}
+                </div>
+              )}
+              <small>
+                {row.runtime === null
+                  ? t("unknown")
+                  : t("seconds", { value: number(Math.round(row.runtime)) })}
+                {" · "}
+                {new Intl.DateTimeFormat(i18n.language, {
+                  dateStyle: "medium",
+                  timeZone: "UTC",
+                }).format(new Date(row.run.date))}
+              </small>
+            </div>
+          ))}
         </div>
       )}
     </div>

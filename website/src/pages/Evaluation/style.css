@@ -643,13 +643,25 @@
   cursor: pointer;
   outline: none;
 }
-.evaluation-chart-point:focus-visible > circle {
+.evaluation-chart-point:focus-visible > .evaluation-point-hit {
   stroke: var(--eval-accent);
+}
+.evaluation-mode-logo[data-mode="qwenpaw-goal"] {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+.evaluation-mode-logo[data-mode="qwenpaw-code"] {
+  outline: 3px solid #111111;
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 .evaluation-point-tooltip {
   position: absolute;
   z-index: 2;
-  max-width: min(290px, calc(100% - 16px));
+  width: 330px;
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 6px;
   background: #242424;
@@ -893,4 +905,34 @@
   .evaluation-weight-control {
     width: 100%;
   }
+}
+
+.evaluation-tooltip-record + .evaluation-tooltip-record {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #ffffff33;
+}
+.evaluation-tooltip-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.evaluation-tooltip-heading > img {
+  width: 28px;
+  height: 28px;
+}
+.evaluation-tooltip-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.evaluation-tooltip-record small {
+  display: block;
+  font-size: 11px;
+  color: #ffffffcc;
+}
+.evaluation-tooltip-harness {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
 }

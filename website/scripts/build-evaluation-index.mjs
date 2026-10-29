@@ -1,6 +1,5 @@
 import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import Ajv from "ajv/dist/2020.js";
 import { check, summarize, validateDefinition } from "./evaluation-scoring.mjs";
@@ -61,37 +60,14 @@ for (const kind of ["official"]) {
       benchmarkIds.add(benchmark.id);
       summarize(benchmark, benchmark.id, "validation", input.exchange_rate);
     }
-    const key = JSON.stringify([
-      kind,
-      input.board.id,
-      input.candidate_hash,
-      input.profile_hash,
-    ]);
+    const key = JSON.stringify([kind, input.board.id, input.id]);
     const group = groups.get(key) ?? [];
-    if (group.length) {
-      for (const field of [
-        "model",
-        "harness",
-        "provider",
-        "sdk_version",
-        "source_sha",
-        "source_repository",
-        "artifact_sha256",
-        "board",
-        "parameters",
-        "exchange_rate",
-      ])
-        check(
-          isDeepStrictEqual(group[0][field], input[field]),
-          `${name}: inconsistent candidate metadata (${field})`,
-        );
-    }
     group.push(
       ...input.benchmarks.map((benchmark) => ({
         ...input,
+        publication_id: input.id,
         id: benchmark.observation_id,
         date: benchmark.date,
-        protocol_hash: benchmark.protocol_hash,
         benchmark,
       })),
     );
@@ -116,7 +92,9 @@ for (const observations of groups.values()) {
         if (
           input.benchmark.revision !== spec.revision ||
           input.benchmark.expected !== spec.expected ||
-          !isDeepStrictEqual(input.benchmark.judge, spec.judge)
+          !["kind", "model", "scorer", "prompt_revision"].every((field) =>
+            isDeepStrictEqual(input.benchmark.judge[field], spec.judge[field]),
+          )
         )
           continue;
         available.set(input.benchmark.id, input);
@@ -143,39 +121,24 @@ for (const observations of groups.values()) {
         }
       }
       const complete = parts.every((p) => p.score !== null);
-      const id = createHash("sha256")
-        .update(
-          JSON.stringify([
-            origin.kind,
-            origin.board.id,
-            origin.candidate_hash,
-            origin.profile_hash,
-            definition.id,
-            experiment,
-          ]),
-        )
-        .digest("hex")
-        .slice(0, 32);
+      const id = `${origin.publication_id}--${definition.id}`;
       check(!runIds.has(id), "Duplicate run ID");
       runIds.add(id);
       runs.push({
-        schema_version: 3,
+        schema_version: 4,
         kind: origin.kind,
         board: origin.board,
         index_version: definition.id,
         index_definition: definition,
         id,
         date,
-        evaluation_sha: origin.source_sha,
         source_repository: origin.source_repository,
-        artifact_sha256: origin.artifact_sha256,
         exchange_rate: origin.exchange_rate,
         workflow_url: "",
         source_results: [...available.values()].map((v) => ({
           id: v.id,
           date: v.date,
           benchmark: v.benchmark.id,
-          protocol_hash: v.protocol_hash,
           parameters: v.parameters,
         })),
         benchmark_versions: Object.values(definition.benchmarks),
@@ -186,9 +149,7 @@ for (const observations of groups.values()) {
             provider: origin.provider,
             harness: origin.harness,
             sdk_version: origin.sdk_version,
-            source_sha: origin.source_sha,
             source_repository: origin.source_repository,
-            artifact_sha256: origin.artifact_sha256,
             complete,
             benchmarks: parts,
           },
@@ -206,7 +167,7 @@ const target = new URL("../public/evaluation/data/", import.meta.url);
 await mkdir(target, { recursive: true });
 await writeFile(
   new URL("index.json", target),
-  JSON.stringify({ schema_version: 3, runs }, null, 2) + "\n",
+  JSON.stringify({ schema_version: 4, runs }, null, 2) + "\n",
 );
 console.log(
   `Evaluation index: ${runs.length} snapshots from ${

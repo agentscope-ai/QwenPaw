@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "id": {
       "type": "string",
@@ -15,43 +15,20 @@
       "format": "timestamp"
     },
     "kind": {
-      "enum": ["testing", "official"]
+      "enum": ["official"]
     },
     "experiment": {
       "type": "string",
       "minLength": 1
-    },
-    "candidate_hash": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
-    },
-    "profile_hash": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
     },
     "sdk_version": {
       "type": "string",
       "minLength": 1,
       "maxLength": 200
     },
-    "source_sha": {
-      "anyOf": [
-        {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
     "source_repository": {
       "type": "string",
       "format": "public-https-url"
-    },
-    "artifact_sha256": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
     },
     "provider": {
       "type": "string",
@@ -207,10 +184,6 @@
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9._-]{0,99}$"
           },
-          "protocol_hash": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{64}$"
-          },
           "date": {
             "type": "string",
             "format": "timestamp"
@@ -327,7 +300,6 @@
           "expected",
           "judge",
           "observation_id",
-          "protocol_hash",
           "date",
           "summary"
         ]
@@ -340,12 +312,8 @@
     "date",
     "kind",
     "experiment",
-    "candidate_hash",
-    "profile_hash",
     "sdk_version",
-    "source_sha",
     "source_repository",
-    "artifact_sha256",
     "provider",
     "model",
     "harness",

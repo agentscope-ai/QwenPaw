@@ -36,7 +36,7 @@
       "gaia": {
         "id": "gaia",
         "name": "GAIA",
-        "revision": "1.0:004eaeda9ac5017a1d51e09bc19914d994f878b6",
+        "revision": "1.0",
         "expected": 165,
         "judge": {
           "kind": "programmatic",
@@ -50,7 +50,7 @@
       "spreadsheetbench-verified": {
         "id": "spreadsheetbench-verified",
         "name": "SpreadsheetBench Verified",
-        "revision": "1.0:0ad7209b09780e78c6c80f194e49e353191be1cc",
+        "revision": "1.0",
         "expected": 400,
         "judge": {
           "kind": "programmatic",
@@ -64,7 +64,7 @@
       "swebench-verified": {
         "id": "swebench-verified",
         "name": "SWE-bench Verified",
-        "revision": "1.0:86723674f04e4209ac479d0fb75d9d9f44b4377e",
+        "revision": "1.0",
         "expected": 500,
         "judge": {
           "kind": "programmatic",
@@ -78,7 +78,7 @@
       "pawbench": {
         "id": "pawbench",
         "name": "PawBench",
-        "revision": "agentscope-ai/pawbench@4:sha256:b4e0ac2e4d5614fd46735f3ece1fb98207e02ea5818b07f9d5545f97fdde2bfe",
+        "revision": "agentscope-ai/pawbench@4",
         "expected": 150,
         "judge": {
           "kind": "llm",

@@ -29,14 +29,12 @@ export interface RecordResult {
   model: string;
   harness: string;
   sdk_version: string;
-  source_sha: string | null;
   source_repository: string;
-  artifact_sha256: string;
   complete: boolean;
   benchmarks: Benchmark[];
 }
 export interface Run {
-  schema_version: 3;
+  schema_version: 4;
   board: { id: string; name: string; group_by: "model" | "model_harness" };
   index_version: string;
   index_definition: {
@@ -55,14 +53,11 @@ export interface Run {
     id: string;
     date: string;
     benchmark: string;
-    protocol_hash: string;
     parameters: Record<string, number | null>;
   }[];
   id: string;
   kind: "testing" | "official";
-  evaluation_sha: string | null;
   source_repository: string;
-  artifact_sha256: string;
   exchange_rate: { cny_per_usd: number; basis: "fixed" };
   date: string;
   workflow_url: string;
@@ -70,7 +65,7 @@ export interface Run {
   complete: boolean;
 }
 export interface History {
-  schema_version: 3;
+  schema_version: 4;
   runs: Run[];
 }
 export interface Row extends RecordResult {
@@ -89,6 +84,8 @@ export interface Row extends RecordResult {
 export function harnessLogo(name: string): string | undefined {
   const files: Record<string, string> = {
     qwenpaw: "qwenpaw.png",
+    qwenpawgoal: "qwenpaw.png",
+    qwenpawcode: "qwenpaw.png",
     codex: "codex.svg",
     claudecode: "claudecode.svg",
     deepseekharness: "deepseekharness.svg",
@@ -97,6 +94,14 @@ export function harnessLogo(name: string): string | undefined {
   return file
     ? `${import.meta.env.BASE_URL}evaluation/logos/${file}`
     : undefined;
+}
+export function harnessLabel(harness: string): string {
+  const labels: Record<string, string> = {
+    qwenpaw: "qwenpawDefault",
+    "qwenpaw-goal": "qwenpawGoal",
+    "qwenpaw-code": "qwenpawCode",
+  };
+  return labels[harness] ?? harness;
 }
 export type BenchmarkWeights = Record<string, number>;
 

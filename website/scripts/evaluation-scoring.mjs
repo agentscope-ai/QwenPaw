@@ -54,10 +54,7 @@ export function summarize(input, benchmark, direction, rate) {
   const summary = b.summary;
   const failed = Object.values(summary.failures).reduce((a, b) => a + b, 0);
   check(failed <= b.expected, "Failure count exceeds expected tasks");
-  check(
-    summary.score_sum <= b.expected - failed,
-    "Score sum includes failed tasks or exceeds task count",
-  );
+  check(summary.score_sum <= b.expected, "Score sum exceeds task count");
   for (const role of ["model", "judge"]) {
     const count = summary[`${role}_cost_count`];
     const value = summary[`${role}_cost`];
