@@ -17,10 +17,13 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .base import ContextManager
 from ...config.history_path import resolve_history_db_path
+
+if TYPE_CHECKING:
+    from .scroll.history import HistoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +124,17 @@ def _warn_db_size(db_path: Path) -> None:
     )
 
 
+def create_history_store(db_path: Path) -> HistoryStore:
+    """Open the store for either a workspace or a standalone caller."""
+    from .scroll.history import HistoryStore
+
+    if not db_path.exists():
+        _warn_first_run(db_path)
+    else:
+        _warn_db_size(db_path)
+    return HistoryStore(db_path)
+
+
 def build_scroll_components(
     *,
     agent_config: Any,
@@ -129,6 +143,7 @@ def build_scroll_components(
     session_id: str,
     agent_id: str | None = None,
     offloader: Any = None,
+    history: HistoryStore | None = None,
 ) -> ScrollComponents | None:
     """Construct the scroll strategy's components, or ``None`` if not selected.
 
@@ -160,12 +175,11 @@ def build_scroll_components(
     # component can't be constructed, we log and return ``None`` so the agent
     # silently falls back to native context management instead of failing to
     # build. Native keeps full history in-context, so degrading is always safe.
-    history = None
+    owns_history = history is None
     try:
         # Imported lazily so the native path never pays for the scroll
         # machinery — and so a missing scroll dependency degrades to native
         # here rather than breaking import of this module.
-        from .scroll.history import HistoryStore
         from .scroll.manager import ScrollContextManager
         from .scroll.recall_tool import RecallLoopGuard, make_recall_history
         from .scroll.repl import make_recall_history_python
@@ -173,23 +187,21 @@ def build_scroll_components(
         sc = lcc.scroll_config
         trc = lcc.tool_result_pruning_config
         db_path = resolve_history_db_path(workspace_dir, sc.db_filename)
-        # First-run notice: scroll is the default as of this release, so agents
-        # that never set ``strategy`` are switched to it silently. The first
-        # time we wire scroll in a workspace we create ``history.db`` there;
-        # warn once (the file's absence is the first-run signal — it never
-        # repeats) so the switch, the new on-disk file, and the rollback path
-        # are all discoverable.
-        if not db_path.exists():
-            _warn_first_run(db_path)
+        # Config can change before the replacement workspace is committed.
+        # Such requests retain the standalone ownership path; never borrow
+        # a connection to the previous database (or an already closed one).
+        if history is None or not history.matches_path(db_path):
+            history = None
+            owns_history = True
+            history = create_history_store(db_path)
         else:
-            # Existing store: nudge toward a retention window if it grew large.
-            _warn_db_size(db_path)
-        history = HistoryStore(db_path)
+            history.check_pending_fts()
         recall_loop_guard = RecallLoopGuard()
         scratch_root = str(Path(workspace_dir) / ".scroll")
 
         manager = ScrollContextManager(
             history=history,
+            owns_history=owns_history,
             session_id=session_id,
             agent_id=agent_id,
             # Legacy dialog archive is opt-in; only hand the manager an
@@ -225,7 +237,7 @@ def build_scroll_components(
             recall_tool=recall,
         )
     except Exception:  # noqa: BLE001 - any scroll failure degrades to native
-        if history is not None:
+        if owns_history and history is not None:
             try:
                 history.close()
             except Exception:  # noqa: BLE001 - preserve fallback behavior

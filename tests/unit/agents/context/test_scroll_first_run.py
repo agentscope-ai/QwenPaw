@@ -147,8 +147,16 @@ def test_no_notice_when_strategy_is_native(tmp_path: Path, caplog):
     assert _notice_records(caplog) == []
 
 
-def test_wiring_failure_closes_history_store(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("borrowed", [False, True])
+def test_wiring_failure_closes_only_owned_history(
+    tmp_path: Path,
+    monkeypatch,
+    borrowed,
+):
+    from qwenpaw.agents.context.scroll.history import HistoryStore
+
     histories = []
+    shared = HistoryStore(tmp_path / "history.db") if borrowed else None
 
     def fail_manager(**kwargs):
         histories.append(kwargs["history"])
@@ -160,9 +168,22 @@ def test_wiring_failure_closes_history_store(tmp_path: Path, monkeypatch):
         fail_manager,
     )
 
-    assert _build(tmp_path) is None
-    assert len(histories) == 1
-    assert histories[0].closed is True
+    try:
+        assert (
+            build_scroll_components(
+                agent_config=_agent_config(),
+                workspace_dir=tmp_path,
+                model=_DummyModel(),
+                session_id="s1",
+                history=shared,
+            )
+            is None
+        )
+        assert len(histories) == 1
+        assert histories[0].closed is (not borrowed)
+    finally:
+        if shared is not None:
+            shared.close()
 
 
 def test_invalid_history_path_falls_back_without_writing_outside_workspace(

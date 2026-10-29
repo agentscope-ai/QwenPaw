@@ -1096,9 +1096,11 @@ def test_startup_lock_does_not_quarantine(tmp_path):
     assert not list(tmp_path.glob("*.corrupt-*"))
 
 
+@pytest.mark.parametrize("retry_on_same_store", [False, True])
 def test_startup_fts_check_defers_while_wal_writer_is_active(
     tmp_path,
     monkeypatch,
+    retry_on_same_store,
 ):
     path = tmp_path / "history.db"
     initial = HistoryStore(path)
@@ -1133,8 +1135,16 @@ def test_startup_fts_check_defers_while_wal_writer_is_active(
             opened._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
         )
         writer.rollback()
+        if retry_on_same_store:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                list(pool.map(lambda _: opened.check_pending_fts(), range(8)))
+            assert attempts == [sqlite3.SQLITE_BUSY, "ok"]
         opened.append(session_id="s", entry=_entry("zebra"))
         assert opened.count("s") == 2
+        if retry_on_same_store:
+            opened.check_pending_fts()
+            assert attempts == [sqlite3.SQLITE_BUSY, "ok"]
+            return
     finally:
         writer.close()
         if opened is not None:
@@ -1146,6 +1156,26 @@ def test_startup_fts_check_defers_while_wal_writer_is_active(
     finally:
         reopened.close()
     assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_shared_store_rechecks_after_reported_corruption(store, monkeypatch):
+    store.append(session_id="s", entry=_entry("zebra"))
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    _damage_fts(store)
+    error = sqlite3.DatabaseError("database disk image is malformed")
+    error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT_VTAB
+    store.note_write_failure(error)
+    store.check_pending_fts()
+    assert store.count("s") == 1
+    assert len(_fts_hits(store, "zebra")) == 1
+    assert store.quarantined_to is None
+
+    def unexpected_check():
+        pytest.fail("A successful repair must clear the pending probe")
+
+    monkeypatch.setattr(store, "_check_fts", unexpected_check)
+    store.check_pending_fts()
 
 
 @pytest.mark.parametrize(

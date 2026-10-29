@@ -18,6 +18,41 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def create_history_service(ws: "Workspace"):
+    """Create the workspace's writer; each request borrows this instance."""
+    from ...agents.context import create_history_store
+    from ...config.history_path import resolve_history_db_path
+
+    config = ws.config
+    lcc = config.running.light_context_config
+    if config.backend != "qwenpaw" or lcc.strategy != "scroll":
+        return None
+    return create_history_store(
+        resolve_history_db_path(
+            ws.workspace_dir,
+            lcc.scroll_config.db_filename,
+        ),
+    )
+
+
+def history_service_reuse_compatible(ws: "Workspace", instance: Any) -> bool:
+    """Reject closed stores and configuration/file replacements on reload."""
+    from ...config.history_path import resolve_history_db_path
+
+    config = ws.config
+    lcc = config.running.light_context_config
+    return (
+        config.backend == "qwenpaw"
+        and lcc.strategy == "scroll"
+        and instance.matches_path(
+            resolve_history_db_path(
+                ws.workspace_dir,
+                lcc.scroll_config.db_filename,
+            ),
+        )
+    )
+
+
 async def create_driver_service(
     ws: "Workspace",
     _service,

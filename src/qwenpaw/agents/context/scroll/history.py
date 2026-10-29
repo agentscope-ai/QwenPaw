@@ -445,6 +445,11 @@ class HistoryStore:
             timeout=_BUSY_TIMEOUT_MS / 1000,
         )
         identity_after_open = self._file_identity(self._path)
+        self._connection_identity = (
+            identity_after_open
+            if identity_before_open in (None, identity_after_open)
+            else None
+        )
         self._conn.row_factory = sqlite3.Row
         # Set the wait policy before journal_mode: switching/confirming WAL can
         # itself need a lock when several processes start at once.
@@ -467,11 +472,29 @@ class HistoryStore:
             if identity_before_open in (None, identity_after_open):
                 self._checked_identity = identity_after_open
         self._init_schema()
-        if self._fts:
+        self._fts_check_pending = self._fts
+        self.check_pending_fts()
+
+    def matches_path(self, path: str | Path) -> bool:
+        """Whether this live connection still belongs to the requested file."""
+        return (
+            not self._closed
+            and self._connection_identity is not None
+            and self._path.resolve() == Path(path).expanduser().resolve()
+            and self._file_identity(self._path) == self._connection_identity
+        )
+
+    def check_pending_fts(self) -> None:
+        """Retry a deferred probe when a long-lived store is borrowed again."""
+        if not self._fts_check_pending:
+            return
+        with self._lock:
+            if not self._fts_check_pending:
+                return
             try:
                 # FTS integrity-check is an INSERT and needs a writer lock.
-                # This optional probe must not stall request construction
-                # behind an ordinary writer; subsequent opens try it again.
+                # Defer under ordinary writer contention. Both a later open
+                # and a later borrow of this instance can retry the probe.
                 try:
                     self._conn.execute("PRAGMA busy_timeout=0")
                     with self._conn:
@@ -487,13 +510,15 @@ class HistoryStore:
                     sqlite3.SQLITE_LOCKED,
                 ):
                     logger.debug(
-                        "Deferring history FTS check until a later open: %s",
+                        "Deferring history FTS check until later use: %s",
                         self._path,
                     )
+                    return
                 elif self._is_corruption(exc):
                     self._repair_fts()
                 else:
                     raise
+            self._fts_check_pending = False
 
     @staticmethod
     def _is_fts_only_corruption(results: Sequence[str]) -> bool:
@@ -545,6 +570,7 @@ class HistoryStore:
             )
 
     def _repair_fts(self) -> None:
+        self._fts_check_pending = True
         logger.warning("Rebuilding damaged history FTS index: %s", self._path)
         try:
             with _immediate_transaction(self._conn):
@@ -557,6 +583,7 @@ class HistoryStore:
                 f"History FTS repair failed; history preserved: {self._path}",
             ) from exc
         logger.info("History FTS index repaired: %s", self._path)
+        self._fts_check_pending = False
 
     def _delete_fts_row(self, row: sqlite3.Row) -> None:
         # Older rebuilds may have indexed recall rows. The docsize table
@@ -1250,6 +1277,8 @@ class HistoryStore:
         Logs prominently on the first failure (then counts the rest, to avoid
         log spam). Read ``degraded`` to gate any "fully durable" guarantees.
         """
+        if isinstance(exc, sqlite3.DatabaseError) and self._is_corruption(exc):
+            self._fts_check_pending = self._fts
         self.write_failures += 1
         if not self.degraded:
             self.degraded = True
