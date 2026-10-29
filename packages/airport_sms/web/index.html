@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Airport SMS Console</title>
+    <style>
+      :root {
+        --ink: #102a43;
+        --mist: #d9e2ec;
+        --accent: #0c6e6e;
+      }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Source Han Sans SC", sans-serif;
+        color: var(--ink);
+        background: linear-gradient(160deg, #f0f4f8, #e3ebf3 40%, #c9d6e3);
+        min-height: 100vh;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 3rem 1.25rem;
+      }
+      h1 {
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      #log {
+        white-space: pre-wrap;
+        background: rgba(255, 255, 255, 0.7);
+        padding: 1rem;
+        min-height: 12rem;
+      }
+      input,
+      button {
+        font: inherit;
+        margin: 0.25rem 0.25rem 0.25rem 0;
+        padding: 0.5rem 0.75rem;
+      }
+      button {
+        background: var(--accent);
+        color: white;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Airport SMS</h1>
+      <p>企业安全管理系统控制台。鉴权默认开启。</p>
+      <div>
+        <input id="token" value="reporter-token" />
+        <button id="login">登录</button>
+      </div>
+      <div>
+        <input id="msg" placeholder="draft FOD on TWY A" size="40" />
+        <button id="send">发送</button>
+        <button id="submit">提交</button>
+      </div>
+      <div id="log"></div>
+    </main>
+    <script>
+      let token = "reporter-token";
+      const log = (t) => {
+        document.getElementById("log").textContent += t + "\n";
+      };
+      document.getElementById("login").onclick = async () => {
+        token = document.getElementById("token").value;
+        const r = await fetch("/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        log("login " + r.status + " " + (await r.text()));
+      };
+      document.getElementById("send").onclick = async () => {
+        const text = document.getElementById("msg").value;
+        const r = await fetch("/chat", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({ session_id: "console-1", text }),
+        });
+        log(await r.text());
+      };
+      document.getElementById("submit").onclick = async () => {
+        const r = await fetch("/chat", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({
+            session_id: "console-1",
+            command: "submit",
+          }),
+        });
+        log(await r.text());
+      };
+    </script>
+  </body>
+</html>
