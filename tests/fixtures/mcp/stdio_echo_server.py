@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import os
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
-mcp = FastMCP("qwenpaw-stdio-echo")
+mcp = MCPServer("qwenpaw-stdio-echo")
 
 
 @mcp.tool()

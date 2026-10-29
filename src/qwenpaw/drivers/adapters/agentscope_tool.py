@@ -60,7 +60,7 @@ def _blocks_from_mcp_content(content: Any) -> list[Any]:
             continue
 
         data = getattr(item, "data", None)
-        mime_type = getattr(item, "mimeType", None)
+        mime_type = getattr(item, "mime_type", None)
         if data is not None and mime_type:
             blocks.append(
                 DataBlock(
@@ -93,10 +93,10 @@ def _blocks_from_mcp_content(content: Any) -> list[Any]:
 
 def _blocks_from_value(value: Any) -> list[Any]:
     content = getattr(value, "content", None)
-    is_mcp_call_result = content is not None and hasattr(value, "isError")
+    is_mcp_call_result = content is not None and hasattr(value, "is_error")
     if is_mcp_call_result:
         blocks = _blocks_from_mcp_content(content)
-        structured = getattr(value, "structuredContent", None)
+        structured = getattr(value, "structured_content", None)
         if structured is not None:
             blocks.append(_text_block(_stringify(structured)))
         return blocks or [_text_block("")]
@@ -108,7 +108,7 @@ def _tool_chunk_from_driver_result(result: DriverInvocationResult) -> Any:
         value = result.value
         state = (
             ToolResultState.ERROR
-            if bool(getattr(value, "isError", False))
+            if bool(getattr(value, "is_error", False))
             else ToolResultState.SUCCESS
         )
         return ToolChunk(
