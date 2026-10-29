@@ -611,9 +611,9 @@ async def test_load_reranker_config_requires_non_empty_api_key():
         agent_cfg = types.SimpleNamespace(
             running=types.SimpleNamespace(
                 reme_light_memory_config=types.SimpleNamespace(
-                    reranker_config=cfg
-                )
-            )
+                    reranker_config=cfg,
+                ),
+            ),
         )
         with patch(
             "qwenpaw.agents.memory.reme_reranker.load_agent_config_async",
@@ -640,8 +640,10 @@ async def test_load_reranker_config_success_with_valid_api_key():
     )
     agent_cfg = types.SimpleNamespace(
         running=types.SimpleNamespace(
-            reme_light_memory_config=types.SimpleNamespace(reranker_config=cfg)
-        )
+            reme_light_memory_config=types.SimpleNamespace(
+                reranker_config=cfg,
+            ),
+        ),
     )
     with patch(
         "qwenpaw.agents.memory.reme_reranker.load_agent_config_async",
