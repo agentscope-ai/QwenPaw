@@ -504,6 +504,10 @@ export default function Sidebar({
    * navigate to /chat without a session id. The first send creates the session.
    */
   const handleNewChat = useCallback(() => {
+    if (sessionApi.isSessionSwitching) {
+      sessionApi.finishSessionSwitch();
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-switch-done"));
+    }
     const onChatPage = location.pathname.startsWith("/chat");
     if (onChatPage) {
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));

@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   getInboxEvents: vi.fn(),
   getPushMessages: vi.fn(),
   sessionList: [] as unknown[],
+  isSessionSwitching: false,
   getEffectiveSessionId: vi.fn(
     (id: string, realId?: string | null) => realId ?? `real-${id}`,
   ),
@@ -165,6 +166,9 @@ vi.mock("../api/modules/hub", () => ({
 vi.mock("../pages/Chat/sessionApi", () => ({
   default: {
     getSessionList: () => Promise.resolve(mocks.sessionList),
+    get isSessionSwitching() {
+      return mocks.isSessionSwitching;
+    },
     getEffectiveSessionId: (...args: [string, string?]) =>
       mocks.getEffectiveSessionId(...args),
     startNewSwitch: () => mocks.startNewSwitch(),
@@ -440,6 +444,7 @@ describe("Sidebar", () => {
       pending_approvals: [],
     });
     mocks.sessionList = [];
+    mocks.isSessionSwitching = false;
     mocks.getEffectiveSessionId.mockClear();
     mocks.startNewSwitch.mockClear();
     mocks.preloadSession.mockReset().mockResolvedValue({ realId: "real-s-1" });
@@ -716,6 +721,44 @@ describe("Sidebar", () => {
     fireEvent.click(btns[0]);
     expect(fired).toBe(true);
     window.removeEventListener("qwenpaw:sidebar-new-chat", listener);
+  });
+
+  it("cancels an in-flight sidebar switch before opening a new task", async () => {
+    const controller = new AbortController();
+    let completePreload!: (value: { realId: string }) => void;
+    const pending = new Promise<{ realId: string }>((resolve) => {
+      completePreload = resolve;
+    });
+    mocks.startNewSwitch.mockReturnValueOnce(controller);
+    mocks.preloadSession.mockReturnValueOnce(pending);
+    mocks.finishSessionSwitch.mockImplementationOnce(() => {
+      controller.abort();
+      mocks.isSessionSwitching = false;
+    });
+    const onDone = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
+    renderWithProviders(
+      <>
+        <Sidebar selectedKey="core.workspace" />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/workspace"] },
+    );
+
+    fireEvent.click(await screen.findByTestId("sl-click"));
+    mocks.isSessionSwitching = true;
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    expect(controller.signal.aborted).toBe(true);
+    expect(onDone).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("probe-path").textContent).toBe("/chat");
+
+    await act(async () => {
+      completePreload({ realId: "old-session" });
+      await pending;
+    });
+    expect(screen.getByTestId("probe-path").textContent).toBe("/chat");
+    window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+    sessionStorage.removeItem("qwenpaw_pending_new_chat");
   });
 
   it("collapses into the icon nav and expands back", async () => {
