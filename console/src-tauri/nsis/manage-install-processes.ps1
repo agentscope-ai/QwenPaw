@@ -49,7 +49,8 @@ function Test-IsMaintenanceStub {
     if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
         return $false
     }
-    return (Get-Content -LiteralPath $launcher -Raw).Contains($gateMarker)
+    $content = Get-Content -LiteralPath $launcher -Raw
+    return ($content -and $content.Contains($gateMarker))
 }
 
 function Test-LauncherTargetsRoot {
@@ -64,6 +65,9 @@ function Test-LauncherTargetsRoot {
             continue
         }
         $content = Get-Content -LiteralPath $path -Raw
+        if (-not $content) {
+            continue
+        }
         $lowerContent = $content.ToLowerInvariant()
         foreach ($needle in $needles) {
             if ($lowerContent.Contains($needle)) {

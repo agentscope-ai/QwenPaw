@@ -24,6 +24,9 @@ const hoisted = vi.hoisted(() => {
     uploadSkillPoolZip: vi.fn(),
     importPoolSkillFromHub: vi.fn(),
     downloadSkillPoolSkill: vi.fn(),
+    startSkillPoolDownload: vi.fn(),
+    getSkillPoolDownload: vi.fn(),
+    cancelSkillPoolDownload: vi.fn(),
     updatePoolSkillAutomation: vi.fn(),
     updatePoolBuiltin: vi.fn(),
     importSelectedPoolBuiltins: vi.fn(),
@@ -37,6 +40,7 @@ const hoisted = vi.hoisted(() => {
   const parseErrorDetailMock = vi.fn();
   const handleScanErrorMock = vi.fn().mockReturnValue(false);
   const checkScanWarningsMock = vi.fn().mockResolvedValue(undefined);
+  const showScanErrorModalMock = vi.fn();
   const stableT = (k: string) => k;
   const formMock = {
     resetFields: vi.fn(),
@@ -51,6 +55,7 @@ const hoisted = vi.hoisted(() => {
     parseErrorDetailMock,
     handleScanErrorMock,
     checkScanWarningsMock,
+    showScanErrorModalMock,
     stableT,
     formMock,
   };
@@ -105,7 +110,7 @@ vi.mock("../../../utils/scanError", () => ({
   __esModule: true,
   handleScanError: hoisted.handleScanErrorMock,
   checkScanWarnings: hoisted.checkScanWarningsMock,
-  showScanErrorModal: vi.fn(),
+  showScanErrorModal: hoisted.showScanErrorModalMock,
 }));
 
 vi.mock("../../../utils/agentDisplayName", () => ({
@@ -1475,9 +1480,32 @@ describe("useSkillPool — handleImportBuiltins", () => {
 // ---------------------------------------------------------------------------
 // handleBroadcast
 // ---------------------------------------------------------------------------
+const completedDownloadJob = (skillName = "skill-a") => ({
+  job_id: `job-${skillName}`,
+  state: "completed",
+  error: null,
+});
+
+// The real download is a job now: start returns the job, the console polls it
+// only while it is still running.
+const wireCompletedDownloads = () => {
+  apiMocks.startSkillPoolDownload.mockImplementation(
+    (payload: { skill_name: string }) =>
+      completedDownloadJob(payload.skill_name),
+  );
+  apiMocks.getSkillPoolDownload.mockImplementation(() =>
+    completedDownloadJob(),
+  );
+};
+
 describe("useSkillPool — handleBroadcast", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    wireCompletedDownloads();
+    // vi.clearAllMocks() keeps implementations, so give the preview a clean
+    // default: a rejection mocked by a neighbouring test would otherwise leak
+    // in and silently skip the job these tests assert on.
+    apiMocks.downloadSkillPoolSkill.mockResolvedValue(undefined);
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
@@ -1501,8 +1529,14 @@ describe("useSkillPool — handleBroadcast", () => {
       await result.current.handleBroadcast(["skill-a"], ["ws-1", "ws-2"]);
     });
 
-    // Preview call + actual call
+    // The preview stays on the blocking endpoint; the real download is a job
+    // the console can follow and cancel.
     expect(apiMocks.downloadSkillPoolSkill).toHaveBeenCalled();
+    expect(apiMocks.startSkillPoolDownload).toHaveBeenCalledWith({
+      skill_name: "skill-a",
+      targets: [{ workspace_id: "ws-1" }, { workspace_id: "ws-2" }],
+    });
+    expect(messageMock.error).not.toHaveBeenCalled();
     expect(messageMock.success).toHaveBeenCalled();
     expect(invalidateSkillCacheMock).toHaveBeenCalledWith({
       pool: true,
@@ -1512,9 +1546,9 @@ describe("useSkillPool — handleBroadcast", () => {
 
   it("handles broadcast with conflicts and user confirms", async () => {
     // First call (preview) throws with conflicts
-    apiMocks.downloadSkillPoolSkill
-      .mockRejectedValueOnce({ conflicts: true })
-      .mockResolvedValueOnce(undefined); // overwrite call
+    apiMocks.downloadSkillPoolSkill.mockRejectedValueOnce({
+      conflicts: true,
+    });
 
     parseErrorDetailMock.mockReturnValue({
       conflicts: [
@@ -1568,13 +1602,14 @@ describe("useSkillPool — handleBroadcast", () => {
 
     // Should not have called download again for actual broadcast
     expect(apiMocks.downloadSkillPoolSkill).toHaveBeenCalledTimes(1);
+    expect(apiMocks.startSkillPoolDownload).not.toHaveBeenCalled();
     expect(messageMock.success).not.toHaveBeenCalled();
   });
 
   it("handles builtin_upgrade conflicts", async () => {
-    apiMocks.downloadSkillPoolSkill
-      .mockRejectedValueOnce({ conflicts: true })
-      .mockResolvedValueOnce(undefined);
+    apiMocks.downloadSkillPoolSkill.mockRejectedValueOnce({
+      conflicts: true,
+    });
 
     parseErrorDetailMock.mockReturnValue({
       conflicts: [
@@ -1604,9 +1639,9 @@ describe("useSkillPool — handleBroadcast", () => {
   });
 
   it("handles language_switch conflicts", async () => {
-    apiMocks.downloadSkillPoolSkill
-      .mockRejectedValueOnce({ conflicts: true })
-      .mockResolvedValueOnce(undefined);
+    apiMocks.downloadSkillPoolSkill.mockRejectedValueOnce({
+      conflicts: true,
+    });
 
     parseErrorDetailMock.mockReturnValue({
       conflicts: [
@@ -1674,6 +1709,167 @@ describe("useSkillPool — handleBroadcast", () => {
     });
 
     expect(messageMock.error).not.toHaveBeenCalled();
+  });
+
+  it("stops the job when the user cancels the download", async () => {
+    apiMocks.startSkillPoolDownload.mockResolvedValue({
+      job_id: "job-skill-a",
+      state: "running",
+      error: null,
+    });
+    apiMocks.cancelSkillPoolDownload.mockResolvedValue({
+      job_id: "job-skill-a",
+      state: "cancelling",
+      error: null,
+    });
+    apiMocks.getSkillPoolDownload.mockResolvedValue({
+      job_id: "job-skill-a",
+      state: "cancelled",
+      error: null,
+    });
+
+    const { result } = await renderAndLoad();
+
+    let broadcast: Promise<void> | undefined;
+    await act(async () => {
+      broadcast = result.current.handleBroadcast(["skill-a"], ["ws-1"]);
+    });
+    // React flushes state only when the act scope exits, so assert the running
+    // state out here -- inside act it would always read null.
+    await waitFor(() => expect(result.current.downloadState).toBe("running"));
+    result.current.cancelDownload();
+    await act(async () => {
+      await broadcast;
+    });
+
+    expect(apiMocks.cancelSkillPoolDownload).toHaveBeenCalledWith(
+      "job-skill-a",
+    );
+    expect(messageMock.warning).toHaveBeenCalledWith("skills.importCancelled");
+    expect(messageMock.success).not.toHaveBeenCalled();
+    expect(invalidateSkillCacheMock).toHaveBeenCalledWith({
+      pool: true,
+      workspaces: true,
+    });
+    expect(result.current.downloadState).toBeNull();
+  });
+
+  it("stops the batch when cancel lands after a job finished", async () => {
+    let finishFirst: (job: unknown) => void = () => {};
+    apiMocks.startSkillPoolDownload
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFirst = resolve;
+          }),
+      )
+      .mockImplementation((payload: { skill_name: string }) =>
+        completedDownloadJob(payload.skill_name),
+      );
+
+    const { result } = await renderAndLoad();
+
+    let broadcast: Promise<void> = Promise.resolve();
+    act(() => {
+      broadcast = result.current.handleBroadcast(
+        ["skill-a", "skill-b"],
+        ["ws-1"],
+      );
+    });
+    await waitFor(() =>
+      expect(apiMocks.startSkillPoolDownload).toHaveBeenCalledTimes(1),
+    );
+
+    // Finish skill-a, then cancel in the same tick: there is no live handle
+    // for skill-b yet, so only the batch flag can stop it.
+    finishFirst(completedDownloadJob("skill-a"));
+    result.current.cancelDownload();
+
+    await act(async () => {
+      await broadcast;
+    });
+
+    expect(apiMocks.startSkillPoolDownload).toHaveBeenCalledTimes(1);
+    expect(messageMock.warning).toHaveBeenCalledWith("skills.importCancelled");
+    expect(messageMock.success).not.toHaveBeenCalled();
+  });
+
+  it("keeps a finished final job successful when cancel lands too late", async () => {
+    let finish: (job: unknown) => void = () => {};
+    apiMocks.startSkillPoolDownload.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+
+    const { result } = await renderAndLoad();
+
+    let broadcast: Promise<void> = Promise.resolve();
+    act(() => {
+      broadcast = result.current.handleBroadcast(["skill-a"], ["ws-1"]);
+    });
+    await waitFor(() =>
+      expect(apiMocks.startSkillPoolDownload).toHaveBeenCalledTimes(1),
+    );
+
+    // The only job finishes and the user cancels in the same tick: every
+    // target the batch promised is installed, so this is a success, not a
+    // cancellation. Checking the flag after the last job would report the
+    // opposite and skip the success warnings.
+    finish(completedDownloadJob("skill-a"));
+    result.current.cancelDownload();
+
+    await act(async () => {
+      await broadcast;
+    });
+
+    expect(messageMock.success).toHaveBeenCalled();
+    expect(messageMock.warning).not.toHaveBeenCalled();
+  });
+
+  it("shows the scanner findings when a job is rejected by the scan", async () => {
+    apiMocks.startSkillPoolDownload.mockResolvedValue({
+      job_id: "job-skill-a",
+      state: "failed",
+      error: "security scan failed",
+      result: {
+        type: "security_scan_failed",
+        skill_name: "skill-a",
+        max_severity: "high",
+        findings: [{ title: "blocked", file_path: "SKILL.md" }],
+      },
+    });
+
+    const { result } = await renderAndLoad();
+
+    await act(async () => {
+      await result.current.handleBroadcast(["skill-a"], ["ws-1"]);
+    });
+
+    expect(hoisted.showScanErrorModalMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "security_scan_failed" }),
+      hoisted.stableT,
+    );
+    expect(messageMock.error).not.toHaveBeenCalledWith("security scan failed");
+  });
+
+  it("shows the job error when a download job fails", async () => {
+    apiMocks.startSkillPoolDownload.mockResolvedValue({
+      job_id: "job-skill-a",
+      state: "failed",
+      error: "Disk full",
+    });
+
+    const { result } = await renderAndLoad();
+
+    await act(async () => {
+      await result.current.handleBroadcast(["skill-a"], ["ws-1"]);
+    });
+
+    expect(messageMock.error).toHaveBeenCalledWith("Disk full");
+    expect(messageMock.success).not.toHaveBeenCalled();
+    expect(result.current.downloadState).toBeNull();
   });
 });
 

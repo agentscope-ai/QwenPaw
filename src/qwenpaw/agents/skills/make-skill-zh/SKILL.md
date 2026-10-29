@@ -2,7 +2,7 @@
 name: make-skill
 description: "将当前对话中可复用的决策、知识、模板或工作流创建为聚焦的 workspace Skill。适用于带 focus 参数的 /make-skill，以及“保存这个流程”“把它做成 skill”等请求；不适用于一次性总结或普通文件创建。"
 metadata:
-  builtin_skill_version: "2.1"
+  builtin_skill_version: "2.2"
   qwenpaw:
     emoji: "✍️"
     requires: {}
@@ -16,7 +16,9 @@ metadata:
 
 ## 脚本接口
 
-通过 `execute_shell_command` 运行 `python scripts/<script>`，将 `cwd` 设为 available-skills 条目中本 Skill 的 `<dir>`。每个脚本从 stdin（或 `--input <file>`）读取一个 JSON 对象，返回一个 JSON 对象。每次输入均包含 `workspace`；下表列出其余顶层字段。
+通过 `execute_shell_command` 运行 `<python> scripts/<script>`，将 `cwd` 设为 available-skills 条目中本 Skill 的 `<dir>`。`<python>` 使用环境变量 `QWENPAW_DESKTOP_PY_RUNTIME` 指定的可执行文件路径；未设置时使用 `python`。
+
+每个脚本从 stdin（或 `--input <file>`）读取一个 JSON 对象，返回一个 JSON 对象。每次输入均包含 `workspace`；下表列出其余顶层字段。
 
 | 操作 | 脚本 | 其余输入字段 | 成功返回 |
 |---|---|---|---|
