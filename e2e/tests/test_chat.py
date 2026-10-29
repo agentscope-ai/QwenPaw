@@ -14,6 +14,7 @@ Run: pytest tests/test_chat_p0.py -v
 from __future__ import annotations
 
 import logging
+import re
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
 
@@ -878,7 +879,7 @@ class TestToolApproval:
     """Session-level tool approval toggle in the chat composer.
 
     Covers the ApprovalLevelToggle shipped in upstream #5685:
-    - APPROVAL-001: the toggle renders, offers exactly 4 levels, and the Tag
+    - APPROVAL-001: the toggle renders, offers exactly 5 levels, and the Tag
       text follows the selection.
     - APPROVAL-002: the chosen level is persisted in localStorage and survives
       a page reload.
@@ -890,28 +891,65 @@ class TestToolApproval:
 
     @pytest.mark.p0
     @pytest.mark.test_id("APPROVAL-001")
+    @pytest.mark.parametrize("decision_enabled", [False, True])
     def test_approval_toggle_renders_and_switches(
-        self, clean_chat_page: ChatPage, request: pytest.FixtureRequest
+        self,
+        clean_chat_page: ChatPage,
+        request: pytest.FixtureRequest,
+        decision_enabled: bool,
     ):
-        """Toggle renders, exposes 4 levels, and the Tag follows the choice."""
+        """Five levels render; JEV is selectable only with the decision model."""
         test_name = request.node.name
 
-        log_test_step("1. Open the Chat page")
-        chat = clean_chat_page.open()
+        # Control the decision setting without changing the server configuration.
+        def set_decision_state(route):
+            response = route.fetch()
+            view = response.json()
+            view["decision"] = {
+                "configured": True,
+                "enabled": decision_enabled,
+                "override": decision_enabled,
+            }
+            route.fulfill(response=response, json=view)
+
+        thinking_url = re.compile(
+            r"/api/chats/(?:thinking-default|[^/?]+/thinking)(?:\?.*)?$"
+        )
+        clean_chat_page.page.route(thinking_url, set_decision_state)
+
+        log_test_step("1. Open the Chat page and load decision settings")
+        with clean_chat_page.page.expect_response(thinking_url):
+            chat = clean_chat_page.open()
 
         log_test_step("2. Locate the approval toggle in the composer")
         toggle = chat.get_approval_toggle()
         expect(toggle).to_be_visible(timeout=10000)
 
-        log_test_step("3. Open the menu and assert exactly 4 levels")
+        log_test_step("3. Assert all five approval options and JEV availability")
         chat.open_approval_menu()
+        expect(chat.page.locator(chat.APPROVAL_MENU_ITEM)).to_have_count(5)
         items = chat.get_approval_menu_items()
-        assert len(items) == 4, f"expected 4 approval levels, got {len(items)}"
+        for item, (en_label, _zh) in zip(items, ChatPage.APPROVAL_LEVELS.values()):
+            expect(item).to_contain_text(en_label)
+        jev = chat.page.locator(chat.APPROVAL_MENU_ITEM).filter(
+            has_text="Decision Model Mode"
+        )
+        expect(jev.locator("[aria-disabled]")).to_have_attribute(
+            "aria-disabled", str(not decision_enabled).lower()
+        )
+        if not decision_enabled:
+            previous_label = toggle.inner_text()
+            previous_storage = chat.get_approval_storage_entries()
+            jev.click()
+            expect(toggle).to_have_text(previous_label)
+            assert chat.get_approval_storage_entries() == previous_storage
         chat.page.keyboard.press("Escape")
         chat.wait(300)
 
         log_test_step("4. Select each level and verify the Tag text follows")
         for level, (en_label, _zh) in ChatPage.APPROVAL_LEVELS.items():
+            if level == "JEV" and not decision_enabled:
+                continue
             chat.select_approval_level(level)
             expect(chat.get_approval_toggle()).to_contain_text(en_label)
 

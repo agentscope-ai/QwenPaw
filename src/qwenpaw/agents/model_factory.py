@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Factory for creating chat models and formatters.
+"""Factory for creating chat and decision models.
 
-This module provides a unified factory for creating chat model instances
-and their corresponding formatters based on configuration.
+This module creates configured provider models and chat formatters.
 
 Example:
     >>> from qwenpaw.agents.model_factory import create_model_and_formatter
@@ -45,6 +44,7 @@ from agentscope.formatter import OpenAIResponseFormatter
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
 )
+from .utils.image_freezing import MAX_SNAPSHOT_IMAGE_BYTES
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.provider import ModelInfo, agent_thinking_level
@@ -54,7 +54,14 @@ from ..providers.hub_managed import (
     managed_provider,
     managed_slot,
 )
-from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ..providers.capping_formatter import (
+    CappingFormatterMixin,
+    MAX_INLINE_MEDIA_BYTES,
+)
+from ..providers.typesafe_provider import (
+    TypeSafeEvaluationError,
+    resolve_decision_model,
+)
 from ..utils.tool_call_extra import tool_call_extras_for_provider
 from ..providers.retry_chat_model import (
     RetryChatModel,
@@ -437,6 +444,7 @@ async def _prepare_media_sources(
     *,
     include_hint_videos: bool = False,
     max_bytes: int = MAX_INLINE_MEDIA_BYTES,
+    resize_images_to_max_bytes: bool = False,
 ) -> None:
     """Prepare media so downstream formatting performs no blocking I/O."""
     references: list[_MediaReference] = []
@@ -449,20 +457,36 @@ async def _prepare_media_sources(
                 include_hint_videos=include_hint_videos,
             )
 
-    pending: dict[tuple[str, str], asyncio.Task[_LocalMediaRead]] = {}
-    prepared_keys: list[tuple[str, str] | None] = []
+    pending: dict[tuple[str, str, int], asyncio.Task[_LocalMediaRead]] = {}
+    prepared_keys: list[tuple[str, str, int] | None] = []
     for reference in references:
         url = str(_media_source_value(reference.source, "url", "") or "")
         local_path = _local_media_path(url)
-        key: tuple[str, str] | None = None
+        resize_image = (
+            resize_images_to_max_bytes
+            and reference.kind == "image"
+            and max_bytes > 0
+        )
+        # Image inputs may be larger than their request-local preview. Keep
+        # reads bounded, then let resizing enforce the inline limit.
+        read_limit = (
+            max(max_bytes, MAX_SNAPSHOT_IMAGE_BYTES)
+            if resize_image
+            else max_bytes
+        )
+        key: tuple[str, str, int] | None = None
         if local_path is not None:
-            key = ("local", os.path.normcase(os.path.normpath(local_path)))
+            key = (
+                "local",
+                os.path.normcase(os.path.normpath(local_path)),
+                read_limit,
+            )
             if key not in pending:
                 pending[key] = asyncio.create_task(
                     run_sync_io(
                         _read_local_media,
                         local_path,
-                        max_bytes,
+                        read_limit,
                     ),
                 )
             prepared_keys.append(key)
@@ -470,15 +494,16 @@ async def _prepare_media_sources(
 
         parsed = urlparse(url)
         if parsed.scheme in ("http", "https") and (
-            _remote_media_requires_download(
+            resize_image
+            or _remote_media_requires_download(
                 reference.kind,
                 base_formatter_class,
             )
         ):
-            key = ("remote", url)
+            key = ("remote", url, read_limit)
             if key not in pending:
                 pending[key] = asyncio.create_task(
-                    _download_remote_media(url, max_bytes),
+                    _download_remote_media(url, read_limit),
                 )
             prepared_keys.append(key)
             continue
@@ -494,17 +519,30 @@ async def _prepare_media_sources(
         if key is None:
             continue
         url = str(_media_source_value(reference.source, "url", "") or "")
+        prepared = _prepared_task_result(pending[key])
+        if (
+            resize_images_to_max_bytes
+            and reference.kind == "image"
+            and 0 < key[2] < prepared.size
+        ):
+            raise ValueError(
+                f"Image exceeds the {key[2]}-byte preparation limit.",
+            )
         _replace_media_reference(
             reference,
-            _prepared_task_result(pending[key]),
+            prepared,
             url,
             base_formatter_class,
             local=key[0] == "local",
-            max_bytes=max_bytes,
+            max_bytes=key[2],
         )
 
 
-def _resize_base64_images(items: list, max_pixels: int) -> int:
+def _resize_base64_images(
+    items: list,
+    max_pixels: int,
+    max_bytes: int = 0,
+) -> int:
     """Resize base64 images in a copied request message tree.
 
     Resize failures intentionally propagate so unsupported or corrupt
@@ -524,6 +562,7 @@ def _resize_base64_images(items: list, max_pixels: int) -> int:
             resized_data, changed = resize_base64_image(
                 str(data),
                 max_pixels,
+                max_bytes=max_bytes,
             )
             if changed:
                 if isinstance(source, dict):
@@ -551,32 +590,42 @@ def _resize_base64_images(items: list, max_pixels: int) -> int:
                 else getattr(block, "hint", None)
             )
         if isinstance(nested, list):
-            resized_count += _resize_base64_images(nested, max_pixels)
+            resized_count += _resize_base64_images(
+                nested,
+                max_pixels,
+                max_bytes,
+            )
     return resized_count
 
 
-async def _resize_request_images(msgs: list) -> int:
+async def _resize_request_images(msgs: list, max_bytes: int = 0) -> int:
     """Resize oversized images in request copies when explicitly enabled."""
     max_pixels = get_max_image_pixels()
-    if max_pixels <= 0:
+    if max_pixels <= 0 and max_bytes <= 0:
         return 0
     return await run_sync_io(
         _resize_base64_images_in_messages,
         msgs,
         max_pixels,
+        max_bytes,
     )
 
 
 def _resize_base64_images_in_messages(
     msgs: list,
     max_pixels: int,
+    max_bytes: int = 0,
 ) -> int:
     """Synchronously resize images across copied request messages."""
     resized_count = 0
     for msg in msgs:
         content = getattr(msg, "content", None)
         if isinstance(content, list):
-            resized_count += _resize_base64_images(content, max_pixels)
+            resized_count += _resize_base64_images(
+                content,
+                max_pixels,
+                max_bytes,
+            )
     return resized_count
 
 
@@ -1766,8 +1815,20 @@ def _create_file_block_support_formatter(
                     "max_bytes",
                     MAX_INLINE_MEDIA_BYTES,
                 ),
+                resize_images_to_max_bytes=getattr(
+                    self,
+                    "resize_images_to_max_bytes",
+                    False,
+                ),
             )
-            await _resize_request_images(normalized_msgs)
+            await _resize_request_images(
+                normalized_msgs,
+                max_bytes=(
+                    self.max_bytes
+                    if getattr(self, "resize_images_to_max_bytes", False)
+                    else 0
+                ),
+            )
 
             # Per-wire-request dedup scope — second occurrence of the
             # same media source becomes a text placeholder. Set this only
@@ -2188,6 +2249,8 @@ def _apply_model_fallbacks(
     retry_config: RetryConfig | None,
     rate_limit_config: RateLimitConfig | None,
     has_model_override: bool,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> ChatModelBase:
     """Build an ordered fallback chain around the primary model."""
     if not fallback_enabled or has_model_override or not fallback_slots:
@@ -2213,6 +2276,8 @@ def _apply_model_fallbacks(
         fallback_info = fallback_provider.get_model_info(fallback_slot.model)
         if fallback_info is None:
             continue
+        if require_image_support and fallback_info.supports_image is not True:
+            continue
         if fallback_free_only and not fallback_info.is_free:
             continue
         # A broken fallback slot (stale provider config, deleted chat
@@ -2234,13 +2299,18 @@ def _apply_model_fallbacks(
                 fallback_provider,
                 fallback_slot.model,
             )
-            _install_model_formatter(
+            fallback_formatter = _install_model_formatter(
                 fallback_model,
                 provider_id=fallback_provider_id,
                 model_info=fallback_provider.resolve_model_info(
                     fallback_slot.model,
                 ),
             )
+            if resize_images_to_max_bytes and isinstance(
+                fallback_formatter,
+                CappingFormatterMixin,
+            ):
+                fallback_formatter.resize_images_to_max_bytes = True
         except Exception:
             logger.warning(
                 "Skipping fallback model slot %s:%s "
@@ -2304,6 +2374,9 @@ def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
     agent_config: Any = None,
+    *,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
@@ -2321,6 +2394,9 @@ def create_model_and_formatter(
             only the first ``:`` is treated as the separator.
         agent_config: Optional config already loaded by an async caller.
             Synchronous callers may omit it to preserve legacy loading.
+        require_image_support: Keep only confirmed image-capable fallbacks
+            when the primary supports images, for image-memory jobs.
+        resize_images_to_max_bytes: Fit images to each candidate's inline cap.
     Returns:
         Tuple of (model_instance, formatter_instance)
 
@@ -2345,11 +2421,17 @@ def create_model_and_formatter(
     if hub_mode() and model_slot is None:
         model_slot = ProviderManager.get_instance().active_model
     if hub_mode() and model_slot and model_slot.provider_id == PROVIDER_ID:
-        return _create_hub_model_and_formatter(
+        model, formatter = _create_hub_model_and_formatter(
             settings,
             model_slot,
             explicit=slot is not None,
         )
+        if resize_images_to_max_bytes and isinstance(
+            formatter,
+            CappingFormatterMixin,
+        ):
+            formatter.resize_images_to_max_bytes = True
+        return model, formatter
 
     manager = ProviderManager.get_instance()
     model_slot = model_slot or manager.get_active_model()
@@ -2378,11 +2460,17 @@ def create_model_and_formatter(
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its
     # ``__init__``), so we just wrap that one with file-block support
     # instead of class-resolving via a brittle map.
+    model_info = provider.resolve_model_info(selected_model_id)
     formatter = _install_model_formatter(
         model,
         provider_id=provider_id,
-        model_info=provider.resolve_model_info(selected_model_id),
+        model_info=model_info,
     )
+    if resize_images_to_max_bytes and isinstance(
+        formatter,
+        CappingFormatterMixin,
+    ):
+        formatter.resize_images_to_max_bytes = True
 
     # agentscope 2.0 ChatModelBase has its own retry loop
     # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
@@ -2417,6 +2505,12 @@ def create_model_and_formatter(
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
         has_model_override=slot is not None,
+        require_image_support=(
+            require_image_support
+            and model_info is not None
+            and model_info.supports_image is True
+        ),
+        resize_images_to_max_bytes=resize_images_to_max_bytes,
     )
 
     info = provider.get_model_info(selected_model_id)
@@ -2424,10 +2518,29 @@ def create_model_and_formatter(
     return wrapped_model, formatter
 
 
+def _decision_model_settings(agent_config):
+    """Resolve and validate the agent or global decision model slot."""
+    try:
+        provider, model = resolve_decision_model(agent_config.decision_model)
+    except TypeSafeEvaluationError as exc:
+        raise ProviderError(message=str(exc)) from exc
+    provider.validate_model_selection(model, "decision")
+    return provider, model
+
+
+async def create_decision_model_async(agent_config):
+    """Build a host-owned decision model from the configured provider."""
+    provider, model = await run_sync_io(_decision_model_settings, agent_config)
+    return await provider.as_decision_model_async(model)
+
+
 async def create_model_and_formatter_async(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
     agent_config: Any = None,
+    *,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Build a model and formatter without blocking the event loop."""
     return await run_sync_io(
@@ -2435,6 +2548,8 @@ async def create_model_and_formatter_async(
         agent_id=agent_id,
         model_slot_override=model_slot_override,
         agent_config=agent_config,
+        require_image_support=require_image_support,
+        resize_images_to_max_bytes=resize_images_to_max_bytes,
     )
 
 
@@ -2528,6 +2643,7 @@ def _install_model_formatter(
 
 
 __all__ = [
+    "create_decision_model_async",
     "create_model_and_formatter",
     "create_model_and_formatter_async",
 ]

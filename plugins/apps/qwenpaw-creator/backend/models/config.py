@@ -10,9 +10,11 @@ from contextvars import ContextVar, Token
 import json
 import math
 import os
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
+from models.model_capability_cache import get_capability_cache
 from services.runtime_files.errors import LockTimeoutError
 from services.runtime_files.locking import CrossProcessFileLock
 
@@ -776,6 +778,85 @@ def protocol_requires_api_key(protocol: str) -> bool:
     gateways may expose free keyless models (e.g. OpenCode Zen ``*-free``).
     """
     return is_anthropic_protocol(protocol) or is_gemini_protocol(protocol)
+
+
+# Gateways that reject any explicit ``temperature`` for a model. The seed
+# list omits the field up front for known cases (no wasted first request);
+# ``learn_temperature_unsupported`` records any others at runtime from the
+# provider error, and ``chat_temperature`` honours both.
+#
+# The whole Kimi K2/K3 family (Moonshot) samples at a fixed temperature, so
+# match it by prefix: point releases and ``-code``/``-thinking`` variants are
+# covered without a seed edit. DashScope reports ``... is not supported for
+# kimi-k3 model``; a Moonshot direct call reports ``invalid temperature``.
+_TEMPERATURE_UNSUPPORTED_MODEL_PREFIXES = ("kimi-k2", "kimi-k3")
+_TEMPERATURE_CAPABILITY = "rejects_temperature"
+# ``invalid`` on its own is too loose: OpenAI-compatible gateways wrap many
+# unrelated 400s as ``invalid_request_error`` whose body may merely echo the
+# word ``temperature``. Require ``invalid`` to sit right beside
+# ``temperature`` (Moonshot: ``Invalid temperature: ...``); ``not supported``
+# and ``unsupported`` are already specific enough to trust on their own.
+_TEMPERATURE_REFUSAL_RE = re.compile(
+    r"not supported|unsupported|invalid[\s:]+temperature"
+    r"|temperature[\s:]+invalid",
+)
+
+
+def _temperature_capability_key(model_name: str) -> str:
+    """Capability-cache key shared by every chat transport (text/VLM/agent)."""
+    return f"chat:{model_name.strip().casefold()}"
+
+
+def _is_seeded_temperature_unsupported(model_name: str) -> bool:
+    """True when *model_name* belongs to a family that rejects temperature."""
+    normalized = model_name.strip().casefold()
+    return normalized.startswith(_TEMPERATURE_UNSUPPORTED_MODEL_PREFIXES)
+
+
+def is_temperature_unsupported_error(text: str) -> bool:
+    """True when a provider refused the explicit ``temperature`` parameter.
+
+    Mirrors the UI classifier in ``AgentDock.simplifyErrorMessage`` so the
+    backend learns exactly the failures the user is told about. DashScope
+    reports ``... is not supported for kimi-k3 model``; a Moonshot direct
+    call reports ``invalid temperature``.
+    """
+    lowered = text.casefold()
+    if "temperature" not in lowered:
+        return False
+    return bool(_TEMPERATURE_REFUSAL_RE.search(lowered))
+
+
+def learn_temperature_unsupported(model_name: str) -> None:
+    """Record that *model_name*'s gateway refuses an explicit temperature.
+
+    Later ``chat_temperature`` calls omit the field for this model, so the
+    same failure is never surfaced twice.
+    """
+    get_capability_cache().learn(
+        _temperature_capability_key(model_name),
+        _TEMPERATURE_CAPABILITY,
+        True,
+    )
+
+
+def chat_temperature(model_name: str, value: float | None) -> float | None:
+    """Let models that reject ``temperature`` choose their own default.
+
+    DashScope rejects an explicit ``temperature`` for the Kimi K2/K3 family
+    with ``Parameter 'temperature'=0.2 is not supported for kimi-k3 model``;
+    returning ``None`` lets callers omit the field so the gateway applies
+    the model's own default. A model is dropped when it belongs to a seeded
+    family or when a previous request learned it refuses the parameter.
+    """
+    if _is_seeded_temperature_unsupported(model_name):
+        return None
+    if get_capability_cache().get(
+        _temperature_capability_key(model_name),
+        _TEMPERATURE_CAPABILITY,
+    ):
+        return None
+    return value
 
 
 def get_vlm_chat_url() -> str:
@@ -2019,6 +2100,37 @@ def _clear_skills_config_cache():
     _SKILLS_CONFIG_CACHE = None
     _SKILLS_CONFIG_CACHE_PATH = None
     _SKILLS_CONFIG_CACHE_FINGERPRINT = None
+
+
+def write_skills_config(entries: list) -> None:
+    """Persist SkillEntry items atomically, then invalidate the parse cache.
+
+    Mirrors ``_get_skills_config_path`` but is writable: an explicit
+    ``CREATOR_SKILLS_CONFIG_PATH`` wins, otherwise the canonical
+    ``<data root>/config/skills_config.json`` is used. The read-only
+    sentinel path is never written — a missing data root raises instead.
+    """
+
+    from services.runtime_files.atomic_store import atomic_replace_bytes
+    from services.storage_root import require_creator_data_root
+
+    configured = os.environ.get("CREATOR_SKILLS_CONFIG_PATH", "").strip()
+    if configured:
+        path = Path(configured).expanduser().resolve(strict=False)
+    else:
+        path = require_creator_data_root() / "config" / "skills_config.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = {
+        "skills": [
+            entry.model_dump(mode="json", exclude_none=True)
+            for entry in entries
+        ],
+    }
+    atomic_replace_bytes(
+        path,
+        json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8"),
+    )
+    _clear_skills_config_cache()
 
 
 # ─── live operation (real websites driven by the agent) ────────────────

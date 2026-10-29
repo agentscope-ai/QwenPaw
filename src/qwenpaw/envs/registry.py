@@ -12,7 +12,6 @@ from typing import Iterable, Literal
 
 from ..utils.runtime_environment import user_environment_key_allowed
 
-
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 EnvMutability = Literal["hot_runtime", "startup_only"]
@@ -155,8 +154,10 @@ ENV_VAR_SPECS_BY_KEY = {spec.key: spec for spec in ENV_VAR_SPECS}
 
 _INTERNAL_KEYS = frozenset(
     {
+        "QWENPAW_DEPENDENCY_STATE_DIR",
         "QWENPAW_RUNTIME_INTERNAL_TOKEN",
         "QWENPAW_RUNTIME_READY_FILE",
+        "QWENPAW_INTERNAL_HOST_API_PORT",
     },
 )
 _PROTECTED_BOOTSTRAP_KEYS = frozenset(

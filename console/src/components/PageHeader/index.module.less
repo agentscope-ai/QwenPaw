@@ -1,10 +1,7 @@
+@import (reference) "../../styles/pageHeader.less";
+
 .pageHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: relative;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--app-border-subtle);
+  .page-header-frame(20px 24px; var(--app-border-subtle));
   gap: 16px;
   background: var(--app-glass);
   backdrop-filter: blur(16px);

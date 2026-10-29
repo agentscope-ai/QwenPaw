@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Callable, Iterator, Mapping
+from datetime import datetime, timezone
 from typing import Any
 
 from utils.logger import setup_logger
@@ -541,6 +542,53 @@ def _voiced_spans_v8(
     return spans
 
 
+def _narration_spans(
+    elements: Mapping[str, Any],
+) -> list[tuple[int, int]]:
+    """Enabled audio spans already authored as narration.
+
+    Mirrors the load-time gate, which only polices enabled narration, so the
+    stamping pass de-conflicts against exactly the spans that would collide.
+    """
+
+    spans: list[tuple[int, int]] = []
+    for element in elements.values():
+        if not isinstance(element, Mapping) or element.get("enabled") is False:
+            continue
+        creation = element.get("creation")
+        if not isinstance(creation, Mapping):
+            continue
+        if (
+            creation.get("type") != "audio"
+            or creation.get("role") != "narration"
+        ):
+            continue
+        ticks = _element_span_ticks(element)
+        if ticks is not None and ticks[1] > ticks[0]:
+            spans.append(ticks)
+    return spans
+
+
+def _audio_role_order(item: tuple[str, Any]) -> tuple[int, str]:
+    """Stable stamping order for role-less audio: earliest span, then id.
+
+    :func:`_stamp_missing_audio_roles` accumulates narration spans as it walks,
+    so the outcome must not depend on JSON key order: two documents with
+    identical content but reordered ``elements_by_id`` keys have to resolve the
+    same narration/sfx roles (and therefore the same render ducking windows).
+    Keying on the span start -- then the element id to break ties
+    deterministically -- keeps the earliest voice as the narration, matching
+    how the timeline reads. Elements without a usable span sort first and can
+    never overlap, so their position cannot change another element's role.
+    """
+
+    element_id, element = item
+    ticks = (
+        _element_span_ticks(element) if isinstance(element, Mapping) else None
+    )
+    return (ticks[0] if ticks is not None else 0, element_id)
+
+
 def _stamp_missing_audio_roles(
     document: dict[str, Any],
     *,
@@ -561,9 +609,12 @@ def _stamp_missing_audio_roles(
     This normalization must never emit a document the validator rejects:
     narration overlapping a natively voiced interval is exactly what the
     v9 gate refuses, so audio overlapping a voiced element is stamped
-    ``sfx`` instead (mixed verbatim, not gated). That track keeps
-    playing and the project keeps loading; re-authoring it as narration
-    is an explicit user/agent decision the gate can then arbitrate.
+    ``sfx`` instead (mixed verbatim, not gated). The gate also refuses two
+    overlapping narration tracks (two voices at once), so a role-less span
+    overlapping an existing narration is stamped ``sfx`` for the same
+    reason. That track keeps playing and the project keeps loading;
+    re-authoring it as narration is an explicit user/agent decision the
+    gate can then arbitrate.
     """
 
     migrated = dict(document)
@@ -574,8 +625,15 @@ def _stamp_missing_audio_roles(
             continue
         elements = dict(timeline.get("elements_by_id") or {})
         voiced_spans = _voiced_spans_v8(elements)
+        narration_spans = _narration_spans(elements)
         changed = False
-        for element_id, element in list(elements.items()):
+        # Stable, serialization-order-independent walk (see _audio_role_order):
+        # the earliest role-less span becomes narration and a later one it
+        # overlaps becomes sfx, regardless of ``elements_by_id`` key order.
+        for element_id, element in sorted(
+            elements.items(),
+            key=_audio_role_order,
+        ):
             if not isinstance(element, Mapping):
                 continue
             creation = element.get("creation")
@@ -586,11 +644,25 @@ def _stamp_missing_audio_roles(
             ):
                 continue
             ticks = _element_span_ticks(element)
+            enabled = element.get("enabled") is not False
             overlaps_voiced = ticks is not None and any(
                 ticks[0] < end and start < ticks[1]
                 for start, end in voiced_spans
             )
-            role = "sfx" if overlaps_voiced else "narration"
+            overlaps_narration = (
+                enabled
+                and ticks is not None
+                and any(
+                    ticks[0] < end and start < ticks[1]
+                    for start, end in narration_spans
+                )
+            )
+            if overlaps_voiced or overlaps_narration:
+                role = "sfx"
+            else:
+                role = "narration"
+                if enabled and ticks is not None and ticks[1] > ticks[0]:
+                    narration_spans.append(ticks)
             updated_creation = dict(creation)
             updated_creation["role"] = role
             updated_element = dict(element)
@@ -602,6 +674,15 @@ def _stamp_missing_audio_roles(
                     "%s: audio element %s/%s overlaps a natively "
                     "voiced element; stamped role=sfx so the narration "
                     "gate keeps the project loadable",
+                    step,
+                    timeline_id,
+                    element_id,
+                )
+            elif overlaps_narration:
+                logger.warning(
+                    "%s: audio element %s/%s overlaps an existing "
+                    "narration; stamped role=sfx so two voices never "
+                    "speak at once",
                     step,
                     timeline_id,
                     element_id,
@@ -675,6 +756,151 @@ def _repair_v9_missing_audio_roles(document: dict[str, Any]) -> dict[str, Any]:
     return _stamp_missing_audio_roles(document, step="v9-repair")
 
 
+_MIN_UTC = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _version_created_at(value: Any) -> datetime:
+    """Parse a source version's ``created_at`` for latest-take ordering.
+
+    Missing or unparseable stamps sort as the earliest instant, so a
+    narration backed by a real timestamp always outranks one without.
+    """
+
+    if not isinstance(value, str) or not value:
+        return _MIN_UTC
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return _MIN_UTC
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _version_created_ats(document: Mapping[str, Any]) -> dict[str, datetime]:
+    """Map ``source_asset_version_id`` -> ``created_at`` for take ordering."""
+
+    assets = document.get("assets")
+    versions = (
+        assets.get("source_versions_by_id")
+        if isinstance(assets, Mapping)
+        else None
+    )
+    created: dict[str, datetime] = {}
+    if isinstance(versions, Mapping):
+        for version_id, version in versions.items():
+            if isinstance(version, Mapping):
+                created[version_id] = _version_created_at(
+                    version.get("created_at"),
+                )
+    return created
+
+
+def _enabled_narration_rows(
+    elements: Mapping[str, Any],
+) -> list[tuple[str, tuple[int, int], Any]]:
+    """``(element_id, span, source_version_id)`` rows for enabled narration.
+
+    The source version id lets the caller order takes by that version's
+    ``created_at``. Element order is deliberately *not* used: the canonical
+    encoder sorts ``elements_by_id`` keys on persist, so iteration order is
+    arbitrary with respect to authoring time.
+    """
+
+    rows: list[tuple[str, tuple[int, int], Any]] = []
+    for element_id, element in elements.items():
+        if not isinstance(element, Mapping) or element.get("enabled") is False:
+            continue
+        creation = element.get("creation")
+        if not isinstance(creation, Mapping):
+            continue
+        if (
+            creation.get("type") != "audio"
+            or creation.get("role") != "narration"
+        ):
+            continue
+        ticks = _element_span_ticks(element)
+        if ticks is not None and ticks[1] > ticks[0]:
+            rows.append(
+                (element_id, ticks, creation.get("source_asset_version_id")),
+            )
+    return rows
+
+
+def _deconflict_overlapping_narration(
+    document: dict[str, Any],
+    *,
+    step: str,
+) -> dict[str, Any]:
+    """Mute older narrations that a newer narration overlaps.
+
+    Two enabled narration tracks over one span speak at once (the
+    "changed the voice but both play" defect). The load-time gate refuses
+    them, so a document authored before that gate would fail to open —
+    bricking the project with no in-app way to fix it. Instead of failing,
+    keep the newest take enabled and set each older take it overlaps to
+    ``enabled=False``: non-destructive (the muted Element stays in the
+    document and can be re-enabled) and idempotent (a muted track no
+    longer gates, so a second pass changes nothing).
+
+    "Newest" is the source version's ``created_at`` (a re-voice synthesizes
+    a later version), never element order: the canonical encoder sorts
+    ``elements_by_id`` by id, so iteration order is arbitrary with respect
+    to authoring time. Equal stamps fall back to ``element_id`` so the
+    result is deterministic.
+
+    Only explicit ``role=narration`` overlaps land here; role-less legacy
+    audio is de-conflicted earlier by :func:`_stamp_missing_audio_roles`
+    (stamped to sfx so both tracks keep playing).
+    """
+
+    migrated = dict(document)
+    created_ats = _version_created_ats(migrated)
+    timelines = dict(migrated.get("timelines") or {})
+    items = dict(timelines.get("items") or {})
+    for timeline_id, timeline in list(items.items()):
+        if not isinstance(timeline, Mapping):
+            continue
+        elements = dict(timeline.get("elements_by_id") or {})
+        rows = _enabled_narration_rows(elements)
+        # Oldest -> newest; walk backwards so the newest take is kept and
+        # each older take it overlaps is muted.
+        ordered = sorted(
+            rows,
+            key=lambda row: (created_ats.get(row[2], _MIN_UTC), row[0]),
+        )
+        kept: list[tuple[int, int]] = []
+        muted: list[str] = []
+        for element_id, ticks, _version_id in reversed(ordered):
+            overlaps_kept = any(
+                ticks[0] < end and start < ticks[1] for start, end in kept
+            )
+            if overlaps_kept:
+                muted.append(element_id)
+            else:
+                kept.append(ticks)
+        if not muted:
+            continue
+        for element_id in muted:
+            updated_element = dict(elements[element_id])
+            updated_element["enabled"] = False
+            elements[element_id] = updated_element
+            logger.warning(
+                "%s: narration element %s/%s overlaps a newer narration; "
+                "set enabled=False so two voices never speak at once "
+                "(kept the newest take; the muted track is recoverable)",
+                step,
+                timeline_id,
+                element_id,
+            )
+        updated_timeline = dict(timeline)
+        updated_timeline["elements_by_id"] = elements
+        items[timeline_id] = updated_timeline
+    timelines["items"] = items
+    migrated["timelines"] = timelines
+    return migrated
+
+
 def migrate_project_document(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Return a detached document at the current Project schema version.
 
@@ -731,8 +957,13 @@ def migrate_project_document(raw: Mapping[str, Any]) -> dict[str, Any]:
     # Same-version repair: documents already stamped with the current
     # schema_version may still predate a required field when two schema
     # lineages merged under one number. Repairs are idempotent and leave
-    # already-conforming documents untouched.
-    return _repair_v9_missing_audio_roles(document)
+    # already-conforming documents untouched. The narration de-conflict
+    # then mutes earlier takes a later narration overlaps, so a document
+    # authored before the double-voice gate still opens instead of failing
+    # validation. The write path is unaffected: it validates directly and
+    # keeps rejecting any newly stacked narration.
+    repaired = _repair_v9_missing_audio_roles(document)
+    return _deconflict_overlapping_narration(repaired, step="v9-repair")
 
 
 __all__ = [

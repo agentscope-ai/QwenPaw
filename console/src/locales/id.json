@@ -62,13 +62,26 @@
     "cliAuthenticated": "{{type}} CLI telah diautentikasi"
   },
   "desktop": {
+    "update": {
+      "title": "Perbarui QwenPaw?",
+      "otherWindows": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_one": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_other": "Ada {{count}} jendela lain yang terbuka.",
+      "description": "Pembaruan akan menutup semua jendela QwenPaw dan menghentikan tugas yang sedang berjalan.",
+      "confirm": "Tutup dan perbarui",
+      "preparing": "Menutup jendela…"
+    },
     "closeWindow": {
-      "title": "Tutup Jendela",
-      "description": "Apa yang ingin Anda lakukan saat menutup jendela? Keluar dari aplikasi akan menghentikan semua tugas yang sedang berjalan dan tugas terjadwal.",
+      "title": "Tutup QwenPaw?",
+      "description": "Tetap berjalan di latar belakang untuk melanjutkan tugas. Keluar sepenuhnya akan mengakhiri tugas yang sedang berjalan.",
       "remember": "Ingat pilihan saya",
       "showWindow": "Tampilkan Jendela",
       "minimizeToTray": "Minimalkan ke baki sistem",
       "quitApp": "Keluar dari Aplikasi",
+      "keepRunning": "Jalankan di latar belakang",
+      "quitting": "Keluar…",
+      "stopService": "Keluar sepenuhnya",
+      "stopBlocked": "QwenPaw masih digunakan di jendela atau aplikasi lain. Tutup semuanya sebelum keluar sepenuhnya.",
       "preference": "Tutup Jendela",
       "askEveryTime": "Tanya setiap saat"
     }
@@ -1769,6 +1782,10 @@
     "updateFailed": "Pembaruan gagal"
   },
   "channels": {
+    "qrcodeInstallRequired": "Instal plugin untuk memindai kode QR",
+    "runtime": {
+      "missing_code": "Plugin belum diinstal"
+    },
     "title": "Saluran",
     "description": "Kelola dan konfigurasi saluran pesan",
     "loading": "Memuat saluran...",
@@ -2131,10 +2148,6 @@
       "glob_search": {
         "name": "Temukan berkas",
         "description": "Temukan berkas berdasarkan nama atau pola jalur."
-      },
-      "ast_search": {
-        "name": "Cari struktur kode",
-        "description": "Cari pola kode dengan memahami sintaks."
       },
       "desktop_screenshot": {
         "name": "Ambil tangkapan layar",
@@ -2890,6 +2903,9 @@
     "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP."
   },
   "preview": {
+    "unavailable": "Pratinjau tidak tersedia",
+    "showDetails": "Lihat penyebab",
+    "hideDetails": "Sembunyikan detail",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "File diblokir oleh File Guard (perlindungan file sensitif).",
       "OUTSIDE_WORKSPACE": "File berada di luar cakupan workspace. Aktifkan \"Izinkan Pratinjau Konsol di Luar Workspace\" di Pengaturan → Keamanan → File Guard.",
@@ -3107,6 +3123,8 @@
     "from": "Dari:",
     "requestedBy": "Oleh",
     "markRead": "Tandai Dibaca",
+    "unreadOnly": "Hanya yang belum dibaca",
+    "emptyUnread": "Tidak ada pesan belum dibaca yang sesuai dengan filter saat ini",
     "markAllRead": "Tandai Semua Dibaca",
     "markAllReadNoUnread": "Tidak ada pesan yang belum dibaca",
     "markAllReadSuccess": "{{count}} pesan ditandai dibaca",
@@ -4075,6 +4093,27 @@
     },
     "billing": {
       "free": "Gratis"
+    },
+    "chatgpt": {
+      "contextHelp": "Batas akun: {{maximum}} token; anggaran sesi default: {{default}} token.",
+      "localHelp": "Karena kebijakan OpenAI dan callback OAuth lokal, QwenPaw dan browser harus berjalan di komputer yang sama.",
+      "account": "Akun ChatGPT",
+      "connected": "Langganan ChatGPT terhubung",
+      "disconnected": "Belum terhubung",
+      "permissionMissing": "Penggunaan langganan belum diizinkan",
+      "failed": "Login belum selesai. Silakan coba lagi.",
+      "usage": "Kelola penggunaan",
+      "reconnect": "Login ulang",
+      "changeAccount": "Ganti akun",
+      "accountActions": "Tindakan akun ChatGPT",
+      "connectedShort": "Terhubung",
+      "signOut": "Keluar",
+      "revokeWarning": "Anda telah keluar secara lokal. Pencabutan izin belum dikonfirmasi; putuskan QwenPaw di pengaturan ChatGPT.",
+      "modelHelp": "Model berasal dari akun ChatGPT saat ini. Penggunaan mengurangi kuota langganan atau kredit. Pengaturan sampling dan batas token keluaran tidak didukung melalui akses ini.",
+      "oauthDescription": "Browser akan terbuka untuk mengizinkan penggunaan langganan ChatGPT Anda. Kembali ke QwenPaw setelah selesai."
+    },
+    "providerVariants": {
+      "chatgpt": "Langganan ChatGPT"
     }
   },
   "files": {
@@ -4210,9 +4249,6 @@
     "changeProjectDirectory": "Kelola",
     "manageDefaultFolders": "Workspace bawaan",
     "projectDirectoryWorkspaceFallback": "Menggunakan direktori konfigurasi Agent",
-    "enhancedCodeCapability": "Kemampuan kode lanjutan",
-    "enhancedCodeCapabilityTooltip": "Menambahkan alat kode tanpa mengubah direktori proyek.",
-    "enhancedCodeCapabilityDescription": "Aktifkan AST, LSP, prompt kode, konteks Git, dan kontrol sumber.",
     "description": "Konfigurasi parameter runtime agen",
     "reactAgentTitle": "Agen ReAct",
     "llmRetryTitle": "Coba Ulang LLM Otomatis",

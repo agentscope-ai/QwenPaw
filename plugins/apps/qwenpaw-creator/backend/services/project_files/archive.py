@@ -7,9 +7,9 @@ import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
-import shutil
 import stat
 import sys
+from typing import NamedTuple
 import zipfile
 
 from domain.errors import BadRequestError
@@ -22,12 +22,104 @@ from .models import Project
 MAX_ARCHIVE_BYTES = 8 * 1024**3
 MAX_EXTRACTED_BYTES = 16 * 1024**3
 MAX_MEMBERS = 20000
+# Members are copied in bounded chunks so a budget can stop the byte that
+# would exceed it before that byte is written, not after.
+_COPY_CHUNK_BYTES = 1024 * 1024
 
 
-def extract_archive(path: Path, destination: Path) -> None:
+class ArchiveLimits(NamedTuple):
+    """One call's budget for reading an archive.
+
+    A caller whose payload is far smaller than a Project archive (a SKILL.md
+    bundle, say) passes its own numbers instead of inheriting 16 GiB of
+    expansion headroom. ``member_bytes`` stays None when a per-member cap
+    would only reject attachments the caller discards anyway; the total still
+    bounds what reaches disk.
+    """
+
+    archive_bytes: int
+    extracted_bytes: int
+    members: int
+    member_bytes: int | None = None
+
+
+def archive_limits(
+    *,
+    max_archive_bytes: int | None = None,
+    max_extracted_bytes: int | None = None,
+    max_members: int | None = None,
+    max_member_bytes: int | None = None,
+) -> ArchiveLimits:
+    """Fill each unset field in from the module constant.
+
+    Resolved at call time rather than through argument defaults so that
+    patching a constant still moves the limit, as the import tests rely on.
+    """
+
+    return ArchiveLimits(
+        archive_bytes=(
+            MAX_ARCHIVE_BYTES
+            if max_archive_bytes is None
+            else max_archive_bytes
+        ),
+        extracted_bytes=(
+            MAX_EXTRACTED_BYTES
+            if max_extracted_bytes is None
+            else max_extracted_bytes
+        ),
+        members=MAX_MEMBERS if max_members is None else max_members,
+        member_bytes=max_member_bytes,
+    )
+
+
+def _copy_member(
+    archive: zipfile.ZipFile,
+    info: zipfile.ZipInfo,
+    target: Path,
+    *,
+    remaining: int,
+    member_bytes: int | None,
+) -> int:
+    """Copy one member; return the bytes it actually put on disk.
+
+    ``validate_archive`` can only read the sizes an archive declares, and a
+    member is free to declare fewer than it carries, so counting what is
+    written is what makes the expansion budget real. Reads one byte past the
+    cap to refuse an over-budget member before that byte lands, and removes
+    the partial file it had already opened.
+    """
+
+    cap = remaining if member_bytes is None else min(member_bytes, remaining)
+    written = 0
+    try:
+        with archive.open(info) as source, target.open("wb") as output:
+            while True:
+                chunk = source.read(min(_COPY_CHUNK_BYTES, cap - written + 1))
+                if not chunk:
+                    return written
+                written += len(chunk)
+                if written > cap:
+                    raise BadRequestError(
+                        "archive member expands beyond its budget: "
+                        f"{info.filename!r}",
+                    )
+                output.write(chunk)
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+
+
+def extract_archive(
+    path: Path,
+    destination: Path,
+    *,
+    limits: ArchiveLimits | None = None,
+) -> None:
     """Preserve indexed paths without renaming or merging members."""
-    validate_archive(path)
+    budget = archive_limits() if limits is None else limits
+    validate_archive(path, limits=budget)
     base = destination.resolve()
+    extracted = 0
     with zipfile.ZipFile(path) as archive:
         seen = set()
         for info in archive.infolist():
@@ -60,22 +152,32 @@ def extract_archive(path: Path, destination: Path) -> None:
                 target.mkdir(parents=True, exist_ok=True)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(info) as source, target.open("wb") as output:
-                    shutil.copyfileobj(source, output)
+                extracted += _copy_member(
+                    archive,
+                    info,
+                    target,
+                    remaining=budget.extracted_bytes - extracted,
+                    member_bytes=budget.member_bytes,
+                )
 
 
-def validate_archive(path: Path) -> None:
+def validate_archive(
+    path: Path,
+    *,
+    limits: ArchiveLimits | None = None,
+) -> None:
     """Check every member before extraction or download."""
-    if path.stat().st_size > MAX_ARCHIVE_BYTES:
+    budget = archive_limits() if limits is None else limits
+    if path.stat().st_size > budget.archive_bytes:
         raise BadRequestError(
-            "archive exceeds the " f"{MAX_ARCHIVE_BYTES} byte limit",
+            "archive exceeds the " f"{budget.archive_bytes} byte limit",
         )
     try:
         with zipfile.ZipFile(path) as archive:
             members = archive.infolist()
-            if len(members) > MAX_MEMBERS:
+            if len(members) > budget.members:
                 raise BadRequestError(
-                    f"archive holds more than {MAX_MEMBERS} entries",
+                    f"archive holds more than {budget.members} entries",
                 )
             total = 0
             for info in members:
@@ -90,10 +192,10 @@ def validate_archive(path: Path) -> None:
                         f"archive entry is a symlink: {info.filename!r}",
                     )
                 total += info.file_size
-                if total > MAX_EXTRACTED_BYTES:
+                if total > budget.extracted_bytes:
                     raise BadRequestError(
                         "archive expands beyond the "
-                        f"{MAX_EXTRACTED_BYTES} byte import limit",
+                        f"{budget.extracted_bytes} byte import limit",
                     )
     except zipfile.BadZipFile as error:
         raise BadRequestError(f"not a valid zip archive: {error}") from error

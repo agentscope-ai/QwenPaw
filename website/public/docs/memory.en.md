@@ -286,6 +286,30 @@ currently installed plugins. Chat approval is restricted to the originating
 user, channel, and session; the authenticated Console can approve as an
 administrator.
 
+Array and object arguments use JSON enclosed in single quotes so shell parsing
+preserves the JSON double quotes: `tags='["Alice","Project_A"]'` or
+`filter='{"kind":"decision"}'`. Only pass arguments listed by `/reme help`;
+available fields depend on the action's schema.
+
+**Generate memory tags** is disabled by default in the agent's memory settings.
+When enabled, Auto-Memory runs ReMe's tagging step after saving a note. New
+memory tools become available with memory search enabled: `memory_list_tags`
+lists entity tags and file counts; `memory_search` accepts an optional `tags`
+array. Omit it to keep searching all memories. `/reme list_tags` also lists
+existing tags. Saved `memory_tags` lists appear in the file preview's metadata
+panel. Switching generation off leaves existing tags intact.
+
+When conversation images are enabled for Auto-Memory, local image originals
+up to 50 MB are retained in message snapshots. Static images sent to the memory
+model are resized as needed to fit its inline byte limit; the saved originals
+remain unchanged. A large image that cannot be resized produces an explicit
+memory-task error instead of being silently omitted from that request.
+Image-enabled jobs use only fallback models with confirmed image support and
+resize images for each model's limit. Text-only jobs keep the usual fallback
+policy. Memory jobs that use a language model run in sequence so one job cannot
+replace another's model while it is running; memory searches can run alongside
+them.
+
 ### 4. Auto-Dream Turns Daily Notes into Durable Knowledge
 
 Daily notes alone eventually become another pile of files. Auto-Dream scans recently changed daily memory and integrates reusable material into `digest/`.
@@ -336,7 +360,7 @@ Each durable node also uses contextual Wikilinks in `## Sources` to point back t
   <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream run summary delivered to Inbox" />
 </p>
 
-Auto-Dream also writes `interests.yaml`. This is separate from QwenPaw's current `/proactive` mode; `/proactive` does not currently read that file.
+Auto-Dream only consolidates durable knowledge in `digest/`. Proactive interaction uses the existing `/proactive` command and runs independently.
 
 ### 5. Memory Search Recalls the Right Evidence
 

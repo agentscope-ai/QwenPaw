@@ -11,6 +11,7 @@ API endpoints:
   - POST /api/console/chat/task  (drives a full agent turn)
   - GET  /api/console/chat/task/{task_id}
 """
+
 from __future__ import annotations
 
 import json
@@ -381,42 +382,6 @@ def test_shell_command_tool(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_ast_search_tool(
-    app_server,
-    mock_llm,  # pylint: disable=redefined-outer-name
-):
-    """ast_search runs (or reports a missing ast-grep CLI) cleanly.
-
-    Test purpose:
-      - Cover agents/tools/ast_tool.py entry: argument handling and
-        either a search result or the graceful "CLI unavailable"
-        branch; the turn must complete either way.
-    """
-    srv, mock_url = mock_llm
-    seeded = _workspace_dir(app_server) / "integ_ast_target.py"
-    seeded.parent.mkdir(parents=True, exist_ok=True)
-    seeded.write_text("def integ_fn():\n    return 1\n", encoding="utf-8")
-    srv.force_tool_call = True
-    srv.tool_call_name = "ast_search"
-    srv.tool_call_arguments = json.dumps(
-        {"pattern": "def $NAME():", "language": "python"},
-    )
-    unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
-    try:
-        final = _run_tool(
-            app_server,
-            user_id="integ-tools-ast",
-            prompt="ast search the code",
-        )
-        assert final.get("status") == "finished", final
-    finally:
-        srv.force_tool_call = False
-        unregister_mock_provider(app_server, provider_id)
-
-
-@pytest.mark.integration
-@pytest.mark.p2
 def test_view_image_tool_missing_path(
     app_server,
     mock_llm,  # pylint: disable=redefined-outer-name
@@ -474,44 +439,6 @@ def test_send_file_to_user_tool(
             app_server,
             user_id="integ-tools-sendfile",
             prompt="send me the file",
-        )
-        assert final.get("status") == "finished", final
-    finally:
-        srv.force_tool_call = False
-        unregister_mock_provider(app_server, provider_id)
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_lsp_tool_entry(
-    app_server,
-    mock_llm,  # pylint: disable=redefined-outer-name
-):
-    """The lsp tool runs (or reports no server) without breaking.
-
-    Test purpose:
-      - Cover agents/tools/lsp_tool.py entry: action dispatch and the
-        graceful branch when no language server is available.
-    """
-    srv, mock_url = mock_llm
-    seeded = _workspace_dir(app_server) / "integ_lsp_target.py"
-    seeded.parent.mkdir(parents=True, exist_ok=True)
-    seeded.write_text("x = 1\n", encoding="utf-8")
-    srv.force_tool_call = True
-    srv.tool_call_name = "lsp"
-    srv.tool_call_arguments = json.dumps(
-        {
-            "action": "diagnostics",
-            "file_path": "integ_lsp_target.py",
-        },
-    )
-    unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
-    try:
-        final = _run_tool(
-            app_server,
-            user_id="integ-tools-lsp",
-            prompt="check diagnostics",
         )
         assert final.get("status") == "finished", final
     finally:

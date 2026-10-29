@@ -11,6 +11,8 @@ import pytest
 
 from .test_sdk_entry_contract import write_plugin
 
+from .timing import WAIT_TIMEOUT
+
 
 async def test_concurrent_legacy_installs_preserve_both_tools_and_user_config(
     tmp_path,
@@ -96,7 +98,7 @@ plugin = Plugin()
             first = asyncio.create_task(host.install(roots[0]))
             assert await asyncio.to_thread(
                 first_read.wait,
-                5,
+                WAIT_TIMEOUT,
             ), "A never read agent config"
             second = asyncio.create_task(host.install(roots[1]))
             reports = await asyncio.wait_for(asyncio.gather(first, second), 15)
@@ -201,7 +203,7 @@ plugin = Plugin()
             patch.setattr(configs, "load_agent_config", gated_read)
             patch.setattr(configs, "save_agent_config", observed_save)
             cleaning = asyncio.create_task(asyncio.to_thread(cleanup))
-            assert await asyncio.to_thread(entered.wait, 5)
+            assert await asyncio.to_thread(entered.wait, WAIT_TIMEOUT)
             _, report = await asyncio.wait_for(
                 asyncio.gather(cleaning, host.install(root)),
                 15,

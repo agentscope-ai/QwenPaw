@@ -1,0 +1,4 @@
+slack-bolt>=1.22.0
+slack-sdk>=3.33.1
+aiohttp>=3.9.0
+aiofiles>=24.1.0

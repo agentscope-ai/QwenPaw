@@ -488,3 +488,114 @@ def test_validator_accepts_windows_reserved_chars(app, api_runtime_root):
     archive_path.write_bytes(payload.getvalue())
 
     project_routes._validate_import_archive(archive_path)
+
+
+def test_archive_budget_is_per_call_and_resolved_when_used(monkeypatch):
+    """A caller's caps replace the Project ones; the defaults still follow.
+
+    Skills import through the same extractor with a far smaller payload, so
+    the budget has to be per call. The defaults are read when the limits are
+    built rather than bound as argument defaults, because the import tests
+    above move a cap by patching the module constant.
+    """
+
+    assert project_archive.archive_limits() == (
+        project_archive.MAX_ARCHIVE_BYTES,
+        project_archive.MAX_EXTRACTED_BYTES,
+        project_archive.MAX_MEMBERS,
+        None,
+    )
+    monkeypatch.setattr(project_archive, "MAX_EXTRACTED_BYTES", 8)
+    assert project_archive.archive_limits().extracted_bytes == 8
+    assert project_archive.archive_limits(max_extracted_bytes=4)[1] == 4
+
+
+def test_extract_archive_honours_a_caller_supplied_budget(tmp_path):
+    """Every field of a caller budget is enforced, and a refusal is clean."""
+
+    path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr("one/SKILL.md", "a" * 8)
+        archive.writestr("two/SKILL.md", "b" * 8)
+    destination = tmp_path / "out"
+    limits = project_archive.archive_limits
+
+    with pytest.raises(BadRequestError, match="more than 1 entries"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_members=1),
+        )
+    with pytest.raises(BadRequestError, match="expands beyond"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_extracted_bytes=8),
+        )
+    with pytest.raises(BadRequestError, match="byte limit"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_archive_bytes=8),
+        )
+    assert not list(destination.rglob("SKILL.md"))
+
+    # A per-member cap is reached only while copying: the declared total is
+    # inside the budget, so the member that overruns it has to be refused
+    # mid-write and its partial file removed.
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_member_bytes=4),
+        )
+    assert not (destination / "one" / "SKILL.md").exists()
+
+    project_archive.extract_archive(path, destination, limits=limits())
+    assert (destination / "one" / "SKILL.md").read_text() == "a" * 8
+    assert (destination / "two" / "SKILL.md").read_text() == "b" * 8
+
+
+def test_copy_member_counts_written_bytes_not_declared_ones(tmp_path):
+    """The budget stops the byte that would exceed it, before it lands.
+
+    ``validate_archive`` can only read the sizes an archive declares. The
+    stream here stands in for a member carrying more than it declared -- one
+    that ignores the declared size -- so what is refused is the copy's own
+    counter, and the partial file it had opened does not survive.
+    """
+
+    info = SimpleNamespace(filename="project-1/member.txt")
+    archive = SimpleNamespace(open=lambda _info: io.BytesIO(b"x" * 64))
+
+    kept = tmp_path / "kept.txt"
+    written = project_archive._copy_member(
+        archive,
+        info,
+        kept,
+        remaining=64,
+        member_bytes=None,
+    )
+    assert written == 64
+    assert kept.read_bytes() == b"x" * 64
+
+    refused = tmp_path / "refused.txt"
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive._copy_member(
+            archive,
+            info,
+            refused,
+            remaining=16,
+            member_bytes=None,
+        )
+    assert not refused.exists()
+    # A per-member cap refuses inside a larger remaining budget too.
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive._copy_member(
+            archive,
+            info,
+            refused,
+            remaining=1024,
+            member_bytes=16,
+        )
+    assert not refused.exists()

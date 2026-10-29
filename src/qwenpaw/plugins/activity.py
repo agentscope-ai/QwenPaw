@@ -36,6 +36,7 @@ class PluginActivity:
         self.mutator = None
         self.cleanup_tasks = set()
         self.cleanup_retries = {}
+        self._interrupted_tasks = set()
 
     @contextmanager
     def invocation(self, *, cleanup=False):
@@ -92,10 +93,12 @@ class PluginActivity:
                 len(pending),
                 can_interrupt=False,
             )
-        cleanup_only = pending <= (
-            self.cleanup_retries.keys() | self.cleanup_tasks
+        drainable = pending <= (
+            self.cleanup_retries.keys()
+            | self.cleanup_tasks
+            | self._interrupted_tasks
         )
-        if pending and not interrupt_tasks and not cleanup_only:
+        if pending and not interrupt_tasks and not drainable:
             raise PluginBusyError(
                 self.plugin_id,
                 len(pending),
@@ -110,13 +113,20 @@ class PluginActivity:
                     + INTERRUPT_TIMEOUT_SECONDS
                 )
                 for task in pending:
+                    interrupt = (
+                        interrupt_tasks
+                        and task not in self.cleanup_tasks
+                        and task not in self._interrupted_tasks
+                    )
+                    if interrupt:
+                        # Retain retry eligibility even if this mutation is
+                        # cancelled before the request actually exits.
+                        self._interrupted_tasks.add(task)
+                        task.add_done_callback(self._interrupted_tasks.discard)
                     retry = self.cleanup_retries.get(task)
                     if retry is not None:
                         retry.set()
-                    elif (
-                        task not in self.cleanup_tasks
-                        and not task.cancelling()
-                    ):
+                    elif interrupt and not task.cancelling():
                         task.cancel()
                 # A cancelled request may enqueue its terminal callback while
                 # draining. Keep the gate closed until those new owners finish.

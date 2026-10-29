@@ -118,6 +118,10 @@ def test_selected_decision_model_comes_from_provider_manager(
     assert _decision_provider() == (typesafe_provider, "jev-2")
 
 
+def test_unselected_approval_model_retains_default(typesafe_provider):
+    assert _decision_provider() == (typesafe_provider, "jev-latest")
+
+
 def test_agent_decision_model_takes_priority_over_global(
     monkeypatch,
     typesafe_provider,
@@ -262,6 +266,22 @@ async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
             tool_func=make_recall_context_tool(),
         )
     ).needs_approval
+    assert not (
+        await assess_tool_call(
+            "MemoryListTags",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_list_tags,
+        )
+    ).needs_approval
+    assert (
+        await assess_tool_call(
+            "MemoryListTags",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_list_tags,
+            baseline_ask=True,
+        )
+    ).needs_approval
+    assert (await assess_tool_call("MemoryListTags", "")).needs_approval
     assert (
         await assess_tool_call(
             "GetCurrentTime",
