@@ -13,6 +13,7 @@ Layout produced under ``--dist``::
         memory/<plugin_id>/<id>-<version>.zip
         apps/<plugin_id>/<id>-<version>.zip
         channel/<plugin_id>/<id>-<version>.zip
+        provider/<plugin_id>/<id>-<version>.zip
         index.json
 
 Each plugin is stored under its own directory on the CDN
@@ -64,7 +65,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-KIND_DIRS = ("bundle", "tool", "memory", "apps", "channel", "hub")
+KIND_DIRS = ("bundle", "tool", "memory", "apps", "channel", "provider", "hub")
 
 EXCLUDE_PATTERNS = (
     "__pycache__",

@@ -74,6 +74,9 @@ class Runtime:
         envelope = Envelope(session_id=ctx.session_id)
         ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
+        from ..plugins._providers import ProviderTurn
+
+        provider_uses = ProviderTurn()
 
         try:
             # --- [phase 1] PRE_DISPATCH ---
@@ -253,10 +256,13 @@ class Runtime:
             try:
                 await hooks.run(Phase.FINALLY, ctx)
             finally:
-                if isinstance(request, AgentRequest):
-                    request._channel_control_state = (
-                        None  # pylint: disable=protected-access
-                    )
+                try:
+                    await provider_uses.close()
+                finally:
+                    if isinstance(request, AgentRequest):
+                        request._channel_control_state = (
+                            None  # pylint: disable=protected-access
+                        )
 
     # ----------------------------------------------------------------- helpers
 

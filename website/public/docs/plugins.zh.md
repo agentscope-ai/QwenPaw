@@ -193,6 +193,73 @@ asyncio.run(main())
 `reload(plugin_id, interrupt_tasks=True)`；超时或资源未释放仍拒绝换代。
 故障解除后可通过公开生命周期操作重试。旧上下文不能写入或注册新一代资源。
 
+## 模型提供方与托管资源
+
+模型接入使用 `providers`。资源回收使用 `resources`。本地和云端不分设 SDK 能力。
+下面的声明复用宿主已有的 OpenAI Chat 推理、格式化与流处理，无需实现 `generate`。
+
+```python
+from qwenpaw.plugins.providers import ProviderSpec
+
+
+class Plugin:
+    def register(self, ctx):
+        self.provider = ctx.register_provider(ProviderSpec(
+            id="my-models",
+            label="My models",
+            protocol="openai-chat",
+            base_url="http://127.0.0.1:8080/v1",
+            require_api_key=False,
+        ))
+
+
+plugin = Plugin()
+```
+
+自定义推理继续提供 `generate`；`generate` 与 `protocol` 二选一。
+需要准备连接时，设置 `connect(ctx: ProviderContext, model_id: str)`。
+它返回异步上下文管理器，进入后 yield 完整 base URL。
+key 和请求头继续使用已有 Provider 配置。宿主在每次模型调用前进入它，
+在所属 Agent turn 结束后退出；没有 turn 的独立调用在调用或流关闭后退出。
+每次进入都应确认连接可用。复用已有服务，不要把退出该上下文写成无条件停止服务。
+固定服务地址可省略 `connect`。默认模型连接检查和多模态探测也使用同一连接约定。
+
+注册返回 `ProviderHandle`，仅能修改它所注册的 Provider：
+
+- `update(base_url=..., models=..., generate_kwargs=...)` 持久化提供的字段。
+  `models` 替换插件发布的模型列表；同 ID 的已有模型配置保留，`None` 元数据不覆盖旧值。
+- `select(model_id)` 将自身 Provider 的模型设为默认聊天模型，沿用宿主的选择校验。
+- `clear_selection()` 仅清除指向自身 Provider 的默认聊天模型选择，返回是否清除。
+  不修改其他 Provider 的选择、其他模型用途的默认值或 Agent 独立配置。
+- `close()` 撤销注册；旧句柄不能修改新一代 Provider。
+
+`ctx.storage.path("runtime")` 返回插件持久目录内的文件路径。
+安装下载和管理 UI 使用插件自己的实现与 `apps.PawApp` 路由，不属于 Provider 协议。
+完整示例位于 `plugins/provider/local-llamacpp/`。
+
+用 `ctx.resources.connection(service)` 登记服务所有者。它的 `close()` 负责释放所持资源。
+进程启动和停止由插件实现。管理页面显式启动本地服务时选中该模型；
+推理、探测和恢复中的连接准备不修改模型选择。
+本地服务停止时清除指向自身 Provider 的默认聊天模型选择。
+
+### 本地插件安装与依赖
+
+本地插件把 `modelscope` 和 `huggingface_hub` 声明在 `requirements.txt` 中。
+用户安装插件时，现有安装流程准备缺少的包。启用和普通启动只检查，不自动安装。
+实际下载或查询远端仓库时才导入对应包。安装依赖不会下载模型权重或启动 llama.cpp。
+
+新用户从插件管理目录按需安装；旧用户的本地配置和数据自动迁移。
+已有安装/升级流程通过 `plugins prepare-upgrade` 准备旧用户依赖，普通启动不安装。
+用户卸载后不会自动装回，模型文件保留。旧本地 CLI 实现暂不注册，保留 TODO，
+后续接入统一插件 CLI。
+
+本地示例保留跨 turn 服务复用。切到云模型只改变后续请求。
+用户可在 turn 中主动停止服务、切换本地模型或安装运行时。
+在途使用保护普通插件卸载和重载；流式关闭和 turn 结束释放使用登记。
+禁用、卸载或重载时回收插件资源。
+这些新增接口尚待统一确定首次发布的 SDK 版本；不能假定旧宿主仅声明支持 `providers`
+就具备本节全部新字段。
+
 ## 能力与公开模块
 
 | 能力                         | 公开入口                                                             |
@@ -299,7 +366,7 @@ plugin = Plugin()
 | 模式       | `modes.ModeSpec`, `ModeContext`                                                   | 每工作区 AgentMode 与工具模式过滤                                 |
 | 日志       | `logging.PluginLogger`                                                            | 宿主日志，固定插件及调用身份与独立作者字段                        |
 | 模型调用   | `models.ModelService`                                                             | 当前工作区已配置模型，一次请求，沿原 factory/formatter/重试与计量 |
-| 模型提供方 | `providers.ProviderSpec`, `ModelInfo`, `ModelRequest`, `ModelChunk`, `ModelUsage` | ProviderManager / model_factory、formatter、token 计量与重试      |
+| 模型提供方 | `providers.ProviderSpec`, `ProviderHandle`, `ModelInfo`, `ModelRequest`, `ModelChunk`, `ModelUsage` | ProviderManager / model_factory、formatter、token 计量与重试      |
 | 记忆       | `memory.MemorySpec`, `MemoryBackend`, `MemoryContext`, `MemoryTask`               | 原 BaseMemoryManager / ServiceManager / shared worker             |
 | 市场       | `markets.MarketSpec`, `SearchPage`, `MarketResult`, `SkillBundle`, `Availability` | 原 Market 搜索及 Hub 安装/扫描                                    |
 | 技能       | `skills.SkillSpec`                                                                | 原技能投影、inventory、三方合并                                   |

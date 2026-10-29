@@ -40,8 +40,6 @@ dependencies = [
     "json-repair>=0.30.0",
     "jsonschema>=4.0.0",
     "segno>=1.6.6",
-    "modelscope>=1.35.0",
-    "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
     "markdown-it-py>=3.0.0,<5",
     "agent-client-protocol>=0.9.0,<0.11.0",
@@ -80,9 +78,11 @@ include-package-data = true
 "qwenpaw" = "src/qwenpaw"
 "qwenpawmail_mcp" = "packages/qwenpawmail-mcp/src/qwenpawmail_mcp"
 "qwenpaw.plugins.bundled.hub" = "plugins/hub"
+"qwenpaw.plugins.bundled.provider" = "plugins/provider"
 
 [tool.setuptools.package-data]
 "qwenpaw.plugins.bundled.hub" = ["*/plugin.json"]
+"qwenpaw.plugins.bundled.provider" = ["*/plugin.json", "*/requirements.txt", "*/*.py"]
 # Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
 "qwenpaw" = [
     "local_models/runtime-release.json",
@@ -139,6 +139,7 @@ dev = [
     "pre-commit>=4.2.0",
 ]
 local = [
+    "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
 ]
 hub = [

@@ -87,6 +87,12 @@ datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
 ]
 datas.append((str(REPO_ROOT / "plugins/hub"), "qwenpaw/plugins/bundled/hub"))
+datas.append(
+    (
+        str(REPO_ROOT / "plugins/provider"),
+        "qwenpaw/plugins/bundled/provider",
+    )
+)
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 datas.append(
     (
@@ -203,7 +209,6 @@ _metadata_pkgs = [
     "reme-auto-fin",
     "reme-daily-paper",
     "huggingface_hub",
-    "modelscope",
     "openai-whisper",
     "openai-codex",
     "openai-codex-cli-bin",
@@ -284,9 +289,6 @@ a = Analysis(
         "psutil",
         "multipart",
         "websockets",
-        "modelscope",
-        "modelscope.hub.api",
-        "modelscope.hub.snapshot_download",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("whisper"),
@@ -296,6 +298,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        "modelscope",
         "lark_oapi",
         "dingtalk_stream",
         "alibabacloud_dingtalk",

@@ -500,10 +500,8 @@ class Workspace:  # pylint: disable=too-many-public-methods
             async for item in stream:
                 yield item
         finally:
-            from ...plugins._events import observing
-
-            if observing():
-                await stream.aclose()
+            # TODO: Review this shared close policy for cloud and local runs.
+            await stream.aclose()
 
     def _register_services(  # pylint: disable=too-many-statements
         self,

@@ -23,7 +23,7 @@ from .adapters.usage import (
     capture_cache_headers,
 )
 
-from ..local_models.tag_parser import (
+from .tool_tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )

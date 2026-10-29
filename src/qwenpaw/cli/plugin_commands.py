@@ -426,21 +426,23 @@ def preset():
 
 @plugin.command("prepare-upgrade")
 def prepare_upgrade():
-    """Install and validate dependencies for saved enabled channels."""
+    """Prepare dependencies for existing channel and local-model users."""
     from ..plugins.official_channels import prepare_channel_upgrade
+    from ..plugins.local_model_legacy import prepare_local_model_upgrade
 
     try:
         errors = asyncio.run(prepare_channel_upgrade())
+        errors.update(asyncio.run(prepare_local_model_upgrade()))
     except Exception as exc:
         raise click.ClickException(
-            f"Channel upgrade preparation failed: {type(exc).__name__}",
+            f"Plugin upgrade preparation failed: {type(exc).__name__}",
         ) from exc
     if errors:
         raise click.ClickException(
-            "Enabled channel preparation failed: "
+            "Plugin upgrade preparation failed: "
             + "; ".join(f"{key}: {reason}" for key, reason in errors.items()),
         )
-    click.echo("Enabled channel dependencies are ready.")
+    click.echo("Plugin dependencies are ready.")
 
 
 @preset.command("apply")

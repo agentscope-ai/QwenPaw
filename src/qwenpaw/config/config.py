@@ -3487,6 +3487,7 @@ class Config(BaseModel):
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
     )
+    local_model_plugin_migrated: bool = False
     skill_paths: List[str] = Field(
         default_factory=list,
         description="Additional read-only skill pool roots, scanned after "

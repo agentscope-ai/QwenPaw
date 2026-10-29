@@ -22,7 +22,7 @@ from .prompts import PromptSpec
 from .modes import ModeSpec
 from .skills import SkillSpec
 from .markets import MarketSpec
-from .providers import ProviderSpec
+from .providers import ProviderSpec, ProviderHandle
 from .memory import MemorySpec
 from .events import EventSubscription
 from .apps import PawApp
@@ -203,11 +203,11 @@ class PluginContext:  # pylint: disable=protected-access
             _activation_owners.reset(token)
 
     @contextmanager
-    def _admission(self, *, cleanup=False):
+    def _admission(self, *, cleanup=False, owner=None):
         activity = self._instance.activity
         task = asyncio.current_task()
         if (id(self), task) not in _activation_owners.get():
-            with activity.invocation(cleanup=cleanup):
+            with activity.invocation(cleanup=cleanup, owner=owner):
                 yield
             return
         # The real Lifecycle mutation owns activation. Projector startup tasks
@@ -261,6 +261,7 @@ class PluginContext:  # pylint: disable=protected-access
         session_id: str,
         deadline=None,
         cleanup=False,
+        owner=None,
     ):
         self._guard()
         from ._models import model_deadline
@@ -278,8 +279,8 @@ class PluginContext:  # pylint: disable=protected-access
             or (id(self), asyncio.current_task()) in _activation_owners.get()
         ):
             raise SDKError("Plugin activation has not completed")
-        with self._admission(cleanup=cleanup):
-            task = asyncio.current_task()
+        with self._admission(cleanup=cleanup, owner=owner):
+            task = owner or asyncio.current_task()
             scope = self.resources.child(
                 workspace_id=workspace_id,
                 instance_id=uuid.uuid4().hex,
@@ -1368,7 +1369,7 @@ class PluginContext:  # pylint: disable=protected-access
             description=f"market:{spec.key}",
         )
 
-    def register_provider(self, spec: ProviderSpec) -> Registration:
+    def register_provider(self, spec: ProviderSpec) -> ProviderHandle:
         from ._providers import register
 
         return register(self, spec)

@@ -214,6 +214,67 @@ interruption with `reload(plugin_id, interrupt_tasks=True)` when needed. A timeo
 unreleased resource still prevents replacement; retry public lifecycle operations after
 the fault is resolved. Old contexts cannot write or register resources for a new generation.
 
+## Model providers and managed resources
+
+Use `providers` for model integration and `resources` for lifecycle ownership. Local and
+cloud deployment do not define separate SDK capabilities. A `ProviderSpec` with
+`protocol="openai-chat"` reuses the host's existing formatter, request policy, parser and
+stream handling. Set `id`, `label`, `base_url` and `require_api_key` as needed.
+
+Custom protocols continue to implement `generate`. Choose either `generate` or `protocol`.
+An optional `connect(ctx: ProviderContext, model_id: str)` returns an async context manager
+that yields the complete base URL. Keys and headers use the existing provider configuration.
+The host enters it before each model call and exits it
+at the end of the owning Agent turn. Standalone calls retain it until the call or stream
+closes. Check readiness on every entry and reuse an existing server. Releasing a use must
+not unconditionally stop a persistent server. Fixed endpoints omit `connect`. Default model
+connection checks and multimodal probes use the same acquisition contract.
+
+`register_provider` returns a scoped `ProviderHandle`:
+
+- `update(base_url=..., models=..., generate_kwargs=...)` persists supplied fields.
+  `models` replaces the published list. Existing settings for the same model ID remain;
+  `None` metadata leaves stored values unchanged.
+- `select(model_id)` selects this provider's model as the default chat model using
+  the host's existing selection checks.
+- `clear_selection()` clears the default chat selection only when it uses this provider
+  and returns whether it was cleared. Other providers, model roles and Agent overrides
+  remain unchanged.
+- `close()` releases the registration. Old handles cannot change replacement generations.
+
+`ctx.storage.path("runtime")` returns a file path within the plugin's persistent storage.
+Installation, downloads and their UI remain plugin business logic exposed through
+`apps.PawApp` routes. They are not mandatory Provider methods. See
+`plugins/provider/local-llamacpp/` for the complete example.
+
+Register the service owner with `ctx.resources.connection(service)`. Its `close()` method
+must release the resources it owns. Process startup and shutdown stay in plugin code.
+Explicitly starting a local server through management selects that model. Connection
+preparation for inference, probes and recovery does not change the selection.
+Stopping the local server clears the default chat selection when it uses the local provider.
+
+### Local plugin installation and dependencies
+
+The local plugin declares `modelscope` and `huggingface_hub` in `requirements.txt`.
+Explicit installation prepares missing packages through the existing installer.
+Enabling and ordinary startup only check dependencies. Download and remote catalog
+operations import their packages on demand. Package installation neither downloads
+model weights nor starts llama.cpp.
+
+New users install the plugin from Plugin Management. Existing local configuration
+and data migrate automatically. The existing installation and upgrade flow runs
+`plugins prepare-upgrade` to prepare dependencies for legacy users.
+Uninstall preserves model files and does not trigger
+reinstallation. Legacy local CLI implementations remain unregistered with TODOs for
+the shared plugin CLI integration.
+
+The local example reuses servers across turns. Switching to a cloud model leaves the
+server available. Users can stop the server, switch local models or install the runtime
+during a turn. Active uses prevent ordinary plugin unload and reload. Turn and stream
+completion release uses; plugin unload releases persistent resources.
+The first SDK release version for these additions is pending. An older host declaring
+`providers` does not necessarily support the new fields.
+
 ## Public capabilities
 
 | Capability                                          | Public entry                                                                               |
