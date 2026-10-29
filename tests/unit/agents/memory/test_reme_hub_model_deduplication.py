@@ -2,7 +2,6 @@
 # pylint: disable=protected-access
 """Memory slot deduplication uses the Hub factory's actual wrapper."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -21,6 +20,7 @@ from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 @pytest.mark.parametrize("require_images", [False, True])
 async def test_real_hub_wrapper_deduplicates_memory_slot(
     monkeypatch,
+    make_memory_model_manager,
     model_id,
     require_images,
 ):
@@ -54,11 +54,7 @@ async def test_real_hub_wrapper_deduplicates_memory_slot(
         "load_agent_config_async",
         AsyncMock(return_value=profile),
     )
-    manager = memory_module.ReMeLightMemoryManager.__new__(
-        memory_module.ReMeLightMemoryManager,
-    )
-    manager.agent_id = profile.id
-    manager._reme = SimpleNamespace(update_component=AsyncMock())
+    manager = make_memory_model_manager(profile.id)
 
     actual = await manager._update_qwenpaw_model(
         require_image_support=require_images,

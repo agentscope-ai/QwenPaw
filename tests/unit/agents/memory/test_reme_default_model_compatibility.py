@@ -20,18 +20,6 @@ from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
 
 
-def _manager():
-    manager = memory_module.ReMeLightMemoryManager.__new__(
-        memory_module.ReMeLightMemoryManager,
-    )
-    manager.agent_id = "compatibility"
-    manager._reme = SimpleNamespace(
-        update_component=AsyncMock(),
-        start=AsyncMock(),
-    )
-    return manager
-
-
 @pytest.fixture(name="local_models")
 def fixture_local_models(monkeypatch):
     """Real local model construction, without live model-service requests."""
@@ -66,6 +54,7 @@ async def test_dedicated_local_model_survives_missing_main_provider(
     monkeypatch,
     local_models,
     require_images,
+    make_memory_model_manager,
 ):
     profile = AgentProfileConfig(
         id="compatibility",
@@ -81,7 +70,7 @@ async def test_dedicated_local_model_survives_missing_main_provider(
         "load_agent_config_async",
         AsyncMock(return_value=profile),
     )
-    manager = _manager()
+    manager = make_memory_model_manager("compatibility")
 
     actual = await manager._update_qwenpaw_model(
         require_image_support=require_images,
@@ -121,6 +110,7 @@ async def test_default_route_preserves_factory_settings(
     memory_setting,
     agent_specific,
     require_images,
+    make_memory_model_manager,
 ):
     profile = AgentProfileConfig.model_validate(
         {
@@ -159,7 +149,7 @@ async def test_default_route_preserves_factory_settings(
         require_image_support=require_images,
         resize_images_to_max_bytes=True,
     )
-    manager = _manager()
+    manager = make_memory_model_manager("compatibility")
 
     actual = await manager._update_qwenpaw_model(
         require_image_support=require_images,
@@ -179,7 +169,10 @@ async def test_default_route_preserves_factory_settings(
     )
 
 
-@pytest.mark.parametrize("error_type", [ConfigurationException, OSError])
+@pytest.mark.parametrize(
+    "error_type",
+    [ConfigurationException, OSError, RuntimeError],
+)
 @pytest.mark.parametrize("has_global", [False, True])
 @pytest.mark.parametrize("operation", ["start", "update"])
 async def test_config_read_failure_keeps_original_global_fallback(
@@ -188,6 +181,7 @@ async def test_config_read_failure_keeps_original_global_fallback(
     error_type,
     has_global,
     operation,
+    make_memory_model_manager,
 ):
     if not has_global:
         local_models.active_model = None
@@ -202,7 +196,7 @@ async def test_config_read_failure_keeps_original_global_fallback(
         "load_agent_config_async",
         AsyncMock(side_effect=error),
     )
-    manager = _manager()
+    manager = make_memory_model_manager("compatibility")
     if operation == "start":
         await manager.start()
         manager._reme.start.assert_awaited_once_with()
@@ -222,37 +216,54 @@ async def test_config_read_failure_keeps_original_global_fallback(
         manager._reme.update_component.assert_not_awaited()
 
 
-@pytest.mark.parametrize("stage", ["config", "construction", "injection"])
-@pytest.mark.parametrize("error_type", [asyncio.CancelledError, RuntimeError])
-async def test_default_route_does_not_hide_cancellation_or_model_errors(
-    monkeypatch,
-    stage,
-    error_type,
-):
-    manager = _manager()
+@pytest.fixture(name="default_route")
+def fixture_default_route(monkeypatch, make_memory_model_manager):
+    manager = make_memory_model_manager("compatibility")
     profile = AgentProfileConfig(id="compatibility", name="Compatibility")
-    factory = AsyncMock(return_value=(SimpleNamespace(model="main"), None))
-    loader = AsyncMock(return_value=profile)
-    error = error_type("Interrupted")
-    if stage == "config":
-        loader.side_effect = error
-    elif stage == "construction":
-        factory.side_effect = error
-    else:
-        manager._reme.update_component.side_effect = error
-    monkeypatch.setattr(memory_module, "load_agent_config_async", loader)
+    calls = {
+        "config": AsyncMock(return_value=profile),
+        "construction": AsyncMock(
+            return_value=(SimpleNamespace(model="main"), None),
+        ),
+        "injection": manager._reme.update_component,
+    }
+    monkeypatch.setattr(
+        memory_module,
+        "load_agent_config_async",
+        calls["config"],
+    )
     monkeypatch.setattr(
         memory_module,
         "create_model_and_formatter_async",
-        factory,
+        calls["construction"],
     )
-    if stage == "config" and error_type is RuntimeError:
-        # Ordinary read failures delegate to the original factory route.
-        await manager._update_qwenpaw_model()
-        assert factory.await_args.kwargs["agent_config"] is None
-    else:
-        with pytest.raises(error_type):
-            await manager.start()
-        manager._reme.start.assert_not_awaited()
-    if stage == "config" and error_type is asyncio.CancelledError:
-        factory.assert_not_awaited()
+    return manager, calls
+
+
+@pytest.mark.parametrize("stage", ["config", "construction", "injection"])
+async def test_default_route_propagates_cancellation(default_route, stage):
+    manager, calls = default_route
+    calls[stage].side_effect = asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await manager.start()
+
+    manager._reme.start.assert_not_awaited()
+    if stage == "config":
+        calls["construction"].assert_not_awaited()
+
+
+@pytest.mark.parametrize("stage", ["construction", "injection"])
+@pytest.mark.parametrize("error_type", [RuntimeError, ValueError])
+async def test_default_route_propagates_model_errors(
+    default_route,
+    stage,
+    error_type,
+):
+    manager, calls = default_route
+    calls[stage].side_effect = error_type("Model operation failed")
+
+    with pytest.raises(error_type, match="Model operation failed"):
+        await manager.start()
+
+    manager._reme.start.assert_not_awaited()

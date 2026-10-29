@@ -5,14 +5,11 @@
 import asyncio
 import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
 from qwenpaw.agents.memory import reme_light_memory_manager
-from qwenpaw.agents.memory.reme_light_memory_manager import (
-    ReMeLightMemoryManager,
-)
 from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.exceptions import ProviderError
 
@@ -31,50 +28,55 @@ def _agent_config(
     )
 
 
-def _patch_deps(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    agent_config: SimpleNamespace,
-    factory: AsyncMock,
-    global_model: ModelSlotConfig | None = None,
-) -> Mock:
-    monkeypatch.setattr(
-        reme_light_memory_manager,
-        "load_agent_config_async",
-        AsyncMock(return_value=agent_config),
-    )
-    monkeypatch.setattr(
-        reme_light_memory_manager,
-        "create_model_and_formatter_async",
+@pytest.fixture(name="model_setup")
+def fixture_model_setup(monkeypatch, make_memory_model_manager):
+    """Wire mocked dependencies and return the manager and fallback spy."""
+
+    def setup(
+        *,
         factory,
-    )
-    provider_manager = SimpleNamespace(
-        get_active_model=lambda: global_model,
-    )
-    monkeypatch.setattr(
-        reme_light_memory_manager,
-        "ProviderManager",
-        SimpleNamespace(get_instance=lambda: provider_manager),
-    )
-    fallback_factory = Mock(
-        return_value=SimpleNamespace(name="memory-fallback"),
-    )
-    monkeypatch.setattr(
-        reme_light_memory_manager,
-        "FallbackChatModel",
-        fallback_factory,
-    )
-    return fallback_factory
+        memory_model=None,
+        active_model=None,
+        global_model=None,
+        agent_config=None,
+    ):
+        if agent_config is None:
+            agent_config = _agent_config(memory_model, active_model)
+        monkeypatch.setattr(
+            reme_light_memory_manager,
+            "load_agent_config_async",
+            AsyncMock(return_value=agent_config),
+        )
+        monkeypatch.setattr(
+            reme_light_memory_manager,
+            "create_model_and_formatter_async",
+            factory,
+        )
+        provider_manager = SimpleNamespace(
+            get_active_model=lambda: global_model,
+        )
+        monkeypatch.setattr(
+            reme_light_memory_manager,
+            "ProviderManager",
+            SimpleNamespace(get_instance=lambda: provider_manager),
+        )
+        fallback_factory = Mock(
+            return_value=SimpleNamespace(name="memory-fallback"),
+        )
+        monkeypatch.setattr(
+            reme_light_memory_manager,
+            "FallbackChatModel",
+            fallback_factory,
+        )
+        return make_memory_model_manager(), fallback_factory
+
+    return setup
 
 
-def _build_manager() -> ReMeLightMemoryManager:
-    manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager.agent_id = "default"
-    manager._reme = SimpleNamespace(update_component=AsyncMock())
-    return manager
-
-
-async def test_inherited_hub_catalog_lookup_runs_off_event_loop(monkeypatch):
+async def test_inherited_hub_catalog_lookup_runs_off_event_loop(
+    monkeypatch,
+    make_memory_model_manager,
+):
     """Use the real Hub resolution chain without sending an HTTP request."""
     from qwenpaw.providers import hub_managed
     from qwenpaw.providers.provider_manager import ProviderManager
@@ -119,7 +121,7 @@ async def test_inherited_hub_catalog_lookup_runs_off_event_loop(monkeypatch):
     )
     monkeypatch.setattr(reme_light_memory_manager, "FallbackChatModel", Mock())
 
-    await _build_manager()._update_qwenpaw_model()
+    await make_memory_model_manager()._update_qwenpaw_model()
 
     assert lookup_threads and all(t != loop_thread for t in lookup_threads)
     assert factory.await_args_list[1].kwargs["model_slot_override"] == (
@@ -135,64 +137,52 @@ async def test_inherited_hub_catalog_lookup_runs_off_event_loop(monkeypatch):
     ],
 )
 async def test_main_construction_failure_allows_dedicated_model(
-    monkeypatch,
     main_error,
+    model_setup,
 ):
     memory_model = SimpleNamespace(model="memory")
     factory = AsyncMock(side_effect=[main_error, (memory_model, None)])
-    fallback = _patch_deps(
-        monkeypatch,
-        agent_config=_agent_config(
-            memory_model=ModelSlotConfig(
-                provider_id="memory-provider",
-                model="memory",
-            ),
+    manager, fallback = model_setup(
+        memory_model=ModelSlotConfig(
+            provider_id="memory-provider",
+            model="memory",
         ),
         factory=factory,
     )
-    manager = _build_manager()
 
     assert await manager._update_qwenpaw_model() is memory_model
     fallback.assert_not_called()
     assert factory.await_count == 2
 
 
-async def test_both_model_construction_failures_are_not_hidden(monkeypatch):
+async def test_both_model_construction_failures_are_not_hidden(model_setup):
     factory = AsyncMock(
         side_effect=[
             ProviderError("Main provider removed"),
             ValueError("Memory key missing"),
         ],
     )
-    _patch_deps(
-        monkeypatch,
-        agent_config=_agent_config(
-            memory_model=ModelSlotConfig(
-                provider_id="memory-provider",
-                model="memory",
-            ),
+    manager, _ = model_setup(
+        memory_model=ModelSlotConfig(
+            provider_id="memory-provider",
+            model="memory",
         ),
         factory=factory,
     )
-    manager = _build_manager()
     with pytest.raises(ValueError, match="Memory key missing"):
         await manager._update_qwenpaw_model()
     manager._reme.update_component.assert_not_awaited()
 
 
-async def test_main_construction_cancellation_does_not_try_memory(monkeypatch):
+async def test_main_construction_cancellation_does_not_try_memory(model_setup):
     factory = AsyncMock(side_effect=asyncio.CancelledError())
-    _patch_deps(
-        monkeypatch,
-        agent_config=_agent_config(
-            memory_model=ModelSlotConfig(
-                provider_id="memory-provider",
-                model="memory",
-            ),
+    manager, _ = model_setup(
+        memory_model=ModelSlotConfig(
+            provider_id="memory-provider",
+            model="memory",
         ),
         factory=factory,
     )
-    manager = _build_manager()
     with pytest.raises(asyncio.CancelledError):
         await manager._update_qwenpaw_model()
     factory.assert_awaited_once()
@@ -201,25 +191,21 @@ async def test_main_construction_cancellation_does_not_try_memory(monkeypatch):
 
 @pytest.mark.parametrize("inherited", [False, True])
 async def test_identical_memory_and_main_slots_are_not_duplicated(
-    monkeypatch,
     inherited,
+    model_setup,
 ):
     slot = ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b")
     main_model = SimpleNamespace(model_key="ollama:qwen2.5:7b")
     factory = AsyncMock(return_value=(main_model, None))
-    fallback_factory = _patch_deps(
-        monkeypatch,
-        agent_config=_agent_config(
-            memory_model=(
-                ModelSlotConfig(provider_id="", model=slot.model)
-                if inherited
-                else slot
-            ),
-            active_model=slot,
+    manager, fallback_factory = model_setup(
+        memory_model=(
+            ModelSlotConfig(provider_id="", model=slot.model)
+            if inherited
+            else slot
         ),
+        active_model=slot,
         factory=factory,
     )
-    manager = _build_manager()
 
     assert await manager._update_qwenpaw_model() is main_model
 
@@ -231,116 +217,93 @@ async def test_identical_memory_and_main_slots_are_not_duplicated(
 
 
 @pytest.mark.parametrize(
-    ("memory_model", "active_model", "global_model", "expected_override"),
+    ("provider", "model", "agent_provider", "global_provider", "expected"),
     [
-        # Unset config keeps the existing main-model behavior.
-        (None, None, None, None),
-        # A full slot is passed through as the override.
-        (
-            ModelSlotConfig(provider_id="dashscope", model="qwenpaw-flash-4b"),
-            None,
-            None,
-            ModelSlotConfig(provider_id="dashscope", model="qwenpaw-flash-4b"),
-        ),
-        # A bare model name inherits the agent main model's provider.
-        (
-            ModelSlotConfig(provider_id="", model="qwenpaw-flash-4b"),
-            ModelSlotConfig(provider_id="dashscope", model="qwen3-max"),
-            None,
-            ModelSlotConfig(provider_id="dashscope", model="qwenpaw-flash-4b"),
-        ),
-        # Without an agent main model, the global active provider is used.
-        (
-            ModelSlotConfig(provider_id="", model="qwenpaw-flash-4b"),
-            None,
-            ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b"),
-            ModelSlotConfig(provider_id="ollama", model="qwenpaw-flash-4b"),
-        ),
-        # Version-tagged bare names inherit the agent's typed provider slot.
-        (
-            ModelSlotConfig(provider_id="", model="qwen2.5:7b"),
-            ModelSlotConfig(provider_id="ollama", model="qwen3:8b"),
-            None,
-            ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b"),
-        ),
-        # No inherited provider means the unchanged main-model path is used.
-        (
-            ModelSlotConfig(provider_id="", model="qwen2.5:7b"),
-            None,
-            None,
-            None,
-        ),
-        # A slot without a model name is unusable and ignored.
-        (
-            ModelSlotConfig(provider_id="dashscope", model=""),
-            None,
-            None,
-            None,
-        ),
+        ("", None, None, None, None),
+        ("dashscope", "memory", None, None, "dashscope"),
+        ("", "memory", "dashscope", None, "dashscope"),
+        ("", "memory", None, "ollama", "ollama"),
+        ("", "qwen2.5:7b", "ollama", None, "ollama"),
+        ("", "memory", None, None, None),
+        ("dashscope", "", None, None, None),
+    ],
+    ids=[
+        "unset",
+        "explicit",
+        "agent-provider",
+        "global-provider",
+        "version-tag",
+        "no-provider",
+        "empty-model",
     ],
 )
-async def test_update_model_slot_selection(
-    monkeypatch: pytest.MonkeyPatch,
-    memory_model: ModelSlotConfig | None,
-    active_model: ModelSlotConfig | None,
-    global_model: ModelSlotConfig | None,
-    expected_override: ModelSlotConfig | None,
-) -> None:
-    """The factory must receive the resolved slot, or none when unusable."""
-    main_model = SimpleNamespace(name="main")
-    memory_model_instance = SimpleNamespace(name="memory")
-    factory = AsyncMock(
-        side_effect=[
-            (main_model, None),
-            (memory_model_instance, None),
-        ],
+def test_memory_slot_resolution(
+    model_setup,
+    provider,
+    model,
+    agent_provider,
+    global_provider,
+    expected,
+):
+    config = _agent_config(
+        memory_model=(
+            ModelSlotConfig(provider_id=provider, model=model)
+            if model is not None
+            else None
+        ),
+        active_model=(
+            ModelSlotConfig(provider_id=agent_provider, model="chat")
+            if agent_provider
+            else None
+        ),
     )
-    agent_config = _agent_config(
-        memory_model=memory_model,
-        active_model=active_model,
+    manager, _ = model_setup(
+        agent_config=config,
+        factory=AsyncMock(),
+        global_model=(
+            ModelSlotConfig(provider_id=global_provider, model="chat")
+            if global_provider
+            else None
+        ),
     )
-    fallback_factory = _patch_deps(
-        monkeypatch,
-        agent_config=agent_config,
-        factory=factory,
-        global_model=global_model,
-    )
-    manager = _build_manager()
 
-    await manager._update_qwenpaw_model()
+    assert manager._memory_model_slot(config) == (
+        ModelSlotConfig(provider_id=expected, model=model)
+        if expected
+        else None
+    )
 
-    if expected_override is None:
-        factory.assert_awaited_once_with(
-            "default",
-            agent_config=agent_config,
-            require_image_support=False,
-            resize_images_to_max_bytes=True,
-        )
-        expected_model = main_model
-        fallback_factory.assert_not_called()
-    else:
-        assert factory.await_args_list[0].args == ("default",)
-        assert factory.await_args_list[0].kwargs == {
-            "agent_config": agent_config,
-            "require_image_support": False,
-            "resize_images_to_max_bytes": True,
-        }
-        assert factory.await_args_list[1].args == ("default",)
-        assert factory.await_args_list[1].kwargs == {
-            "model_slot_override": expected_override,
-            "agent_config": agent_config,
-            "require_image_support": False,
-            "resize_images_to_max_bytes": True,
-        }
-        expected_model = fallback_factory.return_value
-        fallback_factory.assert_called_once_with(
-            [memory_model_instance, main_model],
-            fallback_on_any_error=True,
-        )
+
+async def test_dedicated_model_receives_shared_factory_settings(model_setup):
+    """Verify factory wiring once, separately from slot normalization."""
+    slot = ModelSlotConfig(provider_id="dashscope", model="memory")
+    config = _agent_config(memory_model=slot)
+    main_model, memory_model = SimpleNamespace(name="main"), SimpleNamespace(
+        name="memory",
+    )
+    factory = AsyncMock(side_effect=[(main_model, None), (memory_model, None)])
+    manager, fallback = model_setup(agent_config=config, factory=factory)
+
+    actual = await manager._update_qwenpaw_model()
+
+    kwargs = {
+        "agent_config": config,
+        "require_image_support": False,
+        "resize_images_to_max_bytes": True,
+    }
+    assert factory.await_args_list == [
+        call("default", **kwargs),
+        call("default", model_slot_override=slot, **kwargs),
+    ]
+    fallback.assert_called_once_with(
+        [memory_model, main_model],
+        fallback_on_any_error=True,
+    )
+    assert actual is fallback.return_value
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",
-        model=expected_model,
+        model=actual,
     )
 
 
@@ -353,8 +316,8 @@ async def test_update_model_slot_selection(
     ],
 )
 async def test_update_model_unavailable_slot_falls_back_to_main_model(
-    monkeypatch: pytest.MonkeyPatch,
     error: Exception,
+    model_setup,
 ) -> None:
     """A broken memory_model must degrade to the agent's main model."""
     slot = ModelSlotConfig(provider_id="missing", model="qwenpaw-flash-4b")
@@ -365,23 +328,15 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
             error,
         ],
     )
-    _patch_deps(
-        monkeypatch,
-        agent_config=_agent_config(memory_model=slot),
+    manager, _ = model_setup(
+        memory_model=slot,
         factory=factory,
     )
-    manager = _build_manager()
 
     actual_model = await manager._update_qwenpaw_model()
 
     assert actual_model is main_model
     assert factory.await_count == 2
-    assert factory.await_args_list[0].kwargs == {
-        "agent_config": factory.await_args_list[1].kwargs["agent_config"],
-        "require_image_support": False,
-        "resize_images_to_max_bytes": True,
-    }
-    assert factory.await_args_list[1].kwargs["model_slot_override"] == slot
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",
@@ -389,7 +344,10 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
     )
 
 
-async def test_gemini_without_api_key_falls_back_and_reme_starts(monkeypatch):
+async def test_gemini_without_api_key_falls_back_and_reme_starts(
+    monkeypatch,
+    model_setup,
+):
     """Exercise SDK construction without a model-service request."""
     from qwenpaw.providers.gemini_provider import GeminiProvider
 
@@ -415,13 +373,10 @@ async def test_gemini_without_api_key_falls_back_and_reme_starts(monkeypatch):
         return main_model, None
 
     factory = AsyncMock(side_effect=construct_model)
-    fallback_factory = _patch_deps(
-        monkeypatch,
-        agent_config=_agent_config(memory_model=slot),
+    manager, fallback_factory = model_setup(
+        memory_model=slot,
         factory=factory,
     )
-    manager = _build_manager()
-    manager._reme.start = AsyncMock()
 
     await manager.start()
 
@@ -433,19 +388,6 @@ async def test_gemini_without_api_key_falls_back_and_reme_starts(monkeypatch):
         model=main_model,
     )
     manager._reme.start.assert_awaited_once_with()
-
-
-async def test_main_model_construction_errors_remain_visible(monkeypatch):
-    """A dedicated-model fallback cannot hide an unusable main model."""
-    _patch_deps(
-        monkeypatch,
-        agent_config=_agent_config(),
-        factory=AsyncMock(side_effect=ValueError("Main model is broken")),
-    )
-    manager = _build_manager()
-    with pytest.raises(ValueError, match="Main model is broken"):
-        await manager._update_qwenpaw_model()
-    manager._reme.update_component.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -462,16 +404,14 @@ async def test_image_jobs_exclude_unsafe_main_model_fallback(
     main_supports_images,
     memory_supports_images,
     expect_fallback,
+    model_setup,
 ):
     """Only confirmed image-capable main models can receive memory images."""
     main_model = SimpleNamespace(name="main")
     memory_model = SimpleNamespace(name="memory")
     factory = AsyncMock(side_effect=[(main_model, None), (memory_model, None)])
-    fallback_factory = _patch_deps(
-        monkeypatch,
-        agent_config=_agent_config(
-            memory_model=ModelSlotConfig(provider_id="custom", model="vision"),
-        ),
+    manager, fallback_factory = model_setup(
+        memory_model=ModelSlotConfig(provider_id="custom", model="vision"),
         factory=factory,
     )
     monkeypatch.setattr(
@@ -482,15 +422,14 @@ async def test_image_jobs_exclude_unsafe_main_model_fallback(
             else main_supports_images
         ),
     )
-    manager = _build_manager()
 
     actual_model = await manager._update_qwenpaw_model(
         require_image_support=True,
     )
 
-    for call in factory.await_args_list:
-        assert call.kwargs["require_image_support"] is True
-        assert call.kwargs["resize_images_to_max_bytes"] is True
+    for factory_call in factory.await_args_list:
+        assert factory_call.kwargs["require_image_support"] is True
+        assert factory_call.kwargs["resize_images_to_max_bytes"] is True
     if expect_fallback:
         fallback_factory.assert_called_once_with(
             [memory_model, main_model],
