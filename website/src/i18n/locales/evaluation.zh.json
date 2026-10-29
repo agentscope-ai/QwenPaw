@@ -110,8 +110,6 @@
   "guideCompareTitle": "从你的使用领域开始比较",
   "guideCompare": "先找到接近实际工作的领域，再比较 SDK 版本、Default、Goal、Code 模式与模型。总榜默认四项各占 25%；关闭标签、添加评测集或修改占比，即可按自己的需求加权。",
   "guideMetrics": "先计算各评测集的逐题均分，再按所选权重合成。执行报错但有有效 verifier 评分时保留该评分，没有有效评分的题目记 0。图中费用仅计已记录的模型调用金额，不含 Judge；用时包含环境准备与评分。",
-  "markerStyle": "数据点样式",
-  "splitDots": "双色圆点",
   "logoMarkers": "Logo",
   "editShare": "修改 {{benchmark}} 的占比",
   "removeBenchmark": "移除 {{benchmark}}",

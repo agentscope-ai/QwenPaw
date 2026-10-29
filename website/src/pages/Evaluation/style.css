@@ -730,16 +730,19 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  border: 1px solid var(--eval-border);
-  border-radius: 14px 14px 6px 6px;
-  background: var(--eval-canvas);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
   transition:
     background-color 120ms,
     border-color 120ms;
 }
-.evaluation-benchmark-tab[data-editing="true"] {
-  border-color: var(--eval-accent-text);
+.evaluation-benchmark-tab:is(:hover, :focus-within, [data-editing="true"]) {
+  border-color: color-mix(in srgb, var(--eval-accent) 24%, transparent);
   background: var(--eval-soft);
+}
+.evaluation-page .evaluation-benchmark-tab button:is(:hover, :active) {
+  background: transparent;
 }
 .evaluation-page .evaluation-tab-edit {
   display: grid;
@@ -748,7 +751,7 @@
   gap: 0 12px;
   padding: 9px 4px 9px 12px;
   text-align: left;
-  border-radius: 12px 0 0 4px;
+  border-radius: 12px;
 }
 .evaluation-tab-edit small {
   grid-column: 1 / -1;
@@ -763,11 +766,41 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-.evaluation-page .evaluation-tab-close {
+.evaluation-page .evaluation-benchmark-tab .evaluation-tab-close {
   padding: 4px;
   min-width: 32px;
   align-self: stretch;
-  border-radius: 0 12px 4px 0;
+  border-radius: 12px;
+  color: var(--eval-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms;
+}
+.evaluation-page
+  .evaluation-benchmark-tab:is(:hover, :focus-within, [data-editing="true"])
+  .evaluation-tab-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+.evaluation-page
+  .evaluation-benchmark-tab:is(:hover, :focus-within, [data-editing="true"])
+  .evaluation-tab-close:disabled {
+  opacity: 0.35;
+}
+@media (hover: none) {
+  .evaluation-page .evaluation-benchmark-tab .evaluation-tab-close {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .evaluation-page .evaluation-benchmark-tab .evaluation-tab-close:disabled {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .evaluation-benchmark-tab,
+  .evaluation-page .evaluation-benchmark-tab .evaluation-tab-close {
+    transition: none;
+  }
 }
 .evaluation-page :is(.evaluation-tab-add, .evaluation-weight-reset) {
   flex-shrink: 0;
@@ -876,24 +909,6 @@
 .evaluation-benchmark-add small {
   display: block;
   color: var(--eval-muted);
-}
-.evaluation-page .evaluation-marker-switch {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: 12px;
-  background: var(--eval-canvas);
-  border: 1px solid var(--eval-border);
-}
-.evaluation-marker-switch button {
-  min-height: 36px;
-  padding: 6px 12px;
-  color: var(--eval-muted);
-  border-radius: 9px;
-}
-.evaluation-marker-switch button[aria-pressed="true"] {
-  color: var(--eval-text);
-  background: var(--eval-surface);
-  box-shadow: 0 1px 4px #00000012;
 }
 .evaluation-legend[data-style="logos"] .evaluation-dot-legend {
   display: none;

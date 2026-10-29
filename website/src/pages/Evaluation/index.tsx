@@ -424,22 +424,17 @@ export default function Evaluation() {
                 )}
               </div>
               <div className="evaluation-display-controls">
-                <div
-                  className="evaluation-marker-switch"
-                  role="group"
-                  aria-label={t("markerStyle")}
-                >
-                  {(["dots", "logos"] as const).map((style) => (
-                    <button
-                      type="button"
-                      key={style}
-                      aria-pressed={markerStyle === style}
-                      onClick={() => setMarkerStyle(style)}
-                    >
-                      {t(style === "dots" ? "splitDots" : "logoMarkers")}
-                    </button>
-                  ))}
-                </div>
+                <label>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={markerStyle === "logos"}
+                    onChange={(event) =>
+                      setMarkerStyle(event.target.checked ? "logos" : "dots")
+                    }
+                  />
+                  {t("logoMarkers")}
+                </label>
                 <label>
                   <input
                     type="checkbox"
