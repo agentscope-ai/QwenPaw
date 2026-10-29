@@ -573,7 +573,7 @@ class Workspace:
             ServiceDescriptor(
                 name="history_store",
                 create_service=create_history_service,
-                stop_method="close",
+                stop_method="shutdown",
                 reusable=True,
                 reuse_compatibility=history_service_reuse_compatible,
                 require_clean_stop=True,

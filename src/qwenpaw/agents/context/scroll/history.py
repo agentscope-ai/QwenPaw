@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ..types import LogEntry
+from ....utils.io_utils import run_async_to_completion, run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -1269,12 +1271,20 @@ class HistoryStore:
             self._conn.commit()
             self._conn.execute("VACUUM")
 
+    def note_database_error(self, exc: BaseException) -> None:
+        """Schedule a probe for corruption, not ordinary I/O errors."""
+        if isinstance(exc, sqlite3.DatabaseError) and self._is_corruption(exc):
+            with self._lock:
+                if self._fts and not self._closed:
+                    self._fts_check_pending = True
+
     def note_write_failure(self, exc: BaseException) -> None:
         """Record a write-through failure — durability is now degraded.
 
         Logs prominently on the first failure (then counts the rest, to avoid
         log spam). Read ``degraded`` to gate any "fully durable" guarantees.
         """
+        self.note_database_error(exc)
         self.write_failures += 1
         if not self.degraded:
             self.degraded = True
@@ -1322,6 +1332,18 @@ class HistoryStore:
                 return False
             self._close_connection()
             return True
+
+    async def shutdown(self) -> None:
+        """Finish shutdown after the last request releases history."""
+
+        async def drain() -> None:
+            # Do not occupy an executor thread while awaiting borrowers: their
+            # final persistence and release also need the executor. Each close
+            # attempt is offloaded because a current write can hold the lock.
+            while not await run_sync_io(self.close):
+                await asyncio.sleep(0.05)
+
+        await run_async_to_completion(drain())
 
     def __repr__(self) -> str:
         return f"<HistoryStore path={self._path}>"

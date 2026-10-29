@@ -559,11 +559,17 @@ def test_init_fts_degrades_and_warns_without_fts5(tmp_path: Path, caplog):
         HistoryStore._fts_unavailable_warned = False
 
 
-def test_note_write_failure_sets_degraded(store: HistoryStore):
+@pytest.mark.parametrize("code", [sqlite3.SQLITE_FULL, sqlite3.SQLITE_CORRUPT])
+def test_note_write_failure_sets_degraded(store: HistoryStore, code):
     assert store.degraded is False
-    store.note_write_failure(sqlite3.OperationalError("disk full"))
+    error = sqlite3.DatabaseError("write failed")
+    error.sqlite_errorcode = code
+    store.note_write_failure(error)
     assert store.degraded is True
     assert store.write_failures == 1
+    assert store._fts_check_pending == (
+        store._fts and code == sqlite3.SQLITE_CORRUPT
+    )
     store.note_write_failure(OSError("still bad"))
     assert store.write_failures == 2  # counted, stays degraded
 

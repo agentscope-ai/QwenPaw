@@ -226,6 +226,7 @@ def build_scroll_components(
             scratch_root=scratch_root,
             timeout_s=sc.repl_timeout_s,
             allow_unsandboxed=scroll_unsandboxed_allowed(sc),
+            on_database_error=history.note_database_error,
         )
         # Structured front door for the common recall ops (expand / search /
         # recall_tool): in-process bound queries, no sandbox, no approval —
@@ -237,6 +238,7 @@ def build_scroll_components(
             agent_id=agent_id,
             loop_guard=recall_loop_guard,
             page_max_bytes=trc.pruning_recent_msg_max_bytes,
+            on_database_error=history.note_database_error,
         )
         return ScrollComponents(
             context_manager=manager,

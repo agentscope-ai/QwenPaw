@@ -7,6 +7,7 @@ import threading
 from types import SimpleNamespace
 
 import pytest
+from agentscope.message import ToolResultState
 
 import qwenpaw.agents.context as context_mod
 from qwenpaw.runtime.builder import AgentBuilder, _resolve_react_iterations
@@ -78,8 +79,13 @@ async def test_workspace_history_survives_requests_and_reload(
         assert store.count("second") == 1
 
         if reload_kind == "shutdown":
-            with pytest.raises(RuntimeError, match="incomplete stop"):
-                await old_manager.stop_all(final=True)
+            multi = MultiAgentManager()
+            multi.agents["agent"] = old
+            old._started = old._start_attempted = True
+            stopping = asyncio.create_task(multi.stop_agent("agent"))
+            while not store._close_requested:
+                await asyncio.sleep(0)
+            assert not stopping.done()
             # Final shutdown cannot cut off the request's last durable write.
             assert not store.closed
             store.append(
@@ -90,7 +96,10 @@ async def test_workspace_history_survives_requests_and_reload(
             with pytest.raises(RuntimeError, match="shutting down"):
                 store.acquire()
             managers[1].close()
-            assert store.closed
+            assert await asyncio.wait_for(stopping, timeout=2)
+            assert store.closed and not old._started
+            assert "agent" not in multi.agents
+            assert not multi._agent_stop_tasks
             return
 
         reusable = old_manager.get_reusable_services()
@@ -123,6 +132,67 @@ async def test_workspace_history_survives_requests_and_reload(
         await old_manager.stop_all(final=True)
         await new_manager.stop_all(final=True)
     assert store.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recall_kind", ["structured", "python"])
+async def test_runtime_fts_corruption_is_repaired_on_next_borrow(
+    tmp_path,
+    monkeypatch,
+    recall_kind,
+):
+    ws = _history_workspace(tmp_path)
+    monkeypatch.setenv("QWENPAW_ALLOW_UNSANDBOXED_RECALL", "true")
+    ws.config.running.light_context_config.scroll_config.allow_unsandboxed = (
+        True
+    )
+    await ws._service_manager.start_all()
+    store = ws.history_store
+    components = []
+    try:
+        if not store._fts:
+            pytest.skip("SQLite build lacks FTS5")
+        ctx = SimpleNamespace(workspace=ws, session_id="s")
+        first = await AgentBuilder._build_scroll_components(
+            ctx,
+            ws.config,
+            model=None,
+        )
+        assert first is not None
+        components.append(first)
+        store.append(
+            session_id="s",
+            agent_id="agent",
+            entry=LogEntry(kind="model_turn", content="aardvark"),
+        )
+        with store._conn:
+            store._conn.execute(
+                "UPDATE conversation_history_fts_data "
+                "SET block=x'00' WHERE id>10",
+            )
+        if recall_kind == "structured":
+            failed = await first.recall_tool(op="search", query="aardvark")
+        else:
+            failed = await first.repl_tool("ms.search('aardvark')")
+        assert failed.state == ToolResultState.ERROR
+        first.context_manager.close()
+        second = await AgentBuilder._build_scroll_components(
+            ctx,
+            ws.config,
+            model=None,
+        )
+        assert second is not None
+        components.append(second)
+        assert second.context_manager._history is store
+        result = await second.recall_tool(op="search", query="aardvark")
+        assert result.state == ToolResultState.SUCCESS
+        assert "aardvark" in result.content[0].text
+        assert store.count("s") == 1
+        assert not store._fts_check_pending
+    finally:
+        for component in components:
+            component.context_manager.close()
+        await ws._service_manager.stop_all(final=True)
 
 
 @pytest.mark.asyncio
