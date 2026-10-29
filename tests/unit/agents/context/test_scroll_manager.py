@@ -2465,3 +2465,124 @@ def test_tool_input_round_trips_to_db(store: HistoryStore):
         "WHERE tool_call_id='call-9'",
     ).fetchone()
     assert row["tool_input"] == '{"pattern": "x"}'
+
+
+def test_tool_result_has_inline_media_recognizes_url_sources():
+    """URL-referenced media (video/audio/image) must be recognized as
+    inline media (#8474).
+    """
+    # Base64 sources (existing behavior)
+    dict_b64 = {
+        "output": [
+            {"type": "data", "source": {"type": "base64", "data": "abc"}},
+        ],
+    }
+    obj_b64 = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="data",
+                source=SimpleNamespace(type="base64", data="abc"),
+            ),
+        ],
+    )
+    assert ScrollContextManager._tool_result_has_inline_media(dict_b64)
+    assert ScrollContextManager._tool_result_has_inline_media(obj_b64)
+
+    # URL sources (new behavior for #8474)
+    dict_url = {
+        "output": [
+            {
+                "type": "data",
+                "source": {
+                    "type": "url",
+                    "url": "https://example.com/video.mp4",
+                    "media_type": "video/mp4",
+                },
+            },
+        ],
+    }
+    obj_url = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="data",
+                source=SimpleNamespace(
+                    type="url",
+                    url="https://example.com/video.mp4",
+                    media_type="video/mp4",
+                ),
+            ),
+        ],
+    )
+    assert ScrollContextManager._tool_result_has_inline_media(dict_url)
+    assert ScrollContextManager._tool_result_has_inline_media(obj_url)
+
+    # Negative cases
+    text_only = {"output": [{"type": "text", "text": "no media"}]}
+    assert not ScrollContextManager._tool_result_has_inline_media(text_only)
+    missing_url = {
+        "output": [{"type": "data", "source": {"type": "url", "url": ""}}],
+    }
+    assert not ScrollContextManager._tool_result_has_inline_media(missing_url)
+
+
+async def test_pressure_fold_recognizes_url_media_independently_of_text_length(
+    store: HistoryStore,
+):
+    """Tool results carrying URL media bypass the 200-char text gate
+    and fold (#8474).
+    """
+    media_turn = Msg(
+        name="a",
+        role="assistant",
+        content=[
+            TextBlock(type="text", text="calling send_file"),
+            ToolCallBlock(
+                type="tool_call",
+                id="send-1",
+                name="send_file_to_user",
+                input='{"file": "video.mp4"}',
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="send-1",
+                name="send_file_to_user",
+                output=[
+                    {
+                        "type": "data",
+                        "source": {
+                            "type": "url",
+                            "url": "https://example.com/video.mp4",
+                            "media_type": "video/mp4",
+                        },
+                    },
+                ],
+            ),
+        ],
+    )
+    recent = _completed_tool_history(5, padding=0)
+    current = user("current request")
+    ctx = [
+        user("send the clip"),
+        media_turn,
+        *recent,
+        current,
+    ]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[900, 700])
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (ctx[:-1], [current])
+
+    mgr._seen_tool_result_ids.add("send-1")
+    mgr._persisted_tcids.add("send-1")
+
+    await mgr.compress(agent)
+
+    # In #8474, unpatched code skipped folding because has_media
+    # was False and text length was 0 (<= 200). With the fix, it is
+    # folded to prevent the media block from reviving in future requests.
+    output_block = media_turn.content[2].output[0]
+    first_text = getattr(output_block, "text", None)
+    if first_text is None and isinstance(output_block, dict):
+        first_text = output_block.get("text", "")
+    assert first_text is not None and first_text.startswith("[scroll folded]")
+    assert mgr.last_compress["folded"] == 1

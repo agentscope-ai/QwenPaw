@@ -1604,9 +1604,17 @@ class ScrollContextManager:
             if isinstance(source, dict):
                 if source.get("type") == "base64" and source.get("data"):
                     return True
+                if source.get("type") == "url" and source.get("url"):
+                    return True
             elif getattr(source, "type", None) == "base64" and getattr(
                 source,
                 "data",
+                None,
+            ):
+                return True
+            elif getattr(source, "type", None) == "url" and getattr(
+                source,
+                "url",
                 None,
             ):
                 return True
