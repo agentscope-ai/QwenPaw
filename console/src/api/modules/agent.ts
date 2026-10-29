@@ -5,6 +5,7 @@ import type {
   AgentRequest,
   AgentsRunningConfig,
   EmbeddingModelConfig,
+  RerankerConfig,
 } from "../types";
 
 export interface EmbeddingTestResponse {
@@ -13,6 +14,31 @@ export interface EmbeddingTestResponse {
   actual_dimensions: number | null;
   latency_ms: number;
   message: string;
+}
+
+export interface RerankerCaseResponse {
+  query: string;
+  scores: number[] | null;
+  correct: boolean | null;
+}
+
+export interface RerankerHistoryRecord {
+  ts: number;
+  latency_ms: number;
+  precision: number | null;
+  correct_count: number;
+  total: number;
+}
+
+export interface RerankerTestResponse {
+  success: boolean;
+  latency_ms: number;
+  message: string;
+  total: number;
+  correct_count: number;
+  precision: number | null;
+  cases: RerankerCaseResponse[] | null;
+  history: RerankerHistoryRecord[] | null;
 }
 
 export interface MemoryBackendDescriptor {
@@ -83,6 +109,21 @@ export const agentApi = {
       body: JSON.stringify(config),
       timeout: Math.max(30, (config.health_check_timeout ?? 15) * 2 + 5) * 1000,
     }),
+
+  testReranker: (config: RerankerConfig) =>
+    request<RerankerTestResponse>("/workspace/reranker/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+      timeout: Math.max(30, (config.timeout ?? 10) * 2 + 5) * 1000,
+    }),
+
+  getRerankerHistory: (fingerprint: string) =>
+    request<{ fingerprint: string; history: RerankerHistoryRecord[] }>(
+      `/workspace/reranker/history?fingerprint=${encodeURIComponent(
+        fingerprint,
+      )}`,
+      { timeout: 15_000 },
+    ),
 
   getAgentLanguage: () => request<{ language: string }>("/workspace/language"),
 

@@ -47,6 +47,7 @@ from ...config.utils import mutate_config
 from ...config.config import (
     AgentProfileConfig,
     EmbeddingModelConfig,
+    RerankerConfig,
     load_agent_config,
     save_agent_config,
     update_agent_config_async,
@@ -54,6 +55,13 @@ from ...config.config import (
 from ...agents.memory.embedding_model import (
     embedding_vector_space_fingerprint,
     test_embedding_model,
+)
+from ...agents.memory.reme_reranker import test_reranker_model
+from ...agents.memory.reranker_history import (
+    append_record,
+    get_history,
+    make_record,
+    service_fingerprint,
 )
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
@@ -118,6 +126,34 @@ class EmbeddingTestResponse(BaseModel):
     actual_dimensions: int | None = None
     latency_ms: int
     message: str
+
+
+class RerankerCaseResponse(BaseModel):
+    """Result of one reranker probe case."""
+
+    query: str
+    scores: list[float] | None = None
+    correct: bool | None = None
+
+
+class RerankerTestResponse(BaseModel):
+    """Aggregated result of a reranker probe suite."""
+
+    success: bool
+    latency_ms: int
+    message: str
+    total: int = 0
+    correct_count: int = 0
+    precision: float | None = None
+    cases: list[RerankerCaseResponse] | None = None
+    history: list[dict] | None = None
+
+
+class RerankerHistoryResponse(BaseModel):
+    """History of reranker verification runs for one service fingerprint."""
+
+    fingerprint: str
+    history: list[dict] = []
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -1603,6 +1639,73 @@ async def test_embedding_configuration(
         actual_dimensions=result.actual_dimensions,
         latency_ms=result.latency_ms,
         message=message,
+    )
+
+
+@router.post(
+    "/reranker/test",
+    response_model=RerankerTestResponse,
+    summary="Test reranker configuration",
+    description=(
+        "Send a real rerank request with sample documents and report "
+        "whether the service responded correctly"
+    ),
+)
+async def test_reranker_configuration(
+    reranker_config: RerankerConfig = Body(...),
+) -> RerankerTestResponse:
+    """Test unsaved reranker settings with a real API call."""
+    result = await test_reranker_model(reranker_config)
+
+    message = result.message
+    if reranker_config.api_key:
+        message = message.replace(reranker_config.api_key, "***")
+
+    history = None
+    if result.success:
+        fingerprint = service_fingerprint(reranker_config)
+        history = append_record(
+            fingerprint,
+            make_record(
+                latency_ms=result.latency_ms,
+                precision=result.precision,
+                correct_count=result.correct_count,
+                total=result.total,
+            ),
+        )
+
+    return RerankerTestResponse(
+        success=result.success,
+        latency_ms=result.latency_ms,
+        message=message,
+        total=result.total,
+        correct_count=result.correct_count,
+        precision=result.precision,
+        cases=[
+            RerankerCaseResponse(
+                query=c.query,
+                scores=c.scores,
+                correct=c.correct,
+            )
+            for c in (result.cases or [])
+        ],
+        history=history,
+    )
+
+
+@router.get(
+    "/reranker/history",
+    response_model=RerankerHistoryResponse,
+    summary="Get reranker verification history",
+    description="Return recorded verification runs for a service fingerprint",
+)
+async def get_reranker_history(
+    fingerprint: str = Query(...),
+) -> RerankerHistoryResponse:
+    """Return the stored verification history for a reranker service."""
+    return RerankerHistoryResponse(
+        fingerprint=fingerprint,
+        history=get_history(fingerprint),
     )
 
 

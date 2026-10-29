@@ -1,9 +1,16 @@
 # -*- coding: utf-8 -*-
 """Reranking and search-response reconstruction for ReMe memory."""
 
+import asyncio
+import ipaddress
 import logging
+import re
+import socket
+import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -11,6 +18,7 @@ from ...config.config import (
     RerankerConfig,
     load_agent_config_async,
 )
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +97,274 @@ async def call_reranker_api(
     except Exception:
         logger.warning("[rerank] unexpected error", exc_info=True)
     return None
+
+
+@dataclass(frozen=True)
+class RerankerCaseResult:
+    """Result of one probe case (one query with candidate documents)."""
+
+    query: str
+    scores: list[float] | None = None
+    correct: bool | None = None
+
+
+@dataclass(frozen=True)
+class RerankerTestResult:
+    """Aggregated result of the reranker probe suite."""
+
+    success: bool
+    latency_ms: int
+    message: str
+    total: int = 0
+    correct_count: int = 0
+    precision: float | None = None
+    cases: list[RerankerCaseResult] | None = None
+
+
+# Each case is (query, [expected-most-relevant document, distractor,
+# distractor]).
+# A working reranker should rank document 0 first for every case, turning the
+# probe into a small multi-domain ranking-quality estimate instead of a single
+# binary smoke test.
+_TEST_SUITE = [
+    (
+        "How do I reset my password?",
+        [
+            "Click 'Forgot password' on the login page to "
+            "reset your password.",
+            "The quick brown fox jumps over the lazy dog.",
+            "Today's lunch special is grilled salmon with rice.",
+        ],
+    ),
+    (
+        "What time is hotel checkout?",
+        [
+            "Checkout is at 11 AM; a late checkout may incur a fee.",
+            "The stock market closed higher today.",
+            "The cat slept on the windowsill all afternoon.",
+        ],
+    ),
+    (
+        "How many grams are in a cup of flour?",
+        [
+            "One cup of all-purpose flour weighs about 120 grams.",
+            "The train to the airport leaves every 20 minutes.",
+            "It rained heavily in the north overnight.",
+        ],
+    ),
+    (
+        "Which planet is closest to the Sun?",
+        [
+            "Mercury is the closest planet to the Sun.",
+            "The concert was rescheduled to next Friday.",
+            "My neighbour's dog barks at the mail carrier.",
+        ],
+    ),
+    (
+        "How do I cancel my subscription?",
+        [
+            "Go to Account > Billing > Cancel subscription to stop "
+            "auto-renewal.",
+            "The recipe calls for two eggs and a cup of milk.",
+            "Line 3 of the metro is suspended for maintenance.",
+        ],
+    ),
+]
+
+
+def _strip_html(text: str) -> str:
+    """Collapse an HTML error page into a short plain-text snippet."""
+    plain = re.sub(r"<[^>]+>", " ", text)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    return plain or "non-JSON response"
+
+
+def _extract_scores(
+    results: list[Any],
+    n_docs: int,
+) -> tuple[list[float] | None, bool | None]:
+    """Map returned results back to request order and judge the top rank."""
+    score_by_index: dict[int, float] = {}
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        score = item.get("relevance_score")
+        if isinstance(index, int) and isinstance(score, (int, float)):
+            score_by_index[index] = float(score)
+    if not all(i in score_by_index for i in range(n_docs)):
+        return None, None
+    scores = [score_by_index[i] for i in range(n_docs)]
+    top_index = scores.index(max(scores))
+    return scores, top_index == 0
+
+
+async def _validate_reranker_base_url(base_url: str) -> str:
+    """SSRF-safe validation of a user-supplied reranker base URL.
+
+    Mirrors ``agents/tools/view_media``: only http/https, no credentials, no
+    localhost, and every resolved address must be globally routable so a
+    console user cannot use the probe to reach internal services.
+    """
+    base = (base_url or "").strip()
+    if not base:
+        raise ValueError("Reranker base URL is required")
+    try:
+        parsed = urlsplit(base)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except (UnicodeError, ValueError) as exc:
+        raise ValueError("Reranker base URL is invalid") from exc
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Reranker base URL must use HTTP or HTTPS")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Reranker base URL must not contain credentials")
+
+    host = parsed.hostname.rstrip(".")
+    if host.lower() == "localhost":
+        raise ValueError("Reranker base URL targets a non-public address")
+
+    def _resolve() -> tuple[str, ...]:
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            return tuple(
+                dict.fromkeys(
+                    str(info[4][0]).split("%", maxsplit=1)[0]
+                    for info in infos
+                    if info[4]
+                ),
+            )
+        return (str(literal),)
+
+    try:
+        addresses = await run_sync_io(_resolve)
+    except OSError as exc:
+        raise ValueError(
+            "Reranker base URL host could not be resolved",
+        ) from exc
+    if not addresses:
+        raise ValueError("Reranker base URL host could not be resolved")
+
+    for value in addresses:
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise ValueError(
+                "Reranker base URL host resolved to an invalid address",
+            ) from exc
+        if not address.is_global:
+            raise ValueError("Reranker base URL targets a non-public address")
+
+    request_path = f"{parsed.path.rstrip('/')}/rerank"
+    return urlunsplit((parsed.scheme, parsed.netloc, request_path, "", ""))
+
+
+async def test_reranker_model(
+    config: RerankerConfig,
+    *,
+    timeout: float | None = None,
+) -> RerankerTestResult:
+    """Send real rerank requests for the probe suite and aggregate quality."""
+    timeout = config.timeout if timeout is None else timeout
+    started = time.monotonic()
+    try:
+        url = await _validate_reranker_base_url(config.base_url)
+        if not config.model_name or not config.model_name.strip():
+            raise ValueError("Reranker model name is required")
+
+        async def _post(payload: dict[str, Any]) -> httpx.Response:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                # codeql[py/partial-ssrf] base URL validated against SSRF
+                return await client.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {config.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+
+        cases: list[RerankerCaseResult] = []
+        correct_count = 0
+        for query, documents in _TEST_SUITE:
+            payload = {
+                "model": config.model_name.strip(),
+                "query": query,
+                "documents": documents,
+            }
+            # httpx timeouts apply per operation; wait_for adds a hard deadline
+            # so a slow-drip server cannot hold a request open indefinitely.
+            response = await asyncio.wait_for(
+                _post(payload),
+                timeout=timeout + 5,
+            )
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("results") if isinstance(data, dict) else None
+            if not isinstance(results, list) or not results:
+                raise RuntimeError(
+                    "Reranker service returned an unexpected response format",
+                )
+            indices = [
+                item.get("index") for item in results if isinstance(item, dict)
+            ]
+            if len(indices) != len(results) or any(
+                not isinstance(i, int) or not 0 <= i < len(documents)
+                for i in indices
+            ):
+                raise RuntimeError(
+                    "Reranker service returned invalid document indices",
+                )
+            scores, correct = _extract_scores(results, len(documents))
+            cases.append(
+                RerankerCaseResult(
+                    query=query,
+                    scores=scores,
+                    correct=correct,
+                ),
+            )
+            if correct is True:
+                correct_count += 1
+
+        scored_cases = [c for c in cases if c.correct is not None]
+        total = len(scored_cases)
+        precision = (correct_count / total) if total else None
+        latency_ms = round((time.monotonic() - started) * 1000)
+        return RerankerTestResult(
+            success=True,
+            latency_ms=latency_ms,
+            message="Reranker service is available",
+            total=total,
+            correct_count=correct_count,
+            precision=precision,
+            cases=cases,
+        )
+    except (asyncio.TimeoutError, httpx.TimeoutException):
+        latency_ms = round((time.monotonic() - started) * 1000)
+        return RerankerTestResult(
+            success=False,
+            latency_ms=latency_ms,
+            message=f"Reranker API timed out after {timeout}s",
+        )
+    except httpx.HTTPStatusError as exc:
+        latency_ms = round((time.monotonic() - started) * 1000)
+        detail = _strip_html(exc.response.text[:300])
+        return RerankerTestResult(
+            success=False,
+            latency_ms=latency_ms,
+            message=(
+                f"Reranker API returned HTTP {exc.response.status_code}: "
+                f"{detail}"
+            ),
+        )
+    except Exception as exc:
+        latency_ms = round((time.monotonic() - started) * 1000)
+        return RerankerTestResult(
+            success=False,
+            latency_ms=latency_ms,
+            message=str(exc) or type(exc).__name__,
+        )
 
 
 async def rerank_search_results(

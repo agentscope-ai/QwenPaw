@@ -116,6 +116,7 @@ export interface RerankerConfig {
   model_name: string;
   candidate_multiplier: number;
   timeout: number;
+  auto_verify_interval_hours: number;
 }
 
 export interface AutoTitleConfig {
