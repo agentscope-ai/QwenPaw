@@ -1,14 +1,12 @@
-"""检索长期记忆。自动检索不改写案件。"""
+"""检索长期记忆。自动检索与引用都不写案件行。"""
 
 from __future__ import annotations
 
-import json
 import time
-from dataclasses import dataclass, replace
+from collections.abc import Sequence
+from dataclasses import dataclass
 from enum import Enum
 
-from airport_sms.domain.case import Case
-from airport_sms.memory.embedder import Embedder
 from airport_sms.memory.store import MemoryStore, SourceType
 
 
@@ -24,72 +22,77 @@ class Snippet:
     """一条检索命中。"""
 
     doc_id: str
+    org_id: str
     source_id: str
     source_type: SourceType
     text: str
     score: float
-    derived: bool
+
+    @property
+    def derived(self) -> bool:
+        """结案记忆是派生的。"""
+        return self.source_type is SourceType.CLOSED_CASE
 
 
 @dataclass(frozen=True)
 class RetrievalResult:
-    """带延迟的检索结果。不包含案件变更。"""
+    """带延迟的检索结果。不含案件变更。"""
 
     snippets: tuple[Snippet, ...]
     latency_ms: float
     scope: MemoryScope = MemoryScope.LONG_TERM
 
 
+@dataclass(frozen=True)
+class CitationProposal:
+    """工人引用后的提案。条款 id 只记在这里。"""
+
+    cited_source_ids: tuple[str, ...]
+    snippets: tuple[Snippet, ...]
+
+
 class Retriever:
-    """top-k 检索。cite 才会把条款写回案件副本。"""
+    """top-k 检索。cite 只生成提案，不写案件。"""
 
-    def __init__(self, store: MemoryStore, embedder: Embedder) -> None:
+    def __init__(self, store: MemoryStore) -> None:
         self._store = store
-        self._embedder = embedder
 
-    def retrieve(
-        self, org_id: str, query: str, *, k: int = 5
-    ) -> RetrievalResult:
-        """返回排序片段。不写案件。"""
+    def retrieve(self, org_id: str, query: str, *, k: int = 5) -> RetrievalResult:
+        """返回排序片段。不写案件行。"""
         start = time.perf_counter()
-        rows = self._store.rows(org_id)
+        rows = self._store.load(org_id)
         if not rows:
             return RetrievalResult(
                 snippets=(),
                 latency_ms=(time.perf_counter() - start) * 1000,
             )
-        query_vec = self._embedder.embed([query])[0]
-        scored: list[Snippet] = []
-        for row in rows:
-            vec = json.loads(row["embedding"])
-            snippet = Snippet(
-                doc_id=row["doc_id"],
-                source_id=row["source_id"],
-                source_type=SourceType(row["source_type"]),
-                text=row["text"],
+        query_vec = self._store.embedder.embed([query])[0]
+        scored = [
+            Snippet(
+                doc_id=doc.doc_id,
+                org_id=doc.org_id,
+                source_id=doc.source_id,
+                source_type=doc.source_type,
+                text=doc.text,
                 score=_cosine(query_vec, vec),
-                derived=bool(row["derived"]),
             )
-            scored.append(snippet)
+            for doc, vec in rows
+        ]
         scored.sort(key=lambda item: item.score, reverse=True)
         return RetrievalResult(
             snippets=tuple(scored[:k]),
             latency_ms=(time.perf_counter() - start) * 1000,
         )
 
-    def cite(self, case: Case, snippets: tuple[Snippet, ...]) -> Case:
-        """工人引用片段后，把 source_id 写入案件 cited_clauses。"""
-        ids = tuple(
-            dict.fromkeys(
-                (*case.cited_clauses, *(item.source_id for item in snippets))
-            )
-        )
-        return replace(case, cited_clauses=ids, version=case.version + 1)
+    def cite(self, snippets: Sequence[Snippet]) -> CitationProposal:
+        """把命中的 source_id 记到提案上，不写案件。"""
+        ids = tuple(dict.fromkeys(item.source_id for item in snippets))
+        return CitationProposal(cited_source_ids=ids, snippets=tuple(snippets))
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
-    """余弦相似度。"""
-    dot = sum(a * b for a, b in zip(left, right, strict=False))
+    """余弦相似度。维度必须一致。"""
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
     norm_l = sum(a * a for a in left) ** 0.5
     norm_r = sum(b * b for b in right) ** 0.5
     if norm_l == 0 or norm_r == 0:
@@ -98,6 +101,7 @@ def _cosine(left: list[float], right: list[float]) -> float:
 
 
 __all__ = [
+    "CitationProposal",
     "MemoryScope",
     "RetrievalResult",
     "Retriever",
