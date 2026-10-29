@@ -409,6 +409,8 @@ describe("InboxPage", () => {
     const data = makeInboxData([pushMsg("m1")], 1);
     const { rerender } = renderWithProviders(<InboxPage />);
     fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    fireEvent.click(screen.getByText("inbox.batchOperation"));
+    fireEvent.click(screen.getByTestId("sel-m1"));
     fireEvent.click(screen.getByTestId("view-m1"));
     expect(data.markMessageAsRead).toHaveBeenCalledWith("m1");
 
@@ -418,6 +420,58 @@ describe("InboxPage", () => {
     expect(screen.getByTestId("inbox-empty")).toHaveTextContent(
       "inbox.emptyUnread",
     );
+    expect(screen.getByText('inbox.selectedItems:{"count":0}')).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
+    ).toBeDisabled();
+  });
+
+  it("removes read selections while keeping unread selections across pages", async () => {
+    const messages = Array.from({ length: 6 }, (_, index) =>
+      pushMsg(`m${index + 1}`),
+    );
+    const data = makeInboxData(messages, 6);
+    const { rerender } = renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    fireEvent.click(screen.getByText("inbox.batchOperation"));
+    fireEvent.click(screen.getByTestId("sel-m1"));
+    fireEvent.click(screen.getByTestId("inbox-next-page"));
+    fireEvent.click(screen.getByTestId("sel-m6"));
+    fireEvent.click(screen.getByTestId("view-m6"));
+    expect(data.markMessageAsRead).toHaveBeenCalledWith("m6");
+
+    const updatedData = makeInboxData(
+      messages.map((item) =>
+        item.id === "m6" ? { ...item, read: true } : item,
+      ),
+      5,
+    );
+    rerender(<InboxPage />);
+    expect(screen.queryByTestId("push-card-m6")).toBeNull();
+    expect(screen.getByTestId("sel-m1")).toBeChecked();
+    expect(screen.getByText('inbox.selectedItems:{"count":1}')).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
+    );
+    await waitFor(() => {
+      expect(updatedData.deleteMessages).toHaveBeenCalledWith(["m1"]);
+    });
+  });
+
+  it("keeps a viewed message selected in the all-messages view", () => {
+    makeInboxData([pushMsg("m1")], 1);
+    const { rerender } = renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByText("inbox.batchOperation"));
+    fireEvent.click(screen.getByTestId("sel-m1"));
+    fireEvent.click(screen.getByTestId("view-m1"));
+
+    makeInboxData([pushMsg("m1", { read: true })]);
+    rerender(<InboxPage />);
+    expect(screen.getByTestId("sel-m1")).toBeChecked();
+    expect(
+      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
+    ).not.toBeDisabled();
   });
 
   it("clamps the unread page after its last message is marked read", () => {

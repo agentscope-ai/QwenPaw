@@ -340,9 +340,13 @@ export default function InboxPage() {
   }, [messagesPage, totalMessagePages]);
 
   useEffect(() => {
-    const validIdSet = new Set(pushMessages.map((item) => item.id));
+    const validIdSet = new Set(
+      pushMessages
+        .filter((item) => !unreadOnly || !item.read)
+        .map((item) => item.id),
+    );
     setSelectedMessageIds((prev) => prev.filter((id) => validIdSet.has(id)));
-  }, [pushMessages]);
+  }, [pushMessages, unreadOnly]);
 
   useEffect(() => {
     setMessagesPage(1);
