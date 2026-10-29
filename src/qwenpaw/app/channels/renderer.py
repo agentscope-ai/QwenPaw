@@ -162,7 +162,10 @@ class MessageRenderer:
 
     def message_to_parts(self, message: Any) -> List[_OutgoingPart]:
         """Convert Message to list of sendable parts (runtime Content)."""
-        from qwenpaw.agents.context.scroll.serialize import strip_headline
+        from qwenpaw.agents.context.scroll.serialize import (
+            strip_headline,
+            strip_injected_context,
+        )
         from qwenpaw.schemas import MessageType
 
         msg_type = getattr(message, "type", None)
@@ -400,6 +403,9 @@ class MessageRenderer:
                 # Hide the scroll headline (⟦ … ⟧) from display; it stays in
                 # context and the durable index. No-op when absent.
                 text = strip_headline(c.text)
+                # Injected context notes / background tool hints are stored
+                # as ordinary text; they are not part of the reply either.
+                text = strip_injected_context(text)
                 if text:
                     result.append(TextContent(text=text))
             elif ctype == ContentType.REFUSAL and getattr(c, "refusal", None):

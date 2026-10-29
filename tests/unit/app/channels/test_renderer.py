@@ -177,6 +177,22 @@ class TestMessageToParts:
         assert len(parts) == 1
         assert parts[0].text == "hello"
 
+    def test_injected_context_block_is_hidden(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [
+                TextContent(
+                    text=(
+                        "<system-notification>\nBackground tool call "
+                        "`x` completed.\n</system-notification>\n好了"
+                    ),
+                ),
+            ],
+        )
+        parts = r.message_to_parts(msg)
+        assert len(parts) == 1
+        assert parts[0].text == "好了"
+
     def test_refusal_content(self):
         r = MessageRenderer()
         msg = _mk_message(
