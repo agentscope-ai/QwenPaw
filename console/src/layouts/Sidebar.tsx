@@ -559,7 +559,12 @@ export default function Sidebar({
           navigate(buildChatPath(sessionApi.getEffectiveSessionId(sessionId)));
         })
         .finally(() => {
-          if (!controller.signal.aborted) sessionApi.finishSessionSwitch();
+          if (!controller.signal.aborted) {
+            sessionApi.finishSessionSwitch();
+            window.dispatchEvent(
+              new CustomEvent("qwenpaw:sidebar-switch-done"),
+            );
+          }
         });
     },
     [navigate],

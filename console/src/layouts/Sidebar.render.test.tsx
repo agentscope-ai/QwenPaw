@@ -37,6 +37,9 @@ const mocks = vi.hoisted(() => ({
   getInboxEvents: vi.fn(),
   getPushMessages: vi.fn(),
   sessionList: [] as unknown[],
+  getEffectiveSessionId: vi.fn(
+    (id: string, realId?: string | null) => realId ?? `real-${id}`,
+  ),
   startNewSwitch: vi.fn(() => new AbortController()),
   preloadSession: vi.fn().mockResolvedValue({ realId: "real-s-1" }),
   finishSessionSwitch: vi.fn(),
@@ -162,7 +165,8 @@ vi.mock("../api/modules/hub", () => ({
 vi.mock("../pages/Chat/sessionApi", () => ({
   default: {
     getSessionList: () => Promise.resolve(mocks.sessionList),
-    getEffectiveSessionId: (id: string) => `real-${id}`,
+    getEffectiveSessionId: (...args: [string, string?]) =>
+      mocks.getEffectiveSessionId(...args),
     startNewSwitch: () => mocks.startNewSwitch(),
     preloadSession: (...args: unknown[]) => mocks.preloadSession(...args),
     finishSessionSwitch: () => mocks.finishSessionSwitch(),
@@ -436,6 +440,10 @@ describe("Sidebar", () => {
       pending_approvals: [],
     });
     mocks.sessionList = [];
+    mocks.getEffectiveSessionId.mockClear();
+    mocks.startNewSwitch.mockClear();
+    mocks.preloadSession.mockReset().mockResolvedValue({ realId: "real-s-1" });
+    mocks.finishSessionSwitch.mockClear();
     mocks.updateProfile.mockClear().mockResolvedValue({});
     mocks.changePassword.mockClear().mockResolvedValue({});
     mocks.restartRuntime.mockClear().mockResolvedValue({});
@@ -650,6 +658,7 @@ describe("Sidebar", () => {
   });
 
   it("handles session clicks by navigating to the resolved session path", async () => {
+    mocks.preloadSession.mockResolvedValueOnce({ realId: "uuid-1" });
     renderSidebar();
     const openBtn = await screen.findByTestId("sl-click");
     fireEvent.click(openBtn);
@@ -659,11 +668,40 @@ describe("Sidebar", () => {
       expect.any(AbortSignal),
     );
     await waitFor(() => {
+      expect(screen.getByTestId("probe-path").textContent).toContain("uuid-1");
+    });
+    expect(mocks.getEffectiveSessionId).toHaveBeenCalledWith("s-1", "uuid-1");
+    expect(mocks.finishSessionSwitch).toHaveBeenCalled();
+  });
+
+  it("clears the sidebar switch on an identity abort without navigating", async () => {
+    mocks.preloadSession.mockRejectedValueOnce(
+      new DOMException("Identity changed", "AbortError"),
+    );
+    const onDone = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
+    renderSidebar();
+    const pathBefore = screen.getByTestId("probe-path").textContent;
+    fireEvent.click(await screen.findByTestId("sl-click"));
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("probe-path").textContent).toBe(pathBefore);
+    expect(mocks.finishSessionSwitch).toHaveBeenCalledOnce();
+    window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+  });
+
+  it("navigates to the effective id when preload fails", async () => {
+    mocks.preloadSession.mockRejectedValueOnce(new Error("Preload failed"));
+    renderSidebar();
+    fireEvent.click(await screen.findByTestId("sl-click"));
+
+    await waitFor(() => {
       expect(screen.getByTestId("probe-path").textContent).toContain(
         "real-s-1",
       );
     });
-    expect(mocks.finishSessionSwitch).toHaveBeenCalled();
+    expect(mocks.getEffectiveSessionId).toHaveBeenCalledWith("s-1");
+    expect(mocks.finishSessionSwitch).toHaveBeenCalledOnce();
   });
 
   it("dispatches the new-chat flow from the session list", async () => {
