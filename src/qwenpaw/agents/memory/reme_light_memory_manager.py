@@ -546,7 +546,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             return None
 
         agent_config = await load_agent_config_async(self.agent_id)
-        memory_slot = self._memory_model_slot(agent_config)
+        memory_slot = await run_sync_io(self._memory_model_slot, agent_config)
         main_model, _formatter = await create_model_and_formatter_async(
             self.agent_id,
             agent_config=agent_config,
