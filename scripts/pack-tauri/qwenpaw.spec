@@ -108,6 +108,12 @@ for _pattern in _packaging["package-data"][_optional_package]:
                     ),
                 ),
             )
+datas.append(
+    (
+        str(REPO_ROOT / "plugins/provider"),
+        "qwenpaw/plugins/bundled/provider",
+    )
+)
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 # Ship the SDK adapter as source data, without analysing its optional imports.
 datas += collect_tree(
@@ -188,7 +194,6 @@ _metadata_pkgs = [
     "reme-auto-fin",
     "reme-daily-paper",
     "huggingface_hub",
-    "modelscope",
 ]
 for _pkg in _metadata_pkgs:
     try:
@@ -266,9 +271,6 @@ a = Analysis(
         "psutil",
         "multipart",
         "websockets",
-        "modelscope",
-        "modelscope.hub.api",
-        "modelscope.hub.snapshot_download",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("chromadb"),
@@ -287,6 +289,7 @@ a = Analysis(
         "openai_codex",
         "codex_cli_bin",
         "qoder_agent_sdk",
+        "modelscope",
         "lark_oapi",
         "dingtalk_stream",
         "alibabacloud_dingtalk",

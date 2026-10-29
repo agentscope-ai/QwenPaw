@@ -7,125 +7,26 @@ import logging
 import threading
 import time
 from contextlib import suppress
-from dataclasses import asdict, dataclass, replace
-from enum import Enum
+from dataclasses import asdict, dataclass, field, replace
 from queue import Empty
 from typing import Any, Callable
+from pathlib import Path
 
-from ..utils.command_runner import (
-    ManagedProcess,
-    shutdown_process_sync,
-    start_multiprocessing_process,
+import multiprocessing as mp
+import runpy
+from multiprocessing.process import BaseProcess
+from .io_helpers import stop_download
+
+
+from .download_types import (
+    DownloadTaskStatus,
+    DownloadTaskMessageType,
+    DownloadProgress,
+    DownloadTaskResult,
+    DownloadProgressUpdate,
 )
 
-
 logger = logging.getLogger(__name__)
-
-
-class DownloadTaskStatus(str, Enum):
-    """Download lifecycle for a single downloader instance."""
-
-    IDLE = "idle"
-    PENDING = "pending"
-    DOWNLOADING = "downloading"
-    CANCELING = "canceling"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class DownloadTaskMessageType(str, Enum):
-    PROGRESS = "progress"
-    RESULT = "result"
-
-
-@dataclass(frozen=True)
-class DownloadProgress:
-    """Normalized download progress shared by local model downloads."""
-
-    status: DownloadTaskStatus = DownloadTaskStatus.IDLE
-    model_name: str | None = None
-    downloaded_bytes: int = 0
-    total_bytes: int | None = None
-    speed_bytes_per_sec: float = 0.0
-    source: str | None = None
-    error: str | None = None
-    local_path: str | None = None
-
-
-@dataclass(frozen=True)
-class DownloadTaskResult:
-    """Normalized terminal result for a background download task."""
-
-    status: DownloadTaskStatus
-    local_path: str | None = None
-    error: str | None = None
-
-    def to_dict(self) -> dict[str, str | None]:
-        """Return a serializable result for thread/process boundaries."""
-        return {
-            "status": self.status.value,
-            "local_path": self.local_path,
-            "error": self.error,
-        }
-
-    def to_message(self) -> dict[str, Any]:
-        return {
-            "type": DownloadTaskMessageType.RESULT.value,
-            "payload": self.to_dict(),
-        }
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> DownloadTaskResult:
-        """Build a task result from a serialized payload."""
-        return cls(
-            status=DownloadTaskStatus(payload["status"]),
-            local_path=payload.get("local_path"),
-            error=payload.get("error"),
-        )
-
-    @classmethod
-    def from_message(cls, payload: dict[str, Any]) -> DownloadTaskResult:
-        return cls.from_dict(payload["payload"])
-
-
-@dataclass(frozen=True)
-class DownloadProgressUpdate:
-    downloaded_bytes: int
-    total_bytes: int | None = None
-    model_name: str | None = None
-    source: str | None = None
-
-    def to_dict(self) -> dict[str, int | str | None]:
-        return {
-            "downloaded_bytes": self.downloaded_bytes,
-            "total_bytes": self.total_bytes,
-            "model_name": self.model_name,
-            "source": self.source,
-        }
-
-    def to_message(self) -> dict[str, Any]:
-        return {
-            "type": DownloadTaskMessageType.PROGRESS.value,
-            **self.to_dict(),
-        }
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> DownloadProgressUpdate:
-        return cls(
-            downloaded_bytes=int(payload["downloaded_bytes"]),
-            total_bytes=payload.get("total_bytes"),
-            model_name=payload.get("model_name"),
-            source=payload.get("source"),
-        )
-
-    @classmethod
-    def from_message(
-        cls,
-        payload: dict[str, Any],
-    ) -> DownloadProgressUpdate:
-        return cls.from_dict(payload)
-
 
 DownloadResultFinalizer = Callable[
     [DownloadTaskResult],
@@ -143,20 +44,6 @@ class ProcessDownloadTask:
     progress_probe: DownloadProgressProbe | None = None
     finalize_result: DownloadResultFinalizer | None = None
     cleanup: DownloadCleanup | None = None
-
-    def create_process(
-        self,
-        context: Any,
-        *,
-        process_name: str,
-        queue: Any,
-    ) -> Any:
-        return context.Process(
-            target=self.target,
-            args=(self.payload, queue),
-            name=process_name,
-            daemon=True,
-        )
 
     def probe_progress(self) -> DownloadProgressUpdate | None:
         if self.progress_probe is None:
@@ -179,7 +66,6 @@ class ProcessDownloadTask:
 @dataclass
 class ProcessDownloadTaskSpec:
     process_name: str
-    command: list[str]
     task: ProcessDownloadTask
     model_name: str | None = None
     source: str | None = None
@@ -189,10 +75,11 @@ class ProcessDownloadTaskSpec:
 
 @dataclass
 class ManagedDownloadTask:
-    process: ManagedProcess
+    process: BaseProcess
     queue: Any
     monitor_thread: threading.Thread
     spec: ProcessDownloadTaskSpec
+    cancelled: threading.Event = field(default_factory=threading.Event)
 
 
 class DownloadProgressTracker:
@@ -371,29 +258,39 @@ class ProcessDownloadController:
     def __init__(
         self,
         *,
-        context: Any,
         progress: DownloadProgressTracker,
     ) -> None:
-        self._context = context
         self._progress = progress
         self._lock = threading.Lock()
         self._task: ManagedDownloadTask | None = None
 
     def start(self, spec: ProcessDownloadTaskSpec) -> None:
         with self._lock:
-            if self._task is not None and self._task.process.is_alive():
+            if self._task is not None:
                 raise RuntimeError("A download is already in progress.")
 
-            queue = self._context.Queue()
-            raw_process = spec.task.create_process(
-                self._context,
-                process_name=spec.process_name,
-                queue=queue,
+            context = mp.get_context("spawn")
+            queue = context.Queue()
+            process = context.Process(
+                target=runpy.run_path,
+                args=(str(Path(__file__).with_name("workers.py")),),
+                kwargs={
+                    "run_name": "__main__",
+                    "init_globals": {
+                        "worker_target": spec.task.target.__qualname__,
+                        "worker_payload": spec.task.payload,
+                        "worker_messages": queue,
+                    },
+                },
+                name=spec.process_name,
             )
-            process = start_multiprocessing_process(
-                raw_process,
-                command=spec.command,
-            )
+            try:
+                process.start()
+            except BaseException:
+                queue.close()
+                queue.join_thread()
+                process.close()
+                raise
             monitor_thread = threading.Thread(
                 target=self._monitor_task,
                 args=(process, queue, spec),
@@ -406,7 +303,6 @@ class ProcessDownloadController:
                 monitor_thread=monitor_thread,
                 spec=spec,
             )
-
             self._progress.begin(
                 total_bytes=spec.total_bytes,
                 model_name=spec.model_name,
@@ -417,11 +313,12 @@ class ProcessDownloadController:
     def cancel(self) -> None:
         with self._lock:
             task = self._task
-            if task is None or not task.process.is_alive():
+            if task is None:
                 return
+            task.cancelled.set()
             self._progress.request_cancel()
 
-        shutdown_process_sync(
+        stop_download(
             task.process,
             graceful_timeout=2.0,
             kill_timeout=2.0,
@@ -429,6 +326,8 @@ class ProcessDownloadController:
 
         if task.monitor_thread is not threading.current_thread():
             task.monitor_thread.join(timeout=2.0)
+            if task.monitor_thread.is_alive():
+                raise RuntimeError("Download monitor did not exit")
 
         self._finish_task(
             task=task,
@@ -438,56 +337,63 @@ class ProcessDownloadController:
             cleanup_spec=True,
         )
 
+    def close(self) -> None:
+        self.cancel()
+
     def snapshot(self) -> dict[str, Any]:
         return self._progress.snapshot()
 
     def is_active(self) -> bool:
         with self._lock:
-            task = self._task
-        return bool(task is not None and task.process.is_alive())
+            return self._task is not None
 
     def _monitor_task(
         self,
-        process: ManagedProcess,
+        process: BaseProcess,
         queue: Any,
         spec: ProcessDownloadTaskSpec,
     ) -> None:
-        while True:
-            status = self._progress.get_status()
-            if status in {
-                DownloadTaskStatus.CANCELING,
-                DownloadTaskStatus.CANCELLED,
-            }:
-                return
+        task = self._get_task_for_spec(spec)
+        if task is None:
+            return
+        try:
+            while not task.cancelled.is_set():
+                progress_update = spec.task.probe_progress()
+                if progress_update is not None:
+                    self._progress.apply_progress_update(progress_update)
 
-            progress_update = spec.task.probe_progress()
-            if progress_update is not None:
-                self._progress.apply_progress_update(progress_update)
-
-            if self._handle_message(queue, spec):
-                return
-
-            if not process.is_alive():
-                process.join(timeout=0.1)
                 if self._handle_message(queue, spec):
                     return
 
-                self._finish_task(
-                    task=ManagedDownloadTask(
-                        process=process,
-                        queue=queue,
-                        monitor_thread=threading.current_thread(),
-                        spec=spec,
-                    ),
-                    result=DownloadTaskResult(
-                        status=DownloadTaskStatus.FAILED,
-                        error="Download process exited unexpectedly.",
-                    ),
-                    cleanup_spec=True,
-                )
-                return
+                if not process.is_alive():
+                    process.join(timeout=0.1)
+                    if self._handle_message(queue, spec):
+                        return
 
-            time.sleep(spec.poll_interval)
+                    self._finish_task(
+                        task=task,
+                        result=DownloadTaskResult(
+                            status=DownloadTaskStatus.FAILED,
+                            error="Download process exited unexpectedly.",
+                        ),
+                        cleanup_spec=True,
+                    )
+                    return
+
+                task.cancelled.wait(spec.poll_interval)
+        except Exception as exc:
+            logger.exception(
+                "Download monitor failed for %s",
+                spec.process_name,
+            )
+            self._finish_task(
+                task=task,
+                result=DownloadTaskResult(
+                    status=DownloadTaskStatus.FAILED,
+                    error=str(exc),
+                ),
+                cleanup_spec=True,
+            )
 
     def _handle_message(
         self,
@@ -561,6 +467,15 @@ class ProcessDownloadController:
             resolved_task = self._get_task_for_spec(resolved_spec)
         if resolved_spec is None and resolved_task is not None:
             resolved_spec = resolved_task.spec
+
+        if resolved_task is not None:
+            resolved_task.process.join(timeout=2.0)
+            if resolved_task.process.is_alive():
+                stop_download(
+                    resolved_task.process,
+                    graceful_timeout=2.0,
+                    kill_timeout=2.0,
+                )
 
         if cleanup_spec and resolved_spec is not None:
             self._cleanup_task_spec(resolved_spec)

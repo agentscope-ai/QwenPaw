@@ -91,6 +91,7 @@ PUBLIC_API = MappingProxyType(
             "ProviderContext",
             "ConnectionResult",
             "ProviderSpec",
+            "ProviderHandle",
         ),
         "qwenpaw.plugins.transcription": (
             "TranscriptionSpec",

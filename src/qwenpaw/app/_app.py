@@ -31,7 +31,6 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..envs import load_envs_into_environ
-from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
 from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.io_utils import run_sync_io
@@ -318,9 +317,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     # Provider initialization scans and may migrate persisted configuration.
     provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
-    local_model_manager = await asyncio.to_thread(
-        LocalModelManager.get_instance,
-    )
 
     # --- AppServiceManager + WorkspaceRegistry ---
     app_services = None
@@ -449,7 +445,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # routers / agent_context that read app.state.multi_agent_manager.
     app.state.multi_agent_manager = workspace_registry
     app.state.provider_manager = provider_manager
-    app.state.local_model_manager = local_model_manager
     app.state.backup_manager = backup_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
@@ -552,6 +547,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 plugin_dirs,
                 channel_runtime=channel_runtime,
             )
+            from ..plugins.local_model_legacy import migrate_local_model_plugin
+
+            seed_errors = await migrate_local_model_plugin(plugin_loader)
+            for plugin_id, reason in seed_errors.items():
+                logger.warning(
+                    "Bundled plugin %s needs repair: %s",
+                    plugin_id,
+                    reason,
+                )
+
             from ..cli.app_cmd import _dependency_restart
 
             if _dependency_restart is not None:
@@ -611,7 +616,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                     )
             except (OSError, ValueError, KeyError, TypeError, RuntimeError):
                 logger.exception("Official channel migration pending")
-            logger.debug("Phase 1: startup-critical plugins registered")
+            logger.debug("Phase 1: channel, memory and Hub plugins loaded")
+            await plugin_loader.load_all_plugins(
+                configs=plugin_configs,
+                types=["provider"],
+                activate=True,
+            )
+            logger.debug(
+                "Phase 1: workspace plugins registered and providers activated",
+            )
             app.state.market_ready.set()
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
@@ -634,7 +647,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             elif app.state.startup_ready.is_set():
                 startup_display.mark_finalizing()
 
-            provider_manager.start_local_model_resume(local_model_manager)
             startup_provider_ids = provider_manager.startup_sync_provider_ids()
             asyncio.create_task(
                 provider_manager.sync_startup_provider_models(
@@ -672,6 +684,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             logger.debug("Activating loaded plugins...")
             await plugin_loader.activate_all_loaded()
+            from ..plugins._providers import restore_selected_providers
+
+            restore_selected_providers(plugin_loader.registry)
 
             from ..plugins.local_whisper import LocalWhisperInstallService
 
@@ -789,19 +804,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         from ..agents.tools import shutdown_browser_runtime
 
         await shutdown_browser_runtime()
-
-        local_model_mgr = getattr(app.state, "local_model_manager", None)
-        if local_model_mgr is not None:
-            logger.info("Stopping local model server...")
-            try:
-                await local_model_mgr.shutdown_server()
-            except Exception as exc:
-                logger.error(
-                    "Error shutting down local model server gracefully: %s",
-                    exc,
-                )
-                with suppress(OSError, RuntimeError, ValueError):
-                    local_model_mgr.shutdown_server_sync()
 
         # Stop AppServiceManager (ToolCoordinator shutdown, etc.)
         _app_svc = getattr(app.state, "app_services", None)

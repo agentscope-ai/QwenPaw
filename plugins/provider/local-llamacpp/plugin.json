@@ -1,0 +1,23 @@
+{
+  "id": "local-llamacpp",
+  "name": "Local llama.cpp",
+  "version": "1.0.0",
+  "description": "Install and download local models; manage the llama.cpp server.",
+  "type": "provider",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "sdk": {
+    "version": "1.0.0",
+    "capabilities": [
+      "providers",
+      "resources",
+      "apps",
+      "config",
+      "logging",
+      "storage"
+    ]
+  },
+  "author": "QwenPaw",
+  "license": "Apache-2.0"
+}
