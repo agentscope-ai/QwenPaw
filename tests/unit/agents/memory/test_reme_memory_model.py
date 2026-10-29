@@ -126,6 +126,37 @@ async def test_inherited_hub_catalog_lookup_runs_off_event_loop(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("inherited", [False, True])
+async def test_identical_memory_and_main_slots_are_not_duplicated(
+    monkeypatch,
+    inherited,
+):
+    slot = ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b")
+    main_model = SimpleNamespace(model_key="ollama:qwen2.5:7b")
+    factory = AsyncMock(return_value=(main_model, None))
+    fallback_factory = _patch_deps(
+        monkeypatch,
+        agent_config=_agent_config(
+            memory_model=(
+                ModelSlotConfig(provider_id="", model=slot.model)
+                if inherited
+                else slot
+            ),
+            active_model=slot,
+        ),
+        factory=factory,
+    )
+    manager = _build_manager()
+
+    assert await manager._update_qwenpaw_model() is main_model
+
+    factory.assert_awaited_once()
+    fallback_factory.assert_not_called()
+    assert (
+        manager._reme.update_component.await_args.kwargs["model"] is main_model
+    )
+
+
 @pytest.mark.parametrize(
     ("memory_model", "active_model", "global_model", "expected_override"),
     [

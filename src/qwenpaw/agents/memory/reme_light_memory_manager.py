@@ -547,14 +547,20 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
 
         agent_config = await load_agent_config_async(self.agent_id)
         memory_slot = await run_sync_io(self._memory_model_slot, agent_config)
+        model_kwargs: dict[str, Any] = {
+            "agent_config": agent_config,
+            "require_image_support": require_image_support,
+            "resize_images_to_max_bytes": True,
+        }
         main_model, _formatter = await create_model_and_formatter_async(
             self.agent_id,
-            agent_config=agent_config,
-            require_image_support=require_image_support,
-            resize_images_to_max_bytes=True,
+            **model_kwargs,
         )
         model = main_model
-        if memory_slot is not None:
+        main_model_key = getattr(main_model, "model_key", None)
+        if memory_slot is not None and main_model_key != (
+            f"{memory_slot.provider_id}:{memory_slot.model}"
+        ):
             try:
                 (
                     memory_model,
@@ -562,9 +568,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 ) = await create_model_and_formatter_async(
                     self.agent_id,
                     model_slot_override=memory_slot,
-                    agent_config=agent_config,
-                    require_image_support=require_image_support,
-                    resize_images_to_max_bytes=True,
+                    **model_kwargs,
                 )
             except Exception as exc:
                 # Provider SDKs can reject credentials during construction
