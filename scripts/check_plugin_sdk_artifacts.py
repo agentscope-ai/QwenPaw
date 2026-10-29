@@ -16,15 +16,17 @@ import subprocess
 import tarfile
 import zipfile
 
+# These suites use private host adapters or repository-only fixtures.
 INTERNAL = {
     "test_sdk_entry_contract.py",
-    "test_sdk_host_bridge.py",
-    "test_sdk_context_bridge.py",
     "test_sdk_message_bridge.py",
     "test_sdk_event_bridge.py",
     "test_sdk_approval_event_bridge.py",
     "test_sdk_channel_bridge.py",
+    "test_sdk_channel_routing_contract.py",
     "test_sdk_channel_run_bridge.py",
+    "test_sdk_provider_contract.py",
+    "test_sdk_resource_contract.py",
 }
 
 

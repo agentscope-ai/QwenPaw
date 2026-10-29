@@ -10,9 +10,11 @@ lifecycle tests rather than removed router bookkeeping helpers.
 # pylint: disable=use-implicit-booleaness-not-comparison
 from __future__ import annotations
 
+import asyncio
 import http.client
 import io
 import json
+import shutil
 import ssl
 import tempfile
 import urllib.error
@@ -141,6 +143,15 @@ def _loader_stub(
         return load_result
 
     loader.load_plugin_from_path = AsyncMock(side_effect=_load)
+    loader.retains_preparation_source.return_value = False
+
+    async def _cleanup_preparation_source(root):
+        await asyncio.to_thread(shutil.rmtree, root, True)
+        return True
+
+    loader.cleanup_preparation_source = AsyncMock(
+        side_effect=_cleanup_preparation_source,
+    )
     return loader
 
 
@@ -330,6 +341,9 @@ def _client(
     app = FastAPI()
     app.state.plugin_loader = loader
     app.state.provider_manager = provider_manager
+    from qwenpaw.app.routers.frontend_plugin import router as frontend_router
+
+    app.include_router(frontend_router, prefix="/api")
     app.include_router(plugins_router, prefix="/api")
     app.include_router(pawapps_router, prefix="/api")
     return TestClient(app, raise_server_exceptions=raise_server_exceptions)
@@ -396,7 +410,9 @@ class TestListPluginsRoute:
     def test_empty_loader_returns_empty_list(self):
         loader = MagicMock()
         loader.get_all_loaded_plugins.return_value = {}
-        assert _client(loader).get("/api/plugins").json() == []
+        response = _client(loader).get("/api/plugins")
+        assert response.status_code == 200
+        assert response.json() == []
 
     def test_disk_entries_and_failed_runtime_keep_real_settings(
         self,
@@ -741,13 +757,17 @@ class TestUninstallPluginSource:
             tools=SimpleNamespace(builtin_tools=settings.copy()),
         )
         loader = PluginLoader([tmp_path])
-        with patch(
-            "qwenpaw.config.config.load_agent_config",
-            return_value=cfg,
-        ), patch("qwenpaw.config.config.save_agent_config") as save, patch(
-            "qwenpaw.plugins.api._remove_tool_config",
-            wraps=plugin_api._remove_tool_config,
-        ) as remove:
+        with (
+            patch(
+                "qwenpaw.config.config.load_agent_config",
+                return_value=cfg,
+            ),
+            patch("qwenpaw.config.config.save_agent_config") as save,
+            patch(
+                "qwenpaw.plugins.api._remove_tool_config",
+                wraps=plugin_api._remove_tool_config,
+            ) as remove,
+        ):
             await uninstall_plugin_source("failed-plugin", app=_app(loader))
         assert not source.exists()
         assert cfg.tools.builtin_tools == settings
@@ -907,8 +927,10 @@ class TestInstallPluginRoute:
             "description": "desc",
             "author": "auth",
             "loaded": True,
+            "status": "active",
+            "enabled": True,
             "diagnostics": diagnostics,
-            "message": "Plugin 'plug display name' installed successfully.",
+            "message": "Plugin 'plug display name' installation: active.",
         }
 
     @pytest.mark.parametrize(
@@ -1337,6 +1359,53 @@ class TestUploadPluginRoute:
             )
         assert response.status_code == 400
 
+    def test_manifest_without_entry_is_400(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "mkdtemp", lambda: str(tmp_path))
+        from qwenpaw.plugins.loader import PluginLoader
+        from qwenpaw.plugins.python_backend import PythonBackend
+
+        async def validate_source(loader, request, source_path, **kwargs):
+            # Real disk manifest reader and backend entry validator; no error stub.
+            _, manifest = PluginLoader.__new__(
+                PluginLoader,
+            ).read_source_manifest(
+                source_path,
+            )
+            PythonBackend.validate_entry_points(
+                manifest.id,
+                source_path / manifest.entry.backend
+                if manifest.entry.backend
+                else None,
+                source_path / manifest.entry.frontend
+                if manifest.entry.frontend
+                else None,
+            )
+            pytest.fail("Entry-less manifest was accepted")
+
+        payload = _zip_bytes(
+            {
+                "plugin.json": json.dumps(
+                    {
+                        "id": "no-entry",
+                        "name": "No entry",
+                        "version": "1.0.0",
+                        "entry": {},
+                    },
+                ),
+            },
+        )
+        with patch(
+            "qwenpaw.app.routers.plugins."
+            "_load_plugin_with_optional_force_reinstall",
+            new=validate_source,
+        ):
+            response = _client(_loader_stub([])).post(
+                "/api/plugins/upload",
+                files={"file": ("no-entry.zip", payload, "application/zip")},
+            )
+        assert response.status_code == 400
+        assert "no entry points declared" in response.json()["detail"]
+
     def test_unexpected_error_is_500(self):
         loader = _loader_stub([])
         with patch(
@@ -1528,3 +1597,63 @@ class TestResidualBranches:
         )
         assert Path(response.path) == asset
         assert response.headers["Cache-Control"] == "no-cache"
+
+
+class TestPublicPluginAndFileContracts:
+    @pytest.mark.parametrize("records", [False, True])
+    def test_frontend_list_contract(self, records):
+        loader = _loader_stub([], record=_record() if records else None)
+        response = _client(loader).get("/api/frontend_plugin")
+        assert response.status_code == 200
+        payload = response.json()
+        assert isinstance(payload, list)
+        assert len(payload) == int(records)
+        for item in payload:
+            assert isinstance(item.get("id"), str) and item["id"]
+            assert isinstance(item.get("name"), str) and item["name"]
+
+    @pytest.mark.parametrize("endpoint", ["plugins", "frontend_plugin"])
+    def test_unknown_plugin_file_is_404(self, endpoint):
+        response = _client(_loader_stub([])).get(
+            f"/api/{endpoint}/ghost/files/main.js",
+        )
+        assert response.status_code == 404
+        assert "not found" in response.text.lower()
+
+    def test_existing_plugin_file_guards(self, tmp_path):
+        from qwenpaw.plugins.architecture import PluginManifest
+
+        source = tmp_path / "plug"
+        source.mkdir()
+        manifest_data = {
+            "id": "plug",
+            "name": "Plugin",
+            "version": "1.0.0",
+            "entry": {"frontend": "main.js"},
+        }
+        (source / "plugin.json").write_text(json.dumps(manifest_data))
+        (source / "main.js").write_text("console.log(1)")
+        record = _record()
+        record.manifest = PluginManifest.from_dict(manifest_data)
+        record.source_path = source
+        client = _client(_loader_stub([], record=record))
+        response = client.get("/api/plugins/plug/files/main.js")
+        assert response.status_code == 200
+        assert response.text == "console.log(1)"
+        response = client.get(
+            "/api/plugins/plug/files/%2e%2e/%2e%2e/%2e%2e/etc/passwd",
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Access denied"
+        assert "root:" not in response.text
+        response = client.get("/api/plugins/plug/files/no-such-asset.js")
+        assert response.status_code == 404
+        assert "File not found" in response.json()["detail"]
+
+    def test_invalid_install_source_is_400(self, tmp_path):
+        response = _client(_loader_stub([])).post(
+            "/api/plugins/install",
+            json={"source": str(tmp_path / "missing"), "force": False},
+        )
+        assert response.status_code == 400
+        assert "Path not found" in response.json()["detail"]

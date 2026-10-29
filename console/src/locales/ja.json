@@ -1398,6 +1398,10 @@
     "selectAtLeastOneDay": "曜日を少なくとも1つ選択してください。"
   },
   "channels": {
+    "qrcodeInstallRequired": "QR コードをスキャンするには、プラグインをインストールしてください",
+    "runtime": {
+      "missing_code": "プラグインがインストールされていません"
+    },
     "title": "チャンネル",
     "description": "メッセージチャンネルの管理と設定",
     "loading": "チャンネルを読み込み中...",
@@ -4727,6 +4731,8 @@
     "from": "送信元：",
     "requestedBy": "リクエスト元",
     "markRead": "既読にする",
+    "unreadOnly": "未読のみ",
+    "emptyUnread": "現在の絞り込み条件に一致する未読メッセージはありません",
     "markAllRead": "すべて既読",
     "markAllReadNoUnread": "未読メッセージはありません",
     "markAllReadSuccess": "{{count}} 件を既読にしました",

@@ -16,7 +16,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agentscope-ai/design", async () => vi.importActual("antd"));
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({
     t: (key: string, fallback?: unknown) =>
       typeof fallback === "string" ? fallback : key,
@@ -34,7 +35,10 @@ vi.mock("@/hooks/useAppMessage", () => ({
 vi.mock("@/stores/agentStore", () => ({
   useAgentStore: Object.assign(
     () => ({ selectedAgent: "default", agents: [] }),
-    { subscribe: () => () => {} },
+    {
+      subscribe: () => () => {},
+      getState: () => ({ selectedAgent: "default", agents: [] }),
+    },
   ),
 }));
 
@@ -152,6 +156,49 @@ describe("channel configuration drafts", () => {
     );
     expect(document.querySelector("input#http_proxy_auth")).toHaveValue(
       "saved-auth",
+    );
+    expect(mocks.updateChannelConfig).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a newer invalid draft when an earlier autosave finishes", async () => {
+    let completeSave!: () => void;
+    const pendingSave = new Promise<void>((resolve) => {
+      completeSave = resolve;
+    });
+    mocks.updateChannelConfig.mockReturnValueOnce(pendingSave);
+    render(<ChannelsPage />);
+    await openTelegram();
+    fireEvent.change(document.querySelector("input#bot_token")!, {
+      target: { value: "valid-token-A" },
+    });
+    fireEvent.change(document.querySelector("input#http_proxy_auth")!, {
+      target: { value: "auth-A" },
+    });
+    await waitFor(
+      () => expect(mocks.updateChannelConfig).toHaveBeenCalledOnce(),
+      {
+        timeout: 2500,
+      },
+    );
+    expect(mocks.updateChannelConfig.mock.calls[0][1]).toMatchObject({
+      bot_token: "valid-token-A",
+      http_proxy_auth: "auth-A",
+    });
+
+    fireEvent.change(document.querySelector("input#bot_token")!, {
+      target: { value: "" },
+    });
+    fireEvent.change(document.querySelector("input#http_proxy_auth")!, {
+      target: { value: "invalid-draft-B" },
+    });
+    await act(async () => {
+      completeSave();
+      await pendingSave;
+    });
+
+    expect(document.querySelector("input#bot_token")).toHaveValue("");
+    expect(document.querySelector("input#http_proxy_auth")).toHaveValue(
+      "invalid-draft-B",
     );
     expect(mocks.updateChannelConfig).toHaveBeenCalledOnce();
   });

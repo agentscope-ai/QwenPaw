@@ -15,6 +15,7 @@ Uses only Python stdlib (hashlib, hmac, secrets) to avoid adding new
 dependencies.  The password is stored as a salted SHA-256 hash in
 ``auth.json`` under ``SECRET_DIR``.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -30,6 +31,7 @@ from typing import Optional
 from urllib.parse import unquote
 
 from fastapi import Request, Response
+from starlette.requests import HTTPConnection
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -714,13 +716,66 @@ def is_loopback_ip(value: str) -> bool:
     return value == "localhost" or (_normalize_ip(value) in _LOOPBACK)
 
 
-def is_trusted_proxy(request: Request) -> bool:
+def is_trusted_proxy(request: HTTPConnection) -> bool:
     """Return whether the direct peer is an explicitly trusted proxy."""
     peer = request.client.host if request.client else ""
     _cfg, networks = _get_config_cached()
     return bool(
         networks and _ip_in_networks(_normalize_ip(peer) or peer, networks),
     )
+
+
+class TrustedProxySchemeMiddleware:
+    """Restore the external scheme without changing the direct TCP peer."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        forwarded_proto = [
+            value
+            for key, value in scope.get("headers", [])
+            if key.lower() == b"x-forwarded-proto"
+        ]
+        if not forwarded_proto or not is_trusted_proxy(HTTPConnection(scope)):
+            await self.app(scope, receive, send)
+            return
+
+        schemes = {b"http": "http", b"https": "https"}
+        if scope["type"] == "websocket":
+            schemes = {
+                b"http": "ws",
+                b"https": "wss",
+                b"ws": "ws",
+                b"wss": "wss",
+            }
+        scheme = (
+            schemes.get(forwarded_proto[0].strip(b" \t").lower())
+            if len(forwarded_proto) == 1
+            else None
+        )
+        if scheme is None:
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
+            else:
+                response = Response(
+                    content='{"detail":"Invalid X-Forwarded-Proto"}',
+                    status_code=400,
+                    media_type="application/json",
+                )
+                await response(scope, receive, send)
+            return
+
+        scope = dict(scope, scheme=scheme)
+        await self.app(scope, receive, send)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):

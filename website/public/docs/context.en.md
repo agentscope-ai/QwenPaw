@@ -313,6 +313,8 @@ Important fields:
 
 ## Manual Compaction
 
+Manual `/compact` uses the same effective model selection as ordinary messages under both Scroll and native strategies: explicit request override → conversation model → agent default → global default. Changing the conversation model takes effect immediately for manual compaction; sending a normal message first is unnecessary. Scroll continues to request thinking off for its summary call. Separate long-term-memory jobs retain their own configured model policy.
+
 `/compact` still exists. Under Scroll it forces eligible older turns into durable history while preserving the configured recent tail and active turn. When turns are actually archived, Scroll also updates the continuation summary. The command response reports what changed, but does not expose the internal eviction index, retrieval headlines, or continuation state in the chat transcript. Use `/compact_str` to inspect the current continuation summary; archived originals remain recoverable through Scroll history.
 
 `/compact <hint>` supplies one-shot focus guidance to that compression only. The hint is secret-redacted and bounded; under Scroll it is not treated as evidence or persisted task state, and auto-compaction remains unchanged.

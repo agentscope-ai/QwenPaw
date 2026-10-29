@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Resolve persistent session thinking without mutating agent defaults."""
+"""Resolve conversation model and thinking without mutating agent defaults."""
 
 from ..config.config import ModelSlotConfig, load_agent_config
 from ..providers.provider_manager import ProviderManager
 from ..providers.provider import Provider
+from ..providers.model_selection import (
+    request_model_override,
+    resolve_model_slot_override,
+)
 from ..providers.dashscope_provider import DashScopeProvider
 from ..providers.gemini_provider import resolve_thinking_config
 from ..providers.openai_response_provider import (
@@ -175,6 +179,15 @@ def session_model(meta: dict | None) -> ModelSlotConfig | None:
     return ModelSlotConfig.model_validate(raw) if raw is not None else None
 
 
+def select_chat_model(meta=None, *, model_override=None):
+    """Select a conversation override and its source using one precedence."""
+    selected = resolve_model_slot_override(model_override)
+    if selected is not None and selected.provider_id and selected.model:
+        return selected, "request"
+    selected = session_model(meta)
+    return selected, "session" if selected is not None else None
+
+
 def session_preference(
     meta: dict | None,
     model_key: str = f"",
@@ -319,26 +332,74 @@ async def thinking_view(
     }
 
 
-async def apply_session_thinking(ctx, config):
-    """Snapshot one session's preference before creating its runtime."""
+async def get_session_chat(ctx, *, chat=None):
+    """Find settings for runtime/control contexts or an already loaded chat.
+
+    Spawned subagents use the parent conversation even when the current
+    chat is supplied, as it is for background title generation.
+    """
     workspace = getattr(ctx, f"workspace", None)
     manager = getattr(workspace, f"chat_manager", None)
-    session_id = getattr(ctx, f"session_id", None)
+    request = getattr(ctx, "request", None)
+    if request is None:
+        request = getattr(ctx, "payload", None)
+    values = (
+        request
+        if isinstance(request, dict)
+        else {
+            name: getattr(request, name, None)
+            for name in ("request_context", "channel", "user_id")
+        }
+    )
+    # Console title tasks receive the native payload, before it is converted
+    # into the AgentRequest used by execution.
+    request_context = (
+        values.get("request_context")
+        or (values.get("meta") or {}).get("request_context")
+        or {}
+    )
+    spawned = request_context.get(f"_spawn_subagent")
+    if chat is not None and not spawned:
+        return chat
+    session_id = getattr(ctx, f"session_id", None) or getattr(
+        chat,
+        "session_id",
+        None,
+    )
     if not manager or not session_id:
-        return config
-    request = getattr(ctx, f"request", None)
-    request_context = getattr(request, f"request_context", None) or {}
-    if request_context.get(f"_spawn_subagent"):
+        return None
+    channel = (
+        values.get("channel")
+        or values.get("channel_id")
+        or getattr(chat, "channel", None)
+        or "console"
+    )
+    user_id = (
+        values.get("user_id")
+        or values.get("sender_id")
+        or getattr(ctx, "user_id", None)
+        or getattr(chat, "user_id", None)
+        or None
+    )
+    if spawned:
         session_id = request_context.get(f"parent_session_id") or session_id
+        # Console submissions keep the child's transport identity separate
+        # from the parent conversation's owner and channel.
+        channel = request_context.get("channel") or channel
+        user_id = request_context.get("user_id") or user_id
     chat_id = await manager.get_chat_id_by_session(
         session_id,
-        getattr(request, f"channel", None) or f"console",
-        getattr(request, f"user_id", None) or None,
+        channel,
+        user_id,
     )
-    chat = await manager.get_chat(chat_id) if chat_id else None
-    selected = session_model(chat.meta) if chat else None
+    return await manager.get_chat(chat_id) if chat_id else None
+
+
+async def apply_chat_model_settings(config, meta=None, *, model_override=None):
+    """Resolve thinking for the final model: request > session > defaults."""
+    selected, _source = select_chat_model(meta, model_override=model_override)
     config = await run_sync_io(_with_session_model, config, selected)
-    if chat:
+    if meta:
 
         def selected_key():
             slot = config.active_model or (
@@ -347,7 +408,7 @@ async def apply_session_thinking(ctx, config):
             return f"{slot.provider_id}:{slot.model}" if slot else f""
 
         model_key = await run_sync_io(selected_key)
-        preference = session_preference(chat.meta, model_key)
+        preference = session_preference(meta, model_key)
     else:
         preference = None
     if preference is None or preference.level == f"inherit":
@@ -358,4 +419,17 @@ async def apply_session_thinking(ctx, config):
             f"thinking_budget": preference.budget_tokens,
         },
         deep=True,
+    )
+
+
+async def apply_session_thinking(ctx, config):
+    """Snapshot model and model-owned thinking for the calling request."""
+    chat = await get_session_chat(ctx)
+    request = getattr(ctx, "request", None)
+    if request is None:
+        request = getattr(ctx, "payload", None)
+    return await apply_chat_model_settings(
+        config,
+        chat.meta if chat else None,
+        model_override=request_model_override(request),
     )

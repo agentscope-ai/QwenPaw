@@ -16,6 +16,7 @@ from functools import partial
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from ..providers.model_selection import request_model_override
 from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
@@ -459,9 +460,7 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model_slot_override = getattr(ctx.request, "model_slot_override", None)
-        if model_slot_override is None:
-            model_slot_override = request_context.get("model_slot_override")
+        model_slot_override = request_model_override(ctx.request)
         model, _formatter = await run_sync_io(
             self.build_model,
             agent_config,
@@ -931,9 +930,19 @@ class AgentBuilder:
             or os.environ.get("SHELL")
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
-        _model_name = (getattr(ctx, f"extras", None) or {}).get(
+        _extras = getattr(ctx, "extras", None) or {}
+        _model_name = _extras.get(
             f"active_model_display_name",
         )
+        if "active_model_display_name" not in _extras:
+            # Standalone commands rebuild prompts without building a model.
+            # A built model's absent name is authoritative, and managed IDs
+            # are internal routing keys rather than public model identities.
+            from ..providers.hub_managed import PROVIDER_ID
+
+            slot = getattr(agent_config, "active_model", None)
+            if slot is not None and slot.provider_id != PROVIDER_ID:
+                _model_name = slot.model
         return build_env_context(
             agent_id=getattr(agent_config, "id", None),
             session_id=getattr(ctx, "session_id", ""),

@@ -22,6 +22,7 @@ from agentscope.model._model_response import ChatResponse, StructuredResponse
 from agentscope.model._model_usage import ChatUsage
 
 from qwenpaw.agents import model_factory
+from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers.capping_formatter import (
     _CappingAnthropicFormatter,
     _CappingOpenAIFormatter,
@@ -29,6 +30,10 @@ from qwenpaw.providers.capping_formatter import (
 from qwenpaw.providers.fallback_chat_model import (
     FallbackChatModel,
     install_fallback_notice_sink,
+)
+from qwenpaw.providers.model_selection import (
+    current_model_slot,
+    runtime_model_context,
 )
 from qwenpaw.providers.rate_limiter import _limiters
 from qwenpaw.providers.retry_chat_model import (
@@ -581,15 +586,31 @@ async def test_usage_and_model_key_follow_actual_fallback(
     )
     model = FallbackChatModel([wrapped_primary, wrapped_fallback])
 
-    response = await model(messages=[], tools=[])
-    _ = [chunk async for chunk in response]
+    primary_slot = ModelSlotConfig(
+        provider_id="primary-provider",
+        model="primary",
+    )
+    fallback_slot = ModelSlotConfig(
+        provider_id="fallback-provider",
+        model="fallback",
+    )
+    with runtime_model_context(model):
+        assert current_model_slot() == primary_slot
+        response = await model(messages=[], tools=[])
+        assert model.model_key == "fallback-provider:fallback"
+        async for chunk in response:
+            assert current_model_slot() == fallback_slot
+            assert chunk.metadata["qwenpaw_actual_model"]["provider_id"] == (
+                fallback_slot.provider_id
+            )
+        assert current_model_slot() == primary_slot
     usage = TokenRecordingModelWrapper.pop_usage_for_session(
         "fallback-session",
     )
 
     # Usage is attributed per slot by TokenRecordingModelWrapper; the
     # wrapper's own identity resets to the primary once the stream ends.
-    assert model.model_key == "primary"
+    assert model.model_key == "primary-provider:primary"
     assert usage is not None
     assert usage["provider_id"] == "fallback-provider"
     assert usage["model_name"] == "fallback"

@@ -551,6 +551,7 @@ async def post_console_chat(
                     chat_id=chat.id,
                     user_message=first_text,
                     placeholder_name=name,
+                    request=native_payload,
                 ),
             )
 

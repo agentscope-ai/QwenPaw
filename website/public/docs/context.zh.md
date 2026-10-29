@@ -311,6 +311,8 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 ## 手动压缩
 
+Scroll 和 native 两种策略下，手动 `/compact` 都与普通消息使用相同的模型选择优先级：请求显式覆盖 → 会话模型 → Agent 默认模型 → 全局默认模型。切换会话模型后会立即对手动压缩生效，无需先发送一条普通消息。Scroll 的摘要调用仍会请求关闭 thinking。独立的长期记忆任务继续使用其自身配置的模型策略。
+
 `/compact` 仍然存在。在 Scroll 策略下，它会把符合条件的较早轮次归档到持久历史，同时保留配置指定的近期尾部和活动轮次。真正归档轮次时，Scroll 也会更新 continuation summary。命令回复只报告本次发生的变化，不会在聊天记录中暴露内部驱逐索引、检索 headline 或 continuation state。可以使用 `/compact_str` 查看当前 continuation summary；归档原文仍可通过 Scroll 历史取回。
 
 `/compact <hint>` 只为本次压缩提供取舍重点；hint 会先脱敏并限制长度，在 Scroll 下既不作为 evidence，也不持久化为任务状态，自动压缩行为不受影响。

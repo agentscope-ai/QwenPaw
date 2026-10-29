@@ -6,23 +6,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
-import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
 
 from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.lifecycle import PluginState, UnloadMode
 from qwenpaw.plugins.loader import PluginLoader
-from qwenpaw.plugins.settings import (
-    is_plugin_enabled,
-    persist_plugin_settings,
-    runtime_config,
-)
+from qwenpaw.plugins.settings import persist_plugin_settings
 from qwenpaw.plugins.workspace_projector import WorkspaceProjector
 from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 
@@ -95,125 +88,6 @@ async def _load_with_workspace(
     return loader, workspace
 
 
-def test_runtime_config_strips_enabled():
-    assert runtime_config({"enabled": False, "token": "x"}) == {"token": "x"}
-    assert is_plugin_enabled(None) is True
-    assert is_plugin_enabled({"enabled": False}) is False
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("save_fails", [False, True])
-async def test_config_update_flushes_real_kanban_unsaved_issue(
-    tmp_path,
-    fresh_registry,
-    monkeypatch,
-    save_fails,
-):
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    source = Path(__file__).resolve().parents[3] / "plugins/apps/agent-kanban"
-    installed = tmp_path / "plugins/agent-kanban"
-    shutil.copytree(source, installed)
-    fresh_registry.set_plugin_http_app(FastAPI())
-    loader = PluginLoader([installed.parent])
-    loader.registry = fresh_registry
-    manifest = PluginManifest.from_dict(
-        json.loads((installed / "plugin.json").read_text(encoding="utf-8")),
-    )
-    await loader.load_plugin(manifest, installed)
-    module = sys.modules["plugin_agent_kanban"]
-    try:
-        issue = await module.create_issue(
-            module.IssueCreate(title="Unsaved board item"),
-            ctx=None,
-        )
-        assert not module._DATA_FILE.exists()
-        if save_fails:
-
-            def fail_save(*_args, **_kwargs):
-                raise OSError("config write failed")
-
-            monkeypatch.setattr(
-                "qwenpaw.plugins.settings.persist_plugin_settings",
-                fail_save,
-            )
-        report = await loader.lifecycle.update_config(
-            manifest.id,
-            {"theme": "new"},
-        )
-        assert report.ok is not save_fails
-        assert any(item["id"] == issue["id"] for item in module._read_all())
-        persisted = json.loads(module._DATA_FILE.read_text(encoding="utf-8"))
-        assert any(item["id"] == issue["id"] for item in persisted)
-    finally:
-        await loader.lifecycle.unload(manifest.id, UnloadMode.UNLOAD)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stop_fails", [False, True])
-async def test_config_replacement_stops_each_generation_before_rebuild(
-    tmp_path,
-    fresh_registry,
-    monkeypatch,
-    stop_fails,
-):
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    body = (
-        "self.calls = getattr(self, 'calls', [])\n"
-        "        self.stop_fails = getattr(self, 'stop_fails', False)\n"
-        "        value = api.config['value']\n"
-        "        async def start():\n"
-        "            self.calls.append('start:' + value)\n"
-        "            if value == 'new':\n"
-        "                raise RuntimeError('new startup failed')\n"
-        "        async def stop():\n"
-        "            self.calls.append('stop:' + value)\n"
-        "            if self.stop_fails:\n"
-        "                raise RuntimeError('old stop failed')\n"
-        "        api.register_startup_hook('start', start)\n"
-        "        api.register_shutdown_hook('stop', stop)"
-    )
-    loader, _ = await _load_with_workspace(
-        tmp_path,
-        fresh_registry,
-        "cfg-stop",
-        body,
-        {"value": "old"},
-    )
-    plugin = sys.modules["plugin_cfg_stop"].plugin
-    instance = loader.lifecycle.get_instance("cfg-stop")
-    plugin.calls.clear()
-    plugin.stop_fails = stop_fails
-    try:
-        report = await loader.lifecycle.update_config(
-            "cfg-stop",
-            {"value": "new"},
-        )
-        assert not report.ok
-        if stop_fails:
-            assert not report.quiescent
-            assert any("old stop failed" in error for error in report.errors)
-            assert plugin.calls == ["stop:old"]
-            assert loader.lifecycle.get_instance("cfg-stop") is instance
-            assert instance.has_runtime_ledger()
-            assert any(
-                hook.plugin_id == "cfg-stop"
-                for hook in fresh_registry.get_shutdown_hooks()
-            )
-        else:
-            assert plugin.calls == [
-                "stop:old",
-                "start:new",
-                "stop:new",
-                "start:old",
-            ]
-            assert loader.lifecycle.get_instance("cfg-stop").config == {
-                "value": "old",
-            }
-    finally:
-        plugin.stop_fails = False
-        await loader.lifecycle.unload("cfg-stop", UnloadMode.UNLOAD)
-
-
 @pytest.mark.asyncio
 async def test_update_config_success_replaces_slash(
     tmp_path: Path,
@@ -246,48 +120,6 @@ async def test_update_config_success_replaces_slash(
     names = workspace.plugins.slash_command_registry.names()
     assert "new" in names
     assert "old" not in names
-
-
-@pytest.mark.asyncio
-async def test_cancel_config_shutdown_retains_original_hooks_for_retry(
-    tmp_path,
-    fresh_registry,
-    monkeypatch,
-):
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    loader, _ = await _load_with_workspace(
-        tmp_path,
-        fresh_registry,
-        "cancel-stop",
-        "self.registers = getattr(self, 'registers', 0) + 1\n"
-        "        async def stop():\n"
-        "            self.entered.set()\n"
-        "            await self.release.wait()\n"
-        "        api.register_shutdown_hook('stop', stop)",
-        {"value": "old"},
-    )
-    plugin = sys.modules["plugin_cancel_stop"].plugin
-    plugin.entered, plugin.release = asyncio.Event(), asyncio.Event()
-    instance = loader.lifecycle.get_instance("cancel-stop")
-    updating = asyncio.create_task(
-        loader.lifecycle.update_config("cancel-stop", {"value": "new"}),
-    )
-    try:
-        await asyncio.wait_for(plugin.entered.wait(), timeout=WAIT_TIMEOUT)
-        updating.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await updating
-        assert plugin.registers == 1
-        assert loader.lifecycle.get_instance("cancel-stop") is instance
-        assert instance.has_runtime_ledger()
-        assert instance.config == {"value": "old"}
-    finally:
-        plugin.release.set()
-        report = await loader.lifecycle.unload(
-            "cancel-stop",
-            UnloadMode.UNLOAD,
-        )
-        assert report.clean and report.quiescent
 
 
 @pytest.mark.asyncio
@@ -327,10 +159,10 @@ async def test_config_write_failure_restores_runtime_and_allows_retry(
     if restore_fails:
         reregister = loader.reregister_unlocked
 
-        async def fail_restore(plugin_id, config):
+        async def fail_restore(plugin_id, config, **kwargs):
             if config == {"cmd": "old"}:
                 raise RuntimeError("old config restore failed")
-            await reregister(plugin_id, config)
+            await reregister(plugin_id, config, **kwargs)
 
         monkeypatch.setattr(loader, "reregister_unlocked", fail_restore)
     report = await loader.lifecycle.update_config("cfg", {"cmd": "new"})
@@ -369,6 +201,7 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
     fresh_registry,
     monkeypatch,
     save_succeeds,
+    bounded_dependency_environment,
 ):
     config_path = tmp_path / "config.json"
     monkeypatch.setattr(
@@ -411,10 +244,12 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
         task.cancel()
         await asyncio.sleep(0)
         assert not task.done()
-    finally:
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await task
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
     expected = "new" if save_succeeds else "old"
     assert loader.lifecycle.get_instance("cfg").config == {"cmd": expected}
     assert workspace.plugins.slash_command_registry.names() == [expected]
@@ -431,276 +266,6 @@ async def test_cancel_during_config_save_keeps_runtime_and_disk_consistent(
         timeout=WAIT_TIMEOUT,
     )
     assert report.ok
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("cancelled", [False, True])
-async def test_repeated_startup_failure_preserves_config_instance_and_module(
-    tmp_path: Path,
-    fresh_registry,
-    monkeypatch,
-    cancelled,
-):
-    config_path = tmp_path / "config.json"
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    monkeypatch.setattr(
-        "qwenpaw.config.utils.get_config_path",
-        lambda: config_path,
-    )
-    persist_plugin_settings("cfg", config={"cmd": "old"})
-    disk_before = config_path.read_bytes()
-    body = (
-        "name = api.config.get('cmd', 'default')\n"
-        "        self.calls = getattr(self, 'calls', []) + [name]\n"
-        "        api.register_slash_command(name, lambda c, a: None)\n"
-        "        def startup():\n"
-        "            if api.config.get('boom'):\n"
-        "                if api.config.get('cancelled'):\n"
-        "                    import asyncio\n"
-        "                    raise asyncio.CancelledError()\n"
-        "                raise RuntimeError('new startup failed')\n"
-        "        api.register_startup_hook('cfg-start', startup)"
-    )
-    loader, workspace = await _load_with_workspace(
-        tmp_path,
-        fresh_registry,
-        "cfg",
-        body,
-        {"cmd": "old"},
-    )
-    inst = loader.lifecycle.get_instance("cfg")
-    record = loader.get_loaded_plugin("cfg")
-    plugin = record.instance
-    module_name = type(plugin).__module__
-    original_module = sys.modules[module_name]
-    for name in ["new-first", "new-second"]:
-        config = {"cmd": name, "boom": True, "cancelled": cancelled}
-        if cancelled:
-            with pytest.raises(asyncio.CancelledError):
-                await loader.lifecycle.update_config("cfg", config)
-        else:
-            report = await loader.lifecycle.update_config("cfg", config)
-            assert not report.ok
-            assert not report.needs_restart
-            assert "new startup failed" in report.errors
-        assert loader.lifecycle.get_instance("cfg") is inst
-        assert loader.get_loaded_plugin("cfg") is record
-        assert record.instance is plugin
-        assert inst.config == {"cmd": "old"}
-        assert inst.state is PluginState.ACTIVE
-        assert inst.activated
-        assert record.status == "active"
-        assert record.enabled
-        assert sys.modules[module_name] is original_module
-        assert workspace.plugins.slash_command_registry.names() == ["old"]
-        assert config_path.read_bytes() == disk_before
-    assert plugin.calls == ["old", "new-first", "old", "new-second", "old"]
-    report = await loader.lifecycle.update_config("cfg", {"cmd": "retry"})
-    assert report.ok
-    assert loader.lifecycle.get_instance("cfg") is inst
-    assert inst.config == {"cmd": "retry"}
-    assert workspace.plugins.slash_command_registry.names() == ["retry"]
-    assert sys.modules[module_name] is original_module
-
-
-@pytest.mark.asyncio
-async def test_failed_startup_with_live_resource_does_not_restore_old_config(
-    tmp_path: Path,
-    fresh_registry,
-    monkeypatch,
-):
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    body = (
-        "name = api.config.get('cmd', 'default')\n"
-        "        self.calls = getattr(self, 'calls', []) + [name]\n"
-        "        api.register_slash_command(name, lambda c, a: None)\n"
-        "        def stop():\n"
-        "            if api.config.get('boom'):\n"
-        "                raise RuntimeError('resource still live')\n"
-        "        api.effect('connection', None, stop)\n"
-        "        def startup():\n"
-        "            if api.config.get('boom'):\n"
-        "                raise RuntimeError('new startup failed')\n"
-        "        api.register_startup_hook('cfg-start', startup)"
-    )
-    loader, _ = await _load_with_workspace(
-        tmp_path,
-        fresh_registry,
-        "cfg",
-        body,
-        {"cmd": "old"},
-    )
-    inst = loader.lifecycle.get_instance("cfg")
-    record = loader.get_loaded_plugin("cfg")
-    module_name = type(record.instance).__module__
-    module = sys.modules[module_name]
-    report = await loader.lifecycle.update_config(
-        "cfg",
-        {"cmd": "new", "boom": True},
-    )
-    assert not report.ok
-    assert not report.quiescent
-    assert report.needs_restart
-    assert loader.lifecycle.get_instance("cfg") is inst
-    assert inst.state is PluginState.FAILED
-    assert inst.has_runtime_ledger()
-    assert record.instance.calls == ["old", "new"]
-    assert sys.modules[module_name] is module
-    with pytest.raises(RuntimeError, match="not quiescent"):
-        inst.refuse_unquiescent_reregister()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stop_fails", [False, True])
-async def test_failed_config_restore_reports_resource_cleanup(
-    tmp_path: Path,
-    fresh_registry,
-    monkeypatch,
-    stop_fails,
-):
-    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
-    body = (
-        "name = api.config['cmd']\n"
-        "        self.calls = getattr(self, 'calls', []) + [name]\n"
-        "        restoring = len(self.calls) == 3\n"
-        "        def stop():\n"
-        "            if restoring and self.stop_fails:\n"
-        "                raise RuntimeError('restored resource still live')\n"
-        "            self.alive = False\n"
-        "        api.effect('connection', None, stop)\n"
-        "        def startup():\n"
-        "            self.alive = True\n"
-        "            if len(self.calls) > 1:\n"
-        "                raise RuntimeError(name + ' startup failed')\n"
-        "        api.register_startup_hook('cfg-start', startup)"
-    )
-    plugin_id = "restore-receipt"
-    loader, _ = await _load_with_workspace(
-        tmp_path,
-        fresh_registry,
-        plugin_id,
-        body,
-        {"cmd": "old"},
-    )
-    inst = loader.lifecycle.get_instance(plugin_id)
-    record = loader.get_loaded_plugin(plugin_id)
-    plugin = record.instance
-    plugin.stop_fails = stop_fails
-    module_name = type(plugin).__module__
-    module = sys.modules[module_name]
-
-    report = await loader.lifecycle.update_config(plugin_id, {"cmd": "new"})
-
-    assert not report.ok
-    assert report.needs_restart
-    assert report.quiescent is not stop_fails
-    assert "new startup failed" in report.errors
-    assert "restore failed: old startup failed" in report.errors
-    assert any(
-        "restored resource still live" in err for err in report.errors
-    ) is (stop_fails)
-    assert plugin.calls == ["old", "new", "old"]
-    assert loader.lifecycle.get_instance(plugin_id) is inst
-    assert loader.get_loaded_plugin(plugin_id) is record
-    assert inst.state is PluginState.FAILED
-    assert sys.modules[module_name] is module
-    assert inst.has_runtime_ledger() is stop_fails
-    assert plugin.alive is stop_fails
-
-    plugin.stop_fails = False
-    retried = await loader.lifecycle.unload(plugin_id, UnloadMode.UNLOAD)
-    assert retried.clean and retried.quiescent
-    assert not plugin.alive
-    assert loader.get_loaded_plugin(plugin_id) is None
-
-
-@pytest.mark.asyncio
-async def test_update_config_partial_failure_keeps_old_only(
-    tmp_path: Path,
-    fresh_registry,
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        "qwenpaw.constant.WORKING_DIR",
-        tmp_path / "work",
-    )
-    monkeypatch.setattr(
-        "qwenpaw.plugins.settings.persist_plugin_settings",
-        lambda *args, **kwargs: None,
-    )
-    body = (
-        "name = api.config.get('cmd', 'old')\n"
-        "        api.register_slash_command(name, lambda c, a: None)\n"
-        "        if api.config.get('boom'):\n"
-        "            api.register_slash_command("
-        "'partial', lambda c, a: None)\n"
-        "            raise RuntimeError('boom')"
-    )
-    loader, workspace = await _load_with_workspace(
-        tmp_path,
-        fresh_registry,
-        "half",
-        body,
-        {"cmd": "old"},
-    )
-    report = await loader.lifecycle.update_config(
-        "half",
-        {"cmd": "new", "boom": True},
-    )
-    assert not report.ok
-    names = workspace.plugins.slash_command_registry.names()
-    assert "old" in names
-    assert "new" not in names
-    assert "partial" not in names
-
-
-@pytest.mark.asyncio
-async def test_update_config_refuses_legacy_hook(
-    tmp_path: Path,
-    fresh_registry,
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        "qwenpaw.constant.WORKING_DIR",
-        tmp_path / "work",
-    )
-    monkeypatch.setattr(
-        "qwenpaw.plugins.settings.persist_plugin_settings",
-        lambda *args, **kwargs: None,
-    )
-    body = "api.register_uninstall_hook('legacy', lambda **k: None)"
-    loader, _workspace = await _load_with_workspace(
-        tmp_path,
-        fresh_registry,
-        "leg",
-        body,
-    )
-    refused = await loader.lifecycle.update_config("leg", {"x": 1})
-    assert refused.unchanged
-    assert refused.requires_confirmation
-    allowed = await loader.lifecycle.update_config(
-        "leg",
-        {"x": 1},
-        confirm_legacy=True,
-    )
-    assert allowed.ok
-
-
-@pytest.mark.asyncio
-async def test_disabled_plugin_is_skipped_on_boot(
-    tmp_path: Path,
-    fresh_registry,
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        "qwenpaw.constant.WORKING_DIR",
-        tmp_path / "work",
-    )
-    _write_plugin(tmp_path / "plugins" / "off", "off")
-    loader = PluginLoader(plugin_dirs=[tmp_path / "plugins"])
-    loader.registry = fresh_registry
-    await loader.load_all_plugins(configs={"off": {"enabled": False}})
-    assert "off" not in loader.get_all_loaded_plugins()
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,8 @@
 
 ### /compact - 压缩当前对话
 
+Scroll 和 native 两种压缩策略都会使用当前会话生效的模型，包括在聊天界面中选择的会话模型。优先级为：请求显式指定的模型 → 会话模型 → Agent 默认模型 → 全局默认模型。Scroll 生成摘要时仍会通过所选模型支持的参数请求关闭 thinking。
+
 手动触发上下文压缩（**需要等待**）。在 Scroll 下，符合条件的较早轮次会被归档，同时近期尾部和活动轮次仍保留在 live context 中。发生归档时会更新 continuation summary；启用长期记忆后，还可以在后台执行相应的保存任务。
 
 ```
@@ -473,6 +475,8 @@ Git 会对相同内容去重，自动垃圾回收也会按保留策略删除旧�
 
 ### /history - 查看当前对话历史
 
+最大输入长度和上下文使用率按当前会话生效的模型计算，包含会话级和请求级模型覆盖。
+
 显示当前对话中所有未压缩的消息列表，以及详细的**上下文占用情况**。
 
 ```
@@ -510,7 +514,7 @@ Git 会对相同内容去重，自动垃圾回收也会按保留策略删除旧�
 
 > 💡 **提示**：建议多使用 `/history` 命令了解当前上下文占用情况。
 >
-> 当 `Context usage` 接近 75% 时，对话即将触发自动 `compact`。
+> 当 `Context usage` 达到配置的自动压缩阈值时，可能触发自动压缩。
 >
 > 如果出现上下文超过最大上限的情况，请向社区反馈对应的模型和 `/history` 日志，然后主动使用 `/compact` 或 `/new` 来管理上下文。
 >
@@ -692,7 +696,7 @@ skill。
 | `/model`                         | 显示当前使用的模型     | ✅   |
 | `/model -h` 或 `/model help`     | 显示帮助信息           | ✅   |
 | `/model list`                    | 列出所有可用模型       | ✅   |
-| `/model <provider>:<model>`      | 切换到指定模型         | ✅   |
+| `/model <provider>:<model>`      | 修改 Agent 默认模型    | ✅   |
 | `/model reset`                   | 重置为全局默认模型     | ✅   |
 | `/model info <provider>:<model>` | 显示指定模型的详细信息 | ✅   |
 
@@ -700,7 +704,7 @@ skill。
 
 ### `/model` - 显示当前模型
 
-显示当前 Agent 正在使用的模型。
+显示当前会话选中的模型，包含请求级和会话级模型覆盖。返回结果会标明模型来源：请求覆盖、会话覆盖、Agent 默认值或全局默认值。
 
 **用法：**
 
@@ -769,6 +773,8 @@ Manage and switch AI models for the current agent.
 
 显示所有已配置的 Provider 及其可用模型。当前激活的模型会标记为 **[ACTIVE]**。
 
+`/model` 和 **[ACTIVE]** 标记会显示当前会话覆盖后生效的模型。通过 `/model` 切换或重置模型修改的是 Agent 默认值，已有的会话模型覆盖仍然生效；在会话模型选择器中清除覆盖后，才会继承 Agent 默认值。
+
 **用法：**
 
 ```
@@ -810,7 +816,7 @@ Example: `/model openai:gpt-4o`
 
 ### `/model <provider>:<model>` - 切换模型
 
-将当前 Agent 切换到使用不同的模型。
+修改当前 Agent 的默认模型。已有会话模型覆盖的会话会保留原有选择；如果当前会话存在覆盖，命令会明确提示。
 
 **用法：**
 
@@ -834,7 +840,7 @@ Example: `/model openai:gpt-4o`
 Provider: `anthropic`
 Model: `claude-3-5-sonnet-20241022`
 
-The new model will be used for subsequent messages.
+The new agent default will be used for subsequent messages that inherit it.
 ```
 
 > 💡 **提示**：模型切换只影响当前 Agent，其他 Agent 继续使用各自配置的模型。
@@ -843,7 +849,7 @@ The new model will be used for subsequent messages.
 
 ### `/model reset` - 重置为全局默认模型
 
-将当前 Agent 的模型重置为在 Web UI 中配置的全局默认模型。
+将当前 Agent 的默认模型重置为在 Web UI 中配置的全局默认模型，已有的会话模型覆盖仍然生效。
 
 **用法：**
 
@@ -856,12 +862,9 @@ The new model will be used for subsequent messages.
 ```
 **Model Reset**
 
-Agent model has been reset to global default:
-
+Agent now uses global default model:
 Provider: `openai`
 Model: `gpt-4o`
-
-The global default model will be used for subsequent messages.
 ```
 
 > 💡 **提示**：使用此命令可以撤销 Agent 级别的模型覆盖设置。
