@@ -1,2 +1,1 @@
-# -*- coding: utf-8 -*-
 """domain 层占位，后续 PR 填充。"""

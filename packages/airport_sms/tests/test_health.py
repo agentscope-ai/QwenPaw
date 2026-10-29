@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """健康检查冒烟测试。"""
 
 from airport_sms import __version__

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """进程健康检查。"""
 
 from __future__ import annotations
