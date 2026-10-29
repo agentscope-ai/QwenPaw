@@ -545,8 +545,23 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         if self._reme is None:
             return None
 
-        agent_config = await load_agent_config_async(self.agent_id)
-        memory_slot = await run_sync_io(self._memory_model_slot, agent_config)
+        try:
+            agent_config = await load_agent_config_async(self.agent_id)
+        except Exception as exc:
+            # The factory already tolerates unreadable agent configuration
+            # and may still resolve a usable global model. Preserve that path.
+            logger.warning(
+                "Unable to read memory model config for agent '%s'; "
+                "using the default model factory: %s",
+                self.agent_id,
+                exc,
+            )
+            agent_config = None
+        memory_slot = (
+            await run_sync_io(self._memory_model_slot, agent_config)
+            if agent_config is not None
+            else None
+        )
         model_kwargs: dict[str, Any] = {
             "agent_config": agent_config,
             "require_image_support": require_image_support,
