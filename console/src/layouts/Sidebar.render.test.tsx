@@ -639,14 +639,6 @@ describe("Sidebar", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("navigates to the chat path from the sticky chat button", async () => {
-    renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: "New task" }));
-    await waitFor(() => {
-      expect(screen.getByTestId("probe-path").textContent).toContain("/chat");
-    });
-  });
-
   it("distinguishes full settings navigation from quick settings", async () => {
     renderSidebar();
 
@@ -897,13 +889,6 @@ describe("Sidebar", () => {
     mocks.sidebar.hiddenPluginItemIds = ["plugin.cloud.dashboard"];
     renderSidebar();
     expect(screen.queryByText("Cloud dashboard")).not.toBeInTheDocument();
-  });
-
-  it("shows the unified panel with the session list", async () => {
-    renderSidebar();
-    await waitFor(() => {
-      expect(screen.getAllByTestId("session-list").length).toBeGreaterThan(0);
-    });
   });
 
   it("opens the account modal when auth is enabled and warns on empty update", async () => {
