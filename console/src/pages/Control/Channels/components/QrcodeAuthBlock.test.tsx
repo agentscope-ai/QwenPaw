@@ -136,6 +136,7 @@ const uiProps = {
 
 const hookProps = {
   channel: "wechat",
+  agentId: "agent-a",
   successStatus: "confirmed",
   successCredentialKey: "openid",
   onSuccess,
@@ -208,8 +209,9 @@ describe("QrcodeAuthBlock - the hook receives the config and nothing else", () =
     renderBlock();
 
     const cfg = cfgCalls.list[0] as Record<string, unknown>;
-    // Probe-verified key set: exactly the five non-UI fields.
+    // The owner identity is required alongside the five non-UI fields.
     expect(Object.keys(cfg).sort()).toEqual([
+      "agentId",
       "channel",
       "onError",
       "onSuccess",

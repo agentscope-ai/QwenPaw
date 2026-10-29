@@ -11003,6 +11003,1299 @@
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-super-vl:free",
+      "name": "NVIDIA: Nemotron 3.5 Super VL (free)",
+      "max_input_length": 1000000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-15",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-5.5",
+      "name": "Anthropic: Claude Opus 5.5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-22",
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.00002",
+        "input_cache_read": "0.0000002",
+        "input_cache_write": "0.000005",
+        "web_search": "0.01",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "moonshotai/kimi-k3.1-pro",
+      "name": "MoonshotAI: Kimi K3.1 Pro",
+      "max_input_length": 1048576,
+      "max_output_length": 943718,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-23",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000002"
+      }
+    },
+    {
+      "id": "recursive/flint-v1.0:free",
+      "name": "Recursive: Flint (free)",
+      "max_input_length": 262144,
+      "max_output_length": 235929,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-21",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "minimax/minimax-m3.1-flash",
+      "name": "MiniMax: MiniMax M3.1 Flash",
+      "max_input_length": 1048576,
+      "max_output_length": 524288,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-19",
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.00000055",
+        "input_cache_read": "0.00000001",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "deepseek/deepseek-v4.1-flash-1017",
+      "name": "DeepSeek: DeepSeek V4.1 Flash 1017",
+      "max_input_length": 1048576,
+      "max_output_length": 393216,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-17",
+      "pricing": {
+        "prompt": "0.000000300000",
+        "completion": "0.000001200000",
+        "input_cache_read": "0.000000006000"
+      }
+    },
+    {
+      "id": "elorian/glimpse",
+      "name": "Elorian: Glimpse",
+      "max_input_length": 262144,
+      "max_output_length": 256000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-17",
+      "pricing": {
+        "prompt": "0.0000006",
+        "completion": "0.000003",
+        "input_cache_read": "0.00000006",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "xingchen-agi/xing4.0-29b-a4b:free",
+      "name": "XingChen: Xing4.0 29B A4B (free)",
+      "max_input_length": 262144,
+      "max_output_length": 235929,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-16",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "reflection/beam-1.0-501b-a23b",
+      "name": "Reflection: Beam 1.0 501B A23B",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-16",
+      "pricing": {
+        "prompt": "0.00000024",
+        "completion": "0.00000098",
+        "input_cache_read": "0.000000035",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "inception/mercury-3",
+      "name": "Inception: Mercury 3",
+      "max_input_length": 1000000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-16",
+      "pricing": {
+        "prompt": "0.000000200000",
+        "completion": "0.000000700000",
+        "input_cache_read": "0.000000020000"
+      }
+    },
+    {
+      "id": "meta/muse-spark-open",
+      "name": "Meta: Muse Spark Open",
+      "max_input_length": 1048576,
+      "max_output_length": 943718,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-15",
+      "pricing": {
+        "prompt": "0.00000125",
+        "completion": "0.00000425",
+        "input_cache_read": "0.00000015",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-super-vl",
+      "name": "NVIDIA: Nemotron 3.5 Super VL",
+      "max_input_length": 262144,
+      "max_output_length": 235929,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-15",
+      "pricing": {
+        "prompt": "0.00000006",
+        "completion": "0.00000035",
+        "input_cache_read": "0.00000001",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "unbiased/pareto-26.10",
+      "name": "Pareto 26.10",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-15",
+      "pricing": {
+        "prompt": "0.0000008",
+        "completion": "0.0000032",
+        "input_cache_read": "0.00000003",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "unbiased/pareto-26.9",
+      "name": "Pareto 26.9",
+      "max_input_length": 262144,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-13",
+      "pricing": {
+        "prompt": "0.0000025",
+        "completion": "0.0000075",
+        "input_cache_read": "0.00000025",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "liquid/lfm-2.5-24b-a2b",
+      "name": "LiquidAI: LFM2.5-24B-A2B",
+      "max_input_length": 128000,
+      "max_output_length": 8192,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-13",
+      "pricing": {
+        "prompt": "0.00000005",
+        "completion": "0.0000007",
+        "input_cache_read": "0.000000025",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "google/gemini-4-argon",
+      "name": "Google: Gemini 4 Argon (50% off)",
+      "max_input_length": 1048576,
+      "max_output_length": 943718,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-13",
+      "pricing": {
+        "prompt": "0.000002000000",
+        "completion": "0.000010000000",
+        "image": "0.000002000000",
+        "input_cache_read": "0.000000100000",
+        "input_cache_write": "0.000000187500",
+        "web_search": "0.028000000000",
+        "internal_reasoning": "0.000010000000"
+      }
+    },
+    {
+      "id": "meta/muse-wonder",
+      "name": "Meta: Muse Wonder",
+      "max_input_length": 1048576,
+      "max_output_length": 943718,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-12",
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.00002",
+        "input_cache_read": "0.0000002",
+        "web_search": "0.0025",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "stepfun/step-5-preview",
+      "name": "StepFun: Step 5 Preview",
+      "max_input_length": 1000000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-08",
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.0000027",
+        "input_cache_read": "0.0000001",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "anthropic/claude-haiku-5.5",
+      "name": "Anthropic: Claude Haiku 5.5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-07",
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000005",
+        "input_cache_read": "0.00000001",
+        "input_cache_write": "0.000000125",
+        "web_search": "0.01",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "mistralai/mistral-large-4-0",
+      "name": "Mistral: Mistral Large 4",
+      "max_input_length": 1048576,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-06",
+      "pricing": {
+        "prompt": "0.00000136",
+        "completion": "0.00000418",
+        "input_cache_read": "0.00000014",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "inclusionai/ling-3.1-flash",
+      "name": "inclusionAI: Ling 3.1 Flash",
+      "max_input_length": 262144,
+      "max_output_length": 235929,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-10-02",
+      "pricing": {
+        "prompt": "0.000000300000",
+        "completion": "0.000000900000",
+        "input_cache_read": "0.000000060000"
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-5.5",
+      "name": "Anthropic: Claude Sonnet 5.5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-28",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000001",
+        "input_cache_write": "0.0000025",
+        "web_search": "0.01",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "perceptron/perceptron-mk1.5",
+      "name": "Perceptron: Perceptron Mk1.5",
+      "max_input_length": 36864,
+      "max_output_length": 8192,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-25",
+      "pricing": {
+        "prompt": "0.00000015",
+        "completion": "0.0000015",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "fireworks/ember-1",
+      "name": "Fireworks: Ember-1",
+      "max_input_length": 1048576,
+      "max_output_length": 943718,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-24",
+      "pricing": {
+        "prompt": "0.000003",
+        "completion": "0.000015",
+        "input_cache_read": "0.0000003",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "z-ai/glm-5.3-prime",
+      "name": "Z.ai: GLM 5.3 Prime",
+      "max_input_length": 1000000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-23",
+      "pricing": {
+        "prompt": "0.0000028",
+        "completion": "0.0000088",
+        "input_cache_read": "0.00000056"
+      }
+    },
+    {
+      "id": "qwen/qwen3.8-max-prime",
+      "name": "Qwen: Qwen3.8 Max Prime",
+      "max_input_length": 1000000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-23",
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.000012",
+        "input_cache_read": "0.0000005",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "aion-labs/aion-3.5-mini",
+      "name": "AionLabs: Aion 3.5 Mini",
+      "max_input_length": 262144,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-23",
+      "pricing": {
+        "prompt": "0.0000007",
+        "completion": "0.0000014",
+        "input_cache_read": "0.00000018",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "aion-labs/aion-3.5",
+      "name": "AionLabs: Aion 3.5",
+      "max_input_length": 262144,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-23",
+      "pricing": {
+        "prompt": "0.000003",
+        "completion": "0.000006",
+        "input_cache_read": "0.00000075",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "upstage/solar-mini4",
+      "name": "Upstage: Solar Mini 4",
+      "max_input_length": 524288,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-23",
+      "pricing": {
+        "prompt": "0.000000100000",
+        "completion": "0.000000400000",
+        "input_cache_read": "0.000000010000"
+      }
+    },
+    {
+      "id": "cohere/command-a-plus",
+      "name": "Cohere: Command A+",
+      "max_input_length": 192000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-22",
+      "pricing": {
+        "prompt": "0.0000003",
+        "completion": "0.0000015",
+        "input_cache_read": "0.00000015",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "xiaomi/mimo-v2.6-pro-ultraspeed",
+      "name": "Xiaomi: MiMo-V2.6-Pro-UltraSpeed",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-21",
+      "pricing": {
+        "prompt": "0.00000435",
+        "completion": "0.0000087",
+        "input_cache_read": "0.000000036",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "xiaomi/mimo-v2.6-flash",
+      "name": "Xiaomi: MiMo-V2.6-Flash",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-21",
+      "pricing": {
+        "prompt": "0.000000140000",
+        "completion": "0.000000280000",
+        "input_cache_read": "0.000000002800"
+      }
+    },
+    {
+      "id": "xiaomi/mimo-v2.6-pro",
+      "name": "Xiaomi: MiMo-V2.6-Pro",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-21",
+      "pricing": {
+        "prompt": "0.000000430000",
+        "completion": "0.000000870000",
+        "input_cache_read": "0.000000003600"
+      }
+    },
+    {
+      "id": "x-ai/grok-4.7",
+      "name": "SpaceXAI: Grok 4.7",
+      "max_input_length": 500000,
+      "max_output_length": 450000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-21",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000006",
+        "input_cache_read": "0.0000005",
+        "web_search": "0.005",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "qwen/qwen3.8-omni-flash",
+      "name": "Qwen: Qwen3.8 Omni Flash",
+      "max_input_length": 1000000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-21",
+      "pricing": {
+        "prompt": "0.00000015",
+        "completion": "0.00000047",
+        "input_cache_read": "0.000000016",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "prism-ml/ternary-bonsai-2-27b",
+      "name": "PrismML: Ternary Bonsai 2 27B",
+      "max_input_length": 262144,
+      "max_output_length": 32768,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-18",
+      "pricing": {
+        "prompt": "0.000000075",
+        "completion": "0.0000005",
+        "input_cache_read": "0.0000000375",
+        "discount": "0"
+      }
+    },
+    {
+      "id": "z-ai/glm-5.3-flashx",
+      "name": "Z.ai: GLM 5.3 FlashX",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://api.kilo.ai/api/gateway/models",
+          "updated_at": "2026-10-26",
+          "note": "Manual inventory snapshot; live provider pricing takes precedence."
+        }
+      },
+      "released_at": "2026-09-18",
+      "pricing": {
+        "prompt": "0.00000037",
+        "completion": "0.00000125",
+        "input_cache_read": "0.00000009"
+      }
     }
   ]
 }

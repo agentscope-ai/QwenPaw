@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { act, fireEvent, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
+import type { ChannelSaveJob } from "@/api/modules/channel";
 
 const mocks = vi.hoisted(() => {
   const formValues: Record<string, unknown> = {};
@@ -35,6 +36,7 @@ const mocks = vi.hoisted(() => {
       initialValues?: Record<string, unknown>;
       onClose: () => void;
       onSubmit: (values: Record<string, unknown>) => Promise<void | boolean>;
+      onSubmitSnapshot: (job: ChannelSaveJob) => Promise<void | boolean>;
     },
     aclDrawerProps: null as null | {
       open: boolean;
@@ -53,6 +55,19 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+vi.mock("@/stores/agentStore", () => ({
+  useAgentStore: Object.assign(
+    () => ({ selectedAgent: mocks.useChannels().agentId, agents: [] }),
+    {
+      getState: () => ({
+        selectedAgent: mocks.useChannels().agentId,
+        agents: [],
+      }),
+      subscribe: () => () => {},
+    },
+  ),
 }));
 
 vi.mock("../../../api", () => ({
@@ -151,6 +166,7 @@ function channelsState(overrides: Record<string, unknown> = {}) {
     channels: {},
     orderedKeys: [],
     channelSchemas: {},
+    schemasLoading: false,
     isBuiltin: vi.fn(() => true),
     loading: false,
     error: null,
@@ -571,5 +587,53 @@ describe("ChannelsPage load recovery", () => {
     expect(destroy).toHaveBeenCalledOnce();
     expect(mocks.updateChannelConfig).not.toHaveBeenCalled();
     expect(mocks.setChannels).not.toHaveBeenCalled();
+  });
+
+  it("persists a validated QR snapshot to its original agent after navigation without updating the current view", async () => {
+    let releaseSave!: () => void;
+    mocks.updateChannelConfig.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        releaseSave = resolve;
+      }),
+    );
+    mocks.useChannels.mockReturnValue(
+      channelsState({
+        channels: { telegram: { enabled: false, isBuiltin: true } },
+        orderedKeys: ["telegram"],
+      }),
+    );
+    const view = renderWithProviders(<ChannelsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "available-telegram" }));
+    const submitSnapshot = mocks.channelDrawerProps!.onSubmitSnapshot;
+    const job: ChannelSaveJob = Object.freeze({
+      agentId: "agent-a",
+      channel: "telegram",
+      body: Object.freeze({ enabled: false, bot_token: "captured-token" }),
+      authSession: "auth-agent-a",
+      formRevision: 7,
+    });
+
+    mocks.useChannels.mockReturnValue(
+      channelsState({
+        agentId: "agent-b",
+        loading: true,
+        ready: false,
+        canMutate: (owner: string) => owner === "agent-b",
+      }),
+    );
+    view.rerender(<ChannelsPage />);
+    const saving = submitSnapshot(job);
+    expect(mocks.updateChannelConfig).toHaveBeenCalledWith(
+      "telegram",
+      { enabled: false, bot_token: "captured-token" },
+      "agent-a",
+      "auth-agent-a",
+    );
+    await act(async () => {
+      releaseSave();
+      await saving;
+    });
+    expect(mocks.setChannels).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("channel-drawer")).toBeNull();
   });
 });

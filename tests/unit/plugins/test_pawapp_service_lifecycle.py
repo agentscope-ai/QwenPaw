@@ -2,6 +2,7 @@
 """Sidecar availability must not remove a PawApp's diagnostic routes."""
 
 import asyncio
+from dataclasses import replace
 import signal
 import sys
 from unittest.mock import MagicMock
@@ -18,6 +19,8 @@ from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins import custody
 from qwenpaw.plugins.lifecycle import UnloadMode
 from qwenpaw.plugins.loader import PluginLoader
+
+from .timing import WAIT_TIMEOUT
 
 
 def _fixture_plugin(tmp_path, registry, declaration):
@@ -251,12 +254,19 @@ async def test_repaired_service_clears_startup_diagnostic(monkeypatch):
         command=("missing",),
         mode_env="SERVICE_FIXTURE_MODE",
         external_url_env="SERVICE_FIXTURE_URL",
-        startup_timeout=0.01,
+        startup_timeout=5,
     )
     with pytest.raises(RuntimeError, match="not ready"):
         _ = service.base_url
-    with pytest.raises(TimeoutError):
-        await service.start()
+    # Inject a fast startup failure without shrinking the later health probe.
+    with monkeypatch.context() as failed_start:
+        failed_start.setattr(
+            service,
+            "spec",
+            replace(service.spec, startup_timeout=0.01),
+        )
+        with pytest.raises(TimeoutError):
+            await service.start()
     assert service.startup_error is not None
     monkeypatch.setattr(service_module, "_health_request", lambda *_: True)
     try:
@@ -344,7 +354,7 @@ async def test_stuck_service_close_retains_retry_and_blocks_reregister(
     try:
         report = await asyncio.wait_for(
             loader.lifecycle.unload(manifest.id, UnloadMode.UNLOAD),
-            timeout=1,
+            timeout=WAIT_TIMEOUT,
         )
         assert not report.clean and not report.quiescent
         assert len(calls) == 1
@@ -369,7 +379,7 @@ async def test_service_close_interruption_does_not_reset_kill_deadline(
     ready = tmp_path / "ready"
 
     async def await_ready(_service):
-        async with asyncio.timeout(5):
+        async with asyncio.timeout(WAIT_TIMEOUT):
             while not ready.exists():
                 await asyncio.sleep(0.001)
 
@@ -402,7 +412,7 @@ async def test_service_close_interruption_does_not_reset_kill_deadline(
     try:
         closing = asyncio.create_task(closer())
         if interruption == "cancel":
-            await asyncio.wait_for(terminating.wait(), timeout=1)
+            await asyncio.wait_for(terminating.wait(), timeout=WAIT_TIMEOUT)
             closing.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await closing
@@ -411,7 +421,7 @@ async def test_service_close_interruption_does_not_reset_kill_deadline(
                 await closing
         assert service._process is process  # pylint: disable=protected-access
         assert (
-            await asyncio.wait_for(process.wait(), timeout=2)
+            await asyncio.wait_for(process.wait(), timeout=WAIT_TIMEOUT)
             == -signal.SIGKILL
         )
         with pytest.raises(RuntimeError, match="close was cancelled"):

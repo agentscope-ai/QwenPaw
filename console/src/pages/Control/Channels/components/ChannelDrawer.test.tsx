@@ -19,6 +19,8 @@ import {
 } from "@testing-library/react";
 import { Form } from "antd";
 import type { FormInstance } from "antd";
+import type { ChannelSaveJob } from "../../../../api/modules/channel";
+import type { ChannelQrcodeConfig } from "./useChannelQrcode";
 
 // ---- Hoisted mocks ---------------------------------------------------------
 
@@ -38,7 +40,8 @@ vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
 );
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({
     t: (key: string, fallback?: unknown) => {
       if (typeof fallback === "string") return fallback;
@@ -59,15 +62,15 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("../../../../stores/agentStore", () => ({
-  useAgentStore: Object.assign(
-    () => ({
+vi.mock("../../../../stores/agentStore", async () => {
+  const { create } = await import("zustand");
+  return {
+    useAgentStore: create(() => ({
       selectedAgent: "agent-a",
       agents: [{ id: "agent-a", workspace_dir: "/ws" }],
-    }),
-    { subscribe: () => () => {} },
-  ),
-}));
+    })),
+  };
+});
 
 vi.mock("../../../../utils/openExternalLink", () => ({
   openExternalLink: (url: string) => mockOpenExternalLink(url),
@@ -82,35 +85,51 @@ vi.mock("../../../../hooks/useAppMessage", () => ({
 
 // Capture QR-code auth callbacks so tests can drive success/error paths.
 vi.mock("./QrcodeAuthBlock", () => ({
-  QrcodeAuthBlock: (props: Record<string, unknown>) => {
-    const channel = props.channel as string;
+  QrcodeAuthBlock: (props: ChannelQrcodeConfig) => {
+    const { channel } = props;
     return (
       <div data-testid={`qr-${channel}`}>
         <button
           data-testid={`qr-success-${channel}`}
-          onClick={() =>
-            (props.onSuccess as (c: Record<string, string>) => void)({
-              client_id: "cid",
-              client_secret: "cs",
-              app_id: "aid",
-              app_secret: "as",
-              bot_token: "bt",
-              bot_id: "bid",
-              secret: "sec",
-            })
-          }
+          onClick={() => {
+            let taken = false;
+            let cancelled = false;
+            props.onSuccess(
+              {
+                client_id: "cid",
+                client_secret: "cs",
+                app_id: "aid",
+                app_secret: "as",
+                bot_token: "bt",
+                base_url: "https://wechat-auth.example.test",
+                bot_id: "bid",
+                secret: "sec",
+              },
+              { agentId: props.agentId, channel, token: `auth-${channel}` },
+              {
+                take: () => {
+                  if (cancelled) return false;
+                  taken = true;
+                  return true;
+                },
+                cancel: () => {
+                  if (!taken) cancelled = true;
+                },
+              },
+            );
+          }}
         >
           qr-ok
         </button>
         <button
           data-testid={`qr-expired-${channel}`}
-          onClick={() => (props.onError as (t: string) => void)("expired")}
+          onClick={() => props.onError("expired")}
         >
           qr-expired
         </button>
         <button
           data-testid={`qr-failed-${channel}`}
-          onClick={() => (props.onError as (t: string) => void)("failed")}
+          onClick={() => props.onError("fail")}
         >
           qr-failed
         </button>
@@ -134,6 +153,7 @@ interface DrawerProps {
   channelSchema?: unknown;
   onClose?: () => void;
   onSubmit?: (values: Record<string, unknown>) => void;
+  onSubmitSnapshot?: (job: ChannelSaveJob) => Promise<void | boolean>;
 }
 
 function renderDrawer(
@@ -155,6 +175,7 @@ function renderDrawer(
         channelSchema={props.channelSchema as never}
         onClose={props.onClose ?? (() => {})}
         onSubmit={props.onSubmit ?? (() => {})}
+        onSubmitSnapshot={props.onSubmitSnapshot}
       />
     );
   }
@@ -511,91 +532,117 @@ describe("ChannelDrawer builtin channel rendering", () => {
     expect(screen.queryByText("channels.autoCollapseThinking")).toBeNull();
   });
 
-  it("hides tool-call/result length inputs when the toggles are off", () => {
-    const { unmount } = renderDrawer({ activeKey: "telegram" });
-    // default: both toggles on, length fields present
-    expect(screen.getByText("channels.toolCallMaxLength")).toBeTruthy();
-    expect(screen.getByText("channels.toolResultMaxLength")).toBeTruthy();
-    unmount();
-
+  it.each([
+    ["show_tool_calls", "toolCallMaxLength"],
+    ["show_tool_results", "toolResultMaxLength"],
+  ])("saves %s when its length field unmounts", async (field, length) => {
+    const onSubmit = vi.fn();
     renderDrawer({
-      activeKey: "telegram",
-      initialValues: { show_tool_calls: false, show_tool_results: false },
+      activeKey: "console",
+      onSubmit,
+      initialValues: {
+        show_tool_calls: true,
+        show_tool_results: true,
+        tool_call_max_length: 200,
+        tool_result_max_length: 500,
+      },
     });
-    expect(screen.queryByText("channels.toolCallMaxLength")).toBeNull();
-    expect(screen.queryByText("channels.toolResultMaxLength")).toBeNull();
+    expect(screen.getByText(`channels.${length}`)).toBeTruthy();
+    fireEvent.click(document.getElementById(field)!);
+    expect(screen.queryByText(`channels.${length}`)).toBeNull();
+    await waitFor(
+      () =>
+        expect(onSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({ [field]: false }),
+        ),
+      { timeout: 2000 },
+    );
   });
 });
 
 // ---- QR-code auth callbacks ------------------------------------------------
 
 describe("ChannelDrawer qrcode auth callbacks", () => {
-  it("dingtalk success fills credentials and reports error states", () => {
-    const { form } = renderDrawer({ activeKey: "dingtalk" });
-    fireEvent.click(screen.getByTestId("qr-success-dingtalk"));
-    expect(form.getFieldValue("client_id")).toBe("cid");
-    expect(form.getFieldValue("client_secret")).toBe("cs");
-    expect(mockMessage.success).toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId("qr-expired-dingtalk"));
-    expect(mockMessage.warning).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-failed-dingtalk"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
-
-  it("feishu success fills app credentials", () => {
-    const { form } = renderDrawer({ activeKey: "feishu" });
-    fireEvent.click(screen.getByTestId("qr-success-feishu"));
-    expect(form.getFieldValue("app_id")).toBe("aid");
-    expect(form.getFieldValue("app_secret")).toBe("as");
-    expect(mockMessage.success).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-expired-feishu"));
-    expect(mockMessage.warning).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-failed-feishu"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
-
-  it("wechat success fills bot token and reports failures", () => {
-    const { form } = renderDrawer({ activeKey: "wechat" });
-    fireEvent.click(screen.getByTestId("qr-success-wechat"));
-    expect(form.getFieldValue("bot_token")).toBe("bt");
-    expect(mockMessage.success).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-expired-wechat"));
-    expect(mockMessage.warning).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-failed-wechat"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
-
-  it("qq success fills credentials and reports failures", () => {
-    const { form } = renderDrawer({ activeKey: "qq" });
-    fireEvent.click(screen.getByTestId("qr-success-qq"));
-    expect(form.getFieldValue("app_id")).toBe("aid");
-    expect(form.getFieldValue("client_secret")).toBe("cs");
-    expect(mockMessage.success).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-expired-qq"));
-    expect(mockMessage.warning).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-failed-qq"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
-
-  it("wecom success fills bot credentials and any error reports failure", () => {
-    const { form } = renderDrawer({ activeKey: "wecom" });
-    fireEvent.click(screen.getByTestId("qr-success-wecom"));
-    expect(form.getFieldValue("bot_id")).toBe("bid");
-    expect(form.getFieldValue("secret")).toBe("sec");
-    expect(mockMessage.success).toHaveBeenCalled();
-    // wecom uses a single onError handler for every failure type
-    fireEvent.click(screen.getByTestId("qr-expired-wecom"));
-    expect(mockMessage.error).toHaveBeenCalled();
-    mockMessage.error.mockClear();
-    fireEvent.click(screen.getByTestId("qr-failed-wecom"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
+  it.each([
+    {
+      channel: "dingtalk",
+      credentials: { client_id: "cid", client_secret: "cs" },
+      expired: "warning",
+    },
+    {
+      channel: "feishu",
+      credentials: { app_id: "aid", app_secret: "as" },
+      expired: "warning",
+    },
+    {
+      channel: "wechat",
+      credentials: {
+        bot_token: "bt",
+        base_url: "https://wechat-auth.example.test",
+      },
+      expired: "warning",
+    },
+    {
+      channel: "qq",
+      credentials: { app_id: "aid", client_secret: "cs" },
+      expired: "warning",
+    },
+    {
+      channel: "wecom",
+      credentials: { bot_id: "bid", secret: "sec" },
+      expired: "error",
+    },
+  ] as const)(
+    "$channel fills and saves authorized credentials",
+    async ({ channel, credentials, expired }) => {
+      const onSubmit = vi.fn();
+      const onSubmitSnapshot = vi.fn().mockResolvedValue(true);
+      const { form } = renderDrawer({
+        activeKey: channel,
+        isBuiltin: false,
+        onSubmit,
+        onSubmitSnapshot,
+      });
+      fireEvent.click(screen.getByTestId(`qr-success-${channel}`));
+      for (const [field, value] of Object.entries(credentials)) {
+        expect(form.getFieldValue(field)).toBe(value);
+      }
+      expect(mockMessage.success).toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+      await waitFor(() => expect(onSubmitSnapshot).toHaveBeenCalledOnce());
+      expect(onSubmitSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "agent-a",
+          channel,
+          authSession: `auth-${channel}`,
+          body: expect.objectContaining(credentials),
+        }),
+      );
+      expect(onSubmit).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId(`qr-expired-${channel}`));
+      expect(mockMessage[expired]).toHaveBeenCalled();
+      mockMessage.error.mockClear();
+      fireEvent.click(screen.getByTestId(`qr-failed-${channel}`));
+      expect(mockMessage.error).toHaveBeenCalled();
+    },
+  );
 });
 
 // ---- Plugin schema fields + resolveLocalized --------------------------------
 
 describe("ChannelDrawer plugin schema rendering", () => {
+  it("renders the official form declared by a channel schema", () => {
+    renderDrawer({
+      activeKey: "renamed-dingtalk",
+      isBuiltin: false,
+      channelSchema: {
+        form_kind: "dingtalk",
+        config_fields: [],
+      },
+    });
+    expect(screen.getByText("channels.fieldClientID")).toBeTruthy();
+    expect(screen.getByText("channels.fieldClientSecret")).toBeTruthy();
+  });
   it("renders all schema field types with localized labels", () => {
     const schema = {
       description: "Plugin description",
@@ -795,11 +842,13 @@ describe("ChannelDrawer matrix submit", () => {
     const onSubmit = vi.fn();
     renderDrawer({
       activeKey: "matrix",
+      isBuiltin: false,
       onSubmit,
       initialValues: {
         homeserver: "https://matrix.org",
         user_id: "@bot:matrix.org",
         access_token: "syt_token",
+        auth_method: "token",
       },
     });
     fireEvent.change(document.querySelector("input#bot_prefix")!, {
@@ -818,6 +867,7 @@ describe("ChannelDrawer matrix submit", () => {
     const onSubmit = vi.fn();
     renderDrawer({
       activeKey: "matrix",
+      isBuiltin: false,
       onSubmit,
       initialValues: {
         homeserver: "https://matrix.org",

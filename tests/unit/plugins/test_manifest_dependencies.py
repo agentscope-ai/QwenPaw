@@ -4,6 +4,7 @@
 # pylint: disable=protected-access
 import json
 from importlib.metadata import version
+from pathlib import Path
 
 import pytest
 
@@ -38,235 +39,65 @@ def package(tmp_path, dependencies=(), requirements=None, *, sdk=True):
 
 
 @pytest.fixture(name="installer")
-def fake_installer(monkeypatch):
-    """Observe the real install boundary; never change the test environment."""
-    installed = {}
+def observe_installer(monkeypatch):
+    """Fail if a check-only or rejected transaction reaches preparation."""
     calls = []
-    original = dependency_gate._dist_version
 
-    def distribution(name):
-        return installed[name] if name in installed else original(name)
+    async def install(_loader, requirements, _plugin_id, **_kwargs):
+        calls.append(requirements.read_text())
+        raise AssertionError(
+            "Read-only dependency check attempted installation",
+        )
 
-    def install(_loader, requirements, _plugin_id, **_kwargs):
-        text = requirements.read_text()
-        calls.append(text)
-        for req in dependency_gate.parse_requirement_lines(requirements):
-            if req.name.startswith("b01-probe-"):
-                installed[req.name] = "1.0"
-
-    monkeypatch.setattr(dependency_gate, "_dist_version", distribution)
-    monkeypatch.setattr(PluginLoader, "_install_requirements", install)
+    monkeypatch.setattr(PluginLoader, "_prepare_python_dependencies", install)
     return calls
 
 
-@pytest.mark.parametrize(
-    ("dependencies", "requirements", "expected", "sdk"),
-    [
-        (["b01-probe-manifest==1.0"], None, {"b01-probe-manifest"}, True),
-        ([], "b01-probe-file==1.0\n", {"b01-probe-file"}, False),
-        (
-            ["b01-probe-manifest==1.0"],
-            "b01-probe-file==1.0\n",
-            {"b01-probe-manifest", "b01-probe-file"},
-            True,
-        ),
-    ],
-)
-async def test_install_includes_every_declared_dependency(
-    tmp_path,
-    installer,
-    dependencies,
-    requirements,
-    expected,
-    sdk,
-):
-    source = package(tmp_path, dependencies, requirements, sdk=sdk)
-    before = {p.name: p.read_bytes() for p in source.iterdir()}
-    async with PluginTestHost(tmp_path / "host") as host:
-        assert (await host.install(source)).ok
-    assert len(installer) == 1
-    for name in expected:
-        assert name in installer[0]
-    assert {p.name: p.read_bytes() for p in source.iterdir()} == before
-
-
-async def test_satisfied_and_marker_excluded_manifest_does_not_install(
-    tmp_path,
-    installer,
-):
-    source = package(
-        tmp_path,
-        [
-            f"packaging=={version('packaging')}",
-            "b01-probe-never; python_version<'2'",
-        ],
-    )
-    async with PluginTestHost(tmp_path / "host") as host:
-        assert (await host.install(source)).ok
-    assert installer == []
-
-
-@pytest.mark.parametrize("dependency", ["httpx==0.0.1", "Pillow==0.0.1"])
-@pytest.mark.parametrize("origin", ["manifest", "requirements"])
-async def test_manifest_cannot_replace_host_or_sdk_distribution(
-    tmp_path,
-    installer,
-    dependency,
-    origin,
-):
-    source = package(
-        tmp_path,
-        [dependency] if origin == "manifest" else [],
-        dependency if origin == "requirements" else None,
-    )
-    async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(SDKRestartRequiredError):
-            await host.install(source)
-        corrected = tmp_path / "corrected"
-        corrected.mkdir()
-        assert (await host.install(package(corrected), replace=True)).ok
-    assert installer == []
-
-
-@pytest.mark.parametrize(
-    "declaration",
-    [
-        "--extra-index-url https://invalid.invalid",
-        "pkg[extra]",
-        "pkg @ https://invalid.invalid/pkg.whl",
-        "pkg\nother",
-    ],
-)
-async def test_manifest_unsupported_syntax_is_not_silently_ignored(
-    tmp_path,
-    installer,
-    declaration,
-):
-    source = package(tmp_path, [declaration])
-    async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(SDKError):
-            await host.install(source)
-    assert installer == []
-
-
-async def test_both_constraints_apply_when_same_package_is_declared_twice(
-    tmp_path,
-    installer,
-):
-    source = package(
-        tmp_path,
-        ["packaging==0.0.1"],
-        f"packaging=={version('packaging')}\n",
-    )
-    async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(SDKRestartRequiredError):
-            await host.install(source)
-    assert installer == []
-
-
-async def test_boot_checks_manifest_without_installing_or_mutating_source(
-    tmp_path,
-    installer,
-):
-    source = package(tmp_path, ["b01-probe-missing==1.0"])
-    before = {p.name: p.read_bytes() for p in source.iterdir()}
-    source.chmod(0o555)
-    try:
-        async with PluginTestHost(tmp_path / "host") as host:
-            with pytest.raises(SDKError, match="b01-probe-missing"):
-                await host.load(source)
-        assert installer == []
-        assert {p.name: p.read_bytes() for p in source.iterdir()} == before
-    finally:
-        source.chmod(0o755)
-
-
-async def test_upgrade_rejection_keeps_old_tool_callable(tmp_path, installer):
-    from .test_sdk_install_transaction import package as tool_package
-    from .test_sdk_install_transaction import text_result
-
-    one = tool_package(tmp_path, "1.0.0")
-    two = tool_package(tmp_path, "2.0.0")
-    path = two / "plugin.json"
-    manifest = json.loads(path.read_text())
-    manifest["dependencies"] = ["Pillow==0.0.1"]
-    path.write_text(json.dumps(manifest))
-    async with PluginTestHost(tmp_path / "host") as host:
-        assert (await host.install(one)).ok
-        with pytest.raises(SDKRestartRequiredError):
-            await host.install(two, replace=True)
-        assert await text_result(host) == "1.0.0::1"
-        assert (await host.reload("extension-contract")).ok
-        assert await text_result(host) == "1.0.0::2"
-    assert installer == []
-
-
-async def test_repair_installs_manifest_dependency_after_boot_failure(
-    tmp_path,
-    installer,
-):
-    source = package(tmp_path, ["b01-probe-repair==1.0"])
-    async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(SDKError, match="b01-probe-repair"):
-            await host.load(source)
-        assert installer == []
-        repaired = await host._loader.repair_dependencies("extension-contract")
-        assert repaired.status == "active"
-        assert len(installer) == 1 and "b01-probe-repair" in installer[0]
-
-
-def test_manifest_dependency_installs_offline_wheel_in_isolated_python(
-    tmp_path,
-):
-    """Real resolver/install/import, without touching the host environment."""
-    import os
-    from pathlib import Path
-    import shutil
-    import subprocess
+def write_wheel(wheels, name, body="ANSWER = 'installed from manifest'\n"):
+    import base64
+    import hashlib
     import zipfile
 
-    import qwenpaw
-
-    wheels = tmp_path / "wheels"
-    wheels.mkdir()
-    info = "b01_probe_real-1.0.dist-info"
+    module = name.replace("-", "_")
+    info = f"{module}-1.0.dist-info"
     files = {
-        "b01_probe_real/__init__.py": "ANSWER = 'installed from manifest'\n",
-        f"{info}/METADATA": (
-            "Metadata-Version: 2.1\nName: b01-probe-real\nVersion: 1.0\n"
-        ),
+        f"{module}/__init__.py": body,
+        f"{info}/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n",
         f"{info}/WHEEL": (
             "Wheel-Version: 1.0\nGenerator: b01-test\n"
             "Root-Is-Purelib: true\nTag: py3-none-any\n"
         ),
     }
-    files[f"{info}/RECORD"] = "".join(f"{key},,\n" for key in files)
-    wheel = wheels / "b01_probe_real-1.0-py3-none-any.whl"
+    records = []
+    for key, value in files.items():
+        data = value.encode()
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+        records.append(
+            f"{key},sha256={digest.decode().rstrip('=')},{len(data)}\n",
+        )
+    files[f"{info}/RECORD"] = "".join(records) + f"{info}/RECORD,,\n"
+    wheel = wheels / f"{module}-1.0-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
         for name, body in files.items():
             archive.writestr(name, body)
-    source = package(tmp_path, ["b01-probe-real==1.0"])
-    path = source / "plugin.json"
-    manifest = json.loads(path.read_text())
-    manifest["sdk"]["capabilities"] = ["tools"]
-    path.write_text(json.dumps(manifest))
-    (source / "main.py").write_text(
-        """
-from b01_probe_real import ANSWER
-from qwenpaw.plugins.tools import ToolResult, ToolSpec
-class Plugin:
-    def register(self, ctx):
-        async def answer(call, args):
-            return ToolResult.text(ANSWER)
-        ctx.register_tool(ToolSpec(
-            "dependency_answer", "Probe", {"type": "object"},
-            answer, enabled=True,
-        ))
-plugin = Plugin()
-""",
-    )
+    return wheel
+
+
+def install_case(tmp_path, source, expected, *, repair=False, tool=False):
+    """Run resolver, publication and admission in one disposable interpreter."""
+    import os
+    import subprocess
+    import shutil
+
+    import qwenpaw
+    from tests.channel_support.host import local_certifi_wheel
+
+    wheels = tmp_path / "wheels"
+    wheels.mkdir()
+    local_certifi_wheel(wheels)
+    for name in expected:
+        write_wheel(wheels, name)
     python, _ = dependency_python(tmp_path / "python")
-    # Expose current source without its unrelated editable-install metadata.
     host_source = tmp_path / "host-source"
     host_source.mkdir()
     shutil.copytree(
@@ -275,31 +106,75 @@ plugin = Plugin()
         ignore=shutil.ignore_patterns("__pycache__"),
     )
     code = r"""
-import asyncio, importlib.metadata, json, subprocess, sys
+import asyncio, importlib, importlib.metadata, json, subprocess, sys
 import mcp.types
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
+from qwenpaw.plugins import SDKError
 from qwenpaw.plugins.testing import PluginTestHost
-commands = []
-original = subprocess.Popen
+from qwenpaw.utils.runtime_environment import CERTIFI_REQUIREMENT
+source, root = map(Path, sys.argv[2:4])
+expected = set(json.loads(sys.argv[4]))
+# Unrelated stale metadata must not block a real manifest dependency install.
+if sys.argv[6] == 'tool':
+    duplicates = root.parent / 'duplicate-metadata'
+    for version in ('1.0', '2.0'):
+        info = duplicates / f'unrelated_probe-{version}.dist-info'
+        info.mkdir(parents=True)
+        (info / 'METADATA').write_text(
+            f'Metadata-Version: 2.1\nName: unrelated-probe\nVersion: {version}\n'
+        )
+    sys.path.append(str(duplicates))
+    assert {d.version for d in importlib.metadata.distributions()
+            if d.metadata['Name'] == 'unrelated-probe'} == {'1.0', '2.0'}
+commands, inputs = [], []
+spawn = subprocess.Popen
+
 def observe(args, *values, **kwargs):
     if 'install' in args:
+        raise AssertionError('Dependency transaction attempted pip install')
+    if 'wheel' in args and 'pip' in args:
+        assert args[0] == sys.executable
+        assert '--constraint' in args
+        requirements = Path(args[args.index('-r') + 1])
         commands.append(list(args))
-    return original(args, *values, **kwargs)
+        inputs.append(requirements.read_text())
+    return spawn(args, *values, **kwargs)
+
 subprocess.Popen = observe
+before = {p.name:p.read_bytes() for p in source.iterdir()}
 async def main():
-    async with PluginTestHost(Path(sys.argv[3])) as host:
-        assert (await host.install(Path(sys.argv[2]))).ok
-        result = await host.call_tool('dependency_answer', {})
-        assert result.content[0].text == 'installed from manifest'
-    assert importlib.metadata.version('b01-probe-real') == '1.0'
-    assert any('--dry-run' in args for args in commands), commands
-    assert any('--dry-run' not in args for args in commands), commands
-    assert all('--constraint' in args for args in commands), commands
+    async with PluginTestHost(root) as host:
+        if sys.argv[5] == 'repair':
+            try:
+                await host.load(source)
+            except SDKError as exc:
+                assert next(iter(expected)) in str(exc)
+            else:
+                raise AssertionError('Boot loaded unsatisfied manifest dependency')
+            assert not commands
+            result = await host._loader.repair_dependencies('extension-contract')
+            assert result.status == 'active'
+        else:
+            assert (await host.install(source)).ok
+        for name in expected:
+            assert importlib.metadata.version(name) == '1.0'
+            assert importlib.import_module(name.replace('-', '_')).ANSWER == 'installed from manifest'
+        if sys.argv[6] == 'tool':
+            result = await host.call_tool('dependency_answer', {})
+            assert result.content[0].text == 'installed from manifest'
+    assert len(commands) == 1, commands
+    assert all(name in inputs[0] for name in expected)
+    assert all(CERTIFI_REQUIREMENT in text for text in inputs)
     assert all(not Path(a[a.index('-r') + 1]).exists() for a in commands)
-    print(json.dumps({
-        'commands': commands, 'answer': 'installed from manifest'
-    }))
+    if 'requirements.txt' in before:
+        original_requirements = set(filter(None, before['requirements.txt'].decode().splitlines()))
+        assert original_requirements <= set(inputs[0].splitlines())
+        assert (source / 'requirements.txt').is_file()
+        assert (source / 'requirements.txt').read_bytes() == before['requirements.txt']
+    if sys.argv[5] != 'repair':
+        assert {p.name:p.read_bytes() for p in source.iterdir()} == before
+    print(json.dumps({'commands':commands,'installed':sorted(expected)}))
 asyncio.run(main())
 """
     env = {
@@ -330,6 +205,9 @@ asyncio.run(main())
             str(host_source),
             str(source),
             str(tmp_path / "host"),
+            json.dumps(sorted(expected)),
+            "repair" if repair else "install",
+            "tool" if tool else "module",
         ],
         cwd=tmp_path,
         env=env,
@@ -339,9 +217,185 @@ asyncio.run(main())
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert json.loads(result.stdout.strip().splitlines()[-1])["answer"] == (
-        "installed from manifest"
+    assert (
+        set(json.loads(result.stdout.strip().splitlines()[-1])["installed"])
+        == expected
     )
+
+
+@pytest.mark.parametrize(
+    ("dependencies", "requirements", "expected", "sdk"),
+    [
+        ([], "b01-probe-file==1.0\n", {"b01-probe-file"}, False),
+        (
+            ["b01-probe-manifest==1.0"],
+            "b01-probe-file==1.0\n",
+            {"b01-probe-manifest", "b01-probe-file"},
+            True,
+        ),
+    ],
+)
+def test_install_includes_every_declared_dependency(
+    tmp_path,
+    dependencies,
+    requirements,
+    expected,
+    sdk,
+):
+    source = package(tmp_path, dependencies, requirements, sdk=sdk)
+    install_case(tmp_path, source, expected)
+
+
+async def test_satisfied_and_marker_excluded_manifest_does_not_install(
+    tmp_path,
+    installer,
+):
+    source = package(
+        tmp_path,
+        [
+            f"packaging=={version('packaging')}",
+            "b01-probe-never; python_version<'2'",
+        ],
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        assert (await host.install(source)).ok
+    assert installer == []
+
+
+@pytest.mark.parametrize("dependency", ["httpx==0.0.1", "uvicorn==0.0.1"])
+@pytest.mark.parametrize("origin", ["manifest", "requirements"])
+async def test_manifest_cannot_replace_protected_host_distribution(
+    tmp_path,
+    installer,
+    dependency,
+    origin,
+):
+    source = package(
+        tmp_path,
+        [dependency] if origin == "manifest" else [],
+        dependency if origin == "requirements" else None,
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        with pytest.raises(
+            SDKRestartRequiredError,
+            match="Restart the backend",
+        ):
+            await host.install(source)
+        corrected = tmp_path / "corrected"
+        corrected.mkdir()
+        assert (await host.install(package(corrected), replace=True)).ok
+    assert installer == []
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "--extra-index-url https://invalid.invalid",
+        "pkg[extra]",
+        "pkg @ https://invalid.invalid/pkg.whl",
+        "pkg\nother",
+    ],
+)
+async def test_manifest_unsupported_syntax_is_not_silently_ignored(
+    tmp_path,
+    installer,
+    declaration,
+):
+    source = package(tmp_path, [declaration])
+    async with PluginTestHost(tmp_path / "host") as host:
+        with pytest.raises(SDKError):
+            await host.install(source)
+    assert installer == []
+
+
+@pytest.mark.parametrize("sdk", [False, True])
+async def test_both_constraints_apply_when_same_package_is_declared_twice(
+    tmp_path,
+    installer,
+    sdk,
+):
+    source = package(
+        tmp_path,
+        ["httpx==0.0.1"],
+        f"httpx=={version('httpx')}\n",
+        sdk=sdk,
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        with pytest.raises(
+            SDKRestartRequiredError if sdk else SDKError,
+            match="httpx==0.0.1",
+        ):
+            await host.install(source)
+    assert installer == []
+
+
+async def test_boot_checks_manifest_without_installing_or_mutating_source(
+    tmp_path,
+    installer,
+):
+    source = package(tmp_path, ["b01-probe-missing==1.0"])
+    before = {p.name: p.read_bytes() for p in source.iterdir()}
+    source.chmod(0o555)
+    try:
+        async with PluginTestHost(tmp_path / "host") as host:
+            with pytest.raises(SDKError, match="b01-probe-missing"):
+                await host.load(source)
+        assert installer == []
+        assert {p.name: p.read_bytes() for p in source.iterdir()} == before
+    finally:
+        source.chmod(0o755)
+
+
+async def test_upgrade_rejection_keeps_old_tool_callable(tmp_path, installer):
+    from .test_sdk_install_transaction import package as tool_package
+    from .test_sdk_install_transaction import text_result
+
+    one = tool_package(tmp_path, "1.0.0")
+    two = tool_package(tmp_path, "2.0.0")
+    path = two / "plugin.json"
+    manifest = json.loads(path.read_text())
+    manifest["dependencies"] = ["uvicorn==0.0.1"]
+    path.write_text(json.dumps(manifest))
+    async with PluginTestHost(tmp_path / "host") as host:
+        assert (await host.install(one)).ok
+        with pytest.raises(SDKRestartRequiredError):
+            await host.install(two, replace=True)
+        assert await text_result(host) == "1.0.0::1"
+        assert (await host.reload("extension-contract")).ok
+        assert await text_result(host) == "1.0.0::2"
+    assert installer == []
+
+
+def test_repair_installs_manifest_dependency_after_boot_failure(tmp_path):
+    source = package(tmp_path, ["b01-probe-repair==1.0"])
+    install_case(tmp_path, source, {"b01-probe-repair"}, repair=True)
+
+
+def test_manifest_dependency_installs_offline_wheel_in_isolated_python(
+    tmp_path,
+):
+    """Real resolver/publication/import/tool call inside a disposable Python."""
+    source = package(tmp_path, ["b01-probe-real==1.0"])
+    path = source / "plugin.json"
+    manifest = json.loads(path.read_text())
+    manifest["sdk"]["capabilities"] = ["tools"]
+    path.write_text(json.dumps(manifest))
+    (source / "main.py").write_text(
+        """
+from b01_probe_real import ANSWER
+from qwenpaw.plugins.tools import ToolResult, ToolSpec
+class Plugin:
+    def register(self, ctx):
+        async def answer(call, args):
+            return ToolResult.text(ANSWER)
+        ctx.register_tool(ToolSpec(
+            "dependency_answer", "Probe", {"type": "object"},
+            answer, enabled=True,
+        ))
+plugin = Plugin()
+""",
+    )
+    install_case(tmp_path, source, {"b01-probe-real"}, tool=True)
 
 
 @pytest.mark.parametrize("declaration", ["pkg[extra]", "pkg\nother", 123])
@@ -379,7 +433,12 @@ async def test_cancelled_installer_keeps_normalized_input_until_thread_stops(
         assert release.wait(30), "Test did not release installer"
         assert requirements.is_file(), "Input deleted during installation"
 
-    monkeypatch.setattr(PluginLoader, "_install_requirements", install)
+    async def prepare(loader, requirements, plugin_id, **kwargs):
+        from qwenpaw.utils.io_utils import run_sync_io
+
+        await run_sync_io(install, loader, requirements, plugin_id, **kwargs)
+
+    monkeypatch.setattr(PluginLoader, "_prepare_python_dependencies", prepare)
     async with PluginTestHost(tmp_path / "host") as host:
         task = asyncio.create_task(
             host._loader._ensure_dependencies_installed(

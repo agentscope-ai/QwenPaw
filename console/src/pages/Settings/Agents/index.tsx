@@ -1,11 +1,10 @@
 import { AgentGallery } from "./components/AgentGallery";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import { Button, Form } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { Plus as PlusOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
-import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
 import type { AgentSummary, CopyAgentRequest } from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
@@ -36,7 +35,6 @@ export default function AgentsPage() {
   const orderSaving = useRef(false);
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const installedSkillsRef = useRef<string[]>([]);
   const { message } = useAppMessage();
 
   const handleCreate = () => {
@@ -50,15 +48,12 @@ export default function AgentsPage() {
       backend: "qwenpaw",
     });
     setSelectedSkills([]);
-    installedSkillsRef.current = [];
     setModalVisible(true);
   };
 
   const handleEdit = async (agent: AgentSummary) => {
     try {
       setSelectedSkills([]);
-      installedSkillsRef.current = [];
-      invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
       const { mail, ...configRest } = config;
@@ -155,10 +150,6 @@ export default function AgentsPage() {
     }
   };
 
-  const handleInstalledSkillsLoaded = useCallback((skills: string[]) => {
-    installedSkillsRef.current = skills;
-  }, []);
-
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
@@ -252,28 +243,7 @@ export default function AgentsPage() {
       };
 
       if (editingAgent) {
-        const previousInstalledSkills = installedSkillsRef.current;
-        const newSkills =
-          values.backend === "qwenpaw"
-            ? selectedSkills.filter(
-                (skill) => !previousInstalledSkills.includes(skill),
-              )
-            : [];
-
-        for (const skill of newSkills) {
-          await skillApi.downloadSkillPoolSkill({
-            skill_name: skill,
-            targets: [{ workspace_id: editingAgent.id }],
-          });
-        }
         await agentsApi.updateAgent(editingAgent.id, payload);
-        installedSkillsRef.current = [
-          ...previousInstalledSkills,
-          ...newSkills.filter(
-            (skill) => !previousInstalledSkills.includes(skill),
-          ),
-        ];
-        invalidateSkillCache({ agentId: editingAgent.id });
         message.success(t("agent.updateSuccess"));
       } else {
         const result = await agentsApi.createAgent({
@@ -288,9 +258,6 @@ export default function AgentsPage() {
       await loadAgents();
     } catch (error: unknown) {
       console.error("Failed to save agent:", error);
-      if (editingAgent) {
-        invalidateSkillCache({ agentId: editingAgent.id });
-      }
       message.error(
         error instanceof Error ? error.message : t("agent.saveFailed"),
       );
@@ -371,7 +338,6 @@ export default function AgentsPage() {
         form={form}
         selectedSkills={selectedSkills}
         onSelectedSkillsChange={setSelectedSkills}
-        onInstalledSkillsLoaded={handleInstalledSkillsLoaded}
         onSave={handleSubmit}
         onCancel={() => setModalVisible(false)}
       />

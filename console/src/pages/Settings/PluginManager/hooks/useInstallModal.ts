@@ -8,6 +8,7 @@ import {
   type InstallPluginResult,
 } from "@/api/modules/plugin";
 import { readDirEntry, type LocalSelection } from "../utils";
+import { runPluginInstall } from "../dependencyUpgrade";
 
 export function useInstallModal(
   onSuccess: (result: InstallPluginResult) => void | Promise<void>,
@@ -116,7 +117,8 @@ export function useInstallModal(
         });
       }
 
-      const result = await uploadPlugin(uploadFile);
+      const result = await runPluginInstall(() => uploadPlugin(uploadFile), t);
+      if (result === null) return;
       message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       setLocalSel(null);
@@ -140,7 +142,8 @@ export function useInstallModal(
     const source = values.source.trim();
     setUrlInstalling(true);
     try {
-      const result = await installPlugin(source);
+      const result = await runPluginInstall(() => installPlugin(source), t);
+      if (result === null) return;
       message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       form.resetFields();

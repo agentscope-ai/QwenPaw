@@ -6,11 +6,13 @@ import type {
   BuiltinUpdateNotice,
   HubInstallTaskResponse,
   HubSkillSpec,
+  PoolDownloadJob,
   PoolSkillSpec,
   PoolSkillDetail,
   SkillAutomationResponse,
   SkillAutomationUpdate,
   SkillDetail,
+  SkillPoolDownloadRequest,
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
@@ -477,6 +479,27 @@ export const skillApi = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  // Pool downloads as a cancellable job: the endpoint above keeps its
+  // blocking behaviour, this one returns a job the console can follow and
+  // stop without holding a request open for the whole copy.
+  startSkillPoolDownload: (payload: SkillPoolDownloadRequest) =>
+    request<PoolDownloadJob>("/skills/pool/downloads", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getSkillPoolDownload: (jobId: string, options?: RequestOptions) =>
+    request<PoolDownloadJob>(
+      `/skills/pool/downloads/${encodeURIComponent(jobId)}`,
+      options,
+    ),
+
+  cancelSkillPoolDownload: (jobId: string) =>
+    request<PoolDownloadJob>(
+      `/skills/pool/downloads/${encodeURIComponent(jobId)}`,
+      { method: "DELETE" },
+    ),
 
   updateSkillChannels: (
     skillName: string,

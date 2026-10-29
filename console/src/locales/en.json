@@ -589,6 +589,8 @@
     "skillBuiltinSyncFailed": "\"{{skill}}\" could not sync to: {{agents}}",
     "requestedBy": "By",
     "markRead": "Mark Read",
+    "unreadOnly": "Unread only",
+    "emptyUnread": "No unread messages match the current filters",
     "markAllRead": "Mark All Read",
     "markAllReadNoUnread": "No unread messages",
     "markAllReadSuccess": "Marked {{count}} messages as read",
@@ -1135,7 +1137,6 @@
     "selectBuiltin": "Builtin",
     "selectNone": "None",
     "noPoolSkills": "No skills available in pool",
-    "addSkillsToAgent": "Add Skills",
     "backend": {
       "column": "Backend",
       "eyebrow": "Agent architecture",
@@ -1548,6 +1549,9 @@
     "updateFailed": "Update failed",
     "broadcastSuccess": "Broadcast completed",
     "broadcastFailed": "Broadcast failed",
+    "downloading": "Downloading…",
+    "cancelling": "Cancelling…",
+    "cancelFailed": "Failed to cancel the download",
     "overwriteConfirm": "Overwrite existing skills?",
     "overwriteTargetsContent": "The following existing targets will be overwritten:",
     "builtinOverwriteTargetsContent": "The following built-in targets have different versions and will be overwritten:",
@@ -1983,6 +1987,10 @@
     "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "runtime": {
+      "missing_code": "Plugin not installed"
+    },
+    "qrcodeInstallRequired": "Install the plugin to scan a QR code",
     "manualCredentials": "Manual credentials",
     "deliverySettings": "Delivery options",
     "presentationSettings": "Message presentation",
@@ -2726,7 +2734,8 @@
       "token_plan": "Token Plan",
       "token_plan_intl": "Token (International)",
       "china": "China",
-      "international": "International"
+      "international": "International",
+      "chatgpt": "ChatGPT Subscription"
     },
     "configuredGroup": "Configured",
     "configuredOnline": "providers online",
@@ -3037,6 +3046,34 @@
     "scope": {
       "global": "Global models",
       "agent": "Current agent"
+    },
+    "apiPricing": {
+      "standard": "Standard · USD per 1M tokens",
+      "prompt": "Input",
+      "completion": "Output",
+      "input_cache_read": "Cached input",
+      "longContext": "Above {{threshold}} input tokens, the full request costs {{inputMultiplier}}× for input/cache reads and {{outputMultiplier}}× for output.",
+      "cacheWrite": "Cache writes: 30 minutes at {{shortMultiplier}}× input, 12 hours at {{longMultiplier}}× input.",
+      "exclusions": "API rates; excludes tools, regional premiums and ChatGPT plan usage.",
+      "checked": "Checked {{date}}"
+    },
+    "chatgpt": {
+      "contextHelp": "Account-reported limit: {{maximum}} tokens; default session budget: {{default}} tokens.",
+      "localHelp": "Due to OpenAI access policies and the local OAuth callback requirement, one-click sign-in is available only when QwenPaw and your browser run on the same computer.",
+      "account": "ChatGPT account",
+      "connected": "ChatGPT subscription connected",
+      "disconnected": "Not connected",
+      "permissionMissing": "Plan usage not authorized",
+      "failed": "Sign-in was not completed. Please try again.",
+      "usage": "Manage usage",
+      "reconnect": "Sign in again",
+      "changeAccount": "Switch account",
+      "accountActions": "ChatGPT account actions",
+      "connectedShort": "Connected",
+      "signOut": "Sign out",
+      "revokeWarning": "Signed out locally. Remote revocation was not confirmed; disconnect QwenPaw in ChatGPT Settings.",
+      "modelHelp": "Models come from this ChatGPT account. Usage counts against your plan or credits. Sampling and output-token settings are not supported by this access route.",
+      "oauthDescription": "A browser window will open to authorize use of your ChatGPT plan. Return to QwenPaw when you are done."
     }
   },
   "files": {
@@ -3049,6 +3086,22 @@
     "memory": "Long-term Memory",
     "daily": "Daily",
     "digest": "Knowledge Base",
+    "memoryTags": "Memory tags",
+    "memoryTagsLabel": "Tags",
+    "memoryTagBrowse": "Search indexed memories tagged {{tag}}",
+    "memoryTagsAll": "All tags",
+    "memoryTagsScope": "Searches indexed memories. The current file may not be indexed.",
+    "memoryTagsRefresh": "Refresh memory tags",
+    "memoryTagsCount_one": "{{count}} tag",
+    "memoryTagsCount_other": "{{count}} tags",
+    "memoryTagFilesCount_one": "{{count}} file",
+    "memoryTagFilesCount_other": "{{count}} files",
+    "memoryTagsLoadFailed": "Memory tags are unavailable. Please try again.",
+    "memoryTagsEmpty": "No memory tags yet.",
+    "memoryTagFilesEmpty": "No indexed memories carry this tag.",
+    "memoryTagsPrevious": "Previous page",
+    "memoryTagsNext": "Next page",
+    "memoryTagsPage": "{{page}} / {{total}}",
     "memoryGraph": "Memory Graph",
     "memoryGraphShort": "Graph",
     "memoryGraphLoading": "Loading memory graph…",
@@ -4552,6 +4605,7 @@
       "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
       "modeBlock": "Block",
       "modeWarn": "Warn Only",
+      "modeOff": "Off",
       "timeout": "Scan Timeout (seconds)",
       "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
       "saveSuccess": "Skill scanner settings saved",
@@ -5338,17 +5392,28 @@
     "details": "Details"
   },
   "pluginManager": {
-    "busyTitle": "Plugin tasks are running",
-    "busy": {
-      "update": {
-        "warning": "Forcing this update will interrupt running tasks. Unfinished tasks may fail.",
-        "confirm": "Force update",
-        "cancel": "Not now"
-      },
-      "uninstall": {
-        "warning": "Forcing this uninstall will interrupt running tasks. Unfinished tasks may fail.",
-        "confirm": "Force uninstall",
-        "cancel": "Not now"
+    "dependencyUpgrade": {
+      "title": "Confirm shared dependency upgrade",
+      "confirm": "Upgrade and install",
+      "progress": "Updating shared dependencies",
+      "changes": "Shared package changes",
+      "affected": "Affected plugin instances",
+      "noInstances": "No plugin instances are affected.",
+      "restart": "The backend must restart to complete this upgrade. Installation will continue after it reconnects.",
+      "background": "Track in background",
+      "resume": "Tracking was interrupted. Reopen Plugin Manager after the backend reconnects to check the installation.",
+      "invalid": "The dependency upgrade response does not match this installation. Reopen Plugin Manager to check its status.",
+      "notStarted": "The dependency upgrade has not started. Reopen Plugin Manager to review and confirm it again.",
+      "cancelFailed": "The upgrade could not be cancelled. Reopen Plugin Manager to check its status.",
+      "failed": "The shared dependency upgrade failed.",
+      "status": {
+        "needs_confirmation": "Waiting for confirmation",
+        "preparing": "Preparing the upgrade",
+        "applying": "Applying the upgrade",
+        "waiting_restart": "Waiting for the backend to restart",
+        "succeeded": "Installation completed",
+        "failed": "Upgrade failed",
+        "cancelled": "Upgrade cancelled"
       }
     },
     "title": "Plugin Manager",
@@ -5429,7 +5494,20 @@
     "marketSortFavorites": "Most favorited",
     "compatWarningTitle": "Compatibility Warning",
     "compatWarningContent": "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
-    "compatWarningConfirm": "Install anyway"
+    "compatWarningConfirm": "Install anyway",
+    "busyTitle": "Plugin tasks are running",
+    "busy": {
+      "update": {
+        "warning": "Forcing this update will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force update",
+        "cancel": "Not now"
+      },
+      "uninstall": {
+        "warning": "Forcing this uninstall will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force uninstall",
+        "cancel": "Not now"
+      }
+    }
   },
   "codingMode": {
     "toolPresentationHelp": "When enabled, the agent uses a single code tool. It searches, processes files, and performs other tool operations by writing and running Python code.",
@@ -5729,6 +5807,9 @@
     }
   },
   "preview": {
+    "unavailable": "Preview unavailable",
+    "showDetails": "View details",
+    "hideDetails": "Hide details",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "This file is blocked by File Guard (sensitive file protection).",
       "OUTSIDE_WORKSPACE": "This file is outside the workspace scope. Enable \"Allow Console Preview Outside Workspace\" in Settings → Security → File Guard.",

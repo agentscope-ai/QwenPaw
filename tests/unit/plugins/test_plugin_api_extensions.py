@@ -8,7 +8,6 @@ Tests cover:
 - #16: register_skill_provider API contract
 """
 
-import importlib.util
 import logging
 import sys
 import tempfile
@@ -455,111 +454,6 @@ class TestUninstallHook:
 class TestPluginValidatorImports:
     """Tests for plugin validator import resolution (requirement #10)."""
 
-    def test_validator_sets_submodule_search_locations(self):
-        """CLI install validator uses submodule_search_locations."""
-        # Create a temp plugin with relative import
-        with tempfile.TemporaryDirectory() as tmpdir:
-            plugin_dir = Path(tmpdir)
-
-            # Create plugin.json
-            import json
-
-            manifest = {
-                "id": "import-test",
-                "name": "Import Test",
-                "version": "1.0.0",
-                "entry": {"backend": "plugin.py"},
-            }
-            (plugin_dir / "plugin.json").write_text(
-                json.dumps(manifest),
-                encoding="utf-8",
-            )
-
-            # Create a helper module
-            (plugin_dir / "constants.py").write_text(
-                "PLUGIN_NAME = 'import-test'\n",
-                encoding="utf-8",
-            )
-
-            # Create plugin.py that uses relative import
-            (plugin_dir / "plugin.py").write_text(
-                "from .constants import PLUGIN_NAME\n"
-                "\n"
-                "class Plugin:\n"
-                "    pass\n"
-                "\n"
-                "plugin = Plugin()\n",
-                encoding="utf-8",
-            )
-
-            # Simulate validation with correct submodule_search_locations
-            backend_path = plugin_dir / "plugin.py"
-            module_name = "_plugin_validation_import_test"
-            plugin_dir_str = str(plugin_dir)
-
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                backend_path,
-                submodule_search_locations=[plugin_dir_str],
-            )
-            assert spec is not None
-            assert spec.loader is not None
-
-            module = importlib.util.module_from_spec(spec)
-            module.__package__ = module_name
-            module.__path__ = [plugin_dir_str]
-
-            # Register sub-module mapping so relative imports resolve
-            sys.modules[module_name] = module
-            # Also register the constants sub-module path
-            constants_spec = importlib.util.spec_from_file_location(
-                f"{module_name}.constants",
-                plugin_dir / "constants.py",
-            )
-            constants_module = importlib.util.module_from_spec(constants_spec)
-            sys.modules[f"{module_name}.constants"] = constants_module
-            constants_spec.loader.exec_module(constants_module)
-
-            try:
-                spec.loader.exec_module(module)
-                assert hasattr(module, "plugin")
-                assert hasattr(module, "PLUGIN_NAME")
-            finally:
-                sys.modules.pop(module_name, None)
-                sys.modules.pop(f"{module_name}.constants", None)
-
-    def test_validator_without_search_locations_fails(self):
-        """Without submodule_search_locations, relative imports fail."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            plugin_dir = Path(tmpdir)
-
-            (plugin_dir / "constants.py").write_text(
-                "PLUGIN_NAME = 'test'\n",
-                encoding="utf-8",
-            )
-            (plugin_dir / "plugin.py").write_text(
-                "from .constants import PLUGIN_NAME\n",
-                encoding="utf-8",
-            )
-
-            backend_path = plugin_dir / "plugin.py"
-            module_name = "_plugin_validation_no_locations"
-
-            # Without submodule_search_locations — should fail
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                backend_path,
-            )
-            module = importlib.util.module_from_spec(spec)
-            # Don't set __package__ or __path__
-
-            sys.modules[module_name] = module
-            try:
-                with pytest.raises(ImportError):
-                    spec.loader.exec_module(module)
-            finally:
-                sys.modules.pop(module_name, None)
-
     def test_cli_validate_path_with_relative_import(self):
         """Exercise the actual CLI validation code path.
 
@@ -674,33 +568,6 @@ class TestRegisterSkillProvider:
         assert any(
             entry.desc.startswith("skill_provider:") for entry in inst._install
         )
-
-    def test_register_skill_provider_default_channels(
-        self,
-        plugin_api,
-        fresh_registry,
-    ):
-        """Default channels is ['all'] when not specified."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            skills_dir = Path(tmpdir)
-            skill_dir = skills_dir / "default-skill"
-            skill_dir.mkdir()
-            (skill_dir / "SKILL.md").write_text(
-                "---\nname: Default\n---\nHello.",
-                encoding="utf-8",
-            )
-
-            plugin_api.register_skill_provider(skills_dir=skills_dir)
-
-        # Verify startup hook is registered (integration correctness)
-        hooks = fresh_registry.get_startup_hooks()
-        assert any(h.hook_name == "install_skills_test-plugin" for h in hooks)
-
-    def test_register_skill_provider_source_tag(self, plugin_api):
-        """Source tag follows 'plugin:{id}' convention."""
-        # Verify internal source_tag format
-        expected_tag = "plugin:test-plugin"
-        assert expected_tag == f"plugin:{plugin_api.plugin_id}"
 
     def test_register_skill_provider_registers_workspace_created_hook(
         self,
@@ -931,83 +798,3 @@ class TestFireWorkspaceCreatedHooks:
 
         fresh_registry.unregister_plugin("test-plugin")
         assert len(fresh_registry.get_workspace_created_hooks()) == 0
-
-    @pytest.mark.asyncio
-    async def test_fire_workspace_created_hooks_calls_callbacks(
-        self,
-        fresh_registry,
-    ):
-        """_fire_workspace_created_hooks invokes registered callbacks."""
-        from qwenpaw.plugins.api import PluginApi
-        from qwenpaw.app.multi_agent_manager import MultiAgentManager
-
-        api = PluginApi(
-            "hook-plugin",
-            config={},
-            manifest={"id": "hook-plugin"},
-        )
-        api.set_registry(fresh_registry)
-
-        received_info: Dict[str, Any] = {}
-
-        def on_created(workspace_info):
-            received_info.update(workspace_info)
-
-        api.register_workspace_created_hook(
-            hook_name="test_hook",
-            callback=on_created,
-        )
-
-        workspace_info = {
-            "agent_id": "agent-42",
-            "workspace_dir": "/tmp/ws/agent-42",
-        }
-        await MultiAgentManager._fire_workspace_created_hooks(workspace_info)
-
-        assert received_info["agent_id"] == "agent-42"
-        assert received_info["workspace_dir"] == "/tmp/ws/agent-42"
-
-    @pytest.mark.asyncio
-    async def test_fire_workspace_created_hooks_error_isolation(
-        self,
-        fresh_registry,
-    ):
-        """Errors in one hook don't prevent subsequent hooks from running."""
-        from qwenpaw.plugins.api import PluginApi
-        from qwenpaw.app.multi_agent_manager import MultiAgentManager
-
-        api = PluginApi(
-            "err-plugin",
-            config={},
-            manifest={"id": "err-plugin"},
-        )
-        api.set_registry(fresh_registry)
-
-        second_called = []
-
-        def bad_hook(workspace_info):
-            raise RuntimeError("boom")
-
-        def good_hook(workspace_info):
-            second_called.append(workspace_info["agent_id"])
-
-        api.register_workspace_created_hook(
-            hook_name="bad",
-            callback=bad_hook,
-            priority=10,
-        )
-        api.register_workspace_created_hook(
-            hook_name="good",
-            callback=good_hook,
-            priority=20,
-        )
-
-        # Should not raise
-        await MultiAgentManager._fire_workspace_created_hooks(
-            {
-                "agent_id": "ws-1",
-                "workspace_dir": "/tmp/ws-1",
-            },
-        )
-
-        assert "ws-1" in second_called

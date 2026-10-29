@@ -1782,6 +1782,10 @@
     "updateFailed": "Pembaruan gagal"
   },
   "channels": {
+    "qrcodeInstallRequired": "Instal plugin untuk memindai kode QR",
+    "runtime": {
+      "missing_code": "Plugin belum diinstal"
+    },
     "title": "Saluran",
     "description": "Kelola dan konfigurasi saluran pesan",
     "loading": "Memuat saluran...",
@@ -2899,6 +2903,9 @@
     "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP."
   },
   "preview": {
+    "unavailable": "Pratinjau tidak tersedia",
+    "showDetails": "Lihat penyebab",
+    "hideDetails": "Sembunyikan detail",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "File diblokir oleh File Guard (perlindungan file sensitif).",
       "OUTSIDE_WORKSPACE": "File berada di luar cakupan workspace. Aktifkan \"Izinkan Pratinjau Konsol di Luar Workspace\" di Pengaturan → Keamanan → File Guard.",
@@ -3116,6 +3123,8 @@
     "from": "Dari:",
     "requestedBy": "Oleh",
     "markRead": "Tandai Dibaca",
+    "unreadOnly": "Hanya yang belum dibaca",
+    "emptyUnread": "Tidak ada pesan belum dibaca yang sesuai dengan filter saat ini",
     "markAllRead": "Tandai Semua Dibaca",
     "markAllReadNoUnread": "Tidak ada pesan yang belum dibaca",
     "markAllReadSuccess": "{{count}} pesan ditandai dibaca",
@@ -4084,6 +4093,27 @@
     },
     "billing": {
       "free": "Gratis"
+    },
+    "chatgpt": {
+      "contextHelp": "Batas akun: {{maximum}} token; anggaran sesi default: {{default}} token.",
+      "localHelp": "Karena kebijakan OpenAI dan callback OAuth lokal, QwenPaw dan browser harus berjalan di komputer yang sama.",
+      "account": "Akun ChatGPT",
+      "connected": "Langganan ChatGPT terhubung",
+      "disconnected": "Belum terhubung",
+      "permissionMissing": "Penggunaan langganan belum diizinkan",
+      "failed": "Login belum selesai. Silakan coba lagi.",
+      "usage": "Kelola penggunaan",
+      "reconnect": "Login ulang",
+      "changeAccount": "Ganti akun",
+      "accountActions": "Tindakan akun ChatGPT",
+      "connectedShort": "Terhubung",
+      "signOut": "Keluar",
+      "revokeWarning": "Anda telah keluar secara lokal. Pencabutan izin belum dikonfirmasi; putuskan QwenPaw di pengaturan ChatGPT.",
+      "modelHelp": "Model berasal dari akun ChatGPT saat ini. Penggunaan mengurangi kuota langganan atau kredit. Pengaturan sampling dan batas token keluaran tidak didukung melalui akses ini.",
+      "oauthDescription": "Browser akan terbuka untuk mengizinkan penggunaan langganan ChatGPT Anda. Kembali ke QwenPaw setelah selesai."
+    },
+    "providerVariants": {
+      "chatgpt": "Langganan ChatGPT"
     }
   },
   "files": {

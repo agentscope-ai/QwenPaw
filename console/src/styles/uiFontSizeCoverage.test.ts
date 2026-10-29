@@ -98,6 +98,8 @@ const appCenterStyles = readSource("src/pages/AppCenter/index.module.less");
 const channelStyles = readSource(
   "src/pages/Control/Channels/index.module.less",
 );
+const channelSource = readSource("src/pages/Control/Channels/index.tsx");
+const skillPresentationStyles = readSource("src/styles/skillPresentation.less");
 const skillStyles = readSource("src/pages/Agent/Skills/index.module.less");
 const toolStyles = readSource("src/pages/Agent/Tools/index.module.less");
 const skillPoolStyles = readSource(
@@ -210,12 +212,9 @@ describe("console font-size coverage", () => {
     const pageRule = readRule(channelStyles, ".channelsPage");
     expect(pageRule).toContain(".scaled-control-typography();");
     expect(pageRule).toContain("font-size: var(--app-font-body)");
-    expect(readRule(channelStyles, ".breadcrumbHeader")).toContain(
-      "font-size: var(--app-font-subtitle)",
-    );
-    expect(readRule(channelStyles, ".breadcrumbCurrent")).toContain(
-      "font-size: var(--app-font-title)",
-    );
+    expect(channelSource).toContain("<PageHeader");
+    expect(readRule(channelStyles, ".breadcrumbHeader")).toBe("");
+    expect(readRule(channelStyles, ".breadcrumbCurrent")).toBe("");
     expect(readRule(channelStyles, ".filterTab")).toContain(
       "font-size: var(--app-font-secondary)",
     );
@@ -237,7 +236,8 @@ describe("console font-size coverage", () => {
     const pageRule = readRule(skillStyles, ".skillsPage");
     expect(pageRule).toContain(".scaled-control-typography();");
     expect(pageRule).toContain("font-size: var(--app-font-body)");
-    expect(readRule(skillStyles, ".skillTitle")).toContain(
+    expect(readRule(skillStyles, ".skillTitle")).toContain(".skill-title();");
+    expect(skillPresentationStyles).toContain(
       "font-size: var(--app-font-subtitle)",
     );
     expect(readRule(skillStyles, ".descriptionText")).toContain(
@@ -284,6 +284,9 @@ describe("console font-size coverage", () => {
     expect(pageRule).toContain(".scaled-control-typography();");
     expect(pageRule).toContain("font-size: var(--app-font-body)");
     expect(readRule(skillPoolStyles, ".skillTitle")).toContain(
+      ".skill-title();",
+    );
+    expect(skillPresentationStyles).toContain(
       "font-size: var(--app-font-subtitle)",
     );
     expect(readRule(skillPoolStyles, ".descriptionText")).toContain(

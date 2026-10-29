@@ -82,7 +82,7 @@ while IFS= read -r -d '' path; do
         codesign_file "${path}"
         signed_files=$((signed_files + 1))
     fi
-done < <(find "${TARGET}" -type f -print0)
+done < <(find "${TARGET}" -name '*.dSYM' -prune -o -type f -print0)
 
 # Framework directories carry their own bundle signature. Sign them after the
 # contained Mach-O files, then sign the app bundle last.
@@ -92,7 +92,7 @@ while IFS= read -r framework; do
         codesign_bundle "${framework}"
         signed_frameworks=$((signed_frameworks + 1))
     fi
-done < <(find "${TARGET}" -type d -name "*.framework" | sort -r)
+done < <(find "${TARGET}" -name '*.dSYM' -prune -o -type d -name '*.framework' -print | sort -r)
 
 if [[ "${TARGET}" == *.app ]]; then
     codesign_bundle "${TARGET}"
@@ -110,10 +110,10 @@ else
         if is_macho "${path}"; then
             codesign --verify --verbose=2 "${path}"
         fi
-    done < <(find "${TARGET}" -type f -print0)
+    done < <(find "${TARGET}" -name '*.dSYM' -prune -o -type f -print0)
     while IFS= read -r framework; do
         if [[ -n "${framework}" ]]; then
             codesign --verify --verbose=2 "${framework}"
         fi
-    done < <(find "${TARGET}" -type d -name "*.framework" | sort -r)
+    done < <(find "${TARGET}" -name '*.dSYM' -prune -o -type d -name '*.framework' -print | sort -r)
 fi

@@ -7,6 +7,7 @@ import json
 
 import pytest
 from agentscope.message import (
+    Base64Source,
     DataBlock,
     Msg,
     TextBlock,
@@ -21,11 +22,16 @@ from qwenpaw.agents.utils.message_request_normalizer import (
     _clone_messages,
     _is_document_block,
     _is_media_block,
+    _omit_rejected_media,
     _strip_media_blocks_in_place,
+    mark_media_omitted_after_overflow,
     normalize_messages_for_model_request,
 )
-from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
-
+from qwenpaw.constant import (
+    MEDIA_UNSUPPORTED_PLACEHOLDER,
+    QWENPAW_MESSAGE_TAG_KEY,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -672,4 +678,165 @@ def test_raw_input_used_for_repair_before_stripping():
         block,
         "raw_input",
         None,
+    )
+
+
+@pytest.mark.parametrize("family", ["openai", "anthropic", "gemini"])
+def test_omission_precedes_user_merge_and_preserves_nonmedia(family):
+    old, new = _data_block("image/png"), _data_block("image/png")
+    history = [
+        Msg(name="user", role="user", content=[old]),
+        Msg(name="user", role="user", content=[new, TextBlock(text="look")]),
+    ]
+    assert mark_media_omitted_after_overflow(history) == 1
+    before = [msg.model_dump() for msg in history]
+    result = normalize_messages_for_model_request(
+        history,
+        supports_multimodal=True,
+        target_family=family,
+    )
+    assert len(result) == 1
+    assert [(block.id, block.type) for block in result[0].content] == [
+        (old.id, "text"),
+        (new.id, "data"),
+        (history[1].content[1].id, "text"),
+    ]
+    assert [block.model_dump() for block in result[0].content[1:]] == [
+        block.model_dump() for block in history[1].content
+    ]
+    assert [msg.model_dump() for msg in history] == before
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    ["image/png", "audio/wav", "video/mp4", "application/pdf"],
+)
+def test_body_recovery_handles_each_media_type(media_type):
+    media = DataBlock(
+        source=Base64Source(media_type=media_type, data="Ynl0ZXM="),
+    )
+    msg = Msg(name="user", role="user", content=[media])
+    original = media.model_dump()
+    active = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="continue")],
+    )
+    assert mark_media_omitted_after_overflow([msg, active]) == 1
+    projected = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert [(block.id, block.type) for block in projected[0].content] == [
+        (media.id, "text"),
+    ]
+    assert media.model_dump() == original
+
+
+@pytest.mark.parametrize("tag", sorted(SYNTHETIC_USER_MESSAGE_TAGS))
+def test_body_recovery_protects_real_turn_through_auto_continue(tag):
+    old = Msg(name="user", role="user", content=[_data_block("image/png")])
+    current = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("image/png")],
+    )
+    result = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolResultBlock(
+                id="call",
+                name="view_image",
+                output=[_data_block("image/png")],
+            ),
+        ],
+    )
+    continuation = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="continue")],
+        metadata={QWENPAW_MESSAGE_TAG_KEY: tag},
+    )
+    history = [old, current, result, continuation]
+    protected = [msg.model_dump() for msg in history[1:]]
+    assert mark_media_omitted_after_overflow(history) == 1
+    assert old.metadata == {"qwenpaw_omitted_media_ids": [old.content[0].id]}
+    assert [msg.model_dump() for msg in history[1:]] == protected
+    assert mark_media_omitted_after_overflow(history) == 0
+
+
+@pytest.mark.parametrize("metadata", [None, "invalid", {}])
+@pytest.mark.parametrize("content_kind", ["dict", "missing_id", "null_id"])
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings:UserWarning")
+def test_normalization_tolerates_legacy_media_shapes(metadata, content_kind):
+    block = _data_block("image/png").model_dump()
+    if content_kind == "missing_id":
+        block.pop("id")
+    elif content_kind == "null_id":
+        block["id"] = None
+    msg = Msg.model_construct(
+        name="user",
+        role="user",
+        content=[block],
+        metadata=metadata,
+    )
+    active = Msg(name="user", role="user", content=[TextBlock(text="look")])
+    should_omit = metadata == {} and content_kind == "dict"
+    mark_media_omitted_after_overflow([msg, active])
+    _omit_rejected_media([msg])
+    projected = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert len(projected) == 1
+    assert len(projected[0].content) == 1
+    if should_omit:
+        assert projected[0].content[0].text == (
+            "[image/png omitted (body size limit): file:///tmp/test]"
+        )
+    else:
+        assert projected[0].content[0].source.model_dump() == block["source"]
+
+
+@pytest.mark.parametrize("content", [None, "plain text"])
+@pytest.mark.parametrize(
+    "metadata",
+    [None, {"qwenpaw_omitted_media_ids": ["image"]}],
+)
+def test_omission_ignores_nonlist_content(content, metadata):
+    msg = Msg.model_construct(
+        name="user",
+        role="user",
+        content=content,
+        metadata=metadata,
+    )
+    _omit_rejected_media([msg])
+    assert msg.content == content
+    assert msg.metadata == metadata
+
+
+def test_body_placeholder_keeps_mime_without_inventing_path():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            DataBlock(
+                id="image",
+                source=Base64Source(media_type="image/png", data="eA=="),
+            ),
+        ],
+        metadata={"qwenpaw_omitted_media_ids": [None, "image"]},
+    )
+    result = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert result[0].content[0].model_dump(
+        exclude={"created_at"},
+    ) == TextBlock(
+        id="image",
+        text="[image/png omitted (body size limit)]",
+    ).model_dump(
+        exclude={"created_at"},
     )

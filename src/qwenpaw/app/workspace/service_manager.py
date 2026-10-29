@@ -161,7 +161,8 @@ class ServiceManager:
                 logger.debug(f"Called reload_func for service '{name}'")
             except Exception as e:
                 logger.warning(
-                    f"Error calling reload_func for service '{name}': {e}",
+                    f"Error calling reload_func for service '{name}': "
+                    f"{sanitize_log_value(e)}",
                 )
 
     def get_reusable_services(self) -> Dict[str, Any]:
@@ -273,7 +274,8 @@ class ServiceManager:
             ):
                 logger.info(
                     f"Service '{name}' is not compatible with the reloaded "
-                    f"configuration for {self.workspace.agent_id}; "
+                    "configuration for "
+                    f"{sanitize_log_value(self.workspace.agent_id)}; "
                     f"creating a new instance",
                 )
                 self.reused_services.discard(name)
@@ -282,7 +284,8 @@ class ServiceManager:
 
             if is_reused:
                 logger.info(
-                    f"Reusing service '{name}' for {self.workspace.agent_id}",
+                    f"Reusing service '{name}' for "
+                    f"{sanitize_log_value(self.workspace.agent_id)}",
                 )
 
             service = await self._get_or_create_service(
@@ -582,7 +585,8 @@ class ServiceManager:
         if descriptor.reusable and not final:
             logger.debug(
                 f"Skipped stopping reusable service '{name}' "
-                f"for {self.workspace.agent_id} (will be reused)",
+                f"for {sanitize_log_value(self.workspace.agent_id)} "
+                "(will be reused)",
             )
             return
 
@@ -591,7 +595,8 @@ class ServiceManager:
         if name in self.reused_services and not final:
             logger.debug(
                 f"Skipped stopping reused service '{name}' "
-                f"(from previous instance) for {self.workspace.agent_id}",
+                "(from previous instance) for "
+                f"{sanitize_log_value(self.workspace.agent_id)}",
             )
             return
 
@@ -613,11 +618,12 @@ class ServiceManager:
                         )
                     logger.debug(
                         f"Service '{name}' stopped "
-                        f"for {self.workspace.agent_id}",
+                        f"for {sanitize_log_value(self.workspace.agent_id)}",
                     )
         except Exception as e:
             logger.warning(
                 f"Error stopping service '{name}' "
-                f"for {self.workspace.agent_id}: {e}",
+                f"for {sanitize_log_value(self.workspace.agent_id)}: "
+                f"{sanitize_log_value(e)}",
             )
             raise

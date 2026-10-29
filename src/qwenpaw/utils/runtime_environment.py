@@ -8,6 +8,9 @@ import sys
 from pathlib import Path
 
 
+CERTIFI_REQUIREMENT = "certifi>=2026.10.19"
+
+
 _CONTROL_NAMES = {
     "BASH_ENV",
     "BASHOPTS",
@@ -113,10 +116,17 @@ def _require_installer_version(
     return True
 
 
-def require_pip(python: str) -> bool:
-    """Reject old pip in the selected Python; allow uv fallback if absent."""
+def require_pip(python: str, *, isolated: bool = False) -> bool:
+    """Reject old pip in the selected execution mode; return False if absent."""
     return _require_installer_version(
-        [python, "-m", "pip", "--version"],
+        [
+            python,
+            *(["-I"] if isolated else []),
+            "-B",
+            "-m",
+            "pip",
+            "--version",
+        ],
         "pip",
         (26, 2, 2),
     )
