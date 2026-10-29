@@ -1230,6 +1230,76 @@ class HistoryStore:
                     self._repair_fts()
         raise AssertionError("unreachable")
 
+    def age_out_blocks(
+        self,
+        *,
+        before: str,
+        dry_run: bool = False,
+    ) -> dict[str, int]:
+        """Null out ``blocks`` of old tool_result rows, keeping the rows.
+
+        The structured blocks of a tool result duplicate its plain-text
+        content plus capture metadata, and they are the bulk of the bloat:
+        in a production store they held ~75% of total bytes while the
+        conversation text held most of the rest. Unlike :meth:`purge` this
+        keeps every row — the text stays searchable via FTS (which indexes
+        ``content`` only) and readable via recall, which degrades to the
+        plain-text view for aged rows.
+
+        ``model_turn`` rows are never touched: their blocks carry the
+        thinking stream, which resumed sessions replay.
+
+        Rows whose blocks still carry inline base64 media are also left
+        alone: :func:`flatten_output` reduces those outputs to
+        placeholders in the plain text, so the blocks column is the only
+        durable copy of the archived bytes. Such rows age out with the
+        whole-row purge instead.
+
+        Idempotent: rows whose blocks are already NULL never match, so
+        re-running is a no-op. FTS needs no maintenance here — nothing is
+        deleted. Returns ``{"rows", "blocks_bytes"}`` for the affected
+        rows (aged, or would-be with ``dry_run=True``).
+        """
+        where, params = self._purge_where(before, ("tool_result",))
+        # Exempt rows whose blocks still carry inline base64 media:
+        # flatten_output() reduces those outputs to placeholders in the
+        # plain text, so the blocks column is the only durable copy of the
+        # archived bytes. Leave them for the whole-row purge instead; the
+        # LIKE is a conservative over-match (a text output mentioning
+        # "base64" merely delays aging for that row).
+        where += " AND blocks IS NOT NULL AND blocks NOT LIKE '%base64%'"
+        # CAST to BLOB so LENGTH counts bytes, not characters — blocks
+        # is JSON text and the returned key/logs say "bytes".
+        count_sql = (
+            "SELECT COUNT(*) AS rows, "
+            "COALESCE(SUM(LENGTH(CAST(blocks AS BLOB))), 0) "
+            "AS blocks_bytes "
+            "FROM conversation_history WHERE " + where
+        )
+        with self._lock:
+            if dry_run:
+                row = self._conn.execute(count_sql, params).fetchone()
+                return {
+                    "rows": int(row["rows"]),
+                    "blocks_bytes": int(row["blocks_bytes"]),
+                }
+            # Probe before opening a write transaction, mirroring purge():
+            # skip writer contention when nothing qualifies.
+            match = self._conn.execute(
+                f"SELECT 1 FROM conversation_history WHERE {where} LIMIT 1",
+                params,
+            ).fetchone()
+            if match is None:
+                return {"rows": 0, "blocks_bytes": 0}
+            with _immediate_transaction(self._conn):
+                row = self._conn.execute(count_sql, params).fetchone()
+                aged = self._conn.execute(
+                    "UPDATE conversation_history SET blocks = NULL WHERE "
+                    + where,
+                    params,
+                ).rowcount
+        return {"rows": int(aged), "blocks_bytes": int(row["blocks_bytes"])}
+
     def vacuum(self) -> None:
         """Rebuild the database file to reclaim space freed by ``purge``.
 

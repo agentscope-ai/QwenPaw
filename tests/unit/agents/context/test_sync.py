@@ -901,6 +901,7 @@ def _stub_config_loaders(
     workspace: Path,
     *,
     retention_days: int = 0,
+    blocks_retention_days: int = 0,
 ) -> None:
     """Point the startup sync at one scroll agent under *workspace*.
 
@@ -918,6 +919,7 @@ def _stub_config_loaders(
                 scroll_config=SimpleNamespace(
                     db_filename="history.db",
                     history_retention_days=retention_days,
+                    blocks_retention_days=blocks_retention_days,
                 ),
             ),
         ),
@@ -1160,6 +1162,50 @@ def test_startup_retention_runs_without_sessions_directory(
     maintained = HistoryStore(workspace / "history.db")
     try:
         assert maintained.count("old-session") == 0
+    finally:
+        maintained.close()
+
+
+def test_startup_block_aging_runs_without_sessions_directory(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """The bare-db branch (history.db present, sessions/ absent) must run
+    block aging too, not only the whole-row purge."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    history = HistoryStore(workspace / "history.db")
+    history.append(
+        session_id="old-session",
+        dedup_key="old-result",
+        entry=LogEntry(
+            kind="tool_result",
+            content="old tool output",
+            blocks="x" * 40,
+            created_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    history.close()
+    assert not (workspace / "sessions").exists()
+    # Whole-row purge disabled; block aging is the only retention active.
+    _stub_config_loaders(
+        monkeypatch,
+        workspace,
+        retention_days=0,
+        blocks_retention_days=14,
+    )
+
+    sync_all_scroll_agents()
+
+    maintained = HistoryStore(workspace / "history.db")
+    try:
+        # Row survives (no whole-row purge) but its blocks were aged out.
+        assert maintained.count("old-session") == 1
+        row = maintained._conn.execute(
+            "SELECT blocks FROM conversation_history "
+            "WHERE dedup_key = 'old-result'",
+        ).fetchone()
+        assert row["blocks"] is None
     finally:
         maintained.close()
 
