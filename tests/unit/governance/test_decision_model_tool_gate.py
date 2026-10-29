@@ -255,6 +255,74 @@ async def test_soft_shell_ask_stays_ask_without_sandbox(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field",
+    [
+        "aws_secret_access_key",
+        "aws_access_key_id",
+        "secretkey",
+        "secret_key",
+        "accessKey",
+        "awsSecretAccessKey",
+        "client_key",
+        "signing_key",
+        "encryption_key",
+    ],
+)
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{field} = 'dummy-private-value'",
+        "config.{field} = 'dummy-private-value'",
+        "connect({field}='dummy-private-value')",
+    ],
+)
+async def test_code_credentials_stop_before_provider(
+    monkeypatch,
+    field,
+    template,
+):
+    from unittest.mock import Mock
+
+    from agentscope.permission import PermissionBehavior, PermissionDecision
+    from agentscope.tool import Toolkit
+    from qwenpaw.modes.coding.code_mode import CodeModeTool
+
+    # Exercise the real CodeModeTool -> policy gate -> disclosure preflight.
+    # Provider invocation itself is a disclosure, regardless of its verdict.
+    evaluate = AsyncMock()
+    resolve = Mock(return_value=(SimpleNamespace(evaluate=evaluate), "jev"))
+    monkeypatch.setattr(
+        "qwenpaw.security.decision_model._decision_provider",
+        resolve,
+    )
+    approval = AsyncMock(
+        return_value=PermissionDecision(
+            behavior=PermissionBehavior.ASK,
+            message="Approval required",
+        ),
+    )
+    monkeypatch.setattr(tool_adapter, "_ask_user_approval", approval)
+    fake, audits = _fake_tool(GovernanceAction.SANDBOX_FALLBACK)
+    tool = CodeModeTool(
+        Toolkit(tools=[]),
+        governor=fake._qp_governor,
+        request_context=fake._qp_request_context,
+    )
+
+    result = await tool.check_permissions(
+        {"code": template.format(field=field)},
+    )
+
+    assert result.behavior is PermissionBehavior.ASK
+    assert audits[-1].action is GovernanceAction.ASK
+    assert "model not called" in audits[-1].reason
+    approval.assert_awaited_once()
+    resolve.assert_not_called()
+    evaluate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_code_mode_outer_gate_preserves_complete_source(monkeypatch):
     from agentscope.tool import Toolkit
     from qwenpaw.modes.coding.code_mode import CodeModeTool

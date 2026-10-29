@@ -66,6 +66,7 @@ _RISK_QUESTIONS = ("destructive", "secret_exposure", "privilege_change")
     "code",
     [
         "token_count = 1\nsecret_exposure = False\nprint(token_count)\n",
+        "access_key_count = 0\nsecret_key_length = 32\nprint(secret_key_length)",
         "for n in range(2):\r\n\tprint(n)\r\n",
         "# harmless padding\n" * 40 + "print(1)",
         "#" + "x" * (_MAX_CODE_CHARS - 1),

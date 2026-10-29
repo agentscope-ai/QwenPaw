@@ -40,8 +40,11 @@ logger = logging.getLogger(__name__)
 _QUESTION_VERSION = "tool-risk-v6"
 # Bound the complete script; never assess a truncated executable program.
 _MAX_CODE_CHARS = 16_000
+# Match credential-bearing suffixes, including compound cloud SDK fields
+# such as aws_secret_access_key, without matching metrics like token_count.
 _CREDENTIAL_IDENTIFIER = re.compile(
-    r"(?i)(?:(?:api|private)[_-]?key|"
+    r"(?i)(?:(?:api|private|secret|access|signing|encryption|client)"
+    r"[_-]?key(?:[_-]?id)?|"
     r"(?:(?:access|auth|refresh)[_-]?)?token|"
     r"secret|password|passwd|credentials?|authorization)$",
 )
