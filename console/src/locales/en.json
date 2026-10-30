@@ -565,6 +565,31 @@
       "copyBackend": "Copy backend logs"
     }
   },
+  "approvalNotifications": {
+    "settingTitle": "Approval desktop notifications",
+    "openApprovals": "View pending approvals",
+    "description": "Get a system notification when an approval arrives while QwenPaw is in the background.",
+    "title": "QwenPaw · Approval required",
+    "body": "{{tool}} is waiting for your approval. Open QwenPaw to review it.",
+    "sendTest": "Send test notification",
+    "testTitle": "QwenPaw · Test notification",
+    "testBody": "Approval notifications will appear here while QwenPaw is in the background.",
+    "testSent": "Test notification sent. Check your system notifications.",
+    "failed": "Could not send a notification. Check your notification settings.",
+    "permission": {
+      "default": "Permission required when enabled",
+      "granted": "Browser permission granted",
+      "denied": "Blocked — allow notifications in your browser's site settings",
+      "native": "Managed by system notification settings",
+      "checking": "Checking notification permission",
+      "unavailable": "Could not check system notification permission. Reopen the desktop app.",
+      "nativeDefault": "System permission required when enabled",
+      "nativeGranted": "System notification permission granted",
+      "nativeDenied": "Blocked — allow QwenPaw in system notification settings",
+      "unsupported": "This browser does not support desktop notifications",
+      "insecure": "Open over HTTPS or localhost to enable notifications"
+    }
+  },
   "inbox": {
     "title": "Inbox",
     "tabApprovals": "Approvals",

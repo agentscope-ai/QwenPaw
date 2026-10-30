@@ -4,6 +4,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getPushMessages: vi.fn(),
   setApprovals: vi.fn(),
+  native: false,
+  subscribeDesktop: vi.fn(),
+  selectedAgent: "agent-1",
+}));
+
+vi.mock("../../stores/agentStore", () => ({
+  useAgentStore: (selector: (state: { selectedAgent: string }) => unknown) =>
+    selector({ selectedAgent: mocks.selectedAgent }),
+}));
+
+vi.mock("../../tauri/backendRuntime", () => ({
+  isDesktopApp: () => mocks.native,
+}));
+
+vi.mock("../../tauri/consoleNotifications", () => ({
+  subscribeDesktopConsolePush: mocks.subscribeDesktop,
+  configureDesktopApprovalNotifications: vi.fn(async () => undefined),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => () => undefined),
 }));
 
 vi.mock("../../api/modules/console", () => ({
@@ -88,6 +109,9 @@ describe("ConsolePollService", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mocks.getPushMessages.mockReset();
+    mocks.native = false;
+    mocks.selectedAgent = "agent-1";
+    mocks.subscribeDesktop.mockReset();
     mocks.setApprovals.mockReset();
     mocks.getPushMessages.mockResolvedValue(respond([]));
     document.title = "QwenPaw";
@@ -101,6 +125,75 @@ describe("ConsolePollService", () => {
   });
 
   // ── initial render and polling ──────────────────────────────────────────
+
+  it("consumes native snapshots without starting browser HTTP polling", async () => {
+    mocks.native = true;
+    const disconnect = vi.fn();
+    let accept: ((snapshot: ReturnType<typeof respond>) => void) | undefined;
+    mocks.subscribeDesktop.mockImplementation(async (onSnapshot) => {
+      accept = onSnapshot;
+      return disconnect;
+    });
+    const view = render(<ConsolePollService />);
+    await poll(0);
+    act(() => accept?.(respond([msg("native")], [approval()])));
+    expect(screen.getByText("text native")).toBeVisible();
+    expect(mocks.setApprovals).toHaveBeenCalledWith([approval()]);
+    setHidden(true);
+    fireVisibility("hidden");
+    await poll(BACKGROUND_POLL_INTERVAL_MS);
+    expect(mocks.getPushMessages).not.toHaveBeenCalled();
+    expect(mocks.subscribeDesktop).toHaveBeenCalledOnce();
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("disposes a late native subscription after unmount", async () => {
+    mocks.native = true;
+    const startup = deferred<() => void>();
+    const disconnect = vi.fn();
+    mocks.subscribeDesktop.mockReturnValue(startup.promise);
+    const view = render(<ConsolePollService />);
+    view.unmount();
+    await act(async () => startup.resolve(disconnect));
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("reconnects the native source when the selected agent changes", async () => {
+    mocks.native = true;
+    const firstDisconnect = vi.fn();
+    const secondDisconnect = vi.fn();
+    mocks.subscribeDesktop
+      .mockResolvedValueOnce(firstDisconnect)
+      .mockResolvedValueOnce(secondDisconnect);
+    const view = render(<ConsolePollService />);
+    await poll(0);
+    mocks.selectedAgent = "agent-2";
+    view.rerender(<ConsolePollService />);
+    await poll(0);
+    expect(firstDisconnect).toHaveBeenCalledOnce();
+    expect(mocks.subscribeDesktop).toHaveBeenCalledTimes(2);
+    view.unmount();
+    expect(secondDisconnect).toHaveBeenCalledOnce();
+  });
+
+  it("cleans a superseded native subscription without replacing the current one", async () => {
+    mocks.native = true;
+    const first = deferred<() => void>();
+    const oldDisconnect = vi.fn();
+    const newDisconnect = vi.fn();
+    mocks.subscribeDesktop
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(newDisconnect);
+    const view = render(<ConsolePollService />);
+    act(() => window.dispatchEvent(new Event("qwenpaw:auth-changed")));
+    await poll(0);
+    await act(async () => first.resolve(oldDisconnect));
+    expect(oldDisconnect).toHaveBeenCalledOnce();
+    expect(newDisconnect).not.toHaveBeenCalled();
+    view.unmount();
+    expect(newDisconnect).toHaveBeenCalledOnce();
+  });
 
   it("renders nothing while there are no messages", async () => {
     const { container } = render(<ConsolePollService />);

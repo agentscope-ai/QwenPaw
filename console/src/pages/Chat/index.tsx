@@ -67,6 +67,7 @@ import {
 } from "../../utils/clientMessageId";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
+import { ApiError } from "../../api/request";
 import { agentApi } from "../../api/modules/agent";
 import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
@@ -1221,6 +1222,14 @@ export default function ChatPage() {
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
+  const approvalRequestId = useMemo(
+    () => new URLSearchParams(location.search).get("approval"),
+    [location.search],
+  );
+  const routeAgentId = useMemo(
+    () => new URLSearchParams(location.search).get("agent")?.trim(),
+    [location.search],
+  );
   const prevSelectedAgentRef = useRef(selectedAgent);
   const [agentTransitionTarget, setAgentTransitionTarget] = useState<{
     agentId: string;
@@ -1232,9 +1241,23 @@ export default function ChatPage() {
   const routeResolution = useChatRouteResolution(
     isAgentTransition ? undefined : routeChatId,
     selectedAgent,
+    routeAgentId || selectedAgent,
   );
   const { agentSwitchTarget, retry: retryRouteResolution } = routeResolution;
   const isSessionTransition = isAgentTransition || routeResolution.blocked;
+
+  useEffect(() => {
+    const error = routeResolution.error;
+    if (
+      !approvalRequestId ||
+      !(error instanceof ApiError) ||
+      ![404, 409].includes(error.status)
+    ) {
+      return;
+    }
+    navigate("/inbox?tab=approvals", { replace: true });
+  }, [approvalRequestId, navigate, routeResolution.error]);
+
   const isAgentTransitionRef = useRef(isAgentTransition);
   isAgentTransitionRef.current = isAgentTransition;
   // All host consumers, including Files and loop hooks, must wait for the
@@ -3147,7 +3170,13 @@ export default function ChatPage() {
       sessionApi.preferredChatId = targetChatId ?? null;
       sessionApi.lastActiveChatId = targetChatId ?? null;
       navigateRef.current(
-        targetChatId ? buildChatPath(targetChatId) : CHAT_BASE_PATH,
+        targetChatId
+          ? `${buildChatPath(targetChatId)}${
+              approvalRequestId
+                ? `?approval=${encodeURIComponent(approvalRequestId)}`
+                : ""
+            }`
+          : CHAT_BASE_PATH,
         { replace: true },
       );
       // Mark the current session as stale so late-arriving onSessionSelected
@@ -3165,7 +3194,13 @@ export default function ChatPage() {
     if (prevAgent === undefined) {
       prevSelectedAgentRef.current = selectedAgent;
     }
-  }, [selectedAgent, setLastChatId, getLastChatId, agentSwitchTarget]);
+  }, [
+    selectedAgent,
+    setLastChatId,
+    getLastChatId,
+    agentSwitchTarget,
+    approvalRequestId,
+  ]);
 
   useEffect(() => {
     if (
@@ -4665,6 +4700,8 @@ export default function ChatPage() {
           )}
 
           <ApprovalQueueOverlay
+            focusedRequestId={approvalRequestId}
+            focusKey={location.key}
             items={Array.from(
               chatId && !isSessionTransition ? approvalRequests.values() : [],
             )}

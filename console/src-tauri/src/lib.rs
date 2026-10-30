@@ -7,6 +7,10 @@ mod computer_use_helper;
 mod computer_use_protocol;
 mod computer_use_runtime;
 mod external_link;
+mod notifications;
+mod notification_delivery;
+#[cfg(all(target_os = "macos", debug_assertions))]
+mod macos_dev_bundle;
 mod runtime_env;
 mod tray;
 mod updates;
@@ -27,6 +31,15 @@ fn open_devtools(window: WebviewWindow) {
 /// Build the desktop app, wire native plugins/commands, and attach to the shared runtime.
 pub fn run() {
     let context = tauri::generate_context!();
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    if let Err(error) = macos_dev_bundle::relaunch_if_needed(
+        &context.config().identifier,
+        context.config().product_name.as_deref().unwrap_or("QwenPaw Desktop"),
+        env!("CARGO_PKG_VERSION"),
+    ) {
+        eprintln!("[desktop] {error}");
+        std::process::exit(1);
+    }
     let registration = match updates::coordination::register_desktop(&context.config().identifier) {
         Ok(Some(registration)) => registration,
         Ok(None) => return,
@@ -38,6 +51,7 @@ pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_updater::Builder::new()
                 .default_version_comparator(updates::is_remote_update_newer)
@@ -45,6 +59,12 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             open_devtools,
+            notifications::start_console_polling,
+            notifications::stop_console_polling,
+            notifications::configure_approval_notifications,
+            notifications::send_test_notification,
+            notifications::get_notification_permission,
+            notifications::request_notification_permission,
             backend_download::download_backend_file,
             backend::agent_host_state,
             backend::restart_backend,
@@ -69,6 +89,7 @@ pub fn run() {
         .manage(backend::BackendState::default())
         .manage(computer_use_runtime::ComputerUseRuntimeState::default())
         .manage(tray::TrayState::default())
+        .manage(notifications::NotificationState::default())
         .setup(|app| {
             updates::coordination::setup(app.handle())?;
             backend::setup(app)?;

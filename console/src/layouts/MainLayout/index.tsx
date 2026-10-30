@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Layout, Spin } from "antd";
-import { Routes, Route, useLocation } from "react-router-dom";
+import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
 import AmbientLight from "../AmbientLight";
@@ -17,6 +17,10 @@ import { PageShell } from "../../components/PageShell";
 import { pickSelectedKey } from "./routeSelection";
 import { RouteDocumentTitle } from "./RouteDocumentTitle";
 import { getRouteTitle } from "./routeTitle";
+import {
+  buildApprovalNavigationPath,
+  type ApprovalNotificationTarget,
+} from "../../notifications/approvalNavigation";
 
 import { HubModeContext } from "../../contexts/HubModeContext";
 
@@ -25,6 +29,17 @@ const { Content } = Layout;
 export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   const { t, i18n } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
+  const openApprovals = useCallback(
+    (target?: ApprovalNotificationTarget) => {
+      if (target?.rootSessionId?.trim()) {
+        navigate(buildApprovalNavigationPath(target));
+        return;
+      }
+      navigate("/inbox?tab=approvals");
+    },
+    [navigate],
+  );
   const currentPath = location.pathname;
   const routes = useRoutes();
 
@@ -73,7 +88,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
             tabIndex={-1}
             className="page-container"
           >
-            <ConsolePollService />
+            <ConsolePollService onOpenApprovals={openApprovals} />
             <AgentStatusPollingController />
             <Slot name="content.statusBar" kind="fill" />
             <div className="page-content">

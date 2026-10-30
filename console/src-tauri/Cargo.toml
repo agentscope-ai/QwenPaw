@@ -41,6 +41,7 @@ tauri = { version = "2.10.3", features = ["tray-icon", "devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "=2.4.0"
 tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["fs", "io-util", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
@@ -86,6 +87,8 @@ windows = { version = "0.61.3", features = [
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# The modern UserNotifications adapter requires Rust 1.90+ on macOS.
+mac-usernotifications = { version = "=0.3.1", default-features = false }
 core-foundation = { version = "0.10", features = ["link"] }
 # `highsierra` gates the non-variadic scroll-event constructor, which is the
 # only way to synthesise a scroll without hand-writing variadic FFI. It gates

@@ -66,6 +66,7 @@ import {
 import type { AuthStatusResponse } from "./api/modules/auth";
 import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
+import { useDesktopTrayLabels } from "./tauri/useDesktopTrayLabels";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
 import { isSafeCssColor } from "./utils/chatThemeColor";
@@ -388,6 +389,7 @@ function AppInner({
   backendInfo: BackendInfo;
   loadingFallback?: React.ReactNode;
 }) {
+  useDesktopTrayLabels();
   const hubMode = backendInfo.mode === "hub";
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();

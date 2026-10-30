@@ -11,7 +11,7 @@ import styles from "./DesktopClient.module.less";
 
 /** Native dialog semantics keep close controls independent of console chunks. */
 export default function CloseWindowPrompt() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const dialog = useRef<HTMLDialogElement>(null);
   const backgroundAction = useRef<HTMLButtonElement>(null);
   const [remember, setRemember] = useState(false);
@@ -40,22 +40,6 @@ export default function CloseWindowPrompt() {
       unlisten?.();
     };
   }, []);
-
-  useEffect(() => {
-    const syncTrayLabels = (language: string) => {
-      const translate = i18n.getFixedT(language);
-      void invoke("set_tray_labels", {
-        showWindow: translate("desktop.closeWindow.showWindow"),
-        quit: translate("desktop.closeWindow.quitApp"),
-        stopBlocked: translate("desktop.closeWindow.stopBlocked"),
-      }).catch(console.error);
-    };
-    syncTrayLabels(i18n.resolvedLanguage || i18n.language || "en");
-    i18n.on("languageChanged", syncTrayLabels);
-    return () => {
-      i18n.off("languageChanged", syncTrayLabels);
-    };
-  }, [i18n]);
 
   async function choose(action: CloseAction) {
     if (pending.current) return;

@@ -170,3 +170,63 @@ describe("i18n pt-BR bundle resolution", () => {
     expect(i18n.t("chat.newTask")).toBe("Nova tarefa");
   });
 });
+
+const APPROVAL_NOTIFICATION_KEYS = [
+  "settingTitle",
+  "openApprovals",
+  "description",
+  "title",
+  "body",
+  "sendTest",
+  "testTitle",
+  "testBody",
+  "testSent",
+  "failed",
+  "permission.default",
+  "permission.granted",
+  "permission.denied",
+  "permission.native",
+  "permission.checking",
+  "permission.unavailable",
+  "permission.nativeDefault",
+  "permission.nativeGranted",
+  "permission.nativeDenied",
+  "permission.unsupported",
+  "permission.insecure",
+] as const;
+
+function readLocaleValue(
+  resource: Record<string, unknown>,
+  path: string,
+): unknown {
+  return path.split(".").reduce<unknown>((value, key) => {
+    if (!value || typeof value !== "object") return undefined;
+    return (value as Record<string, unknown>)[key];
+  }, resource);
+}
+
+describe("approval notification translations", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it.each(["en", "zh", "ja", "ru", "pt-BR", "id", "vi"])(
+    "provides every approval notification string in %s",
+    async (language) => {
+      const { loadLocale } = await freshI18nModule();
+      const resource = await loadLocale(language);
+
+      for (const path of APPROVAL_NOTIFICATION_KEYS) {
+        const value = readLocaleValue(
+          resource,
+          `approvalNotifications.${path}`,
+        );
+        expect(typeof value, `${language}: ${path}`).toBe("string");
+        expect((value as string).trim(), `${language}: ${path}`).not.toBe("");
+      }
+
+      const body = readLocaleValue(resource, "approvalNotifications.body");
+      expect(body, `${language}: body interpolation`).toContain("{{tool}}");
+    },
+  );
+});
