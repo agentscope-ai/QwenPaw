@@ -441,7 +441,9 @@ async def generate_structured_skill_draft(
 
     system_text = (
         "Create a reusable Skill draft from the supplied Record & Replay "
-        "evidence. Return only the requested structured object. Copy goal "
+        "evidence. Return only the requested structured object. The name "
+        "must be an ASCII lowercase slug of at most 64 characters matching "
+        "^[a-z0-9]+(?:-[a-z0-9]+)*$, not a localized display title. Copy goal "
         "verbatim. Every evidence_id must appear exactly once, either as one "
         "step's source_event_id or in ignored_event_ids. Preserve evidence "
         "order. Copy the locator exactly from each used event and use its "

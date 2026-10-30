@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
-from record_replay.errors import RecordingConsentError, RecordingDraftError
+from record_replay.errors import (
+    RecordingConsentError,
+    RecordingDraftError,
+    RecordingLearnError,
+)
 from record_replay.learn_models import (
     LearnEvidenceEnvelope,
     LearnModelTarget,
@@ -17,6 +23,7 @@ from record_replay.learn_models import (
 from record_replay.learning import (
     DesktopLearningService,
     build_evidence_envelope,
+    generate_structured_skill_draft,
     validate_grounded_draft,
 )
 from record_replay.models import RecordingEvent, RecordingState
@@ -161,6 +168,43 @@ def test_evidence_builder_compacts_and_removes_coordinates() -> None:
     draft = _valid_draft(envelope)
     validate_grounded_draft(draft, envelope)
     assert draft.steps[-1].action == "request-input"
+
+
+async def test_generation_requests_slug_and_still_rejects_display_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    envelope = _envelope([_event(1)])
+    draft = _valid_draft(envelope)
+    generate = AsyncMock(
+        return_value=SimpleNamespace(content=draft.model_dump(mode="json")),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.model_factory.create_model_and_formatter",
+        lambda **_kwargs: (
+            SimpleNamespace(generate_structured_output=generate),
+            None,
+        ),
+    )
+    target = LearnModelTarget(
+        provider_id="local",
+        model="test-model",
+        is_local=True,
+    )
+    assert (
+        await generate_structured_skill_draft(
+            "default",
+            target,
+            envelope,
+        )
+        == draft
+    )
+    messages, response_type = generate.call_args.args
+    assert "^[a-z0-9]+(?:-[a-z0-9]+)*$" in messages[0].get_text_content()
+    assert response_type is StructuredSkillDraft
+
+    generate.return_value.content["name"] = "计算器：2 + 3 = 5"
+    with pytest.raises(RecordingLearnError, match="learn_model_failed"):
+        await generate_structured_skill_draft("default", target, envelope)
 
 
 @pytest.mark.parametrize(

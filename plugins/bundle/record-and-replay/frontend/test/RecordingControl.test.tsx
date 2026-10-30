@@ -296,7 +296,7 @@ describe("DesktopRecordingControl", () => {
     },
   );
 
-  it("reviews consent and materializes a Skill after stopping", async () => {
+  it("preserves evidence and renews consent after a failed generation before materializing", async () => {
     const stopped = {
       ...status("idle"),
       last_recording: {
@@ -374,6 +374,14 @@ describe("DesktopRecordingControl", () => {
     recordingMocks.reviewRecording.mockResolvedValue(review);
     recordingMocks.prepareLearn.mockResolvedValue(preview);
     recordingMocks.generateDraft.mockResolvedValue(draft);
+    recordingMocks.generateDraft.mockRejectedValueOnce(
+      new Error("learn_model_failed"),
+    );
+    recordingMocks.prepareLearn.mockResolvedValueOnce(preview);
+    recordingMocks.prepareLearn.mockResolvedValue({
+      ...preview,
+      consent_token: "consent-2",
+    });
     recordingMocks.materializeSkill.mockResolvedValue({
       api_schema_version: 1,
       created: true,
@@ -422,6 +430,38 @@ describe("DesktopRecordingControl", () => {
     fireEvent.click(generateButton);
     await waitFor(() =>
       expect(recordingMocks.generateDraft).toHaveBeenCalledWith("consent-1"),
+    );
+
+    await screen.findByText("desktop.recording.learn.intentTitle");
+    expect(
+      screen.getByRole("textbox", { name: "desktop.recording.learn.goal" }),
+    ).toHaveValue("Calculate a reusable value");
+    expect(recordingMocks.materializeSkill).not.toHaveBeenCalled();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /desktop\.recording\.learn\.intentAction/,
+      }),
+    );
+    const consent = await screen.findByRole("checkbox", {
+      name: "desktop.recording.learn.consent",
+    });
+    expect(consent).not.toBeChecked();
+    const retry = screen.getByRole("button", {
+      name: /desktop\.recording\.learn\.consentAction/,
+    });
+    expect(retry).toBeDisabled();
+    expect(recordingMocks.prepareLearn).toHaveBeenNthCalledWith(
+      2,
+      recordingMocks.prepareLearn.mock.calls[0][0],
+    );
+    expect(recordingMocks.generateDraft).toHaveBeenCalledTimes(1);
+    fireEvent.click(consent);
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(recordingMocks.generateDraft).toHaveBeenNthCalledWith(
+        2,
+        "consent-2",
+      ),
     );
 
     const createButton = await screen.findByRole("button", {

@@ -268,6 +268,13 @@ function RecordingControl({ agentId }: { agentId: string }) {
         resetLearn();
       }
     } catch (error) {
+      if (learnStage === "consent") {
+        // Generation consumes its one-time token even when the model fails.
+        // Preserve the intent and selection, but require a fresh preview.
+        setPreview(null);
+        setConsented(false);
+        setLearnStage("intent");
+      }
       const missingModel =
         error instanceof Error &&
         ["learn_model_unavailable", "learn_provider_unavailable"].includes(
