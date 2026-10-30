@@ -300,6 +300,7 @@ def register_native(context, spec):
     from ..providers.openai_provider import OpenAIProvider
     from ..providers.openai_chat_model_compat import OpenAIChatModelCompat
     from ..providers.model_info import ModelInfo
+    from ..providers.provider import ModelConnectionResult
 
     binding = ProviderBinding(context, spec)
 
@@ -326,13 +327,20 @@ def register_native(context, spec):
             return Model(**kwargs)
 
         async def check_model_connection(self, model_id, timeout=5):
-            async with binding.connect(model_id) as endpoint:
-                provider = self.configuration_snapshot()
-                provider.base_url = endpoint
-                return await OpenAIProvider.check_model_connection(
-                    provider,
-                    model_id,
-                    timeout,
+            try:
+                async with binding.connect(model_id) as endpoint:
+                    provider = self.configuration_snapshot()
+                    provider.base_url = endpoint
+                    return await OpenAIProvider.check_model_connection(
+                        provider,
+                        model_id,
+                        timeout,
+                    )
+            except Exception as exc:
+                return ModelConnectionResult(
+                    success=False,
+                    message=self.connection_error_message(exc),
+                    verification="unverified",
                 )
 
         async def probe_model_multimodal(

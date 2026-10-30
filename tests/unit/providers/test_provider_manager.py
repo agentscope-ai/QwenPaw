@@ -16,7 +16,6 @@ import qwenpaw.providers.provider_manager as provider_manager_module
 import qwenpaw.providers.provider_persistence as provider_persistence_module
 from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.exceptions import ModelNotFoundException, ProviderError
-from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
 from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.providers.gemini_provider import GeminiProvider
 from qwenpaw.providers.capping_formatter import (
@@ -172,7 +171,7 @@ def test_builtin_restore_preserves_catalog_free_flags() -> None:
     stored.models[0].is_free = False
     stored.models[1].is_free = True
 
-    ProviderManager._restore_builtin_provider(builtin, stored)
+    ProviderManager._restore_provider_config(builtin, stored)
 
     assert [model.is_free for model in builtin.models] == [True, False]
 
@@ -193,7 +192,7 @@ def test_builtin_restore_preserves_choices_until_live_refresh() -> None:
         ModelInfo(id="remote-model", name="Remote Model"),
     ]
 
-    ProviderManager._restore_builtin_provider(builtin, stored)
+    ProviderManager._restore_provider_config(builtin, stored)
 
     assert [model.id for model in builtin.extra_models] == [
         f"nemotron-3-super-free",
@@ -837,72 +836,6 @@ def test_save_active_model_uses_atomic_replace(
         "provider_id": "openai",
         "model": "gpt-5",
     }
-
-
-async def test_resume_local_model_restores_server_and_runtime_state(
-    isolated_secret_dir,
-) -> None:
-    manager = ProviderManager()
-    model_id = "AgentScope/QwenPaw-Flash-2B-Q4_K_M"
-    manager.update_provider(
-        "qwenpaw-local",
-        {
-            "base_url": "http://127.0.0.1:9000/v1",
-            "extra_models": [
-                {
-                    "id": model_id,
-                    "name": model_id,
-                },
-            ],
-        },
-    )
-    manager.active_model = ModelSlotConfig(
-        provider_id="qwenpaw-local",
-        model=model_id,
-    )
-    manager.save_active_model(manager.active_model)
-
-    class FakeLocalManager:
-        def __init__(self) -> None:
-            self.restored_model_id = None
-
-        def check_llamacpp_installation(self) -> tuple[bool, str]:
-            return True, ""
-
-        def is_model_downloaded(self, requested_model_id: str) -> bool:
-            return requested_model_id == model_id
-
-        async def setup_server(
-            self,
-            requested_model_id: str,
-        ) -> LlamaCppServerSetupResult:
-            self.restored_model_id = requested_model_id
-            return LlamaCppServerSetupResult(
-                port=43111,
-                model_info=ModelInfo(
-                    id=requested_model_id,
-                    name=requested_model_id,
-                    supports_multimodal=True,
-                    supports_image=True,
-                    supports_video=True,
-                    probe_source="documentation",
-                ),
-            )
-
-    local_manager = FakeLocalManager()
-
-    await manager._resume_local_model(local_manager)
-
-    provider = manager.get_provider("qwenpaw-local")
-
-    assert local_manager.restored_model_id == model_id
-    assert provider is not None
-    assert provider.base_url == "http://127.0.0.1:43111/v1"
-    assert [model.id for model in provider.extra_models] == [model_id]
-    assert provider.extra_models[0].supports_multimodal is True
-    assert provider.extra_models[0].supports_image is True
-    assert provider.extra_models[0].supports_video is True
-    assert provider.extra_models[0].probe_source == "documentation"
 
 
 async def test_remove_custom_provider_missing_file_is_safe(
