@@ -23,6 +23,7 @@ from typing import Any, AsyncGenerator
 from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ..exceptions import ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
+from ..utils.quote_context import strip_quote_context_prefix
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
@@ -85,7 +86,12 @@ class Runtime:
                 skip_agent = True
 
             # --- [fixed 1] slash command dispatch ---
-            text = _get_last_user_text(ctx.input_msgs)
+            # Channels prepend quoted (replied-to) message context as a
+            # "[quoted ...]" block; dispatch must resolve the user's own
+            # command text, not the quoted context.
+            text = strip_quote_context_prefix(
+                _get_last_user_text(ctx.input_msgs),
+            )
             cmd_registry = self.workspace.plugins.slash_command_registry
             cmd_msg = await cmd_registry.dispatch(text or "", ctx)
             if cmd_msg is not None:
