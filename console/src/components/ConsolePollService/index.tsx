@@ -3,6 +3,14 @@ import { MessageCircle, X } from "lucide-react";
 import { consoleApi, type PushMessage } from "../../api/modules/console";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import styles from "./index.module.less";
+import { isDesktopApp } from "../../tauri/backendRuntime";
+import {
+  subscribeDesktopConsolePush,
+  type ConsolePushSnapshot,
+} from "../../tauri/consoleNotifications";
+import { useApprovalNotifications } from "../../notifications/useApprovalNotifications";
+import type { ApprovalNotificationTarget } from "../../notifications/approvalNavigation";
+import { useAgentStore } from "../../stores/agentStore";
 
 const POLL_INTERVAL_MS = 2500;
 const BACKGROUND_POLL_INTERVAL_MS = 30000;
@@ -16,13 +24,21 @@ interface BubbleItem extends PushMessage {
   dismissAt: number;
 }
 
-export default function ConsolePollService() {
+const ignoreNavigation = () => undefined;
+
+export default function ConsolePollService({
+  onOpenApprovals = ignoreNavigation,
+}: {
+  onOpenApprovals?: (target?: ApprovalNotificationTarget) => void;
+}) {
   const [items, setItems] = useState<BubbleItem[]>([]);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const originalTitleRef = useRef(document.title);
   const blinkRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { setApprovals } = useApprovalContext();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const observeApprovals = useApprovalNotifications(onOpenApprovals);
 
   const dismiss = (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id));
@@ -50,6 +66,32 @@ export default function ConsolePollService() {
     let inFlight = false;
     let refreshAfterFlight = false;
     const prevApprovalsRef = { current: "" };
+    const accept = (res: ConsolePushSnapshot) => {
+      if (cancelled) return;
+      if (res?.pending_approvals) {
+        observeApprovals(res.pending_approvals);
+        const serialized = JSON.stringify(res.pending_approvals);
+        if (serialized !== prevApprovalsRef.current) {
+          prevApprovalsRef.current = serialized;
+          setApprovals(res.pending_approvals);
+        }
+      }
+      if (res?.messages?.length) {
+        const seen = seenIdsRef.current;
+        if (seen.size > MAX_SEEN_IDS) seen.clear();
+        const newItems: BubbleItem[] = [];
+        const now = Date.now();
+        for (const m of res.messages) {
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          newItems.push({ ...m, dismissAt: now + AUTO_DISMISS_MS });
+        }
+        if (newItems.length > 0) {
+          const toAdd = newItems.slice(-MAX_NEW_PER_POLL);
+          setItems((prev) => [...prev, ...toAdd].slice(-MAX_VISIBLE_BUBBLES));
+        }
+      }
+    };
     const clearScheduledPoll = () => {
       if (!pollRef.current) return;
       clearTimeout(pollRef.current);
@@ -80,35 +122,7 @@ export default function ConsolePollService() {
         const res = await consoleApi.getPushMessages();
         if (cancelled) return;
 
-        // Update pending approvals only when they actually change,
-        // to avoid triggering unnecessary re-renders in Chat component.
-        if (res?.pending_approvals) {
-          const serialized = JSON.stringify(res.pending_approvals);
-          if (serialized !== prevApprovalsRef.current) {
-            prevApprovalsRef.current = serialized;
-            setApprovals(res.pending_approvals);
-          }
-        }
-
-        // Update message bubbles.
-        if (res?.messages?.length) {
-          const seen = seenIdsRef.current;
-          if (seen.size > MAX_SEEN_IDS) seen.clear();
-          const newItems: BubbleItem[] = [];
-          const now = Date.now();
-          for (const m of res.messages) {
-            if (seen.has(m.id)) continue;
-            seen.add(m.id);
-            newItems.push({ ...m, dismissAt: now + AUTO_DISMISS_MS });
-          }
-          if (newItems.length > 0) {
-            const toAdd = newItems.slice(-MAX_NEW_PER_POLL);
-            setItems((prev) => {
-              const merged = [...prev, ...toAdd];
-              return merged.slice(-MAX_VISIBLE_BUBBLES);
-            });
-          }
-        }
+        accept(res);
       } catch {
         // Polling is best-effort; the next scheduled request retries.
       } finally {
@@ -138,6 +152,31 @@ export default function ConsolePollService() {
       }
     };
 
+    if (isDesktopApp()) {
+      let disconnect: (() => void) | undefined;
+      let connectionId = 0;
+      const connect = () => {
+        const currentConnection = ++connectionId;
+        disconnect?.();
+        disconnect = undefined;
+        void subscribeDesktopConsolePush(accept)
+          .then((cleanup) => {
+            if (cancelled || currentConnection !== connectionId) cleanup();
+            else disconnect = cleanup;
+          })
+          .catch((error: unknown) => {
+            console.warn("Could not start native console polling", error);
+          });
+      };
+      connect();
+      window.addEventListener("qwenpaw:auth-changed", connect);
+      return () => {
+        cancelled = true;
+        disconnect?.();
+        window.removeEventListener("qwenpaw:auth-changed", connect);
+      };
+    }
+
     document.addEventListener("visibilitychange", onVisibility);
     void tick();
     return () => {
@@ -145,7 +184,7 @@ export default function ConsolePollService() {
       clearScheduledPoll();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [setApprovals]);
+  }, [setApprovals, observeApprovals, selectedAgent]);
 
   useEffect(() => {
     if (items.length === 0) return;

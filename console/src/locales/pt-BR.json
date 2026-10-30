@@ -4768,6 +4768,31 @@
     "marketSortUpdated": "Recently updated",
     "marketSortFavorites": "Most favorited"
   },
+  "approvalNotifications": {
+    "settingTitle": "Notificações de aprovação na área de trabalho",
+    "openApprovals": "Ver aprovações pendentes",
+    "description": "Receba uma notificação do sistema quando chegar uma aprovação enquanto o QwenPaw estiver em segundo plano.",
+    "title": "QwenPaw · Aprovação necessária",
+    "body": "{{tool}} está aguardando sua aprovação. Abra o QwenPaw para revisar.",
+    "sendTest": "Enviar notificação de teste",
+    "testTitle": "QwenPaw · Notificação de teste",
+    "testBody": "As notificações de aprovação aparecerão aqui enquanto o QwenPaw estiver em segundo plano.",
+    "testSent": "Notificação de teste enviada. Verifique as notificações do sistema.",
+    "failed": "Não foi possível enviar uma notificação. Verifique as configurações de notificação.",
+    "permission": {
+      "default": "Permissão necessária ao ativar",
+      "granted": "Permissão do navegador concedida",
+      "denied": "Bloqueado — permita notificações nas configurações do site no navegador",
+      "native": "Gerenciado pelas configurações de notificação do sistema",
+      "checking": "Verificando permissão de notificação",
+      "unavailable": "Não foi possível verificar a permissão de notificação do sistema. Reabra o aplicativo.",
+      "nativeDefault": "Permissão do sistema necessária ao ativar",
+      "nativeGranted": "Permissão de notificação do sistema concedida",
+      "nativeDenied": "Bloqueado — permita o QwenPaw nas configurações de notificação do sistema",
+      "unsupported": "Este navegador não oferece suporte a notificações da área de trabalho",
+      "insecure": "Abra via HTTPS ou localhost para ativar as notificações"
+    }
+  },
   "inbox": {
     "title": "Colheita diária de IA",
     "tabApprovals": "Aprovações",

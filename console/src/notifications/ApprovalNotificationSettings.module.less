@@ -1,0 +1,89 @@
+.setting {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 8px 0 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: var(--app-radius, 12px);
+  background: var(--app-surface-raised);
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--app-accent-text);
+  background: var(--app-fill-subtle);
+}
+
+.copy {
+  flex: 1;
+  min-width: 0;
+
+  p {
+    margin: 5px 0 0;
+    color: var(--app-text-secondary);
+    font-size: var(--app-font-caption);
+    line-height: 1.6;
+    text-wrap: pretty;
+  }
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: var(--app-text-primary);
+  font-size: var(--app-font-secondary);
+  font-weight: 600;
+}
+
+.status {
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
+  font-weight: 400;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+
+  :global(button) {
+    min-height: 40px;
+  }
+
+  :global(button[role="switch"]) {
+    min-height: 22px;
+
+    &::after {
+      position: absolute;
+      inset: -10px -4px;
+      content: "";
+    }
+  }
+}
+
+@media (max-width: 640px) {
+  .setting {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 14px;
+  }
+
+  .copy {
+    flex-basis: calc(100% - 54px);
+  }
+
+  .actions {
+    justify-content: space-between;
+    width: 100%;
+    padding-left: 54px;
+  }
+}

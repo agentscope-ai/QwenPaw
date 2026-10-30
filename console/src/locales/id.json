@@ -3112,6 +3112,31 @@
     "timeoutHint": "Backend gagal dimulai. Coba lagi, atau periksa log aplikasi untuk detail.",
     "retry": "Coba lagi"
   },
+  "approvalNotifications": {
+    "settingTitle": "Notifikasi persetujuan desktop",
+    "openApprovals": "Lihat persetujuan tertunda",
+    "description": "Terima notifikasi sistem saat persetujuan masuk selagi QwenPaw berjalan di latar belakang.",
+    "title": "QwenPaw · Persetujuan diperlukan",
+    "body": "{{tool}} menunggu persetujuan Anda. Buka QwenPaw untuk meninjaunya.",
+    "sendTest": "Kirim notifikasi uji",
+    "testTitle": "QwenPaw · Notifikasi uji",
+    "testBody": "Notifikasi persetujuan akan muncul di sini selagi QwenPaw berjalan di latar belakang.",
+    "testSent": "Notifikasi uji telah dikirim. Periksa notifikasi sistem Anda.",
+    "failed": "Tidak dapat mengirim notifikasi. Periksa pengaturan notifikasi Anda.",
+    "permission": {
+      "default": "Izin diperlukan saat diaktifkan",
+      "granted": "Izin browser telah diberikan",
+      "denied": "Diblokir — izinkan notifikasi di pengaturan situs browser",
+      "native": "Dikelola oleh pengaturan notifikasi sistem",
+      "checking": "Memeriksa izin notifikasi",
+      "unavailable": "Tidak dapat memeriksa izin notifikasi sistem. Buka kembali aplikasi desktop.",
+      "nativeDefault": "Izin sistem diperlukan saat diaktifkan",
+      "nativeGranted": "Izin notifikasi sistem telah diberikan",
+      "nativeDenied": "Diblokir — izinkan QwenPaw di pengaturan notifikasi sistem",
+      "unsupported": "Browser ini tidak mendukung notifikasi desktop",
+      "insecure": "Buka melalui HTTPS atau localhost untuk mengaktifkan notifikasi"
+    }
+  },
   "inbox": {
     "title": "Kotak Masuk",
     "tabApprovals": "Persetujuan",

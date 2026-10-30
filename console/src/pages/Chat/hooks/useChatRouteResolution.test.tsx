@@ -57,6 +57,23 @@ afterEach(() => {
 });
 
 describe("chat route ownership resolution", () => {
+  it("resolves an approval deep link through its owning agent", async () => {
+    const resolve = vi.spyOn(api, "resolveChat").mockResolvedValue({
+      agent_id: "b",
+      chat: chat(),
+    });
+    const { result } = renderHook(() =>
+      useChatRouteResolution(TARGET, "a", "b"),
+    );
+
+    await waitFor(() => expect(result.current.blocked).toBe(false));
+    expect(resolve).toHaveBeenCalledWith(TARGET, {
+      currentAgentId: "b",
+      signal: expect.any(AbortSignal),
+    });
+    expect(useAgentStore.getState().selectedAgent).toBe("b");
+  });
+
   it("activates a same-agent cold link before the session list arrives", async () => {
     const resolve = vi.spyOn(api, "resolveChat").mockResolvedValue({
       agent_id: "a",

@@ -565,6 +565,31 @@
       "copyBackend": "复制后端日志"
     }
   },
+  "approvalNotifications": {
+    "settingTitle": "审批桌面通知",
+    "openApprovals": "查看待审批",
+    "description": "QwenPaw 在后台运行时，通过系统通知提醒你处理新审批。",
+    "title": "QwenPaw · 需要审批",
+    "body": "{{tool}} 正在等待你的审批，请打开 QwenPaw 及时处理。",
+    "sendTest": "发送测试通知",
+    "testTitle": "QwenPaw · 测试通知",
+    "testBody": "后台收到待审批请求时，提醒将显示在这里。",
+    "testSent": "测试通知已发送，请查看系统通知。",
+    "failed": "通知发送失败，请检查通知设置。",
+    "permission": {
+      "default": "开启时申请通知权限",
+      "granted": "浏览器已授权",
+      "denied": "通知已被阻止，请在浏览器的网站设置中允许通知",
+      "native": "由系统通知设置管理",
+      "checking": "正在检查通知授权",
+      "unavailable": "暂时无法读取系统通知权限，请重新打开桌面端",
+      "nativeDefault": "开启时申请系统通知授权",
+      "nativeGranted": "系统通知已授权",
+      "nativeDenied": "通知已被系统阻止，请在系统通知设置中允许 QwenPaw",
+      "unsupported": "当前浏览器不支持桌面通知",
+      "insecure": "请通过 HTTPS 或 localhost 访问以开启通知"
+    }
+  },
   "inbox": {
     "title": "收件箱",
     "tabApprovals": "审批",

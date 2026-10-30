@@ -6,7 +6,7 @@ authors = ["QwenPaw Contributors"]
 license = "Apache-2.0"
 repository = "https://github.com/agentscope-ai/QwenPaw"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.90"
 default-run = "qwenpaw-desktop"
 autobins = false
 
@@ -51,6 +51,7 @@ webview2-com = "0.38.2"
 windows = { version = "0.61.3", features = [
     "Foundation",
     "Foundation_Collections",
+    "Data_Xml_Dom",
     "Graphics",
     "Graphics_Capture",
     "Graphics_DirectX",
@@ -80,12 +81,18 @@ windows = { version = "0.61.3", features = [
     "Win32_UI_Accessibility",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
+    "UI_Notifications",
 ] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+notify-rust = { version = "=4.18.2", default-features = false, features = ["z"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
+# The modern UserNotifications adapter requires Rust 1.90+ on macOS.
+mac-usernotifications = { version = "=0.3.1", default-features = false }
 core-foundation = { version = "0.10", features = ["link"] }
 # `highsierra` gates the non-variadic scroll-event constructor, which is the
 # only way to synthesise a scroll without hand-writing variadic FFI. It gates

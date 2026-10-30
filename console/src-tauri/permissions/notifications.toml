@@ -1,0 +1,11 @@
+[[permission]]
+identifier = "console-notifications"
+description = "Allows the console to configure approval notifications and subscribe to native background polling."
+commands.allow = [
+  "start_console_polling",
+  "stop_console_polling",
+  "configure_approval_notifications",
+  "send_test_notification",
+  "get_notification_permission",
+  "request_notification_permission",
+]

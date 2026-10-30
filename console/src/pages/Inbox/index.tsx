@@ -37,6 +37,7 @@ import { TraceMarkdown } from "./components/TraceMarkdown";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { useInboxWobble } from "../../hooks/useInboxWobble";
+import ApprovalNotificationSettings from "../../notifications/ApprovalNotificationSettings";
 import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
@@ -674,6 +675,7 @@ export default function InboxPage() {
       />
 
       <div className={styles.pageContent}>
+        <ApprovalNotificationSettings />
         <MailProcessingPauses />
         <Tabs
           activeKey={activeTab}

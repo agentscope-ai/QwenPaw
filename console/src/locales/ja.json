@@ -4716,6 +4716,31 @@
     "marketSortUpdated": "Recently updated",
     "marketSortFavorites": "Most favorited"
   },
+  "approvalNotifications": {
+    "settingTitle": "承認のデスクトップ通知",
+    "openApprovals": "保留中の承認を表示",
+    "description": "QwenPaw がバックグラウンドにある間に承認が届いたとき、システム通知で知らせます。",
+    "title": "QwenPaw · 承認が必要です",
+    "body": "{{tool}} が承認を待っています。QwenPaw を開いて確認してください。",
+    "sendTest": "テスト通知を送信",
+    "testTitle": "QwenPaw · テスト通知",
+    "testBody": "QwenPaw がバックグラウンドにある間に、承認通知がここに表示されます。",
+    "testSent": "テスト通知を送信しました。システム通知を確認してください。",
+    "failed": "通知を送信できませんでした。通知設定を確認してください。",
+    "permission": {
+      "default": "有効にすると権限が必要です",
+      "granted": "ブラウザの通知が許可されています",
+      "denied": "ブロックされています — ブラウザのサイト設定で通知を許可してください",
+      "native": "システムの通知設定で管理されます",
+      "checking": "通知権限を確認しています",
+      "unavailable": "システムの通知権限を確認できませんでした。デスクトップアプリを開き直してください。",
+      "nativeDefault": "有効にするとシステム権限が必要です",
+      "nativeGranted": "システムの通知が許可されています",
+      "nativeDenied": "ブロックされています — システムの通知設定で QwenPaw を許可してください",
+      "unsupported": "このブラウザはデスクトップ通知に対応していません",
+      "insecure": "通知を有効にするには HTTPS または localhost で開いてください"
+    }
+  },
   "inbox": {
     "title": "受信トレイ",
     "tabApprovals": "承認",
