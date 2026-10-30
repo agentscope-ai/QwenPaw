@@ -137,12 +137,6 @@ SYNTHETIC_USER_MESSAGE_TAGS = frozenset(
         RUBRIC_EVALUATION_MESSAGE_TAG,
     },
 )
-AUTO_MEMORY_SEARCH_TEXT = (
-    "I'll check memory for relevant context before answering."
-)
-AUTO_MEMORY_SEARCH_THINKING_PREFIX = (
-    "I should search long-term memory before answering."
-)
 
 # Subdirectory name inside each agent's workspace that holds cloned / imported
 # coding projects.
