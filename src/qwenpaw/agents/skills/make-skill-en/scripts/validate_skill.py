@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import py_compile
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -389,6 +391,21 @@ def _digest(
     return digest.hexdigest()
 
 
+def _python_error(path: Path, relative: str) -> str | None:
+    """Return why a script does not compile, without running or touching it."""
+    with tempfile.TemporaryDirectory() as output_dir:
+        try:
+            py_compile.compile(
+                str(path),
+                cfile=str(Path(output_dir) / "check.pyc"),
+                dfile=relative,
+                doraise=True,
+            )
+        except (OSError, py_compile.PyCompileError) as exc:
+            return str(exc)
+    return None
+
+
 def validate_draft(
     workspace: Path,
     draft_id: str,
@@ -456,11 +473,10 @@ def validate_draft(
     for relative in files:
         path = skill_dir / relative
         if relative.startswith("scripts/") and path.suffix == ".py":
-            try:
-                compile(path.read_bytes(), relative, "exec")
-            except (OSError, SyntaxError) as exc:
+            python_error = _python_error(path, relative)
+            if python_error:
                 errors.append(
-                    create_plan.error("invalid-python", relative, str(exc)),
+                    create_plan.error("invalid-python", relative, python_error),
                 )
         if relative.startswith(("scripts/", "evals/")) and path.suffix == ".json":
             try:
