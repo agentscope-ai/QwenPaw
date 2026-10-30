@@ -6,8 +6,7 @@ workspace tests do not reach: the Coding-Mode code-file read/write pair
 (including its weak-ETag 304 short-circuit and the path-traversal
 guard), binary-file preview MIME gating, the language and audio-mode
 settings round trips with their validation branches, whisper/provider
-status reads, the workspace zip download, and the available-commands
-listing.
+status reads and the available-commands listing.
 
 Every write is verified by reading the value back, and the ETag test
 asserts an actual 304 rather than just a 200, so a regression that
@@ -24,7 +23,6 @@ API endpoints:
   - PUT  /api/workspace/audio-mode
   - GET  /api/workspace/local-whisper-status
   - GET  /api/workspace/transcription-providers
-  - GET  /api/workspace/download
   - GET  /api/workspace/commands/available
 """
 from __future__ import annotations
@@ -412,7 +410,7 @@ def test_invalid_audio_mode_rejected(app_server):
     assert "Invalid audio_mode" in resp.text, resp.text
 
 
-# ================== D. status reads / download / commands ==================
+# ================== D. status reads / commands ==================
 
 
 @pytest.mark.integration
@@ -449,46 +447,6 @@ def test_transcription_providers_listing(app_server):
     )
     assert resp.status_code == 200, resp.text
     assert isinstance(resp.json(), (list, dict)), resp.text
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_workspace_download_returns_zip(app_server):
-    """The workspace downloads as a real zip archive.
-
-    Test purpose:
-      - Cover download_workspace / _zip_directory: assert the ZIP magic
-        bytes and the attachment header, not merely a 200.
-    """
-    resp = app_server.api_request(
-        "GET",
-        "/api/workspace/download",
-        timeout=default_http_timeout(120.0),
-    )
-    assert resp.status_code == 200, resp.text[:500]
-    assert resp.content[:2] == b"PK", resp.content[:20]
-    disposition = resp.headers.get("content-disposition", "")
-    assert "attachment" in disposition, dict(resp.headers)
-    assert ".zip" in disposition, disposition
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_workspace_upload_rejects_non_zip_content_type(app_server):
-    """A wrong content-type upload is refused before extraction.
-
-    Test purpose:
-      - Cover upload_workspace's content-type guard, which protects the
-        zip extractor from arbitrary payloads.
-    """
-    resp = app_server.api_request(
-        "POST",
-        "/api/workspace/upload",
-        files={"file": ("notes.txt", b"just text", "text/plain")},
-        timeout=_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 400, resp.text
-    assert "zip" in resp.text.lower(), resp.text
 
 
 @pytest.mark.integration

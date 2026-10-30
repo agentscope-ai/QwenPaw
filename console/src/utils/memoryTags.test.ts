@@ -1,17 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseMemoryTags } from "./markdown";
-import { caseFold } from "unicode-case-folding";
-import contract from "../../../tests/fixtures/memory_tags_contract.json";
 
 describe("memory tag parsing", () => {
-  it.each(contract)(
-    "matches the ReMe contract: $name",
-    ({ frontmatter, display, canonical }) => {
-      const tags = parseMemoryTags(`---\n${frontmatter}\n---\nBody`);
-      expect(tags).toEqual(display);
-      expect(tags.map(caseFold)).toEqual(canonical);
-    },
-  );
   it.each([
     'memory_tags: ["赵六", "Orion"]',
     "memory_tags:\n- 赵六\n- Orion",

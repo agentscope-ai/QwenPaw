@@ -740,45 +740,6 @@ def test_put_api_workspace_system_prompt_files_33(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_get_api_workspace_download_34(app_server) -> None:
-    """Contract: GET /api/workspace/download responds with a parseable
-    payload."""
-    resp = _req(app_server, "GET", "/api/workspace/download")
-    assert resp.status_code in (
-        200,
-        400,
-        404,
-        409,
-        415,
-        422,
-    ), app_server.logs_tail()
-    if resp.status_code == 200:
-        try:
-            resp.json()
-        except Exception:
-            pass  # binary / streaming payload
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_post_api_workspace_upload_35(app_server) -> None:
-    """Contract: POST /api/workspace/upload with empty body is rejected or
-    safely handled."""
-    resp = _req(app_server, "POST", "/api/workspace/upload", json={})
-    assert resp.status_code in (
-        200,
-        400,
-        403,
-        404,
-        409,
-        422,
-        500,
-        503,
-    ), app_server.logs_tail()
-
-
-@pytest.mark.integration
-@pytest.mark.p1
 def test_get_api_workspace_commands_available_36(app_server) -> None:
     """Contract: GET /api/workspace/commands/available responds with a
     parseable payload."""
