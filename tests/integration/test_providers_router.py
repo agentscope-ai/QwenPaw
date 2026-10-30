@@ -23,11 +23,15 @@ def test_providers_list(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_providers_get_nonexistent(app_server) -> None:
-    """Test GET /api/providers/{provider_id} with non-existent provider."""
-    url = "/api/models/nonexistent-provider-12345/config"
-    response = app_server.api_request("GET", url)
-    # Should return 404 or similar error
-    assert response.status_code in [404, 400]
+    """Test model metadata lookup with a non-existent provider."""
+    url = "/api/models/nonexistent-provider-12345/model-info"
+    response = app_server.api_request(
+        "GET",
+        url,
+        params={"model_id": "probe-model"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Provider not found"
 
 
 @pytest.mark.integration
