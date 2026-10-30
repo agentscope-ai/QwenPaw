@@ -566,15 +566,10 @@ class TestCheckActiveLlm:
             "active_llm_local_failure_hint",
             lambda provider, pid: "start the server",
         )
-        monkeypatch.setattr(
-            dc,
-            "qwenpaw_local_llm_deep_notes",
-            lambda: ["deep note"],
-        )
         ok, detail, notes = _run_async(dc._check_active_llm(1.0, True))
         assert ok is False
         assert "start the server" in detail
-        assert notes == ["deep note"]
+        assert notes == []
 
 
 def _run_async(coro):
@@ -778,6 +773,48 @@ class TestRunDoctorChecks:
         assert "=== Active LLM ===" in out
         assert "=== API ===" in out
 
+    @pytest.mark.parametrize("provider_id", ["qwenpaw-local", "copaw-local"])
+    @pytest.mark.parametrize("deep", [False, True])
+    def test_local_plugin_checks_do_not_fail_doctor(
+        self,
+        monkeypatch,
+        capsys,
+        provider_id,
+        deep,
+    ):
+        import qwenpaw.cli.doctor_checks as checks
+
+        slot = _Slot(provider_id, "local-model")
+        monkeypatch.setattr(
+            dc.ProviderManager,
+            "get_instance",
+            staticmethod(lambda: _Mgr(slot, None)),
+        )
+        monkeypatch.setattr(
+            checks,
+            "load_agent_config",
+            lambda agent_id: SimpleNamespace(active_model=slot),
+        )
+        cfg = SimpleNamespace(
+            agents=SimpleNamespace(
+                profiles={"agent-a": SimpleNamespace(enabled=True)},
+            ),
+        )
+        with _OkPatch(
+            monkeypatch,
+            load_config=lambda: cfg,
+            _check_active_llm=dc._check_active_llm,
+            check_enabled_agents_model_connections=(
+                checks.check_enabled_agents_model_connections
+            ),
+        ):
+            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=deep)
+        captured = capsys.readouterr()
+        assert "model check skipped" in captured.out
+        assert f"agent-a: SKIP — {provider_id}" in captured.out
+        assert "=== API ===" in captured.out
+        assert "FAIL" not in captured.err
+
     def test_config_invalid_exits_and_skips_sections(
         self,
         monkeypatch,
@@ -871,7 +908,9 @@ class TestRunDoctorChecks:
             ),
         ):
             dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
-        assert "all enabled agents reachable" in capsys.readouterr().out
+        assert (
+            "enabled-agent model checks completed" in capsys.readouterr().out
+        )
 
     def test_health_fail_exits(self, monkeypatch, capsys):
         with _OkPatch(

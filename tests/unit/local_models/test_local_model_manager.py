@@ -1,22 +1,72 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import cast
+import asyncio
 
 import pytest
 
-from qwenpaw.local_models import manager as local_model_manager_module
-from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
-from qwenpaw.local_models.manager import (
+from llamacpp.llamacpp import LlamaCppServerSetupResult
+from llamacpp.manager import (
     DownloadSource,
     LocalModelManager,
 )
-from qwenpaw.local_models.llamacpp import LlamaCppBackend
-from qwenpaw.local_models.model_manager import ModelManager
-from qwenpaw.providers.provider import ModelInfo
+from llamacpp.llamacpp import LlamaCppBackend
+from llamacpp.model_manager import ModelManager
+from llamacpp.model_types import LocalModelInfo as ModelInfo
+
+
+def make_manager(*, model_manager, llamacpp_backend, data_dir):
+    manager = LocalModelManager()
+    manager._model_manager = model_manager
+    manager._llamacpp_backend = llamacpp_backend
+    manager._server_lifecycle_lock = asyncio.Lock()
+    manager._config_path = data_dir / manager.CONFIG_FILE_NAME
+    manager._config = manager._load_config()
+    return manager
+
+
+async def test_lazy_initialization_loads_config_off_event_loop(
+    monkeypatch,
+    tmp_path,
+):
+    (tmp_path / "config.json").write_text(
+        json.dumps({"max_context_length": 131072, "port": 43110}),
+        encoding="utf-8",
+    )
+    caller = threading.get_ident()
+    threads = []
+    original = ModelManager.__init__
+
+    def initialize(self, **kwargs):
+        threads.append(threading.get_ident())
+        original(self, **kwargs)
+
+    monkeypatch.setattr(ModelManager, "__init__", initialize)
+    monkeypatch.setattr(LlamaCppBackend, "_resolve_os_name", lambda _: "linux")
+    monkeypatch.setattr(LlamaCppBackend, "_resolve_arch", lambda _: "x64")
+    monkeypatch.setattr(
+        LlamaCppBackend,
+        "_resolve_cuda_version",
+        lambda _: None,
+    )
+    manager = LocalModelManager()
+    try:
+        await manager.start(tmp_path)
+        assert threads and all(thread != caller for thread in threads)
+        assert manager.get_config().max_context_length == 131072
+        assert manager.get_config().port == 43110
+        assert (
+            manager._model_manager.get_model_dir("A") == tmp_path / "models/A"
+        )
+        assert manager._llamacpp_backend.target_dir == tmp_path / "bin"
+    finally:
+        await manager.close()
 
 
 class _FakeLlamaCppBackend:
@@ -132,21 +182,22 @@ class _FakeModelManager:
 
 
 @pytest.mark.asyncio
-async def test_local_model_manager_forwards_sync_calls() -> None:
+async def test_local_model_manager_forwards_sync_calls(tmp_path) -> None:
     fake_model_manager = _FakeModelManager()
     fake_llamacpp_backend = _FakeLlamaCppBackend()
-    manager = LocalModelManager(
+    manager = make_manager(
+        data_dir=tmp_path,
         model_manager=cast(ModelManager, fake_model_manager),
         llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
 
-    assert manager.check_llamacpp_installability() == (True, "")
-    assert manager.check_llamacpp_installation() == (True, "")
-    server_stopped = await manager.start_llamacpp_download()
-    assert manager.get_llamacpp_download_progress() == {
+    assert manager.check_installability() == (True, "")
+    assert manager.check_installation() == (True, "")
+    server_stopped = await manager.start_runtime_download()
+    assert manager.get_runtime_download_progress() == {
         "status": "downloading",
     }
-    manager.cancel_llamacpp_download()
+    manager.cancel_runtime_download()
     assert server_stopped is False
 
     assert manager.get_recommended_models() == ["demo-model"]
@@ -188,24 +239,19 @@ async def test_local_model_manager_forwards_sync_calls() -> None:
 @pytest.mark.asyncio
 async def test_local_model_manager_forwards_async_server_calls(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        local_model_manager_module,
-        "DEFAULT_LOCAL_PROVIDER_DIR",
-        tmp_path,
-    )
     fake_llamacpp_backend = _FakeLlamaCppBackend()
-    manager = LocalModelManager(
+    manager = make_manager(
+        data_dir=tmp_path,
         model_manager=cast(ModelManager, _FakeModelManager()),
         llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
     await manager.set_max_context_length(131072)
     await manager.set_port(43110)
 
-    ready = await manager.check_llamacpp_server_ready(timeout=7.5)
-    setup_result = await manager.setup_server("demo")
-    await manager.shutdown_server()
+    ready = await manager.server_ready(timeout=7.5)
+    setup_result = await manager.ensure_server("demo")
+    await manager.stop_server()
 
     assert ready is True
     assert setup_result.port == 8080
@@ -227,14 +273,9 @@ async def test_local_model_manager_forwards_async_server_calls(
 @pytest.mark.asyncio
 async def test_set_max_context_length_persists_local_model_config(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        local_model_manager_module,
-        "DEFAULT_LOCAL_PROVIDER_DIR",
-        tmp_path,
-    )
-    manager = LocalModelManager(
+    manager = make_manager(
+        data_dir=tmp_path,
         model_manager=cast(ModelManager, _FakeModelManager()),
         llamacpp_backend=cast(LlamaCppBackend, _FakeLlamaCppBackend()),
     )
@@ -252,14 +293,9 @@ async def test_set_max_context_length_persists_local_model_config(
 @pytest.mark.asyncio
 async def test_set_port_persists_local_model_config(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        local_model_manager_module,
-        "DEFAULT_LOCAL_PROVIDER_DIR",
-        tmp_path,
-    )
-    manager = LocalModelManager(
+    manager = make_manager(
+        data_dir=tmp_path,
         model_manager=cast(ModelManager, _FakeModelManager()),
         llamacpp_backend=cast(LlamaCppBackend, _FakeLlamaCppBackend()),
     )
@@ -275,15 +311,18 @@ async def test_set_port_persists_local_model_config(
 
 
 @pytest.mark.asyncio
-async def test_start_llamacpp_download_stops_running_server_first() -> None:
+async def test_start_llamacpp_download_stops_running_server_first(
+    tmp_path,
+) -> None:
     fake_llamacpp_backend = _FakeLlamaCppBackend()
     fake_llamacpp_backend.server_running = True
-    manager = LocalModelManager(
+    manager = make_manager(
+        data_dir=tmp_path,
         model_manager=cast(ModelManager, _FakeModelManager()),
         llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
 
-    server_stopped = await manager.start_llamacpp_download()
+    server_stopped = await manager.start_runtime_download()
 
     assert server_stopped is True
     assert fake_llamacpp_backend.calls == [

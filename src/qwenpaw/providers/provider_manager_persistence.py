@@ -369,9 +369,8 @@ class ProviderManagerPersistenceMixin(
     ) -> Provider | None:
         """Install a rebuilt instance and retain the shared billing guard."""
         if provider_id in self.plugin_providers:
-            self.plugin_providers[provider_id][f"info"] = ProviderInfo(
-                **snapshot.model_dump(),
-            )
+            registration = self.plugin_providers[provider_id]
+            registration["info"] = snapshot.configuration_snapshot()
             return None
         current = self.get_provider(provider_id)
         rebuilt = snapshot.configuration_snapshot()
@@ -551,7 +550,7 @@ class ProviderManagerPersistenceMixin(
                 logger.warning(
                     f"Failed to get default models for {provider_id}: {exc}",
                 )
-        provider_info = ProviderInfo(
+        provider_info = provider_class(
             id=provider_id,
             name=label,
             base_url=base_url,
@@ -578,7 +577,7 @@ class ProviderManagerPersistenceMixin(
                 )
                 self._restore_provider_config(
                     provider_info,
-                    ProviderInfo.model_validate(saved_config),
+                    provider_class.model_validate(saved_config),
                 )
                 if snapshot_migrated:
                     provider_persistence.write_snapshot_payload(

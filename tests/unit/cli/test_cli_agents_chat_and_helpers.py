@@ -110,8 +110,8 @@ def _capture_streams(func, *args, **kwargs):
     runner = CliRunner()
     with runner.isolation() as streams:
         func(*args, **kwargs)
-    stdout = streams[0].getvalue().decode("utf-8")
-    stderr = streams[1].getvalue().decode("utf-8")
+        stdout = streams[0].getvalue().decode("utf-8")
+        stderr = streams[1].getvalue().decode("utf-8")
     return stdout, stderr
 
 

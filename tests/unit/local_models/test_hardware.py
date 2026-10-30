@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-import qwenpaw.utils.system_info as system_info_module
-from qwenpaw.utils.system_info import get_system_info, get_vram_size_gb
+import llamacpp.hardware as system_info_module
+from llamacpp.hardware import get_system_info, get_vram_size_gb
 
 _NVIDIA_SMI_HEADER = (
     "NVIDIA-SMI 560.94    Driver Version: 560.94    CUDA Version: 12.6\n"
