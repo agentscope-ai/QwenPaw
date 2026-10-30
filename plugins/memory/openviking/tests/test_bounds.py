@@ -2,6 +2,8 @@
 # pylint: disable=protected-access
 """Search-output budgets and bounded completed-state cache behavior."""
 
+from dataclasses import replace
+
 import pytest
 from agentscope.message import ToolResultState
 
@@ -13,6 +15,218 @@ from plugins.memory.openviking.backend.prompts import (
 )
 
 from .test_manager import _assistant, _attach, _client, _manager, _user
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("budget", "remote_budget"),
+    [(64, None), (96, None), (128, None), (171, None), (172, 64), (173, 65)],
+)
+async def test_auto_recall_reserves_overhead_before_request(
+    tmp_path,
+    budget,
+    remote_budget,
+):
+    manager = _manager(
+        tmp_path,
+        config=OpenVikingMemoryConfig(retrieval_token_budget=budget),
+    )
+    client = _client()
+    client.search_context.return_value = {"digest": "Launch on Friday."}
+    manager._client = client
+
+    try:
+        result = await manager.auto_memory_search(
+            _user("hi"),
+            session_id="chat-1",
+        )
+
+        if remote_budget is None:
+            assert result is None
+            client.search_context.assert_not_awaited()
+            client.resolve_identity.assert_not_awaited()
+        else:
+            assert result is not None
+            assert result["text"] == (
+                OPENVIKING_UNTRUSTED_HISTORY_NOTICE + "\n\nLaunch on Friday."
+            )
+            client.resolve_identity.assert_awaited_once()
+            client.search_context.assert_awaited_once_with(
+                query="hi",
+                session_id=manager._map_session_id("chat-1"),
+                max_results=3,
+                token_budget=remote_budget,
+            )
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "max_results", "divisor", "remote_budget"),
+    [
+        ("hi", 3, 4.0, 1940),
+        ("x" * 50, 3, 4.0, 1928),
+        ("🧭" * 50, 20, 4.0, 1890),
+        ("hi", 3, 2.0, 1832),
+    ],
+)
+async def test_auto_recall_request_budget_tracks_actual_message(
+    tmp_path,
+    query,
+    max_results,
+    divisor,
+    remote_budget,
+):
+    manager = _manager(
+        tmp_path,
+        config=OpenVikingMemoryConfig(
+            auto_memory_search_config={"max_results": max_results},
+        ),
+    )
+    manager.context = replace(
+        manager.context,
+        token_estimate_divisor=divisor,
+    )
+    client = _client()
+    client.search_context.return_value = {"digest": "Launch on Friday."}
+    _attach(manager, client)
+
+    try:
+        result = await manager.auto_memory_search(
+            _user(query),
+            session_id="chat-1",
+        )
+
+        assert result is not None
+        client.search_context.assert_awaited_once_with(
+            query=query,
+            session_id=manager._map_session_id("chat-1"),
+            max_results=max_results,
+            token_budget=remote_budget,
+        )
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "remote_result",
+    [{"digest": ""}, {"rendered": " \n\t "}],
+)
+async def test_auto_recall_does_not_inject_empty_remote_results(
+    tmp_path,
+    remote_result,
+):
+    manager = _manager(tmp_path)
+    client = _client()
+    client.search_context.return_value = remote_result
+    _attach(manager, client)
+
+    try:
+        result = await manager.auto_memory_search(
+            _user("hi"),
+            session_id="chat-1",
+        )
+
+        assert result is None
+        client.search_context.assert_awaited_once()
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["digest", "rendered"])
+@pytest.mark.parametrize("body", ["é" * 1000, "记忆🧭" * 1000])
+async def test_auto_recall_bounds_oversized_body_without_clipping_notice(
+    tmp_path,
+    field,
+    body,
+):
+    manager = _manager(
+        tmp_path,
+        config=OpenVikingMemoryConfig(retrieval_token_budget=172),
+    )
+    client = _client()
+    client.search_context.return_value = {field: body}
+    _attach(manager, client)
+
+    try:
+        result = await manager.auto_memory_search(
+            _user("hi"),
+            session_id="chat-1",
+        )
+
+        assert result is not None
+        text = result["text"]
+        prefix = OPENVIKING_UNTRUSTED_HISTORY_NOTICE + "\n\n"
+        assert text.startswith(prefix)
+        assert text.endswith(manager_module.TRUNCATION_MARKER)
+        recalled = text[len(prefix) : -len(manager_module.TRUNCATION_MARKER)]
+        assert recalled.strip()
+        assert body.startswith(recalled)
+        assert "\ufffd" not in text
+        client.search_context.assert_awaited_once_with(
+            query="hi",
+            session_id=manager._map_session_id("chat-1"),
+            max_results=3,
+            token_budget=64,
+        )
+
+        synthetic = result["msg"][-1]
+        total_bytes = sum(
+            len(str(getattr(block, attr, "")).encode("utf-8"))
+            for block in synthetic.content
+            for attr in ("text", "thinking", "name", "input")
+        ) + sum(
+            len(output.text.encode("utf-8"))
+            for block in synthetic.content
+            for output in getattr(block, "output", [])
+        )
+        assert total_bytes <= 172 * 4
+    finally:
+        await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("budget", "has_body"),
+    [(926, False), (944, False), (946, False), (952, True)],
+)
+async def test_auto_recall_never_injects_a_marker_without_body(
+    tmp_path,
+    budget,
+    has_body,
+):
+    # At divisor 0.5, these leave 32, 41, 42, and 45 body bytes.
+    # The marker costs 41 bytes; one Chinese code point costs three.
+    manager = _manager(
+        tmp_path,
+        config=OpenVikingMemoryConfig(retrieval_token_budget=budget),
+    )
+    manager.context = replace(manager.context, token_estimate_divisor=0.5)
+    client = _client()
+    client.search_context.return_value = {"digest": "记" * 100}
+    _attach(manager, client)
+
+    try:
+        result = await manager.auto_memory_search(
+            _user("hi"),
+            session_id="chat-1",
+        )
+
+        client.search_context.assert_awaited_once()
+        if has_body:
+            assert result is not None
+            assert result["text"] == (
+                OPENVIKING_UNTRUSTED_HISTORY_NOTICE
+                + "\n\n记"
+                + manager_module.TRUNCATION_MARKER
+            )
+        else:
+            assert result is None
+    finally:
+        await manager.close()
 
 
 @pytest.mark.asyncio

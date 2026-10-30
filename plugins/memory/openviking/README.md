@@ -21,6 +21,33 @@ model calls, and exposes a governed `memory_search` tool.
   Agent ID, and the QwenPaw chat ID to form an OpenViking session ID. This
   separates conversations; it is not an authorization boundary.
 
+## Prepare an OpenViking server
+
+The plugin requires a separately deployed OpenViking server with working
+memory extraction and search. It does not deploy the server or configure its
+models.
+
+1. For a self-hosted server, follow the
+   [OpenViking configuration guide](https://github.com/volcengine/OpenViking/blob/main/docs/en/guides/01-configuration.md).
+   Configure the embedding model and vector dimension, plus the VLM/LLM used
+   for memory extraction, on the OpenViking server. Ensure model-provider
+   credentials, access permissions, and quota are available.
+2. Start the server and obtain its reachable URL and an OpenViking user API
+   key for the intended account/user. Enter these in the plugin's **Server
+   Endpoint** and **Tenant API Key** fields.
+3. Verify actual memory extraction and search. A successful `/health` response
+   alone does not prove that the configured model services can be called.
+
+The two kinds of credentials serve different purposes:
+
+- **Model-provider API key**: configured on the OpenViking server to call its
+  embedding and extraction models, when required by the provider.
+- **OpenViking user API key**: entered in this plugin to authenticate requests
+  to OpenViking. Do not put a model-provider key in this field.
+
+If you connect to a server managed by someone else, its administrator handles
+the model configuration; you only need the server URL and OpenViking user key.
+
 ## Install
 
 Build the Console extension first:
@@ -50,7 +77,8 @@ complete its tab:
   local native process this is often `http://127.0.0.1:1933`; in Docker it is
   commonly a Compose service name such as `http://openviking:1933`.
 - **Tenant API Key**: create this in OpenViking for the intended account/user.
-  It is required and stored as a masked secret field.
+  This is an OpenViking user key, not a model-provider key. It is required and
+  stored as a masked secret field.
 - **Request Timeout**: 1–300 seconds.
 - **Automatic Recall Token Budget**: 64–32,000 estimated tokens. This bounds
   the complete synthetic recall message, including the safety notice.

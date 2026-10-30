@@ -172,3 +172,177 @@ async def test_append_rejects_unconfirmed_success(
             )
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_commit_sends_archive_policy_and_preserves_task_result():
+    requests = []
+    task = {"session_id": "session-1", "task_id": "task-1"}
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"status": "ok", "result": task})
+
+    client = _client(handler)
+    try:
+        assert await client.commit("session-1") == task
+        assert len(requests) == 1
+        request = requests[0]
+        assert (request.method, request.url.path) == (
+            "POST",
+            "/api/v1/sessions/session-1/commit",
+        )
+        assert json.loads(request.content) == {"keep_recent_count": 0}
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty", [False, True])
+async def test_explicit_search_sends_namespace_and_preserves_hits(empty):
+    requests = []
+    memories = (
+        []
+        if empty
+        else [
+            {
+                "uri": "viking://user/memories/preference.md",
+                "abstract": "",
+                "score": 0.9,
+            },
+        ]
+    )
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"status": "ok", "result": {"memories": memories}},
+        )
+
+    client = _client(handler)
+    try:
+        assert (
+            await client.search_memories(
+                query="tea preference",
+                max_results=3,
+            )
+            == memories
+        )
+        assert len(requests) == 1
+        request = requests[0]
+        assert (request.method, request.url.path) == (
+            "POST",
+            "/api/v1/search/search",
+        )
+        assert request.headers["X-API-Key"] == "test-tenant-key"
+        assert json.loads(request.content) == {
+            "query": "tea preference",
+            "target_uri": "viking://~/memories",
+            "context_type": "memory",
+            "limit": 3,
+            "mode": "list",
+        }
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_append_sends_completed_turn_metadata():
+    requests = []
+    messages = [
+        {
+            "role": "user",
+            "content": "I prefer tea.",
+            "turn_id": "turn-1",
+            "message_kind": "user_query",
+            "source_message_ids": ["message-1"],
+        },
+    ]
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"status": "ok", "result": {"added": 1}},
+        )
+
+    client = _client(handler)
+    try:
+        await client.add_messages("session-1", messages)
+        assert len(requests) == 1
+        request = requests[0]
+        assert (request.method, request.url.path) == (
+            "POST",
+            "/api/v1/sessions/session-1/messages/batch",
+        )
+        assert json.loads(request.content) == {"messages": messages}
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_type", [httpx.ReadTimeout, httpx.ConnectError])
+async def test_transport_failure_is_retryable_and_redacts_key(error_type):
+    key = "transport-secret-key"
+
+    def handler(request):
+        raise error_type(f"failed with {key}", request=request)
+
+    client = _client(handler, api_key=key)
+    try:
+        with pytest.raises(OpenVikingServiceError) as caught:
+            await client.commit("session-1")
+        assert "request failed" in str(caught.value)
+        assert key not in str(caught.value)
+        assert "<redacted>" in str(caught.value)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403])
+async def test_http_auth_failure_is_not_retryable(status):
+    client = _client(lambda request: httpx.Response(status, text="denied"))
+    try:
+        with pytest.raises(OpenVikingConfigurationError):
+            await client.commit("session-1")
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_non_json_response_does_not_echo_body_or_key():
+    key = "non-json-secret-key"
+    client = _client(
+        lambda request: httpx.Response(200, text=f"<html>{key}</html>"),
+        api_key=key,
+    )
+    try:
+        with pytest.raises(OpenVikingServiceError, match="non-JSON") as caught:
+            await client.commit("session-1")
+        assert key not in str(caught.value)
+        assert "<html>" not in str(caught.value)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_redirect_never_forwards_key_to_another_host():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            307,
+            headers={"Location": "https://other.test/collect"},
+        )
+
+    client = _client(handler)
+    try:
+        with pytest.raises(OpenVikingConfigurationError, match="HTTP 307"):
+            await client.commit("session-1")
+        assert len(requests) == 1
+        assert requests[0].url.host == "openviking.test"
+    finally:
+        await client.close()

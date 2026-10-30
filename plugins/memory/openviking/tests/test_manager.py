@@ -3,8 +3,13 @@
 """Behavioral tests for the OpenViking memory plugin manager."""
 
 import asyncio
+import re
+import stat
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from types import MethodType, SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from agentscope.message import Msg, TextBlock
@@ -95,6 +100,151 @@ async def _wait_for_memory_task(manager, task_id):
     )
 
 
+def test_installation_id_is_private_and_reused(tmp_path):
+    installation_id = manager_module.get_or_create_installation_id(tmp_path)
+    marker = (
+        tmp_path / "plugin-state" / "memory-openviking" / "installation-id"
+    )
+
+    assert re.fullmatch(r"[0-9a-f]{32}", installation_id)
+    assert marker.read_text(encoding="utf-8") == installation_id
+    assert stat.S_IMODE(marker.stat().st_mode) == 0o600
+    assert (
+        manager_module.get_or_create_installation_id(tmp_path)
+        == installation_id
+    )
+    assert not list(marker.parent.glob(".installation-id-*"))
+
+
+@pytest.mark.parametrize("existing", ["", "invalid", "A" * 32])
+def test_installation_id_rejects_invalid_existing_file(tmp_path, existing):
+    marker = (
+        tmp_path / "plugin-state" / "memory-openviking" / "installation-id"
+    )
+    marker.parent.mkdir(parents=True)
+    marker.write_text(existing, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid OpenViking installation id"):
+        manager_module.get_or_create_installation_id(tmp_path)
+
+    assert marker.read_text(encoding="utf-8") == existing
+    assert not list(marker.parent.glob(".installation-id-*"))
+
+
+def test_installation_id_does_not_expose_an_unwritten_file(
+    tmp_path,
+    monkeypatch,
+):
+    writer_opened = threading.Event()
+    release_writer = threading.Event()
+    original_fdopen = manager_module.os.fdopen
+
+    @contextmanager
+    def pause_first_writer(*args, **kwargs):
+        with original_fdopen(*args, **kwargs) as stream:
+            if not writer_opened.is_set():
+                writer_opened.set()
+                if not release_writer.wait(timeout=10):
+                    raise TimeoutError("Paused installation ID writer")
+            yield stream
+
+    monkeypatch.setattr(manager_module.os, "fdopen", pause_first_writer)
+    marker = (
+        tmp_path / "plugin-state" / "memory-openviking" / "installation-id"
+    )
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(
+            manager_module.get_or_create_installation_id,
+            tmp_path,
+        )
+        try:
+            assert writer_opened.wait(timeout=10)
+            # Another agent must succeed while the first writer is paused.
+            second = executor.submit(
+                manager_module.get_or_create_installation_id,
+                tmp_path,
+            )
+            installation_id = second.result(timeout=10)
+            assert re.fullmatch(r"[0-9a-f]{32}", installation_id)
+            assert marker.read_text(encoding="utf-8") == installation_id
+            assert not first.done()
+        finally:
+            release_writer.set()
+        assert first.result(timeout=10) == installation_id
+
+    assert marker.read_text(encoding="utf-8") == installation_id
+    assert not list(marker.parent.glob(".installation-id-*"))
+
+
+@pytest.mark.parametrize("operation", ["fsync", "link"])
+def test_installation_id_cleans_temporary_file_on_failure(
+    tmp_path,
+    monkeypatch,
+    operation,
+):
+    monkeypatch.setattr(
+        manager_module.os,
+        operation,
+        Mock(side_effect=OSError("Simulated filesystem failure")),
+    )
+
+    with pytest.raises(OSError, match="Simulated filesystem failure"):
+        manager_module.get_or_create_installation_id(tmp_path)
+
+    state_dir = tmp_path / "plugin-state" / "memory-openviking"
+    assert not (state_dir / "installation-id").exists()
+    assert not list(state_dir.glob(".installation-id-*"))
+
+
+@pytest.mark.asyncio
+async def test_concurrent_manager_start_reuses_complete_installation_id(
+    tmp_path,
+    monkeypatch,
+):
+    managers = [
+        _manager(
+            tmp_path,
+            agent_id=f"agent-{index}",
+            config=OpenVikingMemoryConfig(api_key="test-key"),
+        )
+        for index in range(12)
+    ]
+    clients = [_client() for _ in managers]
+    monkeypatch.setattr(
+        manager_module,
+        "OpenVikingClient",
+        Mock(side_effect=clients),
+    )
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(manager.start() for manager in managers)),
+            timeout=10,
+        )
+        installation_ids = {manager._installation_id for manager in managers}
+        assert len(installation_ids) == 1
+        installation_id = installation_ids.pop()
+        assert re.fullmatch(r"[0-9a-f]{32}", installation_id)
+        marker = (
+            tmp_path
+            / "host"
+            / "plugin-state"
+            / "memory-openviking"
+            / "installation-id"
+        )
+        assert marker.read_text(encoding="utf-8") == installation_id
+        assert not list(marker.parent.glob(".installation-id-*"))
+        for manager in managers:
+            assert manager._client is not None
+            assert manager._identity == OpenVikingIdentity("account", "user")
+        for client in clients:
+            client.resolve_identity.assert_awaited_once()
+    finally:
+        await asyncio.gather(
+            *(manager._close_backend() for manager in managers),
+        )
+
+
 @pytest.mark.asyncio
 async def test_auto_recall_marks_remote_history_as_untrusted(tmp_path):
     manager = _manager(tmp_path)
@@ -116,7 +266,7 @@ async def test_auto_recall_marks_remote_history_as_untrusted(tmp_path):
         query="what was the prior plan?",
         session_id=manager._map_session_id("chat-1"),
         max_results=3,
-        token_budget=2048,
+        token_budget=1934,
     )
 
 

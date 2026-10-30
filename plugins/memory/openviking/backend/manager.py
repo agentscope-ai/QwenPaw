@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import os
 import re
+import tempfile
 import uuid
 from collections import OrderedDict
 from collections.abc import Callable, Iterable
@@ -43,6 +44,7 @@ logger = __import__("logging").getLogger(__name__)
 MAX_MEMORY_SEARCH_RESULTS = 20
 MAX_MEMORY_SEARCH_ITEM_BYTES = 2 * 1024
 MAX_MEMORY_SEARCH_OUTPUT_BYTES = 8 * 1024
+MIN_CONTEXT_TOKEN_BUDGET = 64
 MAX_READY_SESSIONS = 256
 MAX_PERSISTED_MESSAGE_IDS = 10_000
 PERSISTENCE_RETRY_DELAYS = (1.0, 2.0)
@@ -70,22 +72,29 @@ def get_or_create_installation_id(host_working_dir: str | Path) -> str:
 
     marker.parent.mkdir(parents=True, exist_ok=True)
     generated = uuid.uuid4().hex
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=".installation-id-",
+        dir=marker.parent,
+    )
     try:
-        descriptor = os.open(
-            marker,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            0o600,
-        )
-    except FileExistsError as exc:
-        existing = marker.read_text(encoding="utf-8").strip()
-        if not re.fullmatch(r"[0-9a-f]{32}", existing):
-            raise ValueError(
-                f"Invalid OpenViking installation id in {marker}",
-            ) from exc
-        return existing
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        stream.write(generated)
-    return generated
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(generated)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Publish the complete ID without replacing another agent's ID.
+        # Creating the final path first would expose an empty file.
+        try:
+            os.link(temporary_path, marker)
+        except FileExistsError as exc:
+            existing = marker.read_text(encoding="utf-8").strip()
+            if not re.fullmatch(r"[0-9a-f]{32}", existing):
+                raise ValueError(
+                    f"Invalid OpenViking installation id in {marker}",
+                ) from exc
+            return existing
+        return generated
+    finally:
+        os.unlink(temporary_path)
 
 
 class OpenVikingMemoryManager(BaseMemoryManager):
@@ -230,16 +239,13 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         if not query:
             return None
         max_results = max(1, int(options.max_results))
-        result = await self._search_context_for_session(
+        text = await self._search_context_for_session(
             query=query,
             qwenpaw_session_id=session_id,
             max_results=max_results,
             estimate_divisor=options.estimate_divisor,
         )
-        if result is None or result.state != ToolResultState.SUCCESS:
-            return None
-        text = self._tool_chunk_text(result).strip()
-        if not text or text == OPENVIKING_NO_MEMORY_RESULTS:
+        if text is None:
             return None
         message = self._build_auto_memory_search_msg(
             query=query,
@@ -433,10 +439,27 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         qwenpaw_session_id: str,
         max_results: int,
         estimate_divisor: float,
-    ) -> ToolChunk | None:
+    ) -> str | None:
+        """Return bounded recall text, or None when no usable recall fits."""
         client = self._client
         config = self._config
         if client is None or config is None:
+            return None
+        max_bytes = max(
+            0,
+            int(config.retrieval_token_budget * estimate_divisor),
+        )
+        prefix = OPENVIKING_UNTRUSTED_HISTORY_NOTICE + "\n\n"
+        body_budget = self._auto_search_result_budget(
+            query=query,
+            max_results=max_results,
+            max_context_bytes=max_bytes,
+            estimate_divisor=estimate_divisor,
+        ) - len(prefix.encode("utf-8"))
+        remote_token_budget = int(body_budget / estimate_divisor)
+        # OpenViking rejects smaller budgets. Do not round up and spend
+        # space already reserved for the local wrapper and trust notice.
+        if remote_token_budget < MIN_CONTEXT_TOKEN_BUDGET:
             return None
         try:
             await self._ensure_identity()
@@ -444,7 +467,7 @@ class OpenVikingMemoryManager(BaseMemoryManager):
                 query=query,
                 session_id=self._map_session_id(qwenpaw_session_id),
                 max_results=max_results,
-                token_budget=config.retrieval_token_budget,
+                token_budget=remote_token_budget,
             )
         except OpenVikingConfigurationError as exc:
             logger.warning(
@@ -461,24 +484,20 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         text = str(
             result.get("digest") or result.get("rendered") or "",
         ).strip()
+        # Remote and local token estimates can differ. Bound only the body
+        # and never inject a notice or truncation marker without recall.
+        encoded = text.encode("utf-8")
+        if len(encoded) > body_budget:
+            content_budget = max(
+                0,
+                body_budget - len(TRUNCATION_MARKER.encode("utf-8")),
+            )
+            body = encoded[:content_budget].decode("utf-8", errors="ignore")
+            body = body.strip()
+            text = body + TRUNCATION_MARKER if body else ""
         if not text:
             return None
-        max_bytes = max(
-            0,
-            int(config.retrieval_token_budget * estimate_divisor),
-        )
-        text = self._clip_utf8(
-            OPENVIKING_UNTRUSTED_HISTORY_NOTICE + "\n\n" + text,
-            self._auto_search_result_budget(
-                query=query,
-                max_results=max_results,
-                max_context_bytes=max_bytes,
-                estimate_divisor=estimate_divisor,
-            ),
-        )
-        if not text:
-            return None
-        return self._tool_chunk(text)
+        return prefix + text
 
     async def _ensure_session(self, session_id: str) -> None:
         if self._client is None:

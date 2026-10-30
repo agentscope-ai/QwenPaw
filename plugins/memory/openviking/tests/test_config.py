@@ -39,3 +39,50 @@ def test_automatic_recall_budget_is_bounded(budget):
 
 def test_api_key_is_normalized_without_being_defaulted():
     assert OpenVikingMemoryConfig(api_key="  test-key  ").api_key == "test-key"
+
+
+@pytest.mark.parametrize(
+    "timeout, budget, max_results",
+    [(1.0, 64, 1), (300.0, 32000, 20)],
+)
+def test_accepts_configuration_boundaries(timeout, budget, max_results):
+    config = OpenVikingMemoryConfig(
+        request_timeout=timeout,
+        retrieval_token_budget=budget,
+        auto_memory_search_config={"max_results": max_results},
+    )
+
+    assert config.request_timeout == timeout
+    assert config.retrieval_token_budget == budget
+    assert config.auto_memory_search_config.max_results == max_results
+
+
+@pytest.mark.parametrize(
+    "timeout",
+    [float("nan"), float("inf"), -float("inf")],
+)
+def test_rejects_nonfinite_timeout(timeout):
+    with pytest.raises(ValidationError):
+        OpenVikingMemoryConfig(request_timeout=timeout)
+
+
+@pytest.mark.parametrize("max_results", [0, 21])
+def test_rejects_out_of_range_auto_search_limit(max_results):
+    with pytest.raises(ValidationError):
+        OpenVikingMemoryConfig(
+            auto_memory_search_config={"max_results": max_results},
+        )
+
+
+def test_rejects_unknown_commit_policy():
+    with pytest.raises(ValidationError):
+        OpenVikingMemoryConfig(commit_policy="unknown")
+
+
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_normalizes_endpoint_without_losing_base_path(scheme):
+    config = OpenVikingMemoryConfig(
+        base_url=f"  {scheme}://openviking.test/service///  ",
+    )
+
+    assert config.base_url == f"{scheme}://openviking.test/service"

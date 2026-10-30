@@ -18,6 +18,31 @@
 - QwenPaw 将 OpenViking 身份、安装实例 ID、Agent ID 与 QwenPaw 对话 ID 哈希为
   OpenViking Session ID。这用于隔离会话，不构成权限控制边界。
 
+## 准备 OpenViking 服务
+
+插件需要连接一个已独立部署、能够正常抽取和检索记忆的 OpenViking 服务。插件
+本身不负责部署 OpenViking，也不负责配置它使用的模型。
+
+1. 如果自行部署，请参考
+   [OpenViking 配置指南](https://github.com/volcengine/OpenViking/blob/main/docs/en/guides/01-configuration.md)，
+   在 OpenViking 服务端配置向量模型、向量维度，以及用于记忆抽取的 VLM/LLM。
+   确认模型平台凭据、访问权限和额度可用。
+2. 启动服务，取得 QwenPaw 能访问的服务 URL，以及目标 account/user 的
+   OpenViking 用户 API Key，分别填入插件的 **Server Endpoint** 和
+   **Tenant API Key**。
+3. 验证真实的记忆抽取和检索。仅 `/health` 返回成功，并不能证明服务端配置的
+   模型能够正常调用。
+
+两种 Key 的用途不同：
+
+- **模型平台 API Key**：在 OpenViking 服务端配置，用于调用向量模型和记忆抽取
+  模型，具体是否需要取决于模型提供方。
+- **OpenViking 用户 API Key**：填写在本插件中，用于验证访问 OpenViking 的
+  用户身份。不要在此处填写模型平台 Key。
+
+如果连接的是他人管理的服务，模型配置由服务管理员完成；使用者只需要取得服务
+URL 和 OpenViking 用户 Key。
+
 ## 安装
 
 先构建插件前端：
@@ -45,8 +70,8 @@ qwenpaw plugin install plugins/memory/openviking
 - **Server Endpoint**：QwenPaw 进程可访问的 OpenViking URL。本机原生运行通常
   是 `http://127.0.0.1:1933`；Docker Compose 中通常是
   `http://openviking:1933`。
-- **Tenant API Key**：在 OpenViking 中为目标 account/user 创建的 Key。它是必填
-  项，并会以密码框显示。
+- **Tenant API Key**：在 OpenViking 中为目标 account/user 创建的用户 Key，
+  不是模型平台 Key。它是必填项，并会以密码框显示。
 - **Request Timeout**：1–300 秒。
 - **Automatic Recall Token Budget**：64–32,000 个估算 token。该值限制完整的自动
   召回消息，包含安全提示本身。

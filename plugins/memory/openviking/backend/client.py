@@ -144,7 +144,7 @@ class OpenVikingClient:
             f"/api/v1/sessions/{session_id}/commit",
             json={"keep_recent_count": 0},
         )
-        return result if isinstance(result, dict) else {}
+        return result
 
     async def search_context(
         self,
@@ -168,7 +168,7 @@ class OpenVikingClient:
                 "max_tokens": token_budget,
             },
         )
-        return result if isinstance(result, dict) else {}
+        return result
 
     async def search_memories(
         self,
@@ -188,8 +188,6 @@ class OpenVikingClient:
                 "mode": "list",
             },
         )
-        if not isinstance(result, dict):
-            return []
         memories = result.get("memories")
         return memories if isinstance(memories, list) else []
 
