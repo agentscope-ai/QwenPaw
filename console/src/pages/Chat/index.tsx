@@ -2341,6 +2341,8 @@ export default function ChatPage() {
   const staleAutoSelectedIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
+  const locationRef = useRef(location);
+  locationRef.current = location;
 
   useEffect(() => {
     const handler = () => {
@@ -3071,9 +3073,13 @@ export default function ChatPage() {
           setLastChatIdRef.current,
           selectedAgentRef.current,
         );
-        navigateRef.current(buildCurrentSessionPath(resolvedTarget), {
-          replace: true,
-        });
+        navigateRef.current(
+          {
+            pathname: buildCurrentSessionPath(resolvedTarget),
+            search: locationRef.current.search,
+          },
+          { replace: true },
+        );
       }
     };
 

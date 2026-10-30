@@ -21,7 +21,13 @@ use windows::{
     core::HSTRING,
     Data::Xml::Dom::XmlDocument,
     Foundation::TypedEventHandler,
-    UI::Notifications::{ToastNotification, ToastNotificationManager},
+    UI::Notifications::{ToastNotification, ToastNotificationManager, ToastNotifier},
+};
+
+#[cfg(target_os = "windows")]
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -35,6 +41,36 @@ pub(crate) struct ApprovalNotificationTarget {
 #[cfg(target_os = "windows")]
 const WINDOWS_POWERSHELL_APP_ID: &str = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\
      \\WindowsPowerShell\\v1.0\\powershell.exe";
+
+#[cfg(target_os = "windows")]
+struct WindowsNotification {
+    notification: ToastNotification,
+    notifier: ToastNotifier,
+    app_id: HSTRING,
+    activated_token: Option<i64>,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsNotification {
+    fn unregister(&mut self) {
+        if let Some(token) = self.activated_token.take() {
+            let _ = self.notification.RemoveActivated(token);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsNotification {
+    fn drop(&mut self) {
+        self.unregister();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn active_windows_notifications() -> &'static Mutex<HashMap<String, WindowsNotification>> {
+    static ACTIVE: OnceLock<Mutex<HashMap<String, WindowsNotification>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 fn open_target(app: &tauri::AppHandle, target: Option<&ApprovalNotificationTarget>) {
     let app = app.clone();
@@ -65,7 +101,7 @@ async fn show_linux(
     lifetime: Duration,
     click_target: Option<ApprovalNotificationTarget>,
 ) -> Result<(), String> {
-    let timeout_ms = lifetime.as_millis().min(i32::MAX as u128) as i32;
+    let timeout_ms = lifetime.as_millis().min(i32::MAX as u128) as u32;
     let title = title.to_owned();
     let body = body.to_owned();
     let handle = tauri::async_runtime::spawn_blocking(move || {
@@ -73,6 +109,7 @@ async fn show_linux(
             .appname("QwenPaw")
             .summary(&title)
             .body(&body)
+            .action("default", &title)
             .timeout(Timeout::Milliseconds(timeout_ms))
             .show()
     })
@@ -148,8 +185,23 @@ fn windows_tag(identifier: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn close_windows(identifier: &str) {
-    if let Ok(history) = ToastNotificationManager::History() {
-        let _ = history.Remove(&HSTRING::from(windows_tag(identifier)));
+    let active = active_windows_notifications()
+        .lock()
+        .expect("Windows notifications poisoned")
+        .remove(identifier);
+    if let Some(mut active) = active {
+        active.unregister();
+        let _ = active.notifier.Hide(&active.notification);
+        let removed = ToastNotificationManager::History().and_then(|history| {
+            history.RemoveGroupedTagWithId(
+                &HSTRING::from(windows_tag(identifier)),
+                &HSTRING::new(),
+                &active.app_id,
+            )
+        });
+        if let Err(error) = removed {
+            log::warn!("Could not remove Windows notification: {error}");
+        }
     }
 }
 
@@ -179,7 +231,7 @@ fn show_windows(
         open_target(&activated_app, activated_target.as_ref());
         Ok(())
     });
-    notification
+    let activated_token = notification
         .Activated(&activated)
         .map_err(|error| error.to_string())?;
 
@@ -188,11 +240,27 @@ fn show_windows(
     } else {
         app.config().identifier.clone()
     };
-    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(app_id))
+    let app_id = HSTRING::from(app_id);
+    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&app_id)
         .map_err(|error| error.to_string())?;
-    notifier
-        .Show(&notification)
-        .map_err(|error| error.to_string())?;
+    // WinRT must keep the toast and its handler alive after Show returns.
+    let previous = active_windows_notifications()
+        .lock()
+        .expect("Windows notifications poisoned")
+        .insert(
+            identifier.to_owned(),
+            WindowsNotification {
+                notification: notification.clone(),
+                notifier: notifier.clone(),
+                app_id,
+                activated_token: Some(activated_token),
+            },
+        );
+    drop(previous);
+    if let Err(error) = notifier.Show(&notification) {
+        close_windows(identifier);
+        return Err(error.to_string());
+    }
     Ok(())
 }
 
@@ -339,7 +407,24 @@ mod tests {
 
 #[cfg(test)]
 mod cross_platform_tests {
-    use super::{toast_xml, windows_tag};
+    use super::{toast_xml, windows_tag, ApprovalNotificationTarget};
+
+    #[test]
+    fn approval_click_target_matches_frontend_event_fields() {
+        let target = ApprovalNotificationTarget {
+            request_id: "approval-1".into(),
+            root_session_id: Some("session-1".into()),
+            agent_id: Some("agent-1".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(target).unwrap(),
+            serde_json::json!({
+                "requestId": "approval-1",
+                "rootSessionId": "session-1",
+                "agentId": "agent-1",
+            })
+        );
+    }
 
     #[test]
     fn windows_toast_text_is_escaped() {

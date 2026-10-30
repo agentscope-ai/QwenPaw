@@ -83,6 +83,13 @@ struct Polling {
 }
 
 impl Polling {
+    fn retire(&mut self) {
+        self.generation += 1;
+        // Let in-flight delivery finish its claim and notification bookkeeping.
+        // The generation checks retire this task before its next snapshot.
+        drop(self.task.take());
+    }
+
     fn claim_start(&mut self, client_id: &str, client_epoch: u64, request_seq: u64) -> bool {
         if client_epoch < self.client_epoch
             || (client_epoch == self.client_epoch
@@ -102,12 +109,14 @@ impl Polling {
 pub(crate) struct NotificationState {
     polling: Mutex<Polling>,
     preferences: Mutex<Preferences>,
+    approvals: tokio::sync::Mutex<ApprovalTracker>,
 }
 
 #[derive(Default)]
 struct ApprovalTracker {
     seeded: bool,
     known: HashSet<String>,
+    displayed: HashSet<String>,
 }
 
 impl ApprovalTracker {
@@ -129,6 +138,26 @@ impl ApprovalTracker {
 
     fn mark_notified(&mut self, request_id: &str) {
         self.known.insert(request_id.to_owned());
+        self.displayed.insert(request_id.to_owned());
+    }
+
+    fn take_closed(&mut self, enabled: bool) -> Vec<String> {
+        let closed: Vec<_> = self
+            .displayed
+            .iter()
+            .filter(|id| !enabled || !self.known.contains(*id))
+            .cloned()
+            .collect();
+        for id in &closed {
+            self.displayed.remove(id);
+        }
+        closed
+    }
+}
+
+async fn close_notifications(ids: Vec<String>) {
+    for id in ids {
+        notification_delivery::close(&format!("qwenpaw-approval:{id}")).await;
     }
 }
 
@@ -200,12 +229,13 @@ fn is_background(app: &tauri::AppHandle) -> bool {
 }
 
 #[tauri::command]
-pub(crate) fn configure_approval_notifications(
-    state: tauri::State<'_, NotificationState>,
+pub(crate) async fn configure_approval_notifications(
+    app: tauri::AppHandle,
     enabled: bool,
     title: String,
     body: String,
 ) {
+    let state = app.state::<NotificationState>();
     *state
         .preferences
         .lock()
@@ -214,6 +244,10 @@ pub(crate) fn configure_approval_notifications(
         title,
         body,
     };
+    if !enabled {
+        let mut tracker = state.approvals.lock().await;
+        close_notifications(tracker.take_closed(false)).await;
+    }
 }
 
 #[tauri::command]
@@ -270,10 +304,7 @@ pub(crate) fn start_console_polling(
     if !polling.claim_start(&client_id, client_epoch, request_seq) {
         return Err("This console polling request was superseded.".into());
     }
-    if let Some(task) = polling.task.take() {
-        task.abort();
-    }
-    polling.generation += 1;
+    polling.retire();
     let generation = polling.generation;
     let handle = app.clone();
     polling.task = Some(tauri::async_runtime::spawn(async move {
@@ -288,10 +319,7 @@ pub(crate) fn stop_console_polling(state: tauri::State<'_, NotificationState>, g
     if polling.generation != generation {
         return;
     }
-    polling.generation += 1;
-    if let Some(task) = polling.task.take() {
-        task.abort();
-    }
+    polling.retire();
 }
 
 async fn poll_console(
@@ -305,20 +333,8 @@ async fn poll_console(
     let cleanup_directory = directory.clone();
     let _ =
         tauri::async_runtime::spawn_blocking(move || remove_old_claims(&cleanup_directory)).await;
-    let mut tracker = ApprovalTracker::default();
-    let mut displayed = HashSet::new();
+    let state = app.state::<NotificationState>();
     while is_current(&app, generation) && !crate::tray::is_quitting(&app) {
-        let enabled = app
-            .state::<NotificationState>()
-            .preferences
-            .lock()
-            .expect("notification preferences poisoned")
-            .enabled;
-        if !enabled {
-            for id in displayed.drain() {
-                notification_delivery::close(&format!("qwenpaw-approval:{id}")).await;
-            }
-        }
         if let Some(port) = crate::backend::console_port(&app) {
             let mut request =
                 client.get(format!("http://127.0.0.1:{port}/api/console/push-messages"));
@@ -331,16 +347,12 @@ async fn poll_console(
             if let Ok(response) = request.send().await {
                 if let Ok(response) = response.error_for_status() {
                     if let Ok(snapshot) = response.json::<Snapshot>().await {
+                        let mut tracker = state.approvals.lock().await;
                         if !is_current(&app, generation) {
                             return;
                         }
                         let fresh = tracker.fresh(&snapshot.pending_approvals, now_seconds());
-                        let resolved: Vec<_> =
-                            displayed.difference(&tracker.known).cloned().collect();
-                        for id in resolved {
-                            notification_delivery::close(&format!("qwenpaw-approval:{id}")).await;
-                            displayed.remove(&id);
-                        }
+                        close_notifications(tracker.take_closed(true)).await;
                         let _ = app.emit(
                             PUSH_EVENT,
                             PushEvent {
@@ -349,6 +361,9 @@ async fn poll_console(
                             },
                         );
                         for approval in fresh {
+                            if !is_current(&app, generation) {
+                                break;
+                            }
                             let preferences = app
                                 .state::<NotificationState>()
                                 .preferences
@@ -411,7 +426,6 @@ async fn poll_console(
                                 .await;
                             } else {
                                 tracker.mark_notified(&approval.request_id);
-                                displayed.insert(approval.request_id.clone());
                             }
                         }
                     }
@@ -475,6 +489,71 @@ mod tests {
         assert_eq!(tracker.fresh(&pending, 103.0).len(), 1);
         tracker.mark_notified("new");
         assert!(tracker.fresh(&pending, 104.0).is_empty());
+    }
+
+    #[test]
+    fn foreground_approval_remains_eligible_after_polling_restarts() {
+        tauri::async_runtime::block_on(async {
+            let state = NotificationState::default();
+            let pending = [approval("new", 101.0)];
+            {
+                let mut tracker = state.approvals.lock().await;
+                assert!(tracker.fresh(&[], 100.0).is_empty());
+                assert_eq!(tracker.fresh(&pending, 102.0).len(), 1);
+            }
+            // Stop the previous subscription and start its replacement.
+            state.polling.lock().unwrap().retire();
+            state.polling.lock().unwrap().retire();
+
+            let mut tracker = state.approvals.lock().await;
+            assert_eq!(tracker.fresh(&pending, 103.0).len(), 1);
+            tracker.mark_notified("new");
+            assert!(tracker.fresh(&pending, 104.0).is_empty());
+        });
+    }
+
+    #[test]
+    fn resolved_notifications_are_reconciled_after_polling_restarts() {
+        tauri::async_runtime::block_on(async {
+            let state = NotificationState::default();
+            {
+                let mut tracker = state.approvals.lock().await;
+                tracker.fresh(&[], 100.0);
+                tracker.mark_notified("delivered");
+            }
+            state.polling.lock().unwrap().retire();
+            state.polling.lock().unwrap().retire();
+
+            let mut tracker = state.approvals.lock().await;
+            tracker.fresh(&[], 102.0);
+            assert_eq!(tracker.take_closed(true), vec!["delivered"]);
+            assert!(tracker.take_closed(true).is_empty());
+        });
+    }
+
+    #[test]
+    fn disabling_after_stop_waits_for_delivery_and_closes_its_notification() {
+        tauri::async_runtime::block_on(async {
+            let state = std::sync::Arc::new(NotificationState::default());
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+            let delivery_state = state.clone();
+            state.polling.lock().unwrap().task = Some(tauri::async_runtime::spawn(async move {
+                let mut tracker = delivery_state.approvals.lock().await;
+                started_tx.send(()).unwrap();
+                finish_rx.await.unwrap();
+                tracker.mark_notified("in-flight");
+            }));
+            started_rx.await.unwrap();
+            state.polling.lock().unwrap().retire();
+            finish_tx.send(()).unwrap();
+
+            let mut tracker = tokio::time::timeout(Duration::from_secs(2), state.approvals.lock())
+                .await
+                .expect("notification delivery should finish after polling stops");
+            assert_eq!(tracker.take_closed(false), vec!["in-flight"]);
+            assert!(tracker.take_closed(false).is_empty());
+        });
     }
 
     #[test]
