@@ -619,6 +619,54 @@ def test_put_api_workspace_transcription_provider_27(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+def test_get_api_workspace_transcription_model(app_server) -> None:
+    """Contract: GET /api/workspace/transcription-model returns a model name."""
+    resp = _req(app_server, "GET", "/api/workspace/transcription-model")
+    assert resp.status_code == 200, app_server.logs_tail()
+    payload = resp.json()
+    assert list(payload) == ["transcription_model"], payload
+    assert isinstance(payload["transcription_model"], str), payload
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_put_api_workspace_transcription_model(app_server) -> None:
+    """Contract: PUT stores a model name that GET reads back, then restores the
+    previous value."""
+    original = _req(app_server, "GET", "/api/workspace/transcription-model")
+    assert original.status_code == 200, app_server.logs_tail()
+    previous = original.json()["transcription_model"]
+
+    model = "FunAudioLLM/SenseVoiceSmall"
+    put = _req(
+        app_server,
+        "PUT",
+        "/api/workspace/transcription-model",
+        json={"transcription_model": f"  {model}  "},
+    )
+    assert put.status_code == 200, app_server.logs_tail()
+    assert put.json() == {"transcription_model": model}, put.text
+
+    read_back = _req(app_server, "GET", "/api/workspace/transcription-model")
+    assert read_back.status_code == 200, app_server.logs_tail()
+    assert read_back.json() == {"transcription_model": model}, read_back.text
+
+    restore = _req(
+        app_server,
+        "PUT",
+        "/api/workspace/transcription-model",
+        json={"transcription_model": previous},
+    )
+    assert restore.status_code == 200, app_server.logs_tail()
+    assert restore.json() == {"transcription_model": previous}, restore.text
+
+    final = _req(app_server, "GET", "/api/workspace/transcription-model")
+    assert final.status_code == 200, app_server.logs_tail()
+    assert final.json() == {"transcription_model": previous}, final.text
+
+
+@pytest.mark.integration
+@pytest.mark.p1
 def test_post_api_workspace_transcribe_28(app_server) -> None:
     """Contract: POST /api/workspace/transcribe with empty body is rejected or
     safely handled."""

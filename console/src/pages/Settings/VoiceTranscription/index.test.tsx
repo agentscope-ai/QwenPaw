@@ -5,10 +5,12 @@ const api = vi.hoisted(() => ({
   getAudioMode: vi.fn(),
   getTranscriptionProviderType: vi.fn(),
   getTranscriptionProviders: vi.fn(),
+  getTranscriptionModel: vi.fn(),
   getLocalWhisperStatus: vi.fn(),
   updateAudioMode: vi.fn(),
   updateTranscriptionProviderType: vi.fn(),
   updateTranscriptionProvider: vi.fn(),
+  updateTranscriptionModel: vi.fn(),
 }));
 const app = vi.hoisted(() => ({
   selectedAgent: "agent-a",
@@ -50,6 +52,10 @@ describe("VoiceTranscriptionPage initial load", () => {
     api.updateAudioMode.mockResolvedValue(undefined);
     api.updateTranscriptionProviderType.mockResolvedValue(undefined);
     api.updateTranscriptionProvider.mockResolvedValue(undefined);
+    api.getTranscriptionModel.mockResolvedValue({
+      transcription_model: "whisper-1",
+    });
+    api.updateTranscriptionModel.mockResolvedValue(undefined);
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -94,6 +100,7 @@ describe("VoiceTranscriptionPage initial load", () => {
     expect(api.updateAudioMode).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProviderType).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProvider).not.toHaveBeenCalled();
+    expect(api.updateTranscriptionModel).not.toHaveBeenCalled();
 
     loadFails = false;
     fireEvent.click(retry);
@@ -115,6 +122,7 @@ describe("VoiceTranscriptionPage initial load", () => {
     expect(api.updateAudioMode).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProviderType).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProvider).not.toHaveBeenCalled();
+    expect(api.updateTranscriptionModel).not.toHaveBeenCalled();
   });
 
   it("hides agent A controls while agent B settings are loading", async () => {
@@ -166,6 +174,7 @@ describe("VoiceTranscriptionPage initial load", () => {
     expect(api.updateAudioMode).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProviderType).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProvider).not.toHaveBeenCalled();
+    expect(api.updateTranscriptionModel).not.toHaveBeenCalled();
 
     bMode.resolve({ audio_mode: "native" });
     bProviderType.resolve({ transcription_provider_type: "local_whisper" });
