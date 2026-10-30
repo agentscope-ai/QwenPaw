@@ -67,10 +67,18 @@ def test_removed_eviction_headline_settings_are_ignored():
     )
 
 
-def test_summary_timeout_config_reaches_manager(tmp_path: Path):
+@pytest.mark.parametrize("shared", [False, True])
+@pytest.mark.parametrize("timeout", [45, 600])
+def test_summary_timeout_config_reaches_manager(
+    tmp_path: Path,
+    shared,
+    timeout,
+):
+    from qwenpaw.agents.context.scroll.history import HistoryStore
+
     config = _agent_config()
     config.running.light_context_config.scroll_config.summary_timeout_seconds = (
-        600
+        timeout
     )
     # Exercise the same JSON round-trip as persisted agent configuration.
     config.running.light_context_config = (
@@ -78,16 +86,30 @@ def test_summary_timeout_config_reaches_manager(tmp_path: Path):
             config.running.light_context_config.model_dump_json(),
         )
     )
-    components = build_scroll_components(
-        agent_config=config,
-        workspace_dir=str(tmp_path),
-        model=_DummyModel(),
-        session_id="s1",
-        agent_id="ag1",
-    )
-    assert components is not None
-    assert components.context_manager._summary_timeout_seconds == 600
-    components.context_manager._history.close()
+    supplied = HistoryStore(tmp_path / "history.db") if shared else None
+    components = None
+    try:
+        components = build_scroll_components(
+            agent_config=config,
+            workspace_dir=str(tmp_path),
+            model=_DummyModel(),
+            session_id="s1",
+            agent_id="ag1",
+            history_store=supplied,
+        )
+        assert components is not None
+        manager = components.context_manager
+        assert manager._summary_timeout_seconds == timeout
+        assert manager._owns_history is (not shared)
+        if supplied is not None:
+            assert manager._history is supplied
+        manager.close()
+        assert manager._history.closed is (not shared)
+    finally:
+        if components is not None:
+            components.context_manager.close()
+        if supplied is not None:
+            assert supplied.close() is True
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
