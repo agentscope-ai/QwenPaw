@@ -101,6 +101,61 @@ def test_streaming_status_is_transient() -> None:
     assert decision.retryable is True
 
 
+def test_gateway_reported_status_is_transient() -> None:
+    """A gateway that reports the status only in the text still retries."""
+    decision = classify_model_error(
+        Exception("status_code=502, 请联系管理员处理！ (request id: abc123)"),
+    )
+
+    assert decision.status_code == 502
+    assert decision.kind == "transient"
+    assert decision.retryable is True
+    assert decision.fallback_eligible is True
+
+
+def test_gateway_reported_status_on_sdk_error_is_transient() -> None:
+    """The OpenAI SDK raises a bare APIError without status_code."""
+    error = openai.APIError(
+        "status_code=503, upstream is overloaded (request id: abc123)",
+        request=None,
+        body=None,
+    )
+
+    decision = classify_model_error(error)
+
+    assert decision.status_code == 503
+    assert decision.kind == "transient"
+    assert decision.retryable is True
+    assert decision.fallback_eligible is True
+
+
+def test_gateway_reported_client_error_is_not_retryable() -> None:
+    decision = classify_model_error(Exception("status_code=400, bad request"))
+
+    assert decision.status_code == 400
+    assert decision.kind == "bad_request"
+    assert decision.retryable is False
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "status_code=200, ok",
+        "expected status_code=200 but the gateway hung",
+        "status_code=99999, out of range",
+        "status code 502, missing the equals sign",
+        "request id 502 without a status_code prefix",
+        "the upstream returned 502 after retrying",
+    ],
+)
+def test_unrelated_numbers_are_not_read_as_gateway_status(message):
+    decision = classify_model_error(Exception(message))
+
+    assert decision.status_code is None
+    assert decision.kind == "unknown"
+    assert decision.retryable is False
+
+
 def test_remote_protocol_error_is_transient() -> None:
     decision = classify_model_error(
         httpx.RemoteProtocolError("peer closed connection"),

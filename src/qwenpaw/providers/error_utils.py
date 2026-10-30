@@ -13,6 +13,15 @@ _STREAMING_ERROR_STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Some OpenAI-compatible gateways report the real failure only inside the
+# error text, for example "status_code=502, contact your administrator".
+# Only client and server error codes are accepted, so a success code quoted
+# in a message ("expected status_code=200") is never mistaken for a failure.
+_GATEWAY_STATUS_CODE_RE = re.compile(
+    r"\bstatus_code\s*=\s*([45]\d{2})\b",
+    re.IGNORECASE,
+)
+
 
 def _as_http_status(value: Any) -> int | None:
     """Return *value* as a valid HTTP status code, if possible."""
@@ -35,6 +44,16 @@ def _status_from_streaming_error_message(value: Any) -> int | None:
     return _as_http_status(match.group(1))
 
 
+def _status_from_gateway_error_message(value: Any) -> int | None:
+    """Extract a status a gateway reported in its own error text."""
+    if not isinstance(value, str):
+        return None
+    match = _GATEWAY_STATUS_CODE_RE.search(value)
+    if match is None:
+        return None
+    return _as_http_status(match.group(1))
+
+
 def _iter_streaming_error_messages(exc: Exception) -> Iterator[Any]:
     """Yield message fields that may contain an in-stream HTTP status."""
     yield getattr(exc, "message", None)
@@ -52,6 +71,20 @@ def _iter_streaming_error_messages(exc: Exception) -> Iterator[Any]:
         for container in (payload, payload.get("error")):
             if isinstance(container, dict):
                 yield container.get("message")
+
+
+def _status_from_error_messages(exc: Exception) -> int | None:
+    """Extract a status a provider or gateway reported in an error message."""
+    for message in _iter_streaming_error_messages(exc):
+        status = _status_from_streaming_error_message(message)
+        if status is not None:
+            return status
+        # A gateway that fails mid-stream may also report the status as
+        # "status_code=502, ..." without the streaming-error wording.
+        status = _status_from_gateway_error_message(message)
+        if status is not None:
+            return status
+    return None
 
 
 def extract_status_code(exc: Exception) -> int | None:
@@ -91,14 +124,9 @@ def extract_status_code(exc: Exception) -> int | None:
     # failure inside the SSE stream.  The OpenAI SDK raises a base APIError
     # for that event, with no status_code; certain gateways retain the status
     # only in a message such as "Streaming response failed: [503] ...".
-    # Keep this fallback deliberately narrow to avoid treating unrelated
+    # Keep these fallbacks deliberately narrow to avoid treating unrelated
     # three-digit numbers in provider messages as HTTP status codes.
-    for message in _iter_streaming_error_messages(exc):
-        status = _status_from_streaming_error_message(message)
-        if status is not None:
-            return status
-
-    return None
+    return _status_from_error_messages(exc)
 
 
 def is_request_body_too_large(exc: Exception) -> bool:
