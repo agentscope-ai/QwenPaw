@@ -413,6 +413,21 @@ def plugin():
     """Plugin management commands."""
 
 
+@plugin.command("migrate-legacy-harnesses")
+@click.option("--plugin-dir", required=True, type=click.Path(path_type=Path))
+@click.option("--apply/--dry-run", default=False)
+def migrate_legacy_harnesses_command(plugin_dir: Path, apply: bool):
+    """Prepare local bundles in QWENPAW_WORKING_DIR before host restart."""
+    from ..plugins.harness_migration import migrate_legacy_harnesses
+
+    click.echo(
+        json.dumps(
+            asyncio.run(migrate_legacy_harnesses(plugin_dir, apply=apply)),
+            indent=2,
+        ),
+    )
+
+
 @plugin.group()
 def preset():
     """Choose dormant bundled channel sources for this working directory."""

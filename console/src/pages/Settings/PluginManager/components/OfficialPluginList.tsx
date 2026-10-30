@@ -48,12 +48,16 @@ function kindLabelKey(kind: string): string {
 }
 
 interface OfficialPluginListProps {
+  initialSearch?: string;
   onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
-export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
+export function OfficialPluginList({
+  initialSearch = "",
+  onInstalled,
+}: OfficialPluginListProps) {
   const { t, i18n } = useTranslation();
-  const [nameFilter, setNameFilter] = useState("");
+  const [nameFilter, setNameFilter] = useState(initialSearch);
   const [kindFilter, setKindFilter] = useState<string | undefined>();
   const [viewMode, setViewMode] = useState<PluginViewMode>("card");
   const [selectedVersions, setSelectedVersions] = useState<
@@ -88,7 +92,9 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
     const keyword = nameFilter.trim().toLocaleLowerCase();
     return selectedPlugins.filter(({ entry }) => {
       const matchesName =
-        !keyword || entry.name.toLocaleLowerCase().includes(keyword);
+        !keyword ||
+        entry.name.toLocaleLowerCase().includes(keyword) ||
+        entry.plugin_id.toLocaleLowerCase().includes(keyword);
       const matchesKind =
         !kindFilter || entry.kind?.toLowerCase() === kindFilter;
       return matchesName && matchesKind;

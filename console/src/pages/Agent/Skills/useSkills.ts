@@ -1,3 +1,4 @@
+import { useBackendCapabilities } from "../../../utils/agentBackend";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Modal } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -46,8 +47,9 @@ export function useSkills() {
   const { selectedAgent, agents } = useAgentStore();
   const selectedAgentInfo = agents.find((item) => item.id === selectedAgent);
   const selectedBackend = selectedAgentInfo?.backend ?? "qwenpaw";
+  const capabilities = useBackendCapabilities(selectedAgentInfo);
   const canDiscoverProviderSkills = Boolean(
-    selectedAgentInfo?.backend_capabilities?.provider_skills_discovery,
+    capabilities?.provider_skills_discovery,
   );
   const [skills, setSkills] = useState<SkillSpec[]>([]);
   const [providerSkills, setProviderSkills] = useState<

@@ -74,7 +74,7 @@ const approvalStyles = readSource(
   "src/pages/Chat/components/ApprovalToggle.module.less",
 );
 const harnessModelStyles = readSource(
-  "src/pages/Chat/components/HarnessModelSelector.module.less",
+  "src/pages/Chat/components/BackendModelSelector.module.less",
 );
 const agentStatusStyles = readSource(
   "src/components/AgentStatusIndicator/index.module.less",

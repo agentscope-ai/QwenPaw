@@ -12,7 +12,14 @@ from pydantic import BaseModel, Field
 from ...config.config import load_agent_config_async
 from ...portability.import_jobs import PortabilityImportJobManager
 from ...portability.models import ImportSelection
-from ...portability.providers import provider_names, resolve_source_location
+from ...portability.providers import (
+    HarnessPluginRequiredError,
+    harness_plugin_state,
+    provider_names,
+    require_harness_plugin,
+    resolve_source_location,
+)
+from ...utils.io_utils import run_sync_io
 from ..auth import is_loopback_ip, is_trusted_proxy, resolve_client_ip
 from ..agent_context import get_agent_for_request
 
@@ -66,7 +73,11 @@ def _local_only(request: Request) -> None:
 def _api_error(exc: Exception) -> HTTPException:
     return HTTPException(
         status_code=409 if isinstance(exc, RuntimeError) else 400,
-        detail=str(exc),
+        detail=(
+            exc.detail
+            if isinstance(exc, HarnessPluginRequiredError)
+            else str(exc)
+        ),
     )
 
 
@@ -86,15 +97,25 @@ async def list_import_sources(request: Request) -> list[dict]:
     _local_only(request)
     result = []
     for source in provider_names():
-        location = resolve_source_location(source)
+        plugin_id, state = harness_plugin_state(source)
+        location = (
+            await run_sync_io(resolve_source_location, source)
+            if state == "available"
+            else None
+        )
         result.append(
             {
                 "source": source,
                 "name": source.title(),
+                "plugin_id": plugin_id,
+                "plugin_state": state,
                 "detected": bool(
-                    location.data_home_exists
-                    or location.user_data_home_exists
-                    or location.runtime_path,
+                    location
+                    and (
+                        location.data_home_exists
+                        or location.user_data_home_exists
+                        or location.runtime_path
+                    ),
                 ),
             },
         )
@@ -111,6 +132,8 @@ async def create_import_job(
     workspace = await get_agent_for_request(request)
     try:
         await _require_qwenpaw_backend(workspace)
+        for source in body.sources:
+            require_harness_plugin(source)
         return await PORTABILITY_IMPORT_JOBS.create(workspace, body.sources)
     except (ValueError, RuntimeError) as exc:
         raise _api_error(exc) from exc
@@ -151,6 +174,8 @@ async def start_import_job(
             and not body.allow_plugin_execution
         ):
             raise ValueError("confirm plugin code execution before importing")
+        for source in body.selections:
+            require_harness_plugin(source)
         return await PORTABILITY_IMPORT_JOBS.start(
             workspace,
             job_id,
@@ -176,6 +201,8 @@ async def retry_import_job(
             and not body.allow_plugin_execution
         ):
             raise ValueError("confirm plugin code execution before importing")
+        for source in body.selections:
+            require_harness_plugin(source)
         return await PORTABILITY_IMPORT_JOBS.retry(
             workspace,
             job_id,

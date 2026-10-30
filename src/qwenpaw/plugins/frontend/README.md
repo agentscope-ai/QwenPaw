@@ -45,3 +45,14 @@ using the current Console language when rendering navigation and page titles;
 do not read `navigator.language` or call React hooks during registration.
 Existing string labels remain unchanged, and omitting `title` preserves the
 host's path-derived title.
+
+
+Harness Settings extensions require SDK 1.1. Import `HarnessSettingsProps` and
+`getHost` from this public package and register through
+`getHost().harnesses.register(pluginId, extension)`. The host renders only the
+selected available backend whose authoritative catalog owner matches that
+plugin. Disabled, failed or unknown owners remain inert. `host.fetch` supplies
+current authentication and Agent identity; do not copy private Console clients
+or maintain an independent token. Dispose registrations on cleanup; stale handles
+cannot revoke replacement contributions. The optional Codex/Qoder account UI and
+locale text belong to their plugin bundles, not this SDK or the core Console.

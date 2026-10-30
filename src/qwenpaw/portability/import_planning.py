@@ -17,7 +17,11 @@ from .import_support import (
 )
 from .models import ImportSelection, MigrationPlan, ProviderInventory
 from .planner import build_migration_plan, tool_asset_fingerprints
-from .providers import create_migration_provider
+from .providers import (
+    create_migration_provider,
+    require_harness_plugin,
+    resolve_source_location,
+)
 from .providers.base import ProgressReporter, report_progress as _report
 from .selection import select_inventory, validate_plan_selection
 from .transaction_journal import ImportTransactionJournal
@@ -252,8 +256,14 @@ class ImportPlanningMixin:
         include_sessions: bool = True,
         session_ids: set[str] | None = None,
     ) -> ProviderInventory:
+        require_harness_plugin(source)
+        location = await io_utils.run_sync_io(resolve_source_location, source)
+        provider = create_migration_provider(
+            source,
+            self._workspace,
+            source_location=location,
+        )
         await _report(progress, f"正在检测 {source} 并读取可迁移内容…")
-        provider = create_migration_provider(source, self._workspace)
         inventory = await provider.inventory(
             limit=_MAX_SESSIONS,
             progress=progress,

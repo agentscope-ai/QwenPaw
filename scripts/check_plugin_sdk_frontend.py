@@ -71,10 +71,20 @@ for name in ("@types/react", "@types/prop-types", "csstype"):
 import {
   SDK_VERSION, getHost, forApp, tasks, capabilities,
   type TaskSnapshot, type CancelResult, type PluginRouteDeclaration,
+  type HarnessSettingsProps, type HarnessFrontendExtension,
 } from "@qwenpaw/plugin-sdk";
 import "@qwenpaw/plugin-sdk/globals";
 const version: string = SDK_VERSION;
 const host = getHost();
+const harness: HarnessFrontendExtension = {
+  backendId: "author-backend",
+  SettingsComponent: (props: HarnessSettingsProps) => {
+    props.onChange({...props.value, model: "selected"});
+    return null;
+  },
+};
+host.harnesses.register("author", harness).dispose();
+window.QwenPaw.harnesses.register("author", harness).dispose();
 const app = forApp("author-app");
 const legacyRoute: PluginRouteDeclaration = {
   path: "/plugin/author/legacy", component: () => null, label: "Legacy label",

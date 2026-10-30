@@ -50,17 +50,6 @@
     "decrease": "Diminuir",
     "increase": "Aumentar"
   },
-  "harnesses": {
-    "connected": "Conectado",
-    "disconnected": "Desconectado",
-    "notConnected": "Não conectado",
-    "comingSoon": "Em breve",
-    "connect": "Conectar com o ChatGPT",
-    "disconnect": "Desconectar",
-    "apiKeyAuthenticated": "Autenticado com chave de API",
-    "chatGptAuthenticated": "Conectado ao ChatGPT",
-    "cliAuthenticated": "{{type}} CLI autenticado"
-  },
   "desktop": {
     "update": {
       "title": "Atualizar o QwenPaw?",
@@ -724,29 +713,12 @@
       "thirdPartyDescription": "Usa um runtime de agente externo autorizado em vez de um modelo do QwenPaw.",
       "providerTitle": "Escolha um agente de terceiros",
       "providerDescription": "A autenticação é compartilhada neste dispositivo; projetos e conversas permanecem isolados por agente.",
-      "codexHint": "ChatGPT OAuth · Workspace do agente",
-      "qoderHint": "Conta Qoder ou PAT · Workspace do agente",
-      "account": "Conta do Codex",
-      "qoderAccount": "Conta do Qoder",
-      "binary": "Executável do Codex",
-      "binaryHelp": "Deixe em branco para priorizar o Codex CLI incluído no SDK Python e detectar uma instalação independente. Se preencher, informe o caminho completo para codex no macOS/Linux ou codex.exe no Windows. Binários internos do aplicativo ChatGPT ou de extensões do editor não são compatíveis. O QwenPaw também lê CODEX_BINARY e o PATH do backend.",
-      "binaryPlaceholder": "Detectar automaticamente ou colar o caminho do executável Codex",
-      "qoderBinary": "Executável do Qoder",
-      "qoderBinaryHelp": "Deixe em branco para usar o qodercli incluído no SDK Python ou detectar uma instalação existente. Se preencher, informe o caminho completo para qodercli no macOS/Linux ou qodercli.exe no Windows. O QwenPaw também lê QODERCLI_PATH e o PATH do backend.",
-      "qoderBinaryPlaceholder": "Detectar automaticamente ou colar o caminho do qodercli",
       "detect": "Detectar",
-      "detectedBinary": "Codex detectado",
-      "qoderDetectedBinary": "Qoder detectado",
-      "apiKeyLoginHint": "Você também pode autenticar no terminal com: codex login --with-api-key",
-      "qoderAuthHint": "Conectar abre o login do Qoder no navegador. Você também pode executar qodercli login ou definir QODER_PERSONAL_ACCESS_TOKEN antes de iniciar o backend.",
-      "qoderConnect": "Conectar ao Qoder",
       "model": "Modelo do agente",
       "modelDefault": "Usar o padrão do agente",
       "defaultBadge": "Padrão",
       "reasoningEffort": "Nível de raciocínio",
       "reasoningDefault": "Usar o padrão do modelo",
-      "codexNotFound": "O runtime do Codex não foi encontrado. Instale qwenpaw[codex] ou forneça um Codex CLI independente.",
-      "qoderNotFound": "O runtime do Qoder não foi encontrado. Instale qwenpaw[qoder] ou forneça o qodercli.",
       "chatSettingsHint": "Escolha o modelo, o nível de raciocínio e as permissões de execução na barra de ferramentas do Chat.",
       "capabilityTitle": "Recursos do QwenPaw",
       "inheritedSkills": "Skills",
@@ -759,35 +731,11 @@
       "chatModelHint": "Configurações por agente · aplicadas no próximo turno",
       "appliesNextTurn": "Aplicado no próximo turno",
       "approvalMode": "Permissões de execução",
-      "approvalPresets": {
-        "ask": {
-          "name": "Perguntar antes de alterar",
-          "description": "Permite alterações no workspace e solicita confirmação antes de ações elevadas."
-        },
-        "read-only": {
-          "name": "Somente leitura",
-          "description": "Inspeciona arquivos sem alterá-los."
-        },
-        "workspace": {
-          "name": "Acesso ao workspace",
-          "description": "Permite alterações no workspace sem confirmação."
-        },
-        "accept-edits": {
-          "name": "Aceitar edições",
-          "description": "Permite edições de arquivos mantendo as demais proteções."
-        },
-        "plan": {
-          "name": "Somente planejar",
-          "description": "Analisa e planeja sem alterar arquivos."
-        },
-        "auto": {
-          "name": "Automático",
-          "description": "Deixa o Qoder decidir quais ações seguras podem ser executadas."
-        },
-        "full-access": {
-          "name": "Acesso total",
-          "description": "Permite execução local irrestrita sem confirmação."
-        }
+      "installPlugin": "Instalar um plugin de backend",
+      "states": {
+        "missing": "Não instalado",
+        "disabled": "Desativado",
+        "failed": "Falha na ativação"
       }
     },
     "create": "Criar Agente",
@@ -4766,7 +4714,16 @@
     "marketSortLabel": "Sort plugins",
     "marketSortDownloads": "Most downloaded",
     "marketSortUpdated": "Recently updated",
-    "marketSortFavorites": "Most favorited"
+    "marketSortFavorites": "Most favorited",
+    "disableSuccess": "Plugin disabled",
+    "disableFailed": "Could not finish disabling the plugin; check its diagnostics",
+    "busy": {
+      "disable": {
+        "warning": "Disabling this plugin will interrupt its active tasks. Continue?",
+        "confirm": "Interrupt and disable",
+        "cancel": "Keep enabled"
+      }
+    }
   },
   "inbox": {
     "title": "Colheita diária de IA",

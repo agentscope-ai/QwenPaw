@@ -36,7 +36,6 @@ from .access_control import router as access_control_router
 from .mail_access_control import router as mail_access_control_router
 from .provider_oauth import router as provider_oauth_router
 from .pawapps import router as pawapps_router
-from .harnesses import router as harnesses_router
 from .checkpoints import router as checkpoints_router
 from .terminal import router as terminal_router
 
@@ -75,7 +74,6 @@ router.include_router(access_control_router)
 router.include_router(mail_access_control_router)
 router.include_router(provider_oauth_router)
 router.include_router(pawapps_router)
-router.include_router(harnesses_router)
 router.include_router(checkpoints_router)
 router.include_router(terminal_router)
 

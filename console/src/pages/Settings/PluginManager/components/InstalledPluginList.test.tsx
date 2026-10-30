@@ -30,6 +30,10 @@ const props = {
   updatingAll: false,
   onUpdate: vi.fn(),
   onUpdateAll: vi.fn(),
+  enablingId: null,
+  onEnable: vi.fn(),
+  onRepair: vi.fn(),
+  onDisable: vi.fn(),
 };
 
 function plugin(loaded: boolean, status?: string): PluginInfo {
@@ -94,4 +98,28 @@ describe("installed plugin status", () => {
     expectTags("Running", "success", 2);
     expect(screen.queryByText("Error")).not.toBeInTheDocument();
   });
+
+  it.each([
+    [false, false, "inactive", "common.enable", props.onEnable],
+    [true, true, "failed", "pluginManager.repair", props.onRepair],
+    [true, true, "active", "common.disable", props.onDisable],
+  ] as const)(
+    "offers enabled=%s loaded=%s status=%s action %s",
+    (enabled, loaded, status, label, action) => {
+      [props.onEnable, props.onRepair, props.onDisable].forEach((handler) =>
+        handler.mockClear(),
+      );
+      const target = { ...plugin(loaded, status), enabled };
+      render(<InstalledPluginList {...props} plugins={[target]} />);
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      expect(action).toHaveBeenCalledOnce();
+      expect(action).toHaveBeenCalledWith(target);
+      for (const other of [
+        props.onEnable,
+        props.onRepair,
+        props.onDisable,
+      ].filter((handler) => handler !== action))
+        expect(other).not.toHaveBeenCalled();
+    },
+  );
 });

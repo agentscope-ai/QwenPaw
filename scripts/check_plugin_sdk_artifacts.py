@@ -16,6 +16,8 @@ import subprocess
 import tarfile
 import zipfile
 
+from packaging.requirements import Requirement
+
 # These suites use private host adapters or repository-only fixtures.
 INTERNAL = {
     "test_sdk_entry_contract.py",
@@ -30,7 +32,11 @@ INTERNAL = {
 }
 
 
-def prepare_author_tests(source: Path, root: Path) -> list[str]:
+def prepare_author_tests(
+    source: Path,
+    root: Path,
+    selected: list[str] | None = None,
+) -> list[str]:
     """Copy the standalone author suite and its local helpers."""
     suite = root / "author_tests"
     suite.mkdir()
@@ -42,10 +48,14 @@ def prepare_author_tests(source: Path, root: Path) -> list[str]:
         shutil.copy2(source / "tests/unit/plugins" / fixture, suite)
     tests = []
     for file in sorted((source / "tests/unit/plugins").glob("test_sdk_*.py")):
-        if file.name not in INTERNAL:
+        if file.name not in INTERNAL and (
+            selected is None or file.name in selected
+        ):
             shutil.copy2(file, suite)
             tests.append(file.name)
     assert tests, "No public author tests found in build snapshot"
+    if selected is not None:
+        assert set(tests) == set(selected), "Unknown or internal author tests"
     (root / "pytest.ini").write_text("[pytest]\nasyncio_mode = auto\n")
     return tests
 
@@ -59,6 +69,7 @@ def main():
     parser.add_argument("--python", type=Path, required=True)
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--test-files", nargs="+")
     args = parser.parse_args()
     root, source = args.output.resolve(), args.source_root.resolve()
     assert not root.exists(), "Author output must be a new directory"
@@ -84,6 +95,7 @@ def main():
         + env.get("PATH", ""),
         QWENPAW_WORKING_DIR=str(root / "runtime/working"),
         QWENPAW_SECRET_DIR=str(root / "runtime/secrets"),
+        QWENPAW_DEPENDENCY_STATE_DIR=str(root / "runtime/dependencies"),
         XDG_CACHE_HOME=str(root / "runtime/cache"),
         XDG_CONFIG_HOME=str(root / "runtime/config"),
         QWENPAW_LOG_LEVEL="warning",
@@ -112,8 +124,50 @@ def main():
         if artifact.suffix == ".whl":
             with zipfile.ZipFile(artifact) as archive:
                 names = archive.namelist()
+                metadata = archive.read(
+                    next(
+                        n for n in names if n.endswith(".dist-info/METADATA")
+                    ),
+                ).decode()
+            assert not any(
+                name.startswith(
+                    (
+                        "qwenpaw/harnesses/",
+                        "openai_codex/",
+                        "codex_cli_bin/",
+                        "qoder_agent_sdk/",
+                    ),
+                )
+                for name in names
+            ), "Optional Harness runtime leaked into core wheel"
+            for line in metadata.splitlines():
+                if not line.startswith("Requires-Dist: "):
+                    continue
+                requirement = Requirement(line.removeprefix("Requires-Dist: "))
+                if requirement.marker and not requirement.marker.evaluate(
+                    {"extra": "full"},
+                ):
+                    continue
+                assert requirement.name.lower().replace("_", "-") not in {
+                    "openai-codex",
+                    "openai-codex-cli-bin",
+                    "codex-cli-bin",
+                    "qoder-agent-sdk",
+                }, "Optional Harness dependency required by core wheel"
+                if requirement.name.lower() == "qwenpaw":
+                    assert not {"codex", "qoder"} & requirement.extras
             assert "qwenpaw/plugins/frontend/package.json" in names
+            assert "qwenpaw/plugins/frontend/index.js" in names
             assert "qwenpaw/plugins/templates/hello/plugin.json" in names
+            assert "qwenpawmail_mcp/__init__.py" in names
+            for hub in (
+                "qwenpaw-hub",
+                "clawhub-hub",
+                "modelscope-hub",
+                "aliyun-hub",
+            ):
+                assert any(n.endswith(f"/{hub}/plugin.json") for n in names)
+                assert any(n.endswith(f"/{hub}/plugin.py") for n in names)
         else:
             with tarfile.open(artifact) as archive:
                 names = archive.getnames()
@@ -142,6 +196,15 @@ print(json.dumps({{
     report["environment"] = json.loads(
         run("installed-import", "-c", import_check),
     )
+    run(
+        "native-app-import",
+        "-c",
+        "from importlib.util import find_spec; "
+        "from qwenpaw.app._app import app; "
+        "assert app is not None; "
+        "assert all(find_spec(name) is None for name in "
+        "('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk'))",
+    )
     typing_source = source / "tests/typing/plugin_sdk_author.py"
     shutil.copy2(typing_source, root / typing_source.name)
     run(
@@ -152,7 +215,7 @@ print(json.dumps({{
         "--follow-imports=silent",
         str(root / typing_source.name),
     )
-    report["tests"] = prepare_author_tests(source, root)
+    report["tests"] = prepare_author_tests(source, root, args.test_files)
     run(
         "public-author-tests",
         "-m",

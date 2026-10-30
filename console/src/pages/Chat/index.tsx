@@ -272,8 +272,8 @@ import {
   stopBackgroundWatchersNotInSession,
 } from "../../hooks/useBackgroundTaskWatcher";
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
-import HarnessApprovalToggle from "./components/HarnessApprovalToggle";
-import HarnessModelSelector from "./components/HarnessModelSelector";
+import BackendApprovalToggle from "./components/BackendApprovalToggle";
+import BackendModelSelector from "./components/BackendModelSelector";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { normalizeLevel, type ToolExecutionLevel } from "../../utils/approval";
 import {
@@ -292,6 +292,7 @@ import {
 import {
   requiresQwenPawModel,
   supportsAgentAttachments,
+  useBackendCapabilities,
 } from "../../utils/agentBackend";
 
 // ---------------------------------------------------------------------------
@@ -1419,7 +1420,7 @@ export default function ChatPage() {
   >([]);
   const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
   const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
-  const backendCapabilities = selectedAgentInfo?.backend_capabilities;
+  const backendCapabilities = useBackendCapabilities(selectedAgentInfo);
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
   // An Advisor conversation runs two models, so its pill shows the pair.
   const advisorConversation = useIsAdvisorConversation();
@@ -4093,7 +4094,10 @@ export default function ChatPage() {
                 />
               )
             ) : backendCapabilities?.model_selection ? (
-              <HarnessModelSelector providerId={selectedAgentBackend} />
+              <BackendModelSelector
+                backendId={selectedAgentBackend}
+                capabilities={backendCapabilities}
+              />
             ) : null}
             {pluginSenderPrefix}
           </>
@@ -4145,7 +4149,7 @@ export default function ChatPage() {
                 }}
               />
             ) : approvalPresets.length > 0 ? (
-              <HarnessApprovalToggle
+              <BackendApprovalToggle
                 backend={selectedAgentBackend}
                 sessionId={queueKey}
                 presets={approvalPresets}

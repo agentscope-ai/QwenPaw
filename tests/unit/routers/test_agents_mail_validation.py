@@ -423,7 +423,9 @@ def test_update_agent_rejects_mail_when_existing_backend_third_party():
     assert "qwenpaw backend" in exc_info.value.detail
 
 
-def test_update_agent_rejects_mail_with_explicit_third_party_backend():
+def test_update_agent_rejects_mail_with_explicit_third_party_backend(
+    installed_router_harnesses,
+):
     body = AgentProfileConfig(
         id="a1",
         name="bot",
@@ -693,7 +695,10 @@ def test_update_personal_mail_to_none_revokes_driver_card(tmp_path):
     assert not card_path.exists()
 
 
-def test_update_qwenpaw_to_third_party_revokes_driver_card(tmp_path):
+def test_update_qwenpaw_to_third_party_revokes_driver_card(
+    tmp_path,
+    installed_router_harnesses,
+):
     updated = _run_mail_revocation_update(
         tmp_path,
         AgentProfileConfig(

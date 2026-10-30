@@ -17,6 +17,9 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
+from pydantic import TypeAdapter
+
+from ..plugins.harnesses import HarnessHistoryItem
 from .models import (
     SourceMemoryProject,
     SourceMCPServer,
@@ -36,6 +39,9 @@ _PLAN_ID_PATTERN = re.compile(r"^plan-[0-9a-f]{32}$")
 
 MemoryPayloads = dict[str, dict[Path, bytes]]
 MemorySourcePayloads = dict[Path, bytes]
+
+
+_HISTORY_ITEM_JSON = TypeAdapter(HarnessHistoryItem)
 
 
 def _session_key(provider_id: str, source_id: str) -> str:
@@ -83,8 +89,7 @@ def _bounded_session(session: SourceSession) -> SourceSession:
             f"Session {session.source_id} exceeds the history item limit.",
         )
     size = sum(
-        len(item.model_dump_json().encode("utf-8", errors="replace"))
-        for item in session.history
+        len(_HISTORY_ITEM_JSON.dump_json(item)) for item in session.history
     )
     if size > _MAX_SESSION_TEXT_BYTES:
         raise ValueError(

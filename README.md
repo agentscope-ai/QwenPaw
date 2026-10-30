@@ -106,6 +106,8 @@ qwenpaw app
 
 Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Lark, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
 
+Codex and Qoder backends are optional plugins installed separately in **Settings → Plugins**. The `full` extra excludes their SDKs; transitional `codex`/`qoder` extras only prepare dependencies. Existing users should follow the [prepared migration instructions](https://qwenpaw.agentscope.io/docs/plugins#optional-codex-and-qoder-backends) before restarting an upgraded host.
+
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 ---

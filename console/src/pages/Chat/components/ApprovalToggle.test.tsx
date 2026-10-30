@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { migrateChatSessionPreferences } from "../chatSessionPreferences";
 import { renderWithProviders } from "@/test/common_setup";
 import ApprovalLevelToggle from "./ApprovalLevelToggle";
-import HarnessApprovalToggle from "./HarnessApprovalToggle";
+import BackendApprovalToggle from "./BackendApprovalToggle";
 
 const { mockUseIsMobile } = vi.hoisted(() => ({
   mockUseIsMobile: vi.fn(() => false),
@@ -82,8 +82,8 @@ describe("compact approval controls", () => {
 
   it("renders only the harness approval icon", () => {
     const { container } = renderWithProviders(
-      <HarnessApprovalToggle
-        backend="codex"
+      <BackendApprovalToggle
+        backend="third-party"
         compact
         onChange={vi.fn()}
         presets={[
@@ -240,8 +240,8 @@ describe("compact approval controls", () => {
     mockUseIsMobile.mockReturnValue(true);
     const user = userEvent.setup();
     renderWithProviders(
-      <HarnessApprovalToggle
-        backend="codex"
+      <BackendApprovalToggle
+        backend="third-party"
         compact
         onChange={vi.fn()}
         presets={[
@@ -280,9 +280,9 @@ describe("compact approval controls", () => {
     expect(manualOption).not.toBeNull();
     await user.click(manualOption!);
 
-    expect(localStorage.getItem("harness-approval-codex-mobile-test")).toBe(
-      "manual",
-    );
+    expect(
+      localStorage.getItem("harness-approval-third-party-mobile-test"),
+    ).toBe("manual");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 });

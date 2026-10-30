@@ -116,6 +116,7 @@ vi.mock("../../../utils/scanError", () => ({
 }));
 
 import { useSkills } from "./useSkills";
+import { harnessRegistry } from "../../../plugins/harnesses";
 import { notifySkillChange } from "../../../utils/skillChangeEvents";
 
 const {
@@ -179,6 +180,7 @@ async function flushMicrotasks(times = 6) {
 
 describe("useSkills hardRefresh and provider discovery paths", () => {
   beforeEach(() => {
+    harnessRegistry.syncCatalog([]);
     vi.clearAllMocks();
     apiMocks.listSkills.mockReset();
     apiMocks.refreshSkills.mockReset();
@@ -258,6 +260,16 @@ describe("useSkills hardRefresh and provider discovery paths", () => {
   });
 
   it("provider discovery: surfaces the backend warning message", async () => {
+    harnessRegistry.syncCatalog([
+      {
+        id: "qoder",
+        label: "Qoder",
+        plugin_id: "qwenpaw-harness-qoder",
+        status: "available",
+        capabilities: { provider_skills_discovery: true },
+        config_fields: [],
+      },
+    ]);
     agentState.agents = [
       {
         id: "agent-1",
@@ -288,6 +300,16 @@ describe("useSkills hardRefresh and provider discovery paths", () => {
   });
 
   it("provider discovery failure: keeps an empty inventory instead of throwing", async () => {
+    harnessRegistry.syncCatalog([
+      {
+        id: "qoder",
+        label: "Qoder",
+        plugin_id: "qwenpaw-harness-qoder",
+        status: "available",
+        capabilities: { provider_skills_discovery: true },
+        config_fields: [],
+      },
+    ]);
     agentState.agents = [
       {
         id: "agent-1",
@@ -337,6 +359,7 @@ describe("useSkills hardRefresh and provider discovery paths", () => {
 
 describe("useSkills error routing paths", () => {
   beforeEach(() => {
+    harnessRegistry.syncCatalog([]);
     vi.clearAllMocks();
     apiMocks.listSkills.mockReset();
     apiMocks.createSkill.mockReset();
@@ -529,6 +552,7 @@ describe("useSkills error routing paths", () => {
 
 describe("useSkills importFromHub polling paths", () => {
   beforeEach(() => {
+    harnessRegistry.syncCatalog([]);
     vi.clearAllMocks();
     apiMocks.listSkills.mockReset();
     apiMocks.startHubSkillInstall.mockReset();
@@ -755,6 +779,7 @@ describe("useSkills importFromHub polling paths", () => {
 
 describe("useSkills cancelImport paths", () => {
   beforeEach(() => {
+    harnessRegistry.syncCatalog([]);
     vi.clearAllMocks();
     apiMocks.listSkills.mockReset();
     apiMocks.startHubSkillInstall.mockReset();

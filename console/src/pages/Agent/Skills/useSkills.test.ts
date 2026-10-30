@@ -115,6 +115,7 @@ vi.mock("../../../utils/scanError", () => ({
 
 import { useSkills } from "./useSkills";
 import { notifySkillChange } from "../../../utils/skillChangeEvents";
+import { harnessRegistry } from "../../../plugins/harnesses";
 
 const {
   apiMocks,
@@ -155,6 +156,7 @@ function deferred<T>() {
 describe("useSkills", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    harnessRegistry.syncCatalog([]);
     apiMocks.listSkills.mockReset();
     apiMocks.refreshSkills.mockReset();
     apiMocks.createSkill.mockReset();
@@ -218,6 +220,16 @@ describe("useSkills", () => {
   });
 
   it("loads Provider Skills separately as read-only inventory", async () => {
+    harnessRegistry.syncCatalog([
+      {
+        id: "qoder",
+        label: "Qoder",
+        plugin_id: "qoder",
+        status: "available",
+        capabilities: { provider_skills_discovery: true },
+        config_fields: [],
+      },
+    ]);
     agentState.agents = [
       {
         id: "agent-1",

@@ -219,6 +219,8 @@ def _list_plugins_from_disk() -> list[dict]:
                 "loaded": False,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "sdk_harnesses": "harnesses"
+                in (manifest.sdk or {}).get("capabilities", []),
             },
         )
     return result
@@ -1104,6 +1106,13 @@ async def serve_plugin_ui_file(
             )
         source_path = candidate
 
+    from ...utils.io_utils import run_sync_io
+
+    return await run_sync_io(_plugin_file_response, source_path, file_path)
+
+
+def _plugin_file_response(source_path: Path, file_path: str):
+    """Resolve/stat one static file without touching loader state."""
     full_path = (source_path / file_path).resolve()
 
     if not full_path.is_relative_to(source_path.resolve()):

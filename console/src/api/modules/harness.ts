@@ -4,7 +4,6 @@ export interface HarnessProvider {
   id: string;
   name: string;
   available: boolean;
-  coming_soon: boolean;
   installed: boolean;
   authenticated: boolean;
   account: {
@@ -95,10 +94,6 @@ export interface HarnessLogin {
 }
 
 export const harnessApi = {
-  list: () =>
-    request<{ providers: HarnessProvider[] }>("/harnesses", {
-      timeout: 60_000,
-    }),
   listModels: (providerId: string) =>
     request<{ models: HarnessModel[]; message?: string }>(
       `/harnesses/${encodeURIComponent(providerId)}/models`,
