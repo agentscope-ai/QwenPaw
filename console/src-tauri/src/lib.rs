@@ -51,7 +51,6 @@ pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_updater::Builder::new()
                 .default_version_comparator(updates::is_remote_update_newer)

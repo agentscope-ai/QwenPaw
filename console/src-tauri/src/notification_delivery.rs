@@ -3,10 +3,26 @@
 use std::time::Duration;
 
 use serde::Serialize;
-#[cfg(target_os = "macos")]
 use tauri::Emitter;
-#[cfg(not(target_os = "macos"))]
-use tauri_plugin_notification::NotificationExt;
+#[cfg(target_os = "windows")]
+use tauri::Manager;
+
+#[cfg(all(unix, not(target_os = "macos")))]
+use {
+    notify_rust::{Notification, NotificationHandle, NotificationResponse, Timeout},
+    std::{
+        collections::HashMap,
+        sync::{Arc, Mutex, OnceLock},
+    },
+};
+
+#[cfg(target_os = "windows")]
+use windows::{
+    core::HSTRING,
+    Data::Xml::Dom::XmlDocument,
+    Foundation::TypedEventHandler,
+    UI::Notifications::{ToastNotification, ToastNotificationManager},
+};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,6 +30,179 @@ pub(crate) struct ApprovalNotificationTarget {
     pub(crate) request_id: String,
     pub(crate) root_session_id: Option<String>,
     pub(crate) agent_id: Option<String>,
+}
+
+#[cfg(target_os = "windows")]
+const WINDOWS_POWERSHELL_APP_ID: &str = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\
+     \\WindowsPowerShell\\v1.0\\powershell.exe";
+
+fn open_target(app: &tauri::AppHandle, target: Option<&ApprovalNotificationTarget>) {
+    let app = app.clone();
+    let target = target.cloned();
+    let main_app = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        crate::tray::show_main_window(&main_app);
+        if let Some(target) = target {
+            let _ = main_app.emit("qwenpaw:open-approval", target);
+        } else {
+            let _ = main_app.emit("qwenpaw:open-approvals", ());
+        }
+    });
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn active_linux_notifications() -> &'static Mutex<HashMap<String, Arc<NotificationHandle>>> {
+    static ACTIVE: OnceLock<Mutex<HashMap<String, Arc<NotificationHandle>>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+async fn show_linux(
+    app: tauri::AppHandle,
+    identifier: &str,
+    title: &str,
+    body: &str,
+    lifetime: Duration,
+    click_target: Option<ApprovalNotificationTarget>,
+) -> Result<(), String> {
+    let timeout_ms = lifetime.as_millis().min(i32::MAX as u128) as i32;
+    let title = title.to_owned();
+    let body = body.to_owned();
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        Notification::new()
+            .appname("QwenPaw")
+            .summary(&title)
+            .body(&body)
+            .timeout(Timeout::Milliseconds(timeout_ms))
+            .show()
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())?;
+    let handle = Arc::new(handle);
+    active_linux_notifications()
+        .lock()
+        .expect("Linux notifications poisoned")
+        .insert(identifier.to_owned(), handle.clone());
+
+    let identifier = identifier.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let callback_app = app;
+        let callback_target = click_target;
+        handle
+            .wait_for_action_async(move |response| {
+                if matches!(
+                    response,
+                    NotificationResponse::Default | NotificationResponse::Action(_)
+                ) {
+                    open_target(&callback_app, callback_target.as_ref());
+                }
+            })
+            .await;
+        active_linux_notifications()
+            .lock()
+            .expect("Linux notifications poisoned")
+            .remove(&identifier);
+    });
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+async fn close_linux(identifier: &str) {
+    let handle = active_linux_notifications()
+        .lock()
+        .expect("Linux notifications poisoned")
+        .remove(identifier);
+    if let Some(handle) = handle {
+        handle.close_async().await;
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn toast_xml(title: &str, body: &str) -> String {
+    format!(
+        "<toast><visual><binding template=\"ToastGeneric\">\
+         <text>{}</text><text>{}</text></binding></visual></toast>",
+        xml(title),
+        xml(body)
+    )
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_tag(identifier: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let digest = format!("{:x}", Sha256::digest(identifier.as_bytes()));
+    digest[..16].to_owned()
+}
+
+#[cfg(target_os = "windows")]
+fn close_windows(identifier: &str) {
+    if let Ok(history) = ToastNotificationManager::History() {
+        let _ = history.Remove(&HSTRING::from(windows_tag(identifier)));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn show_windows(
+    app: &tauri::AppHandle,
+    identifier: &str,
+    title: &str,
+    body: &str,
+    click_target: Option<ApprovalNotificationTarget>,
+) -> Result<(), String> {
+    let document = XmlDocument::new().map_err(|error| error.to_string())?;
+    document
+        .LoadXml(&HSTRING::from(toast_xml(title, body)))
+        .map_err(|error| error.to_string())?;
+    let notification =
+        ToastNotification::CreateToastNotification(&document).map_err(|error| error.to_string())?;
+    notification
+        .SetTag(&HSTRING::from(windows_tag(identifier)))
+        .map_err(|error| error.to_string())?;
+
+    let activated_app = app.clone();
+    let activated_target = click_target;
+    let activated_identifier = identifier.to_owned();
+    let activated = TypedEventHandler::new(move |_, _args| {
+        close_windows(&activated_identifier);
+        open_target(&activated_app, activated_target.as_ref());
+        Ok(())
+    });
+    notification
+        .Activated(&activated)
+        .map_err(|error| error.to_string())?;
+
+    let app_id = if tauri::is_dev() {
+        WINDOWS_POWERSHELL_APP_ID.to_owned()
+    } else {
+        app.config().identifier.clone()
+    };
+    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(app_id))
+        .map_err(|error| error.to_string())?;
+    notifier
+        .Show(&notification)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn schedule_expiry(identifier: &str, lifetime: Duration) {
+    let identifier = identifier.to_owned();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(lifetime).await;
+        close(&identifier).await;
+    });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -71,8 +260,10 @@ pub(crate) async fn request_permission() -> Result<Permission, String> {
 pub(crate) async fn close(identifier: &str) {
     #[cfg(target_os = "macos")]
     mac_usernotifications::close_delivered(identifier).await;
-    #[cfg(not(target_os = "macos"))]
-    let _ = identifier;
+    #[cfg(target_os = "windows")]
+    close_windows(identifier);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    close_linux(identifier).await;
 }
 
 pub(crate) async fn send(
@@ -103,28 +294,22 @@ pub(crate) async fn send(
             let response = handle.response().await;
             close(&id).await;
             if matches!(response, Ok(response) if response.is_default_action()) {
-                let target_app = app.clone();
-                let _ = app.run_on_main_thread(move || {
-                    crate::tray::show_main_window(&target_app);
-                    if let Some(target) = click_target {
-                        let _ = target_app.emit("qwenpaw:open-approval", target);
-                    } else {
-                        let _ = target_app.emit("qwenpaw:open-approvals", ());
-                    }
-                });
+                open_target(&app, click_target.as_ref());
             }
         });
         Ok(())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        let _ = (identifier, lifetime, click_target);
-        app.notification()
-            .builder()
-            .title(title)
-            .body(body)
-            .show()
-            .map_err(|error| error.to_string())
+        show_windows(app, identifier, title, body, click_target)?;
+        schedule_expiry(identifier, lifetime);
+        Ok(())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        show_linux(app.clone(), identifier, title, body, lifetime, click_target).await?;
+        schedule_expiry(identifier, lifetime);
+        Ok(())
     }
 }
 
@@ -149,5 +334,25 @@ mod tests {
             Permission::Granted
         );
         assert_eq!(permission_from_status(Status::Unknown), Permission::Denied);
+    }
+}
+
+#[cfg(test)]
+mod cross_platform_tests {
+    use super::{toast_xml, windows_tag};
+
+    #[test]
+    fn windows_toast_text_is_escaped() {
+        let xml = toast_xml("Qwen & Paw", "<approval>");
+        assert!(xml.contains("Qwen &amp; Paw"));
+        assert!(xml.contains("&lt;approval&gt;"));
+    }
+
+    #[test]
+    fn windows_toast_tags_are_stable_and_short() {
+        let first = windows_tag("qwenpaw-approval:request-1");
+        assert_eq!(first, windows_tag("qwenpaw-approval:request-1"));
+        assert_eq!(first.len(), 16);
+        assert_ne!(first, windows_tag("qwenpaw-approval:request-2"));
     }
 }

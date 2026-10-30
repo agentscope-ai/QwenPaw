@@ -13,6 +13,7 @@ export class BrowserApprovalNotifier {
   private seeded = false;
   private known = new Set<string>();
   private pending = new Map<string, PendingApproval>();
+  private delivering = new Set<string>();
   private active = new Map<
     string,
     { notification: Notification; timer: ReturnType<typeof setTimeout> }
@@ -27,6 +28,8 @@ export class BrowserApprovalNotifier {
   ) {
     this.text = text;
     this.openApproval = openApproval;
+    document.addEventListener("visibilitychange", this.reconsider);
+    window.addEventListener("blur", this.reconsider);
   }
 
   update(approvals: PendingApproval[]): void {
@@ -38,22 +41,48 @@ export class BrowserApprovalNotifier {
     for (const id of this.active.keys()) {
       if (!this.pending.has(id)) this.close(id);
     }
-    const fresh = [...this.pending.values()].filter(
-      (a) => !this.known.has(a.request_id),
-    );
-    this.known = new Set(this.pending.keys());
+    this.known.forEach((id) => {
+      if (!this.pending.has(id)) this.known.delete(id);
+    });
     if (!this.seeded) {
       this.seeded = true;
+      this.known = new Set(this.pending.keys());
       return;
     }
+    this.notifyPending();
+  }
+
+  reconsider = (): void => {
+    if (this.seeded) this.notifyPending();
+  };
+
+  private notifyPending(): void {
+    const fresh = [...this.pending.values()].filter(
+      (approval) =>
+        !this.known.has(approval.request_id) &&
+        !this.delivering.has(approval.request_id),
+    );
     for (const approval of fresh) {
+      this.delivering.add(approval.request_id);
+      let retry = false;
       const send = () => this.send(approval);
       const delivery = navigator.locks
         ? navigator.locks.request(LOCK_NAME, send)
         : Promise.resolve().then(send);
-      void delivery.catch((error: unknown) => {
-        console.warn("Could not show approval notification", error);
-      });
+      void delivery
+        .then((shown) => {
+          if (shown) this.known.add(approval.request_id);
+          else retry = this.canAttempt(approval);
+        })
+        .catch((error: unknown) => {
+          console.warn("Could not show approval notification", error);
+        })
+        .finally(() => {
+          this.delivering.delete(approval.request_id);
+          if (retry && this.pending.has(approval.request_id)) {
+            this.notifyPending();
+          }
+        });
     }
   }
 
@@ -63,6 +92,8 @@ export class BrowserApprovalNotifier {
 
   dispose(): void {
     this.disposed = true;
+    document.removeEventListener("visibilitychange", this.reconsider);
+    window.removeEventListener("blur", this.reconsider);
     this.closeAll();
   }
 
@@ -74,18 +105,26 @@ export class BrowserApprovalNotifier {
     item.notification.close();
   }
 
-  private send(approval: PendingApproval): void {
-    if (
-      this.disposed ||
-      !notificationsEnabled() ||
-      typeof window.Notification !== "function" ||
-      Notification.permission !== "granted" ||
-      (!document.hidden && document.hasFocus()) ||
-      !this.pending.has(approval.request_id) ||
-      approvalExpiresAt(approval) <= Date.now()
-    ) {
-      return;
-    }
+  private canNotify(): boolean {
+    return (
+      !this.disposed &&
+      notificationsEnabled() &&
+      typeof window.Notification === "function" &&
+      Notification.permission === "granted" &&
+      (document.hidden || !document.hasFocus())
+    );
+  }
+
+  private canAttempt(approval: PendingApproval): boolean {
+    return (
+      this.canNotify() &&
+      this.pending.has(approval.request_id) &&
+      approvalExpiresAt(approval) > Date.now()
+    );
+  }
+
+  private send(approval: PendingApproval): boolean {
+    if (!this.canAttempt(approval)) return false;
     let sent: Record<string, number> = {};
     try {
       sent = JSON.parse(localStorage.getItem(SENT_KEY) || "{}");
@@ -93,7 +132,7 @@ export class BrowserApprovalNotifier {
     } catch {
       // An invalid cache must not prevent a new approval from notifying.
     }
-    if (sent[approval.request_id] > Date.now()) return;
+    if (sent[approval.request_id] > Date.now()) return true;
     const { title, body } = this.text();
     const notification = new Notification(title, {
       body: body(approval.tool_display_name || approval.tool_name),
@@ -118,6 +157,11 @@ export class BrowserApprovalNotifier {
         .slice(-499),
     );
     sent[approval.request_id] = approvalExpiresAt(approval);
-    localStorage.setItem(SENT_KEY, JSON.stringify(sent));
+    try {
+      localStorage.setItem(SENT_KEY, JSON.stringify(sent));
+    } catch {
+      // The notification is already visible; do not risk showing it twice.
+    }
+    return true;
   }
 }

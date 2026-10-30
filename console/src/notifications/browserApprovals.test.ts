@@ -38,7 +38,11 @@ function setHidden(hidden: boolean) {
   });
 }
 
-const flush = () => Promise.resolve();
+const flush = async () => {
+  await Promise.resolve();
+  await vi.advanceTimersByTimeAsync(0);
+  await Promise.resolve();
+};
 
 describe("browser approval notifications", () => {
   const notifiers: BrowserApprovalNotifier[] = [];
@@ -127,6 +131,40 @@ describe("browser approval notifications", () => {
     setHidden(false);
     const notifier = create();
     notifier.update([]);
+    notifier.update([approval()]);
+    await flush();
+    expect(shown).toHaveLength(1);
+  });
+
+  it("notifies an approval that arrived while focused once focus is lost", async () => {
+    setHidden(false);
+    vi.mocked(document.hasFocus).mockReturnValue(true);
+    const notifier = create();
+    notifier.update([]);
+    notifier.update([approval()]);
+    await flush();
+    expect(shown).toHaveLength(0);
+
+    vi.mocked(document.hasFocus).mockReturnValue(false);
+    setHidden(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flush();
+
+    expect(shown).toHaveLength(1);
+    notifier.update([approval()]);
+    await flush();
+    expect(shown).toHaveLength(1);
+  });
+
+  it("retries after a temporarily disabled delivery", async () => {
+    const notifier = create();
+    notifier.update([]);
+    setNotificationsEnabled(false);
+    notifier.update([approval()]);
+    await flush();
+    expect(shown).toHaveLength(0);
+
+    setNotificationsEnabled(true);
     notifier.update([approval()]);
     await flush();
     expect(shown).toHaveLength(1);

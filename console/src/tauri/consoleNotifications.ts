@@ -27,10 +27,17 @@ interface PushEvent {
   snapshot: ConsolePushSnapshot;
 }
 
+const CLIENT_ID =
+  globalThis.crypto?.randomUUID?.() ??
+  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const CLIENT_EPOCH = Date.now();
+let requestSequence = 0;
+
 /** Subscribe before starting the native poller so the first snapshot is kept. */
 export async function subscribeDesktopConsolePush(
   onSnapshot: (snapshot: ConsolePushSnapshot) => void,
 ): Promise<() => void> {
+  const requestSeq = ++requestSequence;
   let generation: number | undefined;
   let queued: PushEvent | undefined;
   let active = true;
@@ -46,6 +53,9 @@ export async function subscribeDesktopConsolePush(
     generation = await invoke<number>("start_console_polling", {
       token: headers.Authorization?.replace(/^Bearer /, "") || "",
       agentId: headers["X-Agent-Id"] || null,
+      clientId: CLIENT_ID,
+      clientEpoch: CLIENT_EPOCH,
+      requestSeq,
     });
     if (queued?.generation === generation) onSnapshot(queued.snapshot);
     return () => {

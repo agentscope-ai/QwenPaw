@@ -76,7 +76,26 @@ struct Preferences {
 #[derive(Default)]
 struct Polling {
     generation: u64,
+    client_id: String,
+    client_epoch: u64,
+    request_seq: u64,
     task: Option<tauri::async_runtime::JoinHandle<()>>,
+}
+
+impl Polling {
+    fn claim_start(&mut self, client_id: &str, client_epoch: u64, request_seq: u64) -> bool {
+        if client_epoch < self.client_epoch
+            || (client_epoch == self.client_epoch
+                && self.client_id == client_id
+                && request_seq <= self.request_seq)
+        {
+            return false;
+        }
+        self.client_id = client_id.to_owned();
+        self.client_epoch = client_epoch;
+        self.request_seq = request_seq;
+        true
+    }
 }
 
 #[derive(Default)]
@@ -232,6 +251,9 @@ pub(crate) fn start_console_polling(
     app: tauri::AppHandle,
     token: String,
     agent_id: Option<String>,
+    client_id: String,
+    client_epoch: u64,
+    request_seq: u64,
 ) -> Result<u64, String> {
     let directory = app
         .path()
@@ -245,6 +267,9 @@ pub(crate) fn start_console_polling(
         .map_err(|e| e.to_string())?;
     let state = app.state::<NotificationState>();
     let mut polling = state.polling.lock().expect("notification state poisoned");
+    if !polling.claim_start(&client_id, client_epoch, request_seq) {
+        return Err("This console polling request was superseded.".into());
+    }
     if let Some(task) = polling.task.take() {
         task.abort();
     }
@@ -521,5 +546,15 @@ mod tests {
         release_claim(&directory, "request").unwrap();
         release_claim(&directory, "request").unwrap();
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn stale_starts_from_the_same_console_are_rejected() {
+        let mut polling = Polling::default();
+        assert!(polling.claim_start("client-a", 100, 1));
+        assert!(polling.claim_start("client-a", 100, 2));
+        assert!(!polling.claim_start("client-a", 100, 1));
+        assert!(!polling.claim_start("client-old", 99, 1));
+        assert!(polling.claim_start("client-b", 101, 1));
     }
 }
