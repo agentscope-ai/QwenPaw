@@ -240,6 +240,7 @@ export interface LocalModelConfigRequest {
 export interface LocalModelInfo {
   id: string;
   name: string;
+  model_type?: ModelType;
   size_bytes: number;
   downloaded: boolean;
   source: LocalDownloadSource;

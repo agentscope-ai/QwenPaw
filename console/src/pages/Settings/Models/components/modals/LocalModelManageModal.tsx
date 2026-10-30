@@ -884,7 +884,7 @@ export function LocalModelManageModal({
   return (
     <SharedModal
       surfaceId={`provider:${provider.id}`}
-      title={t("models.localModelsTitle", { provider: provider.name })}
+      title={provider.name}
       open={open}
       onCancel={handleClose}
       footer={null}
@@ -926,14 +926,6 @@ export function LocalModelManageModal({
 
       {isRuntimeInstalled ? (
         <section className={styles.localSection}>
-          <div className={styles.localSectionHeader}>
-            <div>
-              <div className={styles.localSectionTitle}>
-                {t("models.localModelsSectionTitle")}
-              </div>
-            </div>
-          </div>
-
           {isRuntimeInstalled && isModelDownloading ? (
             <div className={styles.localSectionInfoRow}>
               <div className={styles.localSectionInfoContent}>
@@ -991,34 +983,55 @@ export function LocalModelManageModal({
             </div>
           ) : null}
 
+          <div className={styles.localModelGroups}>
+            {(["chat", "decision"] as const).map((group) => {
+              const title = t(
+                group === "decision"
+                  ? "models.localDecisionModelsTitle"
+                  : "models.localChatModelsTitle",
+              );
+              const models = localModels.filter((model) =>
+                group === "decision"
+                  ? model.model_type === "decision"
+                  : model.model_type !== "decision",
+              );
+              return (
+                <section key={group} aria-label={title}>
+                  <h3 className={styles.localModelGroupTitle}>{title}</h3>
+                  <div
+                    className={`${styles.modelList} ${styles.localModelGroupList}`}
+                    tabIndex={0}
+                    aria-label={title}
+                  >
+                    {models.length === 0 ? (
+                      <div className={styles.modelListEmpty}>
+                        {!loadingLocal && t("models.localNoRecommendedModels")}
+                      </div>
+                    ) : (
+                      models.map((model) => (
+                        <LocalModelRow
+                          key={model.id}
+                          model={model}
+                          currentRunningModelName={currentRunningModelName}
+                          isModelDownloading={isModelDownloading}
+                          isServerBusy={isServerBusy}
+                          startingModelName={startingModelName}
+                          stoppingServer={stoppingServer}
+                          deletingModelName={deletingModelName}
+                          onStartDownload={handleStartModelDownload}
+                          onStartServer={handleStartServer}
+                          onStopServer={handleStopServer}
+                          onDeleteModel={handleDeleteModel}
+                        />
+                      ))
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+
           <div className={styles.modelList}>
-            {serverStatus?.installed && loadingLocal ? (
-              <div className={styles.modelListEmpty}>{t("common.loading")}</div>
-            ) : serverStatus?.installed && localModels.length === 0 ? (
-              <div className={styles.modelListEmpty}>
-                {t("models.localNoRecommendedModels")}
-              </div>
-            ) : null}
-
-            {serverStatus?.installed
-              ? localModels.map((model) => (
-                  <LocalModelRow
-                    key={model.id}
-                    model={model}
-                    currentRunningModelName={currentRunningModelName}
-                    isModelDownloading={isModelDownloading}
-                    isServerBusy={isServerBusy}
-                    startingModelName={startingModelName}
-                    stoppingServer={stoppingServer}
-                    deletingModelName={deletingModelName}
-                    onStartDownload={handleStartModelDownload}
-                    onStartServer={handleStartServer}
-                    onStopServer={handleStopServer}
-                    onDeleteModel={handleDeleteModel}
-                  />
-                ))
-              : null}
-
             {serverStatus?.installed ? (
               <div
                 className={`${styles.modelListItem} ${styles.customModelListItem}`}

@@ -132,6 +132,43 @@ async def compact(compactor, agent, *, refs=None):
 
 
 @pytest.mark.asyncio
+async def test_local_model_splits_evidence_without_changing_user_settings(
+    model,
+    monkeypatch,
+):
+    from qwenpaw.providers.local_decision_model import LocalDecisionModel
+
+    class LocalFixture(LocalDecisionModel):
+        def __init__(self):
+            self.client = SimpleNamespace(aclose=AsyncMock())
+
+        async def __call__(self, **kwargs):
+            return await model(**kwargs)
+
+    monkeypatch.setattr(
+        decision_compaction,
+        "create_decision_model_async",
+        AsyncMock(return_value=LocalFixture()),
+    )
+    agent = make_agent()
+    config_before = agent._agent_config.model_dump()
+    compactor = DecisionCompactor()
+    try:
+        result = await compact(compactor, agent)
+        assert result.changed
+        assert model.await_count > 1
+        seen = [
+            unit["id"]
+            for call in model.await_args_list
+            for unit in call.kwargs["state"]["evidence_units"]
+        ]
+        assert len(seen) == len(set(seen)) == 3
+        assert agent._agent_config.model_dump() == config_before
+    finally:
+        await compactor.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["drain", "client"])
 async def test_close_finishes_after_repeated_cancellation(model, phase):
     """Drain and close the borrowed client before shutdown finishes."""

@@ -163,6 +163,24 @@ class DecisionCompactor:
             if b["type"] == "text"
         )
         component = await self._decision_component(agent)
+        from ...providers.local_decision_model import LocalDecisionModel
+
+        if isinstance(self._model, LocalDecisionModel):
+            # Each local bidirectional question re-evaluates its full prompt.
+            # Bound ReMe's evidence batches instead of repeatedly encoding all
+            # results together. Oversized evidence stays in context unchanged.
+            request.options.max_state_tokens = min(
+                request.options.max_state_tokens,
+                1600,
+            )
+            request.options.max_request_tokens = min(
+                request.options.max_request_tokens,
+                4096,
+            )
+            request.options.max_concurrency = 1
+            # Leave time inside the host deadline to validate and commit any
+            # completed batches. Unanswered evidence remains verbatim.
+            request.options.total_timeout_seconds *= 0.8
         response = await CompactContextStep(as_decision_model=component)(
             **request.model_dump(mode="json"),
         )

@@ -288,13 +288,28 @@ def test_get_model_dir_preserves_repo_id_path() -> None:
     assert model_dir.parts[-2:] == ("Qwen", "Qwen3-0.6B-GGUF")
 
 
+@pytest.mark.parametrize(
+    ("repo_id", "model_type", "name"),
+    [
+        ("Qwen/Qwen3-0.6B-GGUF", "chat", "Qwen/Qwen3-0.6B-GGUF"),
+        ("agentscope-ai/Piccolo-27B", "decision", "Piccolo-27B"),
+        ("agentscope-ai/Piccolo-4B-Q8_0", "decision", "Piccolo-4B-Q8_0"),
+        ("agentscope-ai/Piccolo-4B-BF16", "decision", "Piccolo-4B-BF16"),
+        ("agentscope-ai/Piccolo-9B-BF16", "decision", "Piccolo-9B-BF16"),
+        ("agentscope-ai/Piccolo-27B-BF16", "decision", "Piccolo-27B-BF16"),
+        ("agentscope-ai/Piccolo-27B-Q4_K_M", "decision", "Piccolo-27B-Q4_K_M"),
+    ],
+)
 def test_list_and_remove_downloaded_models_with_repo_id_layout(
     tmp_path: Path,
+    repo_id: str,
+    model_type: str,
+    name: str,
 ) -> None:
     downloader = ModelManager()
     downloader.__dict__["_model_dir"] = tmp_path / "models"
 
-    repo_dir = downloader.get_model_dir("Qwen/Qwen3-0.6B-GGUF")
+    repo_dir = downloader.get_model_dir(repo_id)
     repo_dir.mkdir(parents=True)
     (repo_dir / "model.gguf").write_bytes(b"123")
     (repo_dir / "README.md").write_text("demo", encoding="utf-8")
@@ -302,13 +317,14 @@ def test_list_and_remove_downloaded_models_with_repo_id_layout(
     models = downloader.list_downloaded_models()
 
     assert len(models) == 1
-    assert models[0].id == "Qwen/Qwen3-0.6B-GGUF"
-    assert models[0].name == "Qwen/Qwen3-0.6B-GGUF"
+    assert models[0].id == repo_id
+    assert models[0].name == name
+    assert models[0].model_type == model_type
 
-    downloader.remove_downloaded_model("Qwen/Qwen3-0.6B-GGUF")
+    downloader.remove_downloaded_model(repo_id)
 
     assert not repo_dir.exists()
-    assert not (tmp_path / "models" / "Qwen").exists()
+    assert not (tmp_path / "models" / repo_id.split("/")[0]).exists()
 
 
 def test_list_downloaded_models_ignores_temporary_download_dirs(
