@@ -3,6 +3,7 @@
 
 # pylint: disable=protected-access
 import json
+import logging
 from importlib.metadata import version
 from pathlib import Path
 
@@ -120,6 +121,7 @@ def write_wheel(
 )
 def test_wheel_identity_and_header_validation(
     tmp_path,
+    caplog,
     info,
     metadata_headers,
     wheel_headers,
@@ -169,11 +171,17 @@ def test_wheel_identity_and_header_validation(
             target / info,
         )
     else:
+        caplog.set_level(logging.INFO)
         with pytest.raises(
             ProtocolValidationError,
             match="^DEPENDENCY_PLAN_UNVERIFIED$",
         ):
             validate_additions(additions, snapshot, target)
+        assert wheel.name in caplog.text
+        if metadata_headers or wheel_headers:
+            assert "metadata headers invalid" in caplog.text
+        elif info in {"other-1.0.dist-info", "b01_probe-2.0.dist-info"}:
+            assert "distribution identity mismatch" in caplog.text
     assert not target.exists()
 
 

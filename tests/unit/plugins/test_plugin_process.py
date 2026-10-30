@@ -563,12 +563,16 @@ async def test_payload_quota_waits_for_confirmed_discard(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("layout", ["source", "frozen"])
+@pytest.mark.parametrize(
+    ("layout", "supplied_snapshot"),
+    [("source", False), ("frozen", False), ("frozen", True)],
+)
 async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
     tmp_path,
     monkeypatch,
     process,
     layout,
+    supplied_snapshot,
 ):
     from qwenpaw.plugins.channel_bootstrap import (
         resolve_default_channel_runtime,
@@ -580,7 +584,25 @@ async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
     )
     if layout == "frozen":
         expected_support, site = runtime_layout(tmp_path, monkeypatch)
+        # Desktop staging shares support and configured dependency roots;
+        # the interpreter also contributes its own native site-packages.
+        import json
+
+        manifest = Path(os.environ["QWENPAW_CHANNEL_RUNTIME_MANIFEST"])
+        data = json.loads(manifest.read_text())
+        data["dependency_paths"] = ["support"]
+        manifest.write_text(json.dumps(data))
+        monkeypatch.setenv(
+            "QWENPAW_CHANNEL_DEPENDENCY_PATHS",
+            json.dumps([str(expected_support)]),
+        )
         runtime = resolve_default_channel_runtime()
+        shutil.copytree(
+            site,
+            runtime.dependency_install_target,
+            dirs_exist_ok=True,
+        )
+        site = runtime.dependency_install_target
     else:
         site = dependency_site(tmp_path / "dependencies")
         runtime = resolve_default_channel_runtime()
@@ -618,6 +640,51 @@ async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
     store._apply_to_environ({key: str(tmp_path / "untrusted-state")})
     assert maintenance.state_root() == selected_root
     monkeypatch.setenv(key, str(tmp_path / "direct-mutation"))
+    from qwenpaw.plugins.dependency_gate import admit_shared_dependencies
+    from qwenpaw.plugins.dependency_usage import (
+        DependencyDeclaration,
+        DependencyUsageRegistry,
+    )
+    from qwenpaw.plugins.install_lock import environment_observation
+    from qwenpaw.plugins.ownership import RuntimeOwners
+
+    async def audit():
+        async with environment_observation(runtime.dependency_paths):
+            return (await process.audit(spec)).snapshot
+
+    usage = DependencyUsageRegistry(RuntimeOwners())
+    token = usage.declare(
+        DependencyDeclaration(
+            spec.plugin_id,
+            spec.source_revision,
+            ("sample-shared-sdk==1.0",),
+            None,
+        ),
+    )
+    snapshot = await audit() if supplied_snapshot else None
+    admitted = await admit_shared_dependencies(
+        audit,
+        plugin_id=spec.plugin_id,
+        requirements_file=requirements,
+        usage_registry=usage,
+        admission_token=token,
+        targets=runtime.dependency_paths,
+        snapshot=snapshot,
+        validate=lambda: None,
+    )
+    assert str(site.resolve()) in admitted.dependency_sites
+    if layout == "frozen":
+        assert expected_support in runtime.dependency_paths
+        assert str(expected_support.resolve()) not in admitted.dependency_sites
+        native = Path(admitted.prefix) / (
+            "Lib/site-packages"
+            if os.name == "nt"
+            else (
+                f"lib/python{sys.version_info.major}.{sys.version_info.minor}/"
+                "site-packages"
+            )
+        )
+        assert str(native.resolve()) in admitted.dependency_sites
     await process.start(spec)
     probe = await process.call("sample.probe", {})
     assert Path(probe["dependency_state"]) == selected_root

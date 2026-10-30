@@ -12,7 +12,9 @@ from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+import logging
 import subprocess
+import sys
 
 import pytest
 
@@ -208,6 +210,88 @@ async def test_old_installer_cannot_acquire_dependency_wheels(
     guard.assert_called_once_with("chosen-python", isolated=True)
     resolver.assert_not_called()
     assert requirements.read_text(encoding="utf-8") == "sample-sdk==1\n"
+
+
+@pytest.mark.asyncio
+async def test_dependency_failure_logs_bounded_redacted_pip_tail(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    from qwenpaw.plugins.dependency_gate import SharedDependencyError
+
+    loader = PluginLoader([tmp_path])
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("sample-sdk==1\n", encoding="utf-8")
+    output = (
+        "discarded-prefix\n"
+        + ("x" * 2000 + "\n") * 20
+        + "https://private-user:private-password@example.test/simple"
+        "?token=private-query\nAuthorization: Bearer private-auth\n"
+        "PIP_INDEX_URL=https://private-user:private-password@example.test/"
+        "?token=private-config\nresolver-tail-marker\n"
+    )
+    popen = subprocess.Popen
+    runner = loader._run_subprocess_with_streaming_log
+    results = []
+
+    def fake_pip(_command, **kwargs):
+        return popen(
+            [sys.executable, "-c", f"print({output!r}); raise SystemExit(23)"],
+            **kwargs,
+        )
+
+    def run(command, **kwargs):
+        result = runner(command, **kwargs)
+        results.append(result)
+        return result
+
+    monkeypatch.setattr(subprocess, "Popen", fake_pip)
+    monkeypatch.setattr(
+        "qwenpaw.plugins.loader.require_pip",
+        lambda *a, **k: True,
+    )
+    monkeypatch.setattr(loader, "_run_subprocess_with_streaming_log", run)
+    caplog.set_level(logging.INFO)
+    with pytest.raises(SharedDependencyError) as caught:
+        await loader._acquire_dependency_wheels(
+            SimpleNamespace(),
+            SimpleNamespace(
+                python_executable=sys.executable,
+                code_root=tmp_path,
+            ),
+            SimpleNamespace(distributions={}, marker_environment={}),
+            tmp_path / "site",
+            "diagnostic-plugin",
+            requirements,
+        )
+    assert caught.value.decision.reason_code == "DEPENDENCY_PLAN_UNVERIFIED"
+    assert str(caught.value) == (
+        "DEPENDENCY_PLAN_UNVERIFIED: complete wheels compatible with "
+        "installed versions required"
+    )
+    assert len(results) == 2
+    assert all(
+        isinstance(result, subprocess.CompletedProcess) for result in results
+    )
+    assert all(
+        result.returncode == 23 and result.stderr == "" for result in results
+    )
+    assert "diagnostic-plugin" in caplog.text
+    assert "pip" in caplog.text.lower() and "23" in caplog.text
+    assert "solver" in caplog.text.lower()
+    assert "resolver-tail-marker" in caplog.text
+    assert "discarded-prefix" not in caplog.text
+    assert max(len(line) for line in caplog.text.splitlines()) <= 1200
+    assert len(caplog.text.encode()) < 2 * 16 * 1024 + 4096
+    for secret in (
+        "private-user",
+        "private-password",
+        "private-query",
+        "private-auth",
+        "private-config",
+    ):
+        assert secret not in caplog.text
 
 
 @pytest.mark.asyncio
