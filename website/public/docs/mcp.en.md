@@ -157,6 +157,56 @@ Tavily is an AI-optimized web search service that enables agents to perform real
 }
 ```
 
+#### Baizhi Cloud Browser (optional)
+
+[Baizhi Cloud Browser](https://baizhibrowser.cloud/) (also known as CapyBrowser)
+and Baizhi Cloud Agent Toolkit are two separate Baizhi Cloud services. This
+example connects the browser-management MCP: sessions, saved profiles, human
+handoff and downloads. Page navigation, clicks and reading require a compatible
+CDP client available to your agent; adding this MCP does not configure one.
+
+Import a separately named client, initially disabled:
+
+```json
+{
+  "mcpServers": {
+    "baizhi-cloud-browser": {
+      "name": "Baizhi Cloud Browser",
+      "enabled": false,
+      "transport": "streamable_http",
+      "url": "https://capybrowser.app.baizhi.cloud/mcp",
+      "headers": {}
+    }
+  }
+}
+```
+
+In **Agent → MCP**, edit this client and add an `Authorization` header with the
+complete value `Bearer <your-browser-key>`. Enter your own key locally; do not
+put it in shared JSON, a chat or an issue. Configure credentials for this
+connection separately: a Toolkit application key is not automatically a browser
+key. The [browser setup guide](https://capybrowser.app.baizhi.cloud/docs/installation.md)
+describes the current application and platform-personal-key options.
+
+Save, explicitly enable the client, then inspect its discovered tools and access
+policy. An empty or rejected credential is not an authenticated connection.
+Replace the header through the same editor to rotate credentials. Disable or
+remove only this client when no longer needed, preserving other clients.
+
+Before creating a run, read the setup guide, check authentication and pricing,
+and confirm your agent has a compatible CDP client. Browser startup and runtime
+are billed. Pause agent actions during human interaction, keep the same run and
+resume after control is returned. End runs you create and check release and
+final billing separately; viewing, waiting or disabling MCP does not stop a run
+or its runtime charges. Tool inputs go to Baizhi Cloud and page activity reaches
+the visited sites; review the service terms and privacy information before use.
+
+Configuration example: [source](https://github.com/ctcbyzx/QwenPaw/blob/f79d5872937c06f1376c7ae010e2717d431140d6/website/public/docs/mcp.en.md).
+
+Maintained by [ctcbyzx](https://github.com/ctcbyzx), a contributor to [Chaitin's public integration guides](https://github.com/chaitin/baizhi-cloud-browser). See [other browser integrations](https://github.com/ctcbyzx/baizhi-cloud-browser).
+
+For setup help, use the [integration issue tracker](https://github.com/ctcbyzx/baizhi-cloud-browser/issues) and include the client version and a redacted error. Use the [service console](https://capybrowser.app.baizhi.cloud/) for private account or billing questions.
+
 #### Built-in Mail MCP
 
 When mail is configured for a native QwenPaw agent, the system creates and

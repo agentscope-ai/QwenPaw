@@ -157,6 +157,49 @@ Tavily 是一个专为 AI 优化的网络搜索服务，可让智能体进行实
 }
 ```
 
+#### 百智云浏览器（可选）
+
+[百智云浏览器](https://baizhibrowser.cloud/zh/)（Baizhi Cloud Browser，也即
+CapyBrowser）与 Baizhi Cloud Agent Toolkit 同属百智云，是分别配置的两个独立服务。
+此示例连接运行、档案、人工交接和下载管理 MCP；网页导航、点击和读取需要 Agent
+已有兼容 CDP 客户端，添加此 MCP 不会自动配置页面工具。
+
+以独立名称导入客户端，初始保持禁用：
+
+```json
+{
+  "mcpServers": {
+    "baizhi-cloud-browser": {
+      "name": "百智云浏览器",
+      "enabled": false,
+      "transport": "streamable_http",
+      "url": "https://capybrowser.app.baizhi.cloud/mcp",
+      "headers": {}
+    }
+  }
+}
+```
+
+在 **Agent → MCP** 编辑该客户端，添加 `Authorization` 请求头，完整值为
+`Bearer <自己的浏览器 Key>`。仅在本地填写真实凭据，不放进共享 JSON、对话或 Issue。
+单独配置本连接的凭据，不假定 Toolkit 应用专用 Key 可用于浏览器；应用 Key
+及平台个人 Key 的当前适用方式以[浏览器接入指南](https://capybrowser.app.baizhi.cloud/docs/installation.md)为准。
+
+保存后明确启用，检查发现的工具及访问策略。空凭据或认证失败不算连接成功。
+更换 Key 时编辑同一请求头；停用时只禁用或移除此客户端，保留其他连接。
+
+创建运行前阅读接入指南，核对身份与价格，并确认 Agent 已有兼容 CDP 客户端。
+浏览器启动和运行计费；人工操作时暂停 Agent、保留同一运行，交还控制后再继续。
+结束自己创建的运行，分别核对资源释放和最终账单；观看、等待或禁用 MCP 不会结束
+运行或停止计费。工具输入发送至百智云，网页操作会访问目标站点，使用前审阅服务
+条款与隐私说明。
+
+[配置示例源码](https://github.com/ctcbyzx/QwenPaw/blob/f79d5872937c06f1376c7ae010e2717d431140d6/website/public/docs/mcp.zh.md)。
+
+维护者：[ctcbyzx](https://github.com/ctcbyzx)（[Chaitin 公共接入仓](https://github.com/chaitin/baizhi-cloud-browser)贡献者）。更多接入方式见[公开接入材料](https://github.com/ctcbyzx/baizhi-cloud-browser)。
+
+配置问题可到[接入维护仓 Issues](https://github.com/ctcbyzx/baizhi-cloud-browser/issues)反馈，附客户端版本和脱敏错误信息。账号或账务问题请通过[服务控制台](https://capybrowser.app.baizhi.cloud/)处理。
+
 #### 内置邮箱 MCP
 
 为 QwenPaw 原生智能体配置邮箱后，系统会在该智能体工作区自动创建并启用
