@@ -26,7 +26,7 @@ rm -rf "$DOCS_DEST"
 mkdir -p "$DOCS_DEST"
 cp "$DOCS_SRC/"*.md "$DOCS_DEST/"
 
-echo "[wheel_build] Building wheel + sdist..."
+echo "[wheel_build] Building wheel + sdist with bundled offline channel sources..."
 python3 -m pip install --upgrade "pip>=26.2.2"
 python3 -m pip install --upgrade "certifi>=2026.10.19"
 python3 -m pip install --quiet build

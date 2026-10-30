@@ -65,6 +65,18 @@ def test_memory_search_tool_defaults_to_enabled():
     assert ReMeLightMemoryConfig().memory_search_enabled is True
 
 
+def test_auto_memory_images_require_explicit_opt_in():
+    assert ReMeLightMemoryConfig().auto_memory_include_images is False
+    cfg = ReMeLightMemoryConfig(auto_memory_include_images=True)
+    assert cfg.model_dump()["auto_memory_include_images"] is True
+
+
+def test_auto_memory_tags_require_explicit_opt_in():
+    assert ReMeLightMemoryConfig().auto_memory_generate_tags is False
+    cfg = ReMeLightMemoryConfig(auto_memory_generate_tags=True)
+    assert cfg.model_dump()["auto_memory_generate_tags"] is True
+
+
 def test_legacy_rebuild_on_start_setting_is_ignored():
     cfg = ReMeLightMemoryConfig(rebuild_memory_index_on_start=True)
 

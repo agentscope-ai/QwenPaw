@@ -25,6 +25,11 @@ import { isSessionModelChangedFor } from "../session-settings/sessionModelEvents
 import ModelSelector from "../../pages/Chat/ModelSelector";
 import { ProviderIcon } from "../../pages/Settings/Models/components/ProviderIconComponent";
 import { useTurnUsageStore } from "../../pages/Chat/turnUsageStore";
+import {
+  enqueueSessionThinkingWrite,
+  sessionThinkingScope,
+  waitForSessionThinkingWrites,
+} from "./sessionThinkingWrites";
 import styles from "./thinking.module.less";
 
 export function SessionThinking({
@@ -45,17 +50,23 @@ export function SessionThinking({
   const [choosing, setChoosing] = useState(false);
   const [preview, setPreview] = useState<ThinkingPreference>();
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const generation = useRef(0);
+  const previewRevision = useRef(0);
   const revision = useRef(0);
-  const identity = `${agentId}:${sessionId}:${chatId ?? ""}`;
+  const identity = JSON.stringify([agentId, sessionId, chatId ?? null]);
+  const scope = sessionThinkingScope(agentId, sessionId, chatId);
   const identityRef = useRef(identity);
   identityRef.current = identity;
   useEffect(() => {
+    generation.current += 1;
     onDecisionEnabledChange?.(undefined);
     setOpen(false);
     setChoosing(false);
     setView(undefined);
     setPreview(undefined);
     setBusy(false);
+    setSaving(false);
     revision.current += 1;
     void load();
     const refresh = (event: Event) => {
@@ -64,6 +75,7 @@ export function SessionThinking({
     };
     window.addEventListener("session-model-changed", refresh);
     return () => {
+      generation.current += 1;
       revision.current += 1;
       window.removeEventListener("session-model-changed", refresh);
     };
@@ -72,6 +84,12 @@ export function SessionThinking({
     const version = ++revision.current;
     setBusy(true);
     try {
+      const pendingWrites = waitForSessionThinkingWrites(scope);
+      if (pendingWrites) {
+        await pendingWrites;
+        if (identityRef.current !== identity || revision.current !== version)
+          return;
+      }
       const next = await sessionThinkingApi.get(agentId, chatId, sessionId);
       if (identityRef.current !== identity || revision.current !== version)
         return;
@@ -88,46 +106,72 @@ export function SessionThinking({
       if (identityRef.current === identity && revision.current === version)
         message.error(String(error));
     } finally {
-      if (identityRef.current === identity && revision.current === version)
+      if (identityRef.current === identity && revision.current === version) {
         setBusy(false);
+        setSaving(false);
+      }
     }
+  }
+  function updatePreview(value: ThinkingPreference) {
+    previewRevision.current += 1;
+    setPreview(value);
   }
   async function save(value: ThinkingPreference | DecisionSettings) {
     if (!view || busy) return;
-    if ("level" in value) setPreview(value);
+    if ("level" in value) updatePreview(value);
+    const edit = previewRevision.current;
+    const owner = generation.current;
     const version = ++revision.current;
-    setBusy(true);
+    if ("level" in value && !chatId) {
+      setPendingThinking(agentId, sessionId, value, view.model_key);
+      setView({ ...view, value, reason: null });
+      setPreview(undefined);
+      return;
+    }
+    setSaving(true);
+    if ("enabled" in value) setBusy(true);
     try {
-      const next =
-        "enabled" in value
-          ? {
-              ...view,
-              decision: await saveDecisionSettings(
+      const next = await enqueueSessionThinkingWrite(scope, async () => {
+        const result =
+          "enabled" in value
+            ? {
+                ...view,
+                decision: await saveDecisionSettings(
+                  agentId,
+                  { sessionId, chatId },
+                  value,
+                ),
+              }
+            : await sessionThinkingApi.set(
                 agentId,
-                { sessionId, chatId },
+                chatId!,
                 value,
-              ),
-            }
-          : chatId
-          ? await sessionThinkingApi.set(agentId, chatId, value, view.model_key)
-          : { ...view, value, reason: null };
-      if (identityRef.current === identity && revision.current === version) {
-        setView(next);
-        onDecisionEnabledChange?.(next.decision?.enabled);
+                view.model_key,
+              );
         if ("level" in value)
-          setPendingThinking(
-            agentId,
-            sessionId,
-            chatId ? null : value,
-            view.model_key,
-          );
+          setPendingThinking(agentId, sessionId, null, view.model_key);
+        return result;
+      });
+      if (generation.current === owner && identityRef.current === identity) {
+        setView((current) =>
+          "enabled" in value && current
+            ? { ...current, decision: next.decision }
+            : next,
+        );
+        onDecisionEnabledChange?.(next.decision?.enabled);
       }
     } catch (error) {
-      if (identityRef.current === identity) message.error(String(error));
+      if (generation.current === owner && identityRef.current === identity)
+        message.error(String(error));
     } finally {
-      if (identityRef.current === identity && revision.current === version) {
-        setBusy(false);
-        setPreview(undefined);
+      if (
+        generation.current === owner &&
+        identityRef.current === identity &&
+        revision.current === version
+      ) {
+        setSaving(false);
+        if ("enabled" in value) setBusy(false);
+        if (previewRevision.current === edit) setPreview(undefined);
       }
     }
   }
@@ -135,7 +179,7 @@ export function SessionThinking({
     !!view &&
     (view.model_source === "session" || view.value.level !== "inherit");
   async function resetModel() {
-    if (busy || !canReset) return;
+    if (busy || saving || !canReset) return;
     setBusy(true);
     try {
       await resetSessionModel(agentId, { sessionId, chatId });
@@ -155,7 +199,7 @@ export function SessionThinking({
         type="button"
         className={styles.iconButton}
         aria-label={t("thinkingControl.resetModel")}
-        disabled={busy || !canReset}
+        disabled={busy || saving || !canReset}
         onClick={() => void resetModel()}
       >
         <RotateCcw size={15} />
@@ -177,7 +221,7 @@ export function SessionThinking({
         setOpen(next);
         if (!next) {
           setChoosing(false);
-          setPreview(undefined);
+          if (!saving) setPreview(undefined);
         }
         if (next) void load();
       }}
@@ -211,11 +255,11 @@ export function SessionThinking({
               />
             </>
           ) : (
-            <Spin spinning={busy}>
+            <Spin spinning={busy && !view}>
               {view?.model && (
                 <ThinkingControl
                   control={view.control}
-                  value={value}
+                  value={displayedValue}
                   effective={view.effective}
                   modelLabel={
                     view.model_name ||
@@ -226,7 +270,7 @@ export function SessionThinking({
                   }
                   resetAction={resetModelButton}
                   onChooseModel={() => setChoosing(true)}
-                  onPreview={setPreview}
+                  onPreview={updatePreview}
                   onChange={(next) => void save(next)}
                   disabled={busy}
                 />
@@ -250,7 +294,9 @@ export function SessionThinking({
                           size="small"
                           aria-label={t("chat.sessionSettings.decisionEnabled")}
                           checked={view?.decision?.enabled ?? false}
-                          disabled={busy || !view?.decision?.configured}
+                          disabled={
+                            busy || saving || !view?.decision?.configured
+                          }
                           onChange={(enabled) =>
                             view?.decision &&
                             void save({

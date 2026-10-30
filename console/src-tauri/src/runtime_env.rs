@@ -19,5 +19,6 @@
 pub(crate) fn collect(app: &tauri::AppHandle) -> Vec<(String, String)> {
     let mut environment = Vec::new();
     environment.extend(crate::computer_use_runtime::backend_environment(app));
+    environment.extend(crate::channel_runtime::backend_environment(app));
     environment
 }

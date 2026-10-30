@@ -174,3 +174,27 @@ export interface HubInstallTaskResponse {
   created_at: number;
   updated_at: number;
 }
+
+export interface SkillPoolDownloadRequest {
+  skill_name: string;
+  targets: Array<{ workspace_id: string }>;
+  all_workspaces?: boolean;
+  overwrite?: boolean;
+  preview_only?: boolean;
+}
+
+export type PoolDownloadState =
+  | "running"
+  | "cancelling"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface PoolDownloadJob {
+  job_id: string;
+  state: PoolDownloadState;
+  error: string | null;
+  /** Structured outcome: scan findings when rejected, downloaded workspaces
+   * when completed. */
+  result?: Record<string, unknown> | null;
+}

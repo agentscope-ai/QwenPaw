@@ -204,7 +204,7 @@ export function useSessionListData(
 
     const timer = setInterval(async () => {
       // Pause polling during session switch to avoid bandwidth contention
-      if (sessionApi.isSessionSwitching || inFlight) return;
+      if (document.hidden || sessionApi.isSessionSwitching || inFlight) return;
       inFlight = true;
       try {
         const list = await sessionApi.getSessionList();
@@ -221,11 +221,20 @@ export function useSessionListData(
       } finally {
         inFlight = false;
       }
-    }, 3000);
+    }, 10000);
+
+    const onVisibility = () => {
+      if (!document.hidden && !inFlight && !sessionApi.isSessionSwitching) {
+        inFlight = true;
+        void fetchSessions();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [active, setSessions, selectedAgent]);
 

@@ -7,11 +7,19 @@ import { useAppMessage } from "../../../hooks/useAppMessage";
 import { openExternalLink } from "../../../utils/openExternalLink";
 import styles from "./index.module.less";
 
+export interface OAuthFlow {
+  start: () => Promise<{ authorize_url: string; state: string }>;
+  getStatus: (state: string) => Promise<{ status: string }>;
+  cancel: (state: string) => Promise<unknown>;
+}
+
 interface OAuthConfirmModalProps {
   open: boolean;
   providerId: string;
   providerName: string;
   className?: string;
+  flow?: OAuthFlow;
+  description?: string;
   onSuccess: () => void;
   onCancel: () => void;
 }
@@ -21,6 +29,8 @@ export function OAuthConfirmModal({
   providerId,
   providerName,
   className,
+  flow,
+  description,
   onSuccess,
   onCancel,
 }: OAuthConfirmModalProps) {
@@ -35,6 +45,13 @@ export function OAuthConfirmModal({
   // open, live instance.
   const disposedRef = useRef(!open);
   const startingRef = useRef(false);
+  const generationRef = useRef(0);
+  const cancelRef = useRef<(() => Promise<unknown>) | null>(null);
+  const cancelAttempt = useCallback(() => {
+    const cancel = cancelRef.current;
+    cancelRef.current = null;
+    void cancel?.().catch(() => undefined);
+  }, []);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -55,16 +72,27 @@ export function OAuthConfirmModal({
     }
     return () => {
       disposedRef.current = true;
+      generationRef.current += 1;
       stopPolling();
+      cancelAttempt();
     };
-  }, [open, stopPolling]);
+  }, [open, stopPolling, cancelAttempt]);
 
   const handleContinue = useCallback(async () => {
     if (startingRef.current) return; // ignore double-clicks
     startingRef.current = true;
+    const generation = generationRef.current;
+    const isStale = () =>
+      disposedRef.current || generation !== generationRef.current;
     try {
-      const { authorize_url, state } = await providerApi.startOAuth(providerId);
-      if (disposedRef.current) return; // closed while starting
+      const { authorize_url, state } = await (flow
+        ? flow.start()
+        : providerApi.startOAuth(providerId));
+      if (isStale()) {
+        void flow?.cancel(state).catch(() => undefined);
+        return;
+      }
+      cancelRef.current = flow ? () => flow.cancel(state) : null;
       // Never stack timers from overlapping starts: the previous ids
       // would be overwritten and leak unclearable.
       stopPolling();
@@ -75,19 +103,22 @@ export function OAuthConfirmModal({
       // Poll backend status until completion (same pattern as MCP OAuth)
       pollRef.current = setInterval(async () => {
         try {
-          const { status } = await providerApi.getOAuthStatus(
-            providerId,
-            state,
-          );
-          if (disposedRef.current) return;
+          const { status } = await (flow
+            ? flow.getStatus(state)
+            : providerApi.getOAuthStatus(providerId, state));
+          if (isStale()) return;
           if (status === "completed") {
+            cancelRef.current = null;
+            disposedRef.current = true;
             stopPolling();
             message.success(
               t("modelSelector.oauthConnected", { provider: providerName }),
             );
             onSuccess();
-          } else if (status === "failed") {
+          } else if (status === "failed" || status === "cancelled") {
             stopPolling();
+            cancelAttempt();
+            disposedRef.current = true;
             message.error(t("modelSelector.oauthFailed"));
             onCancel();
           }
@@ -100,21 +131,35 @@ export function OAuthConfirmModal({
       // way out instead of an eternal spinner.
       timeoutRef.current = setTimeout(() => {
         stopPolling();
-        if (disposedRef.current) return;
+        if (isStale()) return;
+        cancelAttempt();
         message.error(t("modelSelector.oauthTimeout"));
         onCancel();
       }, 300000);
     } catch (err) {
-      if (!disposedRef.current) {
+      if (!isStale()) {
+        cancelAttempt();
         message.error(
-          err instanceof Error ? err.message : t("modelSelector.oauthFailed"),
+          flow || !(err instanceof Error)
+            ? t("modelSelector.oauthFailed")
+            : err.message,
         );
         onCancel();
       }
     } finally {
-      startingRef.current = false;
+      if (generation === generationRef.current) startingRef.current = false;
     }
-  }, [providerId, providerName, onSuccess, onCancel, message, t, stopPolling]);
+  }, [
+    providerId,
+    providerName,
+    flow,
+    onSuccess,
+    onCancel,
+    message,
+    t,
+    stopPolling,
+    cancelAttempt,
+  ]);
 
   return (
     <Modal
@@ -133,7 +178,8 @@ export function OAuthConfirmModal({
             {t("modelSelector.oauthTitle", { provider: providerName })}
           </h3>
           <p className={styles.oauthModalDescription}>
-            {t("modelSelector.oauthDescription", { provider: providerName })}
+            {description ??
+              t("modelSelector.oauthDescription", { provider: providerName })}
           </p>
           <div className={styles.oauthModalActions}>
             <Button onClick={onCancel}>{t("common.cancel")}</Button>

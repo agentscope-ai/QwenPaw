@@ -1809,15 +1809,17 @@ def _iter_orphaned_metadata(
 
 def _create_process_as_user(
     h_token: ctypes.wintypes.HANDLE,
-    cmd: str,
+    cmd: str | list[str],
     cwd: str,
     env: Dict[str, str],
     shell_executable: Optional[str] = None,
+    *,
+    stdio: tuple[int, int, int] | None = None,
 ) -> Tuple[
     int,
     ctypes.wintypes.HANDLE,
-    ctypes.wintypes.HANDLE,
-    ctypes.wintypes.HANDLE,
+    Optional[ctypes.wintypes.HANDLE],
+    Optional[ctypes.wintypes.HANDLE],
     Optional[ctypes.wintypes.HANDLE],
 ]:
     """Creates a suspended process under the restricted token, then resumes it.
@@ -1838,20 +1840,31 @@ def _create_process_as_user(
     kernel32 = _get_kernel32()
     advapi32 = _get_advapi32()
 
-    stdout_read, stdout_write, stderr_read, stderr_write = _create_stdio_pipes(
-        kernel32,
-    )
+    if stdio is None:
+        (
+            stdout_read,
+            stdout_write,
+            stderr_read,
+            stderr_write,
+        ) = _create_stdio_pipes(kernel32)
+    else:
+        stdout_read = stderr_read = None
+        _, stdout_write, stderr_write = stdio
 
     si = _STARTUPINFOW()
     si.cb = ctypes.sizeof(si)
     si.dwFlags = _WC.STARTF_USESTDHANDLES
-    si.hStdInput = None
+    si.hStdInput = stdio[0] if stdio is not None else None
     si.hStdOutput = stdout_write
     si.hStdError = stderr_write
     si.lpDesktop = "WinSta0\\Default"
 
     env_block = _make_env_block(env)
-    command_line = _build_shell_command_line(cmd, shell_executable)
+    command_line = (
+        subprocess.list2cmdline(cmd)
+        if isinstance(cmd, list)
+        else _build_shell_command_line(cmd, shell_executable)
+    )
     cl_buf = ctypes.create_unicode_buffer(command_line)
 
     pi = _PROCESS_INFORMATION()
@@ -1876,12 +1889,14 @@ def _create_process_as_user(
     )
     err = ctypes.get_last_error() if not ok else 0
 
-    kernel32.CloseHandle(stdout_write)
-    kernel32.CloseHandle(stderr_write)
+    if stdio is None:
+        kernel32.CloseHandle(stdout_write)
+        kernel32.CloseHandle(stderr_write)
 
     if not ok:
-        kernel32.CloseHandle(stdout_read)
-        kernel32.CloseHandle(stderr_read)
+        if stdio is None:
+            kernel32.CloseHandle(stdout_read)
+            kernel32.CloseHandle(stderr_read)
         raise OSError(f"CreateProcessAsUserW failed: error={err}")
 
     h_job = _create_job_object()
@@ -2331,6 +2346,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
             self._process_handle = h_proc
             self._job_handle = h_job
 
+            assert h_stdout is not None and h_stderr is not None
             exit_code, stdout, stderr, timed_out = await asyncio.to_thread(
                 self._wait_and_read,
                 h_proc,

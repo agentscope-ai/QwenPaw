@@ -34,6 +34,56 @@ def test_memory_search_indexes_only_memory_markdown() -> None:
     assert job["watch_suffixes"] == ["md"]
 
 
+def test_auto_memory_exposes_optional_boolean_image_control() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    parameters = cfg["jobs"]["auto_memory"]["parameters"]
+    assert parameters["properties"]["include_images"]["type"] == "boolean"
+    assert "include_images" not in parameters["required"]
+
+
+def test_tag_pipeline_and_optional_search_filters_are_available():
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    assert ReMeLightMemoryConfig().auto_memory_generate_tags is False
+    assert [s["backend"] for s in cfg["jobs"]["auto_memory"]["steps"]] == [
+        "auto_memory_step",
+    ]
+    tagged = cfg["jobs"]["auto_memory_with_tags"]
+    assert tagged["enable_serve"] is False
+    assert [s["backend"] for s in tagged["steps"]] == [
+        "auto_memory_step",
+        "auto_tag_step",
+    ]
+    search = cfg["jobs"]["search"]["parameters"]
+    assert search["properties"]["tags"]["items"] == {"type": "string"}
+    assert "tags" not in search.get("required", [])
+    assert cfg["components"]["file_store"]["default"]["tag_index"] == "default"
+    assert cfg["jobs"]["list_tags"]["steps"] == [{"backend": "list_tags_step"}]
+
+
+def test_reme_watchers_use_private_threads() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    watcher = cfg["jobs"]["index_update_loop"]["steps"][1]
+    assert watcher["backend"] == "watch_changes_step"
+    assert watcher["watch_mode"] == "watch"
+    assert watcher["monitor_type"] == "file_store"
+
+
+def test_auto_dream_only_consolidates_digest() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    dream = cfg["jobs"]["auto_dream"]
+    assert [step["backend"] for step in dream["steps"]] == [
+        "dream_extract_step",
+        "dream_integrate_step",
+        "dream_finish_step",
+    ]
+    assert "proactive_refresh" not in cfg["jobs"]
+    assert "proactive" not in cfg["components"]["file_catalog"]
+    assert cfg["jobs"]["proactive"]["steps"] == [
+        {"backend": "proactive_step"},
+    ]
+    assert not any(job["backend"] == "cron" for job in cfg["jobs"].values())
+
+
 def test_reme_file_processing_is_limited_to_10_mb() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
@@ -96,6 +146,7 @@ def test_daily_paper_replaces_auto_resource_without_removing_resource_dir():
             "backend": "daily_paper_digest_step",
             "job_tools": ["search", "read"],
         },
+        {"backend": "auto_tag_step"},
     ]
     assert cfg["jobs"]["daily_paper_cron"] == {
         "backend": "base",

@@ -63,6 +63,12 @@ from services.media_files.overlay import (
     render_pet_os_overlay,
 )
 from services.media_files.motion_engine import full_engine_digest
+from services.media_files.task_scratch import (
+    link_asset_into_scratch,
+    release_scratch_file,
+    stamp_scratch_baseline,
+    terminal_release_listener,
+)
 from services.media_files.motion_overlay import (
     PreparedMotionLayer,
     caption_layout_error,
@@ -248,6 +254,7 @@ class LocalMediaInput:
     media_type: str
     path: Path
     source_ref: str
+    mutable: bool = False
     start_seconds: float | None = None
     end_seconds: float | None = None
     duration_seconds: float | None = None
@@ -879,6 +886,9 @@ class FfmpegLocalMediaRunner:
             ],
             cwd=spec.work_dir,
         )
+        # The mix wrote a fresh delivery, so the renamed predecessor is a full
+        # second copy of the film with no reader left.
+        release_scratch_file(premix, reason="superseded-by-audio-mix")
 
     def _probe_has_audio(self, path: Path) -> bool:
         try:
@@ -2288,6 +2298,7 @@ class FfmpegLocalMediaRunner:
                 "layer levels may pump",
                 spec.output_path.name,
             )
+        release_scratch_file(preloud, reason="superseded-by-loudnorm")
         return None
 
     def _run(self, arguments: Sequence[str], *, cwd: Path) -> str:
@@ -2364,6 +2375,9 @@ class _FrozenInput:
     source_ref: str
     media_type: str
     source_url: str | None = None
+    # An input a consumer rewrites in place must stay a private copy; the
+    # default shares bytes with the stored Artifact instead.
+    mutable: bool = False
     start_seconds: float | None = None
     end_seconds: float | None = None
     duration_seconds: float | None = None
@@ -2512,6 +2526,26 @@ def _ensure_real_directory_chain(root: Path, *segments: str) -> Path:
         _require_real_directory(child)
         current = child
     return current
+
+
+def _ensure_task_work_dir(project_root: Path, task_id: str) -> Path:
+    """Allocate one task's scratch and baseline the reclaim sweep for it.
+
+    Allocation is where a baseline has to be recorded: a Project can arrive
+    through creation, copy, an archive import or an example install, and only
+    this path is guaranteed to run before the first byte of scratch.  The
+    stamp is idempotent and stays later than whatever the Project came with,
+    so imported leftovers keep their protected-history treatment.
+    """
+
+    work_dir = _ensure_real_directory_chain(
+        project_root,
+        "runtime",
+        "task-work",
+        task_id,
+    )
+    stamp_scratch_baseline(Path(project_root))
+    return work_dir
 
 
 def _indexed_version(
@@ -3646,7 +3680,10 @@ class FileLocalMediaExecutionService:
             HoldAwareExecutionStore,
         )
 
-        self.executions = HoldAwareExecutionStore(services.root)
+        self.executions = HoldAwareExecutionStore(
+            services.root,
+            on_task_terminal=terminal_release_listener(services),
+        )
         self.max_output_bytes = max_output_bytes
         self._closed = False
 
@@ -4153,12 +4190,7 @@ class FileLocalMediaExecutionService:
         project_root = self.services.projects.project_root(
             base.project.project_id,
         )
-        work_dir = _ensure_real_directory_chain(
-            project_root,
-            "runtime",
-            "task-work",
-            task.task_id,
-        )
+        work_dir = _ensure_task_work_dir(project_root, task.task_id)
         input_dir = _ensure_real_directory_chain(work_dir, "inputs")
         file_store = AssetFileStore(project_root)
         local_inputs: list[LocalMediaInput] = []
@@ -4190,13 +4222,27 @@ class FileLocalMediaExecutionService:
                 if destination.exists():
                     raise StorageIntegrityError("Task input scratch 已存在")
                 if frozen.indexed is not None:
-                    with (
-                        file_store.open_verified(frozen.indexed) as source,
-                        destination.open("xb") as target,
-                    ):
-                        shutil.copyfileobj(source, target, length=1024 * 1024)
-                        target.flush()
-                        os.fsync(target.fileno())
+                    # Task inputs are the Project's own immutable Artifacts, so
+                    # a hard link is the same bytes without doubling them on
+                    # disk; only an input a consumer must write to stays a
+                    # private copy.
+                    linked = not frozen.mutable and link_asset_into_scratch(
+                        file_store,
+                        frozen.indexed,
+                        destination,
+                    )
+                    if not linked:
+                        with (
+                            file_store.open_verified(frozen.indexed) as source,
+                            destination.open("xb") as target,
+                        ):
+                            shutil.copyfileobj(
+                                source,
+                                target,
+                                length=1024 * 1024,
+                            )
+                            target.flush()
+                            os.fsync(target.fileno())
                 elif frozen.source_url is not None:
                     source_version = (
                         base.project.assets.source_versions_by_id.get(
@@ -4235,6 +4281,7 @@ class FileLocalMediaExecutionService:
                     checksum=frozen.checksum,
                     media_type=frozen.media_type,
                     path=destination,
+                    mutable=frozen.mutable,
                     source_ref=frozen.source_ref,
                     start_seconds=frozen.start_seconds,
                     end_seconds=frozen.end_seconds,

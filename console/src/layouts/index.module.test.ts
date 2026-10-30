@@ -174,8 +174,11 @@ describe("Sidebar overflow layout", () => {
     );
 
     expect(siderRule).toContain('button[aria-expanded="true"]');
-    expect(siderRule).toContain("background: var(--app-accent-soft)");
-    expect(siderRule).toContain(
+    expect(siderRule).toContain("color: var(--app-accent-text) !important;");
+    expect(siderRule).not.toContain(
+      "background: var(--app-accent-soft) !important;",
+    );
+    expect(siderRule).not.toContain(
       "box-shadow: inset 0 0 0 1px var(--app-accent-border) !important;",
     );
     expect(itemRule).toContain('&[aria-disabled="true"]');

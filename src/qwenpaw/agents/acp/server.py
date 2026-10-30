@@ -946,7 +946,7 @@ class QwenPawACPAgent(Agent):
         command are left untouched so explicit commands always win.
         Later messages and resumed sessions are never prefixed.
         """
-        if self._agent_mode is None:
+        if self._agent_mode is None or self._agent_mode == f"code":
             return text
         if session_id in self._agent_mode_started:
             return text
@@ -1160,6 +1160,8 @@ class QwenPawACPAgent(Agent):
     ) -> dict[str, Any]:
         """Build the runtime request context for one ACP session."""
         request_context: dict[str, Any] = {}
+        if self._agent_mode == f"code":
+            request_context[f"coding_mode"] = True
         if session_info.get("mode", self.MODE_DEFAULT) == self.MODE_BYPASS:
             request_context["_headless_tool_guard"] = "false"
 

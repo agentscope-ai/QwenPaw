@@ -148,6 +148,8 @@ qwenpaw acp --agent-mode goal
 
 进程通过 stdin/stdout 使用 ACP JSON-RPC 协议通信，stderr 用于日志输出。
 
+`--agent-mode code` 为每个请求启用 Python 工具编排，包括加载和恢复的会话。它暴露 `run_code`，不添加斜杠命令前缀，也不修改已保存的 agent 配置。worker 遵循全局 `security.sandbox_enabled` 设置，默认为 `false`；启用 Code Mode 不会自动开启沙箱。
+
 `--agent-mode MODE_ID` 使用与 Console 相同的工作区 loop 目录（`GET /api/loops`）。内置 ID 包括 `default`、`goal`、`mission`；已配置的自定义模式使用 `custom:<id>`，插件模式使用 `plugin:<name>`。
 
 例如，`--agent-mode goal` 会为新会话的第一条消息加上 `/goal`。若自定义模式 `quality` 注册的是 `/verify`，则 `--agent-mode custom:quality` 添加 `/verify`，而不是 `/custom:quality`。激活仍通过已有 Runtime slash-command registry 执行。未知、禁用或未成功注册的模式会返回请求错误，不会静默回退。

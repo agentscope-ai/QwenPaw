@@ -3,7 +3,7 @@
 manager depends on.
 
 AgentScope 2.0 is alpha. The scroll context manager calls two underscore
-methods on the agent via :mod:`qwenpaw.agents.context.scroll._as_internals`.
+methods on the agent via :mod:`qwenpaw.agents.context._as_internals`.
 If a future AgentScope release renames them or changes their parameters, these
 tests fail loudly here — instead of the manager silently breaking inside
 ``compress()`` at runtime. When they fail, update ``_as_internals`` (and these
@@ -13,7 +13,7 @@ import inspect
 
 from agentscope.agent import Agent
 
-from qwenpaw.agents.context.scroll import _as_internals
+from qwenpaw.agents.context import _as_internals
 
 
 def test_prepare_model_input_still_exists_and_is_async():

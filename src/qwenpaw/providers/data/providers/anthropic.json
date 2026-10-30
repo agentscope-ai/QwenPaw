@@ -528,6 +528,127 @@
       "billing": "paid",
       "is_free": false,
       "billing_source": "catalog"
+    },
+    {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/models/opus-5-5/overview",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/effort",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "released_at": "2026-09-22",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "anthropic_adaptive"
+      }
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/effort",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "released_at": "2026-09-28",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "anthropic_adaptive"
+      }
+    },
+    {
+      "id": "claude-haiku-5-5",
+      "name": "Claude Haiku 5.5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/models/haiku-5-5/overview",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/models/haiku-5-5/whats-new-haiku-5-5",
+          "updated_at": "2026-10-28",
+          "note": "Thinking can be disabled only at high effort or below. supports_off indicates that disabling is available; it does not express this effort-dependent constraint. Requests combining disabled thinking with xhigh or max effort are not supported."
+        }
+      },
+      "released_at": "2026-10-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      }
     }
   ]
 }

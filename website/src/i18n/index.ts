@@ -2,6 +2,8 @@ import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 import zh from "@/i18n/locales/zh.json";
 import en from "@/i18n/locales/en.json";
+import evaluationEn from "@/i18n/locales/evaluation.en.json";
+import evaluationZh from "@/i18n/locales/evaluation.zh.json";
 import ptBR from "@/i18n/locales/pt-BR.json";
 
 export type Lang = "zh" | "en" | "pt-BR";
@@ -12,8 +14,8 @@ export const i18n = i18next.createInstance();
 
 void i18n.use(initReactI18next).init({
   resources: {
-    zh: { translation: zh },
-    en: { translation: en },
+    zh: { translation: zh, evaluation: evaluationZh },
+    en: { translation: en, evaluation: evaluationEn },
     "pt-BR": { translation: ptBR },
   },
   lng: "en",

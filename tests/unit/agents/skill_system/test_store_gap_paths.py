@@ -585,13 +585,39 @@ class TestDirectoryTreeRoundTrip:
         assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hello"
         assert (tmp_path / "sub" / "b.md").read_text(encoding="utf-8") == ""
 
+    def test_create_files_from_tree_preserves_binary(self, tmp_path):
+        payload = b"\x89PNG\x00\xff"
+        _create_files_from_tree(tmp_path, {"assets": {"image.png": payload}})
+        assert (tmp_path / "assets" / "image.png").read_bytes() == payload
+
     def test_create_files_rejects_invalid_value(self, tmp_path):
         with pytest.raises(SkillsError):
             _create_files_from_tree(tmp_path, {"bad": 123})
 
-    def test_create_files_rejects_traversal_name(self, tmp_path):
-        with pytest.raises(SkillsError):
-            _create_files_from_tree(tmp_path, {"../escape.txt": "x"})
+    @pytest.mark.parametrize("content", ["x", b"\x00\xff"])
+    @pytest.mark.parametrize("name", ["../escape.txt", "..\\escape.txt"])
+    def test_create_files_rejects_traversal_name(
+        self,
+        tmp_path,
+        name,
+        content,
+    ):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        with pytest.raises(SkillsError, match="outside skill directory"):
+            _create_files_from_tree(skill_dir, {name: content})
+        assert not (tmp_path / "escape.txt").exists()
+
+    @pytest.mark.parametrize("content", ["x", b"\x00\xff"])
+    def test_create_files_rejects_symlink_escape(self, tmp_path, content):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        outside = tmp_path / "outside.bin"
+        outside.write_bytes(b"original")
+        (skill_dir / "link.bin").symlink_to(outside)
+        with pytest.raises(SkillsError, match="outside skill directory"):
+            _create_files_from_tree(skill_dir, {"link.bin": content})
+        assert outside.read_bytes() == b"original"
 
 
 # ---------------------------------------------------------------------------

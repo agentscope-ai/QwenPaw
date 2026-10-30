@@ -19,6 +19,11 @@ def test_exported_author_suite_collects_outside_checkout(tmp_path):
     )
     selected = checker["prepare_author_tests"](source, tmp_path)
     assert "test_sdk_install_transaction.py" in selected
+    assert not {
+        "test_sdk_channel_routing_contract.py",
+        "test_sdk_provider_contract.py",
+        "test_sdk_resource_contract.py",
+    }.intersection(selected)
     assert "test_sdk_dependency_environment.py" not in selected
     code = """
 import importlib.abc

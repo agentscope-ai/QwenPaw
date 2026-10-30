@@ -17,6 +17,8 @@ class SDKAccessError(SDKError):
 class SDKRestartRequiredError(SDKCompatibilityError):
     """A dependency change requires a fresh host process."""
 
+    needs_restart = True
+
 
 class StaleContextError(SDKError):
     """An operation belongs to a stopped or superseded plugin instance."""

@@ -106,7 +106,7 @@ function readLastOpenToolsMode(): number {
     return 1;
   }
 }
-const INBOX_BADGE_POLLING_MS = 6000;
+const INBOX_BADGE_POLLING_MS = 15000;
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -154,6 +154,7 @@ export default function Sidebar({
   const [accountLoading, setAccountLoading] = useState(false);
   const [runtimeRestarting, setRuntimeRestarting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
   const [historyPopoverOpen, setHistoryPopoverOpen] = useState(false);
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [version, setVersion] = useState("");
@@ -368,14 +369,16 @@ export default function Sidebar({
 
   useEffect(() => {
     let inFlight = false;
+    let cancelled = false;
     const loadUnreadState = async () => {
-      if (inFlight) return;
+      if (inFlight || document.hidden) return;
       inFlight = true;
       try {
         const inboxRes = await api.getInboxEvents({
           unread_only: true,
           limit: 1,
         });
+        if (cancelled) return;
         const hasUnreadEvents = (inboxRes?.events?.length || 0) > 0;
         setUnreadCount(
           inboxRes?.unread_count ??
@@ -392,7 +395,15 @@ export default function Sidebar({
     const timer = window.setInterval(() => {
       void loadUnreadState();
     }, INBOX_BADGE_POLLING_MS);
-    return () => window.clearInterval(timer);
+    const onVisibility = () => {
+      if (!document.hidden) void loadUnreadState();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   // ── Pre-fetch sessions on mount ───────────────────────────────────────────
@@ -493,6 +504,10 @@ export default function Sidebar({
    * navigate to /chat without a session id. The first send creates the session.
    */
   const handleNewChat = useCallback(() => {
+    if (sessionApi.isSessionSwitching) {
+      sessionApi.finishSessionSwitch();
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-switch-done"));
+    }
     const onChatPage = location.pathname.startsWith("/chat");
     if (onChatPage) {
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
@@ -527,15 +542,34 @@ export default function Sidebar({
     );
   }, []);
 
-  /**
-   * Session click: navigate directly without relying on ChatSessionInitializer.
-   * Resolve realId (backend UUID) to avoid exposing local timestamp in URL.
-   */
+  /** Preload the selected session while sidebar polling is paused. */
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
-      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildChatPath(effectiveId);
-      navigate(targetPath);
+      const controller = sessionApi.startNewSwitch();
+      void sessionApi
+        .preloadSession(sessionId, controller.signal)
+        .then(({ realId }) => {
+          if (controller.signal.aborted) return;
+          const effectiveId = sessionApi.getEffectiveSessionId(
+            sessionId,
+            realId,
+          );
+          navigate(buildChatPath(effectiveId));
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          if (error instanceof DOMException && error.name === "AbortError")
+            return;
+          navigate(buildChatPath(sessionApi.getEffectiveSessionId(sessionId)));
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            sessionApi.finishSessionSwitch();
+            window.dispatchEvent(
+              new CustomEvent("qwenpaw:sidebar-switch-done"),
+            );
+          }
+        });
     },
     [navigate],
   );
@@ -1056,23 +1090,36 @@ export default function Sidebar({
             classNames={{ root: styles.quickSettingsPopover }}
             destroyOnHidden
             content={
-              <SidebarSettingsPanel
-                version={version}
-                onClose={() => setSettingsOpen(false)}
-                onOpenDesktopMode={handleOpenDesktopMode}
-                onOpenSettings={handleOpenSettings}
-                authEnabled={authEnabled}
-                onOpenAccount={handleOpenAccount}
-                onLogout={handleLogout}
-              />
+              <div
+                role="dialog"
+                aria-label={t("sidebar.quickMenu.settings", "Settings")}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSettingsOpen(false);
+                  settingsTriggerRef.current?.focus();
+                }}
+              >
+                <SidebarSettingsPanel
+                  version={version}
+                  onClose={() => setSettingsOpen(false)}
+                  onOpenDesktopMode={handleOpenDesktopMode}
+                  onOpenSettings={handleOpenSettings}
+                  authEnabled={authEnabled}
+                  onOpenAccount={handleOpenAccount}
+                  onLogout={handleLogout}
+                />
+              </div>
             }
           >
             <button
+              ref={settingsTriggerRef}
               type="button"
               data-press
               title={t("sidebar.quickMenu.settings", "Settings")}
               aria-label={t("sidebar.quickMenu.settings", "Settings")}
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
               aria-expanded={settingsOpen}
               className={collapsed ? styles.collapseToggle : skin.identity}
             >

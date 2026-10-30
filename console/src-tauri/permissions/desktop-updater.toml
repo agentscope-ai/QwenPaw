@@ -12,4 +12,5 @@ commands.allow = [
     "download_desktop_update",
     "install_desktop_update",
     "install_downloaded_update",
+    "confirm_desktop_update",
 ]

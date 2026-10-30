@@ -173,39 +173,97 @@ class TestRunSkillTest:
         with pytest.raises(click.ClickException, match="not found"):
             sc._run_skill_test(tmp_path / "missing")
 
-    def test_valid_skill_returns_name(self, tmp_path):
-        skill_dir = tmp_path / "demo"
+    @pytest.mark.parametrize("declared_name", ["skills", "doc-review"])
+    @pytest.mark.parametrize("json_output", [False, True])
+    def test_valid_skill_returns_name(
+        self,
+        tmp_path,
+        monkeypatch,
+        declared_name,
+        json_output,
+    ):
+        from unittest.mock import Mock
+
+        from qwenpaw.config.config import SkillScannerConfig
+        from qwenpaw.security import skill_scanner
+
+        skill_dir = tmp_path / "skills"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(
-            _skill_md("demo"),
+            _skill_md(declared_name),
             encoding="utf-8",
         )
+        config = SkillScannerConfig(
+            mode="block",
+            whitelist=[{"skill_name": "skills"}],
+        )
+        scanner = Mock(side_effect=AssertionError("Whitelist was not used"))
+        monkeypatch.setattr(
+            skill_scanner,
+            "_load_scanner_config",
+            lambda: config,
+        )
+        monkeypatch.setattr(
+            skill_scanner.EnvVarLoader,
+            "get_str",
+            lambda *a: "",
+        )
+        monkeypatch.setattr(skill_scanner, "_get_scanner", scanner)
+        monkeypatch.setattr(sc, "load_envs", lambda: {})
+        monkeypatch.setattr(sc, "_get_agent_workspace", lambda *a: tmp_path)
+        monkeypatch.setattr(
+            sc,
+            "client",
+            Mock(side_effect=sc.httpx.ConnectError("Offline")),
+        )
 
-        from types import SimpleNamespace
+        assert sc._run_skill_test(skill_dir) == "skills"
+        result = CliRunner().invoke(
+            sc.skills_group,
+            [
+                "test",
+                str(skill_dir),
+                "--agent-id",
+                "default",
+                *(["--json"] if json_output else []),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        if json_output:
+            report = json.loads(result.stdout)
+            assert report["name"] == "skills"
+            assert report["metadata"]["name"] == declared_name
+            assert report["security_scan"] == "skipped"
+            diagnostics = "\n".join(report["warnings"])
+        else:
+            assert "Skill test passed: skills" in result.stdout
+            diagnostics = result.stdout
+        assert "/skills is shadowed" in diagnostics
+        assert "/doc-review is shadowed" not in diagnostics
+        scanner.assert_not_called()
 
-        import qwenpaw.cli.skills_cmd as sc_mod
-
-        result = SimpleNamespace(is_safe=True, findings=[])
-        original = sc_mod.scan_skill_directory
-        sc_mod.scan_skill_directory = lambda *a, **kw: result
-        try:
-            assert sc._run_skill_test(skill_dir) == "demo"
-        finally:
-            sc_mod.scan_skill_directory = original
-
-    def test_unsafe_scan_raises(self, tmp_path):
+    def test_unsafe_scan_warns_without_overriding_policy(
+        self,
+        tmp_path,
+        capsys,
+    ):
         skill_dir = tmp_path / "bad"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(_skill_md("bad"), encoding="utf-8")
 
         from types import SimpleNamespace
 
-        result = SimpleNamespace(is_safe=False, findings=[object()])
+        result = SimpleNamespace(
+            is_safe=False,
+            findings=[
+                SimpleNamespace(to_dict=lambda: {"title": "Test issue"}),
+            ],
+        )
         original = sc.scan_skill_directory
         sc.scan_skill_directory = lambda *a, **kw: result
         try:
-            with pytest.raises(click.ClickException, match="issue\\(s\\)"):
-                sc._run_skill_test(skill_dir)
+            assert sc._run_skill_test(skill_dir) == "bad"
+            assert "1 issue(s)" in capsys.readouterr().out
         finally:
             sc.scan_skill_directory = original
 
