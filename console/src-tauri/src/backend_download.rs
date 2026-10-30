@@ -123,8 +123,8 @@ mod tests {
     #[test]
     fn accepts_loopback_backend_urls() {
         assert!(parse_local_backend_url("http://127.0.0.1:54377/api/backups/id/export").is_ok());
-        assert!(parse_local_backend_url("http://localhost:54377/api/workspace/download").is_ok());
-        assert!(parse_local_backend_url("http://[::1]:54377/api/workspace/download").is_ok());
+        assert!(parse_local_backend_url("http://localhost:54377/api/backups/id/export").is_ok());
+        assert!(parse_local_backend_url("http://[::1]:54377/api/backups/id/export").is_ok());
     }
 
     #[test]

@@ -5,11 +5,10 @@ Verifies that ``/api/agents/{agentId}/...`` paths route correctly to
 the same handlers as global ``/api/...`` paths (alias endpoints) and
 that real agent-scoped endpoints resolve agent context properly.
 
-Covers 13 P0 endpoints across five domains:
+Covers agent-scoped endpoints across the following domains:
 
   - **plugins** (alias): install / upload / uninstall + real install
   - **console/inbox** (alias): seed → list → mark-read → delete
-  - **workspace** (real): upload invalid / valid zip
   - **mcp-oauth** (real): revoke unknown client
   - **workspace/transcribe** (alias): disabled, unsupported extension
   - **workspace/transcription-provider-type** (alias): roundtrip, invalid
@@ -17,8 +16,6 @@ Covers 13 P0 endpoints across five domains:
 """
 from __future__ import annotations
 
-import io
-import zipfile
 
 import pytest
 
@@ -42,15 +39,6 @@ _HTTP_TIMEOUT = default_http_timeout(15.0)
 # ------------------------------------------------------------------ #
 # file-local helpers (not shared)
 # ------------------------------------------------------------------ #
-
-
-def _build_workspace_zip(files: dict[str, str]) -> bytes:
-    """Build an in-memory zip containing the given path→content map."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name, content in files.items():
-            zf.writestr(name, content)
-    return buf.getvalue()
 
 
 # ------------------------------------------------------------------ #
@@ -303,93 +291,6 @@ def test_inbox_seed_list_read_delete_lifecycle(app_server) -> None:
         assert remaining == {"scoped-inbox-01", "scoped-inbox-02"}
     finally:
         clean_inbox(app_server.working_dir)
-
-
-# ------------------------------------------------------------------ #
-# workspace — real agent-scoped endpoints
-# ------------------------------------------------------------------ #
-
-
-@pytest.mark.integration
-@pytest.mark.p0
-def test_workspace_upload_invalid_content_type(app_server) -> None:
-    """Test purpose:
-    - Verify POST /api/agents/{agentId}/workspace/upload with a
-      non-zip content type is rejected with 400.
-
-    Test flow:
-    1. Create a test agent.
-    2. POST workspace/upload with content-type ``text/plain``.
-    3. Assert 400 and detail mentions ``zip``.
-    4. Delete test agent.
-
-    API endpoints:
-    - POST /api/agents/{agentId}/workspace/upload
-    """
-    agent_id = "integ_ws_upload_bad_ct_01"
-    create_agent(app_server, agent_id)
-    try:
-        resp = app_server.api_request(
-            "POST",
-            scoped(agent_id, "/workspace/upload"),
-            files={
-                "file": (
-                    "bad.zip",
-                    b"not a zip",
-                    "text/plain",
-                ),
-            },
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert resp.status_code == 400, app_server.logs_tail()
-        assert "zip" in resp.json().get("detail", "").lower()
-    finally:
-        delete_agent_quietly(app_server, agent_id)
-
-
-@pytest.mark.integration
-@pytest.mark.p0
-def test_workspace_upload_valid_zip_merges(app_server) -> None:
-    """Test purpose:
-    - Verify POST /api/agents/{agentId}/workspace/upload with a valid
-      zip returns ``{"success": true}`` and the files are merged into
-      the agent workspace. This is the happy-path coverage for the real
-      agent-scoped workspace upload.
-
-    Test flow:
-    1. Create a test agent.
-    2. Build a zip containing ``test_marker.txt``.
-    3. POST workspace/upload with ``application/zip``.
-    4. Assert 200 and ``success == True``.
-    5. Delete test agent.
-
-    API endpoints:
-    - POST /api/agents/{agentId}/workspace/upload
-    """
-    agent_id = "integ_ws_upload_ok_01"
-    create_agent(app_server, agent_id)
-    try:
-        zip_bytes = _build_workspace_zip(
-            {
-                "test_marker.txt": "agent-scoped upload test",
-            },
-        )
-        resp = app_server.api_request(
-            "POST",
-            scoped(agent_id, "/workspace/upload"),
-            files={
-                "file": (
-                    "workspace.zip",
-                    zip_bytes,
-                    "application/zip",
-                ),
-            },
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert resp.status_code == 200, app_server.logs_tail()
-        assert resp.json().get("success") is True
-    finally:
-        delete_agent_quietly(app_server, agent_id)
 
 
 # ------------------------------------------------------------------ #
