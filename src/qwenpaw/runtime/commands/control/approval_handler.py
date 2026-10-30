@@ -24,6 +24,7 @@ from ....channel_protocol.models import (
 )
 from ....channel_protocol.errors import ProtocolValidationError
 
+from .approval_i18n import approval_text
 from .base import BaseControlCommandHandler, ControlContext
 
 logger = logging.getLogger(__name__)
@@ -85,8 +86,28 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         )
 
     @staticmethod
-    def _identity_denied() -> str:
-        return "❌ **权限不足**\n\n" "此审批只能由发起请求的同一用户、频道和会话处理。"
+    def _language(context: ControlContext) -> str:
+        """Resolve the reply language for this command.
+
+        Prefers the channel's language (set from the agent config, the same
+        source ``BaseChannel._acl_msg`` uses), then the agent config itself.
+        """
+        language = getattr(context.channel, "_language", None)
+        if not isinstance(language, str) or not language:
+            try:
+                config = getattr(context.workspace, "config", None)
+            except Exception:  # pylint: disable=broad-except
+                config = None
+            language = getattr(config, "language", None)
+        return language if isinstance(language, str) else ""
+
+    @classmethod
+    def _text(cls, context: ControlContext, key: str, **kwargs) -> str:
+        return approval_text(cls._language(context), key, **kwargs)
+
+    @classmethod
+    def _identity_denied(cls, context: ControlContext) -> str:
+        return cls._text(context, "identity_denied")
 
     @staticmethod
     async def _get_spawn_child_queue_head(
@@ -142,7 +163,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         elif action == "cancel":
             return await self._handle_cancel(context)
         else:
-            return self._usage_hint()
+            return self._usage_hint(context)
 
     async def _handle_approve(self, context: ControlContext) -> str:
         """Approve a pending tool execution (supports cross-session)."""
@@ -163,27 +184,27 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             if pending is None:
                 pending = await self._get_spawn_child_queue_head(context, svc)
             if pending is None:
-                return "❌ **无待审批工具**\n\n" "当前会话没有需要审批的工具调用。"
+                return self._text(context, "no_pending")
             request_id = pending.request_id
 
         # Get pending by request_id (supports cross-session)
         pending = await svc.get_request(request_id)
         if pending is None:
             self._resolution(context, request_id, "unavailable")
-            return (
-                f"❌ **审批请求不存在**\n\n"
-                f"请求 ID: `{request_id[:16]}`\n\n"
-                f"可能已被处理或已超时。"
+            return self._text(
+                context,
+                "not_found",
+                request_id=request_id[:16],
             )
 
         # Permission check: can only approve own agent's requests
         if pending.agent_id != context.agent_id:
             self._resolution(context, request_id, "forbidden")
-            return (
-                f"❌ **权限不足**\n\n"
-                f"无法审批其他Agent的工具请求。\n"
-                f"- 请求所属Agent: `{pending.agent_id}`\n"
-                f"- 当前Agent: `{context.agent_id}`"
+            return self._text(
+                context,
+                "approve_other_agent",
+                owner_agent_id=pending.agent_id,
+                agent_id=context.agent_id,
             )
 
         # Resolve the Future to unblock waiting agent
@@ -196,39 +217,46 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
         except ApprovalIdentityMismatchError:
             self._resolution(context, request_id, "forbidden")
-            return self._identity_denied()
+            return self._identity_denied(context)
 
         if resolved is None:
             self._resolution(context, request_id, "unavailable")
-            return f"审批请求已处理或已超时。\n\n请求 ID: `{request_id[:16]}`"
+            return self._text(
+                context,
+                "already_resolved",
+                request_id=request_id[:16],
+            )
         self._resolution(context, request_id, "approved", resolved)
 
         # Show cross-session hint if applicable
         cross_session_hint = ""
         if pending.session_id != context.session_id:
             if pending.root_session_id == pending.session_id:
-                cross_session_hint = (
-                    f"\n\n🔗 **跨Session操作**\n"
-                    f"审批了其他会话的工具: `{pending.session_id[:8]}`"
-                )
+                hint_key = "approve_cross_session"
             else:
-                cross_session_hint = (
-                    f"\n\n🔗 **跨Session操作**\n"
-                    f"审批了子Agent的工具 (Session: `{pending.session_id[:8]}`)"
-                )
+                hint_key = "approve_cross_subagent"
+            cross_session_hint = self._text(
+                context,
+                hint_key,
+                session_id=pending.session_id[:8],
+            )
 
-        return (
-            f"✅ **工具已批准**\n\n"
-            f"- 工具: `{resolved.tool_name}`\n"
-            f"- 请求 ID: `{request_id[:16]}`\n"
-            f"- 状态: 正在执行...{cross_session_hint}"
+        return self._text(
+            context,
+            "approved",
+            tool_name=resolved.tool_name,
+            request_id=request_id[:16],
+            hint=cross_session_hint,
         )
 
     async def _handle_deny(self, context: ControlContext) -> str:
         """Deny a pending tool execution (supports cross-session)."""
         svc = get_approval_service()
         request_id = context.args.get("request_id")
-        reason = context.args.get("reason", "用户拒绝")
+        reason = context.args.get(
+            "reason",
+            self._text(context, "default_deny_reason"),
+        )
 
         # If no request_id provided, get queue head
         if not request_id:
@@ -236,27 +264,27 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             if pending is None:
                 pending = await self._get_spawn_child_queue_head(context, svc)
             if pending is None:
-                return "❌ **无待审批工具**\n\n" "当前会话没有需要审批的工具调用。"
+                return self._text(context, "no_pending")
             request_id = pending.request_id
 
         # Get pending by request_id (supports cross-session)
         pending = await svc.get_request(request_id)
         if pending is None:
             self._resolution(context, request_id, "unavailable")
-            return (
-                f"❌ **审批请求不存在**\n\n"
-                f"请求 ID: `{request_id[:16]}`\n\n"
-                f"可能已被处理或已超时。"
+            return self._text(
+                context,
+                "not_found",
+                request_id=request_id[:16],
             )
 
         # Permission check: can only deny own agent's requests
         if pending.agent_id != context.agent_id:
             self._resolution(context, request_id, "forbidden")
-            return (
-                f"❌ **权限不足**\n\n"
-                f"无法拒绝其他Agent的工具请求。\n"
-                f"- 请求所属Agent: `{pending.agent_id}`\n"
-                f"- 当前Agent: `{context.agent_id}`"
+            return self._text(
+                context,
+                "deny_other_agent",
+                owner_agent_id=pending.agent_id,
+                agent_id=context.agent_id,
             )
 
         # Resolve the Future to unblock waiting agent
@@ -268,32 +296,37 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
         except ApprovalIdentityMismatchError:
             self._resolution(context, request_id, "forbidden")
-            return self._identity_denied()
+            return self._identity_denied(context)
 
         if resolved is None:
             self._resolution(context, request_id, "unavailable")
-            return f"审批请求已处理或已超时。\n\n请求 ID: `{request_id[:16]}`"
+            return self._text(
+                context,
+                "already_resolved",
+                request_id=request_id[:16],
+            )
         self._resolution(context, request_id, "denied", resolved)
 
         # Show cross-session hint if applicable
         cross_session_hint = ""
         if pending.session_id != context.session_id:
             if pending.root_session_id == pending.session_id:
-                cross_session_hint = (
-                    f"\n\n🔗 **跨Session操作**\n"
-                    f"拒绝了其他会话的工具: `{pending.session_id[:8]}`"
-                )
+                hint_key = "deny_cross_session"
             else:
-                cross_session_hint = (
-                    f"\n\n🔗 **跨Session操作**\n"
-                    f"拒绝了子Agent的工具 (Session: `{pending.session_id[:8]}`)"
-                )
+                hint_key = "deny_cross_subagent"
+            cross_session_hint = self._text(
+                context,
+                hint_key,
+                session_id=pending.session_id[:8],
+            )
 
-        return (
-            f"🚫 **工具已拒绝**\n\n"
-            f"- 工具: `{resolved.tool_name}`\n"
-            f"- 请求 ID: `{request_id[:16]}`\n"
-            f"- 原因: {reason}{cross_session_hint}"
+        return self._text(
+            context,
+            "denied",
+            tool_name=resolved.tool_name,
+            request_id=request_id[:16],
+            reason=reason,
+            hint=cross_session_hint,
         )
 
     async def _handle_list(self, context: ControlContext) -> str:
@@ -312,13 +345,13 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             pending_list = await svc.get_all_pending_by_agent(
                 context.agent_id,
             )
-            header = "📋 **全局待审批工具列表** (当前调用者可见)\n"
+            header = self._text(context, "list_header_all")
         else:
             # Default: query current root session (includes children)
             pending_list = await svc.get_pending_by_root_session(
                 context.session_id,
             )
-            header = "📋 **待审批工具列表** (当前会话)\n"
+            header = self._text(context, "list_header_session")
 
         actor = self._actor(context)
         pending_list = [
@@ -328,7 +361,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         ]
 
         if not pending_list:
-            return "✅ **无待审批工具**\n\n当前无需要审批的工具调用。"
+            return self._text(context, "list_empty")
 
         lines = [header]
         for i, pending in enumerate(pending_list, 1):
@@ -339,25 +372,28 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             session_info = ""
             if show_all or pending.session_id != context.session_id:
                 is_sub = pending.root_session_id != pending.session_id
-                if is_sub:
-                    session_info = f" [子Session: `{pending.session_id[:8]}`]"
-                else:
-                    session_info = f" [Session: `{pending.session_id[:8]}`]"
+                session_info = self._text(
+                    context,
+                    "list_subsession" if is_sub else "list_session",
+                    session_id=pending.session_id[:8],
+                )
 
             lines.append(
-                f"{i}. `{pending.tool_name}` "
-                f"{severity_emoji} `{pending.severity.upper()}` "
-                f"- {elapsed}s 前{session_info}\n"
-                f"   请求 ID: `{pending.request_id[:16]}`\n"
-                f"   发现问题: {pending.findings_count} 个\n",
+                self._text(
+                    context,
+                    "list_item",
+                    index=i,
+                    tool_name=pending.tool_name,
+                    emoji=severity_emoji,
+                    severity=pending.severity.upper(),
+                    elapsed=elapsed,
+                    session_info=session_info,
+                    request_id=pending.request_id[:16],
+                    findings_count=pending.findings_count,
+                ),
             )
 
-        lines.append(
-            "\n💡 **操作提示**\n"
-            "- 批准: `/approval approve <request_id>` (支持跨session审批)\n"
-            "- 拒绝: `/approval deny <request_id>`\n"
-            "- 全局查看: `/approval list --all` 或 `/approval list -a`",
-        )
+        lines.append(self._text(context, "list_footer"))
 
         return "\n".join(lines)
 
@@ -366,11 +402,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         request_id = context.args.get("request_id")
 
         if not request_id:
-            return (
-                "❌ **缺少参数**\n\n"
-                "用法: `/approval cancel <request_id>`\n\n"
-                "使用 `/approval list` 查看待审批列表及其 ID。"
-            )
+            return self._text(context, "cancel_missing_id")
 
         svc = get_approval_service()
         try:
@@ -381,18 +413,23 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             )
         except ApprovalIdentityMismatchError:
             self._resolution(context, request_id, "forbidden")
-            return self._identity_denied()
+            return self._identity_denied(context)
 
         if resolved is None:
             self._resolution(context, request_id, "unavailable")
-            return f"❌ **审批请求不存在**\n\n" f"请求 ID: `{request_id[:16]}`"
+            return self._text(
+                context,
+                "cancel_not_found",
+                request_id=request_id[:16],
+            )
 
         self._resolution(context, request_id, "denied", resolved)
 
-        return (
-            f"✅ **审批请求已取消**\n\n"
-            f"- 工具: `{resolved.tool_name}`\n"
-            f"- 请求 ID: `{request_id[:16]}`"
+        return self._text(
+            context,
+            "cancelled",
+            tool_name=resolved.tool_name,
+            request_id=request_id[:16],
         )
 
     @staticmethod
@@ -406,26 +443,10 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         else:  # low, info
             return "🟢"
 
-    @staticmethod
-    def _usage_hint() -> str:
+    @classmethod
+    def _usage_hint(cls, context: ControlContext) -> str:
         """Return usage hint for /approval command."""
-        return (
-            "**使用说明: /approval**\n\n"
-            "管理工具审批请求\n\n"
-            "**子命令**:\n"
-            "- `approve [request_id] [--exact|--pattern]` - 批准工具执行\n"
-            "  (`--pattern` 记录泛化规则; 默认/`--exact` 仅记录原文)\n"
-            "- `deny [request_id] [reason]` - 拒绝工具执行\n"
-            "- `list` - 列出所有待审批工具\n"
-            "- `cancel <request_id>` - 取消指定审批\n\n"
-            "**示例**:\n"
-            "```\n"
-            "/approval approve          # 批准队首工具\n"
-            "/approval deny             # 拒绝队首工具\n"
-            "/approval list             # 查看待审批列表\n"
-            "/approval approve abc123   # 批准指定工具\n"
-            "```"
-        )
+        return cls._text(context, "usage")
 
 
 class ApproveCommandHandler(BaseControlCommandHandler):
