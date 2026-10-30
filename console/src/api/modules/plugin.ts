@@ -34,6 +34,12 @@ export interface PluginInfo {
   plugin_type: PluginType;
   /** Frontend JS entry-point path (if any). */
   frontend_entry?: string;
+  /**
+   * Scoped market id (e.g. `@owner/name`) recorded when the plugin was
+   * installed from the AgentScope plugin market; absent for local,
+   * uploaded, or official-CDN installs.
+   */
+  market_id?: string;
 }
 
 export interface InstallPluginResult {

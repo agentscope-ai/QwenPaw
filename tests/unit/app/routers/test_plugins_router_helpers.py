@@ -8,6 +8,7 @@ paths that previously had no test coverage.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import zipfile
@@ -20,7 +21,10 @@ from fastapi.testclient import TestClient
 from qwenpaw.app.routers.plugins import (
     _find_plugin_dir,
     _list_plugins_from_disk,
+    _market_id_from_source,
+    _read_market_id,
     _safe_extract_zip,
+    _stamp_market_provenance,
     router as plugins_router,
 )
 
@@ -248,7 +252,6 @@ class TestServePluginUiFile:
     def test_path_traversal_denied(self, ui_client, tmp_path, monkeypatch):
         """Call the handler directly: the HTTP layer normalizes '..'
         segments before routing, so traversal is probed at the function."""
-        import asyncio
         from types import SimpleNamespace
 
         from qwenpaw.app.routers.plugins import serve_plugin_ui_file
@@ -286,3 +289,101 @@ class TestServePluginUiFile:
         client = TestClient(app)
         response = client.get("/api/plugins/ghost/files/ui/app.js")
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Market provenance marker (#8176)
+# ---------------------------------------------------------------------------
+
+
+class TestMarketProvenance:
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            (
+                "https://platform.agentscope.io/plugins/onesix/"
+                "qwenpaw-plugin-tool-wait_agent_task/archive/zip/master",
+                "@onesix/qwenpaw-plugin-tool-wait_agent_task",
+            ),
+            (
+                "https://example.com/plugins/onesix/demo/archive/zip/master",
+                None,
+            ),
+            (
+                "https://platform.agentscope.io/plugins/onesix/demo",
+                None,
+            ),
+            ("/tmp/plugin.zip", None),
+            ("", None),
+        ],
+    )
+    def test_market_id_from_source(self, source, expected):
+        assert _market_id_from_source(source) == expected
+
+    def test_stamp_writes_marker_for_market_source(self, tmp_path):
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        asyncio.run(
+            _stamp_market_provenance(
+                plugin_dir,
+                "https://platform.agentscope.io/plugins/onesix/demo/"
+                "archive/zip/master",
+            ),
+        )
+        assert _read_market_id(plugin_dir) == "@onesix/demo"
+
+    def test_stamp_leaves_non_market_sources_untouched(self, tmp_path):
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        asyncio.run(_stamp_market_provenance(plugin_dir, "/tmp/plugin.zip"))
+        assert not (plugin_dir / ".qwenpaw-market.json").exists()
+
+    def test_read_market_id_tolerates_bad_markers(self, tmp_path):
+        plugin_dir = tmp_path / "demo"
+        plugin_dir.mkdir()
+        assert _read_market_id(plugin_dir) is None
+
+        (plugin_dir / ".qwenpaw-market.json").write_text(
+            "not-json{",
+            encoding="utf-8",
+        )
+        assert _read_market_id(plugin_dir) is None
+
+        (plugin_dir / ".qwenpaw-market.json").write_text(
+            json.dumps({"market_id": "   "}),
+            encoding="utf-8",
+        )
+        assert _read_market_id(plugin_dir) is None
+
+    def test_disk_listing_exposes_market_id(self, tmp_path, monkeypatch):
+        plugins_dir = tmp_path / "plugins"
+        monkeypatch.setattr(
+            "qwenpaw.config.utils.get_plugins_dir",
+            lambda: plugins_dir,
+        )
+        plugin_dir = plugins_dir / "demo"
+        _write_plugin(plugin_dir, {"id": "demo", "version": "1.0"})
+        (plugin_dir / ".qwenpaw-market.json").write_text(
+            json.dumps({"schema_version": 1, "market_id": "@onesix/demo"}),
+            encoding="utf-8",
+        )
+
+        result = _list_plugins_from_disk()
+
+        assert result[0]["market_id"] == "@onesix/demo"
+
+    def test_disk_listing_market_id_none_without_marker(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        plugins_dir = tmp_path / "plugins"
+        monkeypatch.setattr(
+            "qwenpaw.config.utils.get_plugins_dir",
+            lambda: plugins_dir,
+        )
+        _write_plugin(plugins_dir / "demo", {"id": "demo", "version": "1.0"})
+
+        result = _list_plugins_from_disk()
+
+        assert result[0]["market_id"] is None
