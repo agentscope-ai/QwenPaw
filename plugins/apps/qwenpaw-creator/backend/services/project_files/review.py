@@ -444,6 +444,14 @@ class ProjectReviewService:
         ]
 
     def _pending_records(self, project_id: str) -> list[ReviewRecord]:
+        return [
+            item
+            for item in self.all_records(project_id)
+            if item.status is ReviewStatus.PENDING
+        ]
+
+    def all_records(self, project_id: str) -> list[ReviewRecord]:
+        """Read authoritative review history, including resolved decisions."""
         runtime_root = self.store.project_root(project_id) / "runtime"
         reviews_root = runtime_root / "reviews"
         if not reviews_root.is_dir():
@@ -456,7 +464,7 @@ class ProjectReviewService:
                 child / "review.json",
                 ReviewRecord,
             ).read_or_none()
-            if review is not None and review.status is ReviewStatus.PENDING:
+            if review is not None:
                 candidates.append(review)
         return sorted(candidates, key=lambda item: item.created_at)
 

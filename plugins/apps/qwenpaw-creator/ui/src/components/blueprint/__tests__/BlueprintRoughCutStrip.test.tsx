@@ -10,12 +10,15 @@ function cloneProject(): ProjectDocument {
 
 /**
  * A whole film only exists for a single live timeline whose render slot
- * carries a fresh, user-selected video version (the selector's contract).
+ * carries a fresh, user-selected final_video version (the selector's contract).
  * Trim the fixture to its first episode; `final-v1` is that slot's
  * currently selected, non-stale render.
  */
 function withWholeFilm(project: ProjectDocument): ProjectDocument {
   project.timelines.order = ["timeline:main"];
+  project.assets.artifact_slots_by_id["timeline:timeline:main:render"].kind =
+    "final_video";
+  project.assets.artifact_versions_by_id["final-v1"].kind = "final_video";
   return project;
 }
 

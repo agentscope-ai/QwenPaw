@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Pylint all-files aliases isolated plugin/local modules to third-party names.
+# pylint: disable=no-name-in-module
 # pylint: disable=protected-access
 """Unit tests for the MCP stateful client lifecycle helpers.
 

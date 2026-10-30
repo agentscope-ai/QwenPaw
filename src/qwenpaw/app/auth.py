@@ -96,6 +96,9 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/logo.png",
     "/qwenpaw-symbol.svg",
     "/api/frontend_plugin/",
+    # This bridge has its own task-bound HMAC bearer token. Host login JWTs
+    # are intentionally not passed to managed App runtimes.
+    "/api/pawapp-capabilities/",
 )
 
 

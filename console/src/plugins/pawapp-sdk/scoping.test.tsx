@@ -36,6 +36,54 @@ afterEach(() => {
 });
 
 describe("app-scoped PawApp SDK", () => {
+  it("resolves handoffs through the authenticated App and workspace scope", async () => {
+    mockedFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          handoff: {
+            schema_version: 1,
+            handoff_id: "handoff-1",
+            source_app_id: "qwenpaw-data",
+            target_app_id: "qwenpaw-data",
+            created_at: 1,
+            context: {
+              schema_version: 1,
+              context_id: "context-1",
+              revision: 4,
+              task_id: "task-1",
+              goal: "Analyze sales",
+              scope: {
+                workspace_id: "default",
+                source_app_id: "qwenpaw-data",
+                action_id: "analyze",
+                engagement: "delegated",
+              },
+              artifact_refs: [],
+              decision_refs: [],
+              project_ref: {
+                schema_version: 1,
+                app_id: "qwenpaw-data",
+                project_id: "session-1",
+                kind: "analysis-session",
+                revision: 1,
+              },
+              resume_ref: "task-1",
+            },
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      forApp("qwenpaw-data").apps.resolveHandoff("handoff-1"),
+    ).resolves.toMatchObject({ handoff_id: "handoff-1" });
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "/pawapps/qwenpaw-data/workspaces/default/handoffs/handoff-1",
+      { headers: { "X-Agent-Id": "default" } },
+    );
+  });
+
   it("prefixes every request with the permanent app id", async () => {
     mockedFetch.mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {

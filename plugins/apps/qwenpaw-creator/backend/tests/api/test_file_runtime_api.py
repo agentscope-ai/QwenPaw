@@ -657,7 +657,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
 ):
     # Keep the parameterized fail-closed matrix and its assertions together.
     # pylint: disable=too-many-statements
-    from services.file_agent_runtime import driver as dm
+    from services import execution_authorization as dm
     from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
     from services.file_agent_runtime.workgraph_execution import (
         ready_request_context,
@@ -670,7 +670,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
     monkeypatch.setattr(frontend_edit_hold, "_holds", {})
     monkeypatch.setattr(
         dm,
-        "_execution_provider_model",
+        "execution_provider_model",
         lambda *_: ("provider", "model"),
     )
 
@@ -789,7 +789,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
         elif change in {"provider", "model"}:
             monkeypatch.setattr(
                 dm,
-                "_execution_provider_model",
+                "execution_provider_model",
                 lambda *_: (
                     ("other-provider", "model")
                     if change == "provider"

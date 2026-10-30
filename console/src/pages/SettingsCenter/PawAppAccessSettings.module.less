@@ -1,0 +1,350 @@
+.loading {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+}
+
+.title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+
+  p {
+    margin: 6px 0 0;
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 13px;
+  }
+}
+
+.alert {
+  margin-bottom: 24px;
+}
+
+.empty {
+  padding: 56px 24px;
+  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.08));
+  border-radius: 14px;
+}
+
+.appPanel {
+  overflow: hidden;
+  border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
+  border-radius: 16px;
+  background: var(--app-surface, #fff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.appPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--app-border-subtle, rgba(0, 0, 0, 0.08));
+  background: var(--app-fill-faint, rgba(0, 0, 0, 0.02));
+
+  :global(.ant-tag),
+  :global(.qwenpaw-tag) {
+    margin: 0;
+  }
+}
+
+.appIdentity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+
+  h3 {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 22px;
+  }
+
+  > div > span {
+    display: block;
+    margin-top: 2px;
+    color: var(--app-text-tertiary, rgba(0, 0, 0, 0.45));
+    font-size: 12px;
+  }
+}
+
+.appIcon {
+  display: grid;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--app-accent-border, rgba(255, 127, 39, 0.25));
+  border-radius: 10px;
+  color: var(--app-accent-text, #f07822);
+  background: var(--app-accent-faint, rgba(255, 127, 39, 0.09));
+}
+
+.appPanelBody {
+  padding: 18px;
+}
+
+.action {
+  padding: 18px;
+
+  & + & {
+    border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  }
+}
+
+.capabilityIntro {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 18px 18px 12px;
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.capability {
+  padding: 18px;
+
+  & + & {
+    border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  }
+}
+
+.importedSkills {
+  margin-top: 14px;
+}
+
+.importedSkillsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+
+  > div:first-child {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.noImportedSkills {
+  padding: 0 18px 18px;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  font-size: 12px;
+}
+
+.importedSkill {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+}
+
+.skillIcon {
+  display: grid;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--app-accent-text, #f07822);
+  background: var(--app-accent-faint, rgba(255, 127, 39, 0.09));
+}
+
+.importedSkillCopy {
+  flex: 1;
+  min-width: 0;
+
+  p {
+    margin: 4px 0 0;
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.skillTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+
+  :global(.ant-tag),
+  :global(.qwenpaw-tag) {
+    margin: 0;
+  }
+}
+
+.advanced {
+  margin-top: 14px;
+
+  :global(.ant-collapse-header),
+  :global(.qwenpaw-collapse-header) {
+    align-items: center !important;
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  :global(.ant-collapse-content-box),
+  :global(.qwenpaw-collapse-content-box) {
+    padding: 0 !important;
+  }
+}
+
+.advancedHint {
+  padding: 14px 18px 2px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.actionHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.actionCopy {
+  flex: 1;
+  min-width: 0;
+
+  p {
+    margin: 4px 0 0;
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+.actionName {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  strong {
+    overflow-wrap: anywhere;
+    font-size: 15px;
+  }
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 0 48px;
+
+  :global(.ant-tag),
+  :global(.qwenpaw-tag) {
+    margin: 0;
+  }
+}
+
+.constraints {
+  margin: 16px 0 0 48px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--colorFillAlter, rgba(0, 0, 0, 0.02));
+}
+
+.constraintHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 12px;
+  }
+}
+
+.constraintGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+
+    > span {
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    :global(.ant-select),
+    :global(.qwenpaw-select) {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+}
+
+.actionFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 16px 0 0 48px;
+
+  code {
+    color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 768px) {
+  .title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tags,
+  .constraints,
+  .actionFooter {
+    margin-left: 0;
+  }
+
+  .constraintGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .importedSkillsHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

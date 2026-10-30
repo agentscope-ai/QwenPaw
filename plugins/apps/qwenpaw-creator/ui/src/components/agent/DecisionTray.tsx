@@ -114,6 +114,42 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
     [pendingAuths, pendingReviews, project],
   );
   const urgent = pendingAuths.length > 0;
+  const [approvalQuery, setApprovalQuery] = useState(
+    () => window.location.hash.split("?")[1] ?? "",
+  );
+  useEffect(() => {
+    const update = () =>
+      setApprovalQuery(window.location.hash.split("?")[1] ?? "");
+    window.addEventListener("hashchange", update);
+    window.addEventListener("popstate", update);
+    return () => {
+      window.removeEventListener("hashchange", update);
+      window.removeEventListener("popstate", update);
+    };
+  }, []);
+  const approvalParams = new URLSearchParams(approvalQuery);
+  const requestedId = approvalParams.get("approvalTarget");
+  const requestedKind = approvalParams.get("approvalKind");
+  const requestedRevision = approvalParams.get("approvalRevision");
+  const requestedItem = requestedId
+    ? items.find((item) =>
+        requestedKind === "execution"
+          ? item.kind === "auth" && item.authorization.id === requestedId
+          : requestedKind === "review" &&
+            item.kind === "review" &&
+            item.review.review_id === requestedId &&
+            (!requestedRevision ||
+              String(item.review.candidate_generation) === requestedRevision),
+      )
+    : undefined;
+  const authLoaded = useExecutionAuthorizationStore(
+    (state) => state.projectId === projectId && state.loaded,
+  );
+  const reviewLoaded = useFileProjectReviewStore(
+    (state) => state.projectId === projectId && state.syncStatus === "healthy",
+  );
+  const inspectionLoaded =
+    requestedKind === "execution" ? authLoaded : reviewLoaded;
 
   const [filter, setFilter] = useState<"all" | "auth" | "review">("all");
   const [listMode, setListMode] = useState(false);
@@ -137,6 +173,14 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
     return () => window.clearTimeout(timer);
   }, [firstAuthKey, pendingAuths.length, setCollapsed]);
 
+  useEffect(() => {
+    if (!requestedItem) return;
+    setCollapsed(false);
+    setFilter("all");
+    setListMode(false);
+    setFocusKey(requestedItem.key);
+  }, [requestedItem?.key, setCollapsed]);
+
   const visible = useMemo(
     () =>
       filter === "all"
@@ -155,6 +199,47 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
     }
   }, [filter, items.length, visible.length]);
 
+  const leaveInspection = () => {
+    const params = new URLSearchParams(approvalQuery);
+    ["approvalTarget", "approvalKind", "approvalRevision"].forEach((key) =>
+      params.delete(key),
+    );
+    const query = params.toString();
+    const route = window.location.hash.split("?")[0];
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${window.location.search}${route}${
+        query ? `?${query}` : ""
+      }`,
+    );
+    setApprovalQuery(query);
+  };
+  const allDecisionsButton = (
+    <button
+      type="button"
+      onClick={leaveInspection}
+      className="mb-2 block text-sm underline"
+    >
+      {t("decisionTray.showAllDecisions")}
+    </button>
+  );
+
+  if (requestedId && !requestedItem)
+    return (
+      <section
+        data-decision-tray
+        role="status"
+        className="border-t border-[var(--color-border)] p-3 text-sm"
+      >
+        {allDecisionsButton}
+        {t(
+          inspectionLoaded
+            ? "decisionTray.approvalUnavailable"
+            : "decisionTray.approvalLoading",
+        )}
+      </section>
+    );
   if (items.length === 0) return null;
 
   const focusIndex = Math.max(
@@ -204,6 +289,18 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
       />
     ) : (
       <FileProjectReviewPanel projectId={projectId} review={item.review} />
+    );
+
+  if (requestedItem)
+    return (
+      <section
+        data-decision-tray
+        data-approval-target={requestedId}
+        className="border-t border-[var(--color-border)] p-3"
+      >
+        {allDecisionsButton}
+        {renderCard(requestedItem)}
+      </section>
     );
 
   return (

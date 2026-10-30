@@ -1488,6 +1488,98 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 self._drop_hook(hook_name),
             )
 
+    def _note_pawapp_runtime(self) -> None:
+        """Make App declarations participate in unload and re-registration."""
+        if getattr(self, "_pawapp_runtime_noted", False):
+            return
+        registry = self._registry
+        self._note_runtime(
+            "pawapp:contracts",
+            lambda: registry.drop_pawapp_registrations(self.plugin_id),
+        )
+        self._pawapp_runtime_noted = True
+
+    def register_task_action(self, registration: Any) -> None:
+        """Register a server-owned PawApp task adapter factory."""
+        self._guard_register()
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._note_pawapp_runtime()
+        self._registry.register_task_action(self.plugin_id, registration)
+
+    def register_pawapp_setup_check(self, registration: Any) -> None:
+        """Register an App-scoped, read-only setup checker."""
+        self._guard_register()
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._note_pawapp_runtime()
+        self._registry.register_pawapp_setup_check(
+            self.plugin_id,
+            registration,
+        )
+
+    def register_pawapp_setup_entry(self, registration: Any) -> None:
+        """Register an App-owned setup presentation handler."""
+        self._guard_register()
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._note_pawapp_runtime()
+        self._registry.register_pawapp_setup_entry(
+            self.plugin_id,
+            registration,
+        )
+
+    def register_pawapp_capability_imports(
+        self,
+        *,
+        host_tools: List[str],
+        host_skills: Dict[str, tuple[str, ...]],
+    ) -> None:
+        """Register the typed Host capability requests from the manifest."""
+        self._guard_register()
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._note_pawapp_runtime()
+        self._registry.register_pawapp_capability_imports(
+            self.plugin_id,
+            host_tools=host_tools,
+            host_skills=host_skills,
+        )
+
+    def register_pawapp_local_tool(
+        self,
+        *,
+        name: str,
+        func: Callable,
+        description: str = "",
+        input_schema: Optional[Dict[str, Any]] = None,
+        is_read_only: bool = False,
+    ) -> None:
+        """Register an App-private tool without adding it to Host catalogs."""
+        self._guard_register()
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._note_pawapp_runtime()
+        self._registry.register_pawapp_local_tool(
+            self.plugin_id,
+            name=name,
+            func=func,
+            description=description,
+            input_schema=input_schema,
+            is_read_only=is_read_only,
+        )
+
+    def register_pawapp_local_skills(self, directory: Path) -> None:
+        """Register an App-private Skill root without copying it globally."""
+        self._guard_register()
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._note_pawapp_runtime()
+        self._registry.register_pawapp_local_skills(
+            self.plugin_id,
+            Path(directory).resolve(),
+        )
+
     def register_http_router(
         self,
         router: Any,

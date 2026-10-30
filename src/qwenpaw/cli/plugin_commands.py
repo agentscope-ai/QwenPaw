@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 def _echo_install_result(body, fallback):
     name = body.get("name", fallback)
-    if "status" in body:
+    if body.get("activation_required"):
+        click.echo(f"✅ Plugin '{name}' installed; activate it in the web UI.")
+    elif "status" in body:
         click.echo(
             f"Plugin '{name}' installation: {body['status']}; "
             f"enabled={body.get('enabled', 'unknown')}.",
@@ -549,8 +551,15 @@ def install(source: str, force: bool):
     for diagnostic in record.diagnostics:
         click.echo(diagnostic)
     click.echo("\nNext steps:")
-    click.echo("   1. Start QwenPaw to load the plugin")
-    click.echo("   2. Configure the plugin in the web UI")
+    if (
+        getattr(record.manifest, "plugin_type", None) == "app"
+        and getattr(record.manifest, "pawapp", None) is not None
+    ):
+        click.echo("   1. Start QwenPaw and activate the App in the web UI")
+        click.echo("   2. Configure the App before use")
+    else:
+        click.echo("   1. Start QwenPaw to load the plugin")
+        click.echo("   2. Configure the plugin in the web UI")
 
 
 @plugin.command()

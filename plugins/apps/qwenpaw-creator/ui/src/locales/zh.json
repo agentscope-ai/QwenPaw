@@ -1162,7 +1162,10 @@
     "decisionIndex": "第 {{index}} 条：{{label}}",
     "nextDecision": "下一条决策",
     "keepAllReviewChanges": "保留全部审阅修改（生产确认需单独决定）",
-    "keepAll": "全部保留"
+    "keepAll": "全部保留",
+    "showAllDecisions": "查看所有待处理审批",
+    "approvalUnavailable": "该审批在指定版本下已不再待处理。请返回主聊天查看任务最新状态。",
+    "approvalLoading": "正在加载指定审批…"
   },
   "executionAuth": {
     "title": "高成本媒体执行",

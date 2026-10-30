@@ -42,8 +42,7 @@ def validate_plugin_module(
     Raises:
         FileNotFoundError: If the backend entry file doesn't exist.
         ImportError: If the module cannot be loaded (e.g. broken imports).
-        AttributeError: If the module exports neither Plugin class nor plugin
-            instance.
+        AttributeError: If the module exports neither plugin nor PawApp app.
     """
     backend_path = plugin_path / backend_entry
     if not backend_path.exists():
@@ -94,9 +93,13 @@ def validate_plugin_module(
     try:
         spec.loader.exec_module(module)
 
-        if not hasattr(module, "plugin"):
+        if (
+            getattr(module, "plugin", None) is None
+            and getattr(module, "app", None) is None
+        ):
             raise AttributeError(
-                "Plugin module must export a 'plugin' instance",
+                "Plugin module must export a 'plugin' object "
+                "(or a PawApp 'app' instance)",
             )
     finally:
         # Clean up ephemeral validation modules to avoid

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Pylint all-files aliases isolated plugin/local modules to third-party names.
+# pylint: disable=no-name-in-module
 """MCP 2026-07-28 Streamable-HTTP clients (stateless + dual-era auto).
 
 ``HttpStatelessClient`` speaks modern per-request ``_meta`` / headers.

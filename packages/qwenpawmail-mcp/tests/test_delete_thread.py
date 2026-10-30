@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Pylint all-files aliases isolated plugin/local modules to third-party names.
+# pylint: disable=no-name-in-module
 """Regression tests for partial thread deletion."""
 
 import asyncio

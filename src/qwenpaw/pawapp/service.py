@@ -25,6 +25,33 @@ from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
+# Process basics only. Provider credentials, proxy settings, Python import
+# paths and other app configuration require an explicit per-service grant.
+_BASE_ENV_KEYS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "APPDATA",
+    },
+)
+
 
 class ManagedServiceUnavailable(RuntimeError):
     """An expected environment failure, with a browser-safe explanation."""
@@ -134,7 +161,14 @@ def _health_request(url: str, timeout: float) -> bool:
 
 @dataclass(frozen=True)
 class ManagedServiceSpec:
-    """Declarative sidecar process configuration."""
+    """Declarative sidecar process configuration.
+
+    Only OS basics and exact names in ``inherit_env`` are inherited.
+    ``env`` supplies static values with SDK placeholders; ``env_factory``
+    returns literal overrides, freshly copied after ``on_before_start`` on
+    every managed start. Factory failures abort startup without a fallback.
+    External endpoints do not consume a child environment or call the factory.
+    """
 
     name: str
     command: Sequence[str]
@@ -147,6 +181,8 @@ class ManagedServiceSpec:
     external_url_env: str | None = None
     mode_env: str | None = None
     on_before_start: Optional[Callable[[], Awaitable[None]]] = None
+    inherit_env: Sequence[str] = ()
+    env_factory: Optional[Callable[[], Mapping[str, str]]] = None
 
 
 class ManagedService:
@@ -162,6 +198,8 @@ class ManagedService:
         if not spec.health_path.startswith("/"):
             raise ValueError("managed service health_path must start with '/'")
         _validate_loopback_host(spec.host)
+        if isinstance(spec.inherit_env, (str, bytes)):
+            raise ValueError("inherit_env must be a sequence of exact names")
         self.spec = spec
         self._process: asyncio.subprocess.Process | None = None
         self._base_url: str | None = None
@@ -258,6 +296,29 @@ class ManagedService:
         if not task.cancelled():
             task.exception()
 
+    def _build_environment(self, port: int) -> dict[str, str]:
+        """Build fresh child configuration after the preparation hook."""
+        environment = {
+            key: os.environ[key]
+            for key in _BASE_ENV_KEYS.union(self.spec.inherit_env)
+            if key in os.environ
+        }
+        environment.update(
+            {
+                key: _replace_placeholders(
+                    value,
+                    host=self.spec.host,
+                    port=port,
+                )
+                for key, value in self.spec.env.items()
+            },
+        )
+        if self.spec.env_factory is not None:
+            # Runtime configuration is literal: a credential containing
+            # {host}/{port} must not be rewritten as a command template.
+            environment.update(dict(self.spec.env_factory()))
+        return environment
+
     async def _start(self) -> None:
         if self.is_ready:
             return
@@ -332,17 +393,7 @@ class ManagedService:
                 f"managed service '{self.spec.name}' executable does not "
                 f"exist: {command[0]}. Provision the service runtime{hint}",
             )
-        environment = os.environ.copy()
-        environment.update(
-            {
-                key: _replace_placeholders(
-                    value,
-                    host=self.spec.host,
-                    port=port,
-                )
-                for key, value in self.spec.env.items()
-            },
-        )
+        environment = self._build_environment(port)
         self._base_url = f"http://{_url_host(self.spec.host)}:{port}"
         try:
             self._process = await asyncio.create_subprocess_exec(

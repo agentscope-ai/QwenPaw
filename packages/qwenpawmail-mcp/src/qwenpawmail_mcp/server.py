@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Pylint all-files aliases isolated plugin/local modules to third-party names.
+# pylint: disable=no-name-in-module
 """FastMCP server layer: registers 23 tools over the MailClient core.
 
 All exceptions are caught at the tool boundary and re-raised as ToolError so

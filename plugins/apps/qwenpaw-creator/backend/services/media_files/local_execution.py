@@ -3696,6 +3696,7 @@ class FileLocalMediaExecutionService:
         arguments: Mapping[str, Any],
         idempotency_key: str,
         expected_object_versions: Sequence[str] = (),
+        related_run_id: str | None = None,
     ) -> FileLocalMediaExecutionResult:
         if self._closed:
             raise ConflictError("本地媒体执行服务正在关闭")
@@ -3815,6 +3816,7 @@ class FileLocalMediaExecutionService:
             command_request_hash=command_request_hash,
             idempotency_key=idempotency_key,
             ids=ids,
+            related_run_id=related_run_id,
         )
         if task.status is TaskStatus.SUCCEEDED:
             return self._result_from_task(task, replayed=True)
@@ -3979,6 +3981,7 @@ class FileLocalMediaExecutionService:
         command_request_hash: str,
         idempotency_key: str,
         ids: Mapping[str, str],
+        related_run_id: str | None,
     ) -> tuple[SpecialistRunRecord, TaskRecord]:
         metadata = {
             "commandType": resolved.command.value,
@@ -3998,6 +4001,7 @@ class FileLocalMediaExecutionService:
             input_etag=base.etag,
             request_fingerprint=request_fingerprint,
             read_set=list(resolved.read_set),
+            related_run_id=related_run_id,
             caused_by_request_id=idempotency_key,
             review_policy=ReviewPolicy.AUTO_FIX,
             metadata=metadata,
@@ -5070,6 +5074,7 @@ async def execute_file_local_media_command(
     arguments: Mapping[str, Any],
     idempotency_key: str,
     expected_object_versions: Sequence[str] = (),
+    related_run_id: str | None = None,
     runner: LocalMediaRunner | None = None,
 ) -> FileLocalMediaExecutionResult:
     return await FileLocalMediaExecutionService(
@@ -5082,6 +5087,7 @@ async def execute_file_local_media_command(
         arguments=arguments,
         idempotency_key=idempotency_key,
         expected_object_versions=expected_object_versions,
+        related_run_id=related_run_id,
     )
 
 
