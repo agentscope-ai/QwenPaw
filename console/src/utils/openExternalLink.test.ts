@@ -212,7 +212,7 @@ describe("openExternalLink", () => {
     localStorage.setItem("qwenpaw_auth_token", "tok");
 
     await expect(
-      downloadFileFromUrl("/api/backups/id/export", "workspace.zip", {
+      downloadFileFromUrl("/api/workspace/download", "workspace.zip", {
         headers: { "X-Agent-Id": "agent-a" },
         preferResponseFilename: true,
       }),
@@ -223,7 +223,7 @@ describe("openExternalLink", () => {
     });
     expect(invoke).toHaveBeenCalledWith("download_backend_file", {
       request: {
-        url: "http://localhost:3000/api/backups/id/export",
+        url: "http://localhost:3000/api/workspace/download",
         filePath: "C:\\Downloads\\server.zip",
         headers: { "X-Agent-Id": "agent-a" },
       },
@@ -314,7 +314,7 @@ describe("openExternalLink", () => {
     fetchMock.mockResolvedValue(new Response("zip"));
 
     await expect(
-      downloadFileFromUrl("/api/backups/id/export", "workspace.zip", {
+      downloadFileFromUrl("/api/workspace/download", "workspace.zip", {
         headers: { "X-Agent-Id": "agent-a" },
       }),
     ).rejects.toBeInstanceOf(DownloadCancelledError);
@@ -332,7 +332,7 @@ describe("openExternalLink", () => {
     invoke.mockRejectedValue(new Error("HTTP 500"));
 
     await expect(
-      downloadFileFromUrl("/api/backups/id/export", "workspace.zip", {
+      downloadFileFromUrl("/api/workspace/download", "workspace.zip", {
         errorMessage: "Export failed",
       }),
     ).rejects.toThrow("Export failed");
