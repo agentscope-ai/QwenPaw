@@ -499,6 +499,7 @@ class AgentBuilder:
                 "allow_unsandboxed is off) — falling back to native context "
                 "management so evicted history stays accessible",
             )
+            await run_sync_io(scroll.context_manager.close)
             scroll = None
         if scroll is not None:
             self._append_scroll_recall_tools(
@@ -1113,6 +1114,7 @@ class AgentBuilder:
             session_id=session_id,
             agent_id=agent_id,
             offloader=offloader,
+            history_store=getattr(workspace, "history_store", None),
         )
 
     @staticmethod

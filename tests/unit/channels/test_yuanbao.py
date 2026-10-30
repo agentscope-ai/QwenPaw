@@ -6,12 +6,12 @@ import hashlib
 import hmac
 import json
 from datetime import datetime
-from urllib.parse import urlparse, unquote
 from pathlib import Path
 
 from aiohttp import web, WSMsgType
 from google.protobuf import json_format
 import pytest
+from qwenpaw.utils.media_paths import file_url_to_path
 from tests.channel_support.driver import bind, module
 from tests.channel_support.protocol import eventually, finish, send
 
@@ -268,7 +268,7 @@ async def test_native_image_download_keeps_bytes_in_workspace(yuanbao):
     event = await receive(yuanbao, media=True)
     part = event["content_parts"][1]
     assert part["type"] == "image"
-    path = Path(unquote(urlparse(part["image_url"]).path))
+    path = Path(file_url_to_path(part["image_url"]))
     assert path.read_bytes() == b"native-image" and path.is_relative_to(
         driver._platform._media_dir,
     )

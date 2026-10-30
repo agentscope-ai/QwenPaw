@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,99}$"
+    },
+    "date": {
+      "type": "string",
+      "format": "timestamp"
+    },
+    "kind": {
+      "enum": ["official"]
+    },
+    "experiment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sdk_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "source_repository": {
+      "type": "string",
+      "format": "public-https-url"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "harness": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_context_length": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "max_response_length": {
+          "type": ["number", "null"],
+          "minimum": 0
+        }
+      },
+      "required": ["max_context_length", "max_response_length"]
+    },
+    "exchange_rate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cny_per_usd", "basis"],
+      "properties": {
+        "cny_per_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "basis": {
+          "const": "fixed"
+        }
+      }
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "group_by"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,99}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "group_by": {
+          "enum": ["model", "model_harness"]
+        }
+      }
+    },
+    "benchmarks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,99}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expected": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "judge": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": ["programmatic", "llm"]
+              },
+              "model": {
+                "type": ["string", "null"]
+              },
+              "scorer": {
+                "type": ["string", "null"]
+              },
+              "official_model": {
+                "type": ["string", "null"]
+              },
+              "prompt_revision": {
+                "type": ["string", "null"]
+              },
+              "parity_note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "model",
+              "scorer",
+              "official_model",
+              "prompt_revision",
+              "parity_note"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "llm"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "model": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "scorer": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "scorer": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "model": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "observation_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,99}$"
+          },
+          "date": {
+            "type": "string",
+            "format": "timestamp"
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "score_sum": {
+                "type": "number",
+                "minimum": 0
+              },
+              "failures": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "timeout": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "execution_error": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "infrastructure_error": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "scoring_error": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "artifact_error": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "model_cost": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["amount", "currency"],
+                    "properties": {
+                      "amount": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "currency": {
+                        "enum": ["CNY", "USD"]
+                      }
+                    }
+                  }
+                ]
+              },
+              "model_cost_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "judge_cost": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["amount", "currency"],
+                    "properties": {
+                      "amount": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "currency": {
+                        "enum": ["CNY", "USD"]
+                      }
+                    }
+                  }
+                ]
+              },
+              "judge_cost_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "runtime_seconds_sum": {
+                "type": "number",
+                "minimum": 0
+              },
+              "runtime_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "score_sum",
+              "failures",
+              "model_cost",
+              "model_cost_count",
+              "judge_cost",
+              "judge_cost_count",
+              "runtime_seconds_sum",
+              "runtime_count"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "revision",
+          "expected",
+          "judge",
+          "observation_id",
+          "date",
+          "summary"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "date",
+    "kind",
+    "experiment",
+    "sdk_version",
+    "source_repository",
+    "provider",
+    "model",
+    "harness",
+    "parameters",
+    "exchange_rate",
+    "board",
+    "benchmarks"
+  ]
+}

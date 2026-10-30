@@ -31,15 +31,6 @@ def bounded_dependency_environment(tmp_path, monkeypatch):
     return site
 
 
-@pytest.fixture(name="short_interrupt_timeout")
-def bounded_interrupt_timeout(monkeypatch):
-    """Exercise blocked lifecycle retries without the production 5s wait."""
-    from qwenpaw.plugins import activity
-
-    monkeypatch.setattr(activity, "INTERRUPT_TIMEOUT_SECONDS", 0.2)
-    return activity.INTERRUPT_TIMEOUT_SECONDS
-
-
 @pytest.fixture()
 def fresh_registry():
     """Reset the singleton and restore it even if a test fails."""

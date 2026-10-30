@@ -45,6 +45,7 @@ _STARTUP_ENVIRONMENT = (
             "USERPROFILE",
             "WINDIR",
             "QWENPAW_DEPENDENCY_MAINTENANCE",
+            "QWENPAW_DEPENDENCY_READER_SCOPE",
             "QWENPAW_DEPENDENCY_STATE_DIR",
         },
     )
@@ -176,17 +177,20 @@ class _ThreadPipeReader:
 
     def _run(self) -> None:
         """Read stdin until EOF without blocking the asyncio loop."""
-        read = getattr(self._handle, "read1", None)
-        if read is None:
-            read = self._handle.read
-        while True:
-            try:
-                data = read(64 * 1024)
-                self._loop.call_soon_threadsafe(self._deliver, data)
-            except (OSError, RuntimeError, ValueError):
-                return
-            if not data:
-                return
+        try:
+            read = getattr(self._handle, "read1", None)
+            if read is None:
+                read = self._handle.read
+            while True:
+                try:
+                    data = read(64 * 1024)
+                    self._loop.call_soon_threadsafe(self._deliver, data)
+                except (OSError, RuntimeError, ValueError):
+                    return
+                if not data:
+                    return
+        finally:
+            self._handle.close()
 
 
 class _WindowsThreadHandle:
@@ -545,6 +549,30 @@ def _capture_protocol_output() -> Any:
         raise _fail(
             "PROTOCOL_HANDLE_INVALID",
             "Unable to duplicate protocol stdout",
+        ) from exc
+
+
+def _capture_protocol_input() -> Any:
+    """Keep Windows protocol input private from SDK subprocess stdin."""
+    try:
+        protocol_fd = os.dup(0)
+        try:
+            os.set_inheritable(protocol_fd, False)
+            protocol_input = os.fdopen(protocol_fd, "rb")
+        except BaseException:
+            os.close(protocol_fd)
+            raise
+        try:
+            with open(os.devnull, "rb") as ordinary_input:
+                os.dup2(ordinary_input.fileno(), 0, inheritable=True)
+            return protocol_input
+        except BaseException:
+            protocol_input.close()
+            raise
+    except (OSError, ValueError) as exc:
+        raise _fail(
+            "PROTOCOL_HANDLE_INVALID",
+            "Unable to isolate protocol stdin",
         ) from exc
 
 

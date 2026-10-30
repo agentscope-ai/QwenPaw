@@ -369,6 +369,14 @@ def _host_observation_roots(uses, sites, install_target=None):
     )
     roots = set()
     for use in uses:
+        if use.read_admitted and use.environment is not None:
+            visible = _canonical_dependency_roots(use.environment.sites)
+            if (
+                target in visible
+                if target is not None
+                else sites.intersection(visible)
+            ):
+                roots.update(visible)
         if use.origin != "host" or use.snapshot is None:
             continue
         evidence = use.snapshot
@@ -383,9 +391,11 @@ def _host_observation_roots(uses, sites, install_target=None):
             continue
         roots.update(
             _canonical_dependency_roots(
-                evidence.dependency_sites
-                if evidence.dependency_sites is not None
-                else dependency_sites(evidence.sites),
+                (
+                    evidence.dependency_sites
+                    if evidence.dependency_sites is not None
+                    else dependency_sites(evidence.sites)
+                ),
             ),
         )
     return roots
@@ -518,6 +528,79 @@ async def admit_shared_dependencies(
     raise _unverified("admission roots changed")
 
 
+def complete_read_uses(uses, *, inventory=None):
+    """Complete authenticated Python reads; never rewrite host history."""
+    from dataclasses import replace
+    from .execution.dependencies import observe_dependencies
+    from .dependency_usage import DependencyEnvironment
+    from .python_backend import (
+        _ReadAdmissionContext,
+        _host_paths,
+        _read_source_identity,
+    )
+
+    completed = []
+    audits = {}
+    for use in uses:
+        if (
+            use.snapshot is not None
+            or not use.read_admitted
+            or use.origin == "host"
+        ):
+            completed.append(use)
+            continue
+        context = use.read_context
+        if (
+            not isinstance(context, _ReadAdmissionContext)
+            or use.environment is None
+        ):
+            raise _unverified("read admission environment unavailable")
+        declaration = context.description.dependency_declaration()
+        if any(
+            getattr(use, key) != getattr(declaration, key)
+            for key in (
+                "plugin_id",
+                "source_revision",
+                "requirements",
+            )
+        ) or (
+            os.path.abspath(sys.executable) != context.executable
+            or _host_paths(os.getcwd()) != context.paths
+            or dict(default_environment())
+            != dict(use.environment.marker_environment)
+            or _read_source_identity(context.description)
+            != context.source_digest
+        ):
+            raise _unverified("read admission identity changed")
+        key = (
+            context.executable,
+            context.paths,
+            str(context.description.source_path.resolve()),
+            tuple(sorted(use.environment.marker_environment.items())),
+            repr(context.runtime_identity),
+            tuple(use.requirements or ()),
+        )
+        if key not in audits:
+            audits[key] = observe_dependencies(
+                {
+                    "code_root": context.description.source_path,
+                    "_audit_sites": context.paths,
+                    "dependency_paths": (),
+                    "_requirements": use.requirements,
+                },
+                _inventory=inventory,
+            )
+        snapshot = audits[key]
+        if DependencyEnvironment.from_snapshot(snapshot) != use.environment:
+            raise _unverified("read admission roots changed")
+        if context.runtime_identity is not None:
+            from .channel_bootstrap import validate_runtime_identity
+
+            validate_runtime_identity(snapshot, context.runtime_identity)
+        completed.append(replace(use, snapshot=snapshot))
+    return tuple(completed)
+
+
 # Each consumer retains its marker and origin context through closure checks.
 # pylint: disable=too-many-statements,too-many-branches
 def evaluate_shared_dependencies(
@@ -529,6 +612,7 @@ def evaluate_shared_dependencies(
     install_target: Path | None = None,
     extra_requirements=(),
     installed_distributions=None,
+    inventory=None,
 ) -> GateDecision:
     """Validate each consumer in its own observed environment."""
     from packaging.utils import canonicalize_name
@@ -560,6 +644,22 @@ def evaluate_shared_dependencies(
         str(canonical(install_target)) if install_target is not None else None
     )
     sites = {str(canonical(path)) for path in snapshot.dependency_sites or ()}
+    uses = complete_read_uses(
+        tuple(
+            use
+            for use in uses
+            if use.environment is None
+            or (
+                target
+                in {str(canonical(path)) for path in use.environment.sites}
+                if target is not None
+                else sites.intersection(
+                    str(canonical(path)) for path in use.environment.sites
+                )
+            )
+        ),
+        inventory=inventory,
+    )
     host_inventories = {}
     record_reads, record_names, provider_matches = {}, {}, {}
     host_dirty = False
@@ -867,7 +967,7 @@ async def _evaluate_shared_dependencies_async(
 ):
     """Read disk evidence against detached usage, then authorize on-loop."""
     from ..utils.io_utils import run_sync_io
-    from .install_lock import environment_observation
+    from .install_lock import environment_observation, observation_inputs
 
     while True:
         before = usage_registry.snapshot(
@@ -886,6 +986,7 @@ async def _evaluate_shared_dependencies_async(
                 requirements_file,
                 snapshot,
                 uses=before.uses,
+                inventory=observation_inputs(),
                 **kwargs,
             )
         current = usage_registry.snapshot(
@@ -1102,7 +1203,7 @@ async def _publish_additions(audit, evaluate, target, files):
     import asyncio
     from .execution.dependencies import repair_marker
     from .dependency_maintenance import _admission_gate, file_lock
-    from .install_lock import async_lock
+    from .install_lock import async_lock, observation_write
     from ..utils.io_utils import run_sync_io
 
     def mark(message):
@@ -1115,7 +1216,8 @@ async def _publish_additions(audit, evaluate, target, files):
     admission = await run_sync_io(_admission_gate, target)
     async with async_lock(file_lock(admission, timeout=5)):
         try:
-            await run_sync_io(publish)
+            with observation_write():
+                await run_sync_io(publish)
         except asyncio.CancelledError:
             await run_sync_io(
                 mark,

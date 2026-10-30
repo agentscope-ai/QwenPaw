@@ -37,6 +37,13 @@ const mocks = vi.hoisted(() => ({
   getInboxEvents: vi.fn(),
   getPushMessages: vi.fn(),
   sessionList: [] as unknown[],
+  isSessionSwitching: false,
+  getEffectiveSessionId: vi.fn(
+    (id: string, realId?: string | null) => realId ?? `real-${id}`,
+  ),
+  startNewSwitch: vi.fn(() => new AbortController()),
+  preloadSession: vi.fn().mockResolvedValue({ realId: "real-s-1" }),
+  finishSessionSwitch: vi.fn(),
   updateProfile: vi.fn().mockResolvedValue({}),
   changePassword: vi.fn().mockResolvedValue({}),
   restartRuntime: vi.fn().mockResolvedValue({}),
@@ -159,7 +166,14 @@ vi.mock("../api/modules/hub", () => ({
 vi.mock("../pages/Chat/sessionApi", () => ({
   default: {
     getSessionList: () => Promise.resolve(mocks.sessionList),
-    getEffectiveSessionId: (id: string) => `real-${id}`,
+    get isSessionSwitching() {
+      return mocks.isSessionSwitching;
+    },
+    getEffectiveSessionId: (...args: [string, string?]) =>
+      mocks.getEffectiveSessionId(...args),
+    startNewSwitch: () => mocks.startNewSwitch(),
+    preloadSession: (...args: unknown[]) => mocks.preloadSession(...args),
+    finishSessionSwitch: () => mocks.finishSessionSwitch(),
   },
 }));
 
@@ -430,6 +444,11 @@ describe("Sidebar", () => {
       pending_approvals: [],
     });
     mocks.sessionList = [];
+    mocks.isSessionSwitching = false;
+    mocks.getEffectiveSessionId.mockClear();
+    mocks.startNewSwitch.mockClear();
+    mocks.preloadSession.mockReset().mockResolvedValue({ realId: "real-s-1" });
+    mocks.finishSessionSwitch.mockClear();
     mocks.updateProfile.mockClear().mockResolvedValue({});
     mocks.changePassword.mockClear().mockResolvedValue({});
     mocks.restartRuntime.mockClear().mockResolvedValue({});
@@ -620,14 +639,6 @@ describe("Sidebar", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("navigates to the chat path from the sticky chat button", async () => {
-    renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: "New task" }));
-    await waitFor(() => {
-      expect(screen.getByTestId("probe-path").textContent).toContain("/chat");
-    });
-  });
-
   it("distinguishes full settings navigation from quick settings", async () => {
     renderSidebar();
 
@@ -644,14 +655,50 @@ describe("Sidebar", () => {
   });
 
   it("handles session clicks by navigating to the resolved session path", async () => {
+    mocks.preloadSession.mockResolvedValueOnce({ realId: "uuid-1" });
     renderSidebar();
     const openBtn = await screen.findByTestId("sl-click");
     fireEvent.click(openBtn);
+    expect(mocks.startNewSwitch).toHaveBeenCalled();
+    expect(mocks.preloadSession).toHaveBeenCalledWith(
+      "s-1",
+      expect.any(AbortSignal),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("probe-path").textContent).toContain("uuid-1");
+    });
+    expect(mocks.getEffectiveSessionId).toHaveBeenCalledWith("s-1", "uuid-1");
+    expect(mocks.finishSessionSwitch).toHaveBeenCalled();
+  });
+
+  it("clears the sidebar switch on an identity abort without navigating", async () => {
+    mocks.preloadSession.mockRejectedValueOnce(
+      new DOMException("Identity changed", "AbortError"),
+    );
+    const onDone = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
+    renderSidebar();
+    const pathBefore = screen.getByTestId("probe-path").textContent;
+    fireEvent.click(await screen.findByTestId("sl-click"));
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("probe-path").textContent).toBe(pathBefore);
+    expect(mocks.finishSessionSwitch).toHaveBeenCalledOnce();
+    window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+  });
+
+  it("navigates to the effective id when preload fails", async () => {
+    mocks.preloadSession.mockRejectedValueOnce(new Error("Preload failed"));
+    renderSidebar();
+    fireEvent.click(await screen.findByTestId("sl-click"));
+
     await waitFor(() => {
       expect(screen.getByTestId("probe-path").textContent).toContain(
         "real-s-1",
       );
     });
+    expect(mocks.getEffectiveSessionId).toHaveBeenCalledWith("s-1");
+    expect(mocks.finishSessionSwitch).toHaveBeenCalledOnce();
   });
 
   it("dispatches the new-chat flow from the session list", async () => {
@@ -666,6 +713,44 @@ describe("Sidebar", () => {
     fireEvent.click(btns[0]);
     expect(fired).toBe(true);
     window.removeEventListener("qwenpaw:sidebar-new-chat", listener);
+  });
+
+  it("cancels an in-flight sidebar switch before opening a new task", async () => {
+    const controller = new AbortController();
+    let completePreload!: (value: { realId: string }) => void;
+    const pending = new Promise<{ realId: string }>((resolve) => {
+      completePreload = resolve;
+    });
+    mocks.startNewSwitch.mockReturnValueOnce(controller);
+    mocks.preloadSession.mockReturnValueOnce(pending);
+    mocks.finishSessionSwitch.mockImplementationOnce(() => {
+      controller.abort();
+      mocks.isSessionSwitching = false;
+    });
+    const onDone = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
+    renderWithProviders(
+      <>
+        <Sidebar selectedKey="core.workspace" />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/workspace"] },
+    );
+
+    fireEvent.click(await screen.findByTestId("sl-click"));
+    mocks.isSessionSwitching = true;
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    expect(controller.signal.aborted).toBe(true);
+    expect(onDone).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("probe-path").textContent).toBe("/chat");
+
+    await act(async () => {
+      completePreload({ realId: "old-session" });
+      await pending;
+    });
+    expect(screen.getByTestId("probe-path").textContent).toBe("/chat");
+    window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+    sessionStorage.removeItem("qwenpaw_pending_new_chat");
   });
 
   it("collapses into the icon nav and expands back", async () => {
@@ -804,13 +889,6 @@ describe("Sidebar", () => {
     mocks.sidebar.hiddenPluginItemIds = ["plugin.cloud.dashboard"];
     renderSidebar();
     expect(screen.queryByText("Cloud dashboard")).not.toBeInTheDocument();
-  });
-
-  it("shows the unified panel with the session list", async () => {
-    renderSidebar();
-    await waitFor(() => {
-      expect(screen.getAllByTestId("session-list").length).toBeGreaterThan(0);
-    });
   });
 
   it("opens the account modal when auth is enabled and warns on empty update", async () => {

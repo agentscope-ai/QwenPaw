@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ..types import LogEntry
+from ....utils.io_utils import run_async_to_completion, run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -304,9 +306,11 @@ class HistoryStore:
         # degraded; callers/monitoring can read this.
         self.degraded = False
         self.write_failures = 0
-        # Flipped True by ``close()`` so callers can tell an intentional
-        # teardown race from a real disk outage (see ``closed``).
+        # True only after the connection closes, including a deferred close
+        # completed by the last request releasing its borrow.
         self._closed = False
+        self._borrowers = 0
+        self._close_requested = False
         self._checked_identity: tuple[int, int] | None = None
         probe_key, cached_identity = self._claim_integrity_probe(
             self._path,
@@ -445,6 +449,7 @@ class HistoryStore:
             timeout=_BUSY_TIMEOUT_MS / 1000,
         )
         identity_after_open = self._file_identity(self._path)
+        self._opened_identity = identity_after_open
         self._conn.row_factory = sqlite3.Row
         # Set the wait policy before journal_mode: switching/confirming WAL can
         # itself need a lock when several processes start at once.
@@ -467,18 +472,24 @@ class HistoryStore:
             if identity_before_open in (None, identity_after_open):
                 self._checked_identity = identity_after_open
         self._init_schema()
-        if self._fts:
+        self._fts_check_pending = self._fts
+        self._retry_pending_fts_check()
+
+    def _retry_pending_fts_check(self) -> None:
+        """Retry a deferred probe under the lock, or during construction."""
+        if self._fts_check_pending:
+            timeout = self._conn.execute("PRAGMA busy_timeout").fetchone()[0]
             try:
                 # FTS integrity-check is an INSERT and needs a writer lock.
                 # This optional probe must not stall request construction
-                # behind an ordinary writer; subsequent opens try it again.
+                # behind an ordinary writer; subsequent borrows try it again.
                 try:
                     self._conn.execute("PRAGMA busy_timeout=0")
                     with self._conn:
                         self._check_fts()
                 finally:
                     self._conn.execute(
-                        f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}",
+                        f"PRAGMA busy_timeout={timeout}",
                     )
             except sqlite3.DatabaseError as exc:
                 code = getattr(exc, "sqlite_errorcode", None)
@@ -487,13 +498,15 @@ class HistoryStore:
                     sqlite3.SQLITE_LOCKED,
                 ):
                     logger.debug(
-                        "Deferring history FTS check until a later open: %s",
+                        "Deferring history FTS check until a later borrow: %s",
                         self._path,
                     )
+                    return
                 elif self._is_corruption(exc):
                     self._repair_fts()
                 else:
                     raise
+            self._fts_check_pending = False
 
     @staticmethod
     def _is_fts_only_corruption(results: Sequence[str]) -> bool:
@@ -634,6 +647,20 @@ class HistoryStore:
     @property
     def path(self) -> Path:
         return self._path
+
+    def matches_path(self, path: Path) -> bool:
+        """Whether a workspace can reuse this connection for the current file.
+
+        A restore/replacement at the same path must not reuse an old inode.
+        Replacing a live database still requires stopping its writers first.
+        """
+        return (
+            not self.closed
+            and not self._close_requested
+            and self._path.resolve() == path.resolve()
+            and self._opened_identity is not None
+            and self._opened_identity == self._file_identity(path)
+        )
 
     def _init_schema(self) -> None:
         version = self._conn.execute("PRAGMA user_version").fetchone()[0]
@@ -1244,12 +1271,20 @@ class HistoryStore:
             self._conn.commit()
             self._conn.execute("VACUUM")
 
+    def note_database_error(self, exc: BaseException) -> None:
+        """Schedule a probe for corruption, not ordinary I/O errors."""
+        if isinstance(exc, sqlite3.DatabaseError) and self._is_corruption(exc):
+            with self._lock:
+                if self._fts and not self._closed:
+                    self._fts_check_pending = True
+
     def note_write_failure(self, exc: BaseException) -> None:
         """Record a write-through failure — durability is now degraded.
 
         Logs prominently on the first failure (then counts the rest, to avoid
         log spam). Read ``degraded`` to gate any "fully durable" guarantees.
         """
+        self.note_database_error(exc)
         self.write_failures += 1
         if not self.degraded:
             self.degraded = True
@@ -1261,16 +1296,54 @@ class HistoryStore:
 
     @property
     def closed(self) -> bool:
-        """True once :meth:`close` has run — the connection is gone."""
+        """True once the connection is gone, not while borrowers drain."""
         return self._closed
 
-    def close(self) -> None:
-        self._closed = True
+    def acquire(self) -> None:
+        """Borrow the workspace connection for one request."""
         with self._lock:
-            try:
-                self._conn.close()
-            except sqlite3.Error:
-                pass
+            if self._closed or self._close_requested:
+                raise RuntimeError("History store is shutting down")
+            self._retry_pending_fts_check()
+            self._borrowers += 1
+
+    def release(self) -> None:
+        """Release a request's borrow and finish a pending workspace close."""
+        with self._lock:
+            self._borrowers -= 1
+            if self._close_requested and not self._borrowers:
+                self._close_connection()
+
+    def _close_connection(self) -> None:
+        # Caller holds the connection lock, including against worker writes.
+        self._conn.close()
+        self._closed = True
+
+    def close(self) -> bool:
+        """Close once requests have drained; False asks the owner to retry.
+
+        Refusing new borrows prevents shutdown racing a new request. Existing
+        borrowers retain a usable connection until their final persistence and
+        cleanup finish. The last release completes the deferred close.
+        """
+        with self._lock:
+            self._close_requested = True
+            if self._borrowers:
+                return False
+            self._close_connection()
+            return True
+
+    async def shutdown(self) -> None:
+        """Finish shutdown after the last request releases history."""
+
+        async def drain() -> None:
+            # Do not occupy an executor thread while awaiting borrowers: their
+            # final persistence and release also need the executor. Each close
+            # attempt is offloaded because a current write can hold the lock.
+            while not await run_sync_io(self.close):
+                await asyncio.sleep(0.05)
+
+        await run_async_to_completion(drain())
 
     def __repr__(self) -> str:
         return f"<HistoryStore path={self._path}>"

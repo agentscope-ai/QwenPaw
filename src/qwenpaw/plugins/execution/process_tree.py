@@ -141,6 +141,9 @@ class ProcessTree:
 
 def watch_parent(parent_pid: int) -> None:
     """Arm a daemon before imports; Windows host job adds OS-backed death."""
+    if os.name == "nt":
+        _watch_windows_parent(parent_pid)
+        return
 
     def watch() -> None:
         while True:
@@ -155,3 +158,50 @@ def watch_parent(parent_pid: int) -> None:
         daemon=True,
         name="plugin-parent-watch",
     ).start()
+
+
+def _watch_windows_parent(parent_pid: int) -> None:
+    """Watch the host process, which may sit above a venv redirector."""
+    from ctypes import wintypes as w  # pylint: disable=import-outside-toplevel
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    for name, args, result in (
+        ("OpenProcess", [w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
+        ("WaitForSingleObject", [w.HANDLE, w.DWORD], w.DWORD),
+        ("CloseHandle", [w.HANDLE], w.BOOL),
+    ):
+        function = getattr(kernel, name)
+        function.argtypes = args
+        function.restype = result
+    process = kernel.OpenProcess(0x00100000, False, parent_pid)  # SYNCHRONIZE
+    if not process:
+        error = ctypes.get_last_error()
+        os.write(2, f"PARENT_WATCH_UNAVAILABLE: winerror={error}\n".encode())
+        raise ctypes.WinError(error)
+
+    def watch() -> None:
+        try:
+            result = kernel.WaitForSingleObject(process, 0xFFFFFFFF)
+            if result != 0:  # WAIT_OBJECT_0 is the only successful outcome.
+                error = ctypes.get_last_error()
+                os.write(
+                    2,
+                    (
+                        f"PARENT_WATCH_FAILED: result={result} "
+                        f"winerror={error}\n"
+                    ).encode(),
+                )
+        finally:
+            # Close before _exit: it does not run Python finally blocks.
+            kernel.CloseHandle(process)
+            os._exit(71)  # pylint: disable=protected-access
+
+    try:
+        threading.Thread(
+            target=watch,
+            daemon=True,
+            name="plugin-parent-watch",
+        ).start()
+    except BaseException:
+        kernel.CloseHandle(process)
+        raise

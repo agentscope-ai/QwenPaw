@@ -39,12 +39,14 @@ class PluginDescription:
             object.__setattr__(
                 self,
                 "requirements",
-                tuple(
-                    [str(item) for item in parsed.requirements]
-                    + parsed.unsupported,
-                )
-                if parsed is not None
-                else (),
+                (
+                    tuple(
+                        [str(item) for item in parsed.requirements]
+                        + parsed.unsupported,
+                    )
+                    if parsed is not None
+                    else ()
+                ),
             )
 
     def dependency_declaration(self):
@@ -90,8 +92,9 @@ class ExecutionBackend(Protocol):
     """Execution behavior without directory commits or lifecycle ownership.
 
     Executable admission uses optional async prepare_dependency_targets,
-    returning PreparedDependencyTargets. Missing hints never replace the
-    required audit_dependencies evidence. Static discovery needs neither hook.
+    returning PreparedDependencyTargets. admit_existing owns read eligibility;
+    audit_dependencies remains complete write evidence. Static discovery
+    needs neither hook.
     Optional dependency_environment(description, snapshot) selects host-owned
     installer policy independently of actual consumer audit evidence.
     Optional validate_config_update(description, config) checks eligibility
@@ -128,9 +131,19 @@ class ExecutionBackend(Protocol):
     ) -> DependencySnapshot | None:
         """Prepare/probe, optionally returning evidence already produced.
 
-        Final admission always audits under exclusion. Callers needing a
-        separate preflight retain that audit before lifecycle/disk changes.
+        Final admission calls admit_existing under exclusion. A separate
+        preflight retains read eligibility before lifecycle/disk changes.
         """
+
+    async def admit_existing(
+        self,
+        description,
+        *,
+        usage,
+        token,
+        snapshot=None,
+    ) -> DependencySnapshot | None:
+        """Admit existing code; only full audits return a snapshot."""
 
     async def load_definition(
         self,
@@ -206,6 +219,14 @@ class BackendBinding:
             self.description,
             candidate.description,
             in_place=in_place,
+        )
+
+    async def admit_existing(self, *, usage, token, snapshot=None):
+        return await self.backend.admit_existing(
+            self.description,
+            usage=usage,
+            token=token,
+            snapshot=snapshot,
         )
 
     async def prepare(

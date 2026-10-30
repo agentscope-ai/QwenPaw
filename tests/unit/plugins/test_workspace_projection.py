@@ -419,10 +419,11 @@ async def test_unload_drains_boot_channel_start(
         "qwenpaw.plugins.api.get_available_channels",
         lambda: ("boot-race",),
     )
-    monkeypatch.setattr(
-        "qwenpaw.app.channels.manager._CHANNEL_START_STOP_TIMEOUT",
-        0.01,
-    )
+    if ignore_cancel:
+        monkeypatch.setattr(
+            "qwenpaw.app.channels.manager._CHANNEL_START_STOP_TIMEOUT",
+            0.01,
+        )
     api = PluginApi("boot-plugin", {}, {"id": "boot-plugin"})
     api.set_registry(fresh_registry)
     instance = PluginInstance("boot-plugin")

@@ -27,6 +27,7 @@ from ..providers.thinking import (
     ThinkingControl,
     ThinkingPreference,
     resolve_thinking,
+    model_default_thinking,
 )
 from ..utils.io_utils import run_sync_io
 
@@ -35,6 +36,7 @@ def _validate_thinking_parameters(params: dict) -> None:
     """Reject malformed display inputs without coercing user settings."""
     for key in (
         f"extra_body",
+        f"chat_template_kwargs",
         f"thinking",
         f"reasoning",
         f"thinking_config",
@@ -110,67 +112,14 @@ def _resolve_model_default_thinking(provider: Provider, model: str):
         )
         if thinking is None:
             return ThinkingPreference(level=f"off")
-    else:
-        thinking = None
-    params = {**params, **(params.get(f"extra_body") or {})}
-    thinking = thinking or params.get(f"thinking") or {}
-    reasoning = params.get(f"reasoning") or {}
-    config = params.get(f"thinking_config") or {}
-    enabled = params.get(
-        f"enable_thinking",
-        params.get(f"thinking_enable"),
+    return model_default_thinking(
+        params,
+        control,
+        default_enabled=info.thinking_enabled,
+        default_effort=info.reasoning_effort,
+        default_budget=info.thinking_budget,
+        native_anthropic=native_anthropic,
     )
-    effort = params.get(
-        f"reasoning_effort",
-        reasoning.get(
-            f"effort",
-            (params.get(f"output_config") or {}).get(
-                f"effort",
-                config.get(f"thinking_level"),
-            ),
-        ),
-    )
-    budget = params.get(
-        f"thinking_budget",
-        thinking.get(
-            f"budget_tokens",
-            config.get(f"thinking_budget"),
-        ),
-    )
-    if budget is None and effort is None and not native_anthropic:
-        if enabled is None:
-            enabled = info.thinking_enabled
-        effort = info.reasoning_effort
-    if (
-        enabled is False
-        or thinking.get(f"type") == f"disabled"
-        or reasoning.get(f"enabled") is False
-        or effort in {f"none", f"off"}
-        or budget == 0
-    ):
-        return ThinkingPreference(level=f"off")
-    if budget is None and effort in {
-        f"minimal",
-        f"low",
-        f"medium",
-        f"high",
-        f"xhigh",
-        f"max",
-    }:
-        if control.kind == f"effort" and effort in control.efforts:
-            return ThinkingPreference(level=effort)
-        return ThinkingPreference()
-    if control.kind == f"budget":
-        if budget is None and not native_anthropic:
-            budget = control.budget_default
-        if (
-            budget is not None
-            and control.budget_min is not None
-            and control.budget_max is not None
-            and control.budget_min <= budget <= control.budget_max
-        ):
-            return ThinkingPreference(level=f"budget", budget_tokens=budget)
-    return ThinkingPreference()
 
 
 def session_model(meta: dict | None) -> ModelSlotConfig | None:

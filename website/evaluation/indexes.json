@@ -1,0 +1,123 @@
+[
+  {
+    "id": "index-v1",
+    "order": 1,
+    "directions": {
+      "research": {
+        "name": "研究",
+        "weight": 0.25,
+        "benchmarks": {
+          "gaia": 1
+        }
+      },
+      "office": {
+        "name": "办公",
+        "weight": 0.25,
+        "benchmarks": {
+          "spreadsheetbench-verified": 1
+        }
+      },
+      "coding": {
+        "name": "编程",
+        "weight": 0.25,
+        "benchmarks": {
+          "swebench-verified": 1
+        }
+      },
+      "general": {
+        "name": "综合Agent任务",
+        "weight": 0.25,
+        "benchmarks": {
+          "pawbench": 1
+        }
+      }
+    },
+    "benchmarks": {
+      "gaia": {
+        "id": "gaia",
+        "name": "GAIA",
+        "revision": "1.0",
+        "expected": 165,
+        "judge": {
+          "kind": "programmatic",
+          "model": null,
+          "scorer": "harbor-gaia@1.0",
+          "official_model": null,
+          "prompt_revision": null,
+          "parity_note": ""
+        }
+      },
+      "spreadsheetbench-verified": {
+        "id": "spreadsheetbench-verified",
+        "name": "SpreadsheetBench Verified",
+        "revision": "1.0",
+        "expected": 400,
+        "judge": {
+          "kind": "programmatic",
+          "model": null,
+          "scorer": "harbor-spreadsheetbench-verified@1.0",
+          "official_model": null,
+          "prompt_revision": null,
+          "parity_note": ""
+        }
+      },
+      "swebench-verified": {
+        "id": "swebench-verified",
+        "name": "SWE-bench Verified",
+        "revision": "1.0",
+        "expected": 500,
+        "judge": {
+          "kind": "programmatic",
+          "model": null,
+          "scorer": "harbor-swebench-verified@1.0",
+          "official_model": null,
+          "prompt_revision": null,
+          "parity_note": ""
+        }
+      },
+      "pawbench": {
+        "id": "pawbench",
+        "name": "PawBench",
+        "revision": "agentscope-ai/pawbench@4",
+        "expected": 150,
+        "judge": {
+          "kind": "llm",
+          "model": "qwen3.8-max",
+          "scorer": null,
+          "official_model": "claude-opus-4.6",
+          "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+          "parity_note": ""
+        }
+      }
+    }
+  },
+  {
+    "id": "smoke-v1",
+    "order": 0,
+    "directions": {
+      "infrastructure": {
+        "name": "基础链路测试",
+        "weight": 1.0,
+        "benchmarks": {
+          "acp-file-smoke": 1
+        }
+      }
+    },
+    "benchmarks": {
+      "acp-file-smoke": {
+        "id": "acp-file-smoke",
+        "name": "ACP 文件写入冒烟",
+        "revision": "fixture-v1",
+        "expected": 1,
+        "judge": {
+          "kind": "programmatic",
+          "model": null,
+          "scorer": "exact-file-content-v1",
+          "official_model": null,
+          "prompt_revision": null,
+          "parity_note": ""
+        }
+      }
+    }
+  }
+]

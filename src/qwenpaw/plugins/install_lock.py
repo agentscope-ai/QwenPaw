@@ -35,6 +35,25 @@ logger = logging.getLogger(__name__)
 
 _environment_locks: WeakKeyDictionary = WeakKeyDictionary()
 _observations: WeakKeyDictionary = WeakKeyDictionary()
+_observation_inputs: WeakKeyDictionary = WeakKeyDictionary()
+
+
+def observation_inputs():
+    """Only the task holding exclusion may lend its raw input store."""
+    return _observation_inputs.get(asyncio.current_task())
+
+
+@contextlib.contextmanager
+def observation_write():
+    """Discard raw read inputs around a real publication or restoration."""
+    inputs = observation_inputs()
+    if inputs is not None:
+        inputs.clear()
+    try:
+        yield
+    finally:
+        if inputs is not None:
+            inputs.clear()
 
 
 @contextlib.asynccontextmanager
@@ -153,10 +172,12 @@ async def environment_observation(targets, *, timeout=300.0):
 
         await stack.enter_async_context(async_lock(observation_readers(keys)))
         _observations[task] = keys
+        _observation_inputs[task] = {}
         try:
             yield
         finally:
             del _observations[task]
+            del _observation_inputs[task]
 
 
 # Poll interval while waiting for a contended lock.
@@ -240,8 +261,13 @@ def plugin_install_lock(
         # Wait for an additive writer before classifying its repair marker.
         check_lock_admission(lock_path, check_repair=False)
     try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+        if environment_lock:
+            from .dependency_maintenance import open_coordination_lock
+
+            fd = open_coordination_lock(lock_path)
+        else:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
     except OSError as exc:
         raise InstallLockError("INSTALL_LOCK_UNAVAILABLE") from exc
     acquired = False

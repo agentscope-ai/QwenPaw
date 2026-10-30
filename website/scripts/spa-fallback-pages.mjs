@@ -52,11 +52,23 @@ async function main() {
   const paths = [
     "docs",
     "usage-policy",
+    "evaluation",
+    "evaluation/benchmarks",
     "docs/search",
     ...DOC_SLUGS.map((s) => `docs/${s}`),
     "blog",
     ...BLOG_SLUGS.map((s) => `blog/${s}`),
   ];
+  for (const [source, route] of [["data", "evaluation"]]) {
+    const history = JSON.parse(
+      await readFile(join(distDir, `evaluation/${source}/index.json`), "utf-8"),
+    );
+    for (const run of history.runs) {
+      if (!/^[a-z0-9][a-z0-9._-]{0,99}$/.test(run.id))
+        throw new Error("Invalid evaluation run ID");
+      paths.push(`${route}/runs/${run.id}`);
+    }
+  }
   for (const p of paths) {
     const out = join(distDir, p, "index.html");
     await mkdir(dirname(out), { recursive: true });

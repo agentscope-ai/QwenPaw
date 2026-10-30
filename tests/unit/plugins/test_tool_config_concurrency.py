@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Legacy installations must preserve other tools' agent settings."""
+"""Legacy activations must preserve other tools' agent settings."""
 
 # Inspect host ownership and cleanup state at the tested bridge boundary.
 # pylint: disable=protected-access
@@ -14,7 +14,7 @@ from .test_sdk_entry_contract import write_plugin
 from .timing import WAIT_TIMEOUT
 
 
-async def test_concurrent_legacy_installs_preserve_both_tools_and_user_config(
+async def test_concurrent_legacy_activations_preserve_both_tools_and_user_config(
     tmp_path,
     monkeypatch,
 ):
@@ -23,10 +23,10 @@ async def test_concurrent_legacy_installs_preserve_both_tools_and_user_config(
     from qwenpaw.plugins import api
     from qwenpaw.plugins.testing import PluginTestHost
 
-    roots = []
+    plugins = []
     for suffix in ("a", "b"):
         root = tmp_path / f"legacy-race-{suffix}"
-        write_plugin(
+        manifest = write_plugin(
             root,
             f"""
 class Plugin:
@@ -39,7 +39,7 @@ class Plugin:
 plugin = Plugin()
 """,
         )
-        roots.append(root)
+        plugins.append((manifest, root))
 
     async with PluginTestHost(tmp_path / "host") as host:
         await host._workspace("test")
@@ -54,7 +54,21 @@ plugin = Plugin()
         )
         configs.save_agent_config("test", config)
         original = configs.load_agent_config("test").model_dump()
+        loader = host._loader
+        records = [
+            await loader.lifecycle.load(manifest, root, activate=False)
+            for manifest, root in plugins
+        ]
+        assert all(record.status == "registered" for record in records)
+        assert all(
+            not loader.lifecycle.get_instance(record.manifest.id).activated
+            for record in records
+        )
+        assert {"legacy_race_a", "legacy_race_b"}.isdisjoint(
+            configs.load_agent_config("test").tools.builtin_tools,
+        )
         first_read, second_saved = threading.Event(), threading.Event()
+        peer_attempted = threading.Event()
         local = threading.local()
         write, read, save = (
             api._write_tool_config,
@@ -65,6 +79,8 @@ plugin = Plugin()
         def marked_write(name, *args, **kwargs):
             local.tool = name
             try:
+                if name == "legacy_race_b":
+                    peer_attempted.set()
                 return write(name, *args, **kwargs)
             finally:
                 local.tool = None
@@ -76,6 +92,9 @@ plugin = Plugin()
                 and getattr(local, "tool", None) == "legacy_race_a"
             ):
                 first_read.set()
+                assert peer_attempted.wait(
+                    WAIT_TIMEOUT,
+                ), "B never tried writing"
                 # Old code allows B to commit while A holds its stale snapshot.
                 # An atomic mutation may block B: bounded wait then lets A
                 # commit,
@@ -95,14 +114,27 @@ plugin = Plugin()
             patch.setattr(api, "_write_tool_config", marked_write)
             patch.setattr(configs, "load_agent_config", gated_read)
             patch.setattr(configs, "save_agent_config", observed_save)
-            first = asyncio.create_task(host.install(roots[0]))
-            assert await asyncio.to_thread(
-                first_read.wait,
-                WAIT_TIMEOUT,
-            ), "A never read agent config"
-            second = asyncio.create_task(host.install(roots[1]))
-            reports = await asyncio.wait_for(asyncio.gather(first, second), 15)
-        assert all(report.ok for report in reports), reports
+            tasks = [
+                asyncio.create_task(
+                    loader.lifecycle.activate(plugins[0][0].id),
+                ),
+            ]
+            try:
+                assert await asyncio.to_thread(
+                    first_read.wait,
+                    WAIT_TIMEOUT,
+                ), "A never read agent config"
+                tasks.append(
+                    asyncio.create_task(
+                        loader.lifecycle.activate(plugins[1][0].id),
+                    ),
+                )
+                await asyncio.wait_for(asyncio.gather(*tasks), 15)
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+        assert all(record.status == "active" for record in records)
         assert await tools.legacy_race_a("live") == "a:live"
         assert await tools.legacy_race_b("live") == "b:live"
         actual = configs.load_agent_config("test").model_dump()
@@ -134,7 +166,7 @@ async def test_tool_cleanup_transaction_preserves_concurrent_registration(
     from qwenpaw.plugins.testing import PluginTestHost
 
     root = tmp_path / "legacy-cleanup-peer"
-    write_plugin(
+    manifest = write_plugin(
         root,
         """
 class Plugin:
@@ -162,18 +194,36 @@ plugin = Plugin()
         )
         configs.save_agent_config("test", config)
         initial = configs.load_agent_config("test").model_dump()
+        loader = host._loader
+        record = await loader.lifecycle.load(manifest, root, activate=False)
+        assert record.status == "registered"
+        assert not loader.lifecycle.get_instance(manifest.id).activated
+        assert (
+            "legacy_cleanup_peer"
+            not in configs.load_agent_config("test").tools.builtin_tools
+        )
         old = dict(
             initial["tools"]["builtin_tools"]["retiring_tool"],
             enabled=False,
         )
         entered, peer_saved = threading.Event(), threading.Event()
+        peer_attempted = threading.Event()
         local = threading.local()
         read, save = configs.load_agent_config, configs.save_agent_config
+        write = api._write_tool_config
+
+        def marked_write(name, *args, **kwargs):
+            if name == "legacy_cleanup_peer":
+                peer_attempted.set()
+            return write(name, *args, **kwargs)
 
         def gated_read(agent_id, *args, **kwargs):
             value = read(agent_id, *args, **kwargs)
             if agent_id == "test" and getattr(local, "cleanup", False):
                 entered.set()
+                assert peer_attempted.wait(
+                    WAIT_TIMEOUT,
+                ), "Peer never tried writing"
                 peer_saved.wait(1)
             return value
 
@@ -200,15 +250,27 @@ plugin = Plugin()
                 local.cleanup = False
 
         with monkeypatch.context() as patch:
+            patch.setattr(api, "_write_tool_config", marked_write)
             patch.setattr(configs, "load_agent_config", gated_read)
             patch.setattr(configs, "save_agent_config", observed_save)
-            cleaning = asyncio.create_task(asyncio.to_thread(cleanup))
-            assert await asyncio.to_thread(entered.wait, WAIT_TIMEOUT)
-            _, report = await asyncio.wait_for(
-                asyncio.gather(cleaning, host.install(root)),
-                15,
-            )
-        assert report.ok
+            tasks = [asyncio.create_task(asyncio.to_thread(cleanup))]
+            try:
+                assert await asyncio.to_thread(entered.wait, WAIT_TIMEOUT)
+                tasks.append(
+                    asyncio.create_task(
+                        loader.lifecycle.activate(manifest.id),
+                    ),
+                )
+                # Cancelling its asyncio wrapper cannot stop the config thread.
+                await asyncio.wait_for(
+                    asyncio.gather(asyncio.shield(tasks[0]), *tasks[1:]),
+                    15,
+                )
+            finally:
+                for task in tasks[1:]:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+        assert record.status == "active"
         from qwenpaw.agents import tools
 
         assert await tools.legacy_cleanup_peer("live") == "peer:live"

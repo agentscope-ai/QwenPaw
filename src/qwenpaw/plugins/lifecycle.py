@@ -536,20 +536,22 @@ class PluginLifecycle:
         probe,
         **kwargs,
     ):
-        """Retain Python's independent audit before lifecycle/disk changes."""
-        from .python_backend import PythonBackend
-
-        snapshot = await self.prepare_backend(
+        """Check execution eligibility before destructive lifecycle changes."""
+        async with self._loader._dependency_registration(
             binding,
-            allow_install=allow_install,
-            probe=probe,
-            **kwargs,
-        )
-        if snapshot is None and isinstance(binding.backend, PythonBackend):
-            snapshot = await binding.backend.audit_dependencies(
-                binding.description,
+            attach=False,
+        ) as token:
+            snapshot = await self.prepare_backend(
+                binding,
+                allow_install=allow_install,
+                probe=probe,
+                **kwargs,
             )
-        return snapshot
+            return await self._loader._admit_dependencies(
+                binding,
+                token,
+                snapshot,
+            )
 
     def get_instance(self, plugin_id: str) -> PluginInstance | None:
         return self._instances.get(plugin_id)

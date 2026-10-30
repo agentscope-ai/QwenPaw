@@ -410,6 +410,9 @@ def validate_additions(
             if len(infos) != 1:
                 raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
             info = infos.pop()
+            info_name, _, info_version = info.removesuffix(
+                ".dist-info",
+            ).rpartition("-")
             metadata = BytesParser().parsebytes(members[f"{info}/METADATA"])
             wheel = BytesParser().parsebytes(members[f"{info}/WHEEL"])
             if not valid_metadata_headers(
@@ -419,13 +422,14 @@ def validate_additions(
             ) or not valid_metadata_headers(
                 wheel,
                 ("Wheel-Version", "Root-Is-Purelib"),
-                ("Build", "Generator"),
+                ("Build",),
             ):
                 raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
             if (
                 canonicalize_name(metadata["Name"]) != name
                 or Version(metadata["Version"]) != version
-                or info != f"{name.replace('-', '_')}-{version}.dist-info"
+                or canonicalize_name(info_name) != name
+                or Version(info_version) != version
                 or wheel["Wheel-Version"] != "1.0"
                 or wheel["Root-Is-Purelib"] not in {"true", "false"}
                 or set(wheel.get_all("Tag", [])) != {str(tag) for tag in tags}
