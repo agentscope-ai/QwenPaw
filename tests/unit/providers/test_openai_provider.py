@@ -19,6 +19,7 @@ from qwenpaw.providers.openai_provider import (
     OpenAIProvider,
 )
 from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.services.azure import AzureOpenAIProvider
 from qwenpaw.providers.thinking import ThinkingControl
 
 
@@ -565,6 +566,80 @@ async def test_output_limit_in_actual_request_body(
     summary,
 ):
     """Exercise AgentScope's default injection and the real SDK serializer."""
+    provider = _make_provider(is_custom=True)
+    provider.models = [
+        ModelInfo(
+            id=model_id,
+            name=model_id,
+            generate_kwargs=(
+                {}
+                if configured_limit is None
+                else {"max_tokens": configured_limit}
+            ),
+        ),
+    ]
+    model = provider.get_chat_model_instance(model_id)
+    body = await _capture_output_limit_request(model, summary=summary)
+    limits = {
+        key: value
+        for key, value in body.items()
+        if key in {"max_tokens", "max_completion_tokens"}
+    }
+    expected = 4000 if summary else configured_limit
+    assert limits == ({} if expected is None else {wire_param: expected})
+
+
+@pytest.mark.parametrize("provider_cls", [OpenAIProvider, AzureOpenAIProvider])
+@pytest.mark.parametrize("config_scope", ["provider", "model"])
+@pytest.mark.parametrize("summary", [False, True])
+async def test_custom_deployment_preserves_explicit_completion_limit(
+    provider_cls,
+    config_scope,
+    summary,
+):
+    provider = provider_cls(
+        id="custom",
+        name="Custom deployment",
+        base_url="https://mock-openai.local/v1",
+        api_key="sk-test",
+        is_custom=True,
+        chat_model="OpenAIChatModel",
+    )
+    configured = {"max_completion_tokens": 4096}
+    provider.generate_kwargs = configured if config_scope == "provider" else {}
+    provider.models = [
+        ModelInfo(
+            id="production-reasoner",
+            name="Production reasoner",
+            generate_kwargs=configured if config_scope == "model" else {},
+        ),
+    ]
+    model = provider.get_chat_model_instance("production-reasoner")
+    body = await _capture_output_limit_request(model, summary=summary)
+
+    assert body["max_completion_tokens"] == (4000 if summary else 4096)
+    assert "max_tokens" not in body
+    assert provider.get_effective_generate_kwargs("production-reasoner") == (
+        configured
+    )
+
+
+async def test_explicit_per_call_completion_limit_overrides_legacy_default():
+    provider = _make_provider(is_custom=True)
+    provider.generate_kwargs = {"max_tokens": 8192}
+    model = provider.get_chat_model_instance("production-reasoner")
+    body = await _capture_output_limit_request(
+        model,
+        max_completion_tokens=256,
+    )
+
+    assert body["max_completion_tokens"] == 256
+    assert "max_tokens" not in body
+    assert provider.generate_kwargs == {"max_tokens": 8192}
+
+
+async def _capture_output_limit_request(model, *, summary=False, **kwargs):
+    """Capture a real AgentScope/OpenAI SDK request without a live endpoint."""
     captured = []
 
     def capture(request):
@@ -573,7 +648,7 @@ async def test_output_limit_in_actual_request_body(
             "id": "chatcmpl-test",
             "object": "chat.completion.chunk",
             "created": 0,
-            "model": model_id,
+            "model": model.model,
             "choices": [
                 {
                     "index": 0,
@@ -588,19 +663,6 @@ async def test_output_limit_in_actual_request_body(
             text="data: " + json.dumps(chunk) + "\n\ndata: [DONE]\n\n",
         )
 
-    provider = _make_provider(is_custom=True)
-    provider.models = [
-        ModelInfo(
-            id=model_id,
-            name=model_id,
-            generate_kwargs=(
-                {}
-                if configured_limit is None
-                else {"max_tokens": configured_limit}
-            ),
-        ),
-    ]
-    model = provider.get_chat_model_instance(model_id)
     original_client = model.client
     model.client = original_client.with_options(
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(capture)),
@@ -616,6 +678,7 @@ async def test_output_limit_in_actual_request_body(
         else:
             response = await model(
                 messages=[UserMsg(name="user", content="hello")],
+                **kwargs,
             )
             async for _ in response:
                 pass
@@ -624,13 +687,7 @@ async def test_output_limit_in_actual_request_body(
         await original_client.close()
 
     assert len(captured) == 1
-    limits = {
-        key: value
-        for key, value in captured[0].items()
-        if key in {"max_tokens", "max_completion_tokens"}
-    }
-    expected = 4000 if summary else configured_limit
-    assert limits == ({} if expected is None else {wire_param: expected})
+    return captured[0]
 
 
 def test_get_gpt5_model_maps_configured_max_tokens() -> None:

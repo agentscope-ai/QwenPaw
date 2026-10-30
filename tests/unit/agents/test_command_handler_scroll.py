@@ -13,11 +13,14 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.agents.command_handler import CommandHandler
+from qwenpaw.config.config import LightContextConfig
 
 
-def _config(strategy="scroll"):
-    scroll_config = SimpleNamespace(db_filename="history.db")
-    lcc = SimpleNamespace(strategy=strategy, scroll_config=scroll_config)
+def _config(strategy="scroll", *, summary_timeout_seconds=300):
+    lcc = LightContextConfig(
+        strategy=strategy,
+        scroll_config={"summary_timeout_seconds": summary_timeout_seconds},
+    )
     running = SimpleNamespace(light_context_config=lcc)
     return SimpleNamespace(running=running, id="ag1")
 
@@ -48,6 +51,29 @@ async def test_builds_scroll_manager_under_scroll(tmp_path, monkeypatch):
         # Bound to the authoritative session id, not state.session_id.
         assert mgr._session_id == "sess-x"
         assert (tmp_path / "history.db").exists()
+    finally:
+        if mgr is not None:
+            mgr.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeout", [45, 600])
+async def test_standalone_scroll_manager_uses_configured_timeout(
+    tmp_path,
+    monkeypatch,
+    timeout,
+):
+    handler = _handler(tmp_path, monkeypatch=monkeypatch)
+    config = _config(summary_timeout_seconds=timeout)
+    config.running.light_context_config = (
+        LightContextConfig.model_validate_json(
+            config.running.light_context_config.model_dump_json(),
+        )
+    )
+    mgr = await handler._build_standalone_scroll_manager(config)
+    try:
+        assert mgr is not None
+        assert mgr._summary_timeout_seconds == timeout
     finally:
         if mgr is not None:
             mgr.close()
