@@ -2,7 +2,7 @@
 name: make-skill
 description: "Create a focused workspace Skill from reusable decisions, knowledge, templates, or workflows in the current conversation. Use for /make-skill with a focus argument and requests such as save this workflow or turn this into a skill; do not use for one-off summaries or ordinary file creation."
 metadata:
-  builtin_skill_version: "2.2"
+  builtin_skill_version: "2.3"
   qwenpaw:
     emoji: "✍️"
     requires: {}
