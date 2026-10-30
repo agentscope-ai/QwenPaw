@@ -262,6 +262,7 @@ To run QwenPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [Q
 ### Option 5: AgentScope Platform
 
 [AgentScope Platform](https://platform.agentscope.io/) provides one-click cloud QwenPaw deployment, plugin sharing, and a Skill marketplace. Free, 7/24 online.
+Note: First-time deployment may require passing an account eligibility review after GitHub sign-in (typically 1–3 business days) before a workspace can be created.
 
 ---
 

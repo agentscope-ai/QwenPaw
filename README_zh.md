@@ -262,6 +262,7 @@ docker run -p 127.0.0.1:8088:8088 \
 ### 方式五：AgentScope Platform 部署
 
 [AgentScope Platform](https://platform.agentscope.io/) 提供一键云端 QwenPaw 部署、插件分享与 Skill 市场。完全免费，7/24 在线。
+注意：首次部署在 GitHub 登录后可能需要先通过账号资格审核（通常 1–3 个工作日），审核通过后才能创建工作空间。
 
 ---
 
