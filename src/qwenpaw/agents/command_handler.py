@@ -19,6 +19,8 @@ from ..config.history_path import resolve_history_db_path
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
+from ..providers.model_selection import request_model_override
+from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from .context.scroll.continuation_summary import (
     ContinuationSummary,
@@ -241,6 +243,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
     async def _get_agent_config_async(self):
         """Get hot-reloaded agent config without blocking the event loop."""
         return await run_sync_io(self._get_agent_config)
+
+    async def _get_runtime_config_async(self, config=None):
+        """Apply conversation settings to a fresh, non-persistent config."""
+        if config is None:
+            config = await self._get_agent_config_async()
+        if self._prompt_context is not None:
+            config = await apply_session_thinking(self._prompt_context, config)
+        return config
 
     # ------------------------------------------------------------------
     # State accessors — short-term memory lives on ``agent.state``
@@ -601,17 +611,21 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
             from ..agents.model_factory import create_model_and_formatter_async
 
-            if agent_config is None:
-                agent_config = await self._get_agent_config_async()
+            agent_config = await self._get_runtime_config_async(agent_config)
             model, _fmt = await create_model_and_formatter_async(
                 agent_id=agent_config.id,
                 agent_config=agent_config,
+                model_slot_override=request_model_override(
+                    getattr(self._prompt_context, "request", None),
+                ),
             )
 
             return Agent(
                 name="compactor",
                 model=model,
-                system_prompt=await self._get_current_system_prompt(),
+                system_prompt=await self._get_current_system_prompt(
+                    agent_config,
+                ),
                 state=self._state,
                 offloader=self._offloader,
                 context_config=self._build_manual_context_config(
@@ -778,7 +792,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /history command."""
-        agent_config = await self._get_agent_config_async()
+        agent_config = await self._get_runtime_config_async()
         running_config = agent_config.running
         from .utils import get_token_counter
 
@@ -819,7 +833,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"**System Prompt**\n\n```text\n{prompt}\n```",
         )
 
-    async def _get_current_system_prompt(self) -> str:
+    async def _get_current_system_prompt(self, agent_config=None) -> str:
         """Return the active system prompt when possible.
 
         In agent-backed mode, ask AgentScope for its dynamic system prompt
@@ -847,7 +861,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 builder = AgentBuilder(
                     app_services=getattr(ctx, "app_services", None),
                 )
-                agent_config = await self._get_agent_config_async()
+                if agent_config is None:
+                    agent_config = await self._get_runtime_config_async()
                 return await run_sync_io(
                     builder.build_prompt,
                     ctx,

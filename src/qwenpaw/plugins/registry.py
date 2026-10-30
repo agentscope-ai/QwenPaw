@@ -2,11 +2,14 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
 from fastapi import APIRouter
+
+if TYPE_CHECKING:
+    from .channel_adapter import ChannelDescription
 
 logger = logging.getLogger(__name__)
 
@@ -99,12 +102,17 @@ class ChannelRegistration:
 
     plugin_id: str
     channel_key: str
-    channel_class: Type
+    channel_class: Optional[Type] = None
     label: str = ""
     description: str = ""
     config_fields: List[Dict[str, Any]] = field(default_factory=list)
     icon: str = ""
     doc_url: Any = ""
+    description_record: Optional["ChannelDescription"] = None
+    runtime_settings: Any = None
+    global_enabled: bool = True
+    dependency_token: Any = None
+    owns_dependency_token: bool = False
 
 
 @dataclass
@@ -160,7 +168,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._uninstall_hooks: List[HookRegistration] = []
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        from .ownership import RuntimeOwners
+
+        self.runtime_owners = RuntimeOwners()
+        from .dependency_usage import DependencyUsageRegistry
+
+        self.dependency_usage = DependencyUsageRegistry(self.runtime_owners)
         self._channels: Dict[str, ChannelRegistration] = {}
+        self.channel_runtime = None
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
         self._middleware_registrations: List[MiddlewareRegistration] = []
@@ -838,7 +853,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         config_fields: Optional[List[Dict[str, Any]]] = None,
         icon: str = "",
         doc_url: Any = "",
-    ) -> None:
+    ) -> ChannelRegistration:
         """Register a custom channel from a plugin.
 
         Args:
@@ -897,10 +912,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 )
 
         # Prevent overriding built-in channels
-        if normalized_key in BUILTIN_CHANNEL_KEYS:
+        from .official_channel_catalog import official_channel_owners
+
+        owners = official_channel_owners()
+        if normalized_key in BUILTIN_CHANNEL_KEYS or normalized_key in owners:
+            owner = owners.get(normalized_key, "builtin")
             raise ValueError(
-                f"Channel '{normalized_key}' conflicts with a built-in "
-                f"channel and cannot be registered by a plugin",
+                f"Channel '{normalized_key}' is reserved by owner '{owner}' "
+                f"and cannot be registered by plugin '{plugin_id}'",
             )
 
         if normalized_key in self._channels:
@@ -935,13 +954,19 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             f"'{plugin_id}'",
         )
 
+        return self._channels[normalized_key]
+
     def get_registered_channels(self) -> Dict[str, ChannelRegistration]:
         """Get all plugin-registered channels.
 
         Returns:
             Dictionary of channel_key -> ChannelRegistration.
         """
-        return self._channels.copy()
+        return {
+            key: row
+            for key, row in self._channels.items()
+            if row.channel_class is not None
+        }
 
     def get_channel_registration(
         self,
@@ -955,13 +980,132 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         Returns:
             ChannelRegistration or None.
         """
+        row = self._channels.get(channel_key)
+        return (
+            row
+            if row is not None
+            and (
+                row.channel_class is not None
+                or row.runtime_settings is not None
+            )
+            else None
+        )
+
+    def get_channel_catalog(self) -> Dict[str, ChannelRegistration]:
+        """Return static candidates and active class registrations."""
+        return self._channels.copy()
+
+    def get_channel_catalog_entry(
+        self,
+        channel_key: str,
+    ) -> Optional[ChannelRegistration]:
+        """Look up an owned row without claiming it is runtime-ready."""
         return self._channels.get(channel_key)
 
-    def unregister_channel(self, channel_key: str) -> bool:
+    def configure_channel_runtime(self, settings) -> None:
+        """Reserve selected keys independently of installed artifacts."""
+        if (
+            self.channel_runtime is not None
+            and self.channel_runtime != settings
+        ):
+            raise RuntimeError("CHANNEL_RUNTIME_ALREADY_CONFIGURED")
+        self.channel_runtime = settings
+
+    def has_channel_owners(self, plugin_id: str) -> bool:
+        """Compatibility query over the sole runtime custody authority."""
+        return any(
+            lease.key.kind == "channel"
+            for lease in self.runtime_owners.leases(plugin_id)
+        )
+
+    def register_channel_descriptor(
+        self,
+        plugin_id: str,
+        description: "ChannelDescription",
+        *,
+        runtime_settings=None,
+        global_enabled: bool = True,
+        dependency_token=None,
+    ) -> ChannelRegistration:
+        """Register host-owned static metadata without loading a driver."""
+        from ..app.channels.registry import BUILTIN_CHANNEL_KEYS
+
+        descriptor = description.descriptor
+        key = descriptor.channel_key
+        if plugin_id != description.plugin_id:
+            raise ValueError("Channel descriptor owner mismatch")
+        from ..app.channels.catalog import config_fields
+        from .official_channel_catalog import official_channel_owners
+
+        owner = official_channel_owners().get(key)
+        if key in BUILTIN_CHANNEL_KEYS or (owner and owner != plugin_id):
+            occupying = "builtin" if key in BUILTIN_CHANNEL_KEYS else owner
+            raise ValueError(
+                f"Channel '{key}' owner '{occupying}' conflicts with "
+                f"plugin '{plugin_id}'",
+            )
+        if key in self._channels:
+            owner = self._channels[key].plugin_id
+            raise ValueError(
+                f"Channel '{key}' is already registered by plugin '{owner}'",
+            )
+        fields = config_fields(
+            descriptor.config_schema,
+            descriptor.config_fields,
+        )
+        row = ChannelRegistration(
+            plugin_id=plugin_id,
+            channel_key=key,
+            label=descriptor.label["en"],
+            description=description.description,
+            config_fields=fields,
+            description_record=description,
+            runtime_settings=runtime_settings,
+            global_enabled=global_enabled,
+            dependency_token=dependency_token,
+        )
+        if (
+            global_enabled
+            and runtime_settings is not None
+            and dependency_token is None
+        ):
+            from .dependency_usage import DependencyDeclaration
+
+            row.dependency_token = self.dependency_usage.declare(
+                DependencyDeclaration(
+                    plugin_id,
+                    description.source_revision,
+                    description.requirements,
+                    None,
+                ),
+                pending=False,
+            )
+            row.owns_dependency_token = True
+        self._channels[key] = row
+        return row
+
+    def unregister_channel(
+        self,
+        channel_key: str,
+        *,
+        expected: Optional[ChannelRegistration] = None,
+    ) -> bool:
         """Drop one channel registration by key."""
-        if channel_key not in self._channels:
+        current = self._channels.get(channel_key)
+        if current is None or (
+            expected is not None and current is not expected
+        ):
             return False
+        if current.runtime_settings is not None and any(
+            lease.key.kind == "channel" and lease.key.name == channel_key
+            for lease in self.runtime_owners.leases(current.plugin_id)
+        ):
+            from .lifecycle import QuiescenceError
+
+            raise QuiescenceError("CHANNEL_INSTANCE_STILL_OWNED")
         del self._channels[channel_key]
+        if current.owns_dependency_token:
+            self.dependency_usage.withdraw(current.dependency_token)
         logger.info("Unregistered channel '%s'", channel_key)
         return True
 

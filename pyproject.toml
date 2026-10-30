@@ -13,9 +13,6 @@ dependencies = [
     "websockets>=15.0.1,<16",
     "packaging>=24.0",
     "click>=8.1,<9",
-    "discord-py>=2.3",
-    "dingtalk-stream>=0.24.3",
-    "alibabacloud-dingtalk>=2.2.42",
     "alibabacloud-tea-openapi>=0.4.4",
     "alibabacloud-credentials>=0.3.0",
     "alibabacloud-tea-util>=0.3.0",
@@ -31,15 +28,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
     "onnxruntime<1.24",
-    "lark-oapi>=1.5.3",
-    "python-telegram-bot>=20.8",
-    "slack-bolt>=1.22.0",
-    "twilio>=9.10.2",
     "pywebview>=4.0",
     "aiofiles>=24.1.0",
-    "paho-mqtt>=2.0.0",
-    "wecom-aibot-python-sdk==1.0.2",
-    "matrix-nio>=0.25.0",
     "shortuuid>=1.0.0",
     "google-genai>=1.67.0",
     "tzdata>=2024.1",
@@ -94,6 +84,8 @@ include-package-data = true
 "qwenpaw.plugins.bundled.hub" = ["*/plugin.json"]
 # Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
 "qwenpaw" = [
+    "official_channels/*.json",
+    "official_channels/*.zip",
     "console/**",
     "agents/md_files/**",
     "agents/skills/**",
@@ -114,7 +106,6 @@ include-package-data = true
     "plugins/py.typed",
     "plugins/templates/**",
     "docs/*.md",
-    "app/channels/yuanbao/proto/**",
 ]
 
 [build-system]
@@ -166,8 +157,51 @@ qwenpaw-data = [
     "qwenpaw-data-cli>=0.3.3,<0.4",
     "qwenpaw-data-skills>=0.3.3,<0.4",
 ]
+channels = [
+    "aiofiles>=24.1.0",
+    "aiohttp>=3.8.0",
+    "aiohttp>=3.9.0",
+    "alibabacloud-credentials>=0.3.0",
+    "alibabacloud-dingtalk>=2.2.42",
+    "alibabacloud-tea",
+    "alibabacloud-tea-openapi>=0.4.4",
+    "alibabacloud-tea-util>=0.3.0",
+    "audioop-lts; python_version >= '3.13'",
+    "certifi",
+    "cryptography>=43.0.0",
+    "dashscope-realtime>=0.1.0",
+    "dashscope>=1.0.0",
+    "dingtalk-stream>=0.24.3",
+    "discord-py>=2.3",
+    "httpx",
+    "httpx>=0.27.0",
+    "lark-oapi>=1.5.3",
+    "linkify-it-py>=2.0.0",
+    "markdown-it-py>=3.0.0",
+    "matrix-nio>=0.25.0",
+    "msal>=1.20.0",
+    "paho-mqtt>=2.0.0",
+    "Pillow",
+    "pillow>=10.0.0",
+    "protobuf>=4.22.0",
+    "pycryptodome",
+    "PyJWT>=2.0.0",
+    "python-telegram-bot>=20.8",
+    "pyVoIP>=1.6.0",
+    "requests",
+    "slack-bolt>=1.22.0",
+    "slack-sdk>=3.33.1",
+    "twilio>=9.10.2",
+    "websocket-client>=1.9.0",
+    "websockets>=15.0.1,<16",
+    "wecom-aibot-python-sdk==1.0.2",
+]
 full = [
+    "qwenpaw[channels]",
     "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",
+]
+matrix-e2ee = [
+    "matrix-nio[e2e]>=0.25.0",
 ]
 sip = [
     "pyVoIP>=1.6.0",

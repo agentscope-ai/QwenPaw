@@ -34,7 +34,8 @@ vi.mock("../../features/files-workspace/ResponseArtifactList", () => ({
 vi.mock("../../components/Chat/MediaDownload", () => ({
   DownloadableAudios: () => null,
 }));
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 // Keep the real vendor Request/Card and SDK contexts. Only visual leaves are

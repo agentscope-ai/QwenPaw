@@ -248,6 +248,49 @@ def _make_control_adapter(
             )
             text = f"**Command Failed**\n\n{e}"
 
+        from ..schemas import AgentRequest
+        from .._control_state import ControlCommandState
+        from .commands.control.approval_handler import (
+            ApprovalCommandHandler,
+            ApproveCommandHandler,
+            DenyCommandHandler,
+        )
+
+        if isinstance(request, AgentRequest) and isinstance(
+            handler,
+            (
+                ApprovalCommandHandler,
+                ApproveCommandHandler,
+                DenyCommandHandler,
+            ),
+        ):
+            # Host-private state binds this reply to its original channel actor.
+            state = (
+                request._channel_control_state
+            )  # pylint: disable=protected-access
+            result = ctrl_ctx.approval_resolution
+            if isinstance(state, ControlCommandState) and result is not None:
+                actor = ApprovalCommandHandler._actor(
+                    ctrl_ctx,
+                )  # pylint: disable=protected-access
+                binding = state.binding
+                # Verify every identity field together before recording resolution.
+                if (  # pylint: disable=too-many-boolean-expressions
+                    binding.channel_key == actor.channel
+                    and binding.user_id == actor.user_id
+                    and binding.session_id == actor.session_id
+                    and binding.root_session_id == actor.root_session_id
+                    and binding.agent_id == actor.agent_id
+                    and (
+                        not binding.source_request_id
+                        or binding.source_request_id == result.request_id
+                    )
+                ):
+                    try:
+                        state.set_resolution(result)
+                    except ValueError:
+                        logger.warning("Control confirmation binding invalid")
+
         return Msg(
             name="assistant",
             role="assistant",

@@ -589,6 +589,8 @@
     "skillBuiltinSyncFailed": "“{{skill}}”未能同步至：{{agents}}",
     "requestedBy": "请求方",
     "markRead": "标记已读",
+    "unreadOnly": "仅看未读",
+    "emptyUnread": "当前筛选条件下没有未读消息",
     "markAllRead": "全部标记已读",
     "markAllReadNoUnread": "当前没有未读消息",
     "markAllReadSuccess": "已将 {{count}} 条消息标记为已读",
@@ -1824,6 +1826,10 @@
     "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
+    "runtime": {
+      "missing_code": "插件未安装"
+    },
+    "qrcodeInstallRequired": "安装插件后可扫码",
     "manualCredentials": "手动填写凭据",
     "deliverySettings": "发送方式",
     "presentationSettings": "消息呈现",
@@ -2939,6 +2945,20 @@
     "memory": "长期记忆",
     "daily": "日记",
     "digest": "知识库",
+    "memoryTags": "记忆标签",
+    "memoryTagsLabel": "标签",
+    "memoryTagBrowse": "搜索带有“{{tag}}”标签的已索引记忆",
+    "memoryTagsAll": "全部标签",
+    "memoryTagsScope": "仅搜索已索引的记忆，当前文件可能尚未被索引。",
+    "memoryTagsRefresh": "刷新记忆标签",
+    "memoryTagsCount": "{{count}} 个标签",
+    "memoryTagFilesCount": "{{count}} 篇记忆",
+    "memoryTagsLoadFailed": "记忆标签暂不可用，请重试。",
+    "memoryTagsEmpty": "还没有记忆标签。",
+    "memoryTagFilesEmpty": "没有带此标签的已索引记忆。",
+    "memoryTagsPrevious": "上一页",
+    "memoryTagsNext": "下一页",
+    "memoryTagsPage": "{{page}} / {{total}} 页",
     "memoryGraph": "记忆图谱",
     "memoryGraphShort": "Graph",
     "memoryGraphLoading": "正在加载记忆图谱…",
@@ -5383,17 +5403,28 @@
     "details": "详细信息"
   },
   "pluginManager": {
-    "busyTitle": "插件正在执行任务",
-    "busy": {
-      "update": {
-        "warning": "强制更新将中断当前任务，未完成的任务可能失败。",
-        "confirm": "强制更新",
-        "cancel": "暂不更新"
-      },
-      "uninstall": {
-        "warning": "强制卸载将中断当前任务，未完成的任务可能失败。",
-        "confirm": "强制卸载",
-        "cancel": "暂不卸载"
+    "dependencyUpgrade": {
+      "title": "确认升级共享依赖",
+      "confirm": "升级并安装",
+      "progress": "正在升级共享依赖",
+      "changes": "共享依赖版本变更",
+      "affected": "受影响的插件实例",
+      "noInstances": "没有受影响的插件实例。",
+      "restart": "此次升级需要重启后端，重新连接后将继续安装插件。",
+      "background": "在后台跟踪",
+      "resume": "进度跟踪已中断。后端重新连接后，请重新打开插件管理查看安装结果。",
+      "invalid": "依赖升级响应与当前安装不匹配，请重新打开插件管理查看状态。",
+      "notStarted": "依赖升级尚未开始，请重新打开插件管理，查看计划并再次确认。",
+      "cancelFailed": "未能取消依赖升级，请重新打开插件管理查看状态。",
+      "failed": "共享依赖升级失败。",
+      "status": {
+        "needs_confirmation": "等待确认",
+        "preparing": "正在准备升级",
+        "applying": "正在应用升级",
+        "waiting_restart": "等待后端重启",
+        "succeeded": "插件安装完成",
+        "failed": "升级失败",
+        "cancelled": "已取消升级"
       }
     },
     "title": "插件管理",
@@ -5474,7 +5505,20 @@
     "marketSortFavorites": "收藏量最多",
     "compatWarningTitle": "兼容性警告",
     "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
-    "compatWarningConfirm": "仍然安装"
+    "compatWarningConfirm": "仍然安装",
+    "busyTitle": "插件正在执行任务",
+    "busy": {
+      "update": {
+        "warning": "强制更新将中断当前任务，未完成的任务可能失败。",
+        "confirm": "强制更新",
+        "cancel": "暂不更新"
+      },
+      "uninstall": {
+        "warning": "强制卸载将中断当前任务，未完成的任务可能失败。",
+        "confirm": "强制卸载",
+        "cancel": "暂不卸载"
+      }
+    }
   },
   "codingMode": {
     "toolPresentationHelp": "开启后，智能体只使用一个代码工具。搜索、文件处理等操作，统一通过编写并执行 Python 代码完成。",

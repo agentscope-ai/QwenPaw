@@ -1396,6 +1396,10 @@
     "selectAtLeastOneDay": "Выберите хотя бы один день."
   },
   "channels": {
+    "qrcodeInstallRequired": "Установите плагин для сканирования QR-кода",
+    "runtime": {
+      "missing_code": "Плагин не установлен"
+    },
     "title": "Каналы",
     "description": "Управление и настройка каналов сообщений",
     "loading": "Загрузка каналов...",
@@ -4740,6 +4744,8 @@
     "from": "От:",
     "requestedBy": "Кем:",
     "markRead": "Прочитано",
+    "unreadOnly": "Только непрочитанные",
+    "emptyUnread": "Нет непрочитанных сообщений, соответствующих текущим фильтрам",
     "markAllRead": "Прочитать всё",
     "markAllReadNoUnread": "Нет непрочитанных сообщений",
     "markAllReadSuccess": "Отмечено как прочитанное: {{count}} сообщ.",
