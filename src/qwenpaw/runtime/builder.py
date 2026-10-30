@@ -16,6 +16,7 @@ from functools import partial
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from ..providers.thinking import ThinkingPreference
 from ..providers.model_selection import request_model_override
 from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
@@ -364,6 +365,10 @@ class AgentBuilder:
             agent_config = agent_config.model_copy(deep=True)
             agent_config.coding_mode.enabled = True
         agent_config = await apply_session_thinking(ctx, agent_config)
+        agent_config = self._apply_request_thinking(
+            agent_config,
+            request_context,
+        )
         ctx.agent_config = agent_config
 
         # Validate model availability.
@@ -802,6 +807,40 @@ class AgentBuilder:
         stamped = agent_config.model_copy(deep=True)
         stamped.project_dir = str(resolved)
         return stamped
+
+    @staticmethod
+    def _apply_request_thinking(
+        agent_config: Any,
+        request_context: dict[str, Any],
+    ) -> Any:
+        """Apply a cron-job thinking override to this request's config.
+
+        The override is request-scoped: it never mutates the persisted agent
+        config or a shared session's stored preference. ``inherit`` (or an
+        absent key) leaves the agent/session-resolved value untouched.
+        """
+        level = request_context.get("cron_thinking_level")
+        if level is None or level == "inherit":
+            return agent_config
+        budget = request_context.get("cron_thinking_budget")
+        try:
+            preference = ThinkingPreference(
+                level=level,
+                budget_tokens=budget,
+            )
+        except ValueError:
+            _logger.warning(
+                "Ignoring invalid cron thinking override: level=%r",
+                level,
+            )
+            return agent_config
+        return agent_config.model_copy(
+            update={
+                "thinking_level": preference.level,
+                "thinking_budget": preference.budget_tokens,
+            },
+            deep=True,
+        )
 
     @staticmethod
     def _apply_request_project(

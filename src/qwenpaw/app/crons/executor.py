@@ -202,6 +202,18 @@ class CronExecutor:
             if job.runtime.tool_safety
             else ToolExecutionLevel.OFF.value
         )
+        # The runtime field is authoritative; drop any stale or hand-written
+        # override in the passthrough request payload before applying it.
+        request_context.pop("cron_thinking_level", None)
+        request_context.pop("cron_thinking_budget", None)
+        if job.runtime.thinking_level != "inherit":
+            # Request-scoped override applied by AgentBuilder before the
+            # model is constructed; never persisted to the shared session.
+            level = job.runtime.thinking_level
+            budget = job.runtime.thinking_budget
+            request_context["cron_thinking_level"] = level
+            if budget is not None:
+                request_context["cron_thinking_budget"] = budget
         req["request_context"] = request_context
 
         # Determine session_id based on share_session
