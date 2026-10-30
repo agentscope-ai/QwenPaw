@@ -31,6 +31,7 @@ from .tools.utils import (
     ToolResultPruner,
 )
 from ..constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
+AUTO_MEMORY_SEARCH_CACHE_VERSION = 1
 _MEMORY_SKIP_SOURCES = ("cron", "heartbeat", "portability_adaptation")
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
 _MANUAL_COMPACT_MEMORY_BY_HANDLER: ContextVar[bool] = ContextVar(
@@ -135,6 +137,14 @@ class MemoryMiddleware(MiddlewareBase):
         turn_marker = query_msg.id if query_msg is not None else ""
         turn_state = self._auto_memory_turn_state(agent)
         search_state = turn_state["search"]
+        if search_state and (
+            search_state.get("version") != AUTO_MEMORY_SEARCH_CACHE_VERSION
+        ):
+            # Pre-reference caches can contain the synthetic assistant
+            # thinking/tool trajectory. Invalidate them before comparing the
+            # turn marker so the current turn is searched again immediately.
+            turn_state["search"] = {}
+            search_state = turn_state["search"]
         if turn_marker and turn_marker != search_state.get("turn_marker"):
             # Replace the cache before searching so evidence from the previous
             # user turn can never leak into the new one. A failed search is
@@ -152,10 +162,7 @@ class MemoryMiddleware(MiddlewareBase):
                     "MemoryMiddleware auto_memory_search failed",
                 )
             else:
-                memory_msgs = self._extract_memory_messages(
-                    result,
-                    context_len=len(agent.state.context),
-                )
+                memory_msgs = self._extract_memory_messages(result)
                 self._save_search_cache(
                     turn_state,
                     turn_marker=turn_marker,
@@ -467,6 +474,7 @@ class MemoryMiddleware(MiddlewareBase):
     ) -> None:
         try:
             turn_state["search"] = {
+                "version": AUTO_MEMORY_SEARCH_CACHE_VERSION,
                 "turn_marker": turn_marker,
                 "messages": [msg.model_dump(mode="json") for msg in messages],
             }
@@ -483,6 +491,7 @@ class MemoryMiddleware(MiddlewareBase):
         search = turn_state.get("search")
         if (
             not isinstance(search, dict)
+            or search.get("version") != AUTO_MEMORY_SEARCH_CACHE_VERSION
             or search.get("turn_marker") != turn_marker
         ):
             return []
@@ -506,17 +515,50 @@ class MemoryMiddleware(MiddlewareBase):
         memory_msgs: list["Msg"],
         turn_marker: str,
     ) -> list["Msg"]:
-        """Insert transient evidence after its query, preserving chronology."""
-        existing_ids = {msg.id for msg in messages}
-        injected = [msg for msg in memory_msgs if msg.id not in existing_ids]
-        if not injected:
-            return messages
+        """Attach transient recall to a copy of the current user message.
 
-        insert_at = len(messages)
+        Keeping the fixed system message and conversation history untouched
+        preserves their provider prompt-cache prefix across user turns.  The
+        returned messages are request-local copies; the agent context is not
+        mutated or persisted with the recalled evidence.
+        """
         for idx, msg in enumerate(messages):
             if msg.id == turn_marker:
-                insert_at = idx + 1
-        messages[insert_at:insert_at] = injected
+                query_idx = idx
+                break
+        else:
+            # Do not inject the evidence at a different privilege level or
+            # attach it to an unrelated turn when the current query is not
+            # part of this provider request.
+            return messages
+
+        query_msg = deepcopy(messages[query_idx])
+        existing_ids = list(
+            query_msg.metadata.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY) or [],
+        )
+        seen_ids = set(existing_ids)
+        evidence_blocks = []
+        evidence_ids = []
+        for memory_msg in memory_msgs:
+            block_ids = set(
+                memory_msg.metadata.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY)
+                or [],
+            )
+            for block in memory_msg.get_content_blocks():
+                if block.id in block_ids and block.id not in seen_ids:
+                    evidence_blocks.append(deepcopy(block))
+                    evidence_ids.append(block.id)
+                    seen_ids.add(block.id)
+
+        if not evidence_blocks:
+            return messages
+
+        query_msg.content.extend(evidence_blocks)
+        query_msg.metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] = [
+            *existing_ids,
+            *evidence_ids,
+        ]
+        messages[query_idx] = query_msg
         return messages
 
     @staticmethod
@@ -584,8 +626,6 @@ class MemoryMiddleware(MiddlewareBase):
     @staticmethod
     def _extract_memory_messages(
         result: Any,
-        *,
-        context_len: int,
     ) -> list["Msg"]:
         if not isinstance(result, dict):
             return []
@@ -593,15 +633,12 @@ class MemoryMiddleware(MiddlewareBase):
         if not isinstance(msgs, list):
             return []
 
-        injected = msgs[context_len:] if len(msgs) > context_len else msgs
         return [
             msg
-            for msg in injected
-            if hasattr(msg, "has_content_blocks")
-            and (
-                msg.has_content_blocks("tool_call")
-                or msg.has_content_blocks("tool_result")
-            )
+            for msg in msgs
+            if isinstance(msg, Msg)
+            and isinstance(msg.metadata, dict)
+            and msg.metadata.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY)
         ]
 
     async def _auto_memory_interval(self) -> int:
