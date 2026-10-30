@@ -13,6 +13,8 @@ import {
   INBOX_EVENT_QUERY_LIMIT,
   PUSH_MESSAGE_SOURCES,
   isPushMessageEvent,
+  INBOX_CHANGED_EVENT,
+  type InboxChange,
 } from "../utils/inboxEvents";
 import { useOsNotify, type OsNotifyItem } from "./osNotifyStore";
 
@@ -36,30 +38,43 @@ function mapApprovals(approvals: PendingApproval[]): OsNotifyItem[] {
 
 export function useOsNotifyPoller() {
   const ingest = useOsNotify((s) => s.ingest);
+  const applyInboxChange = useOsNotify((s) => s.applyInboxChange);
   const { approvals } = useApprovalContext();
   const approvalsRef = useRef(approvals);
   const inboxRef = useRef<OsNotifyItem[]>([]);
   const inboxCountRef = useRef<number>();
+  const communityScopeRef = useRef<string | null>();
   const hasInboxSnapshotRef = useRef(false);
 
   approvalsRef.current = approvals;
 
   useEffect(() => {
     if (!hasInboxSnapshotRef.current) return;
-    ingest(mapApprovals(approvals), inboxRef.current, inboxCountRef.current);
+    ingest(
+      mapApprovals(approvals),
+      inboxRef.current,
+      inboxCountRef.current,
+      communityScopeRef.current,
+    );
   }, [approvals, ingest]);
 
   useEffect(() => {
     let alive = true;
+    let loadEpoch = 0;
+    let loading = false;
 
-    const load = async () => {
+    const load = async (force = false) => {
+      if (loading && !force) return;
+      loading = true;
+      const epoch = ++loadEpoch;
       try {
         const inbox = await api.getInboxEvents({
           unread_only: true,
           limit: INBOX_EVENT_QUERY_LIMIT,
           source_types: [...PUSH_MESSAGE_SOURCES],
+          exclude_acl_pending: true,
         });
-        if (!alive) return;
+        if (!alive || epoch !== loadEpoch) return;
 
         const events: OsNotifyItem[] = (inbox?.events || [])
           .filter(isPushMessageEvent)
@@ -70,21 +85,32 @@ export function useOsNotifyPoller() {
             body: e.body || "",
             createdAt: (e.created_at || Date.now() / 1000) * 1000,
             read: false,
+            sourceType: e.source_type,
+            agentId: e.agent_id || undefined,
           }));
 
         inboxRef.current = events;
         inboxCountRef.current = inbox?.unread_count;
+        communityScopeRef.current = inbox?.community_scope;
         hasInboxSnapshotRef.current = true;
-        ingest(mapApprovals(approvalsRef.current), events, inbox?.unread_count);
+        ingest(
+          mapApprovals(approvalsRef.current),
+          events,
+          inbox?.unread_count,
+          inbox?.community_scope,
+        );
       } catch {
         // Backend offline in PoC — keep previous state silently.
+      } finally {
+        if (epoch === loadEpoch) loading = false;
       }
     };
 
     void load();
     let timer: number | null = null;
     const start = () => {
-      if (timer == null) timer = window.setInterval(load, POLL_INTERVAL_MS);
+      if (timer == null)
+        timer = window.setInterval(() => void load(), POLL_INTERVAL_MS);
     };
     const stop = () => {
       if (timer != null) {
@@ -103,10 +129,24 @@ export function useOsNotifyPoller() {
 
     if (document.visibilityState === "visible") start();
     document.addEventListener("visibilitychange", onVisibility);
+    const onInboxChanged = (event: Event) => {
+      applyInboxChange((event as CustomEvent<InboxChange>).detail || {});
+      // Keep approval-context updates from restoring an obsolete inbox snapshot.
+      const state = useOsNotify.getState();
+      inboxRef.current = state.history.filter(
+        (item) => item.kind === "inbox" && !item.read,
+      );
+      inboxCountRef.current = state.inboxCount;
+      communityScopeRef.current = state.communityScope;
+      void load(true);
+    };
+    window.addEventListener(INBOX_CHANGED_EVENT, onInboxChanged);
     return () => {
       alive = false;
+      loadEpoch += 1;
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(INBOX_CHANGED_EVENT, onInboxChanged);
     };
-  }, [ingest]);
+  }, [ingest, applyInboxChange]);
 }

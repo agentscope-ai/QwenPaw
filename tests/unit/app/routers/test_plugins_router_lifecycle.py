@@ -382,6 +382,7 @@ class TestListPluginsRoute:
                 "loaded": False,
                 "plugin_type": "general",
                 "frontend_entry": None,
+                "installation_origin": None,
             },
         ]
 
@@ -404,6 +405,7 @@ class TestListPluginsRoute:
                 "diagnostics": [],
                 "plugin_type": "general",
                 "frontend_entry": "ui/index.js",
+                "installation_origin": None,
             },
         ]
 
@@ -931,6 +933,7 @@ class TestInstallPluginRoute:
             "enabled": True,
             "diagnostics": diagnostics,
             "message": "Plugin 'plug display name' installation: active.",
+            "installation_origin": None,
         }
 
     @pytest.mark.parametrize(

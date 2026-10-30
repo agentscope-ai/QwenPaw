@@ -1,0 +1,1979 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+  color: var(--app-text);
+  // Container reference for the bottom bar's full-bleed slack formula.
+  container-type: inline-size;
+}
+.scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.content {
+  max-width: 1280px;
+  margin: auto;
+  padding: 28px 32px 48px;
+  h1 {
+    font-size: 24px;
+    line-height: 1.5;
+  }
+  h2 {
+    font-size: 18px;
+  }
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.meta {
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+.postTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  h1,
+  h2 {
+    overflow-wrap: anywhere;
+  }
+}
+.answerBadge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.answerBadgeSolved {
+  background: #ebfaf0;
+  color: #5bb98b;
+}
+.answerBadgeOpen {
+  background: #f3f3f3;
+  color: var(--app-text-tertiary);
+}
+:global(.dark-mode) .answerBadgeSolved {
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
+}
+:global(.dark-mode) .answerBadgeOpen {
+  background: var(--app-fill-subtle);
+  color: var(--app-text-tertiary);
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  :global(:is(.ant-input-search, .qwenpaw-input-search)) {
+    flex: 1;
+    min-width: 200px;
+    max-width: 480px;
+  }
+  :global(:is(.ant-select, .qwenpaw-select)) {
+    min-width: 120px;
+  }
+}
+.feed {
+  min-height: 160px;
+  margin-bottom: 24px;
+}
+.post {
+  display: block;
+  color: var(--app-text);
+  padding: 22px 8px;
+  border-bottom: 1px solid var(--app-border);
+  h2 {
+    margin: 10px 0;
+  }
+  p {
+    color: var(--app-text-secondary);
+    line-height: 1.7;
+  }
+  &:hover h2 {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+  }
+}
+.body {
+  margin: 28px 0;
+  font-size: 15px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+  pre {
+    overflow: auto;
+    padding: 16px;
+    background: var(--app-bg);
+  }
+  table {
+    display: block;
+    overflow: auto;
+  }
+  a {
+    color: var(--app-accent-text);
+  }
+}
+@media (max-width: 768px) {
+  .content {
+    padding: 20px 16px;
+  }
+  .toolbar,
+  .heading {
+    flex-wrap: wrap;
+  }
+}
+
+.commentImages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+  > :global(:is(.ant-image, .qwenpaw-image)) {
+    max-width: 100%;
+    width: 240px;
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid var(--app-border);
+    img {
+      display: block;
+      height: 160px;
+      object-fit: contain;
+      background: var(--app-surface-sunken);
+    }
+  }
+}
+
+.customEmoji {
+  display: inline-block;
+  width: 66px;
+  height: 66px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin: 4px;
+}
+
+.headingActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .content {
+    padding: 16px 14px 24px;
+  }
+  .content h1 {
+    font-size: 21px;
+    margin: 0 0 6px;
+  }
+  .heading {
+    gap: 14px;
+    align-items: stretch;
+  }
+  .heading > div {
+    min-width: 0;
+    width: 100%;
+  }
+  .headingActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .headingActions > a {
+    grid-column: 1 / -1;
+    font-size: 12px;
+  }
+  .headingActions > button {
+    min-height: 40px;
+    padding-inline: 10px;
+  }
+  .editorHelp {
+    display: none;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 12px 0 0;
+  }
+  .toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    margin: 16px 0 4px;
+  }
+  .toolbar > :nth-child(1) {
+    grid-column: 1;
+    min-width: 0;
+  }
+  .toolbar > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+  }
+  .toolbar > :nth-child(3) {
+    grid-column: 1;
+    grid-row: 3;
+    width: 100%;
+  }
+  .toolbar > :nth-child(4) {
+    grid-column: 2;
+    grid-row: 3;
+    min-height: 36px;
+  }
+  .post {
+    padding: 18px 0;
+  }
+  .post h2 {
+    font-size: 17px;
+    line-height: 1.55;
+    margin: 8px 0;
+  }
+  .post > p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    margin: 8px 0;
+    font-size: 13px;
+  }
+  .meta {
+    font-size: 12px;
+  }
+  .replyList {
+    margin-left: 16px;
+  }
+}
+
+// Match the other marketplace tabs: let the shell background show through.
+.scroll {
+  background: transparent;
+}
+.feed {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0;
+}
+.post,
+.articleCard,
+.discussionCard {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+}
+.post {
+  padding: 24px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+  &:hover {
+    border-color: var(--app-accent);
+    box-shadow: 0 3px 14px color-mix(in srgb, var(--app-text) 5%, transparent);
+  }
+  &:focus-visible {
+    outline-offset: 3px;
+  }
+  > p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    margin: 10px 0 18px;
+  }
+}
+.authorRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  > :global(:is(.ant-avatar, .qwenpaw-avatar)) {
+    flex-shrink: 0;
+  }
+}
+.authorName {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+// Identity marks (platform official / resource maintainer) next to names.
+.authorBadge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-inline-start: 4px;
+  cursor: default;
+}
+.typeBadge {
+  margin-left: auto;
+  background: var(--app-surface-sunken);
+  color: var(--app-text-secondary);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.postStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+}
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  // Same footprint as the compose page's antd text back button.
+  height: 32px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  flex: none;
+  // Same ink as the compose page's antd text back button (primary text).
+  color: var(--app-text);
+  transition:
+    color 0.16s ease,
+    background-color 0.16s ease;
+  // Outspecify the global antd a:hover blue with the theme fill/text.
+  &:hover {
+    background: var(--app-fill-subtle);
+    color: var(--app-text);
+  }
+}
+// Sticky title strip mirroring the compose page header (.pageHeader: flex,
+// gap 20, padding 16 24, border-bottom, 18/600 title) so both pages share one
+// header language; pinned to the top of the scrolling container.
+.detailHeader {
+  position: sticky;
+  top: 0;
+  // Above the sticky side column (z-40) so the TOC slides underneath the
+  // title strip instead of covering it while scrolling.
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  // Full-bleed strip of the scroll area (sits outside .content, like the
+  // composer page header), so collapsing the left menu widens it too.
+  margin: 0;
+  padding: 16px 24px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+}
+.detailHeaderTitle {
+  margin: 0;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .detailHeader {
+    gap: 12px;
+    margin: 0;
+    padding: 10px 12px;
+  }
+  .detailHeaderTitle {
+    font-size: 16px;
+  }
+}
+.articleCard {
+  // padding: 32px;
+  // Flat article surface on the detail page: the outline lives only on the
+  // side contents card, so blend the body into the page background.
+  border: 0;
+  background: transparent;
+}
+// Type label + tag chips above the detail title, same look as feed tags.
+.articleTagRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.viewCount {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.content .articleTitle {
+  margin: 12px 0 20px;
+  font-size: 28px;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.body {
+  margin: 32px 0;
+  font-size: 16px;
+  line-height: 1.85;
+  > :first-child {
+    margin-top: 0;
+  }
+  > :last-child {
+    margin-bottom: 0;
+  }
+  p {
+    margin: 0 0 1.15em;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    margin: 1.6em 0 0.65em;
+    line-height: 1.45;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 25px;
+  }
+  h2 {
+    font-size: 21px;
+  }
+  h3 {
+    font-size: 18px;
+  }
+  ul,
+  ol {
+    padding-left: 1.6em;
+    margin: 0 0 1.2em;
+  }
+  li {
+    margin: 0.4em 0;
+  }
+  li > p {
+    margin: 0.4em 0;
+  }
+  blockquote {
+    margin: 24px 0;
+    padding: 12px 18px;
+    background: var(--app-surface-sunken);
+    border-left: 3px solid var(--app-accent);
+    border-radius: 0 8px 8px 0;
+  }
+  blockquote p:last-child {
+    margin-bottom: 0;
+  }
+  img {
+    border-radius: 8px;
+    cursor: zoom-in;
+  }
+  pre {
+    border: 1px solid var(--app-border);
+    border-radius: 10px;
+    font-size: 13px;
+  }
+  :not(pre) > code {
+    background: var(--app-surface-sunken);
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  table {
+    width: 100%;
+    margin: 20px 0;
+    // Without collapse, adjacent cells draw separate borders (double lines).
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th,
+  td {
+    padding: 9px 12px;
+    border: 1px solid var(--app-border);
+    text-align: left;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    vertical-align: top;
+  }
+  th {
+    background: var(--app-surface-sunken);
+    font-weight: 600;
+  }
+}
+.tableWrap {
+  width: 100%;
+  max-width: 100%;
+  margin: 20px 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  > table {
+    margin: 0;
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+  }
+}
+// Question detail action row (platform QuestionActionBar): dark write-answer
+// button, gray helpful chip, then plain meta actions in one wrapping line.
+.questionActionBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin: 28px 0 4px;
+  color: var(--app-text-tertiary);
+  font-size: 14px;
+}
+.writeAnswerBtn {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--app-accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+  &:hover {
+    background: var(--app-accent-hover);
+  }
+  &:active {
+    background: var(--app-accent-active);
+  }
+}
+.helpfulChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--app-fill-subtle);
+  color: var(--app-text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--app-text) 8%, var(--app-fill-subtle));
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+.plainAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-text-tertiary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.16s ease;
+  &:hover {
+    color: var(--app-text);
+  }
+}
+// Sticky interaction bar mirroring the platform article bottom bar: plain
+// icon+text buttons on a surface strip pinned to the scrollport bottom.
+.bottomBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  // Full-width strip of the article card: the negative margins compensate the
+  // card padding (left) and padding + TOC column + grid gap (right), so the
+  // strip's side edges sit exactly on the outer card's sides in both the
+  // rested and pinned states. Sticky only within the article body wrapper.
+  // The sticky side column sits above it (higher z-index) so the strip never
+  // paints over the TOC.
+  // When the scroll area is wider than .content's 1280px cap (collapsed side
+  // menu), .content centers and leaves slack on both sides; add half of that
+  // slack (container units) so the strip still reaches the scroll edges.
+  @barSlack: ~"max(0px, (100cqi - 1280px) / 2)";
+  margin: 16px ~"calc(-324px - @{barSlack})" 0 ~"calc(-32px - @{barSlack})";
+  padding: 10px 32px;
+  background: var(--app-surface);
+  border-top: 1px solid var(--app-border);
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s ease,
+    box-shadow 0.2s ease;
+}
+.bottomBarHidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+// While pinned at the scrollport bottom the strip gains the platform bottom
+// bar's lifted shadow; flush at bottom: 0 with no ring of its own, so its
+// bottom/left/right edges coincide with the surrounding card instead of
+// floating as a separate pill.
+.bottomBarPinned {
+  box-shadow: 0 -1px 10px rgba(0, 0, 0, 0.05);
+}
+.barAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--app-text-secondary);
+  transition: color 0.16s ease;
+  &:hover:not(:disabled) {
+    color: var(--app-accent-text);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+.barActionActive {
+  color: var(--app-accent-text);
+}
+.barCount {
+  font-variant-numeric: tabular-nums;
+}
+.barMore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
+  &:hover {
+    background: var(--app-fill-subtle);
+    color: var(--app-text);
+  }
+}
+.discussionCard {
+  padding: 24px 32px;
+  margin-top: 20px;
+}
+.discussion {
+  scroll-margin-top: 20px;
+}
+.spinFill {
+  // Explicit centered loader for the empty initial-load state; antd's nested
+  // spin overlay cannot center itself inside a zero-height container.
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 220px);
+}
+.detailLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 272px;
+  gap: 20px;
+  align-items: start;
+}
+.detailMain {
+  min-width: 0;
+}
+.detailSide {
+  position: sticky;
+  // Pin below the sticky title strip (~65px tall) plus a 15px gap.
+  top: 80px;
+  // Above the sticky bottom bar so the full-width strip slides underneath
+  // the side column instead of covering it.
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  // Opaque backing hides the bar strip passing behind; the hairline vertical
+  // rule separates the TOC from the article column (card itself is borderless).
+  // The backing extends into the card's right padding and stays at least a
+  // viewport tall so the full-width bar never peeks out beside or below it.
+  padding-left: 20px;
+  padding-right: 32px;
+  margin-right: -32px;
+  min-height: calc(100vh - 40px);
+  background: var(--app-surface);
+  border-left: 1px solid var(--app-border);
+}
+// No table of contents: the reading column takes the full layout width
+// (article column + TOC column of the two-column layout), no side rail.
+.detailLayoutNoToc {
+  grid-template-columns: minmax(0, 1fr);
+
+  // No TOC column to span: the strip's right edge returns to the card side
+  // (plus the same centering slack as the base rule).
+  .bottomBar {
+    margin-right: ~"calc(-32px - max(0px, (100cqi - 1280px) / 2))";
+  }
+}
+@media (max-width: 1024px) {
+  .detailLayout {
+    grid-template-columns: 1fr;
+  }
+  .detailSide {
+    display: none;
+  }
+  // TOC column collapses: the strip's right edge returns to the card side.
+  .bottomBar {
+    margin-right: -32px;
+  }
+}
+.tocCard {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0;
+  // Borderless panel: the side column's vertical rule and opaque backing
+  // provide the separation; keep only the viewport-clamped flex layout.
+  min-height: 240px;
+  max-height: calc(100vh - 100px);
+  // Never let an over-tall list escape the clamp and flow past the viewport.
+  overflow: hidden;
+}
+.tocTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.tocList {
+  flex: 1 1 auto;
+  min-height: 0;
+  // Viewport-based cap keeps the list the scroller even if the card clamp is
+  // ever defeated, so the scrollspy reveal can always bring the active row
+  // into view.
+  max-height: calc(100vh - 160px);
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+  overflow-y: auto;
+  // Thin visible scrollbar: cues that an over-long list scrolls on its own
+  // and gives a mouse-draggable handle.
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-border) transparent;
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--app-border);
+    border-radius: 2px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  li + li {
+    margin-top: 2px;
+  }
+}
+.tocItem {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background 0.2s,
+    color 0.2s;
+  &:hover {
+    // Same warm tint as the active item; the active row still reads apart
+    // via its accent text color and medium weight.
+    background: var(--app-accent-soft);
+    color: var(--app-text);
+  }
+}
+.tocItemActive {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  font-weight: 500;
+}
+.relatedBox {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 20px 0 4px;
+  padding: 16px;
+  background: var(--app-fill-subtle);
+  border-radius: 12px;
+}
+.relatedTitle {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.relatedGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  // Grid items default to min-width:auto, letting long nowrap descriptions
+  // stretch the track; clamp them so the card ellipsis wins.
+  > * {
+    min-width: 0;
+  }
+}
+.relatedGridWide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.relatedSpan {
+  grid-column: 1 / -1;
+}
+.relatedCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 14px 16px;
+  background: var(--app-surface);
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.2s;
+  &:hover {
+    // Pin text color on hover; antd's global a:hover link blue would
+    // otherwise override the base color:inherit while hovering.
+    color: inherit;
+  }
+}
+.relatedIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  object-fit: cover;
+}
+.relatedIconSkill {
+  border: 1px solid #bae0ff;
+  background: #edf6fd;
+  color: #1677ff;
+}
+.relatedIconPlugin {
+  border: 1px solid rgba(97, 92, 237, 0.45);
+  background: #f1efff;
+  color: #615ced;
+}
+.relatedMain {
+  flex: 1;
+  min-width: 0;
+}
+.relatedNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.relatedName {
+  font-size: 14px;
+  font-weight: 600;
+  // Long titles wrap instead of overflowing the card; descriptions stay
+  // single-line with an ellipsis (see .relatedDesc).
+  overflow-wrap: anywhere;
+}
+.relatedVersion {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--app-fill);
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+.relatedDesc {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--app-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discussionTitle {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.sectionCount {
+  margin-left: 6px;
+  color: var(--app-text-secondary);
+  font-weight: 400;
+  font-size: 15px;
+}
+.composerBox,
+.inlineComposer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px;
+  // Platform-style composer: a single bordered box on the card surface with
+  // no sunken fill; the border takes the accent while the borderless
+  // textarea inside is focused.
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  transition: border-color 0.16s ease;
+  &:focus-within {
+    border-color: var(--app-accent);
+  }
+}
+.composerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.composerFooter {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.composerTools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.emojiTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  transition: color 0.16s ease;
+  &:hover:not(:disabled) {
+    color: var(--app-text);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+.emojiTriggerOpen {
+  color: var(--app-accent-text);
+}
+.emojiPopover {
+  // Pin the popover chrome to the reference metrics (12/16 padding, 8px
+  // radius) so the 446x310 panel and the tab bar's negative margins line up
+  // regardless of theme tokens.
+  :global(:is(.qwenpaw-popover-inner, .ant-popover-inner)) {
+    padding: 12px 16px;
+    border-radius: 8px;
+  }
+}
+.emojiPanel {
+  // Avoid less compile-time evaluation of min(); max-width keeps mobile safe.
+  width: 446px;
+  max-width: calc(100vw - 32px);
+}
+.emojiScroll {
+  height: 310px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+.emojiSectionTitle {
+  margin: 0 0 4px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+}
+.emojiDivider {
+  margin: 8px 0;
+  border-top: 1px solid var(--app-border);
+}
+.emojiGrid {
+  display: grid;
+  grid-template-columns: repeat(14, 30px);
+  justify-content: center;
+  gap: 2px;
+}
+.emojiCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.16s ease;
+  &:hover:not(:disabled) {
+    background: #f5f1eb;
+  }
+}
+.emojiCustomGrid {
+  grid-template-columns: repeat(6, 66px);
+  gap: 8px;
+}
+.emojiCustomCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.16s ease;
+  &:hover:not(:disabled) {
+    background: #f5f1eb;
+  }
+  img {
+    // Fill the full 66x66 cell like the reference stickers; contain would
+    // letterbox non-square sources down to ~54x64.
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+  }
+}
+// Gray footer strip flush with the popover edges; the active tab keeps the
+// same background as the emoji area above (agentscope-platform-front).
+.emojiTabBar {
+  display: flex;
+  gap: 4px;
+  margin: 0 -16px -12px;
+  background: #f1f2f3;
+  border-radius: 0 0 8px 8px;
+}
+.emojiTab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.16s ease;
+  img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+  }
+}
+.emojiTabActive {
+  background: var(--app-surface);
+}
+:global(.dark-mode) {
+  .emojiCell:hover:not(:disabled),
+  .emojiCustomCell:hover:not(:disabled) {
+    background: var(--app-fill-subtle);
+  }
+  .emojiTabBar {
+    background: var(--app-fill-subtle);
+  }
+}
+@media (max-width: 600px) {
+  .emojiGrid {
+    grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+    justify-content: stretch;
+    justify-items: center;
+  }
+  .emojiCustomGrid {
+    grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+    gap: 4px;
+  }
+}
+.attachWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.attachList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.attachThumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  img {
+    width: 64px;
+    height: 64px;
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    object-fit: cover;
+  }
+  &:hover .attachRemove {
+    opacity: 1;
+  }
+}
+.attachRemove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+.attachTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease;
+  &:hover:not(:disabled) {
+    border-color: var(--app-accent-border);
+    color: var(--app-accent-text);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+.attachCount {
+  color: var(--app-text-tertiary);
+}
+@media (max-width: 600px) {
+  .attachLabel {
+    display: none;
+  }
+}
+.loginHint {
+  padding: 16px;
+  background: var(--app-surface-sunken);
+  border-radius: 10px;
+  margin: 16px 0;
+}
+.commentItem {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--app-border);
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+.replyList {
+  margin-left: 42px;
+}
+.replyItem {
+  padding: 10px 0;
+}
+.commentRow {
+  display: flex;
+  gap: 10px;
+}
+.commentMain {
+  flex: 1;
+  min-width: 0;
+}
+.commentLine {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.emojiRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0;
+  .customEmoji {
+    margin: 0;
+  }
+}
+.commentAuthor {
+  display: inline-flex;
+  align-items: center;
+  color: var(--app-accent-text);
+  font-weight: 500;
+  margin-right: 6px;
+}
+.mention {
+  color: var(--app-accent-text);
+}
+.commentMeta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+}
+.likeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+  &:hover {
+    color: var(--app-text);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+.likeBtnActive {
+  color: var(--app-accent-text);
+}
+.commentContent {
+  margin: 12px 0;
+  line-height: 1.8;
+  p {
+    margin: 0 0 8px;
+  }
+  pre {
+    overflow: auto;
+  }
+}
+.questionThread {
+  margin-top: 20px;
+  border-top: 1px solid var(--app-border);
+}
+.answersSection {
+  margin-top: 16px;
+}
+.answerComposerCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  scroll-margin-top: 20px;
+  transition: border-color 0.16s ease;
+  &:focus-within {
+    border-color: var(--app-accent);
+  }
+}
+// Markdown composer (platform MarkdownTextArea): quick-action icon row plus
+// edit/preview switch above the borderless input.
+.markdownComposer {
+  display: flex;
+  flex-direction: column;
+}
+.composerToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--app-border);
+}
+.toolbarGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: auto;
+}
+.toolbarBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
+  &:hover:not(:disabled) {
+    background: var(--app-fill-subtle);
+    color: var(--app-text);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+// Edit and preview share one fixed-height body so switching modes never
+// changes the composer height; long content scrolls inside.
+.composerBody {
+  height: 320px;
+}
+.composerInput {
+  height: 100%;
+  overflow-y: auto;
+  resize: none;
+  // Same box metrics as the preview pane so mode switches never shift lines.
+  padding: 12px 16px;
+  line-height: 24px;
+}
+.composerPreview {
+  height: 100%;
+  overflow-y: auto;
+  padding: 12px 16px;
+  // Neutralize the article .body metrics (outer margin, 16px/1.85 type) to
+  // match the textarea: 14px text on a 24px line grid, no extra offset.
+  margin: 0;
+  font-size: 14px;
+  line-height: 24px;
+}
+.previewEmpty {
+  margin: 0;
+  color: var(--app-text-tertiary);
+  font-size: 14px;
+}
+.answerCard {
+  margin-top: 16px;
+  padding: 20px 24px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+}
+.answerHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  .answerBadge {
+    margin-left: auto;
+  }
+}
+.answerAuthor {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.answerMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.qaActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--app-fill-subtle);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  &:hover {
+    background: var(--app-surface-sunken);
+  }
+}
+.answerThread {
+  margin-top: 12px;
+  border-top: 1px solid var(--app-border);
+}
+.answerEmpty {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--app-text-tertiary);
+}
+.threadSpin {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+}
+.videoBlock {
+  display: block;
+  margin: 16px 0;
+  // Size the player wherever it renders (article body and composer previews
+  // do not share the .body container); caps mirror the platform editor
+  // (max-width 800px / max-height 450px).
+  video {
+    display: block;
+    width: 100%;
+    max-width: 800px;
+    height: auto;
+    max-height: 450px;
+    background: #111;
+    border-radius: 10px;
+  }
+}
+.body video {
+  display: block;
+  width: 100%;
+  max-width: 800px;
+  height: auto;
+  max-height: 450px;
+  background: #111;
+  border-radius: 10px;
+}
+@media (max-width: 600px) {
+  .feed {
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .post,
+  .articleCard,
+  .discussionCard {
+    padding: 18px 16px;
+    border-radius: 12px;
+  }
+  .bottomBar {
+    // One adaptive row: the four actions share the strip width instead of
+    // wrapping onto a second line.
+    flex-wrap: nowrap;
+    gap: 4px;
+    // Span the whole scroll area (screen minus the left menu): compensate the
+    // 14px content padding plus the 16px article card padding on each side.
+    margin: 16px -30px 0;
+    padding: 8px 14px;
+  }
+  .barAction {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    gap: 4px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .authorRow {
+    gap: 6px;
+  }
+  .authorName {
+    max-width: 100%;
+  }
+  .typeBadge {
+    margin-left: 0;
+  }
+  .content .articleTitle {
+    font-size: 23px;
+  }
+  .body {
+    font-size: 15px;
+    margin: 24px 0;
+  }
+  .articleActions button {
+    min-height: 44px;
+  }
+  .composerBox,
+  .inlineComposer,
+  .answerComposerCard {
+    padding: 12px;
+  }
+  .answerCard {
+    padding: 16px;
+  }
+  .discussionCard {
+    margin-top: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .post {
+    transition: none;
+  }
+}
+
+.ownerActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 24px;
+}
+
+// ── Community feed header: top-right actions, category chips, sort tabs ──
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.accountBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text);
+  font-size: 13px;
+  white-space: nowrap;
+  &:hover {
+    color: var(--app-accent-text);
+  }
+}
+.accountLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.postBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.categoryRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+.categoryChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  flex-shrink: 0;
+  padding: 4px 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+  &:hover {
+    color: var(--app-text);
+    border-color: var(--app-accent);
+  }
+}
+.categoryChipActive {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  font-weight: 500;
+}
+.feedToolbar {
+  display: flex;
+  // Bottom-anchor the row so the tab ink-bar lands on the divider below.
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--app-border);
+}
+.sortTabs {
+  flex-shrink: 0;
+  // The app ConfigProvider uses prefixCls="qwenpaw", so match both prefixes.
+  :global(.qwenpaw-tabs-nav),
+  :global(.ant-tabs-nav) {
+    margin-bottom: 0;
+  }
+  // Keep only the accent ink-bar; the row divider comes from .feedToolbar.
+  :global(.qwenpaw-tabs-nav::before),
+  :global(.ant-tabs-nav::before) {
+    border-bottom: 0;
+  }
+  // The empty content holder would stretch the tab block and push the
+  // labels off the search row's centre line.
+  :global(.qwenpaw-tabs-content-holder),
+  :global(.ant-tabs-content-holder) {
+    display: none;
+  }
+  // Extra bottom padding lifts the labels away from the row divider while
+  // the ink-bar stays pinned to it (ink-bar is absolute at nav-list bottom).
+  :global(.qwenpaw-tabs-tab),
+  :global(.ant-tabs-tab) {
+    padding: 12px 0 20px;
+  }
+}
+.feedActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 1 400px;
+  // Lift the 32px controls so their centre matches the tab label centre
+  // (tab block is 54px tall: 12px top padding + 22px label + 20px bottom).
+  padding: 0 0 15px;
+}
+.searchInput {
+  min-width: 0;
+  flex: 1;
+}
+.refreshBtn {
+  flex-shrink: 0;
+  width: 32px;
+  padding: 0;
+}
+// Touch devices bump .qwenpaw-btn to 44px (workspace.css coarse-pointer rule);
+// match the search input so the feed toolbar row shares one height.
+@media (pointer: coarse) {
+  .feedActions {
+    :global(:is(.qwenpaw-input-affix-wrapper, .ant-input-affix-wrapper)) {
+      height: 44px;
+
+      > :global(:is(.qwenpaw-input, .ant-input)) {
+        height: 100%;
+      }
+    }
+
+    // Keep the square icon button square under the 44px touch height.
+    .refreshBtn {
+      width: 44px;
+    }
+  }
+
+  .categoryChip {
+    min-height: 44px;
+  }
+
+  // The account link is not a .qwenpaw-btn, so the global coarse-pointer
+  // 44px rule misses it; match the go-post button height.
+  .accountBtn {
+    min-height: 44px;
+  }
+}
+@media (max-width: 600px) {
+  // Account + go-post split the header row evenly; the account label
+  // (Platform username when connected) stays visible.
+  .headerActions {
+    width: 100%;
+    gap: 8px;
+  }
+  .accountBtn {
+    flex: 1;
+    min-width: 0;
+    justify-content: center;
+    padding: 0 8px;
+  }
+  .postBtn {
+    flex: 1;
+    min-width: 0;
+    justify-content: center;
+  }
+  .categoryRow {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+  .feedToolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    // The divider belongs to the tab row on mobile so the active ink-bar
+    // lands on it; the search/post row below stays undivided.
+    border-bottom: 0;
+  }
+  .sortTabs {
+    border-bottom: 1px solid var(--app-border);
+
+    :global(.qwenpaw-tabs-tab),
+    :global(.ant-tabs-tab) {
+      padding: 8px 0 12px;
+    }
+  }
+  .feedActions {
+    flex: 1 1 auto;
+    width: 100%;
+    // The tab row stacks above; drop the desktop centre-line lift.
+    padding-bottom: 0;
+    align-items: center;
+    // Search owns the first row; post dropdown + refresh share the second.
+    flex-wrap: wrap;
+
+    .searchInput {
+      flex: 1 1 100%;
+    }
+  }
+}
+
+// ── Community feed list: flat rows separated by divider lines (reference) ──
+.feed {
+  display: block;
+  gap: 0;
+  margin: 8px 0 24px;
+}
+.post {
+  display: block;
+  padding: 20px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--app-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  &:hover {
+    border-color: var(--app-border);
+    box-shadow: none;
+    background: var(--app-surface-sunken);
+  }
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+.postMain {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.postContent {
+  min-width: 0;
+  flex: 1;
+}
+.postTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+}
+.postDate {
+  flex-shrink: 0;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.postSummary {
+  margin: 8px 0 0;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.postCover {
+  flex-shrink: 0;
+  width: 128px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--app-surface-sunken);
+}
+.postFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.postStats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+}
+.statDivider {
+  color: var(--app-border);
+}
+.postTags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.postTag {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--app-fill-subtle);
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+}
+
+// ── Load-more row (mirrors Skills / App market / Plugin market) ──
+.loadMoreRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  margin-top: 12px;
+  padding: 8px;
+}
+.sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 32px;
+  color: var(--app-text-tertiary);
+}
+.noMoreText {
+  color: var(--app-text-tertiary);
+  font-size: 13px;
+}
+
+// ── 去发帖 horizontal dropdown panel (design) ──
+.postMenu {
+  display: flex;
+  gap: 2px;
+  padding: 6px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--app-text) 10%, transparent);
+}
+.postMenuItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 72px;
+  padding: 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  &:hover {
+    background: var(--app-surface-sunken);
+  }
+}
+.postMenuIcon {
+  display: inline-flex;
+  font-size: 22px;
+}
+.postMenuLabel {
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .postCover {
+    display: none;
+  }
+  .post {
+    padding: 16px 0;
+  }
+  .postFooter,
+  .postTags {
+    justify-content: flex-start;
+  }
+}
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.8);
+  cursor: zoom-out;
+  animation: lightboxFade 0.18s ease;
+}
+.lightboxImage {
+  max-width: min(96vw, 1200px);
+  max-height: 92vh;
+  object-fit: contain;
+  cursor: zoom-out;
+  animation: lightboxZoom 0.18s ease;
+}
+@keyframes lightboxFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes lightboxZoom {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

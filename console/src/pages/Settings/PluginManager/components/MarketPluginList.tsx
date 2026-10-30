@@ -271,7 +271,9 @@ export function MarketPluginList({
           </button>
         ))}
       </div>
-      <div className={toolbarStyles.controlRow}>
+      <div
+        className={`${toolbarStyles.controlRow} ${toolbarStyles.controlRowMarket}`}
+      >
         <Input.Search
           className={toolbarStyles.search}
           placeholder={t("pluginManager.marketSearch")}
@@ -326,7 +328,12 @@ export function MarketPluginList({
         />
       )}
 
-      <Spin spinning={loading}>
+      <Spin spinning={loading && plugins.length > 0}>
+        {loading && plugins.length === 0 && (
+          <div className={marketStyles.loadingSpin}>
+            <Spin size="large" />
+          </div>
+        )}
         {!loading && plugins.length === 0 && !error && (
           <Text type="secondary">{t("pluginManager.marketEmpty")}</Text>
         )}

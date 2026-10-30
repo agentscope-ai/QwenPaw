@@ -86,6 +86,11 @@ export function useTraceViewer(
       );
       setDetailOpen(true);
 
+      if (messageItem.metadata?.sourceType === "community") {
+        setTraceData(null);
+        setTraceLoading(false);
+        return;
+      }
       const runId =
         typeof messageItem.metadata?.payload?.run_id === "string"
           ? (messageItem.metadata.payload.run_id as string)

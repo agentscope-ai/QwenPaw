@@ -5,9 +5,10 @@ import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
-export type MarketplaceSection = "apps" | "plugins" | "skills";
+export type MarketplaceSection = "apps" | "plugins" | "skills" | "community";
 
 const SECTION_PATHS: Record<MarketplaceSection, string> = {
+  community: "/market?tab=community",
   apps: "/market",
   plugins: "/market?tab=plugins",
   skills: "/market?tab=skills",
@@ -30,6 +31,7 @@ export function MarketplaceHeader({
     { key: "apps", label: t("nav.apps", "Apps") },
     { key: "plugins", label: t("nav.plugins", "Plugins") },
     { key: "skills", label: t("nav.skills", "Skills") },
+    { key: "community", label: t("communityCompose.nav", "Community") },
   ];
 
   const handleChange = (section: string) => {
@@ -49,13 +51,15 @@ export function MarketplaceHeader({
     <PageHeader
       current={t("nav.marketplace", "Extension")}
       center={
-        <Tabs
-          className={styles.sectionSwitch}
-          activeKey={activeSection}
-          items={items}
-          onChange={handleChange}
-          type="segmented"
-        />
+        <div className={styles.navigation}>
+          <Tabs
+            className={styles.sectionSwitch}
+            activeKey={activeSection}
+            items={items}
+            onChange={handleChange}
+            type="segmented"
+          />
+        </div>
       }
       extra={extra}
     />

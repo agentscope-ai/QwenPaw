@@ -756,6 +756,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 app.state.market_startup_failed = True
                 app.state.market_ready.set()
 
+    from .community_connection import CommunityConnectionService
+
+    community_service = CommunityConnectionService()
+    app.state.community_connection_service = community_service
+    community_task = asyncio.create_task(community_service.poll_loop())
     _bg_task = asyncio.create_task(_background_startup())
     daily_telemetry = start_daily_telemetry()
 
@@ -763,6 +768,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         yield
     finally:
         await daily_telemetry.close()
+        community_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await community_task
+        await community_service.close()
+
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()

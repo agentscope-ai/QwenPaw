@@ -7,6 +7,10 @@ import { motion, useReducedMotion } from "motion/react";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { normalizeSkillChannels } from "../../../../utils/skill";
+import {
+  CommunityFeedback,
+  hasCommunityFeedback,
+} from "@/components/CommunityFeedback";
 import styles from "../index.module.less";
 
 interface SkillCardProps {
@@ -88,6 +92,15 @@ export const SkillCard = React.memo(function SkillCard({
           }`}
           style={{ cursor: "pointer" }}
         >
+          {hasCommunityFeedback(skill.installation_origin) && (
+            <div className={styles.cardFeedback}>
+              <CommunityFeedback
+                origin={skill.installation_origin}
+                resourceName={skill.name}
+                variant="inline"
+              />
+            </div>
+          )}
           {batchMode && (
             <Checkbox
               aria-label={skill.name}

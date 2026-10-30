@@ -458,8 +458,14 @@ describe("useInboxData", () => {
     await waitFor(() => {
       expect(result.current.summary.pushMessages.unread).toBe(1);
     });
-    act(() => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "m1", read: true })],
+      total: 1,
+      unread_count: 0,
+    });
+    await act(async () => {
       result.current.markMessageAsRead("m1");
+      await Promise.resolve();
     });
     expect(mocks.markInboxRead).toHaveBeenCalledWith({ event_ids: ["m1"] });
     expect(result.current.pushMessages[0].read).toBe(true);
@@ -475,6 +481,14 @@ describe("useInboxData", () => {
     const { result } = renderHook(() => useInboxData());
     await waitFor(() => {
       expect(result.current.pushMessages.length).toBe(2);
+    });
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({ id: "m1", read: true }),
+        event({ id: "m2", read: true }),
+      ],
+      total: 2,
+      unread_count: 0,
     });
     let count = -1;
     await act(async () => {
@@ -495,6 +509,11 @@ describe("useInboxData", () => {
     const { result } = renderHook(() => useInboxData());
     await waitFor(() => {
       expect(result.current.pushMessages.length).toBe(2);
+    });
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "b", read: true })],
+      total: 1,
+      unread_count: 0,
     });
     await act(async () => {
       await result.current.deleteMessages(["a", " a ", ""]);

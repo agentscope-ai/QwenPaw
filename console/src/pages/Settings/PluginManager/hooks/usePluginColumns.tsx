@@ -3,6 +3,7 @@ import { Tooltip, Button, Space, Typography } from "antd";
 import { Package, Trash2 } from "lucide-react";
 import type { PluginType, PluginInfo } from "@/api/modules/plugin";
 import { PluginTypeTag } from "../components/PluginTypeTag";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import { PluginStatusTag } from "../components/PluginStatusTag";
 
 const { Text } = Typography;
@@ -26,6 +27,13 @@ export function usePluginColumns({
       render: (name: string, record: PluginInfo) => (
         <Space direction="vertical" size={2}>
           <Space size={8}>
+            <CommunityFeedback
+              origin={record.installation_origin}
+              installedPluginId={record.id}
+              installedVersion={record.version}
+              resourceName={name}
+              variant="inline"
+            />
             <Package size={16} style={{ flexShrink: 0 }} />
             <Text strong>{name}</Text>
           </Space>

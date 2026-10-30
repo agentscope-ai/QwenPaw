@@ -48,3 +48,10 @@ export const SparkSunLine = makeIcon("SparkSunLine");
 export const SparkComputerLine = makeIcon("SparkComputerLine");
 // Sidebar nav icons
 export const SparkFile2Line = makeIcon("SparkFile2Line");
+// Community header / post menu icons
+export const SparkUserLine = makeIcon("SparkUserLine");
+export const SparkDocumentLine = makeIcon("SparkDocumentLine");
+export const SparkMagicNoteLine = makeIcon("SparkMagicNoteLine");
+export const SparkVisableLine = makeIcon("SparkVisableLine");
+export const SparkThumbsUpFill = makeIcon("SparkThumbsUpFill");
+export const SparkThumbsUpLine = makeIcon("SparkThumbsUpLine");

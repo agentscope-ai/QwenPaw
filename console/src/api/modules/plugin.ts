@@ -1,6 +1,7 @@
 import { notifyPluginChange } from "../../utils/pluginChangeEvents";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type { InstallationOrigin } from "../types/community";
 import { formatApiError, responseErrorMessage } from "../error";
 import { requestWithPluginBusyConfirmation } from "../pluginBusy";
 
@@ -21,6 +22,7 @@ export type PluginType =
  * A single plugin record returned by `GET /api/plugins`.
  */
 export interface PluginInfo {
+  installation_origin?: InstallationOrigin | null;
   id: string;
   name: string;
   version: string;
