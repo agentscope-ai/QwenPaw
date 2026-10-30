@@ -819,14 +819,29 @@ class OpenAIChatModelCompat(OpenAIChatModel):
     ) -> Any:
         if self._usage_guard is not None:
             self._usage_guard()
-        merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        # Explicit max_completion_tokens is authoritative: deployment aliases
+        # may not reveal the model family. Normalize both sources to the same
+        # key so a per-call summary cap still overrides the configured cap.
+        output_token_param = self._output_token_param
+        if (
+            self._extra_generate_kwargs.get("max_completion_tokens")
+            is not None
+            or generate_kwargs.get("max_completion_tokens") is not None
+        ):
+            output_token_param = "max_completion_tokens"
+        merged = {
+            **self._normalize_output_token_kwargs(
+                self._extra_generate_kwargs,
+                output_token_param,
+            ),
+            **self._normalize_output_token_kwargs(
+                generate_kwargs,
+                output_token_param,
+            ),
+        }
         if self._request_policy is not None:
             merged = self._request_policy(model_name, f"chat", merged)
         self._consume_disable_thinking(merged)
-        if self._output_token_param != "max_tokens":
-            max_tokens = merged.pop("max_tokens", None)
-            if max_tokens is not None:
-                merged.setdefault(self._output_token_param, max_tokens)
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}
@@ -841,6 +856,23 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             )
         finally:
             CACHE_RESPONSE_HEADERS.reset(token)
+
+    @staticmethod
+    def _normalize_output_token_kwargs(
+        kwargs: dict,
+        output_token_param: str,
+    ) -> dict:
+        """Keep one output cap using the resolved request parameter."""
+        normalized = dict(kwargs)
+        alternate = (
+            "max_completion_tokens"
+            if output_token_param == "max_tokens"
+            else "max_tokens"
+        )
+        limit = normalized.pop(alternate, None)
+        if limit is not None:
+            normalized.setdefault(output_token_param, limit)
+        return normalized
 
     def _consume_disable_thinking(self, call_kwargs: dict) -> None:
         """Translate the neutral ``disable_thinking`` flag into OpenAI-compat

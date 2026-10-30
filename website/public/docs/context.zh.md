@@ -279,6 +279,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
       "scroll_config": {
         "db_filename": "history.db",
         "repl_timeout_s": 300,
+        "summary_timeout_seconds": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
         "offload_dialog": false
@@ -306,6 +307,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 | `scroll_config.db_filename`                      | `"history.db"` | SQLite 文件路径：相对 agent 工作区，或绝对路径（可以在工作区外）。支持 `..`、`~` 和符号链接；反斜杠统一转换为 `/`。升级不移动数据库。备份包含 SQLite 快照；恢复时将数据库放入目标工作区，并更新恢复后的配置。 |
 | `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃且会被忽略；显式配置会输出 warning。请改用 `pruning_recent_msg_max_bytes`。                                                                                                                             |
 | `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                                                                                                                                                    |
+| `scroll_config.summary_timeout_seconds`          | `300`          | continuation summary 的总预算（秒），覆盖准备、生成、校验及一次质量重试。必须为有限正数；慢速思考模型或长会话可调大。                                                                                         |
 | `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                                                                                                                                                           |
 | `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。                                                                                                                                             |
 
@@ -328,6 +330,8 @@ Scroll 和 native 两种策略下，手动 `/compact` 都与普通消息使用�
 ```
 
 如果没有可驱逐消息，或者上下文本来就足够小，可能不会产生新的驱逐。
+
+慢速思考模型可在 agent 配置中设置 `running.light_context_config.scroll_config.summary_timeout_seconds`，例如 `600` 表示十分钟。自动压缩和 `/compact` 使用同一预算；准备过程和质量重试共用总时长，重试不会重置计时。超时后 Scroll 会保留上一份有效摘要。Provider 的连接与流式超时仍独立生效。
 
 检索 headline 和合成的 `<system-info>` continuation block 都属于模型侧上下文。控制台会在流式输出和已保存聊天加载时隐藏它们，因此不会显示成 assistant 文本或合成的 user 消息。
 
