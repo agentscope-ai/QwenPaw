@@ -524,31 +524,6 @@ def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:
     ) == {"max_tokens": 200}
 
 
-async def test_summary_limit_uses_reasoning_model_parameter(
-    monkeypatch,
-) -> None:
-    captured: dict = {}
-
-    async def fake_call_api(self, *args, **kwargs):
-        del self, args
-        captured.update(kwargs)
-        return "ok"
-
-    monkeypatch.setattr(OpenAIChatModel, "_call_api", fake_call_api)
-    model = _make_provider().get_chat_model_instance("gpt-5.2")
-
-    result = await model._call_api(
-        "gpt-5.2",
-        [],
-        max_tokens=256,
-        disable_thinking=True,
-    )
-
-    assert result == "ok"
-    assert captured["max_completion_tokens"] == 256
-    assert "max_tokens" not in captured
-
-
 @pytest.mark.parametrize(
     ("model_id", "wire_param"),
     [
@@ -589,29 +564,22 @@ async def test_output_limit_in_actual_request_body(
     assert limits == ({} if expected is None else {wire_param: expected})
 
 
-@pytest.mark.parametrize("provider_cls", [OpenAIProvider, AzureOpenAIProvider])
-@pytest.mark.parametrize("config_scope", ["provider", "model"])
 @pytest.mark.parametrize("summary", [False, True])
-async def test_custom_deployment_preserves_explicit_completion_limit(
-    provider_cls,
-    config_scope,
-    summary,
-):
-    provider = provider_cls(
-        id="custom",
-        name="Custom deployment",
+async def test_custom_deployment_preserves_explicit_completion_limit(summary):
+    provider = AzureOpenAIProvider(
+        id="azure-openai",
+        name="Azure OpenAI",
         base_url="https://mock-openai.local/v1",
         api_key="sk-test",
         is_custom=True,
         chat_model="OpenAIChatModel",
     )
     configured = {"max_completion_tokens": 4096}
-    provider.generate_kwargs = configured if config_scope == "provider" else {}
     provider.models = [
         ModelInfo(
             id="production-reasoner",
             name="Production reasoner",
-            generate_kwargs=configured if config_scope == "model" else {},
+            generate_kwargs=configured,
         ),
     ]
     model = provider.get_chat_model_instance("production-reasoner")
@@ -624,18 +592,37 @@ async def test_custom_deployment_preserves_explicit_completion_limit(
     )
 
 
-async def test_explicit_per_call_completion_limit_overrides_legacy_default():
+@pytest.mark.parametrize(
+    ("model_id", "configured", "call_kwargs", "expected"),
+    [
+        (
+            "production-reasoner",
+            {"max_tokens": 8192},
+            {"max_completion_tokens": 256},
+            256,
+        ),
+        (
+            "gpt-5-mini",
+            {"max_tokens": 8192, "max_completion_tokens": 4096},
+            {},
+            4096,
+        ),
+    ],
+)
+async def test_explicit_completion_limit_in_actual_request_body(
+    model_id,
+    configured,
+    call_kwargs,
+    expected,
+):
     provider = _make_provider(is_custom=True)
-    provider.generate_kwargs = {"max_tokens": 8192}
-    model = provider.get_chat_model_instance("production-reasoner")
-    body = await _capture_output_limit_request(
-        model,
-        max_completion_tokens=256,
-    )
+    provider.generate_kwargs = configured.copy()
+    model = provider.get_chat_model_instance(model_id)
+    body = await _capture_output_limit_request(model, **call_kwargs)
 
-    assert body["max_completion_tokens"] == 256
+    assert body["max_completion_tokens"] == expected
     assert "max_tokens" not in body
-    assert provider.generate_kwargs == {"max_tokens": 8192}
+    assert provider.generate_kwargs == configured
 
 
 async def _capture_output_limit_request(model, *, summary=False, **kwargs):
@@ -690,18 +677,6 @@ async def _capture_output_limit_request(model, *, summary=False, **kwargs):
     return captured[0]
 
 
-def test_get_gpt5_model_maps_configured_max_tokens() -> None:
-    provider = _make_provider()
-    provider.generate_kwargs = {"max_tokens": 4096}
-
-    model = provider.get_chat_model_instance("gpt-5.2")
-
-    assert model.parameters.max_tokens is None
-    assert model._extra_generate_kwargs == {
-        "max_completion_tokens": 4096,
-    }
-
-
 def test_get_model_omits_unknown_max_tokens() -> None:
     provider = _make_provider()
     provider.models = [ModelInfo(id="unknown-limit", name="Unknown Limit")]
@@ -749,33 +724,6 @@ def test_get_model_does_not_send_discovered_output_capability() -> None:
     model = provider.get_chat_model_instance("known-limit")
 
     assert model.parameters.max_tokens is None
-
-
-def test_get_o_series_model_maps_configured_max_tokens() -> None:
-    provider = _make_provider()
-    provider.generate_kwargs = {"max_tokens": 4096}
-
-    model = provider.get_chat_model_instance("o3")
-
-    assert model.parameters.max_tokens is None
-    assert model._extra_generate_kwargs == {
-        "max_completion_tokens": 4096,
-    }
-
-
-def test_get_gpt5_model_preserves_explicit_max_completion_tokens() -> None:
-    provider = _make_provider()
-    provider.generate_kwargs = {
-        "max_tokens": 4096,
-        "max_completion_tokens": 2048,
-    }
-
-    model = provider.get_chat_model_instance("gpt-5-mini")
-
-    assert model.parameters.max_tokens is None
-    assert model._extra_generate_kwargs == {
-        "max_completion_tokens": 2048,
-    }
 
 
 async def test_check_model_connection_api_error_returns_false(

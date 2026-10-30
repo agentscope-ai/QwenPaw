@@ -577,21 +577,9 @@ class OpenAIProvider(Provider):
             merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
         gen_kwargs = self.get_effective_generate_kwargs(model_id)
-        max_tokens = gen_kwargs.pop("max_tokens", None)
-        output_token_param = (
-            "max_completion_tokens"
-            if _uses_max_completion_tokens(model_id)
-            else "max_tokens"
-        )
-        if max_tokens is not None:
-            gen_kwargs.setdefault(
-                output_token_param,
-                max_tokens,
-            )
         # AgentScope unconditionally turns Parameters.max_tokens into
-        # max_completion_tokens. Keep the default at the wire boundary so
-        # compatible endpoints receive one model-appropriate parameter and
-        # per-call limits (e.g. compaction) can override it.
+        # max_completion_tokens. Keep output caps in the compatibility layer
+        # so it can normalize defaults and per-call overrides together.
         parameters = OpenAIChatModel.Parameters(
             temperature=gen_kwargs.pop("temperature", None),
             top_p=gen_kwargs.pop("top_p", None),
@@ -611,7 +599,11 @@ class OpenAIProvider(Provider):
             stream=True,
             default_headers=merged_headers or None,
             extra_generate_kwargs=gen_kwargs or None,
-            output_token_param=output_token_param,
+            output_token_param=(
+                "max_completion_tokens"
+                if _uses_max_completion_tokens(model_id)
+                else "max_tokens"
+            ),
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,

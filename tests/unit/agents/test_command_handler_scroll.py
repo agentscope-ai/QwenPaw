@@ -26,7 +26,7 @@ def _config(strategy="scroll", *, summary_timeout_seconds=300):
 
 
 def _handler(tmp_path, *, strategy="scroll", workspace=True, monkeypatch):
-    state = SimpleNamespace(context=[], session_id="sess-x")
+    state = SimpleNamespace(context=[], session_id="stored-session")
     handler = CommandHandler(
         agent_name="QwenPaw",
         state=state,
@@ -43,37 +43,21 @@ def _handler(tmp_path, *, strategy="scroll", workspace=True, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_builds_scroll_manager_under_scroll(tmp_path, monkeypatch):
-    handler = _handler(tmp_path, strategy="scroll", monkeypatch=monkeypatch)
-    mgr = await handler._build_standalone_scroll_manager(_config("scroll"))
-    try:
-        assert mgr is not None
-        # Bound to the authoritative session id, not state.session_id.
-        assert mgr._session_id == "sess-x"
-        assert (tmp_path / "history.db").exists()
-    finally:
-        if mgr is not None:
-            mgr.close()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("timeout", [45, 600])
-async def test_standalone_scroll_manager_uses_configured_timeout(
+async def test_builds_scroll_manager_under_scroll(
     tmp_path,
     monkeypatch,
     timeout,
 ):
-    handler = _handler(tmp_path, monkeypatch=monkeypatch)
+    handler = _handler(tmp_path, strategy="scroll", monkeypatch=monkeypatch)
     config = _config(summary_timeout_seconds=timeout)
-    config.running.light_context_config = (
-        LightContextConfig.model_validate_json(
-            config.running.light_context_config.model_dump_json(),
-        )
-    )
     mgr = await handler._build_standalone_scroll_manager(config)
     try:
         assert mgr is not None
+        # Bound to the authoritative session id, not state.session_id.
+        assert mgr._session_id == "sess-x"
         assert mgr._summary_timeout_seconds == timeout
+        assert (tmp_path / "history.db").exists()
     finally:
         if mgr is not None:
             mgr.close()
