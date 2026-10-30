@@ -87,6 +87,27 @@ class UsageSnapshot:
     uses: tuple[DependencyUse, ...]
 
 
+def _merge_host_distributions(current, previous):
+    """Keep old pins, or refuse unrepresentable new-origin member history."""
+    merged = dict(current)
+    for name, old in previous.items():
+        fresh = current.get(name)
+        modules = set(old.get("loaded_modules", ()))
+        if fresh is not None:
+            incoming = set(fresh.get("loaded_modules", ()))
+            if fresh["metadata_path"] != old["metadata_path"]:
+                if incoming - modules:
+                    return None
+            else:
+                modules.update(incoming)
+        merged[name] = (
+            {**old, "loaded_modules": tuple(sorted(modules))}
+            if modules
+            else old
+        )
+    return merged
+
+
 class DependencyUsageRegistry:
     """Store only evidence; query exact leases for current runtime custody."""
 
@@ -262,6 +283,13 @@ class DependencyUsageRegistry:
             and snapshot is not None
         ):
             old = previous.snapshot
+            distributions = _merge_host_distributions(
+                snapshot.distributions,
+                old.distributions,
+            )
+            if distributions is None:
+                snapshot, observed = old, False
+                distributions = old.distributions
             snapshot = replace(
                 snapshot,
                 sites=tuple(dict.fromkeys((*old.sites, *snapshot.sites))),
@@ -278,7 +306,7 @@ class DependencyUsageRegistry:
                     and snapshot.dependency_sites is not None
                     else None
                 ),
-                distributions={**snapshot.distributions, **old.distributions},
+                distributions=distributions,
             )
         elif previous is not None and snapshot is None:
             snapshot = previous.snapshot

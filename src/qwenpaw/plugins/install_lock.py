@@ -102,7 +102,10 @@ async def environment_coordinator(targets):
     targets = tuple(targets)
 
     def identities():
-        roots = [canonical_environment_path(path) for path in targets]
+        roots = [
+            canonical_environment_path(path)
+            for path in dict.fromkeys(map(str, targets))
+        ]
         if any(not root.is_dir() for root in roots):
             raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
         return sorted({str(root) for root in roots})
@@ -138,7 +141,10 @@ async def environment_observation(targets, *, timeout=300.0):
     targets = tuple(targets)
     keys = frozenset(
         await run_sync_io(
-            lambda: {str(canonical_environment_path(p)) for p in targets},
+            lambda: {
+                str(canonical_environment_path(p))
+                for p in dict.fromkeys(map(str, targets))
+            },
         ),
     )
     task = asyncio.current_task()

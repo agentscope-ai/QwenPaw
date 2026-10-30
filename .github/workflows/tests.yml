@@ -158,8 +158,38 @@ jobs:
           # there, so no threshold is lowered by this removal.
           pytest tests/unit -v
 
-      - name: Build and verify installed public Plugin SDK
+      - name: Run Hub Local runtime E2E
         if: matrix.python-version == '3.11'
+        shell: bash
+        env:
+          QWENPAW_LOCAL_RUNTIME_E2E: '1'
+        run: |
+          python -m pip install --no-deps --force-reinstall .
+          pytest tests/e2e/test_hub_local_runtime.py -v
+
+  sdk-artifacts:
+    name: Public Plugin SDK Artifacts - py3.11 - ubuntu-latest
+    needs: approval-gate
+    if: |
+      always() &&
+      needs.approval-gate.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
+      - name: Build and verify installed public Plugin SDK
         shell: bash
         run: |
           python -m pip install build
@@ -175,21 +205,12 @@ jobs:
             --source-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/sdk-author"
 
       - name: Upload public SDK author verification
-        if: always() && matrix.python-version == '3.11'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: plugin-sdk-author
           path: ${{ runner.temp }}/sdk-author/
           retention-days: 7
-
-      - name: Run Hub Local runtime E2E
-        if: matrix.python-version == '3.11'
-        shell: bash
-        env:
-          QWENPAW_LOCAL_RUNTIME_E2E: '1'
-        run: |
-          python -m pip install --no-deps --force-reinstall .
-          pytest tests/e2e/test_hub_local_runtime.py -v
 
   contract-tests:
     name: Contract Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
@@ -445,7 +466,7 @@ jobs:
 
   test-summary:
     name: Test Summary
-    needs: [changes, approval-gate, unit-tests, contract-tests, integrated-tests]
+    needs: [changes, approval-gate, unit-tests, sdk-artifacts, contract-tests, integrated-tests]
     # Fail-closed gate. This job ALWAYS runs (no path condition) so the
     # required-check context can never be satisfied by an accidental skip.
     # Four-state decision:
@@ -473,6 +494,7 @@ jobs:
           echo "Changes detection: ${{ needs.changes.result }}"
           echo "Approval gate: ${{ needs.approval-gate.result }}"
           echo "Unit tests: ${{ needs.unit-tests.result }}"
+          echo "SDK artifacts: ${{ needs.sdk-artifacts.result }}"
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
           # Phase-1 item 1-4: the PR gate no longer runs a coverage-report
@@ -501,6 +523,7 @@ jobs:
           fi
 
           if [ "${{ needs.unit-tests.result }}" != "success" ] || \
+             [ "${{ needs.sdk-artifacts.result }}" != "success" ] || \
              [ "${{ needs.contract-tests.result }}" != "success" ] || \
              [ "${{ needs.integrated-tests.result }}" != "success" ]; then
             echo "❌ Every test tier must be success (failure/cancelled/skipped are all rejected)"

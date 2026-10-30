@@ -226,7 +226,11 @@ def state_root():
 
 
 def _sidecar(site, suffix):
-    root = canonical(site)
+    return _sidecar_from_root(canonical(site), suffix)
+
+
+def _sidecar_from_root(root: Path, suffix: str) -> Path:
+    """Derive state for an identity already resolved in this sync batch."""
     identity = hashlib.sha256(os.fsencode(root)).hexdigest()
     return state_root() / identity / f".{root.name}.dependencies{suffix}"
 
@@ -271,7 +275,12 @@ def _check_admission(maintenance_path, repair_path, check_repair):
 
 
 def check_admission(site, *, check_repair=True):
-    _check_admission(marker(site), repair_marker(site), check_repair)
+    root = canonical(site)
+    _check_admission(
+        _sidecar_from_root(root, "-maintenance"),
+        _sidecar_from_root(root, "-repair-required"),
+        check_repair,
+    )
 
 
 def check_lock_admission(path, *, check_repair=True):

@@ -1077,12 +1077,32 @@ def test_explicit_target_prepares_payload(tmp_path, dependency_files):
     )
 
 
-def test_policy_change_blocks_verify_and_publish(tmp_path, dependency_files):
+@pytest.mark.parametrize("policy", ["conda", "immutable-alias"])
+def test_policy_change_blocks_verify_and_publish(
+    tmp_path,
+    dependency_files,
+    policy,
+):
     files = dependency_files
     files.site.rename(files.prefix / "site-packages")
     files.site = files.prefix / "site-packages"
-    operation = _prepare_dependency_operation(files)
-    (files.prefix / "conda-meta").mkdir()
+    context = None
+    if policy == "immutable-alias":
+        immutable = tmp_path / "bundle"
+        immutable.mkdir()
+        context = DependencyEnvironmentContext(
+            str(files.prefix / "bin/python"),
+            ROOT / "src",
+            (files.site,),
+            files.site,
+            (immutable,),
+        )
+    operation = _prepare_dependency_operation(files, context)
+    if policy == "conda":
+        (files.prefix / "conda-meta").mkdir()
+    else:
+        immutable.rmdir()
+        immutable.symlink_to(files.site, target_is_directory=True)
     before = _inventory(tmp_path)
     assert not maintenance.repair_marker(files.site).exists()
     for write in (verify_payload, publish):

@@ -225,6 +225,8 @@ def _observe_host_dependencies(
     _covered=None,
     _resolved=None,
     _module_owners=None,
+    _origin_indexes=None,
+    _record_matches=None,
 ):
     """Read metadata and RECORD ownership using only detached origins."""
     from importlib.metadata import PathDistribution
@@ -256,7 +258,8 @@ def _observe_host_dependencies(
             for path in dict.fromkeys(str(path) for path in loaded.values())
         }
     )
-    relative_modules = {}
+    relative_modules = _origin_indexes if _origin_indexes is not None else {}
+    record_matches = _record_matches if _record_matches is not None else {}
     imported = {}
     if _module_owners is not None:
         _module_owners.update(
@@ -285,12 +288,15 @@ def _observe_host_dependencies(
                 ):
                     indexed.setdefault(origin, set()).add(module_name)
         indexed = relative_modules[root]
-        files = _files_for_loaded_origins(
-            distribution,
-            indexed,
-            metadata_path=row["metadata_path"],
-            record_reads=record_reads,
-        )
+        metadata_path = row["metadata_path"]
+        if metadata_path not in record_matches:
+            record_matches[metadata_path] = _files_for_loaded_origins(
+                distribution,
+                indexed,
+                metadata_path=metadata_path,
+                record_reads=record_reads,
+            )
+        files = record_matches[metadata_path]
         if files is not None:
             owned = {
                 os.path.normcase(os.path.normpath(item)) for item in files
@@ -358,11 +364,13 @@ def _observe_host_dependencies(
     if embedded_modules:
         # Preserve the public-provider baseline too: existing coexistence is
         # stable, while later additions or replacement must require restart.
+        record_names = {}
         for name, row in snapshot.distributions.items():
             if name not in imported and _provides_loaded_modules(
                 row,
                 embedded_modules,
                 record_reads=record_reads,
+                record_names=record_names,
             ):
                 imported[name] = row
         if _module_owners is not None:
@@ -372,14 +380,20 @@ def _observe_host_dependencies(
                         row,
                         {module},
                         record_reads=record_reads,
+                        record_names=record_names,
                     ):
                         retain({module}, name, row)
     return snapshot, imported
 
 
-def _check_read_history(view, uses):
+def _check_read_history(view, uses, *, inventory=None):
     from .dependency_gate import SharedDependencyError, GateDecision
     from .execution.dependencies import _provides_loaded_modules
+
+    records = (
+        inventory.setdefault("records", {}) if inventory is not None else {}
+    )
+    record_names = {}
 
     def refuse(code, detail):
         raise SharedDependencyError(
@@ -417,7 +431,12 @@ def _check_read_history(view, uses):
             modules = old.get("loaded_modules", ())
             if modules and any(
                 provider not in use.snapshot.distributions
-                and _provides_loaded_modules(row, set(modules))
+                and _provides_loaded_modules(
+                    row,
+                    set(modules),
+                    record_reads=records,
+                    record_names=record_names,
+                )
                 for provider, row in view.distributions.items()
             ):
                 refuse(
@@ -509,6 +528,9 @@ def _observe_host_delta(
         distributions=rows,
     )
     covered = set()
+    # These matches depend on this detached module batch and fresh existence
+    # checks. Share them with the full fallback, never across an await.
+    origin_indexes, record_matches = {}, {}
     observed, imported = _observe_host_dependencies(
         code_root,
         paths,
@@ -519,6 +541,8 @@ def _observe_host_delta(
         _covered=covered,
         _resolved=resolved,
         _module_owners=_module_owners,
+        _origin_indexes=origin_indexes,
+        _record_matches=record_matches,
     )
     if required - covered:
         return _observe_host_dependencies(
@@ -528,6 +552,8 @@ def _observe_host_delta(
             inventory=inventory,
             _resolved=resolved,
             _module_owners=_module_owners,
+            _origin_indexes=origin_indexes,
+            _record_matches=record_matches,
         )
     return observed, imported
 
@@ -620,7 +646,7 @@ class PythonBackend:
 
     @staticmethod
     async def prepare_dependency_targets(description):
-        from .execution.dependencies import dependency_sites
+        from .execution.dependencies import _dependency_sites, _inventory_sites
         from ..utils.io_utils import run_sync_io
 
         cwd = os.getcwd()
@@ -628,11 +654,9 @@ class PythonBackend:
 
         def discover():
             code_root = Path(cwd, description.source_path).resolve()
-            return dependency_sites(
-                path
-                for path in paths
-                if not Path(path).resolve().is_relative_to(code_root)
-            )
+            resolved = {}
+            sites = _inventory_sites(code_root, paths, resolved)
+            return _dependency_sites(sites, resolved)
 
         targets = await run_sync_io(discover)
 
@@ -766,6 +790,7 @@ class PythonBackend:
                         _check_read_history,
                         view,
                         before_usage.uses,
+                        inventory=observation_inputs(),
                     )
                 except Exception as exc:
                     code = getattr(
@@ -951,6 +976,7 @@ class PythonBackend:
         import weakref
         from ..utils.io_utils import run_async_to_completion, run_sync_io
         from .execution.dependencies import _inventory_sites, dependency_sites
+        from .dependency_usage import _merge_host_distributions
         from .install_lock import environment_observation, observation_inputs
 
         plugin_id = description.manifest.id
@@ -1114,9 +1140,16 @@ class PythonBackend:
                                     imported[package] = row
                             # Historical ownership is append-only, including
                             # imports removed from sys.modules during teardown.
+                            distributions = _merge_host_distributions(
+                                imported,
+                                old,
+                            )
+                            if distributions is None:
+                                unknown()
+                                return
                             history = replace(
                                 snapshot,
-                                distributions={**imported, **old},
+                                distributions=distributions,
                             )
                             baselines[key] = (current, history)
                             evidence[evidence_key] = (

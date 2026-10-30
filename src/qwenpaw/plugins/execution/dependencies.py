@@ -265,8 +265,12 @@ def protected_dependency_target(path):
 def dependency_sites(sites, *, explicit=(), distributions=()):
     """Classify roots without granting explicit paths protected writes."""
     del explicit, distributions
+    return _dependency_sites(sites, {})
+
+
+def _dependency_sites(sites, resolved):
+    """Share path identities with discovery in one synchronous batch."""
     roots = None
-    resolved = {}
     classified = {}
     for path in dict.fromkeys(str(path) for path in sites if path):
         if Path(path).is_dir():
@@ -454,10 +458,25 @@ def _installed_metadata(
 class _HeaderDistribution(metadata.PathDistribution):
     """Use the native metadata parser without its unused description body."""
 
+    def __init__(self, path, record_reads, metadata_path):
+        super().__init__(path)
+        self._record_reads = record_reads
+        self._metadata_path = metadata_path
+
     def read_text(self, filename):
+        if filename == "RECORD" and self._record_reads is not None:
+            if self._metadata_path not in self._record_reads:
+                self._record_reads[self._metadata_path] = super().read_text(
+                    filename,
+                )
+            return self._record_reads[self._metadata_path]
         value = super().read_text(filename)
-        if value and (
-            boundary := re.search(r"\A(?:\r\n|\n|\r)|\n\r?\n|\r\r", value)
+        if (
+            filename in {"METADATA", "PKG-INFO"}
+            and value
+            and (
+                boundary := re.search(r"\A(?:\r\n|\n|\r)|\n\r?\n|\r\r", value)
+            )
         ):
             # Keep the separator: empty headers with a body are still a
             # present METADATA file and must not fall through to PKG-INFO.
@@ -498,11 +517,12 @@ def _read_installed_metadata(
             parents[parent] = str(canonical_environment_path(origin.parent))
         # Preserve the audited site's spelling in the serialized snapshot.
         origin = Path(parents[parent]) / origin.name
-        installed_metadata = (
-            _HeaderDistribution(distribution._path)
+        installed_distribution = (
+            _HeaderDistribution(distribution._path, record_reads, str(origin))
             if type(distribution) is metadata.PathDistribution
             else distribution
-        ).metadata
+        )
+        installed_metadata = installed_distribution.metadata
         name = installed_metadata.get("Name")
         version = installed_metadata.get("Version")
         key = str(canonicalize_name(name or origin.name.split("-", 1)[0]))
@@ -542,7 +562,7 @@ def _read_installed_metadata(
             ),
             "top_level": tuple(sorted(tops)),
         }
-        candidates[str(origin)] = (key, row, distribution)
+        candidates[str(origin)] = (key, row, installed_distribution)
 
     # A search root is not necessarily an independent installation. Retain
     # every candidate until explicit ancestor RECORD ownership is established.
@@ -688,18 +708,24 @@ def _dependency_closure(requirements, rows, environment):
             )
 
 
-def _inventory_sites(code_root, paths):
+def _inventory_sites(code_root, paths, resolved=None):
     """Resolve ordered search roots with this consumer's source exclusion."""
     root = Path(code_root).resolve()
-    return tuple(
-        dict.fromkeys(
-            str(canonical_environment_path(path))
-            for path in paths
-            if path
-            and Path(path).is_dir()
-            and not Path(path).resolve().is_relative_to(root)
-        ),
-    )
+    if resolved is None:
+        resolved = {}
+    sites = {}
+    for path in dict.fromkeys(str(path) for path in paths if path):
+        if not Path(path).is_dir() or Path(path).resolve().is_relative_to(
+            root,
+        ):
+            continue
+        if path not in resolved:
+            resolved[path] = canonical_environment_path(path)
+        target = resolved[path]
+        # Classification consumes physical roots rather than the raw aliases.
+        resolved[str(target)] = target
+        sites[str(target)] = None
+    return tuple(sites)
 
 
 # Inventory and relevant-closure rejection form one child-only audit.
@@ -714,7 +740,12 @@ def observe_dependencies(
     """Inspect this interpreter's paths before candidate imports execute."""
     if _record_reads is None and _inventory is not None:
         _record_reads = _inventory.setdefault("records", {})
-    sites = _inventory_sites(packet["code_root"], packet["_audit_sites"])
+    resolved = {}
+    sites = _inventory_sites(
+        packet["code_root"],
+        packet["_audit_sites"],
+        resolved,
+    )
     embedded_sites = set()
     rows, invalid, observed = _installed_metadata(
         sites,
@@ -766,10 +797,9 @@ def observe_dependencies(
             "supported_tags": [str(tag) for tag in sys_tags()],
             "distributions": rows,
             "dependency_sites": list(
-                dependency_sites(
+                _dependency_sites(
                     (site for site in sites if site not in embedded_sites),
-                    explicit=packet.get("dependency_paths", ()),
-                    distributions=rows.values(),
+                    resolved,
                 ),
             ),
         },
@@ -797,7 +827,8 @@ def read_dependency_inventory(
 ):
     """Check just the candidate closure and its actual imported providers."""
     root = Path(code_root).resolve()
-    sites = _inventory_sites(root, paths)
+    resolved = {}
+    sites = _inventory_sites(root, paths, resolved)
     records = (
         inventory.setdefault("records", {}) if inventory is not None else {}
     )
@@ -812,6 +843,7 @@ def read_dependency_inventory(
     )
     environment = default_environment()
     relevant = set()
+    native_files = {}
     for name, requirement in _dependency_closure(
         requirements,
         rows,
@@ -831,7 +863,18 @@ def read_dependency_inventory(
         relevant.add(name)
         # Derive import providers from the same installed RECORD as full audit.
         tops = set(row["top_level"])
-        for item in observed[name].files or ():
+        distribution = observed[name]
+        origin = row["metadata_path"]
+        if type(distribution) is _HeaderDistribution:
+            if origin not in native_files:
+                files = distribution.files
+                native_files[origin] = (
+                    tuple(map(str, files)) if files is not None else None
+                )
+            files = native_files[origin]
+        else:
+            files = distribution.files
+        for item in files or ():
             parts = str(item).replace("\\", "/").split("/")
             if (
                 len(parts) == 2
@@ -848,13 +891,16 @@ def read_dependency_inventory(
         rows.pop(name, None)
     view = _ReadInventory(
         sites,
-        dependency_sites(site for site in sites if site not in embedded),
+        _dependency_sites(
+            (site for site in sites if site not in embedded),
+            resolved,
+        ),
         environment,
         rows,
         invalid,
         embedded_owners,
     )
-    check_import_origins(view, root, relevant)
+    check_import_origins(view, root, relevant, _native_files=native_files)
     return view, relevant
 
 
@@ -884,12 +930,15 @@ def validate_driver(component: Any) -> None:
             raise dependency_error("ENTRYPOINT_INVALID")
 
 
-def _owned_import_paths(row, tops):
+def _owned_import_paths(row, tops, native_files):
     """Read RECORD ownership from an already selected metadata origin."""
     distribution = metadata.Distribution.at(row["metadata_path"])
     if distribution.version != row["version"]:
         raise dependency_error("DEPENDENCY_ORIGIN_INVALID")
-    files = distribution.files
+    origin = row["metadata_path"]
+    files = (
+        native_files[origin] if origin in native_files else distribution.files
+    )
     root = Path(row["metadata_path"]).parent
     owned = set()
     provided = set(row["top_level"]).intersection(tops)
@@ -913,7 +962,13 @@ def _owned_import_paths(row, tops):
     return root, provided, owned, directories, files is not None
 
 
-def check_import_origins(snapshot, code_root, relevant) -> None:
+def check_import_origins(
+    snapshot,
+    code_root,
+    relevant,
+    *,
+    _native_files=None,
+) -> None:
     """Fence imported SDK modules and namespace portions to metadata owners."""
     rows = [snapshot.distributions[name] for name in relevant]
     tops = {top for row in rows for top in row["top_level"]}
@@ -940,7 +995,10 @@ def check_import_origins(snapshot, code_root, relevant) -> None:
         for row in snapshot.distributions.values()
         if set(row["top_level"]).intersection(tops)
     ]
-    owners = [_owned_import_paths(row, tops) for row in providers]
+    owners = [
+        _owned_import_paths(row, tops, _native_files or {})
+        for row in providers
+    ]
     for name, module in modules.items():
         module_name = getattr(module, "__name__", name)
         # requests.packages aliases the actual urllib3 module objects. Resolve
