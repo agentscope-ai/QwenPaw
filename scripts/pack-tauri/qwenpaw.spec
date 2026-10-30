@@ -73,6 +73,10 @@ if not (CONSOLE_DIST / "index.html").is_file():
 _data_dirs = [
     ("agents/skills", "qwenpaw/agents/skills"),
     ("agents/md_files", "qwenpaw/agents/md_files"),
+    (
+        "agents/context/visual_compression/assets",
+        "qwenpaw/agents/context/visual_compression/assets",
+    ),
     ("tokenizer", "qwenpaw/tokenizer"),
     ("security/tool_guard/rules", "qwenpaw/security/tool_guard/rules"),
     ("security/skill_scanner/rules", "qwenpaw/security/skill_scanner/rules"),

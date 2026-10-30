@@ -138,6 +138,13 @@ def test_desktop_spec_collects_provider_catalog_data():
     ) in _data_directories()
 
 
+def test_desktop_spec_collects_visual_compression_assets():
+    assert (
+        "agents/context/visual_compression/assets",
+        "qwenpaw/agents/context/visual_compression/assets",
+    ) in _data_directories()
+
+
 def test_desktop_spec_collects_reme_entry_point_plugins():
     plugin_modules = {"reme_auto_fin", "reme_daily_paper"}
     plugin_distributions = {"reme-auto-fin", "reme-daily-paper"}
