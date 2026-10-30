@@ -286,7 +286,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
     app.state.docker_pulls = docker_pulls
 
     def require_loopback_runtime(record: RuntimeRecord) -> None:
-        if not is_loopback_host(record.host):
+        provisioner = runtime_service.provisioners.get(record.provisioner)
+        endpoint_allowed = (
+            provisioner.managed_endpoint_allowed(record.host)
+            if provisioner is not None
+            else is_loopback_host(record.host)
+        )
+        if not endpoint_allowed:
             raise HTTPException(
                 status_code=503,
                 detail="Managed runtime endpoint must be loopback-only",
@@ -304,6 +310,26 @@ def create_hub_app(  # pylint: disable=too-many-statements
             scheme=scheme,
             host=record.host.strip().strip("[]"),
             port=record.port,
+            path=path,
+            query=query,
+        )
+
+    async def runtime_target(
+        record: RuntimeRecord,
+        *,
+        scheme: str,
+        path: str,
+        query: bytes = b"",
+    ) -> httpx.URL:
+        """Resolve a runtime URL off the event loop.
+
+        The allow check can ask Docker for the dial host the first time
+        a non-loopback address is seen. Later calls use that cache.
+        """
+        return await run_in_threadpool(
+            runtime_url,
+            record,
+            scheme=scheme,
             path=path,
             query=query,
         )
@@ -1478,7 +1504,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 status_code=503,
                 detail="OAuth callback runtime is not running",
             )
-        target = runtime_url(
+        target = await runtime_target(
             record,
             scheme="http",
             path=callback_path,
@@ -1498,6 +1524,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         try:
             async with httpx.AsyncClient(
                 transport=proxy_transport,
+                trust_env=False,
             ) as client:
                 upstream = await client.get(
                     target,
@@ -1556,7 +1583,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             trust_env=False,
         ) as client:
             upstream = await client.get(
-                runtime_url(
+                await runtime_target(
                     record,
                     scheme="http",
                     path=f"/api/pawapps/{app_id}",
@@ -1596,7 +1623,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         require_model_route(path, request.method)
         record = await ensure_personal_runtime(user)
         require_session_runtime(request, record)
-        target = runtime_url(
+        target = await runtime_target(
             record,
             scheme="http",
             path=f"/api/{path}",
@@ -1670,6 +1697,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         client = httpx.AsyncClient(
             timeout=timeout,
             transport=proxy_transport,
+            trust_env=False,
         )
         request_complete = asyncio.Event()
         try:
@@ -1787,7 +1815,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             return
         try:
             record = await ensure_personal_runtime(user)
-            target = runtime_url(
+            target = await runtime_target(
                 record,
                 scheme="ws",
                 path=f"/api/{path}",
