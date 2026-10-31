@@ -10,6 +10,7 @@ from typing import Any
 from agentscope.message import Msg
 
 from ....constant import QWENPAW_MESSAGE_TAG_KEY
+from ....runtime.context_injection import is_runtime_context_message
 from ....utils.tool_call_extra import TOOL_CALL_EXTRAS_METADATA_KEY
 from ..types import LogEntry
 from ...utils.tool_message_utils import (
@@ -199,6 +200,9 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
     own ``tool_result`` row whose ``content`` is the flattened output (so it is
     recallable by ``tool_call_id``).
     """
+    if is_runtime_context_message(msg, include_legacy=True):
+        return []
+
     non_result = [
         b for b in msg.content if getattr(b, "type", None) != "tool_result"
     ]
