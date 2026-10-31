@@ -15,6 +15,15 @@ ephemeral formatted output, so persisted conversation history and UI media
 rendering are unaffected.  ``max_bytes <= 0`` disables capping (everything
 is inlined, matching the base formatter).
 
+The per-file cap alone does not bound a request: every file may be below
+it and their sum still exceeds what the provider accepts, so a second,
+per-request budget (``max_total_bytes``) drops the oldest media until the
+payload of the surviving, deduplicated media fits.  Both budgets count
+*raw* (decoded) media bytes, the same unit as the file sizes reported to
+the user; the base64 payload the provider actually receives is about 4/3
+of that, so the budget bounds the media a request carries rather than the
+exact size of the encoded request body.
+
 This module is the single source of truth shared by every provider; each
 provider wires the matching ``_Capping<Provider>Formatter`` into its chat
 model via the ``formatter=`` constructor kwarg.
@@ -45,7 +54,7 @@ from agentscope.formatter import (
 
 from agentscope.formatter import OpenAIResponseFormatter
 from agentscope.message import Base64Source, URLSource
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ..utils.media_paths import local_media_path
 from .adapters.cache_policy import mark_stable_prefix
@@ -63,6 +72,12 @@ MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 # (#7671).  Scoped per request so concurrent sessions sharing one formatter
 # instance cannot spend each other's budget.
 MAX_TOTAL_INLINE_MEDIA_BYTES = 8 * 1024 * 1024  # 8 MB
+
+# How many per-file caps fit into the default per-request budget.  The
+# default 8 MiB total is four times the default 2 MiB per-file cap; the
+# ratio is kept so a raised per-file cap raises the per-request budget
+# with it instead of being undercut by a fixed ceiling.
+TOTAL_BUDGET_PER_FILE_RATIO = 4
 
 _DASHSCOPE_AUDIO_FORMAT_BY_MIME = {
     "audio/mpeg": "mp3",
@@ -229,7 +244,11 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
             "Cumulative inline media bytes allowed in one request. Media "
             "beyond it is replaced with a text placeholder, oldest first, "
             "so the request body cannot grow without bound. 0 disables the "
-            "cumulative budget (only the per-file cap applies)."
+            "cumulative budget (only the per-file cap applies). When left "
+            "unset the budget is derived from max_bytes: four times the "
+            "per-file cap, and never below 8 MiB. The limit counts raw "
+            "(decoded) media bytes, like max_bytes; base64 expands the "
+            "payload to about 4/3 of that on the wire."
         ),
     )
     resize_images_to_max_bytes: bool = Field(default=False, exclude=True)
@@ -237,6 +256,31 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
     enable_prompt_cache_breakpoint: bool = Field(default=False)
 
     _inline_media_size = staticmethod(inline_media_size)
+
+    @model_validator(mode="after")
+    def _derive_total_media_budget(self) -> "CappingFormatterMixin":
+        """Derive the per-request budget from the per-file cap.
+
+        Without this the per-request budget would be a fixed 8 MiB no
+        matter how the per-file cap is configured: raising the per-file
+        cap to 16 MiB would then still drop a 10 MiB file that the
+        per-file cap accepts.  The derived budget keeps the ratio the
+        default constants encode (8 MiB = 4 x 2 MiB) and never drops
+        below the default, so lowering the per-file cap does not
+        silently tighten the per-request budget.
+
+        An explicitly configured ``max_total_bytes`` always wins.
+        """
+        if "max_total_bytes" in self.model_fields_set:
+            return self
+        if self.max_bytes > 0:
+            derived = max(
+                MAX_TOTAL_INLINE_MEDIA_BYTES,
+                TOTAL_BUDGET_PER_FILE_RATIO * self.max_bytes,
+            )
+            if derived != self.max_total_bytes:
+                self.max_total_bytes = derived
+        return self
 
     def _begin_media_budget(self) -> Any:
         """Start a measuring per-request budget; returns its reset token."""

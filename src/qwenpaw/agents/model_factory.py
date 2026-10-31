@@ -716,6 +716,22 @@ def _carries_media_payload(formatted: Any) -> bool:
     )
 
 
+def _qwenpaw_cap_media(
+    formatter: Any,
+    source: Any,
+    kind: str,
+) -> dict[str, Any] | None:
+    """Apply the formatter's media caps to *source*, if it has any.
+
+    The capping formatters expose ``_cap_media``; formatters without it
+    (a plain agentscope formatter) have no caps to apply.
+    """
+    cap = getattr(formatter, "_cap_media", None)
+    if cap is None:
+        return None
+    return cap(source, kind)
+
+
 _WIRE_MEDIA_BLOCK_TYPES = frozenset(
     {
         "audio",
@@ -774,6 +790,23 @@ def _count_wire_video_blocks(value: Any) -> int:
     if isinstance(media_type, str) and media_type.startswith("video/"):
         return 1
     return sum(_count_wire_video_blocks(item) for item in value.values())
+
+
+# Marker carried by a video block that the formatter wrapper accounts
+# against the per-request media budget.  The block keeps its media type,
+# so the formatter still recognises it as video, while the marker lets
+# the wrapper find the substitution entry again after formatting.
+_VIDEO_SUBSTITUTION_PREFIX = "__QWENPAW_VID_"
+
+
+def _video_substitution_marker(block: Any) -> str | None:
+    """Return the substitution marker carried by *block*, if any."""
+    name = getattr(block, "name", None)
+    if isinstance(name, str) and name.startswith(
+        _VIDEO_SUBSTITUTION_PREFIX,
+    ):
+        return name
+    return None
 
 
 def _video_oversize_placeholder(
@@ -1013,12 +1046,24 @@ def _block_to_dict(block: Any) -> dict:
 
 def _substitute_video_blocks(
     msgs: list,
+    *,
+    mark: bool = False,
 ) -> dict[str, dict]:
     """Replace video blocks in msgs with text placeholders.
 
     Returns a mapping from placeholder text to the original
     video block so they can be restored later.  Handles both
     dict blocks (1.x) and Pydantic DataBlock objects (2.0).
+
+    With *mark* set, a Pydantic video block is not replaced but
+    *marked*: its ``name`` becomes the placeholder text and the block
+    itself stays in the message.  The formatter then still sees the
+    video as a media block, so the per-request media budget can
+    account for it at its own position in the wire order instead of
+    having it slip in behind the budget's back.  The formatter renders
+    a marked block as the placeholder text, and the placeholder is
+    resolved to the real video wire dict afterwards, exactly as for a
+    replaced block.
 
     Assistant messages are skipped because video blocks are
     not valid in assistant content for most providers.
@@ -1050,11 +1095,16 @@ def _substitute_video_blocks(
                 is_video = mt.startswith("video/")
 
             if is_video:
-                ph = f"__QWENPAW_VID_{id(blk)}__"
+                ph = f"{_VIDEO_SUBSTITUTION_PREFIX}{id(blk)}__"
                 video_subs[ph] = (
                     blk if isinstance(blk, dict) else blk.model_dump()
                 )
-                msg.content[i] = TextBlock(type="text", text=ph)
+                if mark and not isinstance(blk, dict):
+                    # Keep the media block so the formatter's media hook
+                    # can account the video against the media budget.
+                    msg.content[i] = blk.model_copy(update={"name": ph})
+                else:
+                    msg.content[i] = TextBlock(type="text", text=ph)
     return video_subs
 
 
@@ -1610,6 +1660,24 @@ def _create_file_block_support_formatter(
         and not requires_exact_reasoning_replay
     )
 
+    # The Responses API names its text parts ``input_text``; the chat
+    # formats use ``text``.  A video block rendered as a substitution
+    # placeholder has to use the format's own text type.
+    _video_placeholder_text_type = (
+        "input_text"
+        if issubclass(base_formatter_class, OpenAIResponseFormatter)
+        else "text"
+    )
+
+    # Whether the base formatter exposes a media hook the wrapper can
+    # intercept video in.  Only then may a video block be *marked*
+    # instead of replaced: a replaced block never reaches a media hook,
+    # so the per-request media budget would not see the video.
+    _has_media_data_block_hook = hasattr(
+        base_formatter_class,
+        "_format_openai_data_block",
+    ) or hasattr(base_formatter_class, "_format_dashscope_data_block")
+
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
 
@@ -1716,10 +1784,9 @@ def _create_file_block_support_formatter(
                 # accounting aligned: the folded copy still takes a slot
                 # in the wire order the budget measured, but — folded —
                 # it sends no payload bytes and costs the budget nothing.
-                if not media_type.startswith("video/"):
-                    account = getattr(self, "_account_media_occurrence", None)
-                    if account is not None:
-                        account(source, key)
+                account = getattr(self, "_account_media_occurrence", None)
+                if account is not None:
+                    account(source, key)
                 main_type = media_type.split("/")[0] or "media"
                 return {
                     "type": "text",
@@ -1730,6 +1797,14 @@ def _create_file_block_support_formatter(
                 }
 
             if media_type.startswith("video/"):
+                # Video never reaches the formatter's ``_format_source``
+                # hook, so the per-request media budget would not see it
+                # at all.  Account it here — at the block's own position
+                # in the wire order — so a request carrying video is
+                # bounded like any other media.
+                capped = _qwenpaw_cap_media(self, source, "video")
+                if capped is not None:
+                    return capped
                 formatted = _format_anthropic_video_data_block(
                     block,
                     max_inline_media_bytes=(
@@ -1741,6 +1816,61 @@ def _create_file_block_support_formatter(
             if key is not None and _carries_media_payload(formatted):
                 seen.add(key)
             return formatted
+
+        def _qwenpaw_video_block(self, block):
+            """Render a marked video block as its substitution placeholder.
+
+            Video is substituted into the request around the formatter's
+            ``format()`` call, so it would otherwise never reach the
+            media hooks the per-request media budget watches.  A marked
+            video block is therefore rendered here — at the block's own
+            position in the wire order — so the budget can account for
+            it like any other media.
+
+            Returns the placeholder text for a video the budget keeps,
+            or a text placeholder for a video the budget drops.
+            """
+            marker = _video_substitution_marker(block)
+            if marker is None:
+                return None
+            source = getattr(block, "source", None)
+            capped = _qwenpaw_cap_media(self, source, "video")
+            if capped is not None:
+                return capped
+            return {
+                "type": _video_placeholder_text_type,
+                "text": marker,
+            }
+
+        def _format_openai_data_block(self, block):
+            """Account marked video blocks before the OpenAI formatter
+            rejects them.
+
+            The OpenAI chat format has no native video input; the video
+            wire dict is substituted into the request after formatting.
+            Rendering the marked block here keeps it visible to the
+            per-request media budget.
+
+            Only a base that defines this hook calls it — on the other
+            bases it lives on our subclass as dead code.
+            """
+            video = self._qwenpaw_video_block(block)
+            if video is not None:
+                return video
+            return super()._format_openai_data_block(block)
+
+        def _format_dashscope_data_block(self, block):
+            """Account marked video blocks before the DashScope formatter
+            handles them.
+
+            Only the DashScope base invokes this method — it lives on our
+            subclass as dead code for the OpenAI / Anthropic / Gemini
+            bases.
+            """
+            video = self._qwenpaw_video_block(block)
+            if video is not None:
+                return video
+            return super()._format_dashscope_data_block(block)
 
         # pylint: disable=too-many-branches, too-many-statements
         async def format(self, msgs):
@@ -1860,7 +1990,10 @@ def _create_file_block_support_formatter(
                 )
                 video_subs: dict[str, dict] = {}
                 if _needs_video:
-                    video_subs = _substitute_video_blocks(normalized_msgs)
+                    video_subs = _substitute_video_blocks(
+                        normalized_msgs,
+                        mark=_has_media_data_block_hook,
+                    )
 
                 messages = await super().format(normalized_msgs)
 

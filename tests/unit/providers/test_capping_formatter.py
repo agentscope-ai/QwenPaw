@@ -484,6 +484,70 @@ def _pdf_msg(index: int) -> Msg:
     )
 
 
+# A video source sized like the images above, so only the cumulative
+# budget can fire in the video tests.
+_EACH_VIDEO_BYTES = 312
+_VIDEO_B64_CHARS = ((_EACH_VIDEO_BYTES + 2) // 3) * 4
+
+
+def _video_msg(index: int, seed: str = "A") -> Msg:
+    """A user message carrying one in-memory video block.
+
+    Two messages built with the same seed carry the same media source,
+    so the Anthropic wire format treats the second one as a duplicate of
+    the first.
+    """
+    data = "A" * (_VIDEO_B64_CHARS - 1) + seed
+    return Msg(
+        name="user",
+        role="user",
+        content=[
+            TextBlock(text=f"look at clip {index}"),
+            DataBlock(
+                source=Base64Source(data=data, media_type="video/mp4"),
+                name=f"clip{index}.mp4",
+            ),
+        ],
+    )
+
+
+def _video_parts(parts: list[dict]) -> list[dict]:
+    """Parts that carry an inlined video payload.
+
+    Anthropic nests the payload under ``source``, Chat Completions and
+    DashScope wrap it in a data URL under ``video_url``, the Responses
+    API puts the data URL directly under ``video_url`` and Gemini uses
+    ``inline_data``.
+    """
+    out: list[dict] = []
+    for part in parts:
+        if part.get("type") in ("video", "video_url", "input_video"):
+            out.append(part)
+            continue
+        inline = part.get("inline_data")
+        if isinstance(inline, dict) and str(
+            inline.get("mime_type") or "",
+        ).startswith("video/"):
+            out.append(part)
+    return out
+
+
+def _video_payload_bytes(part: dict) -> int:
+    """Raw byte size of the media a video part carries."""
+    source = part.get("source")
+    if isinstance(source, dict):
+        return len(str(source.get("data") or "")) * 3 // 4
+    url = part.get("video_url")
+    if isinstance(url, dict):
+        url = url.get("url")
+    if isinstance(url, str):
+        return len(url.rsplit(",", 1)[-1]) * 3 // 4
+    inline = part.get("inline_data")
+    if isinstance(inline, dict):
+        return len(str(inline.get("data") or "")) * 3 // 4
+    return 0
+
+
 def _wire_parts(messages: list[dict]) -> list[dict]:
     """Flatten a formatted request into its content parts.
 
@@ -567,7 +631,58 @@ class TestCumulativeBudget:
     """A request may not inline unbounded media (#7671 / the #7965 TODO)."""
 
     def test_default_total_budget_scales_with_the_per_file_cap(self) -> None:
+        """The per-request budget follows the per-file cap.
+
+        A fixed 8 MiB ceiling would undercut a raised per-file cap: a
+        10 MiB file passes a 16 MiB per-file cap but would be dropped by
+        the per-request budget.  The budget is derived from the instance
+        instead, and never drops below the 8 MiB default.
+        """
         assert MAX_TOTAL_INLINE_MEDIA_BYTES == 4 * MAX_INLINE_MEDIA_BYTES
+        # The default keeps the 8 MiB budget.
+        assert _CappingOpenAIFormatter().max_total_bytes == (
+            MAX_TOTAL_INLINE_MEDIA_BYTES
+        )
+        # A raised per-file cap raises the per-request budget with it.
+        assert (
+            _CappingOpenAIFormatter(
+                max_bytes=4 * 1024 * 1024,
+            ).max_total_bytes
+            == 16 * 1024 * 1024
+        )
+        # A lowered per-file cap never tightens the budget below the
+        # default.
+        assert (
+            _CappingOpenAIFormatter(
+                max_bytes=64 * 1024,
+            ).max_total_bytes
+            == MAX_TOTAL_INLINE_MEDIA_BYTES
+        )
+        # An explicit budget always wins over the derived one.
+        assert (
+            _CappingOpenAIFormatter(
+                max_bytes=4 * 1024 * 1024,
+                max_total_bytes=1234,
+            ).max_total_bytes
+            == 1234
+        )
+
+    def test_raised_per_file_cap_keeps_a_single_file_within_budget(
+        self,
+    ) -> None:
+        """A file the per-file cap accepts is not dropped by the total.
+
+        This is the regression the derivation fixes: with a 16 MiB
+        per-file cap, a 10 MiB file has to reach the wire.
+        """
+        formatter = _CappingOpenAIFormatter(max_bytes=16 * 1024 * 1024)
+        big = _base64_source(10 * 1024 * 1024, "image/png")
+        token = formatter._begin_media_budget()
+        try:
+            assert formatter._cap_media(big, "image") is None
+        finally:
+            formatter._end_media_budget(token)
+        assert formatter.max_total_bytes >= 10 * 1024 * 1024
 
     def test_measure_pass_records_sizes_without_capping(self) -> None:
         """The first pass records every sent occurrence, capping nothing."""
@@ -1156,4 +1271,150 @@ class TestDeduplicatedPayloadFitsTheBudget:
         assert _media_payload(kept[0]).endswith("A")
         assert _media_payload(kept[1]).endswith("B")
         assert len(_duplicate_placeholders(parts)) == 5
+        assert not _total_limit_placeholders(parts)
+
+
+class TestVideoUnderThePerRequestBudget:
+    """Video must be bounded by the per-request budget on every path.
+
+    Video is substituted into the request around the formatter's
+    ``format()`` call, so it does not reach the media hooks the budget
+    watches.  Every provider path therefore has to account the video
+    explicitly, otherwise a request carrying video is unbounded.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "formatter_cls",
+        [
+            _CappingAnthropicFormatter,
+            _CappingOpenAIFormatter,
+            _CappingOpenAIResponseFormatter,
+            _CappingDashScopeFormatter,
+            _CappingGeminiFormatter,
+        ],
+    )
+    async def test_video_over_the_budget_is_capped(
+        self,
+        formatter_cls,
+    ) -> None:
+        """Three 312-byte videos at a 900-byte budget keep two of them."""
+        from qwenpaw.agents import model_factory
+
+        formatter_cls_with_wrapper = (
+            model_factory._create_file_block_support_formatter(formatter_cls)
+        )
+        formatter = formatter_cls_with_wrapper(
+            max_bytes=1024,
+            max_total_bytes=900,
+        )
+        messages = [_video_msg(i, chr(ord("A") + i)) for i in range(3)]
+
+        parts = _wire_parts(await formatter.format(messages))
+
+        kept = _video_parts(parts)
+        assert len(kept) == 2
+        assert sum(_video_payload_bytes(part) for part in kept) == (
+            2 * _EACH_VIDEO_BYTES
+        )
+        assert len(_total_limit_placeholders(parts)) == 1
+
+    @pytest.mark.asyncio
+    async def test_anthropic_video_under_the_budget_reaches_the_wire(
+        self,
+    ) -> None:
+        """A video the budget allows is inlined, not replaced."""
+        from qwenpaw.agents import model_factory
+
+        formatter_cls = model_factory._create_file_block_support_formatter(
+            _CappingAnthropicFormatter,
+        )
+        formatter = formatter_cls(max_bytes=1024, max_total_bytes=4096)
+
+        parts = _wire_parts(await formatter.format([_video_msg(0)]))
+
+        kept = _video_parts(parts)
+        assert len(kept) == 1
+        assert _video_payload_bytes(kept[0]) == _EACH_VIDEO_BYTES
+        assert not _total_limit_placeholders(parts)
+
+    @pytest.mark.asyncio
+    async def test_dashscope_video_under_the_budget_reaches_the_wire(
+        self,
+    ) -> None:
+        """The DashScope production path inlines the video.
+
+        ``_format_video_source`` is not reachable for a ``DataBlock``
+        video any more — the video is substituted around the formatter's
+        ``format()`` call — so the production path has its own check.
+        """
+        from qwenpaw.agents import model_factory
+
+        formatter_cls = model_factory._create_file_block_support_formatter(
+            _CappingDashScopeFormatter,
+        )
+        formatter = formatter_cls(max_bytes=1024, max_total_bytes=4096)
+
+        parts = _wire_parts(await formatter.format([_video_msg(0)]))
+
+        kept = _video_parts(parts)
+        assert len(kept) == 1
+        assert _video_payload_bytes(kept[0]) == _EACH_VIDEO_BYTES
+        assert not _total_limit_placeholders(parts)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_keeps_the_newest_repeated_video(self) -> None:
+        """A repeated video is deduplicated, not folded away entirely.
+
+        The newest copy of a repeated video has to survive the budget:
+        the copy the budget dropped is nowhere in the request, so the
+        later copy may not be folded as "already shown above".
+        """
+        from qwenpaw.agents import model_factory
+
+        formatter_cls = model_factory._create_file_block_support_formatter(
+            _CappingAnthropicFormatter,
+        )
+        formatter = formatter_cls(max_bytes=1024, max_total_bytes=400)
+        messages = [
+            _video_msg(0, "A"),
+            _video_msg(1, "B"),
+            _video_msg(2, "A"),
+        ]
+
+        parts = _wire_parts(await formatter.format(messages))
+
+        kept = _video_parts(parts)
+        assert len(kept) == 1
+        assert _video_payload_bytes(kept[0]) == _EACH_VIDEO_BYTES
+        assert len(_total_limit_placeholders(parts)) == 2
+        assert not _duplicate_placeholders(parts)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_repeated_video_fits_after_dedup(self) -> None:
+        """A folded duplicate sends no bytes, so it costs no budget.
+
+        A -> B -> A at a 900-byte budget carries 624 bytes of distinct
+        media, so nothing is dropped and the duplicate is folded.
+        """
+        from qwenpaw.agents import model_factory
+
+        formatter_cls = model_factory._create_file_block_support_formatter(
+            _CappingAnthropicFormatter,
+        )
+        formatter = formatter_cls(max_bytes=1024, max_total_bytes=900)
+        messages = [
+            _video_msg(0, "A"),
+            _video_msg(1, "B"),
+            _video_msg(2, "A"),
+        ]
+
+        parts = _wire_parts(await formatter.format(messages))
+
+        kept = _video_parts(parts)
+        assert len(kept) == 2
+        assert sum(_video_payload_bytes(part) for part in kept) == (
+            2 * _EACH_VIDEO_BYTES
+        )
+        assert len(_duplicate_placeholders(parts)) == 1
         assert not _total_limit_placeholders(parts)
