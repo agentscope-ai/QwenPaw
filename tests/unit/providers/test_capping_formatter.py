@@ -532,20 +532,25 @@ def _video_parts(parts: list[dict]) -> list[dict]:
     return out
 
 
-def _video_payload_bytes(part: dict) -> int:
-    """Raw byte size of the media a video part carries."""
+def _video_payload(part: dict) -> str:
+    """Return the base64 payload a video part carries."""
     source = part.get("source")
     if isinstance(source, dict):
-        return len(str(source.get("data") or "")) * 3 // 4
+        return str(source.get("data") or "")
     url = part.get("video_url")
     if isinstance(url, dict):
         url = url.get("url")
     if isinstance(url, str):
-        return len(url.rsplit(",", 1)[-1]) * 3 // 4
+        return url.rsplit(",", 1)[-1]
     inline = part.get("inline_data")
     if isinstance(inline, dict):
-        return len(str(inline.get("data") or "")) * 3 // 4
-    return 0
+        return str(inline.get("data") or "")
+    return ""
+
+
+def _video_payload_bytes(part: dict) -> int:
+    """Raw byte size of the media a video part carries."""
+    return len(_video_payload(part)) * 3 // 4
 
 
 def _wire_parts(messages: list[dict]) -> list[dict]:
@@ -1387,6 +1392,9 @@ class TestVideoUnderThePerRequestBudget:
         kept = _video_parts(parts)
         assert len(kept) == 1
         assert _video_payload_bytes(kept[0]) == _EACH_VIDEO_BYTES
+        # The surviving video is the newest copy of A, not the copy of B
+        # that the budget kept before the fix.
+        assert _video_payload(kept[0]).endswith("A")
         assert len(_total_limit_placeholders(parts)) == 2
         assert not _duplicate_placeholders(parts)
 
