@@ -59,6 +59,7 @@ RUN apt-get update && apt-get install -y --fix-missing \
     libssl-dev  \
     git  \
     supervisor  \
+    passwd  \
     vim  \
     gettext-base \
     xfce4 \
@@ -155,6 +156,7 @@ ENV QWENPAW_PORT=8088
 
 COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
 COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh
+COPY --chmod=755 deploy/runtime_user.py /usr/local/bin/qwenpaw-runtime-user
 
 EXPOSE 8088
 
