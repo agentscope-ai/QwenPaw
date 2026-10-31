@@ -5,6 +5,8 @@
   "remote_id": "moonshotai-cn",
   "template_owner": true,
   "default_model_ids": [
+    "kimi-k3.1-pro",
+    "kimi-k3.1-pro-highspeed",
     "kimi-k3",
     "kimi-k2.7-code",
     "kimi-k2.7-code-highspeed",
@@ -13,13 +15,90 @@
   ],
   "models": [
     {
+      "id": "kimi-k3.1-pro",
+      "name": "Kimi K3.1 Pro",
+      "max_input_length": 1048576,
+      "max_output_length": 1048576,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "released_at": "2026-10-23",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "native"
+      },
+      "is_recommended": true
+    },
+    {
+      "id": "kimi-k3.1-pro-highspeed",
+      "name": "Kimi K3.1 Pro Highspeed",
+      "max_input_length": 1048576,
+      "max_output_length": 1048576,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "released_at": "2026-10-23",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "native"
+      }
+    },
+    {
       "id": "kimi-k3",
       "name": "Kimi K3",
       "supports_image": true,
       "supports_video": true,
       "probe_source": "documentation",
       "is_free": false,
-      "is_recommended": true,
+      "is_recommended": false,
       "source": "builtin",
       "availability_status": "unverified",
       "availability_retryable": true,

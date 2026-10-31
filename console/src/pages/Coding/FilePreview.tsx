@@ -28,7 +28,10 @@ import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
 import { openHtmlFile } from "../../utils/openHtmlFile";
-import { parseMarkdownFrontmatter } from "../../utils/markdown";
+import {
+  parseMarkdownFrontmatter,
+  parseMemoryTags,
+} from "../../utils/markdown";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -318,20 +321,66 @@ function preserveMathCodeBlocks() {
   };
 }
 
-function MarkdownPreview({ content }: { content: string }) {
+function MarkdownPreview({
+  content,
+  onMemoryTagClick,
+}: {
+  content: string;
+  onMemoryTagClick?: (tag: string) => void;
+}) {
+  const { t } = useTranslation();
+  const tags = useMemo(() => parseMemoryTags(content), [content]);
   const { body, entries } = useMemo(
     () => parseMarkdownFrontmatter(content),
     [content],
   );
+  // Tags come from the resolved YAML document, including merge keys and
+  // quoted keys. Render one semantic tag row independently of raw metadata.
+  const metadataEntries = tags.length
+    ? [
+        ...entries.filter(
+          ({ key }) =>
+            !["memory_tags", '"memory_tags"', "'memory_tags'"].includes(key),
+        ),
+        { key: "memory_tags", value: "" },
+      ]
+    : entries;
 
   return (
     <div className={styles.markdownWrap}>
-      {entries.length > 0 && (
+      {metadataEntries.length > 0 && (
         <dl className={styles.frontmatter} aria-label="Front matter">
-          {entries.map(({ key, value }, index) => (
+          {metadataEntries.map(({ key, value }, index) => (
             <div className={styles.frontmatterRow} key={`${key}:${index}`}>
-              <dt className={styles.frontmatterKey}>{key}</dt>
-              <dd className={styles.frontmatterValue}>{value}</dd>
+              <dt className={styles.frontmatterKey}>
+                {key === "memory_tags" ? t("files.memoryTagsLabel") : key}
+              </dt>
+              <dd className={styles.frontmatterValue}>
+                {key === "memory_tags" && tags.length > 0 ? (
+                  <span className={styles.memoryTags}>
+                    {tags.map((tag) =>
+                      onMemoryTagClick ? (
+                        <button
+                          type="button"
+                          key={tag}
+                          className={styles.memoryTag}
+                          onClick={() => onMemoryTagClick(tag)}
+                          aria-label={t("files.memoryTagBrowse", { tag })}
+                          title={t("files.memoryTagBrowse", { tag })}
+                        >
+                          {tag}
+                        </button>
+                      ) : (
+                        <span key={tag} className={styles.memoryTag}>
+                          {tag}
+                        </span>
+                      ),
+                    )}
+                  </span>
+                ) : (
+                  value
+                )}
+              </dd>
             </div>
           ))}
         </dl>
@@ -552,6 +601,7 @@ export interface FilePreviewProps {
   root?: WorkspaceRoot;
   projectDirOverride?: string;
   workspaceBacked?: boolean;
+  onMemoryTagClick?: (tag: string) => void;
 }
 
 export default function FilePreview({
@@ -562,6 +612,7 @@ export default function FilePreview({
   root,
   projectDirOverride,
   workspaceBacked,
+  onMemoryTagClick,
 }: FilePreviewProps) {
   const type = getPreviewType(filePath);
 
@@ -585,7 +636,10 @@ export default function FilePreview({
       />
     );
   }
-  if (type === "markdown") return <MarkdownPreview content={content} />;
+  if (type === "markdown")
+    return (
+      <MarkdownPreview content={content} onMemoryTagClick={onMemoryTagClick} />
+    );
   if (type === "html") {
     return (
       <HtmlPreview

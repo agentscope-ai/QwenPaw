@@ -114,8 +114,13 @@ class ComputerUseToolPlugin:
             tags=["computer-use"],
         )
 
-        if not HostRuntimeProvider.is_available():
-            status = HostRuntimeProvider.status()
+        status = HostRuntimeProvider.status()
+        # Shared hosts accept native capabilities after startup. Register the
+        # tool now; actual use still requires a live client capability.
+        shared = os.environ.get("QWENPAW_RUNTIME_MODE") == "shared"
+        if not status.supported_platform or (
+            not status.host_reachable and not shared
+        ):
             reason = (
                 "this platform has no native helper"
                 if not status.supported_platform

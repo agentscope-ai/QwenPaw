@@ -3,13 +3,13 @@
 
 import json
 from pathlib import Path
+import re
 import tomllib
 
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 import pytest
 import yaml
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -139,3 +139,41 @@ def test_nsis_template_avoids_solid_compression() -> None:
     assert f"Vendored from Tauri v{tauri_cli_version}" in template
     assert 'SetCompressor "{{compression}}"' in template
     assert "SetCompressor /SOLID" not in template
+
+
+def test_shared_daemon_keeps_channel_runtime_environment() -> None:
+    """A desktop runtime launched through the daemon needs offline channels."""
+    native = REPO_ROOT / "console/src-tauri/src"
+    commands = (native / "backend/command.rs").read_text(encoding="utf-8")
+    collector = (native / "runtime_env.rs").read_text(encoding="utf-8")
+    channels = (native / "channel_runtime.rs").read_text(encoding="utf-8")
+    runtime = (native / "backend/runtime.rs").read_text(encoding="utf-8")
+    daemon = (native / "backend/daemon.rs").read_text(encoding="utf-8")
+
+    # Both development and packaged command factories must use the shared
+    # contributor boundary; collecting Computer Use client metadata in
+    # runtime::connect alone never delivers these paths to Python.
+    factories = re.findall(
+        r"pub\(super\) fn create\(.*?(?=\n#\[cfg|\Z)",
+        commands,
+        re.DOTALL,
+    )
+    assert len(factories) == 2
+    for factory in factories:
+        assert "command.envs(crate::runtime_env::collect(app))" in factory
+    assert "crate::channel_runtime::backend_environment(app)" in collector
+    for key in (
+        "QWENPAW_CHANNEL_RUNTIME_MANIFEST",
+        "QWENPAW_CHANNEL_SUPPORT_ROOT",
+        "QWENPAW_CHANNEL_DEPENDENCY_PATHS",
+    ):
+        assert f'"{key}"' in channels
+
+    launch = runtime.split("fn launch(", 1)[1]
+    assert "super::command::create(app)?" in launch
+    assert '.arg("--agent-host")' in launch
+    assert "backend.get_envs()" in launch
+    assert "command.env(key, value)" in launch
+    assert "command.env_remove(key)" in launch
+    assert "Command::new(&program)" in daemon
+    assert ".env_clear()" not in daemon

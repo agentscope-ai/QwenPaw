@@ -15,6 +15,7 @@ import { renderWithProviders } from "@/test/common_setup";
 
 const mocks = vi.hoisted(() => ({
   inboxData: null as unknown,
+  useInboxData: vi.fn(),
   pendingCount: 0,
   newArrival: false,
   approvals: [] as unknown[],
@@ -33,7 +34,10 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("./hooks/useInboxData", () => ({
-  useInboxData: () => mocks.inboxData,
+  useInboxData: (unreadOnly: boolean) => {
+    mocks.useInboxData(unreadOnly);
+    return mocks.inboxData;
+  },
 }));
 
 vi.mock("./hooks/useMailPendingCount", () => ({
@@ -300,6 +304,7 @@ function makeInboxData(messages: PushMessage[], summaryUnread = 0) {
 }
 
 beforeEach(() => {
+  mocks.useInboxData.mockClear();
   mocks.pendingCount = 0;
   mocks.newArrival = false;
   mocks.approvals = [];
@@ -309,6 +314,220 @@ beforeEach(() => {
 // ---- Tests -----------------------------------------------------------------
 
 describe("InboxPage", () => {
+  it("defaults to all messages and toggles the unread query", () => {
+    makeInboxData([pushMsg("unread"), pushMsg("read", { read: true })], 1);
+    renderWithProviders(<InboxPage />);
+    const toggle = screen.getByRole("checkbox", { name: "inbox.unreadOnly" });
+    expect(toggle).not.toBeChecked();
+    expect(mocks.useInboxData).toHaveBeenLastCalledWith(false);
+    expect(screen.getByTestId("push-card-read")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+    expect(mocks.useInboxData).toHaveBeenLastCalledWith(true);
+    expect(screen.queryByTestId("push-card-read")).toBeNull();
+    expect(screen.getByTestId("push-card-unread")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(mocks.useInboxData).toHaveBeenLastCalledWith(false);
+    expect(screen.getByTestId("push-card-read")).toBeTruthy();
+  });
+
+  it("returns to the first page of unread messages when toggling", () => {
+    makeInboxData(
+      Array.from({ length: 12 }, (_, index) =>
+        pushMsg(`m${index + 1}`, { read: index < 6 }),
+      ),
+      6,
+    );
+    renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByTestId("inbox-next-page"));
+    expect(screen.getByTestId("push-card-m6")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    expect(screen.getByTestId("push-card-m7")).toBeTruthy();
+    expect(screen.getByTestId("push-card-m11")).toBeTruthy();
+    expect(screen.queryByTestId("push-card-m6")).toBeNull();
+    expect(screen.queryByTestId("push-card-m12")).toBeNull();
+  });
+
+  it("combines unread, agent, and source filters", async () => {
+    makeInboxData(
+      [
+        pushMsg("target", {
+          metadata: { agentId: "agent-a", sourceType: "cron" },
+        }),
+        pushMsg("read", {
+          read: true,
+          metadata: { agentId: "agent-a", sourceType: "cron" },
+        }),
+        pushMsg("other-agent", {
+          metadata: { agentId: "agent-b", sourceType: "cron" },
+        }),
+        pushMsg("other-source", {
+          metadata: { agentId: "agent-a", sourceType: "mail" },
+        }),
+      ],
+      3,
+    );
+    const { container } = renderWithProviders(<InboxPage />);
+    fireEvent.mouseDown(container.querySelectorAll(".ant-select-selector")[0]);
+    fireEvent.click(
+      await screen.findByText("agent-a", {
+        selector: ".ant-select-item-option-content",
+      }),
+    );
+    fireEvent.mouseDown(container.querySelectorAll(".ant-select-selector")[1]);
+    fireEvent.click(
+      await screen.findByText("inbox.sourceTypeCron", {
+        selector: ".ant-select-item-option-content",
+      }),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+
+    expect(screen.getByTestId("push-card-target")).toBeTruthy();
+    expect(screen.queryByTestId("push-card-read")).toBeNull();
+    expect(screen.queryByTestId("push-card-other-agent")).toBeNull();
+    expect(screen.queryByTestId("push-card-other-source")).toBeNull();
+  });
+
+  it("clears batch selections when switching the unread filter", () => {
+    makeInboxData([pushMsg("m1")], 1);
+    renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByText("inbox.batchOperation"));
+    fireEvent.click(screen.getByTestId("sel-m1"));
+    expect(screen.getByTestId("sel-m1")).toBeChecked();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    expect(screen.getByTestId("sel-m1")).not.toBeChecked();
+    expect(
+      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
+    ).toBeDisabled();
+  });
+
+  it("hides a message after viewing it and shows the unread empty state", () => {
+    const data = makeInboxData([pushMsg("m1")], 1);
+    const { rerender } = renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    fireEvent.click(screen.getByText("inbox.batchOperation"));
+    fireEvent.click(screen.getByTestId("sel-m1"));
+    fireEvent.click(screen.getByTestId("view-m1"));
+    expect(data.markMessageAsRead).toHaveBeenCalledWith("m1");
+
+    makeInboxData([pushMsg("m1", { read: true })]);
+    rerender(<InboxPage />);
+    expect(screen.queryByTestId("push-card-m1")).toBeNull();
+    expect(screen.getByTestId("inbox-empty")).toHaveTextContent(
+      "inbox.emptyUnread",
+    );
+    expect(screen.getByText('inbox.selectedItems:{"count":0}')).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
+    ).toBeDisabled();
+  });
+
+  it("removes read selections while keeping unread selections across pages", async () => {
+    const messages = Array.from({ length: 6 }, (_, index) =>
+      pushMsg(`m${index + 1}`),
+    );
+    const data = makeInboxData(messages, 6);
+    const { rerender } = renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    fireEvent.click(screen.getByText("inbox.batchOperation"));
+    fireEvent.click(screen.getByTestId("sel-m1"));
+    fireEvent.click(screen.getByTestId("inbox-next-page"));
+    fireEvent.click(screen.getByTestId("sel-m6"));
+    fireEvent.click(screen.getByTestId("view-m6"));
+    expect(data.markMessageAsRead).toHaveBeenCalledWith("m6");
+
+    const updatedData = makeInboxData(
+      messages.map((item) =>
+        item.id === "m6" ? { ...item, read: true } : item,
+      ),
+      5,
+    );
+    rerender(<InboxPage />);
+    expect(screen.queryByTestId("push-card-m6")).toBeNull();
+    expect(screen.getByTestId("sel-m1")).toBeChecked();
+    expect(screen.getByText('inbox.selectedItems:{"count":1}')).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
+    );
+    await waitFor(() => {
+      expect(updatedData.deleteMessages).toHaveBeenCalledWith(["m1"]);
+    });
+  });
+
+  it("keeps a viewed message selected in the all-messages view", () => {
+    makeInboxData([pushMsg("m1")], 1);
+    const { rerender } = renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByText("inbox.batchOperation"));
+    fireEvent.click(screen.getByTestId("sel-m1"));
+    fireEvent.click(screen.getByTestId("view-m1"));
+
+    makeInboxData([pushMsg("m1", { read: true })]);
+    rerender(<InboxPage />);
+    expect(screen.getByTestId("sel-m1")).toBeChecked();
+    expect(
+      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
+    ).not.toBeDisabled();
+  });
+
+  it("clamps the unread page after its last message is marked read", () => {
+    makeInboxData(
+      Array.from({ length: 6 }, (_, index) => pushMsg(`m${index}`)),
+      6,
+    );
+    const { rerender } = renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    fireEvent.click(screen.getByTestId("inbox-next-page"));
+    expect(screen.getByTestId("push-card-m5")).toBeTruthy();
+
+    makeInboxData(
+      Array.from({ length: 6 }, (_, index) =>
+        pushMsg(`m${index}`, { read: index === 5 }),
+      ),
+      5,
+    );
+    rerender(<InboxPage />);
+    expect(screen.getByTestId("push-card-m0")).toBeTruthy();
+    expect(screen.queryByTestId("push-card-m5")).toBeNull();
+  });
+
+  it("shows the unread empty state after marking all messages read", async () => {
+    const data = makeInboxData([pushMsg("m1"), pushMsg("m2")], 2);
+    const { rerender } = renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    fireEvent.click(screen.getByRole("button", { name: "inbox.markAllRead" }));
+    await waitFor(() => {
+      expect(data.markAllMessagesAsRead).toHaveBeenCalledTimes(1);
+    });
+
+    makeInboxData([
+      pushMsg("m1", { read: true }),
+      pushMsg("m2", { read: true }),
+    ]);
+    rerender(<InboxPage />);
+    expect(screen.getByTestId("inbox-empty")).toHaveTextContent(
+      "inbox.emptyUnread",
+    );
+    expect(screen.queryByTestId("push-card-m1")).toBeNull();
+    expect(screen.queryByTestId("push-card-m2")).toBeNull();
+    expect(
+      screen.getByText("inbox.markAllRead").closest("button"),
+    ).toBeDisabled();
+  });
+
+  it("keeps the loading state while the unread query is pending", () => {
+    const data = makeInboxData([]);
+    data.pushMessagesLoading = true;
+    renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
+    expect(screen.getByRole("status")).toHaveTextContent("common.loading");
+    expect(screen.queryByTestId("inbox-empty")).toBeNull();
+  });
+
   it("renders the messages tab with push cards", async () => {
     makeInboxData([pushMsg("m1"), pushMsg("m2")]);
     renderWithProviders(<InboxPage />);

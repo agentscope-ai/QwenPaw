@@ -586,6 +586,13 @@ async def delete_project(
     from api.file_session_routes import _cancel_detached_project_tasks
 
     _cancel_detached_project_tasks(services, project_id)
+    # Release the poller and the per-project log before the directory
+    # rename. On Windows an open creator.log inside the tree makes
+    # os.replace fail with WinError 5.
+    services.poller.close(project_id)
+    from utils.logger import close_creator_project_logging
+
+    close_creator_project_logging(project_id)
     try:
         await asyncio.to_thread(
             services.projects.delete,
@@ -596,9 +603,9 @@ async def delete_project(
         pass
     except (ProjectIntegrityError, ProjectStoreError) as exc:
         raise StorageIntegrityError(str(exc)) from exc
-    services.poller.close(project_id)
-    from utils.logger import close_creator_project_logging
-
+    # Cancellation only signals workers; a late project-scoped emit can
+    # reopen the log between the pre-delete close and rename. Drop that
+    # handler again so deleted projects do not keep an open target.
     close_creator_project_logging(project_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

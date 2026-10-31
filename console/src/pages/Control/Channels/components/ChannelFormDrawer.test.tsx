@@ -37,7 +37,8 @@ vi.mock("@agentscope-ai/design", async () => {
   return { ...antd, Form: WrappedForm };
 });
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({
     t: (key: string) => key,
     i18n: { language: "en" },
@@ -50,7 +51,13 @@ vi.mock("../../../../stores/agentStore", () => ({
       selectedAgent: "agent-b",
       agents: [{ id: "agent-b", workspace_dir: "/ws" }],
     }),
-    { subscribe: () => () => {} },
+    {
+      subscribe: () => () => {},
+      getState: () => ({
+        selectedAgent: "agent-b",
+        agents: [{ id: "agent-b", workspace_dir: "/ws" }],
+      }),
+    },
   ),
 }));
 
@@ -225,5 +232,62 @@ describe("ChannelFormDrawer owner isolation", () => {
         key.startsWith("livekit_"),
       ),
     ).toEqual([]);
+  });
+
+  it("refreshes pristine external fields while preserving edited fields for the same owner", () => {
+    const props = drawerProps({
+      label: "saved-label",
+      bot_prefix: "old-prefix",
+      client_secret: "old-secret",
+    });
+    const view = render(
+      <ChannelFormDrawer ownerKey="agent-b:custom" {...props} />,
+    );
+    expect(formCapture.current?.isFieldsTouched()).toBe(false);
+    fireEvent.change(screen.getByRole("textbox", { name: "Label" }), {
+      target: { value: "new-unsaved-label" },
+    });
+
+    view.rerender(
+      <ChannelFormDrawer
+        ownerKey="agent-b:custom"
+        {...props}
+        initialValues={{ label: "saved-label", bot_prefix: "external-prefix" }}
+      />,
+    );
+    expect(screen.getByRole("textbox", { name: "Label" })).toHaveValue(
+      "new-unsaved-label",
+    );
+    expect(formCapture.current?.getFieldValue("bot_prefix")).toBe(
+      "external-prefix",
+    );
+    expect(formCapture.current?.getFieldValue("client_secret")).toBeUndefined();
+    expect(formCapture.current?.isFieldTouched("label")).toBe(true);
+    expect(formCapture.current?.isFieldTouched("bot_prefix")).toBe(false);
+
+    view.rerender(
+      <ChannelFormDrawer
+        ownerKey="agent-b:custom"
+        {...props}
+        initialValues={{
+          label: "new-unsaved-label",
+          bot_prefix: "external-prefix",
+        }}
+      />,
+    );
+    expect(formCapture.current?.isFieldTouched("label")).toBe(false);
+    view.rerender(
+      <ChannelFormDrawer
+        ownerKey="agent-b:custom"
+        {...props}
+        initialValues={{
+          label: "next-server-label",
+          bot_prefix: "external-prefix",
+        }}
+      />,
+    );
+    expect(screen.getByRole("textbox", { name: "Label" })).toHaveValue(
+      "next-server-label",
+    );
   });
 });

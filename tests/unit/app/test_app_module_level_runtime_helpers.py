@@ -5,11 +5,12 @@
 history sync and ``test_provider_startup_offload.py`` pins which startup
 helpers are dispatched off the loop; neither reaches the browser
 housekeeping tasks, the console static-directory resolution chain, the
-desktop-sidecar shutdown endpoint or the root route. All of those are
+shared-runtime control routes or the root route. All of those are
 module-level functions that can be driven with stub kernels and a
 temporary working directory, so no real browser, console build or Tauri
 shell is involved.
 """
+
 # Pytest fixtures intentionally provide setup-only arguments to tests.
 # C1803 (use-implicit-booleaness-not-comparison) is disabled for the two
 # `kernel.calls == []` checks: the equality form pins "no sweep ran at all"
@@ -23,15 +24,17 @@ import importlib
 import sys
 from pathlib import Path
 from typing import Any, List
+from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
+
+from qwenpaw.app.routers import runtime as runtime_router
+from qwenpaw.tauri.backend_guard import BackendInstance
 
 app_module = importlib.import_module("qwenpaw.app._app")
 
-DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
-DESKTOP_TOKEN_ENV = "QWENPAW_DESKTOP_SHUTDOWN_TOKEN"
 CONSOLE_STATIC_ENV = "QWENPAW_CONSOLE_STATIC_DIR"
 
 
@@ -423,119 +426,133 @@ def test_version_endpoint_does_not_leak_the_environment(
     assert "/tmp/some-venv" not in str(payload)
 
 
-# ---------------------------------------------------------------------------
-# post_desktop_shutdown
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture()
-def desktop_env(monkeypatch):
-    """Configure the sidecar env and guarantee no server leaks out."""
-    monkeypatch.delenv(DESKTOP_APP_ENV, raising=False)
-    monkeypatch.delenv(DESKTOP_TOKEN_ENV, raising=False)
-    monkeypatch.delattr(app_module.app.state, "uvicorn_server", raising=False)
-    yield monkeypatch
-    monkeypatch.delattr(app_module.app.state, "uvicorn_server", raising=False)
-
-
-@pytest.mark.asyncio
-async def test_desktop_shutdown_is_hidden_outside_the_sidecar(desktop_env):
-    desktop_env.setenv(DESKTOP_TOKEN_ENV, "tok")
-    with pytest.raises(HTTPException) as exc:
-        await app_module.post_desktop_shutdown(
-            x_qwenpaw_desktop_shutdown_token="tok",
+def runtime_request(tmp_path, monkeypatch):
+    monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
+    monkeypatch.setenv("QWENPAW_RUNTIME_MODE", "shared")
+    with BackendInstance(tmp_path, "shared") as instance:
+        monkeypatch.setenv("QWENPAW_RUNTIME_CONTROL_TOKEN", instance.token)
+        server = SimpleNamespace(should_exit=False)
+        state = SimpleNamespace(
+            uvicorn_server=server,
+            runtime_instance=instance,
+            runtime_clients={},
         )
-    # 404, not 403: the endpoint must not advertise that it exists
-    assert exc.value.status_code == 404
+        yield Request({"type": "http", "app": SimpleNamespace(state=state)})
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("app_flag", "token", "header"),
-    [
-        ("1", None, "tok"),
-        ("1", "", "tok"),
-        ("1", "tok", None),
-        ("1", "tok", "wrong"),
-        ("0", "tok", "tok"),
-        ("", "tok", "tok"),
-    ],
-)
-async def test_desktop_shutdown_rejects_every_partial_credential(
-    desktop_env,
-    app_flag: str,
-    token: str | None,
-    header: str | None,
-) -> None:
-    desktop_env.setenv(DESKTOP_APP_ENV, app_flag)
-    if token is not None:
-        desktop_env.setenv(DESKTOP_TOKEN_ENV, token)
-    with pytest.raises(HTTPException) as exc:
-        await app_module.post_desktop_shutdown(
-            x_qwenpaw_desktop_shutdown_token=header,
+@pytest.mark.parametrize("mode", ["standalone", "stdio", "hub", ""])
+def test_control_routes_reject_non_shared_modes(
+    runtime_request,
+    monkeypatch,
+    mode,
+):
+    monkeypatch.setenv("QWENPAW_RUNTIME_MODE", mode)
+    with pytest.raises(HTTPException) as error:
+        runtime_router.authenticate(
+            runtime_request,
+            runtime_request.app.state.runtime_instance.token,
         )
-    assert exc.value.status_code == 404
+    assert error.value.status_code == 404
 
 
-@pytest.mark.asyncio
-async def test_desktop_shutdown_reports_an_unready_backend(desktop_env):
-    desktop_env.setenv(DESKTOP_APP_ENV, "1")
-    desktop_env.setenv(DESKTOP_TOKEN_ENV, "tok")
+@pytest.mark.parametrize("token", ["", "wrong", "错误"])
+def test_control_routes_require_instance_secret(runtime_request, token):
+    with pytest.raises(HTTPException) as error:
+        runtime_router.authenticate(runtime_request, token)
+    assert error.value.status_code == 404
 
-    with pytest.raises(HTTPException) as exc:
-        await app_module.post_desktop_shutdown(
-            x_qwenpaw_desktop_shutdown_token="tok",
+
+def test_control_routes_reject_hub_identity(runtime_request, monkeypatch):
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "tenant")
+    with pytest.raises(HTTPException) as error:
+        runtime_router.authenticate(
+            runtime_request,
+            runtime_request.app.state.runtime_instance.token,
         )
-
-    assert exc.value.status_code == 503
-    assert "not ready" in exc.value.detail
+    assert error.value.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_desktop_shutdown_asks_uvicorn_to_exit(desktop_env):
-    desktop_env.setenv(DESKTOP_APP_ENV, "1")
-    desktop_env.setenv(DESKTOP_TOKEN_ENV, "tok")
-    server = type("Server", (), {"should_exit": False})()
-    desktop_env.setattr(
-        app_module.app.state,
-        "uvicorn_server",
-        server,
-        raising=False,
+async def test_shared_stop_preserves_other_clients(runtime_request):
+    state = runtime_request.app.state
+    first = await runtime_router.connect(
+        runtime_router.ClientConnection(client="desktop"),
+        runtime_request,
+        state.uvicorn_server,
     )
-
-    payload = await app_module.post_desktop_shutdown(
-        x_qwenpaw_desktop_shutdown_token="tok",
+    second = await runtime_router.connect(
+        runtime_router.ClientConnection(client="vscode"),
+        runtime_request,
+        state.uvicorn_server,
     )
-
-    assert payload == {"ok": True}
-    assert server.should_exit is True
-
-
-@pytest.mark.asyncio
-async def test_desktop_shutdown_ignores_an_absent_header(desktop_env) -> None:
-    """A request without the header must not touch a live server.
-
-    Calling the endpoint function directly bypasses FastAPI dependency
-    injection, so ``Header(default=None)`` would arrive as the marker
-    object itself; the absent-header case is spelled ``None`` here.
-    """
-    desktop_env.setenv(DESKTOP_APP_ENV, "1")
-    desktop_env.setenv(DESKTOP_TOKEN_ENV, "tok")
-    server = type("Server", (), {"should_exit": False})()
-    desktop_env.setattr(
-        app_module.app.state,
-        "uvicorn_server",
-        server,
-        raising=False,
+    abandoned = await runtime_router.connect(
+        runtime_router.ClientConnection(client="desktop"),
+        runtime_request,
+        state.uvicorn_server,
     )
-
-    with pytest.raises(HTTPException) as exc:
-        await app_module.post_desktop_shutdown(
-            x_qwenpaw_desktop_shutdown_token=None,
+    await abandoned.body_iterator.aclose()
+    assert not state.runtime_clients
+    await anext(first.body_iterator)
+    await anext(second.body_iterator)
+    first_id = first.headers["X-QwenPaw-Client"]
+    assert await runtime_router.connected_clients(
+        runtime_request,
+        first_id,
+        state.uvicorn_server,
+    ) == {
+        "other_clients": 1,
+        "clients": [{"client": "vscode", "installation": ""}],
+    }
+    try:
+        with pytest.raises(HTTPException) as error:
+            await runtime_router.shutdown(
+                runtime_request,
+                first.headers["X-QwenPaw-Client"],
+                state.uvicorn_server,
+            )
+        assert error.value.status_code == 409
+        assert not state.uvicorn_server.should_exit
+        assert not (state.runtime_instance.directory / "stop-request").exists()
+        await second.body_iterator.aclose()
+        assert len(state.runtime_clients) == 1
+        assert await runtime_router.connected_clients(
+            runtime_request,
+            first_id,
+            state.uvicorn_server,
+        ) == {"other_clients": 0, "clients": []}
+        pending = await runtime_router.connect(
+            runtime_router.ClientConnection(client="desktop"),
+            runtime_request,
+            state.uvicorn_server,
         )
-
-    assert exc.value.status_code == 404
-    assert server.should_exit is False
+        result = await runtime_router.shutdown(
+            runtime_request,
+            first.headers["X-QwenPaw-Client"],
+            state.uvicorn_server,
+        )
+        assert result == {"ok": True}
+        assert state.uvicorn_server.should_exit
+        with pytest.raises(StopAsyncIteration):
+            await anext(pending.body_iterator)
+        assert set(state.runtime_clients) == {first_id}
+        with pytest.raises(HTTPException) as admission:
+            await runtime_router.connect(
+                runtime_router.ClientConnection(client="vscode"),
+                runtime_request,
+                state.uvicorn_server,
+            )
+        assert admission.value.status_code == 503
+        with pytest.raises(HTTPException) as error:
+            runtime_router.authenticate(
+                runtime_request,
+                state.runtime_instance.token,
+            )
+        assert error.value.status_code == 503
+    finally:
+        await first.body_iterator.aclose()
+        await second.body_iterator.aclose()
+    assert not state.runtime_clients
 
 
 # ---------------------------------------------------------------------------

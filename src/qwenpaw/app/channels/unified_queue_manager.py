@@ -38,6 +38,30 @@ ConsumerFn = Callable[
 ]
 
 
+@dataclass(frozen=True)
+class EnqueueResult:
+    """A determinate admission result; accepted means queue.put completed."""
+
+    accepted: bool
+    reason_code: str | None = None
+    retryable: bool = False
+
+
+class _AdmissionQueue(asyncio.Queue):
+    def __init__(self, maxsize):
+        super().__init__(maxsize=maxsize)
+        self.changed = asyncio.Event()
+
+    @property
+    def unfinished(self):
+        return self._unfinished_tasks
+
+    def get_nowait(self):
+        item = super().get_nowait()
+        self.changed.set()
+        return item
+
+
 @dataclass
 class QueueState:
     """State for a single queue.
@@ -108,6 +132,7 @@ class UnifiedQueueManager:
 
         # Running flag
         self._running = False
+        self._closed = False
 
         logger.debug(
             f"UnifiedQueueManager initialized: "
@@ -134,35 +159,79 @@ class UnifiedQueueManager:
         Note:
             Creates queue and consumer on-demand if not exists
         """
-        queue_key = (channel_id, session_id, priority_level)
-
-        # Get or create queue and consumer
-        state = await self._get_or_create_queue(queue_key)
-
-        # Update activity timestamp
-        state.last_activity = time.time()
-
-        # Enqueue payload with bounded wait to avoid indefinite blocking
-        try:
-            await asyncio.wait_for(state.queue.put(payload), timeout=30.0)
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Queue full timeout (30s): "
-                f"channel={channel_id} "
-                f"session={session_id[:30]} "
-                f"priority={priority_level} "
-                f"qsize={state.queue.qsize()}",
-            )
-            raise
-
-        logger.debug(
-            f"Enqueued: channel={channel_id} "
-            f"session={session_id[:30]} "
-            f"priority={priority_level} "
-            f"qsize={state.queue.qsize()}",
+        result = await self.admit(
+            channel_id,
+            session_id,
+            priority_level,
+            payload,
         )
+        if not result.accepted:
+            if result.reason_code == "QUEUE_CAPACITY_TIMEOUT":
+                raise asyncio.TimeoutError
+            raise RuntimeError(result.reason_code)
 
-    async def _get_or_create_queue(self, queue_key: QueueKey) -> QueueState:
+    async def admit(
+        self,
+        channel_id: str,
+        session_id: str,
+        priority_level: int,
+        payload: Any,
+        *,
+        timeout: float = 30.0,
+        admission_guard=None,
+    ) -> EnqueueResult:
+        """Wait for space, then check ownership and commit in one loop turn."""
+
+        queue_key = (channel_id, session_id, priority_level)
+        state = None
+
+        def rejected():
+            if self._closed:
+                return EnqueueResult(False, "QUEUE_CLOSED", True)
+            if state is not None and (
+                self._queues.get(queue_key) is not state
+                or state.consumer_task.done()
+                or state.consumer_task.cancelling()
+            ):
+                return EnqueueResult(False, "QUEUE_UNAVAILABLE", True)
+            return admission_guard() if admission_guard is not None else None
+
+        try:
+            async with asyncio.timeout(timeout):
+                rejection = rejected()
+                if rejection is not None:
+                    return rejection
+                state = await self._get_or_create_queue(queue_key)
+                if state is None:
+                    return EnqueueResult(False, "QUEUE_CLOSED", True)
+                queue = state.queue
+                while True:
+                    rejection = rejected()
+                    if rejection is not None:
+                        return rejection
+                    if not queue.full():
+                        # asyncio.Queue.put cannot suspend when space exists.
+                        await queue.put(payload)
+                        state.last_activity = time.time()
+                        return EnqueueResult(True)
+                    queue.changed.clear()
+                    await queue.changed.wait()
+        except TimeoutError:
+            return rejected() or EnqueueResult(
+                False,
+                "QUEUE_CAPACITY_TIMEOUT",
+                True,
+            )
+
+    def wake_admissions(self) -> None:
+        """Recheck admission guards after an owner starts stopping."""
+        for state in self._queues.values():
+            state.queue.changed.set()
+
+    async def _get_or_create_queue(
+        self,
+        queue_key: QueueKey,
+    ) -> QueueState | None:
         """Get or create queue and consumer for the given key.
 
         Args:
@@ -172,12 +241,14 @@ class UnifiedQueueManager:
             QueueState with queue and consumer task
         """
         async with self._lock:
+            if self._closed:
+                return None
             # Check if already exists
             if queue_key in self._queues:
                 return self._queues[queue_key]
 
             # Create new queue
-            queue = asyncio.Queue(maxsize=self._queue_maxsize)
+            queue = _AdmissionQueue(maxsize=self._queue_maxsize)
 
             # Create consumer task
             channel_id, session_id, priority_level = queue_key
@@ -263,7 +334,16 @@ class UnifiedQueueManager:
         finally:
             # Remove from queues dict when consumer exits
             async with self._lock:
-                self._queues.pop(queue_key, None)
+                current = self._queues.get(queue_key)
+                if (
+                    current is not None
+                    and current.queue is queue
+                    and not queue.unfinished
+                ):
+                    self._queues.pop(queue_key)
+                # A dead consumer may retain unfinished work. Wake blocked
+                # admissions so they reject rather than fill an orphan queue.
+                queue.changed.set()
 
             logger.info(
                 f"Consumer stopped: channel={channel_id} "
@@ -313,6 +393,7 @@ class UnifiedQueueManager:
                 while not state.queue.empty():
                     try:
                         state.queue.get_nowait()
+                        state.queue.task_done()
                         cleared_count += 1
                     except asyncio.QueueEmpty:
                         break
@@ -326,13 +407,34 @@ class UnifiedQueueManager:
 
         return cleared_count
 
+    async def drain(
+        self,
+        channel_id: str | None = None,
+        *,
+        timeout: float = 5.0,
+    ) -> bool:
+        """Wait for accepted work, including batches already dequeued."""
+        queues = [
+            state.queue
+            for key, state in self._queues.items()
+            if channel_id is None or key[0] == channel_id
+        ]
+        try:
+            async with asyncio.timeout(timeout):
+                await asyncio.gather(*(queue.join() for queue in queues))
+            return True
+        except TimeoutError:
+            return False
+
     async def stop_all(self) -> None:
         """Stop all consumers and cleanup task gracefully.
 
         Note:
             Call this during app shutdown
         """
+        self._closed = True
         self._running = False
+        self.wake_admissions()
 
         # Cancel cleanup task
         if self._cleanup_task is not None:
@@ -352,7 +454,8 @@ class UnifiedQueueManager:
 
         if consumer_tasks:
             for task in consumer_tasks:
-                task.cancel()
+                if not task.done() and not task.cancelling():
+                    task.cancel()
 
             # Wait for all consumers to finish
             _, pending = await asyncio.wait(
@@ -367,9 +470,32 @@ class UnifiedQueueManager:
                     f"still pending after 5s",
                 )
 
-        # Clear queues dict
+        # Keep timed-out consumers and any work they still own available for
+        # a retry. Only messages never fetched by a stopped consumer can be
+        # cancelled and settled here.
         async with self._lock:
-            self._queues.clear()
+            for key, state in list(self._queues.items()):
+                if not state.consumer_task.done():
+                    continue
+                cancelled_count = 0
+                while not state.queue.empty():
+                    state.queue.get_nowait()
+                    state.queue.task_done()
+                    cancelled_count += 1
+                if cancelled_count:
+                    logger.info(
+                        "Cancelled %s queued messages during shutdown: %s",
+                        cancelled_count,
+                        key,
+                    )
+                if not state.queue.unfinished:
+                    self._queues.pop(key)
+                    state.queue.changed.set()
+            if self._queues:
+                raise TimeoutError(
+                    "Queue shutdown incomplete; retained "
+                    f"{len(self._queues)} queue owner(s) for retry",
+                )
 
         logger.info(f"Stopped all queues: total={queue_count}")
 
@@ -386,23 +512,30 @@ class UnifiedQueueManager:
                 await asyncio.sleep(self._cleanup_interval)
 
                 now = time.time()
-                to_cleanup: list[QueueKey] = []
+                to_cleanup: list[tuple[QueueKey, QueueState]] = []
 
                 # Find idle queues
                 async with self._lock:
                     for key, state in self._queues.items():
                         # Check if queue is empty and idle
-                        if state.queue.empty():
+                        if not state.queue.unfinished:
                             idle_time = now - state.last_activity
                             if idle_time > self._idle_timeout:
-                                to_cleanup.append(key)
+                                to_cleanup.append((key, state))
 
                 # Cancel idle consumers (outside lock)
-                for key in to_cleanup:
+                for key, expected in to_cleanup:
                     cleanup_state: QueueState | None = None
                     async with self._lock:
-                        if key in self._queues:
+                        state = self._queues.get(key)
+                        if (
+                            state is expected
+                            and not state.queue.unfinished
+                            and time.time() - state.last_activity
+                            > self._idle_timeout
+                        ):
                             cleanup_state = self._queues.pop(key)
+                            cleanup_state.queue.changed.set()
 
                     if cleanup_state is not None:
                         cleanup_state.consumer_task.cancel()

@@ -1,16 +1,11 @@
+@import (reference) "../../../../styles/contentStates.less";
+
 .emptyState {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 80px 24px;
-  color: var(--app-text-tertiary);
+  .search-empty-state();
 }
 
 .icon {
-  font-size: 40px;
-  opacity: 0.6;
+  .search-empty-icon();
 }
 
 .text {

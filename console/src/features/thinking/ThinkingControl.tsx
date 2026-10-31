@@ -51,6 +51,7 @@ export function ThinkingControl({
   const high = control.budget_max ?? low;
   const offPosition = low - Math.max(1, Math.round((high - low) * 0.12));
   const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetEdited, setBudgetEdited] = useState(false);
   const initial = Math.min(
     high,
     Math.max(low, displayed.budget_tokens ?? control.budget_default ?? low),
@@ -98,6 +99,7 @@ export function ThinkingControl({
   function commitBudget(next: number) {
     const bounded = Math.min(high, Math.max(low, Math.round(next)));
     setBudget(bounded);
+    setBudgetEdited(false);
     setAdjusting(false);
     onChange({ level: "budget", budget_tokens: bounded });
   }
@@ -114,9 +116,6 @@ export function ThinkingControl({
           }), var(--thinking-${ratio < 0.5 ? "mid" : "end"}) ${Math.round(
             (ratio < 0.5 ? ratio * 2 : (ratio - 0.5) * 2) * 100,
           )}%)`,
-          "--thinking-low-position": `${
-            ((low - offPosition) / (high - offPosition)) * 100
-          }%`,
         } as CSSProperties
       }
       onKeyDownCapture={(event) => {
@@ -184,16 +183,17 @@ export function ThinkingControl({
                 onChange={(next) => {
                   if (next !== null) {
                     setBudget(next);
+                    setBudgetEdited(true);
                     setAdjusting(true);
                     onPreview?.({ level: "budget", budget_tokens: next });
                   }
                 }}
                 onBlur={() => {
-                  if (adjusting) commitBudget(budget);
+                  if (budgetEdited) commitBudget(budget);
                   setEditingBudget(false);
                 }}
                 onPressEnter={() => {
-                  if (adjusting) commitBudget(budget);
+                  if (budgetEdited) commitBudget(budget);
                   setEditingBudget(false);
                 }}
               />

@@ -75,6 +75,7 @@ interface TabbedEditorProps {
   onTabDirtyChange: (path: string, dirty: boolean) => void;
   onTabContentChange: (path: string, content: string) => void;
   onFileSaved?: (path: string) => void;
+  onMemoryTagClick?: (tag: string) => void;
   onLoadFile?: (path: string) => Promise<string>;
   onSaveFile?: (path: string, content: string) => Promise<void>;
   onDownloadFile?: (path: string) => Promise<void>;
@@ -188,6 +189,7 @@ export default function TabbedEditor({
   onTabDirtyChange,
   onTabContentChange,
   onFileSaved,
+  onMemoryTagClick,
   onLoadFile,
   onSaveFile,
   onDownloadFile,
@@ -1385,6 +1387,16 @@ export default function TabbedEditor({
               root={activeTab.workspaceRoot}
               projectDirOverride={projectDirOverride}
               workspaceBacked={activeTab.source === "workspace"}
+              onMemoryTagClick={
+                !activeTab.artifactUrl &&
+                (activeTab.source === "memory" ||
+                  activeTab.source === "daily" ||
+                  activeTab.source === "digest" ||
+                  (activeTab.source === "workspace" &&
+                    activeTab.workspaceRoot === "workspace"))
+                  ? onMemoryTagClick
+                  : undefined
+              }
             />
           ) : (
             <pre className={styles.textPreview}>{activeRenderedContent}</pre>

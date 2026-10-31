@@ -2,7 +2,6 @@ import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
-import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import type {
   MdFileInfo,
   MdFileContent,
@@ -14,37 +13,6 @@ import type {
   FileMetadata,
   WorkspaceRoot,
 } from "../../features/files-workspace/types";
-
-function getSelectedAgentId(): string {
-  try {
-    // Read from sessionStorage first (per-tab agent), fall back to localStorage
-    const agentStorage =
-      sessionStorage.getItem("qwenpaw-agent-storage") ||
-      localStorage.getItem("qwenpaw-agent-storage");
-    if (agentStorage) {
-      const parsed = JSON.parse(agentStorage);
-      const selectedAgent = parsed?.state?.selectedAgent;
-      if (selectedAgent) {
-        return selectedAgent;
-      }
-    }
-  } catch (error) {
-    console.warn("Failed to get selected agent from storage:", error);
-  }
-  return "default";
-}
-
-function generateFallbackFilename(): string {
-  const agentId = getSelectedAgentId();
-  const now = new Date();
-  const timestamp = now
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\..+/, "")
-    .replace("T", "_")
-    .slice(0, 15); // YYYYMMDD_HHMMSS
-  return `qwenpaw_workspace_${agentId}_${timestamp}.zip`;
-}
 
 function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
@@ -289,41 +257,6 @@ export const workspaceApi = {
         body: JSON.stringify({ content }),
       },
     ),
-
-  // Workspace package download
-  downloadWorkspace: () =>
-    downloadFileFromUrl(
-      getApiUrl("/workspace/download"),
-      generateFallbackFilename(),
-      {
-        headers: buildAuthHeaders(),
-        errorMessage: "Workspace download failed",
-        preferResponseFilename: true,
-      },
-    ),
-
-  // File upload functionality
-  uploadFile: async (
-    file: File,
-  ): Promise<{ success: boolean; message: string }> => {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const response = await fetch(getApiUrl("/workspace/upload"), {
-      method: "POST",
-      headers: buildAuthHeaders(),
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Upload failed: ${response.status} ${response.statusText} - ${errorText}`,
-      );
-    }
-
-    return await response.json();
-  },
 
   listMemoryFiles: (section: MemorySection) =>
     request<MdFileInfo[]>(workspaceQuery("/workspace/memory", { section })),

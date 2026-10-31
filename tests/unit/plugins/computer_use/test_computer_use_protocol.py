@@ -39,6 +39,7 @@ from qwenpaw.app.computer_use import (
     set_current_computer_use_turn_id,
 )
 from qwenpaw.app.computer_use import runtime as runtime_module
+from tests.unit.plugins.timing import WAIT_TIMEOUT
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +89,7 @@ def test_host_runtime_requests_a_capability_only_when_needed(
     assert HostRuntimeProvider.is_available() is True
     assert received == {}
     capability = HostRuntimeProvider.acquire_capability()
-    server.join(timeout=1)
+    server.join(timeout=WAIT_TIMEOUT)
 
     assert capability == runtime_module.RuntimeCapability(
         "pipe-1",

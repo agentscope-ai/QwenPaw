@@ -1,3 +1,9 @@
+@import (reference) "../../../styles/pageHeader.less";
+
+@import (reference) "../../../styles/skillPresentation.less";
+
+@import (reference) "../../../styles/contentStates.less";
+
 @import (reference) "../../../styles/scaledTypography.less";
 
 .skillsPage {
@@ -54,37 +60,8 @@
 }
 
 .pageHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: relative;
-  padding: 20px;
-  border-bottom: 1px solid var(--app-border);
+  .page-header-frame();
   flex-shrink: 0;
-}
-
-.breadcrumbHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--app-font-subtitle);
-  flex: 1;
-}
-
-.breadcrumbParent {
-  color: var(--app-text-secondary);
-  font-weight: 400;
-}
-
-.breadcrumbSeparator {
-  color: var(--app-text-quaternary);
-  margin: 0 4px;
-}
-
-.breadcrumbCurrent {
-  color: var(--app-text);
-  font-weight: 600;
-  font-size: var(--app-font-title);
 }
 
 .headerRight {
@@ -130,18 +107,11 @@
 }
 
 .noSearchResults {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 80px 24px;
-  color: var(--app-text-tertiary);
+  .search-empty-state();
 }
 
 .noSearchResultsIcon {
-  font-size: 40px;
-  opacity: 0.6;
+  .search-empty-icon();
 }
 
 .noSearchResultsText {
@@ -369,16 +339,7 @@
 }
 
 .skillTitle {
-  margin: 0;
-  font-size: var(--app-font-subtitle);
-  font-weight: 600;
-  color: var(--app-text);
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
+  .skill-title();
 }
 
 .statusValue {

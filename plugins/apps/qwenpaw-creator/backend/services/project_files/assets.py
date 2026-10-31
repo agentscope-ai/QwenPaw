@@ -637,6 +637,18 @@ class AssetFileStore:
         with self.open_verified(indexed) as stream:
             return stream.read()
 
+    def resolve_verified_path(self, indexed: IndexedFile) -> Path:
+        """Return one verified Asset's path for callers that need a filename.
+
+        The full size-plus-sha256 check still runs, because a caller that hard
+        links the result shares the stored bytes: an unverified source would
+        hand corrupt media to everything reading the link.
+        """
+
+        with self.open_verified(indexed):
+            pass
+        return self._candidate_path(indexed.relative_uri)
+
     def scan_orphans(
         self,
         index: AssetIndex,
@@ -730,6 +742,14 @@ class AssetFileStore:
             raise StagedAssetError("Staged Asset escapes its Project") from exc
 
     def _open_candidate(self, relative_uri: str) -> tuple[BinaryIO, int]:
+        return _open_regular(
+            self._candidate_path(relative_uri),
+            missing_error=AssetFileMissing,
+        )
+
+    def _candidate_path(self, relative_uri: str) -> Path:
+        """Resolve one Asset URI to its on-disk name, refusing unsafe routes."""
+
         parts = _asset_uri_parts(relative_uri)
         if parts[1] == ".staging":
             raise AssetPathError(
@@ -737,8 +757,7 @@ class AssetFileStore:
             )
         self._validate_roots()
         parent = self._require_final_parent(parts[1:-1])
-        target = parent / parts[-1]
-        return _open_regular(target, missing_error=AssetFileMissing)
+        return parent / parts[-1]
 
     def _ensure_final_parent(self, directory_parts: tuple[str, ...]) -> Path:
         current = self.assets_root

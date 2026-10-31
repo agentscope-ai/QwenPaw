@@ -5,6 +5,7 @@
 event buffer. Reconnects get buffer replay + new events. Cleanup when task
 completes.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,6 +47,7 @@ class _RunState:
     start_time: Optional[datetime] = None
     finish_time: Optional[datetime] = None
     owner: object | None = None
+    channel_id: str | None = None
 
 
 class TaskTracker:
@@ -137,6 +139,7 @@ class TaskTracker:
     async def snapshot_active_tasks(
         self,
         owner: object | None = None,
+        channel_id: str | None = None,
     ) -> dict[str, asyncio.Future]:
         """Return the currently active tasks without tracking later runs."""
         async with self._lock:
@@ -145,6 +148,7 @@ class TaskTracker:
                 for run_key, state in self._runs.items()
                 if not state.task.done()
                 and (owner is None or state.owner is owner)
+                and (channel_id is None or state.channel_id == channel_id)
             }
 
     async def wait_tasks_done(
@@ -266,6 +270,7 @@ class TaskTracker:
         stream_fn: Callable[[Any], AsyncIterator[str]],
         owner: object | None = None,
         on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
+        channel_id: str | None = None,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
@@ -286,6 +291,7 @@ class TaskTracker:
                 queues=[my_queue],
                 buffer=[],
                 owner=owner,
+                channel_id=channel_id,
             )
 
             tracker_ref = weakref.ref(self)
@@ -362,13 +368,30 @@ class TaskTracker:
         self,
         queue: asyncio.Queue,
         run_key: str,
+        *,
+        cancel_run: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Yield SSE strings from *queue* until the sentinel ``None``.
 
         Always detaches *queue* from *run_key* when this stream ends or is
         closed (including client disconnect), so reconnects do not leak queues.
+        Channel queue executions opt into cancelling and joining their exact
+        producer; ordinary subscribers leave the run alive on disconnect.
         """
+
+        async def owned_task():
+            async with self._lock:
+                state = self._runs.get(run_key)
+                return (
+                    state.task
+                    if state is not None and queue in state.queues
+                    else None
+                )
+
+        producer = None
         try:
+            if cancel_run:
+                producer = await owned_task()
             while True:
                 try:
                     event = await queue.get()
@@ -376,6 +399,24 @@ class TaskTracker:
                         break
                     yield event
                 except asyncio.CancelledError:
+                    if cancel_run:
+                        raise
                     break
         finally:
-            await self.detach_subscriber(run_key, queue)
+            if cancel_run and asyncio.current_task().cancelling():
+                from ..utils.io_utils import run_async_to_completion
+
+                async def stop_and_detach():
+                    # Capture may itself have been cancelled waiting on the
+                    # lock. The exact subscriber queue excludes later runs
+                    # that reuse this key.
+                    task = producer or await owned_task()
+                    if task is not None:
+                        if not task.done() and not task.cancelling():
+                            task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                    await self.detach_subscriber(run_key, queue)
+
+                await run_async_to_completion(stop_and_detach())
+            else:
+                await self.detach_subscriber(run_key, queue)

@@ -220,6 +220,7 @@ class ChatPage(BasePage):
     APPROVAL_LEVELS = {
         "STRICT": ("Strict Mode", "严格模式"),
         "SMART": ("Smart Mode", "智能模式"),
+        "JEV": ("Decision Model Mode", "决策模型模式"),
         "AUTO": ("Auto Mode", "自动模式"),
         "OFF": ("Off Mode", "关闭模式"),
     }
@@ -2239,11 +2240,11 @@ class ChatPage(BasePage):
         return self
 
     def get_approval_menu_items(self) -> List[Locator]:
-        """Return the visible approval dropdown items (expected: 4)."""
+        """Return the visible approval dropdown items (expected: 5)."""
         return self.page.locator(self.APPROVAL_MENU_ITEM).all()
 
     def select_approval_level(self, level: str) -> "ChatPage":
-        """Open the menu and pick a level by key (STRICT/SMART/AUTO/OFF)."""
+        """Open the menu and pick a level by key (STRICT/SMART/JEV/AUTO/OFF)."""
         en, zh = self.APPROVAL_LEVELS[level]
         self.open_approval_menu()
         item = self.page.locator(

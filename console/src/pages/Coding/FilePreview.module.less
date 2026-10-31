@@ -318,6 +318,44 @@
   white-space: pre-wrap;
 }
 
+.memoryTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  white-space: normal;
+}
+
+.memoryTag {
+  padding: 3px 9px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  color: var(--app-text);
+  background: var(--app-surface);
+  font: inherit;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+button.memoryTag {
+  cursor: pointer;
+
+  &:hover {
+    color: var(--app-accent);
+    background: var(--app-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+
+@media (pointer: coarse) {
+  button.memoryTag {
+    min-height: 44px;
+  }
+}
+
 // ---- CSV ------------------------------------------------------------------
 
 .csvWrap {

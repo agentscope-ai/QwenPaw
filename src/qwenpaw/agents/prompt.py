@@ -384,35 +384,42 @@ def build_bootstrap_guidance(
     )
 
 
-def _get_active_model_info():
+def _get_active_model_slot(agent_config=None):
+    """Prefer explicit prompt config or the executing model to defaults."""
+    from ..providers.model_selection import current_model_slot
+    from ..providers.provider_manager import ProviderManager
+
+    active = (
+        getattr(agent_config, "active_model", None)
+        if agent_config is not None
+        else current_model_slot()
+    )
+    if active is None and agent_config is None:
+        try:
+            from ..app.agent_context import get_current_agent_id
+            from ..config.config import load_agent_config
+
+            active = load_agent_config(get_current_agent_id()).active_model
+        except Exception:
+            pass
+    return active or ProviderManager.get_instance().get_active_model()
+
+
+def _get_active_model_info(agent_config=None):
     """Resolve the active model's ModelInfo and model name.
 
-    Tries agent-specific model first, then falls back to global.
+    Uses explicit prompt config or the executing model, then agent/global.
 
     Returns:
         A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
         when the active model cannot be resolved.
     """
     try:
-        from ..app.agent_context import get_current_agent_id
-        from ..config.config import load_agent_config
         from ..providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
 
-        # Try to get agent-specific model first
-        active = None
-        try:
-            agent_id = get_current_agent_id()
-            agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
-                active = agent_config.active_model
-        except Exception:
-            pass
-
-        # Fallback to global active model
-        if not active:
-            active = manager.get_active_model()
+        active = _get_active_model_slot(agent_config)
 
         if not active:
             return None, None
@@ -518,9 +525,9 @@ def get_active_model_multimodal_raw() -> bool | None:
     return model_info.supports_multimodal
 
 
-def build_multimodal_hint() -> str:
+def build_multimodal_hint(agent_config=None) -> str:
     """Build a short system-prompt snippet describing multimodal capability."""
-    model_info, model_name = _get_active_model_info()
+    model_info, model_name = _get_active_model_info(agent_config)
     if model_info is None:
         return ""
     return format_multimodal_hint(model_info, model_name)

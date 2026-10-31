@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
 vi.mock("../request", () => ({ request: vi.fn() }));
 vi.mock("../config", () => ({
   getApiUrl: (path: string) => `/api${path}`,
@@ -14,13 +12,9 @@ vi.mock("../../stores/codeFileCacheStore", () => ({
     getState: () => ({ get: () => null, set: vi.fn(), invalidate: vi.fn() }),
   },
 }));
-vi.mock("../../utils/downloadFileFromUrl", () => ({
-  downloadFileFromUrl: vi.fn(),
-}));
 
 import { request } from "../request";
 import { workspaceApi } from "./workspace";
-import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 
 describe("workspaceApi.listDirectory", () => {
   afterEach(() => vi.clearAllMocks());
@@ -266,66 +260,6 @@ describe("workspaceApi.saveFile", () => {
       method: "PUT",
       body: JSON.stringify({ content: "# Title" }),
     });
-  });
-});
-
-describe("workspaceApi.downloadWorkspace", () => {
-  afterEach(() => vi.clearAllMocks());
-
-  it("calls downloadFileFromUrl with correct URL and options", async () => {
-    vi.mocked(downloadFileFromUrl).mockResolvedValue(undefined);
-    await workspaceApi.downloadWorkspace();
-    expect(downloadFileFromUrl).toHaveBeenCalledWith(
-      "/api/workspace/download",
-      expect.stringContaining("qwenpaw_workspace_"),
-      expect.objectContaining({
-        errorMessage: "Workspace download failed",
-        preferResponseFilename: true,
-      }),
-    );
-  });
-});
-
-describe("workspaceApi.uploadFile", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.clearAllMocks();
-  });
-
-  it("sends POST with FormData to /workspace/upload", async () => {
-    const mockFile = new File(["content"], "test.txt", { type: "text/plain" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ success: true, message: "ok" }),
-      } as unknown as Response),
-    );
-
-    const result = await workspaceApi.uploadFile(mockFile);
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/workspace/upload",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(result).toEqual({ success: true, message: "ok" });
-  });
-
-  it("throws on upload failure", async () => {
-    const mockFile = new File(["x"], "bad.txt");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 413,
-        statusText: "Payload Too Large",
-        text: () => Promise.resolve("File too big"),
-      } as unknown as Response),
-    );
-
-    await expect(workspaceApi.uploadFile(mockFile)).rejects.toThrow(
-      "Upload failed: 413 Payload Too Large - File too big",
-    );
   });
 });
 
