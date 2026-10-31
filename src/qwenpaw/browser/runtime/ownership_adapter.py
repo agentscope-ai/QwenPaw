@@ -33,6 +33,7 @@ async def build_session(
             "executable_path": launch.get("executable_path"),
             "channel": launch.get("channel"),
             "args": launch.get("args", []),
+            "ignore_default_args": launch.get("ignore_default_args", []),
             "viewport": launch.get("viewport"),
             "proxy": launch.get("proxy"),
             "backend": launch.get("backend"),

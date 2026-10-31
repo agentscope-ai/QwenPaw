@@ -83,6 +83,8 @@ def _build_launch_kwargs(
         launch["executable_path"] = executable_path
     if params.get("args"):
         launch["args"] = list(params["args"])
+    if params.get("ignore_default_args"):
+        launch["ignore_default_args"] = list(params["ignore_default_args"])
     if params.get("proxy"):
         launch["proxy"] = {"server": str(params["proxy"])}
     context: dict[str, Any] = {}

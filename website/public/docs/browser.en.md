@@ -152,6 +152,7 @@ Browser settings live in the `browser` block of the global
 | `headless`                 | string             | `"auto"` | `auto` runs headless in containers or without a display; `"true"` / `"false"` force the mode |
 | `user_data_dir`            | string \| null     | `null`   | Custom data directory for the standalone browser; assigned per workspace when unset          |
 | `args`                     | string[]           | `[]`     | Extra browser launch arguments                                                               |
+| `ignore_default_args`      | string[]           | `[]`     | Playwright default arguments to omit when using the Playwright launch backend (for example `--disable-extensions`); no effect with `managed_cdp` or `connect_cdp` |
 | `viewport`                 | [int, int] \| null | `null`   | Viewport size; both dimensions must be positive integers                                     |
 | `proxy`                    | string \| null     | `null`   | Proxy address                                                                                |
 | `use_system_default`       | bool               | `true`   | Prefer the Chromium executable of the system default browser                                 |
