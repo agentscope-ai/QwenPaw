@@ -18,7 +18,7 @@ from ..auth import (
     verify_token,
 )
 from ...services.terminal import TerminalManager, terminal_unavailable_reason
-from ...constant import CORS_ORIGINS
+from ...constant import get_cors_origins
 
 
 @asynccontextmanager
@@ -74,7 +74,9 @@ async def context(request: Request, group: UUID):
             user = await asyncio.to_thread(verify_bearer_user, token)
         if not user:
             raise HTTPException(401, "Terminal requires authentication")
-    configured_origins = {value.strip() for value in CORS_ORIGINS.split(",")}
+    configured_origins = {
+        value.strip() for value in get_cors_origins().split(",")
+    }
     if origin and not trusted_runtime and origin not in configured_origins:
         parsed = urlsplit(origin)
         # Local Vite and the local runtime use different ports. Both ends

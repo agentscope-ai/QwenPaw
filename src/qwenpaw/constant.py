@@ -303,7 +303,35 @@ MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
 # CORS configuration — comma-separated list of allowed origins for dev mode.
 # Example: QWENPAW_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 # When unset, CORS middleware is not applied.
+# CORS_ORIGINS is captured at import, before load_envs_into_environ().
+# get_cors_origins() reads the process env on each call. CORS middleware
+# copies that result once at import; the terminal check reads it per
+# request. Desktop mode also unions the Tauri webview origins.
 CORS_ORIGINS = EnvVarLoader.get_str("QWENPAW_CORS_ORIGINS", "").strip()
+
+
+def get_cors_origins() -> str:
+    """Return QWENPAW_CORS_ORIGINS from the live process environment.
+
+    When ``QWENPAW_DESKTOP_APP`` is set, also union the Tauri webview
+    origins. Desktop startup appends those origins, then the app import
+    reloads envs.json and can overwrite the process value.
+    """
+    raw = EnvVarLoader.get_str("QWENPAW_CORS_ORIGINS", "").strip()
+    if not EnvVarLoader.get_bool("QWENPAW_DESKTOP_APP"):
+        return raw
+    # tauri.env does not import constant. Keep this local so the server
+    # path does not import the desktop helper on every call.
+    from qwenpaw.tauri.env import (  # pylint: disable=import-outside-toplevel
+        DESKTOP_CORS_ORIGINS,
+    )
+
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    for origin in DESKTOP_CORS_ORIGINS:
+        if origin not in origins:
+            origins.append(origin)
+    return ",".join(origins)
+
 
 # Upload size limit (MB).  None = no limit.
 UPLOAD_MAX_SIZE_MB: int | None = (
