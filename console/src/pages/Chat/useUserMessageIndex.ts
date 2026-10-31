@@ -36,16 +36,19 @@ export function useUserMessageIndex(
         .then((latest) => {
           if (abort.signal.aborted) return;
           const previous = current.current;
+          const overlap =
+            previous?.items.findIndex(
+              (item) => item.messageId === latest.items[0]?.messageId,
+            ) ?? -1;
           publish(
             previous?.sessionId === sessionId &&
               latest.total >= previous.total &&
-              latest.items.some((item) =>
-                previous.items.some((old) => old.messageId === item.messageId),
-              )
+              overlap >= 0
               ? {
-                  ...previous,
-                  items: mergeNavigationUsers(previous.items, latest.items),
-                  total: latest.total,
+                  ...latest,
+                  sessionId,
+                  items: [...previous.items.slice(0, overlap), ...latest.items],
+                  before: previous.before,
                 }
               : { ...latest, sessionId },
           );

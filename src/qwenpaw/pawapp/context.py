@@ -91,6 +91,7 @@ class AppStorage:
             user_id=self._user_id,
             channel=self._channel,
             create_if_not_exist=False,
+            delete=True,
         )
 
     async def keys(self) -> List[str]:
@@ -103,7 +104,7 @@ class AppStorage:
                 channel=self._channel,
                 allow_not_exist=True,
             )
-            return list(state.keys())
+            return [key for key in state if key != "_context_generation"]
         except Exception:
             return []
 

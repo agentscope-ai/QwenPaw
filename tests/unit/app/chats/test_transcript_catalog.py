@@ -395,6 +395,38 @@ def test_delete_waits_for_active_lease(tmp_path: Path) -> None:
     catalog.close()
 
 
+def test_delete_retries_after_database_unlink_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    _start(catalog, "session-a")
+    _finish(catalog, "session-a")
+    database = next((tmp_path / "transcripts").glob("*.db"))
+    unlink = Path.unlink
+    failed = False
+
+    def fail_once(path: Path, *args, **kwargs) -> None:
+        nonlocal failed
+        if path == database and not failed:
+            failed = True
+            raise OSError("database is busy")
+        unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_once)
+    with pytest.raises(OSError, match="database is busy"):
+        catalog.delete_session("session-a", "user-1", "console")
+    assert catalog.has_session(
+        session_id="session-a",
+        user_id="user-1",
+        channel="console",
+    )
+    assert database.exists()
+    assert catalog.delete_session("session-a", "user-1", "console")
+    assert not database.exists()
+    catalog.close()
+
+
 def test_failed_turn_write_releases_handle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

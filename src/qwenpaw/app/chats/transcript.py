@@ -769,6 +769,7 @@ class TranscriptStore:
         session_id: str,
         path: list[str],
         value: Any,
+        delete: bool = False,
     ) -> None:
         """Update one nested value in an existing runtime snapshot."""
         with self._transaction():
@@ -785,10 +786,15 @@ class TranscriptStore:
             for key in path[:-1]:
                 child = current.get(key)
                 if not isinstance(child, dict):
+                    if delete:
+                        return
                     child = {}
                     current[key] = child
                 current = child
-            current[path[-1]] = value
+            if delete:
+                current.pop(path[-1], None)
+            else:
+                current[path[-1]] = value
             state_json = _canonical_json(state)
             timestamp = _utc_now()
             self._conn.execute(
@@ -1202,7 +1208,7 @@ class TranscriptStore:
                     "SELECT payload FROM content_objects "
                     "WHERE content_hash = ?",
                     (row["envelope_ref"],),
-                ).fetchone()[0]
+                ).fetchone()[0],
             )
             envelope["content"] = [
                 json.loads(
@@ -1210,7 +1216,7 @@ class TranscriptStore:
                         "SELECT payload FROM content_objects "
                         "WHERE content_hash = ?",
                         (ref,),
-                    ).fetchone()[0]
+                    ).fetchone()[0],
                 )
                 for ref in row["block_refs"]
             ]
@@ -2257,6 +2263,7 @@ class TranscriptStore:
                 else max(0, int(session["next_turn_seq"]) - 1)
             )
             turn_sql = "SELECT t.turn_seq FROM transcript_turns t "
+            after_turn_seq: int | None = None
             if after_message_id is not None:
                 boundary = connection.execute(
                     "SELECT t.turn_seq FROM transcript_messages m "
@@ -2267,6 +2274,7 @@ class TranscriptStore:
                 ).fetchone()
                 if boundary is None:
                     raise ValueError("history boundary message not found")
+                after_turn_seq = int(boundary["turn_seq"])
                 following = connection.execute(
                     "SELECT t.turn_seq FROM transcript_turns t "
                     "WHERE t.session_id = ? AND t.turn_seq > ? "
@@ -2298,6 +2306,9 @@ class TranscriptStore:
                 )
             turn_sql += "WHERE t.session_id = ? AND t.turn_seq <= ? "
             params: list[Any] = [session_id, snapshot_turn_seq]
+            if after_turn_seq is not None:
+                turn_sql += "AND t.turn_seq > ? "
+                params.append(after_turn_seq)
             if before is not None:
                 at_turn_boundary = (
                     before.ordinal == 0 and before.content_before == 0

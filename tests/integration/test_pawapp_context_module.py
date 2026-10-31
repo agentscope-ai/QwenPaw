@@ -24,6 +24,8 @@ class FakeSession:
         self,
         session_id: str,
         allow_not_exist: bool = False,
+        user_id: str = "",
+        channel: str = "",
     ) -> dict[str, Any]:
         if session_id not in self.states:
             if allow_not_exist:
@@ -37,6 +39,9 @@ class FakeSession:
         key: str,
         value: Any,
         create_if_not_exist: bool = True,
+        user_id: str = "",
+        channel: str = "",
+        delete: bool = False,
     ) -> None:
         if create_if_not_exist:
             self.states.setdefault(session_id, {})[key] = value
@@ -46,7 +51,9 @@ class FakeSession:
             else:
                 self.states[session_id][key] = value
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session_state(
+        self, session_id: str, user_id: str = "", channel: str = "",
+    ) -> None:
         self.deleted.append(session_id)
         self.states.pop(session_id, None)
 
@@ -74,13 +81,19 @@ def test_app_storage_set_get_roundtrip() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_app_storage_keys_and_delete() -> None:
+def test_app_storage_keys_and_delete(tmp_path) -> None:
     """keys lists namespace keys; delete removes a key."""
     import asyncio
 
     from qwenpaw.pawapp.context import AppStorage
 
-    session = FakeSession()
+    from qwenpaw.app.chats.session import DatabaseSession
+    from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog, legacy_save_dir=str(tmp_path / "sessions"),
+    )
     storage = AppStorage(session, namespace="ns")
 
     async def run() -> None:
@@ -89,8 +102,13 @@ def test_app_storage_keys_and_delete() -> None:
         assert sorted(await storage.keys()) == ["a", "b"]
         await storage.delete("a")
         assert sorted(await storage.keys()) == ["b"]
+        await storage.clear_namespace()
+        assert await storage.keys() == []
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    finally:
+        catalog.close()
 
 
 @pytest.mark.integration

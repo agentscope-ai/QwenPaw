@@ -249,6 +249,17 @@ def test_user_message_index_anchor_reads_target_turn(tmp_path):
         "message-4",
         "assistant-4",
     ]
+    short_tail = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        after_message_id="message-6",
+        limit=5,
+    )
+    assert [item.id for item in short_tail.messages] == [
+        "message-7",
+        "assistant-7",
+    ]
     end = store.get_page(
         session_id="session-1",
         user_id="user-1",

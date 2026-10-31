@@ -558,6 +558,7 @@ class DatabaseSession:
             tuple[str, str, str],
             asyncio.Task[LegacyConversationSnapshot | None],
         ] = {}
+        self._deleted_sessions: set[tuple[str, str, str]] = set()
 
     async def _legacy_path(
         self,
@@ -605,6 +606,8 @@ class DatabaseSession:
         """Read legacy JSON without creating or changing database data."""
         key = (session_id, user_id, channel)
         async with self._migration_lock:
+            if key in self._deleted_sessions:
+                return None
             task = self._legacy_snapshot_tasks.get(key)
             if task is None:
                 task = asyncio.create_task(
@@ -626,6 +629,8 @@ class DatabaseSession:
             async with self._migration_lock:
                 if self._legacy_snapshot_tasks.get(key) is task:
                     self._legacy_snapshot_tasks.pop(key, None)
+        if key in self._deleted_sessions:
+            return None
         return snapshot
 
     async def _migrate_legacy_snapshot(
@@ -702,7 +707,8 @@ class DatabaseSession:
         config_path = self._legacy_save_dir.parent / "agent.json"
         config = (
             await run_sync_io(_read_session_json, str(config_path))
-            if await run_sync_io(config_path.is_file) else {}
+            if await run_sync_io(config_path.is_file)
+            else {}
         )
         try:
             await recover_codex_boundaries(
@@ -743,7 +749,7 @@ class DatabaseSession:
                     {
                         "provider": provider,
                         "external_session_id": str(external_id),
-                    }
+                    },
                 )
         if len(bindings) > 1:
             raise ValueError("ambiguous legacy provider session binding")
@@ -839,9 +845,11 @@ class DatabaseSession:
         user_id: str,
         channel: str,
         snapshot: LegacyConversationSnapshot,
-    ) -> asyncio.Task[bool]:
+    ) -> asyncio.Task[bool] | None:
         key = (session_id, user_id, channel)
         async with self._migration_lock:
+            if key in self._deleted_sessions:
+                return None
             task = self._migration_tasks.get(key)
             if task is None:
                 task = asyncio.create_task(
@@ -881,6 +889,8 @@ class DatabaseSession:
             channel=channel,
             snapshot=legacy,
         )
+        if task is None:
+            return False
         if wait_for_projection:
             while not task.done():
                 page = await run_sync_io(
@@ -932,6 +942,8 @@ class DatabaseSession:
                 channel=channel,
                 snapshot=snapshot,
             )
+            if task is None:
+                return False
             return await asyncio.shield(task)
         except Exception as exc:
             raise LegacyMigrationError(session_id) from exc
@@ -1161,6 +1173,7 @@ class DatabaseSession:
         user_id: str = "",
         channel: str = "",
         create_if_not_exist: bool = True,
+        delete: bool = False,
     ) -> None:
         """Update one nested runtime-state value."""
         path = key.split(".") if isinstance(key, str) else list(key)
@@ -1190,6 +1203,7 @@ class DatabaseSession:
                 path=path,
                 value=value,
                 create_if_missing=create_if_not_exist,
+                delete=delete,
             )
         except KeyError as exc:
             raise AgentStateError(
@@ -1247,18 +1261,68 @@ class DatabaseSession:
         session_id: str,
         user_id: str = "",
         channel: str = "",
+        *,
+        deleting_channels: tuple[str, ...] = (),
     ) -> bool:
         """Delete the session database and any unimported JSON snapshot."""
+        key = (session_id, user_id, channel)
+        async with self._migration_lock:
+            self._deleted_sessions.add(key)
+            self._legacy_snapshot_tasks.pop(key, None)
+            migration = self._migration_tasks.get(key)
+        if migration is not None:
+            try:
+                await asyncio.shield(migration)
+            except Exception:
+                pass
         deleted = await run_sync_io(
             self._catalog.delete_session,
             session_id,
             user_id,
             channel,
         )
-        path = await self._legacy_path(session_id, user_id, channel)
-        try:
-            await run_sync_io(path.unlink)
-            deleted = True
-        except FileNotFoundError:
-            pass
+        filename = session_filename(session_id, user_id)
+        paths = []
+        shared_root = await run_sync_io(
+            self._legacy_root_shared,
+            session_id,
+            user_id,
+            channel,
+            deleting_channels,
+        )
+        if not shared_root:
+            paths.append(self._legacy_save_dir / filename)
+        if channel:
+            safe_channel = sanitize_filename(channel)
+            if safe_channel in {".", ".."}:
+                raise ValueError(f"invalid session channel: {channel!r}")
+            paths.append(self._legacy_save_dir / safe_channel / filename)
+        for path in paths:
+            try:
+                await run_sync_io(path.unlink)
+                deleted = True
+            except FileNotFoundError:
+                pass
         return deleted
+
+    def _legacy_root_shared(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        deleting_channels: tuple[str, ...],
+    ) -> bool:
+        """Keep the root fallback while another channel still uses it."""
+        path = self._legacy_save_dir.parent / "chats.json"
+        try:
+            chats = _read_session_json(str(path)).get("chats", [])
+        except (FileNotFoundError, OSError):
+            return False
+        return any(
+            isinstance(chat, dict)
+            and chat.get("session_id") == session_id
+            and chat.get("user_id") == user_id
+            and chat.get("channel") != channel
+            and chat.get("channel") not in deleting_channels
+            for chat in chats
+        )

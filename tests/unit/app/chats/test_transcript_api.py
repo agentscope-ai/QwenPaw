@@ -139,6 +139,31 @@ async def test_get_chat_returns_at_most_five_turns(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_history_page_budget_error_is_not_a_cursor_error(
+    tmp_path: Path,
+) -> None:
+    store = TranscriptStore(tmp_path / "session.db")
+    _append_turn(store, 1, "short input")
+    arguments = {
+        "chat_id": "chat-1",
+        "before": None,
+        "after_message_id": None,
+        "limit": 5,
+        "include_app_owned": True,
+        "mgr": SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+        "workspace": _workspace(store),
+    }
+    page = await get_chat_messages(max_bytes=2048, **arguments)
+    assert [message.id for message in page.messages] == ["message-1"]
+
+    with pytest.raises(HTTPException) as error:
+        await get_chat_messages(max_bytes=1, **arguments)
+    assert error.value.status_code == 400
+    assert error.value.detail == "History page byte limit is too small"
+    store.close()
+
+
+@pytest.mark.asyncio
 async def test_user_message_index_anchor_locates_unloaded_turn(
     tmp_path: Path,
 ) -> None:
@@ -759,6 +784,45 @@ async def test_delete_keeps_shared_session_data() -> None:
     store.delete_session.assert_not_called()
     workspace.task_tracker.request_stop.assert_awaited_once_with(first.id)
     manager.delete_chats.assert_awaited_once_with(chat_ids=[first.id])
+
+
+@pytest.mark.asyncio
+async def test_delete_keeps_mapping_when_data_cleanup_fails() -> None:
+    chat = _chat()
+    store = Mock(spec=TranscriptCatalog)
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=chat),
+        list_chats=AsyncMock(return_value=[chat]),
+        delete_chats=AsyncMock(return_value=True),
+    )
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        session=None,
+        task_tracker=SimpleNamespace(request_stop=AsyncMock()),
+    )
+    checkpoint_delete = AsyncMock(side_effect=[OSError("disk error"), None])
+
+    with patch(
+        "qwenpaw.app.chats.api.CHECKPOINT_RUNTIME."
+        "delete_session_checkpoints",
+        checkpoint_delete,
+    ):
+        with pytest.raises(HTTPException, match="Failed to delete"):
+            await delete_chat(
+                chat_id=chat.id,
+                mgr=manager,
+                workspace=workspace,
+            )
+        manager.delete_chats.assert_not_awaited()
+        result = await delete_chat(
+            chat_id=chat.id,
+            mgr=manager,
+            workspace=workspace,
+        )
+
+    assert result == {"deleted": True}
+    manager.delete_chats.assert_awaited_once_with(chat_ids=[chat.id])
+    assert store.delete_session.call_count == 2
 
 
 @pytest.mark.asyncio

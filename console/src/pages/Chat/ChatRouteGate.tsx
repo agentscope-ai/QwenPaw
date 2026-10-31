@@ -16,18 +16,21 @@ type GateState = "resolving" | "ready" | "error";
 export default function ChatRouteGate() {
   const { t } = useTranslation();
   const location = useLocation();
-  const initialReference = useRef(
-    getSessionIdFromPath(location.pathname),
-  ).current;
-  const needsResolution =
-    initialReference !== undefined && initialReference !== "new";
+  const reference = getSessionIdFromPath(location.pathname);
+  const needsResolution = reference !== undefined && reference !== "new";
   const [state, setState] = useState<GateState>(
     needsResolution ? "resolving" : "ready",
   );
   const [attempt, setAttempt] = useState(0);
+  const activated = useRef(!needsResolution);
 
   useEffect(() => {
-    if (!needsResolution || !initialReference) return;
+    if (activated.current) return;
+    if (!needsResolution || !reference) {
+      activated.current = true;
+      setState("ready");
+      return;
+    }
 
     const controller = new AbortController();
     const resolveRoute = async () => {
@@ -35,7 +38,7 @@ export default function ChatRouteGate() {
       try {
         const currentAgentId = useAgentStore.getState().selectedAgent;
         const { agent_id: agentId, chat } = await chatApi.resolveChat(
-          initialReference,
+          reference,
           {
             currentAgentId,
             signal: controller.signal,
@@ -58,6 +61,7 @@ export default function ChatRouteGate() {
           ]);
           if (controller.signal.aborted) return;
           sessionApi.registerResolvedChat(chat, sessionApi.getActiveOwner());
+          activated.current = true;
           setState("ready");
           return;
         }
@@ -69,6 +73,7 @@ export default function ChatRouteGate() {
         ]);
         if (controller.signal.aborted) return;
         sessionApi.registerResolvedChat(chat, sessionApi.getActiveOwner());
+        activated.current = true;
         setState("ready");
       } catch (error) {
         if (
@@ -83,7 +88,7 @@ export default function ChatRouteGate() {
 
     void resolveRoute();
     return () => controller.abort();
-  }, [attempt, initialReference, needsResolution]);
+  }, [attempt, reference, needsResolution]);
 
   if (state === "error") {
     return (

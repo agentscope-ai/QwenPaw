@@ -64,7 +64,7 @@ async def test_json_migration_imports_recall_once(tmp_path: Path) -> None:
                         "name": "user",
                         "role": "user",
                         "content": [{"type": "text", "text": "hello"}],
-                    }
+                    },
                 ],
             },
         },
@@ -480,6 +480,140 @@ async def test_concurrent_legacy_imports_return_the_same_state(
         "_context_generation": 0,
     }
     assert results == [expected, expected]
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_waits_for_migration_and_removes_both_legacy_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    filename = session_filename("session-1", "u")
+    root_path = legacy_dir / filename
+    root_path.write_text(json.dumps({"agent": {"marker": "private"}}))
+    channel_path = Path(
+        SafeJSONSession(str(legacy_dir))._get_save_path(
+            "session-1",
+            "u",
+            "console",
+        ),
+    )
+    assert root_path.exists() and channel_path.exists()
+
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+    snapshot = await session.get_legacy_snapshot(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+    assert snapshot is not None
+    started = asyncio.Event()
+    resume = asyncio.Event()
+    migrate = session._migrate_legacy_snapshot
+
+    async def paused_migration(**kwargs):
+        started.set()
+        await resume.wait()
+        return await migrate(**kwargs)
+
+    monkeypatch.setattr(session, "_migrate_legacy_snapshot", paused_migration)
+    migration = asyncio.create_task(
+        session.start_legacy_migration(
+            session_id="session-1",
+            user_id="u",
+            channel="console",
+            snapshot=snapshot,
+            wait_for_projection=True,
+        ),
+    )
+    await started.wait()
+    deletion = asyncio.create_task(
+        session.delete_session_state("session-1", "u", "console"),
+    )
+    await asyncio.sleep(0)
+    assert not deletion.done()
+    resume.set()
+    await migration
+    assert await deletion
+    assert not root_path.exists() and not channel_path.exists()
+    assert not catalog.has_session(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+    assert (
+        await session.get_legacy_snapshot(
+            session_id="session-1",
+            user_id="u",
+            channel="console",
+        )
+        is None
+    )
+    assert not await session.start_legacy_migration(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+        snapshot=snapshot,
+    )
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_keeps_root_legacy_used_by_another_channel(
+    tmp_path: Path,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    root_path = legacy_dir / session_filename("session-1", "u")
+    root_path.write_text(json.dumps({"agent": {"marker": "shared"}}))
+    (tmp_path / "chats.json").write_text(
+        json.dumps(
+            {
+                "chats": [
+                    {
+                        "session_id": "session-1",
+                        "user_id": "u",
+                        "channel": channel,
+                    }
+                    for channel in ("console", "feishu")
+                ],
+            },
+        ),
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+
+    await session.delete_session_state("session-1", "u", "console")
+
+    assert root_path.exists()
+    snapshot = await session.get_legacy_snapshot(
+        session_id="session-1",
+        user_id="u",
+        channel="feishu",
+    )
+    assert snapshot is not None
+    assert snapshot.state["agent"]["marker"] == "shared"
+    for channel in ("console", "feishu"):
+        await session.delete_session_state(
+            "session-1", "u", channel,
+            deleting_channels=("console", "feishu"),
+        )
+    assert not root_path.exists()
+    restarted = DatabaseSession(
+        catalog=catalog, legacy_save_dir=str(legacy_dir),
+    )
+    assert await restarted.get_legacy_snapshot(
+        session_id="session-1", user_id="u", channel="console",
+    ) is None
     catalog.close()
 
 

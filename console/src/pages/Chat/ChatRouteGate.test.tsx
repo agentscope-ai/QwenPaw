@@ -1,5 +1,11 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatHistory, ChatSpec } from "../../api/types";
 import { chatApi } from "../../api/modules/chat";
@@ -152,6 +158,40 @@ describe("ChatRouteGate", () => {
     await act(async () => screen.getByRole("button").click());
 
     await waitFor(() => expect(screen.getByText("Chat page")).toBeVisible());
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves the current path after a failed chat changes", async () => {
+    const next = "33333333-3333-4333-8333-333333333333";
+    const resolve = vi
+      .spyOn(chatApi, "resolveChat")
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ agent_id: "a", chat: chat() });
+    function NavigateNext() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate(`/chat/${next}`)}>Next</button>
+          <button onClick={() => navigate(`/chat/${TARGET}`)}>Back</button>
+        </>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={[`/chat/${TARGET}`]}>
+        <NavigateNext />
+        <ChatRouteGate />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("alert")).toBeVisible();
+    fireEvent.click(screen.getByText("Next"));
+    await waitFor(() => expect(screen.getByText("Chat page")).toBeVisible());
+    expect(resolve.mock.calls.map(([reference]) => reference)).toEqual([
+      TARGET,
+      next,
+    ]);
+    const mountedPage = screen.getByText("Chat page");
+    fireEvent.click(screen.getByText("Back"));
+    expect(screen.getByText("Chat page")).toBe(mountedPage);
     expect(resolve).toHaveBeenCalledTimes(2);
   });
 });

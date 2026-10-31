@@ -14,6 +14,10 @@ from .transcript_models import TranscriptCursor, PageSelection
 _PAGE_ENVELOPE_RESERVE_BYTES = 1024
 
 
+class TranscriptPageBudgetError(ValueError):
+    """The page byte budget cannot hold one message fragment."""
+
+
 def _enum_value(value: Any) -> str:
     return str(getattr(value, "value", value) or "")
 
@@ -267,7 +271,9 @@ class TranscriptPageBuilder:
             best_start = text_start
             high = text_start - 1
         if best is None:
-            raise ValueError("transcript page byte limit is too small")
+            raise TranscriptPageBudgetError(
+                "transcript page byte limit is too small",
+            )
         return best, best_start
 
     @classmethod
@@ -335,7 +341,9 @@ class TranscriptPageBuilder:
             best_start = fragment_start
             high = fragment_start - 1
         if best is None:
-            raise ValueError("transcript page byte limit is too small")
+            raise TranscriptPageBudgetError(
+                "transcript page byte limit is too small",
+            )
         return best, best_start
 
     @classmethod

@@ -45,6 +45,7 @@ from .history_store import (
     ConversationHistoryPage,
     TranscriptHistoryStore,
 )
+from .transcript_paging import TranscriptPageBudgetError
 from .utils import session_state_to_messages
 from .resolver import (
     ChatResolution,
@@ -138,7 +139,10 @@ async def _read_history_page(
         if page is None:
             snapshot = await _read_workspace_legacy_snapshot(workspace, chat)
             if snapshot is not None and _legacy_needs_page(
-                snapshot.messages, limit, max_bytes, max_content_blocks,
+                snapshot.messages,
+                limit,
+                max_bytes,
+                max_content_blocks,
             ):
                 await workspace.session.start_legacy_migration(
                     session_id=chat.session_id,
@@ -277,17 +281,28 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
     store = getattr(workspace, "transcript_store", None)
     session = getattr(workspace, "session", None)
     try:
+        if session is not None:
+            for chat in chats:
+                channels = tuple(
+                    target.channel
+                    for target in chats
+                    if target.session_id == chat.session_id
+                    and target.user_id == chat.user_id
+                )
+                options = (
+                    {"deleting_channels": channels}
+                    if len(channels) > 1 else {}
+                )
+                await session.delete_session_state(
+                    chat.session_id,
+                    chat.user_id,
+                    chat.channel,
+                    **options,
+                )
         if store is not None:
             for chat in chats:
                 await asyncio.to_thread(
                     store.delete_session,
-                    chat.session_id,
-                    chat.user_id,
-                    chat.channel,
-                )
-        if session is not None:
-            for chat in chats:
-                await session.delete_session_state(
                     chat.session_id,
                     chat.user_id,
                     chat.channel,
@@ -684,8 +699,11 @@ async def get_fork_capability(
             await run_sync_io(
                 recover_qoder_boundaries,
                 workspace.transcript_store,
-                dict(session_id=chat.session_id, user_id=chat.user_id,
-                     channel=chat.channel),
+                dict(
+                    session_id=chat.session_id,
+                    user_id=chat.user_id,
+                    channel=chat.channel,
+                ),
             )
         except (OSError, ValueError, ImportError):
             logger.warning("Cannot recover Qoder boundaries", exc_info=True)
@@ -693,8 +711,11 @@ async def get_fork_capability(
         try:
             await recover_codex_boundaries(
                 workspace.transcript_store,
-                dict(session_id=chat.session_id, user_id=chat.user_id,
-                     channel=chat.channel),
+                dict(
+                    session_id=chat.session_id,
+                    user_id=chat.user_id,
+                    channel=chat.channel,
+                ),
                 binary=workspace.config.backend_settings.get("binary"),
             )
         except (OSError, ValueError, RuntimeError):
@@ -933,12 +954,12 @@ async def batch_delete_chats(
     # in the tracker, or it inflates the aggregate running count forever.
     for chat_id in chat_ids:
         await workspace.task_tracker.request_stop(chat_id)
-    deleted = await mgr.delete_chats(chat_ids=chat_ids)
-    if deleted and data_targets:
+    if data_targets:
         await _delete_chat_data(
             workspace,
             data_targets,
         )
+    deleted = await mgr.delete_chats(chat_ids=chat_ids)
     return {"deleted": deleted}
 
 
@@ -1324,7 +1345,7 @@ async def get_chat_messages(
     limit: int = Query(5, ge=1, le=100),
     max_bytes: Annotated[
         int,
-        Query(ge=1024, le=4 * 1024 * 1024),
+        Query(ge=2048, le=4 * 1024 * 1024),
     ] = 2
     * 1024
     * 1024,
@@ -1359,6 +1380,11 @@ async def get_chat_messages(
             limit=limit,
             max_bytes=max_bytes,
         )
+    except TranscriptPageBudgetError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="History page byte limit is too small",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
@@ -1652,12 +1678,12 @@ async def delete_chat(
     # Stop any live run first: a deleted chat must not leave a run behind
     # in the tracker, or it inflates the aggregate running count forever.
     await workspace.task_tracker.request_stop(chat_id)
+    if data_targets:
+        await _delete_chat_data(workspace, data_targets)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
         )
-    if data_targets:
-        await _delete_chat_data(workspace, data_targets)
     return {"deleted": True}

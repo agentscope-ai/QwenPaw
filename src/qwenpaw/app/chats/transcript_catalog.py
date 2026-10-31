@@ -570,6 +570,7 @@ class TranscriptCatalog:
         path: list[str],
         value: Any,
         create_if_missing: bool,
+        delete: bool = False,
     ) -> None:
         """Update one nested runtime value under the session lock."""
         with self._lease(
@@ -585,6 +586,7 @@ class TranscriptCatalog:
                     session_id=session_id,
                     path=path,
                     value=value,
+                    delete=delete,
                 )
             except KeyError:
                 if not create_if_missing:
@@ -599,6 +601,7 @@ class TranscriptCatalog:
                     session_id=session_id,
                     path=path,
                     value=value,
+                    delete=delete,
                 )
 
     def replace_runtime_state(self, **kwargs: Any) -> None:
@@ -1042,14 +1045,14 @@ class TranscriptCatalog:
             path = self._store_path(storage_id)
             if handle is not None:
                 handle.close()
+            path.unlink(missing_ok=True)
+            path.with_name(f"{path.name}-wal").unlink(missing_ok=True)
+            path.with_name(f"{path.name}-shm").unlink(missing_ok=True)
             with self._conn:
                 self._conn.execute(
                     "DELETE FROM transcript_files WHERE storage_id = ?",
                     (storage_id,),
                 )
-            path.unlink(missing_ok=True)
-            path.with_name(f"{path.name}-wal").unlink(missing_ok=True)
-            path.with_name(f"{path.name}-shm").unlink(missing_ok=True)
             self._condition.notify_all()
             return True
 

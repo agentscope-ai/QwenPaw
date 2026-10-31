@@ -39,9 +39,18 @@ vi.mock("./sessionApi", () => ({
 vi.mock("./HistoryMessageWindow", () => ({
   HistoryNavigationDirectory: ({
     activeMessageId,
+    items,
   }: {
     activeMessageId?: string;
-  }) => <output data-testid="active-user">{activeMessageId}</output>,
+    items: Array<{ messageId: string }>;
+  }) => (
+    <>
+      <output data-testid="active-user">{activeMessageId}</output>
+      <output data-testid="directory-ids">
+        {items.map((item) => item.messageId).join(",")}
+      </output>
+    </>
+  ),
 }));
 vi.mock("antd", () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => children,
@@ -69,6 +78,43 @@ afterEach(() => {
 });
 
 describe("unified navigation across history and live rendering", () => {
+  it("drops a superseded user after the index refreshes", async () => {
+    const entry = (messageId: string) => ({
+      messageId,
+      preview: "input",
+      createdAt: "",
+      anchor: messageId,
+    });
+    state.load
+      .mockResolvedValueOnce({
+        items: [entry("old-0"), entry("old-1"), entry("old-2"), entry("old-3")],
+        total: 4,
+      })
+      .mockResolvedValueOnce({
+        items: [entry("old-1"), entry("old-2"), entry("new-3")],
+        total: 4,
+      });
+    const props = { sessionId: "chat", onNavigate: vi.fn(), onCancel: vi.fn() };
+    const view = () => (
+      <div className="qwenpaw-chat-anywhere-layout-right">
+        <ChatUserMessageNavigation {...props} />
+      </div>
+    );
+    const { rerender } = render(view());
+    await waitFor(() =>
+      expect(screen.getByTestId("directory-ids").textContent).toBe(
+        "old-0,old-1,old-2,old-3",
+      ),
+    );
+    state.messages = [{ id: "new-3", role: "user", cards: [] }];
+    rerender(view());
+    await waitFor(() =>
+      expect(screen.getByTestId("directory-ids").textContent).toBe(
+        "old-0,old-1,old-2,new-3",
+      ),
+    );
+  });
+
   it("tracks mounted history users outside the index page without fetching gaps", async () => {
     state.load.mockResolvedValue({
       items: [
