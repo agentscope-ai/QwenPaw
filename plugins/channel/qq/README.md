@@ -7,7 +7,11 @@ the normal plugin installer. Starting the channel never installs packages.
 
 The worker uses websocket-client, HTTPX and AESGCM. The host retains Agent
 execution, sessions, ACL and approval decisions. SDKs and gateway/media/Portal
-I/O run in the worker. The plugin does not stream, type or edit messages.
+I/O run in the worker. With `streaming_enabled` the worker streams C2C replies
+through the official `stream_messages` API (`input_mode=replace`, `input_state`
+1 → 10, incrementing `index`, server-issued `stream_msg_id`). Group, guild and
+guild-DM targets keep the completed-message path because QQ documents streaming
+for single chat only. The plugin never types, edits or recalls messages.
 
 Text supports the original bounded chunks and explicit QQ validation fallback.
 C2C/group upload rich media; group cannot send type4 files (including ordinary
