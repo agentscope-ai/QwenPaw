@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.app.chats import transcript_schema
+from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.agents.context.scroll.history import HistoryStore
@@ -456,6 +457,28 @@ def test_clone_session_copies_completed_history_and_agent_runtime(
     catalog = TranscriptCatalog(tmp_path)
     _start(catalog, "parent")
     _upsert(catalog, "parent")
+    catalog.write_runtime_state(
+        session_id="parent",
+        user_id="user-1",
+        channel="console",
+        state={
+            "agent": {"state": {"summary": "turn boundary"}},
+            "mode_state": {"mission": {"active": True}},
+        },
+        turn_id="turn-parent",
+    )
+    source_id = catalog.storage_id_for(
+        session_id="parent",
+        user_id="user-1",
+        channel="console",
+    )
+    history = HistoryStore(tmp_path / "transcripts" / (source_id + ".db"))
+    history.append(
+        session_id="parent",
+        entry=LogEntry(kind="model_turn", content="recall before clone"),
+        dedup_key="clone-recall",
+    )
+    history.close()
     _finish(catalog, "parent")
     catalog.replace_runtime_state(
         session_id="parent",
@@ -506,6 +529,91 @@ def test_clone_session_copies_completed_history_and_agent_runtime(
     assert runtime.context_generation == 3
     assert runtime.state == {"agent": {"state": {"summary": "copied"}}}
     assert runtime.current_usage == {"usage": {"total_tokens": 12}}
+    child_id = catalog.storage_id_for(
+        session_id="child",
+        user_id="user-1",
+        channel="console",
+    )
+    child = TranscriptStore(tmp_path / "transcripts" / (child_id + ".db"))
+    try:
+        child.rebuild_projections()
+        assert (
+            child.get_page(
+                session_id="child",
+                user_id="user-1",
+                channel="console",
+            )
+            == page
+        )
+        assert (
+            child.read_runtime_state(
+                session_id="child",
+                user_id="user-1",
+                channel="console",
+            )
+            == runtime
+        )
+    finally:
+        child.close()
+    child_path = tmp_path / "transcripts" / (child_id + ".db")
+    with sqlite3.connect(child_path) as connection:
+        assert connection.execute(
+            "SELECT session_id, content FROM conversation_history",
+        ).fetchall() == [("child", "recall before clone")]
+    for turn_id, target in [
+        ("turn-parent", "grandchild"),
+        ("continued", "continued-fork"),
+    ]:
+        if turn_id == "continued":
+            catalog.start_turn(
+                session_id="child",
+                user_id="user-1",
+                channel="console",
+                turn_id=turn_id,
+            )
+            catalog.upsert_message(
+                session_id="child",
+                turn_id=turn_id,
+                message=_message("continued-message", "continue"),
+                ordinal=0,
+            )
+            catalog.write_runtime_state(
+                session_id="child",
+                user_id="user-1",
+                channel="console",
+                state={"agent": {"state": {"summary": target}}},
+                turn_id=turn_id,
+            )
+            catalog.finish_turn(
+                session_id="child",
+                turn_id=turn_id,
+                status="completed",
+            )
+        catalog.fork_at_turn(
+            source_session_id="child",
+            source_user_id="user-1",
+            source_channel="console",
+            source_chat_id="child-chat",
+            turn_id=turn_id,
+            target_session_id=target,
+            target_user_id="user-1",
+            target_channel="console",
+            target_storage_id=(
+                "22222222-2222-4222-8222-222222222222"
+                if turn_id == "turn-parent"
+                else "33333333-3333-4333-8333-333333333333"
+            ),
+        )
+        fork_runtime = catalog.read_runtime_state(
+            session_id=target,
+            user_id="user-1",
+            channel="console",
+        )
+        assert fork_runtime is not None
+        assert "mode_state" not in fork_runtime.state
+        assert fork_runtime.state["agent"]["state"]["summary"] == (
+            "turn boundary" if turn_id == "turn-parent" else target
+        )
     catalog.finish_turn(
         session_id="parent",
         turn_id="running-turn",

@@ -19,6 +19,7 @@ from qwenpaw.backup._ops import restore
 from qwenpaw.backup._ops.create_helpers import add_agent_workspaces
 from qwenpaw.backup.models import BackupValidationError
 from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 
 
 def _agent_json(db_filename: str = "history.db") -> str:
@@ -254,3 +255,64 @@ def test_restore_rejects_history_path_escape_before_commit(
     assert not destination.with_name(
         destination.name + ".restore_tmp",
     ).exists()
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["delete", "create", "chats", "catalog", "identity"],
+)
+def test_workspace_backup_rejects_concurrent_conversation_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+) -> None:
+    """Never publish a backup with a missing or unsnapshotted session DB."""
+    from qwenpaw.backup._ops import create_helpers
+
+    workspace = tmp_path / "workspace"
+    catalog = TranscriptCatalog(workspace)
+    identity = dict(session_id="session", user_id="user", channel="console")
+    catalog.write_runtime_state(**identity, state={})
+    storage_id = catalog.storage_id_for(**identity)
+    path = workspace / "transcripts" / (storage_id + ".db")
+    catalog.close()
+    (workspace / "chats.json").write_text(
+        json.dumps({"chats": [{**identity, "storage_id": storage_id}]}),
+        encoding="utf-8",
+    )
+    original = create_helpers._backup_session_database
+
+    def change_during_snapshot(source, target, **kwargs):
+        if change == "delete":
+            source.unlink()
+        if change == "identity" and source == path:
+            with sqlite3.connect(source) as connection:
+                connection.execute(
+                    "UPDATE transcript_sessions SET user_id = 'wrong'",
+                )
+        original(source, target, **kwargs)
+        if change == "create":
+            created = TranscriptStore(path.with_name("new.db"))
+            created.close()
+        elif change == "catalog":
+            with sqlite3.connect(workspace / "transcript_catalog.db") as db:
+                db.execute("DELETE FROM transcript_files")
+        elif change == "chats":
+            (workspace / "chats.json").write_text(
+                '{"chats": []}',
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(
+        create_helpers,
+        "_backup_session_database",
+        change_during_snapshot,
+    )
+    with zipfile.ZipFile(io.BytesIO(), "w") as archive:
+        with pytest.raises((sqlite3.OperationalError, RuntimeError)):
+            add_agent_workspaces(
+                archive,
+                [("agent", SimpleNamespace(workspace_dir=str(workspace)))],
+            )
+    if change == "delete":
+        assert not path.exists()

@@ -344,7 +344,10 @@ def test_user_message_index_anchor_reads_target_turn(tmp_path):
     store.close()
 
 
-def test_database_snapshot_restores_history_and_keeps_active_turn(tmp_path):
+def test_database_snapshot_restores_history_and_keeps_active_turn(
+    tmp_path,
+    monkeypatch,
+):
     store = TranscriptStore(tmp_path / "session.db")
     store.write_runtime_state(
         session_id="session-1",
@@ -390,6 +393,34 @@ def test_database_snapshot_restores_history_and_keeps_active_turn(tmp_path):
         ordinal=0,
     )
 
+    original_copy = TranscriptStore._fork_copy_turn
+
+    def fail_after_copy(target, *args, **kwargs):
+        original_copy(target, *args, **kwargs)
+        raise RuntimeError("interrupted restore")
+
+    before = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(TranscriptStore, "_fork_copy_turn", fail_after_copy)
+        with pytest.raises(RuntimeError, match="interrupted restore"):
+            store.restore_database(
+                snapshot,
+                session_id="session-1",
+                user_id="user-1",
+                channel="console",
+            )
+    assert (
+        store.get_page(
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+        )
+        == before
+    )
     store.restore_database(
         snapshot,
         session_id="session-1",
@@ -421,6 +452,21 @@ def test_database_snapshot_restores_history_and_keeps_active_turn(tmp_path):
     assert runtime.state == {
         "agent": {"state": {"context": ["checkpoint"]}},
     }
+    store.rebuild_projections()
+    rebuilt = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    assert rebuilt == page
+    assert (
+        store.read_runtime_state(
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+        )
+        == runtime
+    )
     store.close()
 
 
@@ -450,6 +496,15 @@ def test_database_snapshot_excludes_running_turns(tmp_path):
 
     assert page is not None
     assert not page.messages
+    restored.rebuild_projections()
+    assert (
+        restored.get_page(
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+        )
+        == page
+    )
     restored.close()
     store.close()
 

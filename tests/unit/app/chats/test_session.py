@@ -192,13 +192,14 @@ async def test_database_session_imports_json_once_and_resets_context(
         legacy_save_dir=str(legacy_dir),
     )
     import_count = 0
-    import_legacy = session._import_legacy
+    import_legacy = session._migrate_legacy_snapshot
 
     async def track_import(
         *,
         session_id: str,
         user_id: str,
         channel: str,
+        snapshot,
     ) -> bool:
         nonlocal import_count
         import_count += 1
@@ -206,9 +207,10 @@ async def test_database_session_imports_json_once_and_resets_context(
             session_id=session_id,
             user_id=user_id,
             channel=channel,
+            snapshot=snapshot,
         )
 
-    monkeypatch.setattr(session, "_import_legacy", track_import)
+    monkeypatch.setattr(session, "_migrate_legacy_snapshot", track_import)
 
     state = await session.get_session_state_dict(
         "session-1",
@@ -604,16 +606,24 @@ async def test_delete_keeps_root_legacy_used_by_another_channel(
     assert snapshot.state["agent"]["marker"] == "shared"
     for channel in ("console", "feishu"):
         await session.delete_session_state(
-            "session-1", "u", channel,
+            "session-1",
+            "u",
+            channel,
             deleting_channels=("console", "feishu"),
         )
     assert not root_path.exists()
     restarted = DatabaseSession(
-        catalog=catalog, legacy_save_dir=str(legacy_dir),
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
     )
-    assert await restarted.get_legacy_snapshot(
-        session_id="session-1", user_id="u", channel="console",
-    ) is None
+    assert (
+        await restarted.get_legacy_snapshot(
+            session_id="session-1",
+            user_id="u",
+            channel="console",
+        )
+        is None
+    )
     catalog.close()
 
 
@@ -1001,3 +1011,112 @@ def test_archive_dir_constant_excluded_from_session_scans():
     # level down so it must not start with a dot-stripped name that
     # collides with session files.
     assert session_mod._WEIXIN_LEGACY_ARCHIVE_DIR.startswith(".")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["runtime", "binding"])
+async def test_interrupted_compressed_migration_resumes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    """Resume partial import without losing compacted state or turn anchors."""
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    history = HistoryStore(tmp_path / "history.db")
+    messages = []
+    for index in range(1, 6):
+        message = {
+            "id": f"message-{index}",
+            "role": "user",
+            "name": "user",
+            "content": [{"type": "text", "text": f"turn {index}"}],
+        }
+        messages.append(message)
+        history.append(
+            session_id="session",
+            entry=LogEntry(
+                kind="context_msg",
+                role="user",
+                content=f"turn {index}",
+                blocks=message["content"],
+            ),
+            dedup_key=message["id"],
+        )
+    history.close()
+    state = {
+        "agent": {
+            "state": {"context": messages[-2:]},
+            "scroll": {
+                "continuation_summary": "summary of turns 1 to 3",
+                "index": {"tiers": [[{"seq_hi": 3}]]},
+            },
+        },
+    }
+    (legacy_dir / "session.json").write_text(
+        json.dumps(state),
+        encoding="utf-8",
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(catalog=catalog, legacy_save_dir=str(legacy_dir))
+    original_write = catalog.write_runtime_state
+    original_binding = session._import_legacy_provider_binding
+
+    def interrupted_write(**kwargs):
+        if failure == "runtime" and kwargs.get("turn_id") == "legacy:2":
+            raise RuntimeError("interrupted runtime")
+        return original_write(**kwargs)
+
+    def interrupted_binding(**kwargs):
+        if failure == "binding":
+            raise RuntimeError("interrupted binding")
+        return original_binding(**kwargs)
+
+    monkeypatch.setattr(catalog, "write_runtime_state", interrupted_write)
+    monkeypatch.setattr(
+        session,
+        "_import_legacy_provider_binding",
+        interrupted_binding,
+    )
+    identity = dict(session_id="session", user_id="", channel="")
+    try:
+        with pytest.raises(session_mod.LegacyMigrationError):
+            await session.ensure_legacy_migrated(**identity)
+        assert not session._migration_complete(**identity)
+        first = catalog.read_turn_context(**identity, turn_id="legacy:1")
+        assert first is not None
+        monkeypatch.setattr(catalog, "write_runtime_state", original_write)
+        session = DatabaseSession(
+            catalog=catalog,
+            legacy_save_dir=str(legacy_dir),
+        )
+        restored = await session.get_session_state_dict(**identity)
+        assert restored == {**state, "_context_generation": 0}
+        assert session._migration_complete(**identity)
+        assert (
+            catalog.read_turn_context(
+                **identity,
+                turn_id="legacy:1",
+            )
+            == first
+        )
+        for index in range(1, 6):
+            assert (
+                catalog.read_turn_context(
+                    **identity,
+                    turn_id=f"legacy:{index}",
+                )
+                is not None
+            )
+        assert not await session.ensure_legacy_migrated(**identity)
+        page = catalog.get_page(**identity)
+        assert page is not None
+        assert len(page.messages) == 5
+        catalog.write_runtime_state(**identity, state={"continued": True})
+        assert not await session.start_legacy_migration(**identity)
+        assert await session.get_session_state_dict(**identity) == {
+            "continued": True,
+            "_context_generation": 0,
+        }
+    finally:
+        catalog.close()

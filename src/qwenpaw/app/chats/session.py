@@ -652,9 +652,14 @@ class DatabaseSession:
             state=snapshot.state,
             fallback=snapshot.messages,
         )
-        imported = False
+        restore_runtime = await run_sync_io(
+            self._catalog.record_legacy_migration,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
         if messages:
-            imported = await run_sync_io(
+            await run_sync_io(
                 self._catalog.import_legacy_messages,
                 session_id=session_id,
                 user_id=user_id,
@@ -668,11 +673,20 @@ class DatabaseSession:
             channel=channel,
             messages=messages,
         )
-        if imported:
+        if restore_runtime:
             states = iter(approximate)
             turn_seq = 0
             while (state := await run_sync_io(next, states, None)) is not None:
                 turn_seq += 1
+                existing = await run_sync_io(
+                    self._catalog.read_turn_context,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    turn_id=f"legacy:{turn_seq}",
+                )
+                if existing is not None:
+                    continue
                 await run_sync_io(
                     self._catalog.write_runtime_state,
                     session_id=session_id,
@@ -690,7 +704,7 @@ class DatabaseSession:
             channel=channel,
             state=snapshot.state,
             current_usage=_legacy_current_usage(snapshot.state),
-            only_if_missing=not imported,
+            only_if_missing=not restore_runtime,
             migration_anchor=True,
         )
         await run_sync_io(
@@ -718,6 +732,13 @@ class DatabaseSession:
             )
         except (OSError, ValueError, RuntimeError):
             logger.warning("Cannot recover Codex boundaries", exc_info=True)
+        await run_sync_io(
+            self._catalog.record_legacy_migration,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            complete=True,
+        )
         return inserted
 
     def _import_legacy_provider_binding(
@@ -850,6 +871,13 @@ class DatabaseSession:
         async with self._migration_lock:
             if key in self._deleted_sessions:
                 return None
+            if await run_sync_io(
+                self._migration_complete,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            ):
+                return None
             task = self._migration_tasks.get(key)
             if task is None:
                 task = asyncio.create_task(
@@ -923,7 +951,7 @@ class DatabaseSession:
                 channel=channel,
             )
             if current is not None and await run_sync_io(
-                self._history_import_complete,
+                self._migration_complete,
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
@@ -948,7 +976,7 @@ class DatabaseSession:
         except Exception as exc:
             raise LegacyMigrationError(session_id) from exc
 
-    def _history_import_complete(
+    def _migration_complete(
         self,
         *,
         session_id: str,
@@ -970,7 +998,7 @@ class DatabaseSession:
         with sqlite3.connect(uri, uri=True) as connection:
             row = connection.execute(
                 "SELECT 1 FROM event_log WHERE idempotency_key = ?",
-                (f"migration:history:{session_id}",),
+                (f"migration:completed:{session_id}",),
             ).fetchone()
         return row is not None
 
@@ -1136,24 +1164,17 @@ class DatabaseSession:
         allow_not_exist: bool = True,
     ) -> dict[str, Any]:
         """Return the authoritative runtime state and context generation."""
+        await self.ensure_legacy_migrated(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
         snapshot = await run_sync_io(
             self._catalog.read_runtime_state,
             session_id=session_id,
             user_id=user_id,
             channel=channel,
         )
-        if snapshot is None:
-            await self._import_legacy(
-                session_id=session_id,
-                user_id=user_id,
-                channel=channel,
-            )
-            snapshot = await run_sync_io(
-                self._catalog.read_runtime_state,
-                session_id=session_id,
-                user_id=user_id,
-                channel=channel,
-            )
         if snapshot is None:
             if allow_not_exist:
                 return {}

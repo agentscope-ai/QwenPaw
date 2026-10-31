@@ -537,6 +537,18 @@ class TranscriptCatalog:
                 channel=channel,
             )
 
+    def record_legacy_migration(self, **kwargs: Any) -> bool:
+        """Record migration progress under the conversation lease."""
+        with self._lease(
+            session_id=kwargs["session_id"],
+            user_id=kwargs["user_id"],
+            channel=kwargs["channel"],
+            create=True,
+        ) as handle:
+            if handle is None:
+                raise RuntimeError("failed to create migration session")
+            return handle.store.record_legacy_migration(**kwargs)
+
     def write_runtime_state(self, **kwargs: Any) -> tuple[int, bool]:
         """Persist one session's runtime snapshot."""
         with self._lease(

@@ -234,6 +234,12 @@ def _project_conversation_event(
             row=row,
             payload=payload,
         )
+    elif event_type == "turn.excluded":
+        connection.execute(
+            "DELETE FROM transcript_turns WHERE session_id = ? "
+            "AND turn_id = ?",
+            (session_id, row["turn_id"]),
+        )
     elif event_type == "turn.usage_attached":
         _project_usage(
             connection,
@@ -263,7 +269,6 @@ def rebuild_projections(connection: sqlite3.Connection) -> None:
     )
     latest_runtime: dict[str, Any] | None = None
     recall_rows: dict[int, dict[str, Any]] = {}
-    max_turn_seq = 0
     for row in rows:
         payload = json.loads(row["payload_json"])
         event_type = str(row["event_type"])
@@ -277,16 +282,19 @@ def rebuild_projections(connection: sqlite3.Connection) -> None:
             for seq in purge["seqs"]:
                 recall_rows.pop(int(seq), None)
         else:
-            turn_seq, runtime = _project_conversation_event(
+            _, runtime = _project_conversation_event(
                 connection,
                 session_id=session_id,
                 row=row,
                 payload=payload,
             )
-            if turn_seq is not None:
-                max_turn_seq = max(max_turn_seq, turn_seq)
             if runtime is not None:
                 latest_runtime = runtime
+    max_turn_seq = connection.execute(
+        "SELECT COALESCE(MAX(turn_seq), 0) FROM transcript_turns "
+        "WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()[0]
     connection.execute(
         "UPDATE transcript_sessions SET storage_id = ?, user_id = ?, "
         "channel = ?, next_turn_seq = ? WHERE session_id = ?",

@@ -23,9 +23,9 @@ from .context_revisions import (
     record_revision,
 )
 from .event_schema import advance_projection_watermark
+from .event_store import ConversationEventStore, EventDraft
 from .transcript_blocks import (
     block_identity,
-    copy_message_blocks,
     message_envelope,
     write_message_blocks,
 )
@@ -524,6 +524,39 @@ class TranscriptStore:
             kind="migration_anchor",
         )
 
+    def record_legacy_migration(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        complete: bool = False,
+    ) -> bool:
+        """Persist migration ownership and its final completion boundary."""
+        with self._transaction():
+            row = self._conn.execute(
+                "SELECT payload_json FROM event_log "
+                "WHERE idempotency_key = ?",
+                (f"migration:started:{session_id}",),
+            ).fetchone()
+            restore_runtime = (
+                json.loads(row[0])["restore_runtime"]
+                if row
+                else self._conn.execute(
+                    "SELECT 1 FROM session_runtime WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                is None
+            )
+            stage = "completed" if complete else "started"
+            self._append_fact(
+                event_type=f"migration.{stage}",
+                payload={"restore_runtime": restore_runtime},
+                idempotency_key=f"migration:{stage}:{session_id}",
+                recorded_at=_utc_now(),
+            )
+            return restore_runtime
+
     def write_runtime_state(
         self,
         *,
@@ -896,6 +929,14 @@ class TranscriptStore:
                         storage_id=self._storage_id,
                     )
                     self._conn.backup(snapshot)
+                running_turn_ids = [
+                    row[0]
+                    for row in snapshot.execute(
+                        "SELECT turn_id FROM transcript_turns "
+                        "WHERE session_id = ? AND status = 'running'",
+                        (session_id,),
+                    )
+                ]
                 with snapshot:
                     snapshot.execute(
                         "DELETE FROM transcript_turns "
@@ -918,6 +959,19 @@ class TranscriptStore:
                     )
             finally:
                 snapshot.close()
+            events = ConversationEventStore(snapshot_path)
+            try:
+                for turn_id in running_turn_ids:
+                    events.append(
+                        EventDraft(
+                            event_type="turn.excluded",
+                            payload={},
+                            turn_id=turn_id,
+                            idempotency_key=f"checkpoint:exclude:{turn_id}",
+                        ),
+                    )
+            finally:
+                events.close()
             return snapshot_path.read_bytes()
 
     def restore_database(
@@ -961,77 +1015,24 @@ class TranscriptStore:
                         "WHERE session_id = ? AND status = 'running'",
                         (session_id,),
                     ).fetchall()
-                    running_messages = self._conn.execute(
-                        "SELECT m.session_id, m.turn_id, m.message_id, "
-                        "m.ordinal, m.role, m.envelope_json, "
-                        "m.client_message_id, m.superseded_at, "
-                        "m.created_at, m.finished_at "
-                        "FROM transcript_messages AS m "
-                        "JOIN transcript_turns AS t "
-                        "ON t.session_id = m.session_id "
-                        "AND t.turn_id = m.turn_id "
-                        "WHERE m.session_id = ? AND t.status = 'running'",
-                        (session_id,),
-                    ).fetchall()
-                    running_blocks = self._conn.execute(
-                        "SELECT b.* FROM transcript_blocks b "
-                        "JOIN transcript_messages m "
-                        "ON m.session_id = b.session_id "
-                        "AND m.message_id = b.message_id "
-                        "JOIN transcript_turns t "
-                        "ON t.session_id = m.session_id "
-                        "AND t.turn_id = m.turn_id "
-                        "WHERE m.session_id = ? AND t.status = 'running'",
-                        (session_id,),
-                    ).fetchall()
-                    source.backup(self._conn)
-                    with self._conn:
-                        row = self._conn.execute(
-                            "SELECT COALESCE(MAX(turn_seq), 0) "
-                            "FROM transcript_turns WHERE session_id = ?",
-                            (session_id,),
-                        ).fetchone()
-                        next_turn_seq = int(row[0]) + 1
-                        restored_turns = [
-                            (
-                                turn["session_id"],
-                                next_turn_seq + index,
-                                turn["turn_id"],
-                                turn["status"],
-                                turn["error_json"],
-                                turn["replaces_turn_id"],
-                                turn["created_at"],
-                                turn["finished_at"],
+                    restored = TranscriptStore(
+                        snapshot_path,
+                        storage_id=self._storage_id,
+                    )
+                    try:
+                        for turn in running_turns:
+                            restored._fork_copy_turn(
+                                self._conn,
+                                turn,
+                                source_session_id=session_id,
+                                target_session_id=session_id,
+                                target_user_id=user_id,
+                                target_channel=channel,
+                                native_context=True,
                             )
-                            for index, turn in enumerate(running_turns)
-                        ]
-                        self._conn.executemany(
-                            "INSERT INTO transcript_turns("
-                            "session_id, turn_seq, turn_id, status, "
-                            "error_json, replaces_turn_id, created_at, "
-                            "finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            restored_turns,
-                        )
-                        self._conn.executemany(
-                            "INSERT INTO transcript_messages("
-                            "session_id, turn_id, message_id, ordinal, role, "
-                            "envelope_json, client_message_id, "
-                            "superseded_at, created_at, finished_at) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            [tuple(row) for row in running_messages],
-                        )
-                        self._conn.executemany(
-                            "INSERT INTO transcript_blocks VALUES "
-                            "(?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            [tuple(row) for row in running_blocks],
-                        )
-                        self._conn.execute(
-                            "UPDATE transcript_sessions SET next_turn_seq = "
-                            "COALESCE((SELECT MAX(turn_seq) + 1 "
-                            "FROM transcript_turns WHERE session_id = ?), 1) "
-                            "WHERE session_id = ?",
-                            (session_id, session_id),
-                        )
+                        restored._conn.backup(self._conn)
+                    finally:
+                        restored.close()
             finally:
                 source.close()
 
@@ -1048,88 +1049,85 @@ class TranscriptStore:
         if self._session_row(target_session_id) is not None:
             raise ValueError("target transcript session already exists")
 
-        self._conn.execute("ATTACH DATABASE ? AS parent", (str(source_path),))
+        source = sqlite3.connect(
+            source_path.resolve().as_uri() + "?mode=ro",
+            uri=True,
+        )
+        source.row_factory = sqlite3.Row
         try:
-            source = self._conn.execute(
-                "SELECT next_turn_seq FROM parent.transcript_sessions "
-                "WHERE session_id = ?",
-                (source_session_id,),
-            ).fetchone()
-            if source is None:
+            source.execute("BEGIN")
+            if self._session_row(source_session_id, source) is None:
                 return False
-
-            runtime = self._conn.execute(
-                "SELECT context_generation, state_json, "
-                "current_usage_json, updated_at "
-                "FROM parent.session_runtime WHERE session_id = ?",
-                (source_session_id,),
-            ).fetchone()
             with self._transaction():
                 self._conn.execute(
                     "INSERT INTO transcript_sessions("
-                    "session_id, storage_id, user_id, channel, "
-                    "next_turn_seq) VALUES (?, ?, ?, ?, ?)",
+                    "session_id, storage_id, user_id, channel) "
+                    "VALUES (?, ?, ?, ?)",
                     (
                         target_session_id,
                         self._storage_id,
                         target_user_id,
                         target_channel,
-                        int(source["next_turn_seq"]),
                     ),
                 )
-                self._conn.execute(
-                    "INSERT INTO transcript_turns("
-                    "session_id, turn_seq, turn_id, status, error_json, "
-                    "replaces_turn_id, created_at, finished_at) "
-                    "SELECT ?, turn_seq, turn_id, status, error_json, "
-                    "replaces_turn_id, created_at, finished_at "
-                    "FROM parent.transcript_turns "
-                    "WHERE session_id = ? AND status != 'running'",
-                    (target_session_id, source_session_id),
+                self._append_session_fact(
+                    session_id=target_session_id,
+                    user_id=target_user_id,
+                    channel=target_channel,
+                    recorded_at=_utc_now(),
                 )
-                self._conn.execute(
-                    "INSERT INTO transcript_messages("
-                    "session_id, turn_id, message_id, ordinal, role, "
-                    "envelope_json, client_message_id, superseded_at, "
-                    "created_at, finished_at) "
-                    "SELECT ?, m.turn_id, m.message_id, m.ordinal, m.role, "
-                    "m.envelope_json, m.client_message_id, m.superseded_at, "
-                    "m.created_at, m.finished_at "
-                    "FROM parent.transcript_messages AS m "
-                    "JOIN parent.transcript_turns AS t "
-                    "ON t.session_id = m.session_id "
-                    "AND t.turn_id = m.turn_id "
-                    "WHERE m.session_id = ? AND t.status != 'running'",
-                    (target_session_id, source_session_id),
-                )
-                copy_message_blocks(
-                    self._conn,
+            turns = source.execute(
+                "SELECT * FROM transcript_turns WHERE session_id = ? "
+                "AND status != 'running' ORDER BY turn_seq",
+                (source_session_id,),
+            ).fetchall()
+            for turn in turns:
+                self._fork_copy_turn(
+                    source,
+                    turn,
                     source_session_id=source_session_id,
                     target_session_id=target_session_id,
+                    target_user_id=target_user_id,
+                    target_channel=target_channel,
+                    agent_only=True,
                 )
-                if runtime is not None:
-                    source_state = json.loads(runtime["state_json"])
-                    state = (
-                        {"agent": source_state["agent"]}
-                        if "agent" in source_state
-                        else {}
-                    )
-                    self._conn.execute(
-                        "INSERT INTO session_runtime("
-                        "session_id, context_generation, state_json, "
-                        "current_usage_json, updated_at) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (
-                            target_session_id,
-                            int(runtime["context_generation"]),
-                            _canonical_json(state),
-                            runtime["current_usage_json"],
-                            runtime["updated_at"],
-                        ),
-                    )
+            runtime = source.execute(
+                "SELECT * FROM session_runtime WHERE session_id = ?",
+                (source_session_id,),
+            ).fetchone()
+            if runtime is not None:
+                state = json.loads(runtime["state_json"])
+                self.write_runtime_state(
+                    session_id=target_session_id,
+                    user_id=target_user_id,
+                    channel=target_channel,
+                    state=self._fork_runtime_state(
+                        {"agent": state["agent"]} if "agent" in state else {},
+                        source_session_id=source_session_id,
+                        target_session_id=target_session_id,
+                    ),
+                    context_generation=int(runtime["context_generation"]),
+                    current_usage=json.loads(runtime["current_usage_json"])
+                    if runtime["current_usage_json"]
+                    else None,
+                    exact_current_usage=True,
+                )
+            from ...agents.context.scroll.history import HistoryStore
+
+            history = HistoryStore(self._path)
+            history.close()
+            self._fork_copy_recall_events(
+                source,
+                source_session_id=source_session_id,
+                target_session_id=target_session_id,
+                through_event_seq=source.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM event_log",
+                ).fetchone()[0],
+            )
+            self.rebuild_projections()
             return True
         finally:
-            self._conn.execute("DETACH DATABASE parent")
+            source.close()
 
     @staticmethod
     def _fork_history_session_id(
@@ -1184,6 +1182,7 @@ class TranscriptStore:
         target_user_id: str,
         target_channel: str,
         native_context: bool = False,
+        agent_only: bool = False,
     ) -> None:
         """Copy one materialized turn as new append-only target facts."""
         source_turn_id = str(turn["turn_id"])
@@ -1251,6 +1250,8 @@ class TranscriptStore:
                 session_id=source_session_id,
                 revision_id=str(revision["revision_id"]),
             )
+            if agent_only:
+                state = {"agent": state["agent"]} if "agent" in state else {}
             usage_json = revision["current_usage_json"]
             self.write_runtime_state(
                 session_id=target_session_id,
@@ -1267,14 +1268,17 @@ class TranscriptStore:
                 exact_current_usage=True,
             )
 
-        error = json.loads(turn["error_json"]) if turn["error_json"] else None
-        self.finish_turn(
-            session_id=target_session_id,
-            turn_id=source_turn_id,
-            status=cast(TurnStatus, str(turn["status"])),
-            error=error,
-            finished_at=turn["finished_at"],
-        )
+        if turn["status"] != "running":
+            error = (
+                json.loads(turn["error_json"]) if turn["error_json"] else None
+            )
+            self.finish_turn(
+                session_id=target_session_id,
+                turn_id=source_turn_id,
+                status=cast(TurnStatus, str(turn["status"])),
+                error=error,
+                finished_at=turn["finished_at"],
+            )
         usage = source.execute(
             "SELECT usage_json FROM projection_turn_usage "
             "WHERE session_id = ? AND turn_id = ?",

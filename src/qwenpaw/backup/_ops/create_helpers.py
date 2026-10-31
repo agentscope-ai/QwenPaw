@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import tempfile
@@ -38,7 +39,10 @@ def _backup_session_database(
     check_cancelled: Any,
 ) -> None:
     """Create and verify a transactionally consistent SQLite snapshot."""
-    source_connection = sqlite3.connect(str(source))
+    source_connection = sqlite3.connect(
+        source.resolve().as_uri() + "?mode=ro",
+        uri=True,
+    )
     target_connection = sqlite3.connect(str(target))
     try:
         source_connection.backup(
@@ -54,6 +58,46 @@ def _backup_session_database(
         source_connection.close()
 
 
+def _session_manifest(workspace: Path) -> tuple:
+    """Capture directory metadata so concurrent changes fail the backup."""
+    paths = frozenset((workspace / "transcripts").glob("*.db"))
+    catalog = workspace / "transcript_catalog.db"
+    rows: tuple[tuple[str, str, str, str], ...] = ()
+    if catalog.exists():
+        connection = sqlite3.connect(
+            catalog.resolve().as_uri() + "?mode=ro",
+            uri=True,
+        )
+        try:
+            rows = tuple(
+                connection.execute(
+                    "SELECT storage_id, session_id, user_id, channel "
+                    "FROM transcript_files ORDER BY storage_id",
+                ),
+            )
+        finally:
+            connection.close()
+        if any(
+            workspace / "transcripts" / (row[0] + ".db") not in paths
+            for row in rows
+        ):
+            raise RuntimeError("conversation catalog references missing DB")
+    chats = workspace / "chats.json"
+    chat_bytes = chats.read_bytes() if chats.exists() else None
+    if chat_bytes is not None:
+        by_identity = {tuple(row[1:]): row[0] for row in rows}
+        for chat in json.loads(chat_bytes).get("chats", []):
+            identity = (
+                chat.get("session_id", ""),
+                chat.get("user_id", ""),
+                chat.get("channel", "console"),
+            )
+            storage_id = by_identity.get(identity)
+            if storage_id is not None and chat.get("storage_id") != storage_id:
+                raise RuntimeError("chat directory and catalog disagree")
+    return paths, catalog.exists(), rows, chat_bytes
+
+
 def _snapshot_session_databases(
     zf: zipfile.ZipFile,
     *,
@@ -61,11 +105,12 @@ def _snapshot_session_databases(
     agent_id: str,
     snapshot_dir: str,
     check_cancelled: Any,
+    manifest: tuple,
 ) -> tuple[set[Path], set[Path], int]:
     """Add consistent session DB snapshots and return paths to skip."""
-    databases = sorted((workspace / "transcripts").glob("*.db"))
+    databases = sorted(manifest[0])
     catalog = workspace / "transcript_catalog.db"
-    if catalog.is_file():
+    if manifest[1]:
         databases.append(catalog)
     paths = {database.resolve() for database in databases}
     sidecars = {
@@ -81,6 +126,31 @@ def _snapshot_session_databases(
             snapshot,
             check_cancelled=check_cancelled,
         )
+        connection = sqlite3.connect(str(snapshot))
+        try:
+            if database == catalog:
+                rows = tuple(
+                    connection.execute(
+                        "SELECT storage_id, session_id, user_id, channel "
+                        "FROM transcript_files ORDER BY storage_id",
+                    ),
+                )
+                if rows != manifest[2]:
+                    raise RuntimeError("conversation catalog changed")
+            else:
+                expected = next(
+                    (row for row in manifest[2] if row[0] == database.stem),
+                    None,
+                )
+                if expected is not None:
+                    actual = connection.execute(
+                        "SELECT storage_id, session_id, user_id, channel "
+                        "FROM transcript_sessions",
+                    ).fetchall()
+                    if actual != [expected]:
+                        raise RuntimeError("conversation DB identity mismatch")
+        finally:
+            connection.close()
         zf.write(
             snapshot,
             f"{PREFIX_WORKSPACES}{agent_id}/{relative.as_posix()}",
@@ -123,6 +193,7 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
 
         ws = Path(ref.workspace_dir).expanduser().resolve()
         if ws.is_dir():
+            manifest = _session_manifest(ws)
             file_count = 0
             skipped = 0
             history_db = configured_history_db_path(ws)
@@ -157,8 +228,15 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
                     agent_id=aid,
                     snapshot_dir=snapshot_dir,
                     check_cancelled=check_cancelled,
+                    manifest=manifest,
                 )
                 file_count += snapshot_count
+                if manifest[3] is not None:
+                    zf.writestr(
+                        f"{PREFIX_WORKSPACES}{aid}/chats.json",
+                        manifest[3],
+                    )
+                    file_count += 1
                 for entry in sorted(ws.rglob("*")):
                     if stop_event and stop_event.is_set():
                         return False
@@ -168,10 +246,15 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
                         or resolved_entry in sidecars
                         or resolved_entry == history_db
                         or resolved_entry in session_paths
+                        or resolved_entry == ws / "chats.json"
                         or resolved_entry in session_sidecars
                     ):
                         continue
                     relative = entry.relative_to(ws)
+                    if relative.parent == Path(
+                        "transcripts",
+                    ) and entry.name.endswith((".db", "-wal", "-shm")):
+                        raise RuntimeError("conversation DB set changed")
                     rel = relative.as_posix()
                     arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
                     try:
@@ -197,6 +280,10 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
                         )
                         continue
                     file_count += 1
+                if _session_manifest(ws) != manifest:
+                    raise RuntimeError(
+                        "conversation metadata changed; retry backup",
+                    )
             if skipped:
                 logger.warning(
                     "Agent '%s': skipped %d file(s) that could not be "
