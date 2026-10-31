@@ -152,6 +152,7 @@ Browser settings live in the `browser` block of the global
 | `headless`                 | string             | `"auto"` | `auto` runs headless in containers or without a display; `"true"` / `"false"` force the mode |
 | `user_data_dir`            | string \| null     | `null`   | Custom data directory for the standalone browser; assigned per workspace when unset          |
 | `args`                     | string[]           | `[]`     | Extra browser launch arguments                                                               |
+| `ignore_default_args`      | string[]           | `[]`     | Playwright default switches to drop from the launch command line (see below)                 |
 | `viewport`                 | [int, int] \| null | `null`   | Viewport size; both dimensions must be positive integers                                     |
 | `proxy`                    | string \| null     | `null`   | Proxy address                                                                                |
 | `use_system_default`       | bool               | `true`   | Prefer the Chromium executable of the system default browser                                 |
@@ -163,6 +164,31 @@ Browser settings live in the `browser` block of the global
 > `backend: "extension"`, and `identity` instead of `context` (`profile` →
 > `avatar`, `incognito` → `guest`). Old configurations still load but emit a
 > warning in the log.
+
+### `ignore_default_args`
+
+`args` can only **append** switches, and Chromium treats a boolean switch as
+"present means on" — so re-appending `--disable-extensions` cannot turn it
+back off. Playwright injects `--disable-extensions` itself, which means
+extensions installed in a persistent profile never load.
+
+`ignore_default_args` removes switches from Playwright's default list by
+name, so a profile's extensions do load:
+
+```json
+{
+  "browser": {
+    "backend": "launch",
+    "identity": "avatar",
+    "user_data_dir": "/path/to/User Data",
+    "ignore_default_args": ["--disable-extensions"]
+  }
+}
+```
+
+This only affects `backend: "launch"`. `managed_cdp` and `connect_cdp`
+attach to a browser that is already running, so there is no launch command
+line to adjust.
 
 ---
 
