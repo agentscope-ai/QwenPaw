@@ -758,9 +758,7 @@ class HttpStatelessClient(_HttpClientBase):
                     f"incompatible modern MCP: {supported or []}",
                 ) from exc
             if exc.code == _JSONRPC_METHOD_NOT_FOUND:
-                # HTTP 404 + -32601 is the modern unknown-method shape.
-                if exc.http_status == 404:
-                    raise _discover_rpc_error(exc) from exc
+                # Any status, including HTTP 404, is legacy method-not-found.
                 raise _LegacyProtocolError(str(exc)) from exc
             if _is_legacy_protocol_evidence(
                 status_code=exc.http_status,
