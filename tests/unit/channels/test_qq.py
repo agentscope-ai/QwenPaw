@@ -333,3 +333,130 @@ async def test_heartbeat_and_stop_close_native_resources(
     assert not socket.connected
     assert platform._ws_thread is None and driver._platform is None
     await driver.stop()
+
+
+async def send_stream(
+    peer,
+    identity,
+    handle,
+    *,
+    operation,
+    sequence,
+    accumulated_text,
+    delivery="delivery-A",
+    target_delivery_id=None,
+):
+    fields = {
+        **identity,
+        "to_handle": handle,
+        "delivery_id": delivery,
+        "operation": operation,
+        "stream_type": "message",
+        "sequence": sequence,
+        "accumulated_text": accumulated_text,
+    }
+    if target_delivery_id is not None:
+        fields["target_delivery_id"] = target_delivery_id
+    params = SendParams.from_mapping(fields)
+    return await peer.methods["channel.send"](params, None)
+
+
+async def test_stream_slices_replace_full_text(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(
+        peer,
+        identity,
+        "qq:c2c:user-A",
+        message_id="original-msg",
+    )
+    start = await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="first",
+    )
+    assert start["state"] == "acknowledged"
+    delta = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.delta",
+        sequence=1,
+        target_delivery_id="delivery-A",
+        accumulated_text="first more",
+    )
+    assert delta["state"] == "acknowledged"
+    end = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-C",
+        operation="stream.end",
+        sequence=2,
+        target_delivery_id="delivery-A",
+        accumulated_text="final answer",
+    )
+    assert end["state"] == "acknowledged"
+
+    rows = server.api_rows()
+    assert [row["path"] for row in rows] == [
+        "/v2/users/user-A/stream_messages",
+    ] * 3
+    assert [row["auth"] for row in rows] == ["QQBot native-token"] * 3
+    first, middle, last = (row["body"] for row in rows)
+    assert first == {
+        "input_mode": "replace",
+        "input_state": 1,
+        "index": 0,
+        "content_type": "markdown",
+        "content_raw": "first",
+        "msg_id": "original-msg",
+        "msg_seq": 1,
+    }
+    assert middle == {
+        "input_mode": "replace",
+        "input_state": 1,
+        "index": 1,
+        "content_type": "markdown",
+        "content_raw": "first more",
+        "msg_id": "original-msg",
+        "msg_seq": 1,
+        "stream_msg_id": "sent",
+    }
+    assert last == {
+        "input_mode": "replace",
+        "input_state": 10,
+        "index": 2,
+        "content_type": "markdown",
+        "content_raw": "final answer",
+        "msg_id": "original-msg",
+        "msg_seq": 1,
+        "stream_msg_id": "sent",
+    }
+
+
+async def test_stream_policy_is_c2c_only(native_driver):
+    driver, peer, identity, _ = native_driver
+    c2c = await open_route(peer, identity, "qq:c2c:user-A")
+    group = await open_route(peer, identity, "qq:group:group-A")
+    assert driver.response_policy(c2c).streaming is False
+    driver._config["streaming_enabled"] = True
+    assert driver.response_policy(c2c).streaming is True
+    assert driver.response_policy(group).streaming is False
+
+
+async def test_stream_start_rejects_non_c2c_route(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    platform = driver._platform
+    route = {"message_type": "group", "group_openid": "group-A"}
+    with pytest.raises(Exception) as excinfo:
+        await platform.start_stream(route, "text")
+    assert getattr(excinfo.value, "reason_code", "") == (
+        "STREAM_ROUTE_UNSUPPORTED"
+    )
+    assert server.api_rows() == []
