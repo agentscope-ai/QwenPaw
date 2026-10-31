@@ -20,6 +20,7 @@ from qwenpaw.channel_protocol.targets import decode_reply_target
 
 from .errors import QQDeliveryError
 from .formatting import (
+    _as_bool,
     _resolve_send_path,
     _route_meta_from_handle,
     resolve_session_id,
@@ -66,7 +67,12 @@ class QQDriver(SharedResponseDriver):
         await self._stop_platform()
 
     def response_policy(self, response_handle):
+        attrs = self._route_attrs(response_handle)
         return ResponsePolicy(
+            # The official stream API covers single chat only, so group,
+            # guild and dm routes keep the completed-message path.
+            streaming=bool(self._config.get("streaming_enabled"))
+            and attrs.get("message_type") == "c2c",
             send_format=SendFormatPolicy(False, False, False, False, True),
         )
 
@@ -209,9 +215,72 @@ class QQDriver(SharedResponseDriver):
         )
         await self._checkpoint(reserve_bytes=1024)
 
+    @staticmethod
+    def _text(params):
+        return params.accumulated_text or ""
+
+    async def _perform_stream(self, platform, params):
+        """Stream slices use the QQ replace-mode stream_messages API."""
+        route = self._route_attrs(params.to_handle)
+        markdown = _as_bool(
+            route.get(
+                "markdown_enabled",
+                self._config.get("markdown_enabled", True),
+            ),
+        )
+        text = self._text(params)
+        if params.operation.value == "stream.start":
+            resource = await platform.start_stream(route, text, markdown)
+            resource.update(sequence="0", text=text, final="false")
+            return ResponseResourceRef.create(
+                "qq.delivery",
+                params.delivery_id,
+                resource,
+            )
+        ref = self._delivery_resource(
+            params.to_handle,
+            params.target_delivery_id,
+        )
+        if ref is None or ref.kind != "qq.delivery":
+            raise QQDeliveryError(
+                "OUTBOUND_TARGET_UNKNOWN",
+                side_effect_possible=False,
+            )
+        resource = dict(ref.attributes)
+        sequence = params.sequence or 0
+        if sequence <= int(resource.get("sequence", "0")):
+            raise QQDeliveryError(
+                "STREAM_SEQUENCE_STALE",
+                side_effect_possible=False,
+            )
+        final = params.operation.value == "stream.end"
+        index = int(resource.get("index", "0")) + 1
+        await platform.update_stream(
+            route,
+            resource,
+            text,
+            index=index,
+            markdown=markdown,
+            final=final,
+        )
+        resource.update(
+            sequence=str(sequence),
+            text=text,
+            index=str(index),
+            final="true" if final else "false",
+        )
+        return ResponseResourceRef.create(
+            "qq.delivery",
+            params.target_delivery_id,
+            resource,
+        )
+
     async def _perform_send(self, params):
         platform = self._require_connected()
-        if params.operation.value != "message.create":
+        operation = params.operation.value
+        if operation in {"stream.start", "stream.delta", "stream.end"}:
+            return await self._perform_stream(platform, params)
+        if operation != "message.create":
             raise QQDeliveryError("OUTBOUND_OPERATION_UNSUPPORTED")
         route = self._route_attrs(params.to_handle)
         async with platform.delivery(
