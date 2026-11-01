@@ -43,6 +43,19 @@
   white-space: nowrap;
 }
 
+@media (max-width: 768px) {
+  .page :global(.ant-btn),
+  .page :global(.qwenpaw-btn),
+  .autoControl {
+    min-height: var(--app-hit-touch);
+  }
+
+  .page :global(.ant-btn-icon-only),
+  .page :global(.qwenpaw-btn-icon-only) {
+    min-width: var(--app-hit-touch);
+  }
+}
+
 .content {
   flex: 1;
   min-height: 0;

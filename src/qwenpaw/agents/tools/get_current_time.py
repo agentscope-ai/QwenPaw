@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
     async_execution=True,
     tool_type="internal",
     policy_name="GetCurrentTime",
+    decision_model_no_target_read=True,
     ui_description="Get current date and time",
     ui_icon="🕐",
 )

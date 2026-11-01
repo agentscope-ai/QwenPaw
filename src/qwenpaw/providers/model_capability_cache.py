@@ -54,6 +54,9 @@ class ModelCapabilityCache:
         ``rejects_audio`` (bool):
             The model rejects audio input while other media can remain
             supported.
+        ``rejects_video`` (bool):
+            The endpoint rejects video input while other media can remain
+            supported.
     """
 
     _instance: ModelCapabilityCache | None = None

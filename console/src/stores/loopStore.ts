@@ -177,6 +177,13 @@ export function markLoopModeRunning(): void {
   useLoopStore.getState().setRunningMode();
 }
 
+export function selectLoopModeAfterExit(modeId: string): void {
+  // Ignore a status request started before the server ended the old mode.
+  statusRequestId += 1;
+  useLoopStore.getState().resetSessionMode();
+  useLoopStore.getState().setSelectedMode(modeId);
+}
+
 export async function fetchAvailableLoopModes(
   signal?: AbortSignal,
 ): Promise<void> {

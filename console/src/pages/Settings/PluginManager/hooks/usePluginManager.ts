@@ -21,6 +21,7 @@ import { marketPluginMatches } from "@/utils/marketPluginIdentity";
 import { reloadFrontendPlugin, reloadPawApp } from "@/plugins/usePluginLoader";
 import { removePluginRuntime } from "@/plugins/pluginRuntimeCleanup";
 import { removePluginAppState } from "@/os/osCleanup";
+import { runPluginInstall } from "../dependencyUpgrade";
 
 const MARKET_PAGE_SIZE = 50;
 const MARKET_MAX_PAGES = 20;
@@ -178,7 +179,11 @@ export function usePluginManager() {
       if (!update || updatingId !== null || updatingAll) return;
       setUpdatingId(plugin.id);
       try {
-        await installPlugin(update.source, { force: true });
+        const result = await runPluginInstall(
+          () => installPlugin(update.source, { force: true }),
+          t,
+        );
+        if (result === null) return;
         await reloadInstalledPluginRuntime(plugin);
         message.success(t("pluginManager.updateSuccess"));
       } catch (err) {
@@ -198,13 +203,21 @@ export function usePluginManager() {
     setUpdatingAll(true);
     const completedIds = new Set<string>();
     const failedPluginNames: string[] = [];
+    let cancelled = false;
     try {
       for (const plugin of plugins ?? []) {
         const update = updates.get(plugin.id);
         if (!update) continue;
         setUpdatingId(plugin.id);
         try {
-          await installPlugin(update.source, { force: true });
+          const result = await runPluginInstall(
+            () => installPlugin(update.source, { force: true }),
+            t,
+          );
+          if (result === null) {
+            cancelled = true;
+            break;
+          }
           await reloadInstalledPluginRuntime(plugin);
           completedIds.add(plugin.id);
           setUpdates((current) => {
@@ -212,10 +225,15 @@ export function usePluginManager() {
             next.delete(plugin.id);
             return next;
           });
-        } catch {
-          failedPluginNames.push(plugin.name);
+        } catch (error) {
+          failedPluginNames.push(
+            error instanceof Error && error.message
+              ? `${plugin.name}: ${error.message}`
+              : plugin.name,
+          );
         }
       }
+      if (cancelled) return;
       if (failedPluginNames.length === 0) {
         message.success(t("pluginManager.updateAllSuccess"));
       } else {

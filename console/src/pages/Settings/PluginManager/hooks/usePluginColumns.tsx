@@ -1,8 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { Tag, Tooltip, Button, Space, Typography } from "antd";
-import { Package, Trash2, CheckCircle, XCircle } from "lucide-react";
+import { Tooltip, Button, Space, Typography } from "antd";
+import { Package, Trash2 } from "lucide-react";
 import type { PluginType, PluginInfo } from "@/api/modules/plugin";
 import { PluginTypeTag } from "../components/PluginTypeTag";
+import { PluginStatusTag } from "../components/PluginStatusTag";
 
 const { Text } = Typography;
 
@@ -70,24 +71,9 @@ export function usePluginColumns({
       dataIndex: "loaded",
       key: "loaded",
       width: 110,
-      render: (loaded: boolean) =>
-        loaded ? (
-          <Tag
-            icon={<CheckCircle size={12} />}
-            color="success"
-            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-          >
-            {t("pluginManager.statusLoaded")}
-          </Tag>
-        ) : (
-          <Tag
-            icon={<XCircle size={12} />}
-            color="default"
-            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-          >
-            {t("pluginManager.statusUnloaded")}
-          </Tag>
-        ),
+      render: (_loaded: boolean, record: PluginInfo) => (
+        <PluginStatusTag plugin={record} />
+      ),
     },
     {
       title: "",

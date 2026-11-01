@@ -178,22 +178,6 @@ first and then configure channels.
 
 ---
 
-## Option 2: pip install
-
-If you prefer managing Python yourself (requires Python >= 3.11, < 3.14):
-
-```bash
-pip install qwenpaw
-```
-
-Optional: create and activate a virtual environment first (`python -m venv .venv`,
-then `source .venv/bin/activate` on Linux/macOS or `.venv\Scripts\Activate.ps1`
-on Windows). This installs the `qwenpaw` command.
-
-Then follow [Step 2: Initialize](#step-2-initialize) and [Step 3: Start the server](#step-3-start-the-server) above.
-
----
-
 ## Option 3: Docker
 
 Images are on **Docker Hub** (`agentscope/qwenpaw`). Image tags: `latest` (stable);

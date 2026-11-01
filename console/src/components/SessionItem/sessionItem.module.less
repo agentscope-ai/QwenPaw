@@ -69,6 +69,20 @@
   }
 }
 
+.primary {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
 /* ── Content area ─────────────────────────────────────────────────────── */
 
 .content {
@@ -103,7 +117,7 @@
   will-change: transform;
 
   .sidebar:hover &,
-  .sidebar:focus-visible & {
+  .primary:focus-visible & {
     animation: sessionNameMarquee var(--name-marquee-duration) ease-in-out
       infinite alternate;
   }
@@ -253,8 +267,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -281,16 +295,16 @@
   &:focus-visible {
     opacity: 1;
     pointer-events: auto;
-    outline: 2px solid var(--app-accent);
-    outline-offset: 1px;
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
   }
 }
 
-@media (hover: none), (pointer: coarse) {
+@media (hover: none), (any-pointer: coarse) {
   .moreBtn {
-    width: 32px;
-    height: 32px;
-    margin: -5px;
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+    margin: -11px;
     opacity: 1;
     pointer-events: auto;
   }

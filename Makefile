@@ -29,7 +29,7 @@ coverage-full:
 		--cov-report=term-missing \
 		--cov-report=html
 
-# Check contract coverage for all channels
+# Check built-in channel contract coverage
 check-contracts:
 	$(PYTHON) scripts/check_channel_contracts.py
 
@@ -57,9 +57,9 @@ test-channel-contract:
 	@echo "Running Channel contract tests..."
 	$(PYTEST) tests/contract/channels/ -v --tb=short
 
-# BaseChannel core unit tests (optional, not enforced)
+# Channel host core unit tests
 test-base-core:
-	$(PYTEST) tests/unit/channels/test_base_core.py -v
+	$(PYTEST) tests/unit/channels/test_channel_host.py -v
 
 ## Install the project and bundled mail MCP for development.
 install-dev:

@@ -15,7 +15,6 @@ import {
   CircleAlert as SparkErrorCircleLine,
   Eraser as SparkClearLine,
 } from "lucide-react";
-import { useTheme } from "../../../contexts/ThemeContext";
 import {
   type QueueItem,
   type QueueRunState,
@@ -52,7 +51,6 @@ export default function MessageQueuePanel({
   embedded = false,
 }: MessageQueuePanelProps) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -127,11 +125,11 @@ export default function MessageQueuePanel({
   if (items.length === 0) return null;
 
   const isPausedOrError = runState === "paused" || runState === "error";
-  const borderColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const rowBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.02)";
-  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
-  const dragOverBg = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)";
-  const mutedColor = isDark ? "#888" : "#999";
+  const borderColor = "var(--app-border-subtle)";
+  const rowBg = "var(--app-fill-faint)";
+  const hoverBg = "var(--app-fill-subtle)";
+  const dragOverBg = "var(--app-fill)";
+  const mutedColor = "var(--app-text-tertiary)";
 
   return (
     <div
@@ -143,11 +141,7 @@ export default function MessageQueuePanel({
         maxHeight: 220,
         overflowY: "auto",
         borderRadius: embedded ? 0 : 8,
-        background: embedded
-          ? "transparent"
-          : isDark
-          ? "rgba(255,255,255,0.02)"
-          : "rgba(0,0,0,0.01)",
+        background: embedded ? "transparent" : "var(--app-fill-faint)",
         border: embedded ? "none" : `1px solid ${borderColor}`,
       }}
     >
@@ -161,7 +155,7 @@ export default function MessageQueuePanel({
             position: "sticky",
             top: 0,
             zIndex: 1,
-            background: isDark ? "var(--app-surface)" : "#fff",
+            background: "var(--app-surface)",
             paddingTop: 4,
             paddingBottom: 6,
             borderBottom: `1px solid ${borderColor}`,
@@ -174,7 +168,7 @@ export default function MessageQueuePanel({
               gap: 6,
               fontSize: 12,
               fontWeight: 500,
-              color: isDark ? "#bbb" : "#555",
+              color: "var(--app-text-secondary)",
               userSelect: "none",
             }}
           >
@@ -186,7 +180,7 @@ export default function MessageQueuePanel({
                   alignItems: "center",
                   gap: 3,
                   fontSize: 11,
-                  color: "#faad14",
+                  color: "var(--app-warning-text)",
                   fontWeight: 400,
                 }}
               >
@@ -200,7 +194,7 @@ export default function MessageQueuePanel({
                   alignItems: "center",
                   gap: 3,
                   fontSize: 11,
-                  color: "#ff4d4f",
+                  color: "var(--app-error-text)",
                   fontWeight: 400,
                 }}
               >
@@ -225,12 +219,12 @@ export default function MessageQueuePanel({
                   isPausedOrError ? (
                     <SparkPlayFill
                       size="1em"
-                      style={{ fontSize: 14, color: "#52c41a" }}
+                      style={{ fontSize: 14, color: "var(--app-success-text)" }}
                     />
                   ) : (
                     <SparkPauseLine
                       size="1em"
-                      style={{ fontSize: 14, color: "#faad14" }}
+                      style={{ fontSize: 14, color: "var(--app-warning-text)" }}
                     />
                   )
                 }
@@ -260,10 +254,10 @@ export default function MessageQueuePanel({
       {items.map((item) => {
         const statusColor =
           item.status === "failed"
-            ? "#ff4d4f"
+            ? "var(--app-error-text)"
             : item.status === "sending"
             ? "var(--app-accent-text)"
-            : "#52c41a";
+            : "var(--app-success-text)";
         const isHovered = hoveredId === item.id;
         const isEditing = editingId === item.id;
 
@@ -353,12 +347,10 @@ export default function MessageQueuePanel({
                     whiteSpace: "nowrap",
                     color:
                       item.status === "failed"
-                        ? "#ff4d4f"
+                        ? "var(--app-error-text)"
                         : item.status === "sending"
                         ? "var(--app-accent-text)"
-                        : isDark
-                        ? "#ddd"
-                        : "#333",
+                        : "var(--app-text)",
                     fontWeight: item.status === "sending" ? 500 : 400,
                   }}
                 >
@@ -367,7 +359,7 @@ export default function MessageQueuePanel({
                     <span
                       style={{
                         fontSize: 10,
-                        color: "#ff4d4f",
+                        color: "var(--app-error-text)",
                         marginLeft: 4,
                       }}
                     >
@@ -401,9 +393,7 @@ export default function MessageQueuePanel({
                               gap: 3,
                               padding: "2px 5px",
                               borderRadius: 4,
-                              background: isDark
-                                ? "rgba(255,255,255,0.06)"
-                                : "rgba(0,0,0,0.04)",
+                              background: "var(--app-fill-subtle)",
                               fontSize: 10,
                               color: mutedColor,
                               maxWidth: 100,
@@ -528,7 +518,10 @@ export default function MessageQueuePanel({
                       icon={
                         <SparkDeleteLine
                           size="1em"
-                          style={{ fontSize: 13, color: "#ff4d4f" }}
+                          style={{
+                            fontSize: 13,
+                            color: "var(--app-error-text)",
+                          }}
                         />
                       }
                       onClick={() => onRemove(item.id)}

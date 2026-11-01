@@ -54,6 +54,23 @@ describe("acpApi", () => {
     expect(result).toBe(updated);
   });
 
+  it("pins the requested agent header for config reads and writes", async () => {
+    const config = { agents: {} };
+    vi.mocked(request).mockResolvedValue(config);
+
+    await acpApi.getACPConfig("agent-new");
+    expect(request).toHaveBeenLastCalledWith("/config/acp", {
+      headers: { "X-Agent-Id": "agent-new" },
+    });
+
+    await acpApi.updateACPConfig(config, "agent-new");
+    expect(request).toHaveBeenLastCalledWith("/config/acp", {
+      method: "PUT",
+      body: JSON.stringify(config),
+      headers: { "X-Agent-Id": "agent-new" },
+    });
+  });
+
   it("forwards request errors unchanged (no swallow)", async () => {
     vi.mocked(request).mockRejectedValue(new Error("boom"));
     await expect(acpApi.getACPConfig()).rejects.toThrow("boom");

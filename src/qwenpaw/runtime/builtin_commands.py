@@ -172,6 +172,11 @@ def _make_control_adapter(
     a :class:`CommandSpec`.
     """
 
+    from .commands.control import command_owner, iter_commands
+
+    owner = command_owner(command_name)
+    plugin_owner = owner if owner and owner != "core" else ""
+
     async def _handler(ctx: Any, args: str) -> "Msg | None":
         from .commands.control import parse_args
         from .commands.control.base import ControlContext
@@ -223,13 +228,68 @@ def _make_control_adapter(
         )
 
         try:
-            text = await handler.handle(ctrl_ctx)
+            from ..plugins.activity import plugin_invocation
+
+            if plugin_owner and (
+                command_owner(command_name) != plugin_owner
+                or not any(item is handler for item in iter_commands())
+            ):
+                text = (
+                    "**Command unavailable**\n\n"
+                    "Plugin command was replaced or unloaded."
+                )
+            else:
+                with plugin_invocation(plugin_owner):
+                    text = await handler.handle(ctrl_ctx)
         except Exception as e:
             logger.exception(
                 "Control command failed: /%s",
                 command_name,
             )
             text = f"**Command Failed**\n\n{e}"
+
+        from ..schemas import AgentRequest
+        from .._control_state import ControlCommandState
+        from .commands.control.approval_handler import (
+            ApprovalCommandHandler,
+            ApproveCommandHandler,
+            DenyCommandHandler,
+        )
+
+        if isinstance(request, AgentRequest) and isinstance(
+            handler,
+            (
+                ApprovalCommandHandler,
+                ApproveCommandHandler,
+                DenyCommandHandler,
+            ),
+        ):
+            # Host-private state binds this reply to its original channel actor.
+            state = (
+                request._channel_control_state
+            )  # pylint: disable=protected-access
+            result = ctrl_ctx.approval_resolution
+            if isinstance(state, ControlCommandState) and result is not None:
+                actor = ApprovalCommandHandler._actor(
+                    ctrl_ctx,
+                )  # pylint: disable=protected-access
+                binding = state.binding
+                # Verify every identity field together before recording resolution.
+                if (  # pylint: disable=too-many-boolean-expressions
+                    binding.channel_key == actor.channel
+                    and binding.user_id == actor.user_id
+                    and binding.session_id == actor.session_id
+                    and binding.root_session_id == actor.root_session_id
+                    and binding.agent_id == actor.agent_id
+                    and (
+                        not binding.source_request_id
+                        or binding.source_request_id == result.request_id
+                    )
+                ):
+                    try:
+                        state.set_resolution(result)
+                    except ValueError:
+                        logger.warning("Control confirmation binding invalid")
 
         return Msg(
             name="assistant",

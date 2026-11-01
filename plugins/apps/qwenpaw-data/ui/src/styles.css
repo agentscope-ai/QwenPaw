@@ -63,6 +63,15 @@
   background: #fff;
 }
 
+.qwenpaw-data-handoff {
+  margin: auto;
+  padding: 24px;
+  color: var(--app-text-secondary, #64748b);
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+}
+
 .qwenpaw-data-main > div {
   height: 100%;
 }
@@ -122,4 +131,3 @@
   border-radius: 5px;
   font-size: 14px;
 }
-

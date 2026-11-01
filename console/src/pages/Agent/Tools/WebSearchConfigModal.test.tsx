@@ -158,6 +158,24 @@ describe("WebSearchConfigModal", () => {
     expect(link).toHaveAttribute("target", "_blank");
   });
 
+  it("lists firecrawl and loads its credential slot when selected", async () => {
+    hoisted.getToolConfig.mockResolvedValueOnce({});
+    renderModal();
+
+    await waitFor(() => {
+      expect(selectedProvider()).toBe("tavily");
+    });
+
+    await switchProvider("firecrawl");
+
+    expect(passwordInput()).not.toBeNull();
+    await waitFor(() => {
+      expect(hoisted.getToolConfig).toHaveBeenLastCalledWith("web_search", {
+        provider: "firecrawl",
+      });
+    });
+  });
+
   it("re-fetches with the selected provider when switching inside the modal", async () => {
     hoisted.getToolConfig.mockResolvedValueOnce({});
     renderModal();
@@ -300,6 +318,44 @@ describe("WebSearchConfigModal failed provider switch", () => {
   beforeEach(() => {
     hoisted.getToolConfig.mockReset();
     hoisted.getToolConfig.mockResolvedValue({});
+  });
+
+  it("does not save when the firecrawl slot fails to load", async () => {
+    hoisted.getToolConfig
+      .mockResolvedValueOnce({
+        provider: "anysearch",
+        api_key: "as-private-draft",
+      })
+      .mockRejectedValueOnce(new Error("network"));
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    render(
+      <WebSearchConfigModal
+        tool={tool}
+        visible
+        onClose={onClose}
+        onSave={onSave}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(passwordInput()).toHaveValue("as-private-draft");
+    });
+
+    await switchProvider("firecrawl");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("tools.webSearchConfigLoadError"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("does not save the previous provider key when the new slot fails to load", async () => {

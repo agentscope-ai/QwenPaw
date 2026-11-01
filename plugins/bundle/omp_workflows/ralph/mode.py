@@ -29,6 +29,7 @@ class RalphMode(OMPModeBase):
     """AgentMode for the Ralph workflow."""
 
     name = "ralph"
+    loop_entry = f"ralph"
     gate_cls = RalphGate
     plugin_id = "__omp_ralph__"
     handler_name = "ralph-stop-handler"

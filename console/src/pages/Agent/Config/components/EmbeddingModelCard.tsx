@@ -43,6 +43,11 @@ function isValidHealthCheckTimeout(value: unknown): value is number {
 
 export function EmbeddingModelCard() {
   const { t } = useTranslation();
+  const positiveIntegerRule = {
+    type: "integer" as const,
+    min: 1,
+    message: t("agentConfig.memoryPositiveIntegerRequired"),
+  };
   const { message, modal } = useAppMessage();
   const { selectedAgent } = useAgentStore();
   const form = Form.useFormInstance();
@@ -518,11 +523,7 @@ export function EmbeddingModelCard() {
                 required: true,
                 message: t("agentConfig.embeddingDimensionsRequired"),
               },
-              {
-                type: "number",
-                min: 1,
-                message: t("agentConfig.embeddingDimensionsMin"),
-              },
+              positiveIntegerRule,
             ]}
             tooltip={t("agentConfig.embeddingDimensionsTooltip")}
           >
@@ -530,6 +531,7 @@ export function EmbeddingModelCard() {
               style={{ width: "100%", maxWidth: 240 }}
               min={1}
               step={256}
+              precision={0}
               disabled={reindexing || !embeddingEnabled}
             />
           </SettingsField>
@@ -581,6 +583,7 @@ export function EmbeddingModelCard() {
                         required: true,
                         message: t("agentConfig.embeddingMaxCacheSizeRequired"),
                       },
+                      positiveIntegerRule,
                     ]}
                     tooltip={t("agentConfig.embeddingMaxCacheSizeTooltip")}
                   >
@@ -588,6 +591,7 @@ export function EmbeddingModelCard() {
                       style={{ width: "100%", maxWidth: 240 }}
                       min={1}
                       step={100}
+                      precision={0}
                       disabled={
                         reindexing ||
                         !embeddingEnabled ||
@@ -610,6 +614,7 @@ export function EmbeddingModelCard() {
                           "agentConfig.embeddingMaxInputLengthRequired",
                         ),
                       },
+                      positiveIntegerRule,
                     ]}
                     tooltip={t("agentConfig.embeddingMaxInputLengthTooltip")}
                   >
@@ -617,6 +622,7 @@ export function EmbeddingModelCard() {
                       style={{ width: "100%", maxWidth: 240 }}
                       min={1}
                       step={1024}
+                      precision={0}
                       disabled={reindexing || !embeddingEnabled}
                     />
                   </SettingsField>
@@ -633,6 +639,7 @@ export function EmbeddingModelCard() {
                         required: true,
                         message: t("agentConfig.embeddingMaxBatchSizeRequired"),
                       },
+                      positiveIntegerRule,
                     ]}
                     tooltip={t("agentConfig.embeddingMaxBatchSizeTooltip")}
                   >
@@ -640,6 +647,7 @@ export function EmbeddingModelCard() {
                       style={{ width: "100%", maxWidth: 240 }}
                       min={1}
                       step={1}
+                      precision={0}
                       disabled={reindexing || !embeddingEnabled}
                     />
                   </SettingsField>

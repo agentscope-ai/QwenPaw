@@ -286,6 +286,12 @@ def test_normalize_call_tool_result_snake_case_aliases():
         lambda r: httpx.Response(400, text=""),
         lambda r: httpx.Response(404, text=""),
         lambda r: httpx.Response(405, text=""),
+        lambda r: httpx.Response(422, text=""),
+        # DBX-style: 422 with a plain-text "expect initialize" body.
+        lambda r: httpx.Response(
+            422,
+            text="Unexpected message, expect initialize request",
+        ),
         lambda r: _ok(r, {"supportedVersions": ["2025-11-25"]}),
         lambda r: _err(r, -32601, "Method not found: server/discover"),
         lambda r: _err(r, -32022, "bad", {"supported": ["2025-11-25"]}),
@@ -377,12 +383,42 @@ async def test_auto_falls_back_on_gzip_plain_400(monkeypatch):
         await c.close()
 
 
+async def test_auto_falls_back_on_plain_422(monkeypatch):
+    """DBX-style HTTP 422 with a plain-text body is legacy evidence.
+
+    The peer mandates ``initialize`` as the first message and answers the
+    unknown ``server/discover`` probe with 422 and a non-JSON-RPC body, so
+    the AutoClient must fall back to the legacy handshake instead of failing
+    the Driver build.
+    """
+    connected: list[str] = []
+    _fake_stateful(monkeypatch, connected)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            422,
+            text="Unexpected message, expect initialize request",
+            headers={"content-type": "text/plain; charset=utf-8"},
+        )
+
+    c = _cli(HttpAutoClient, "dbx", handler)
+    await c.connect()
+    try:
+        assert c.is_connected
+        assert c.is_stateful
+        assert connected == ["dbx"]
+    finally:
+        await c.close()
+
+
 @pytest.mark.parametrize(
     ("make", "exc_type", "match"),
     [
         (_transport_error(httpx.ReadTimeout), httpx.ReadTimeout, None),
-        # Only 401 joins 400/404/405 as fallback evidence; other 4xx stay
-        # hard failures so a real authorization problem is not masked.
+        # Only 401 joins 400/404/405/422 as fallback evidence; other 4xx
+        # (e.g. 403) stay hard failures so a real authorization problem is
+        # not masked.
         (
             lambda r: httpx.Response(403, text="forbidden"),
             httpx.HTTPStatusError,

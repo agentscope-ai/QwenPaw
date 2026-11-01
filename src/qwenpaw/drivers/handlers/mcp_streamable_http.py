@@ -218,7 +218,11 @@ def _is_legacy_protocol_evidence(
         )
         has_mod = _MODERN_PROTOCOL_VERSION in supported_versions
         return bool(supported_versions) and has_hs and not has_mod
-    return status_code in {400, 404, 405}
+    # A bare 422 means the peer rejected the modern request shape (e.g. it
+    # mandates ``initialize`` first and answers unknown methods with 422 and
+    # a plain-text body) -- same fallback as 400/404/405. Auth codes are
+    # handled separately, so this cannot mask a real authorization problem.
+    return status_code in {400, 404, 405, 422}
 
 
 class _ModernCallToolResult(mcp_types.CallToolResult):
@@ -774,7 +778,7 @@ class HttpStatelessClient(_HttpClientBase):
                 f"discover probe got HTTP 401: {exc}",
             ) from exc
         except httpx.HTTPStatusError as exc:
-            # Bare 400/404/405 ⇒ one legacy fallback.
+            # Bare 400/404/405/422 ⇒ one legacy fallback.
             if _is_legacy_protocol_evidence(
                 status_code=exc.response.status_code,
             ):
