@@ -84,6 +84,11 @@ export function SkillListItem({
             <InlineHelp>
               {skill.description || t("skills.noDescription")}
             </InlineHelp>
+            {skill.rel_path ? (
+              <span style={{ fontSize: 12, opacity: 0.6 }}>
+                {skill.rel_path}
+              </span>
+            ) : null}
             <span className={styles.typeBadge}>
               {isBuiltin ? t("skills.builtin") : t("skills.custom")}
             </span>

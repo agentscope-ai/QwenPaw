@@ -105,6 +105,11 @@ export function PoolSkillListItem({
             )}
           </div>
           <p className={styles.listItemDesc}>{skill.description || "-"}</p>
+          {skill.rel_path || skill.external_path ? (
+            <p style={{ fontSize: 12, opacity: 0.6, margin: 0 }}>
+              {skill.external_path || skill.rel_path}
+            </p>
+          ) : null}
           <SkillTagChips tags={skill.tags} />
         </div>
       </div>

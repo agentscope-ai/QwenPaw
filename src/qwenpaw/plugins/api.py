@@ -7,7 +7,7 @@ import logging
 import threading
 import warnings
 from pathlib import Path
-from typing import Any, Callable, Collection, Dict, List, Optional, Type
+from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type
 
 logger = logging.getLogger(__name__)
 
@@ -2394,8 +2394,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             f"Plugin '{self.plugin_id}' unregistered as skill provider",
         )
 
-    def _get_skill_names(self, skills_dir: Path) -> List[str]:
-        """Return sub-directory names that contain a SKILL.md file."""
+    def _get_skill_names(self, skills_dir: Path) -> List[Tuple[str, str]]:
+        """Return ``(rel_path, leaf_name)`` for every packaged plugin skill."""
+        from ..agents.skill_system.store import iter_skill_dirs, rel_path_of
+
         if not skills_dir.exists() or not skills_dir.is_dir():
             logger.warning(
                 f"Plugin '{self.plugin_id}' skills_dir "
@@ -2403,11 +2405,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             )
             return []
         return sorted(
-            d.name
-            for d in skills_dir.iterdir()
-            if d.is_dir() and (d / "SKILL.md").exists()
+            (rel_path_of(skills_dir, path), path.name)
+            for path in iter_skill_dirs(skills_dir)
         )
 
+    # pylint: disable-next=too-many-statements
     def _install_skills_into_workspace(
         self,
         workspace_info: dict,
@@ -2428,8 +2430,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 get_workspace_skill_manifest_path,
                 default_workspace_manifest,
                 mutate_json,
+                plan_skill_write,
+                read_skill_manifest,
                 rel_path_of,
                 resolve_skill_dir,
+                safe_nested_skill_dir,
             )
             from .provision import (
                 commit_migrations,
@@ -2449,14 +2454,41 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             ws_skills_dir.mkdir(parents=True, exist_ok=True)
 
             version = str(self.manifest.get("version") or "0")
+            entries = read_skill_manifest(workspace_dir).get("skills", {})
             owned_names = []
             created_names = []
-            for skill_name in skill_names:
+            installed_rels: dict[str, str] = {}
+            seen_names: set[str] = set()
+            for rel, skill_name in skill_names:
+                if skill_name in seen_names:
+                    # Identity is the leaf name: the first copy wins, the
+                    # later one is shadowed with a warning.
+                    logger.warning(
+                        f"Plugin '{self.plugin_id}' skill '{skill_name}' in "
+                        f"'{rel}' is shadowed by an earlier copy; skipping",
+                    )
+                    continue
+                seen_names.add(skill_name)
                 src_dir = resolve_skill_dir(skills_dir, skill_name)
                 if src_dir is None:
                     continue
-                rel = rel_path_of(skills_dir, src_dir) or skill_name
-                dest = ws_skills_dir / rel
+                src_rel = rel_path_of(skills_dir, src_dir) or rel or skill_name
+                plan = plan_skill_write(
+                    ws_skills_dir,
+                    entries,
+                    skill_name,
+                    src_rel,
+                    mode="update",
+                )
+                if plan.conflict is not None:
+                    logger.warning(
+                        f"Plugin '{self.plugin_id}' cannot install "
+                        f"'{skill_name}': "
+                        f"{plan.conflict.get('conflict_kind')}",
+                    )
+                    continue
+                dest_rel = plan.rel_path or src_rel
+                dest = safe_nested_skill_dir(ws_skills_dir, dest_rel)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 previous = load_inventory(self.plugin_id)["locations"].get(
                     str(dest.absolute()),
@@ -2475,6 +2507,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 )
                 if location_owned(location):
                     owned_names.append(skill_name)
+                    installed_rels[skill_name] = dest_rel
                     if branch == "create":
                         created_names.append(skill_name)
             if self._instance is not None and self._instance.activated:
@@ -2490,14 +2523,20 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 payload,
                 _names=tuple(owned_names),
                 _created=tuple(created_names),
+                _rels=tuple(installed_rels.items()),
                 _src=source_tag,
                 _enabled=enabled_by_default,
                 _channels=tuple(resolved_channels),
             ):
                 skills = payload.setdefault("skills", {})
+                owned_rels = dict(_rels)
                 for name in _names:
                     entry = skills.get(name)
                     if entry is None:
+                        continue
+                    # Only the location this plugin actually owns may receive
+                    # defaults; a user copy selected elsewhere is untouched.
+                    if entry.get("rel_path") != owned_rels.get(name):
                         continue
                     if name in _created:
                         entry["enabled"] = _enabled

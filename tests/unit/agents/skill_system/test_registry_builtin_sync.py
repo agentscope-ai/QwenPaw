@@ -858,3 +858,55 @@ class TestImportBuiltinSkills:
         )
         assert forced["updated"] == ["beta"]
         assert _read_manifest()["skills"]["beta"]["source"] == "builtin"
+
+
+# ---------------------------------------------------------------------------
+# Nested pool layouts must be updated in place
+# ---------------------------------------------------------------------------
+
+
+def test_builtin_update_targets_nested_pool_copy(packaged_root):
+    _packaged_variant(packaged_root, "alpha", "en", "1.0")
+    _packaged_variant(packaged_root, "alpha", "zh", "2.0", body="中文")
+    reg.import_builtin_skills(
+        [{"skill_name": "alpha", "language": "en"}],
+    )
+    pool_dir = reg.get_skill_pool_dir()
+    (pool_dir / "builtins").mkdir()
+    (pool_dir / "alpha").rename(pool_dir / "builtins/alpha")
+    manifest = _read_manifest()
+    manifest["skills"]["alpha"]["rel_path"] = "builtins/alpha"
+    _write_manifest(manifest)
+
+    entry = reg.update_single_builtin("alpha", language="zh")
+
+    assert entry["rel_path"] == "builtins/alpha"
+    assert "中文" in (pool_dir / "builtins/alpha/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert not (pool_dir / "alpha").exists()
+
+
+def test_builtin_import_targets_nested_pool_copy(packaged_root):
+    _packaged_variant(packaged_root, "alpha", "en", "1.0")
+    _packaged_variant(packaged_root, "alpha", "zh", "2.0", body="中文")
+    reg.import_builtin_skills(
+        [{"skill_name": "alpha", "language": "en"}],
+    )
+    pool_dir = reg.get_skill_pool_dir()
+    (pool_dir / "builtins").mkdir()
+    (pool_dir / "alpha").rename(pool_dir / "builtins/alpha")
+    manifest = _read_manifest()
+    manifest["skills"]["alpha"]["rel_path"] = "builtins/alpha"
+    _write_manifest(manifest)
+
+    result = reg.import_builtin_skills(
+        [{"skill_name": "alpha", "language": "zh"}],
+        overwrite_conflicts=True,
+    )
+
+    assert result["updated"] == ["alpha"]
+    assert "中文" in (pool_dir / "builtins/alpha/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert not (pool_dir / "alpha").exists()

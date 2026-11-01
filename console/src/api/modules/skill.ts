@@ -463,13 +463,20 @@ export const skillApi = {
         workspace_id: string;
         workspace_name?: string;
         name: string;
+        rel_path?: string;
       }>;
       conflicts?: Array<{
         reason?: string;
+        conflict_kind?: string;
         skill_name?: string;
+        identity?: string;
         workspace_id?: string;
         workspace_name?: string;
         suggested_name?: string;
+        selected_rel_path?: string;
+        source_rel_path?: string;
+        destination_rel_path?: string;
+        shadowed_rel_paths?: string[];
         current_version_text?: string;
         source_version_text?: string;
       }>;
@@ -624,8 +631,14 @@ export const skillApi = {
       enabled: boolean;
       conflicts?: Array<{
         reason: string;
+        conflict_kind?: string;
         skill_name: string;
+        identity?: string;
         suggested_name: string;
+        selected_rel_path?: string;
+        source_rel_path?: string;
+        destination_rel_path?: string;
+        shadowed_rel_paths?: string[];
       }>;
     }>,
 
@@ -641,8 +654,14 @@ export const skillApi = {
       count: number;
       conflicts?: Array<{
         reason: string;
+        conflict_kind?: string;
         skill_name: string;
+        identity?: string;
         suggested_name: string;
+        selected_rel_path?: string;
+        source_rel_path?: string;
+        destination_rel_path?: string;
+        shadowed_rel_paths?: string[];
       }>;
     }>,
 };
