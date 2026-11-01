@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import json
 import logging
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -69,6 +70,23 @@ _CSS_HUE_RE = re.compile(
     re.IGNORECASE,
 )
 _CSS_RADIUS_RE = re.compile(r"^(?:0|(?:0|[1-9]\d*)(?:\.\d+)?px)$")
+
+
+def _default_agent_language() -> str:
+    """Pick the initial language for fresh agents and config defaults.
+
+    ``QWENPAW_LANGUAGE`` lets unattended deployments (Docker first boot)
+    override the hardcoded Chinese default so fresh installs produce
+    English (or any bundled language) agents without post-startup edits
+    (issue #8481). Values outside the bundled language set fall back to
+    ``"zh"`` so the workspace templates keep resolving.
+    """
+    language = os.environ.get("QWENPAW_LANGUAGE", "").strip()
+    from ..constant import SUPPORTED_AGENT_LANGUAGES
+
+    if language and language in SUPPORTED_AGENT_LANGUAGES:
+        return language
+    return "zh"
 
 
 def _is_safe_css_color(value: str) -> bool:
@@ -2576,7 +2594,7 @@ class AgentProfileConfig(BaseModel):
         return self
 
     language: str = Field(
-        default="zh",
+        default_factory=_default_agent_language,
         description="Language setting for this agent",
     )
     approval_level: str = Field(
@@ -2653,7 +2671,10 @@ class AgentsConfig(BaseModel):
     llm_routing: AgentsLLMRoutingConfig = Field(
         default_factory=AgentsLLMRoutingConfig,
     )
-    language: str = Field(default="zh")
+    language: str = Field(
+        default_factory=_default_agent_language,
+        description='Initial default language; "zh" unless QWENPAW_LANGUAGE names a supported language (issue #8481)',
+    )
     installed_md_files_language: Optional[str] = None
     system_prompt_files: List[str] = Field(
         default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
