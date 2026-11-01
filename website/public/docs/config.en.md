@@ -146,6 +146,13 @@ The two streaming timeouts count only upstream wait time, excluding rate-limiter
 | `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | Whether to enable tool guard                       |
 | `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | Skill scanning mode (`block` / `warn` / `off`)     |
 
+**Dependency maintenance:**
+
+| Variable                           | Default          | Description                                                                                                                                                                                                                             |
+| ---------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_DEPENDENCY_STATE_DIR`     | `~/.qwenpaw/dependency-environments` | Storage root for dependency maintenance locks and sidecars. Set it to an **absolute** shared directory when the service account's `HOME` is unavailable or unwritable (managed sandboxes such as fnOS NAS app users); checked before `HOME` and the passwd database home. |
+| `QWENPAW_DEPENDENCY_READER_SCOPE`  | -                | 64-char hex scope separating read-only sidecar directories between concurrent installs; unset means one shared scope.                                                                                                                    |
+
 Example — use a different working dir for this shell:
 
 ```bash
