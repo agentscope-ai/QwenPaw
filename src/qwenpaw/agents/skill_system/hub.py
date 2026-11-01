@@ -77,7 +77,10 @@ class HubInstallResult:
 def _build_hub_conflict(name: str) -> dict[str, Any]:
     conflict = {
         "reason": "conflict",
+        "conflict_kind": "identity_exists",
         "skill_name": name,
+        "identity": name,
+        "destination_rel_path": name,
         "suggested_name": suggest_conflict_name(name),
     }
     return {

@@ -159,6 +159,9 @@ export function PoolSkillCard({
           />
         )}
         <div className={cardStyles.metadata}>
+          {skill.rel_path || skill.external_path ? (
+            <span>{skill.external_path || skill.rel_path}</span>
+          ) : null}
           <span
             className={`${styles.statusBadge} ${styles[`status_${syncTone}`]}`}
           >

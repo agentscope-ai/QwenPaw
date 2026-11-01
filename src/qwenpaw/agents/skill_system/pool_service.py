@@ -25,6 +25,7 @@ from .registry import (
 )
 from .store import (
     build_import_conflict,
+    build_skill_conflict,
     build_skill_metadata,
     compute_skill_md_hash,
     copy_pool_skill_automation,
@@ -44,7 +45,9 @@ from .store import (
     iter_skill_dirs,
     mutate_json,
     mutate_pool_manifest,
+    manifest_rel_path,
     normalize_skill_dir_name,
+    plan_skill_write,
     read_json,
     read_pool_skill_automation,
     read_skill_from_dir,
@@ -274,6 +277,7 @@ class SkillPoolService:
             ) from exc
         return skill_name
 
+    # pylint: disable-next=too-many-branches,too-many-statements
     def import_from_zip(
         self,
         data: bytes,
@@ -306,7 +310,7 @@ class SkillPoolService:
                         ),
                     ),
                 ]
-            renamed_found: list[tuple[Path, str, str]] = []
+            renamed_found: list[tuple[Path, str, str, str]] = []
             for skill_dir, skill_name, rel_path in found:
                 rename = renames.get(rel_path) if rel_path else None
                 if rename is None:
@@ -317,21 +321,20 @@ class SkillPoolService:
                         skill_dir,
                         new_name,
                         renamed_skill_rel_path(rel_path, new_name),
+                        rel_path,
                     ),
                 )
-            found = renamed_found
             manifest = read_skill_pool_manifest()
-            existing_pool_names = (
-                set(
-                    manifest.get("skills", {}).keys(),
-                )
-                | {p.name for p in iter_skill_dirs(pool_dir)}
-                if pool_dir.exists()
-                else set(
-                    manifest.get("skills", {}).keys(),
-                )
-            )
-            for skill_dir, skill_name, _rel_path in found:
+            on_disk_by_name: dict[str, list[str]] = {}
+            if pool_dir.exists():
+                for path in iter_skill_dirs(pool_dir):
+                    on_disk_by_name.setdefault(path.name, []).append(
+                        rel_path_of(pool_dir, path),
+                    )
+            existing_pool_names = set(
+                manifest.get("skills", {}).keys(),
+            ) | set(on_disk_by_name)
+            for skill_dir, skill_name, _dest_rel, _archive in renamed_found:
                 validate_skill_content(
                     (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
                 )
@@ -339,30 +342,52 @@ class SkillPoolService:
             conflicts: list[dict[str, Any]] = []
             planned: list[tuple[Path, str, str]] = []
             seen_names: set[str] = set()
-            for skill_dir, skill_name, dest_rel in found:
+            taken = set(existing_pool_names)
+            taken |= {name for _, name, _, _ in renamed_found}
+            for skill_dir, skill_name, dest_rel, archive_rel in renamed_found:
+                source_rel = archive_rel or dest_rel
                 if skill_name in seen_names:
-                    conflicts.append(
-                        build_import_conflict(
-                            skill_name,
-                            existing_pool_names,
-                        ),
+                    conflict = build_import_conflict(
+                        skill_name,
+                        taken,
+                        source_rel_path=source_rel,
+                        destination_rel_path=dest_rel,
                     )
+                    conflicts.append(conflict)
+                    taken.add(str(conflict["suggested_name"]))
                     continue
                 seen_names.add(skill_name)
                 existing = manifest.get("skills", {}).get(
                     skill_name,
                 )
-                occupied = (
-                    existing is not None
-                    or (pool_dir / dest_rel).exists()
+                current_rel = manifest_rel_path(existing, skill_name)
+                if not current_rel:
+                    current_rel = (on_disk_by_name.get(skill_name) or [""])[0]
+                shadowed = [
+                    rel
+                    for rel in on_disk_by_name.get(skill_name, [])
+                    if rel != current_rel
+                ]
+                identity_occupied = (
+                    existing is not None or skill_name in on_disk_by_name
                 )
-                if occupied:
-                    conflicts.append(
-                        build_import_conflict(
-                            skill_name,
-                            existing_pool_names,
+                destination_occupied = (pool_dir / dest_rel).exists()
+                if identity_occupied or destination_occupied:
+                    conflict = build_import_conflict(
+                        skill_name,
+                        taken,
+                        selected=current_rel,
+                        source_rel_path=source_rel,
+                        destination_rel_path=dest_rel,
+                        shadowed_rel_paths=shadowed,
+                        kind=(
+                            "identity_exists"
+                            if identity_occupied
+                            else "destination_occupied"
                         ),
                     )
+                    conflicts.append(conflict)
+                    taken.add(str(conflict["suggested_name"]))
                     continue
                 planned.append((skill_dir, skill_name, dest_rel))
             if conflicts:
@@ -640,16 +665,36 @@ class SkillPoolService:
             }
 
         existing = manifest.get("skills", {}).get(normalized_target)
-        if existing is not None and not overwrite:
-            return {
-                "success": False,
-                "reason": "conflict",
-                "mode": "rename",
-                "suggested_name": suggest_conflict_name(
+        found_target = resolve_skill_dir(
+            get_skill_pool_dir(),
+            normalized_target,
+            manifest_rel_path(existing, normalized_target),
+        )
+        destination_occupied = found_target is not None and existing is None
+        if (existing is not None or destination_occupied) and not overwrite:
+            conflict = build_skill_conflict(
+                normalized_target,
+                kind=(
+                    "identity_exists"
+                    if existing is not None
+                    else "destination_occupied"
+                ),
+                selected_rel_path=manifest_rel_path(
+                    existing,
+                    normalized_target,
+                ),
+                destination_rel_path=(
+                    rel_path_of(get_skill_pool_dir(), found_target)
+                    if found_target is not None
+                    else normalized_target
+                ),
+                suggested_name=suggest_conflict_name(
                     normalized_target,
                     pool_names,
                 ),
-            }
+                extra={"mode": "rename"},
+            )
+            return {**conflict, "success": False}
         return {
             "success": True,
             "mode": "rename",
@@ -778,25 +823,43 @@ class SkillPoolService:
         config: dict[str, Any] | None,
         entry: dict[str, Any],
     ) -> dict[str, Any]:
+        pool_dir = get_skill_pool_dir()
         old_skill_dir = resolve_pool_skill_dir_checked(skill_name) or (
             safe_skill_dir(
-                get_skill_pool_dir(),
+                pool_dir,
                 skill_name,
             )
         )
-        root_dir = old_skill_dir.parent
-        skill_dir = safe_skill_dir(root_dir, final_name)
-        old_rel = str(entry.get("rel_path") or "")
-        if old_skill_dir.exists():
-            old_rel = rel_path_of(
-                get_skill_pool_dir().resolve(),
-                old_skill_dir.resolve(),
-            )
-        target_rel = (
+        old_rel = manifest_rel_path(entry, skill_name)
+        if not old_rel and old_skill_dir.exists():
+            old_rel = rel_path_of(pool_dir.resolve(), old_skill_dir.resolve())
+        entries = read_skill_pool_manifest().get("skills", {})
+        # A rename to an existing target updates that selected copy instead
+        # of creating a second one under the source category.
+        plan = plan_skill_write(
+            pool_dir,
+            entries,
+            final_name,
+            renamed_skill_rel_path(old_rel, final_name)
+            if old_rel
+            else final_name,
+            mode="rename",
+            source_rel=old_rel,
+        )
+        conflict = plan.conflict or {}
+        if conflict.get("conflict_kind") == "destination_occupied":
+            return {
+                **conflict,
+                "success": False,
+                "mode": "rename",
+                "name": final_name,
+            }
+        target_rel = plan.rel_path or (
             renamed_skill_rel_path(old_rel, final_name)
             if old_rel
             else final_name
         )
+        skill_dir = safe_nested_skill_dir(pool_dir, target_rel)
 
         with staged_skill_dir(final_name) as staged_dir:
             if old_skill_dir.exists():
@@ -807,8 +870,14 @@ class SkillPoolService:
             )
             scan_skill_dir_or_raise(staged_dir, final_name)
             copy_skill_dir(staged_dir, skill_dir)
-        if old_skill_dir.exists():
-            shutil.rmtree(old_skill_dir)
+        if old_skill_dir.exists() and old_skill_dir != skill_dir:
+            try:
+                shutil.rmtree(old_skill_dir)
+            except OSError:
+                logger.warning(
+                    "Could not remove old skill dir %s (read-only root?)",
+                    old_skill_dir,
+                )
 
         new_config = (
             config if config is not None else entry.get("config") or {}
@@ -851,6 +920,7 @@ class SkillPoolService:
             "overwritten": migration["overwritten"],
         }
 
+    # pylint: disable-next=too-many-statements
     def rename_in_workspaces(
         self,
         old_name: str,
@@ -909,10 +979,34 @@ class SkillPoolService:
                     agent_id,
                 )
                 continue
-            old_rel = str(old_entry.get("rel_path") or "")
-            if old_dir.exists():
+            old_rel = manifest_rel_path(old_entry, old_name)
+            if not old_rel and old_dir.exists():
                 old_rel = rel_path_of(workspace_skills_dir, old_dir)
-            target_rel = (
+            plan = plan_skill_write(
+                workspace_skills_dir,
+                skills,
+                new_name,
+                renamed_skill_rel_path(old_rel, new_name)
+                if old_rel
+                else new_name,
+                mode="rename",
+                source_rel=old_rel,
+            )
+            if (
+                plan.conflict is not None
+                and plan.conflict.get(
+                    "conflict_kind",
+                )
+                == "destination_occupied"
+            ):
+                logger.warning(
+                    "rename: destination occupied for '%s' in '%s': %s",
+                    new_name,
+                    agent_id,
+                    plan.conflict.get("conflict_kind"),
+                )
+                continue
+            target_rel = plan.rel_path or (
                 renamed_skill_rel_path(old_rel, new_name)
                 if old_rel
                 else new_name
@@ -941,6 +1035,7 @@ class SkillPoolService:
                 payload: dict[str, Any],
                 _old: dict[str, Any] = old_entry,
                 _target: Path = target_dir,
+                _root: Path = workspace_skills_dir,
             ) -> None:
                 payload.setdefault("skills", {})
                 metadata = build_skill_metadata(
@@ -960,7 +1055,7 @@ class SkillPoolService:
                         _old.get("installation_origin"),
                     ),
                     "rel_path": rel_path_of(
-                        workspace_skills_dir.resolve(),
+                        _root.resolve(),
                         _target.resolve(),
                     ),
                     "installed_from": str(
@@ -1021,20 +1116,43 @@ class SkillPoolService:
 
         final_name = normalize_skill_dir_name(skill_name)
         rel_path = rel_path_of(ws_root, source_dir) or final_name
-        target_dir = safe_nested_skill_dir(get_skill_pool_dir(), rel_path)
         manifest = read_skill_pool_manifest()
-        existing = manifest.get("skills", {}).get(final_name)
-        if existing:
-            if not overwrite:
-                return {
-                    "success": False,
-                    "reason": "conflict",
-                    "suggested_name": suggest_conflict_name(
-                        final_name,
-                    ),
-                }
+        entries = manifest.get("skills", {})
+        existing = entries.get(final_name)
+        # Upload is an update: when the Pool already selects this identity,
+        # write that copy in place. A first install uses the workspace's
+        # layout; an external (read-only) selection keeps the existing
+        # behaviour of materialising into the primary Pool.
+        plan = plan_skill_write(
+            get_skill_pool_dir(),
+            entries,
+            final_name,
+            rel_path,
+            mode="update",
+        )
+        conflict = plan.conflict
+        if conflict is not None and (
+            not overwrite
+            or conflict.get("conflict_kind") == "destination_occupied"
+        ):
+            return {
+                **conflict,
+                "success": False,
+                "name": final_name,
+            }
+        target_rel = plan.rel_path or rel_path
+        target_dir = safe_nested_skill_dir(
+            get_skill_pool_dir(),
+            target_rel,
+        )
         if preview_only:
-            return {"success": True, "name": final_name}
+            return {
+                "success": True,
+                "name": final_name,
+                "source_rel_path": rel_path,
+                "destination_rel_path": target_rel,
+                "external": bool((existing or {}).get("external", False)),
+            }
 
         with staged_skill_dir(final_name) as staged_dir:
             copy_skill_dir(source_dir, staged_dir)
@@ -1069,7 +1187,39 @@ class SkillPoolService:
 
         mutate_pool_manifest(_update)
 
-        return {"success": True, "name": final_name}
+        return {
+            "success": True,
+            "name": final_name,
+            "source_rel_path": rel_path,
+            "destination_rel_path": target_rel,
+            "external": bool((existing or {}).get("external", False)),
+        }
+
+    @staticmethod
+    def _with_paths(
+        result: dict[str, Any],
+        *,
+        selected_rel_path: str = "",
+        source_rel_path: str = "",
+        destination_rel_path: str = "",
+        shadowed: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Attach canonical location fields to a download result."""
+        out = dict(result)
+        if selected_rel_path:
+            out["selected_rel_path"] = selected_rel_path
+            out.setdefault("selected", selected_rel_path)
+        if source_rel_path:
+            out["source_rel_path"] = source_rel_path
+        if destination_rel_path:
+            out["destination_rel_path"] = destination_rel_path
+        if shadowed:
+            out["shadowed_rel_paths"] = list(shadowed)
+            out.setdefault(
+                "shadowed",
+                shadowed[0] if len(shadowed) == 1 else list(shadowed),
+            )
+        return out
 
     @staticmethod
     def _check_download_conflict(
@@ -1078,12 +1228,23 @@ class SkillPoolService:
         final_name: str,
         workspace_identity: dict[str, str],
         workspace_dir: Path,
+        *,
+        selected_rel_path: str = "",
+        source_rel_path: str = "",
+        destination_rel_path: str = "",
+        shadowed: tuple[str, ...] = (),
     ) -> dict[str, Any] | None:
         """Return a conflict dict if download should be blocked."""
         if not existing:
             return None
         ws_id = workspace_identity["workspace_id"]
         ws_name = workspace_identity["workspace_name"]
+        paths: dict[str, Any] = {
+            "selected_rel_path": selected_rel_path,
+            "source_rel_path": source_rel_path,
+            "destination_rel_path": destination_rel_path,
+            "shadowed": shadowed,
+        }
         if (
             entry.get("source") == "builtin"
             and existing.get("source") == "builtin"
@@ -1101,42 +1262,8 @@ class SkillPoolService:
                     existing.get("builtin_language", "") or "",
                 )
                 if pool_lang and ws_lang and pool_lang != ws_lang:
-                    return {
-                        "success": False,
-                        "reason": "language_switch",
-                        "workspace_id": ws_id,
-                        "workspace_name": ws_name,
-                        "skill_name": final_name,
-                        "source_language": pool_lang,
-                        "current_language": ws_lang,
-                    }
-                if pool_lang and not ws_lang:
-                    pool_md = (
-                        safe_skill_dir(get_skill_pool_dir(), final_name)
-                        / "SKILL.md"
-                    )
-                    ws_md = (
-                        safe_skill_dir(
-                            get_workspace_skills_dir(workspace_dir),
-                            final_name,
-                        )
-                        / "SKILL.md"
-                    )
-                    try:
-                        pool_hash = hashlib.sha256(
-                            read_text_file_with_encoding_fallback(
-                                pool_md,
-                            ).encode("utf-8"),
-                        ).hexdigest()
-                        ws_hash = hashlib.sha256(
-                            read_text_file_with_encoding_fallback(
-                                ws_md,
-                            ).encode("utf-8"),
-                        ).hexdigest()
-                    except OSError:
-                        pool_hash = ws_hash = ""
-                    if pool_hash and ws_hash and pool_hash != ws_hash:
-                        return {
+                    return SkillPoolService._with_paths(
+                        {
                             "success": False,
                             "reason": "language_switch",
                             "workspace_id": ws_id,
@@ -1144,31 +1271,81 @@ class SkillPoolService:
                             "skill_name": final_name,
                             "source_language": pool_lang,
                             "current_language": ws_lang,
-                        }
-                return {
-                    "success": True,
-                    "mode": "unchanged",
-                    "name": final_name,
+                        },
+                        **paths,
+                    )
+                if pool_lang and not ws_lang:
+                    pool_dir = resolve_pool_skill_dir(final_name)
+                    ws_dir = resolve_skill_dir(
+                        get_workspace_skills_dir(workspace_dir),
+                        final_name,
+                        str((existing or {}).get("rel_path") or ""),
+                    )
+                    pool_hash = ws_hash = ""
+                    if pool_dir is not None and ws_dir is not None:
+                        try:
+                            pool_hash = hashlib.sha256(
+                                read_text_file_with_encoding_fallback(
+                                    pool_dir / "SKILL.md",
+                                ).encode("utf-8"),
+                            ).hexdigest()
+                            ws_hash = hashlib.sha256(
+                                read_text_file_with_encoding_fallback(
+                                    ws_dir / "SKILL.md",
+                                ).encode("utf-8"),
+                            ).hexdigest()
+                        except OSError:
+                            pool_hash = ws_hash = ""
+                    if pool_hash and ws_hash and pool_hash != ws_hash:
+                        return SkillPoolService._with_paths(
+                            {
+                                "success": False,
+                                "reason": "language_switch",
+                                "workspace_id": ws_id,
+                                "workspace_name": ws_name,
+                                "skill_name": final_name,
+                                "source_language": pool_lang,
+                                "current_language": ws_lang,
+                            },
+                            **paths,
+                        )
+                return SkillPoolService._with_paths(
+                    {
+                        "success": True,
+                        "mode": "unchanged",
+                        "name": final_name,
+                        "workspace_id": ws_id,
+                        "workspace_name": ws_name,
+                        "backfill_language": pool_lang or "",
+                    },
+                    **paths,
+                )
+            return SkillPoolService._with_paths(
+                {
+                    "success": False,
+                    "reason": "builtin_upgrade",
                     "workspace_id": ws_id,
                     "workspace_name": ws_name,
-                    "backfill_language": pool_lang or "",
-                }
-            return {
+                    "skill_name": final_name,
+                    "source_version_text": pool_ver,
+                    "current_version_text": ws_ver,
+                },
+                **paths,
+            )
+        conflict = build_skill_conflict(
+            final_name,
+            kind="identity_exists",
+            selected_rel_path=selected_rel_path,
+            source_rel_path=source_rel_path,
+            destination_rel_path=destination_rel_path,
+            shadowed_rel_paths=shadowed,
+            extra={
                 "success": False,
-                "reason": "builtin_upgrade",
                 "workspace_id": ws_id,
                 "workspace_name": ws_name,
-                "skill_name": final_name,
-                "source_version_text": pool_ver,
-                "current_version_text": ws_ver,
-            }
-        return {
-            "success": False,
-            "reason": "conflict",
-            "workspace_id": ws_id,
-            "workspace_name": ws_name,
-            "suggested_name": suggest_conflict_name(final_name),
-        }
+            },
+        )
+        return conflict
 
     @staticmethod
     def _backfill_workspace_language(
@@ -1188,6 +1365,59 @@ class SkillPoolService:
             default_workspace_manifest(),
             _patch,
         )
+
+    def plan_download(
+        self,
+        skill_name: str,
+        workspace_dir: Path,
+    ) -> dict[str, Any]:
+        """Resolve a download's source and destination without writing.
+
+        Shared by preflight, the router rollback plan and the actual copy so
+        a confirmation, a snapshot and the write all target the same path.
+        """
+        try:
+            final_name = normalize_skill_dir_name(skill_name)
+        except SkillsError:
+            return {"success": False, "reason": "not_found"}
+        manifest = read_skill_pool_manifest()
+        entry = manifest.get("skills", {}).get(final_name)
+        if entry is None:
+            return {"success": False, "reason": "not_found"}
+        source_dir = resolve_pool_skill_dir(final_name)
+        if source_dir is None:
+            return {"success": False, "reason": "not_found"}
+        source_rel = ""
+        for pool_root in get_skill_pool_dirs():
+            try:
+                if source_dir.is_relative_to(pool_root):
+                    source_rel = rel_path_of(pool_root, source_dir)
+                    break
+            except ValueError:
+                pass
+        source_rel = source_rel or final_name
+        workspace_manifest = read_skill_manifest(workspace_dir)
+        existing = workspace_manifest.get("skills", {}).get(final_name)
+        plan = plan_skill_write(
+            get_workspace_skills_dir(workspace_dir),
+            workspace_manifest.get("skills", {}),
+            final_name,
+            source_rel,
+            mode="update",
+        )
+        return {
+            "success": True,
+            "name": final_name,
+            "entry": entry,
+            "existing": existing,
+            "source_dir": source_dir,
+            "source_rel_path": source_rel,
+            "destination_rel_path": plan.rel_path or source_rel,
+            "selected_rel_path": plan.selected_rel_path,
+            "shadowed_rel_paths": list(plan.shadowed),
+            "conflict": plan.conflict,
+            "external": bool(entry.get("external", False)),
+        }
 
     def download_to_workspace(
         self,
@@ -1214,50 +1444,26 @@ class SkillPoolService:
         is best-effort: one that arrives after the last copy loses, and the
         download completes.
         """
-        try:
-            skill_name = normalize_skill_dir_name(skill_name)
-        except SkillsError:
-            return {"success": False, "reason": "not_found"}
-        manifest = read_skill_pool_manifest()
-        entry = manifest.get("skills", {}).get(skill_name)
-        if entry is None:
-            return {"success": False, "reason": "not_found"}
-
-        source_dir = resolve_pool_skill_dir(skill_name)
-        if source_dir is None:
-            return {"success": False, "reason": "not_found"}
-        final_name = normalize_skill_dir_name(skill_name)
-        rel_path = ""
-        for pool_root in get_skill_pool_dirs():
-            try:
-                if source_dir.is_relative_to(pool_root):
-                    rel_path = rel_path_of(pool_root, source_dir)
-                    break
-            except ValueError:
-                pass
-        workspace_manifest = read_skill_manifest(workspace_dir)
-        existing = workspace_manifest.get("skills", {}).get(final_name)
+        planned = self.plan_download(skill_name, workspace_dir)
+        if not planned.get("success"):
+            return planned
+        final_name = str(planned["name"])
+        entry = planned["entry"]
+        existing = planned["existing"]
+        source_dir = planned["source_dir"]
+        source_rel = str(planned["source_rel_path"])
+        destination_rel = str(planned["destination_rel_path"])
         ws_skills_root = get_workspace_skills_dir(workspace_dir)
-        if existing:
-            # Overwriting an existing identity updates it in place: the
-            # workspace keeps its own layout (e.g. ``research/foo``) instead
-            # of gaining a second copy under the Pool's category, which would
-            # otherwise be shadowed or shadow the copy in use on reconcile.
-            existing_rel = str(existing.get("rel_path") or "")
-            target_dir = resolve_skill_dir_checked(
-                ws_skills_root,
-                final_name,
-                existing_rel,
-            ) or safe_nested_skill_dir(
-                ws_skills_root,
-                existing_rel or rel_path or final_name,
-            )
-        else:
-            target_dir = safe_nested_skill_dir(
-                ws_skills_root,
-                rel_path or final_name,
-            )
         workspace_identity = get_workspace_identity(workspace_dir)
+        plan_conflict = planned.get("conflict")
+        if (
+            plan_conflict is not None
+            and plan_conflict.get(
+                "conflict_kind",
+            )
+            == "destination_occupied"
+        ):
+            return plan_conflict
         if not overwrite:
             conflict = self._check_download_conflict(
                 entry,
@@ -1265,6 +1471,12 @@ class SkillPoolService:
                 final_name,
                 workspace_identity,
                 workspace_dir,
+                selected_rel_path=str(
+                    planned.get("selected_rel_path") or "",
+                ),
+                source_rel_path=source_rel,
+                destination_rel_path=destination_rel,
+                shadowed=tuple(planned.get("shadowed_rel_paths") or ()),
             )
             if conflict is not None:
                 if conflict.get("backfill_language"):
@@ -1275,6 +1487,10 @@ class SkillPoolService:
                     )
                 return conflict
 
+        target_dir = safe_nested_skill_dir(
+            ws_skills_root,
+            destination_rel,
+        )
         target_dir.parent.mkdir(parents=True, exist_ok=True)
         with staged_skill_dir(final_name) as staged_dir:
             copy_skill_dir(source_dir, staged_dir)
@@ -1309,7 +1525,7 @@ class SkillPoolService:
                 "channels": prior.get("channels") or ["all"],
                 "preload": prior.get("preload") is True,
                 "source": metadata["source"],
-                "rel_path": rel_path_of(ws_skills_root, target_dir),
+                "rel_path": destination_rel,
                 "installed_from": pool_installed_from,
                 "installation_origin": validated_origin(
                     entry.get("installation_origin"),
@@ -1343,6 +1559,8 @@ class SkillPoolService:
             "name": final_name,
             "workspace_id": workspace_identity["workspace_id"],
             "workspace_name": workspace_identity["workspace_name"],
+            "source_rel_path": source_rel,
+            "destination_rel_path": destination_rel,
         }
 
     def preflight_download_to_workspace(
@@ -1352,22 +1570,35 @@ class SkillPoolService:
         *,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        manifest = read_skill_pool_manifest()
-        entry = manifest.get("skills", {}).get(skill_name)
-        if entry is None:
-            return {"success": False, "reason": "not_found"}
-
-        final_name = normalize_skill_dir_name(skill_name)
-        workspace_manifest = read_skill_manifest(workspace_dir)
-        existing = workspace_manifest.get("skills", {}).get(final_name)
+        planned = self.plan_download(skill_name, workspace_dir)
+        if not planned.get("success"):
+            return planned
+        final_name = str(planned["name"])
         workspace_identity = get_workspace_identity(workspace_dir)
+        conflict = planned.get("conflict")
+        if (
+            conflict is not None
+            and conflict.get(
+                "conflict_kind",
+            )
+            == "destination_occupied"
+        ):
+            return conflict
         if not overwrite:
             conflict = self._check_download_conflict(
-                entry,
-                existing,
+                planned["entry"],
+                planned["existing"],
                 final_name,
                 workspace_identity,
                 workspace_dir,
+                selected_rel_path=str(
+                    planned.get("selected_rel_path") or "",
+                ),
+                source_rel_path=str(planned.get("source_rel_path") or ""),
+                destination_rel_path=str(
+                    planned.get("destination_rel_path") or "",
+                ),
+                shadowed=tuple(planned.get("shadowed_rel_paths") or ()),
             )
             if conflict is not None:
                 return conflict
@@ -1376,6 +1607,14 @@ class SkillPoolService:
             "workspace_id": workspace_identity["workspace_id"],
             "workspace_name": workspace_identity["workspace_name"],
             "name": final_name,
+            "source_rel_path": str(planned.get("source_rel_path") or ""),
+            "destination_rel_path": str(
+                planned.get("destination_rel_path") or "",
+            ),
+            "selected_rel_path": str(
+                planned.get("selected_rel_path") or "",
+            ),
+            "external": bool(planned.get("external", False)),
         }
 
 

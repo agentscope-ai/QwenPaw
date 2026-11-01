@@ -125,6 +125,11 @@ export const SkillCard = React.memo(function SkillCard({
             <InlineHelp>
               {skill.description || t("skills.noDescription")}
             </InlineHelp>
+            {skill.rel_path ? (
+              <span style={{ fontSize: 12, opacity: 0.6 }}>
+                {skill.rel_path}
+              </span>
+            ) : null}
           </div>
 
           <div className={styles.skillSummaryMeta}>

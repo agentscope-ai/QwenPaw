@@ -1715,6 +1715,11 @@ class TestBuildDownloadPlan:
             "entry": None,
             "backup_dir": None,
         }
+        service = MagicMock(name="ServiceStub")
+        service.plan_download.return_value = {
+            "success": True,
+            "destination_rel_path": "cat/demo",
+        }
         with patch.object(
             skills_module,
             "_snapshot_workspace_skill",
@@ -1728,16 +1733,22 @@ class TestBuildDownloadPlan:
                     ),
                 ],
                 "demo",
+                service,
             )
 
         assert plan == [
             {
                 "workspace_id": "default",
                 "workspace_dir": workspace_dir,
+                "destination_rel_path": "cat/demo",
                 "snapshot": snapshot,
             },
         ]
-        snapshot_mock.assert_called_once_with(workspace_dir, "demo")
+        snapshot_mock.assert_called_once_with(
+            workspace_dir,
+            "demo",
+            "cat/demo",
+        )
 
     def test_empty_targets_build_empty_plan(self):
         with patch.object(skills_module, "_snapshot_workspace_skill") as snap:
@@ -1764,7 +1775,11 @@ class TestDownloadOneOrRaise:
             "name": "demo",
             "workspace_name": "Default",
         }
-        plan = {"workspace_id": "default", "workspace_dir": Path("/tmp/w")}
+        plan = {
+            "workspace_id": "default",
+            "workspace_dir": Path("/tmp/w"),
+            "destination_rel_path": "cat/demo",
+        }
         result = skills_module._download_one_or_raise(
             service,
             plan,
@@ -1776,6 +1791,7 @@ class TestDownloadOneOrRaise:
             "workspace_id": "default",
             "workspace_name": "Default",
             "name": "demo",
+            "rel_path": "cat/demo",
         }
         kwargs = service.download_to_workspace.call_args.kwargs
         assert kwargs["workspace_dir"] == Path("/tmp/w")
@@ -2027,6 +2043,10 @@ class TestDownloadPoolSkillRoute:
         service = MagicMock(name="ServiceStub")
         service.preflight_download_to_workspace.return_value = {
             "success": True,
+        }
+        service.plan_download.return_value = {
+            "success": True,
+            "destination_rel_path": "demo",
         }
         seen_during_download: list[list[str]] = []
 

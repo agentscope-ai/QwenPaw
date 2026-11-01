@@ -21,6 +21,7 @@ from .registry import (
 )
 from .store import (
     build_import_conflict,
+    build_skill_conflict,
     build_skill_metadata,
     commit_pawport_skill,
     copy_skill_dir,
@@ -33,6 +34,7 @@ from .store import (
     iter_skill_dirs,
     mutate_json,
     normalize_skill_dir_name,
+    plan_skill_write,
     read_skill_from_dir,
     read_skill_manifest,
     rel_path_of,
@@ -143,16 +145,15 @@ def _resolve_install_root(workspace_dir: Path, source_root: Path) -> Path:
 
 
 def _install_conflict_result(
-    skill_root: Path,
     skill_name: str,
+    conflict: dict[str, Any],
 ) -> dict[str, Any]:
-    existing = {path.name for path in iter_skill_dirs(skill_root)}
-    return {
-        "success": False,
-        "reason": "conflict",
-        "name": skill_name,
-        "suggested_name": suggest_conflict_name(skill_name, existing),
-    }
+    """Return a canonical conflict item for an install attempt."""
+    result = dict(conflict)
+    result["success"] = False
+    result["name"] = skill_name
+    result.setdefault("suggested_name", suggest_conflict_name(skill_name))
+    return result
 
 
 class SkillService:
@@ -285,6 +286,7 @@ class SkillService:
             )
         return str(result["name"]) if result["success"] else None
 
+    # pylint: disable-next=too-many-statements
     def install_skill_directory(
         self,
         source_dir: Path,
@@ -326,15 +328,25 @@ class SkillService:
             skill_name = normalize_skill_dir_name(target_name or declared_name)
             scan_skill_dir_or_raise(stage, skill_name)
 
+            entries = read_skill_manifest(self.workspace_dir).get(
+                "skills",
+                {},
+            )
+            plan = plan_skill_write(
+                resolved_skill_root,
+                entries,
+                skill_name,
+                rel_path or skill_name,
+                mode="create",
+            )
+            if plan.conflict is not None:
+                return _install_conflict_result(skill_name, plan.conflict)
+
+            target_rel = plan.rel_path
             target_dir = safe_nested_skill_dir(
                 resolved_skill_root,
-                rel_path or skill_name,
+                target_rel,
             )
-            if target_dir.exists() or target_dir.is_symlink():
-                return _install_conflict_result(
-                    resolved_skill_root,
-                    skill_name,
-                )
             manifest_path = get_workspace_skill_manifest_path(
                 self.workspace_dir,
             )
@@ -361,7 +373,7 @@ class SkillService:
                     installed_from=installed_from,
                     installation_origin=installation_origin,
                     config=config,
-                    rel_path=rel_path_of(resolved_skill_root, target_dir),
+                    rel_path=target_rel,
                 )
                 installed_enabled = bool(
                     payload["skills"][skill_name]["enabled"],
@@ -406,14 +418,20 @@ class SkillService:
 
             if conflict:
                 return _install_conflict_result(
-                    resolved_skill_root,
                     skill_name,
+                    build_skill_conflict(
+                        skill_name,
+                        kind="destination_occupied",
+                        source_rel_path=target_rel,
+                        destination_rel_path=target_rel,
+                    ),
                 )
             return {
                 "success": True,
                 "name": skill_name,
                 "enabled": installed_enabled,
                 "path": str(target_dir),
+                "rel_path": target_rel,
             }
         except UnicodeError as exc:
             raise SkillsError(
@@ -462,29 +480,33 @@ class SkillService:
             skill_name,
             str(old_entry.get("rel_path") or ""),
         ) or safe_skill_dir(skill_root, skill_name)
-        target_rel = renamed_skill_rel_path(
-            rel_path_of(skill_root, old_dir),
+        source_rel = rel_path_of(skill_root, old_dir)
+        # The destination is the target identity's selected copy when it
+        # exists; only a free target keeps the source category.
+        plan = plan_skill_write(
+            skill_root,
+            manifest.get("skills", {}),
+            final_name,
+            renamed_skill_rel_path(source_rel, final_name),
+            mode="rename",
+            source_rel=source_rel,
+        )
+        conflict = plan.conflict
+        if conflict is not None:
+            # An occupied category/non-skill directory is never replaced,
+            # even with overwrite=True: it belongs to other skills.
+            conflict_kind = conflict.get("conflict_kind")
+            if not overwrite or conflict_kind == "destination_occupied":
+                return {
+                    **conflict,
+                    "success": False,
+                    "name": final_name,
+                }
+        target_rel = plan.rel_path or renamed_skill_rel_path(
+            source_rel,
             final_name,
         )
         target_dir = safe_nested_skill_dir(skill_root, target_rel)
-        # Check the exact destination the rename will write, and treat an
-        # existing skill identity (same leaf name anywhere) as a conflict:
-        # silently replacing an enabled skill is data loss.
-        identity_exists = final_name in manifest.get("skills", {})
-        if not overwrite and (target_dir.exists() or identity_exists):
-            existing = (
-                {p.name for p in iter_skill_dirs(skill_root)}
-                if skill_root.exists()
-                else set()
-            )
-            return {
-                "success": False,
-                "reason": "conflict",
-                "suggested_name": suggest_conflict_name(
-                    final_name,
-                    existing,
-                ),
-            }
         return self._save_skill_as_rename(
             skill_name=skill_name,
             final_name=final_name,
@@ -675,7 +697,7 @@ class SkillService:
 
     # Import planning intentionally handles validation, conflicts, and commit
     # as one transaction-like flow.
-    # pylint: disable-next=too-many-branches
+    # pylint: disable-next=too-many-branches,too-many-statements
     def import_from_zip(
         self,
         data: bytes,
@@ -715,7 +737,7 @@ class SkillService:
             # the archive rel_path (source-specific, so a/foo and b/foo can
             # be renamed independently). The destination leaf always follows
             # the renamed name; the category prefix is preserved.
-            renamed_found: list[tuple[Path, str, str]] = []
+            renamed_found: list[tuple[Path, str, str, str]] = []
             for skill_dir, skill_name, rel_path in found:
                 rename = renames.get(rel_path) if rel_path else None
                 if rename is None:
@@ -726,31 +748,39 @@ class SkillService:
                         skill_dir,
                         new_name,
                         renamed_skill_rel_path(rel_path, new_name),
+                        rel_path,
                     ),
                 )
-            found = renamed_found
             manifest = self._read_manifest()
             existing_entries = manifest.get("skills", {})
-            existing_on_disk = (
-                {p.name for p in iter_skill_dirs(skill_root)}
-                if skill_root.exists()
-                else set()
-            )
+            on_disk_by_name: dict[str, list[str]] = {}
+            for path in iter_skill_dirs(skill_root):
+                on_disk_by_name.setdefault(path.name, []).append(
+                    rel_path_of(skill_root, path),
+                )
+            existing_on_disk = set(on_disk_by_name)
             conflicts: list[dict[str, Any]] = []
             planned: list[tuple[Path, str, str]] = []
             seen_names: set[str] = set()
-            for skill_dir, skill_name, dest_rel in found:
+            # Keep every candidate name in the taken set so two same-leaf
+            # archive entries get distinct suggested names.
+            taken = set(existing_on_disk) | set(existing_entries)
+            taken |= {name for _, name, _, _ in renamed_found}
+            for skill_dir, skill_name, dest_rel, archive_rel in renamed_found:
                 validate_skill_content(
                     (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
                 )
                 scan_skill_dir_or_raise(skill_dir, skill_name)
+                source_rel = archive_rel or dest_rel
                 if skill_name in seen_names:
-                    conflicts.append(
-                        build_import_conflict(
-                            skill_name,
-                            existing_on_disk,
-                        ),
+                    conflict = build_import_conflict(
+                        skill_name,
+                        taken,
+                        source_rel_path=source_rel,
+                        destination_rel_path=dest_rel,
                     )
+                    conflicts.append(conflict)
+                    taken.add(str(conflict["suggested_name"]))
                     continue
                 seen_names.add(skill_name)
                 entry = existing_entries.get(skill_name) or {}
@@ -764,38 +794,50 @@ class SkillService:
                     if current_dir is not None
                     else ""
                 )
+                shadowed = [
+                    rel
+                    for rel in on_disk_by_name.get(skill_name, [])
+                    if rel != current_rel
+                ]
                 target_dir = safe_nested_skill_dir(skill_root, dest_rel)
                 exists = target_dir.exists()
+                discarded_prepared = False
                 if exists and pawport_owner is not None:
-                    exists = not discard_prepared_pawport_skill(
+                    discarded_prepared = discard_prepared_pawport_skill(
                         target_dir,
                         pawport_owner,
                     )
+                    exists = not discarded_prepared
                 # Skill identity is the leaf name, not the path: importing
                 # ``a/foo`` while ``foo`` exists elsewhere would silently
-                # replace (and re-enable) the existing identity. Only a
-                # same-location replacement may reuse the identity.
-                identity_occupied = (
-                    skill_name in existing_entries
-                    or skill_name in existing_on_disk
+                # replace (and re-enable) the existing identity. ZIP import
+                # never overwrites, so any existing identity is a conflict —
+                # except a PawPort prepared copy this import is replacing.
+                identity_occupied = skill_name in existing_entries or (
+                    skill_name in existing_on_disk and not discarded_prepared
                 )
-                if identity_occupied and current_rel != dest_rel:
-                    conflicts.append(
-                        build_import_conflict(
-                            skill_name,
-                            existing_on_disk,
-                            selected=dest_rel,
-                            shadowed=current_rel,
-                        ),
+                if identity_occupied:
+                    conflict = build_import_conflict(
+                        skill_name,
+                        taken,
+                        selected=current_rel,
+                        source_rel_path=source_rel,
+                        destination_rel_path=dest_rel,
+                        shadowed_rel_paths=shadowed,
                     )
+                    conflicts.append(conflict)
+                    taken.add(str(conflict["suggested_name"]))
                     continue
                 if exists:
-                    conflicts.append(
-                        build_import_conflict(
-                            skill_name,
-                            existing_on_disk,
-                        ),
+                    conflict = build_import_conflict(
+                        skill_name,
+                        taken,
+                        source_rel_path=source_rel,
+                        destination_rel_path=dest_rel,
+                        kind="destination_occupied",
                     )
+                    conflicts.append(conflict)
+                    taken.add(str(conflict["suggested_name"]))
                     continue
                 planned.append((skill_dir, skill_name, dest_rel))
             if conflicts:

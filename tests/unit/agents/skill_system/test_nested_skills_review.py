@@ -194,8 +194,10 @@ def test_import_conflicts_with_enabled_identity_at_other_path(
     assert len(result["conflicts"]) == 1
     conflict = result["conflicts"][0]
     assert conflict["skill_name"] == "foo"
-    assert conflict["selected"] == "a/foo"
-    assert conflict["shadowed"] == "z/foo"
+    assert conflict["conflict_kind"] == "identity_exists"
+    assert conflict["selected_rel_path"] == "z/foo"
+    assert conflict["source_rel_path"] == "a/foo"
+    assert conflict["destination_rel_path"] == "a/foo"
     assert not (skills / "a/foo").exists()
 
     entry = _read_manifest(tmp_path)["skills"]["foo"]
@@ -318,9 +320,7 @@ def test_delete_refuses_symlinked_category_outside_root(
         pytest.skip("symlinks are not supported on this platform")
 
     reconcile_workspace_manifest(workspace)
-    assert (
-        _read_manifest(workspace)["skills"]["foo"]["rel_path"] == "cat/foo"
-    )
+    assert _read_manifest(workspace)["skills"]["foo"]["rel_path"] == "cat/foo"
 
     service = SkillService(workspace)
     with pytest.raises(SkillsError):
@@ -644,3 +644,198 @@ def test_pool_reconcile_keeps_manifest_copy_when_duplicate_remains(
     )
     assert manifest["skills"]["dup"]["rel_path"] == "b/dup"
     assert resolve_pool_skill_dir("dup") == pool_dir / "b/dup"
+
+
+# ---------------------------------------------------------------------------
+# Unified write policy (identity -> destination) across all entry points
+# ---------------------------------------------------------------------------
+
+
+def test_install_conflicts_with_existing_identity_at_other_path(
+    tmp_path: Path,
+) -> None:
+    """Publishing must not create a flat duplicate beside a/foo."""
+    skills = tmp_path / "skills"
+    _mk_skill(skills, "a/foo", "foo", body="OLD")
+    reconcile_workspace_manifest(tmp_path)
+    manifest = _read_manifest(tmp_path)
+    manifest["skills"]["foo"]["enabled"] = True
+    _write_manifest(tmp_path, manifest["skills"])
+
+    draft = _mk_skill(tmp_path / "draft", "x", "foo", body="NEW")
+    result = SkillService(tmp_path).install_skill_directory(
+        draft,
+        enable=False,
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "conflict"
+    assert result["conflict_kind"] == "identity_exists"
+    assert result["selected_rel_path"] == "a/foo"
+    assert not (skills / "foo").exists()
+    entry = _read_manifest(tmp_path)["skills"]["foo"]
+    assert entry["rel_path"] == "a/foo"
+    assert entry["enabled"] is True
+
+
+def test_upload_updates_selected_pool_copy_in_place(pool_env) -> None:
+    """Uploading b/foo must update the selected a/foo, not create b/foo."""
+    service, pool_dir, workspace = pool_env
+    _mk_skill(pool_dir, "a/foo", "foo", body="POOL-OLD")
+    skill_registry.reconcile_pool_manifest()
+    _mk_skill(workspace / "skills", "b/foo", "foo", body="WS-EDIT")
+    reconcile_workspace_manifest(workspace)
+
+    result = service.upload_from_workspace(
+        workspace,
+        "foo",
+        overwrite=True,
+    )
+
+    assert result["success"] is True
+    assert "WS-EDIT" in (pool_dir / "a/foo" / "SKILL.md").read_text(
+        encoding="utf-8",
+    )
+    assert not (pool_dir / "b/foo").exists()
+    entry = json.loads(
+        (pool_dir / "skill.json").read_text(encoding="utf-8"),
+    )[
+        "skills"
+    ]["foo"]
+    assert entry["rel_path"] == "a/foo"
+
+
+def test_rename_with_overwrite_targets_selected_copy(tmp_path: Path) -> None:
+    """Renaming onto an existing identity updates its selected copy."""
+    skills = tmp_path / "skills"
+    _mk_skill(skills, "z/source", "source", body="S")
+    _mk_skill(skills, "a/target", "target", body="T")
+    reconcile_workspace_manifest(tmp_path)
+
+    result = SkillService(tmp_path).save_skill(
+        skill_name="source",
+        content=_skill_md("source", "S2"),
+        target_name="target",
+        overwrite=True,
+    )
+
+    assert result["success"] is True
+    assert "S2" in (skills / "a/target" / "SKILL.md").read_text(
+        encoding="utf-8",
+    )
+    assert not (skills / "z/source").exists()
+    assert not (skills / "z/target").exists()
+    entry = _read_manifest(tmp_path)["skills"]["target"]
+    assert entry["rel_path"] == "a/target"
+
+
+def test_download_rejects_occupied_category(pool_env) -> None:
+    """A category directory named like the skill must not be rmtree'd."""
+    service, pool_dir, workspace = pool_env
+    _mk_skill(pool_dir, "foo", "foo", body="POOL")
+    skill_registry.reconcile_pool_manifest()
+    _mk_skill(workspace / "skills", "foo/bar", "bar", body="BAR")
+
+    result = service.download_to_workspace(
+        "foo",
+        workspace,
+        overwrite=False,
+    )
+
+    assert result["success"] is False
+    assert result["conflict_kind"] == "destination_occupied"
+    assert (workspace / "skills/foo/bar/SKILL.md").exists()
+    assert not (workspace / "skills/foo/SKILL.md").exists()
+
+
+def test_reconcile_keeps_legacy_flat_copy_selected(tmp_path: Path) -> None:
+    """An old manifest without rel_path keeps its flat copy selected."""
+    skills = tmp_path / "skills"
+    _mk_skill(skills, "foo", "foo", body="FLAT")
+    _mk_skill(skills, "a/foo", "foo", body="A")
+    _write_manifest(
+        tmp_path,
+        {
+            "foo": {
+                "enabled": True,
+                "channels": ["qq"],
+                "source": "customized",
+            },
+        },
+    )
+
+    reconcile_workspace_manifest(tmp_path)
+
+    entry = _read_manifest(tmp_path)["skills"]["foo"]
+    assert entry["rel_path"] == "foo"
+    assert entry["enabled"] is True
+    assert entry["channels"] == ["qq"]
+
+
+def test_plan_download_and_rollback_use_same_destination(pool_env) -> None:
+    """The rollback snapshot must target the path the copy actually writes."""
+    from qwenpaw.app.routers.skills import (
+        _restore_workspace_skill,
+        _snapshot_workspace_skill,
+    )
+
+    service, pool_dir, workspace = pool_env
+    _mk_skill(pool_dir, "b/foo", "foo", body="NEW")
+    skill_registry.reconcile_pool_manifest()
+
+    planned = service.plan_download("foo", workspace)
+    assert planned["destination_rel_path"] == "b/foo"
+    snapshot = _snapshot_workspace_skill(
+        workspace,
+        "foo",
+        planned["destination_rel_path"],
+    )
+    assert snapshot["rel_path"] == "b/foo"
+    assert snapshot["backup_dir"] is None
+
+    result = service.download_to_workspace(
+        "foo",
+        workspace,
+        overwrite=True,
+    )
+    assert result["success"] is True
+    assert (workspace / "skills/b/foo/SKILL.md").exists()
+
+    _restore_workspace_skill(snapshot)
+    assert not (workspace / "skills/b/foo").exists()
+    assert "foo" not in _read_manifest(workspace).get("skills", {})
+
+
+def test_zip_conflicts_expose_source_specific_keys(tmp_path: Path) -> None:
+    """a/foo and b/foo must be independently renameable from the dialog."""
+    skills = tmp_path / "skills"
+    _mk_skill(skills, "foo", "foo", body="FLAT")
+    reconcile_workspace_manifest(tmp_path)
+    data = _zip(
+        {
+            "a/foo/SKILL.md": _skill_md("foo"),
+            "b/foo/SKILL.md": _skill_md("foo"),
+        },
+    )
+    service = SkillService(tmp_path)
+
+    result = service.import_from_zip(data)
+
+    assert result["imported"] == []
+    assert {
+        conflict["source_rel_path"] for conflict in result["conflicts"]
+    } == {"a/foo", "b/foo"}
+    assert (
+        len(
+            {conflict["suggested_name"] for conflict in result["conflicts"]},
+        )
+        == 2
+    )
+
+    retry = service.import_from_zip(
+        data,
+        rename_map={"a/foo": "foo-a", "b/foo": "foo-b"},
+    )
+    assert sorted(retry["imported"]) == ["foo-a", "foo-b"]
+    assert (skills / "a/foo-a/SKILL.md").exists()
+    assert (skills / "b/foo-b/SKILL.md").exists()

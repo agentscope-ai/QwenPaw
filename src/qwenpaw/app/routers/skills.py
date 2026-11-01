@@ -53,10 +53,13 @@ from ...agents.skill_system.registry import (
 )
 from ...agents.skill_system.models import SkillRequirements
 from ...agents.skill_system.store import (
+    build_skill_conflict,
+    get_skill_pool_dir,
     build_skill_metadata,
     default_workspace_manifest,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
+    manifest_rel_path,
     mutate_json,
     mutate_pool_manifest,
     normalize_skill_manifest_entry,
@@ -64,7 +67,9 @@ from ...agents.skill_system.store import (
     read_skill_content_and_metadata_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
+    rel_path_of,
     resolve_pool_skill_dir,
+    safe_nested_skill_dir,
     suggest_conflict_name,
     with_cancel_checker,
 )
@@ -264,6 +269,7 @@ class SkillSpec(BaseModel):
     preload: bool = False
     tags: list[str] = Field(default_factory=list)
     last_updated: str = ""
+    rel_path: str = ""
 
 
 class SkillDetail(SkillSpec):
@@ -286,6 +292,7 @@ class PoolSkillSpec(BaseModel):
     emoji: str = ""
     external: bool = False
     external_path: str = ""
+    rel_path: str = ""
     sync_status: str = ""
     tags: list[str] = Field(default_factory=list)
     last_updated: str = ""
@@ -628,22 +635,27 @@ def _workspace_dir_for_agent(agent_id: str) -> Path:
 def _snapshot_workspace_skill(
     workspace_dir: Path,
     skill_name: str,
+    rel_path: str = "",
 ) -> dict[str, Any]:
     manifest = read_skill_manifest(workspace_dir)
     entry = manifest.get("skills", {}).get(skill_name)
-    rel_path = str((entry or {}).get("rel_path") or "") or skill_name
-    skill_dir = workspace_dir / "skills" / rel_path
+    rel = rel_path or manifest_rel_path(entry, skill_name) or skill_name
+    skill_dir = safe_nested_skill_dir(
+        get_workspace_skills_dir(workspace_dir),
+        rel,
+    )
     backup_dir: Path | None = None
     if skill_dir.exists():
         backup_root = Path(
             tempfile.mkdtemp(prefix=f"qwenpaw_skill_rollback_{skill_name}_"),
         )
-        backup_dir = backup_root / rel_path
+        backup_dir = backup_root / rel
         backup_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill_dir, backup_dir)
     return {
         "workspace_dir": workspace_dir,
         "skill_name": skill_name,
+        "rel_path": rel,
         "entry": copy.deepcopy(entry) if entry is not None else None,
         "backup_dir": backup_dir,
     }
@@ -654,8 +666,15 @@ def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
     skill_name = str(snapshot["skill_name"])
     backup_dir = snapshot.get("backup_dir")
     entry = snapshot.get("entry")
-    rel_path = str((entry or {}).get("rel_path") or "") or skill_name
-    skill_dir = workspace_dir / "skills" / rel_path
+    rel_path = str(
+        snapshot.get("rel_path")
+        or manifest_rel_path(entry, skill_name)
+        or skill_name,
+    )
+    skill_dir = safe_nested_skill_dir(
+        get_workspace_skills_dir(workspace_dir),
+        rel_path,
+    )
 
     if skill_dir.exists():
         shutil.rmtree(skill_dir)
@@ -974,6 +993,7 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     preload=entry.get("preload") is True,
                     tags=entry.get("tags") or [],
                     last_updated=str(metadata.get("updated_at", "") or ""),
+                    rel_path=rel_path_of(skill_root, skill_dir),
                 ),
             )
         except Exception:
@@ -1025,6 +1045,11 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     sync_status=str(info.get("sync_status", "") or ""),
                     tags=entry.get("tags") or [],
                     last_updated=str(metadata.get("updated_at", "") or ""),
+                    rel_path=(
+                        ""
+                        if is_external
+                        else manifest_rel_path(entry, skill_name)
+                    ),
                     auto_sync=automation.auto_sync,
                     auto_update=(
                         source == "builtin" and automation.auto_update
@@ -1081,6 +1106,10 @@ def _build_workspace_skill_detail(
         preload=entry.get("preload") is True,
         tags=entry.get("tags") or [],
         last_updated=str(metadata.get("updated_at", "") or ""),
+        rel_path=rel_path_of(
+            get_workspace_skills_dir(workspace_dir),
+            skill_dir,
+        ),
         content=content,
         config=entry.get("config") or {},
         installed_from=str(entry.get("installed_from", "") or ""),
@@ -1122,6 +1151,7 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
         emoji=str(metadata.get("emoji", "") or ""),
         external=is_external,
         external_path=str(skill_dir) if is_external else "",
+        rel_path=("" if is_external else manifest_rel_path(entry, skill_name)),
         sync_status=str(info.get("sync_status", "") or ""),
         tags=entry.get("tags") or [],
         last_updated=str(metadata.get("updated_at", "") or ""),
@@ -1342,13 +1372,24 @@ async def create_skill(
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not created:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason": "conflict",
-                "suggested_name": suggest_conflict_name(body.name),
-            },
+        skill_root = get_workspace_skills_dir(workspace_dir)
+        existing = resolve_skill_dir(skill_root, body.name)
+        conflict = build_skill_conflict(
+            body.name,
+            kind=(
+                "identity_exists"
+                if existing is not None
+                else "destination_occupied"
+            ),
+            selected_rel_path=(
+                rel_path_of(skill_root, existing)
+                if existing is not None
+                else ""
+            ),
+            destination_rel_path=body.name,
+            suggested_name=suggest_conflict_name(body.name),
         )
+        raise HTTPException(status_code=409, detail=conflict)
     if body.enable:
         schedule_agent_reload(request, workspace.agent_id)
     return {"created": True, "name": created}
@@ -1415,13 +1456,24 @@ async def create_pool_skill(body: CreateSkillRequest) -> dict[str, Any]:
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not created:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason": "conflict",
-                "suggested_name": suggest_conflict_name(body.name),
-            },
+        skill_root = get_skill_pool_dir()
+        existing = resolve_skill_dir(skill_root, body.name)
+        conflict = build_skill_conflict(
+            body.name,
+            kind=(
+                "identity_exists"
+                if existing is not None
+                else "destination_occupied"
+            ),
+            selected_rel_path=(
+                rel_path_of(skill_root, existing)
+                if existing is not None
+                else ""
+            ),
+            destination_rel_path=body.name,
+            suggested_name=suggest_conflict_name(body.name),
         )
+        raise HTTPException(status_code=409, detail=conflict)
     return {"created": True, "name": created}
 
 
@@ -1598,18 +1650,37 @@ def _preflight_download(
 def _build_download_plan(
     targets: list[_ResolvedDownloadTarget],
     skill_name: str,
+    service: SkillPoolService | None = None,
 ) -> list[dict[str, Any]]:
-    """Build execution plan with rollback snapshots."""
+    """Build execution plan with rollback snapshots.
+
+    The destination comes from the same ``plan_download`` used by preflight
+    and the copy, so a rollback targets exactly what was written (including
+    a first install into a category).
+    """
+    if service is None:
+        service = SkillPoolService()
     plan: list[dict[str, Any]] = []
     for target in targets:
+        planned = service.plan_download(
+            skill_name,
+            target.workspace_dir,
+        )
+        rel_path = (
+            str(planned.get("destination_rel_path") or skill_name)
+            if planned.get("success")
+            else str(skill_name)
+        )
         snapshot = _snapshot_workspace_skill(
             target.workspace_dir,
             str(skill_name),
+            rel_path,
         )
         plan.append(
             {
                 "workspace_id": target.workspace_id,
                 "workspace_dir": target.workspace_dir,
+                "destination_rel_path": rel_path,
                 "snapshot": snapshot,
             },
         )
@@ -1649,6 +1720,11 @@ def _download_one_or_raise(
         "workspace_id": str(plan["workspace_id"]),
         "workspace_name": str(result.get("workspace_name", "") or ""),
         "name": str(result.get("name", "")),
+        "rel_path": str(
+            plan.get("destination_rel_path")
+            or result.get("destination_rel_path")
+            or "",
+        ),
     }
 
 
@@ -1725,7 +1801,11 @@ def _download_pool_skill_locked(
     if body.preview_only:
         return {"downloaded": []}
 
-    execution_plan = _build_download_plan(targets, body.skill_name)
+    execution_plan = _build_download_plan(
+        targets,
+        body.skill_name,
+        hub_service,
+    )
 
     downloaded: list[dict[str, str]] = []
     try:

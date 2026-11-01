@@ -53,9 +53,11 @@ from .store import (
     is_primary_pool_skill_dir,
     iter_skill_dirs,
     load_skill_frontmatter_from_dir,
+    manifest_rel_path,
     mutate_json,
     mutate_pool_manifest,
     normalize_skill_manifest_entry,
+    plan_skill_write,
     parse_skill_requirements,
     read_frontmatter_safe_from_path,
     read_pool_skill_automation,
@@ -63,7 +65,7 @@ from .store import (
     read_skill_pool_manifest,
     rel_path_of,
     resolve_skill_dir,
-    safe_skill_dir,
+    safe_nested_skill_dir,
     write_json_atomic,
 )
 
@@ -706,6 +708,7 @@ def _collect_builtin_import_conflicts(
 # ---------------------------------------------------------------------------
 
 
+# pylint: disable-next=too-many-statements
 def import_builtin_skills(
     imports: list[dict[str, Any]] | None = None,
     *,
@@ -788,8 +791,27 @@ def import_builtin_skills(
         payload["builtin_skill_names"] = sorted(registry.keys())
         for skill_name, language in normalized_imports:
             variant = registry[skill_name][language]
-            target = safe_skill_dir(pool_dir, skill_name)
             existing = skills.get(skill_name) or {}
+            # Builtins obey the same destination policy: update the selected
+            # copy (which may be nested) instead of creating a flat duplicate.
+            plan = plan_skill_write(
+                pool_dir,
+                skills,
+                skill_name,
+                skill_name,
+                mode="update",
+            )
+            if plan.conflict is not None:
+                conflicts.append(
+                    {
+                        **plan.conflict,
+                        "language": language,
+                        "status": "conflict",
+                    },
+                )
+                continue
+            target_rel = plan.rel_path or skill_name
+            target = safe_nested_skill_dir(pool_dir, target_rel)
 
             if not target.exists():
                 copy_skill_dir(variant.skill_dir, target)
@@ -819,6 +841,8 @@ def import_builtin_skills(
                 source="builtin",
                 protected=False,
             )
+            entry["rel_path"] = target_rel
+            entry["external"] = False
             entry["builtin_language"] = language
             entry["builtin_source_name"] = variant.source_name
             if "config" in existing:
@@ -920,10 +944,10 @@ def _discover_pool_skill_dirs(
     primary_root = get_skill_pool_dir()
     for skill_name, raw_entry in sorted((existing_skills or {}).items()):
         entry = normalize_skill_manifest_entry(raw_entry)
-        rel_path = str(entry.get("rel_path") or "")
-        if not rel_path:
-            continue
-        candidate = primary_root / rel_path
+        rel_path = manifest_rel_path(entry, skill_name)
+        # Legacy entries have no rel_path: keep the flat copy they were
+        # using selected during the compatibility step.
+        candidate = primary_root / (rel_path or skill_name)
         if (candidate / "SKILL.md").is_file():
             discovered[skill_name] = candidate
     for root in get_skill_pool_dirs():
@@ -1100,6 +1124,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
 
     reconciled: dict[str, Any] | None = None
 
+    # pylint: disable-next=too-many-branches
     def _update(payload: dict[str, Any]) -> dict[str, Any] | bool:
         nonlocal reconciled
         original = copy.deepcopy(payload)
@@ -1112,10 +1137,10 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         # using keeps winning instead of whichever path sorts first on disk.
         for skill_name, raw_entry in sorted(skills.items()):
             entry = normalize_skill_manifest_entry(raw_entry)
-            rel_path = str(entry.get("rel_path") or "")
-            if not rel_path:
-                continue
-            candidate = workspace_skills_dir / rel_path
+            rel_path = manifest_rel_path(entry, skill_name)
+            # Legacy entries have no rel_path: keep the flat copy they were
+            # using selected during the compatibility step.
+            candidate = workspace_skills_dir / (rel_path or skill_name)
             if (candidate / "SKILL.md").is_file():
                 discovered[skill_name] = candidate
         for path in iter_skill_dirs(workspace_skills_dir):
@@ -1734,6 +1759,7 @@ def _resolve_builtin_update_variant(
     return canonical_name, selected_language, variant
 
 
+# pylint: disable-next=too-many-statements
 def update_single_builtin(
     skill_name: str,
     *,
@@ -1748,7 +1774,24 @@ def update_single_builtin(
 
     pool_dir = get_skill_pool_dir()
     pool_dir.mkdir(parents=True, exist_ok=True)
-    target = pool_dir / canonical_name
+    pool_manifest = read_skill_pool_manifest()
+    plan = plan_skill_write(
+        pool_dir,
+        pool_manifest.get("skills", {}),
+        canonical_name,
+        canonical_name,
+        mode="update",
+    )
+    if plan.conflict is not None:
+        raise SkillsError(
+            message=(
+                f"Cannot update builtin '{canonical_name}': destination "
+                f"'{plan.conflict.get('destination_rel_path', '')}' is "
+                "occupied"
+            ),
+        )
+    target_rel = plan.rel_path or canonical_name
+    target = safe_nested_skill_dir(pool_dir, target_rel)
     transaction_root = Path(
         tempfile.mkdtemp(
             prefix=f".builtin_update_{canonical_name}_",
@@ -1790,6 +1833,8 @@ def update_single_builtin(
             source="builtin",
             protected=False,
         )
+        entry["rel_path"] = target_rel
+        entry["external"] = False
         entry["builtin_language"] = selected_language
         entry["builtin_source_name"] = variant.source_name
         if "config" in current:
