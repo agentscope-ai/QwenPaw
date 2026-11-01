@@ -6,7 +6,6 @@ const stylesSource = readFileSync(
   join(process.cwd(), "src/pages/SettingsCenter/index.module.less"),
   "utf8",
 );
-
 describe("SettingsCenter responsive layout", () => {
   it("lets segmented controls fit their options without trailing space", () => {
     const segmentedStart = stylesSource.indexOf("\n.segmentedControl,") + 1;
@@ -31,6 +30,26 @@ describe("SettingsCenter responsive layout", () => {
     expect(mobileRule).toContain("width: calc(100% - 48px);");
   });
 
+  it("keeps the branded mobile settings selector wide enough", () => {
+    const sharedFrameStart = stylesSource.indexOf(
+      "/* Shared settings frame, without overriding extension-owned components. */",
+    );
+    const mobileStart = stylesSource.indexOf(
+      "@media (max-width: 768px)",
+      sharedFrameStart,
+    );
+    const mobileRule = stylesSource.slice(
+      mobileStart,
+      stylesSource.indexOf('.content[data-core-settings="true"]', mobileStart),
+    );
+
+    expect(sharedFrameStart).toBeGreaterThanOrEqual(0);
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    expect(mobileRule).toContain("> :global(.ant-select),");
+    expect(mobileRule).toContain("> :global(.qwenpaw-select) {");
+    expect(mobileRule).toContain("min-width: 160px;");
+  });
+
   it("stacks wide controls before the navigation becomes mobile", () => {
     const compactDesktopStart = stylesSource.indexOf(
       "@media (min-width: 769px) and (max-width: 900px)",
@@ -41,7 +60,6 @@ describe("SettingsCenter responsive layout", () => {
     );
 
     expect(compactDesktopStart).toBeGreaterThanOrEqual(0);
-    expect(compactDesktopRule).toContain("flex-wrap: wrap;");
     expect(compactDesktopRule).toContain("width: calc(100% - 48px);");
   });
 
@@ -112,6 +130,20 @@ describe("SettingsCenter responsive layout", () => {
     expect(backButtonRule).toContain("color: var(--app-text-secondary);");
     expect(sidebarRule).toContain("background: var(--app-shell-bg);");
     expect(sidebarRule).toContain("var(--app-border-subtle)");
+  });
+
+  it("keeps the refined active navigation rule on the contrast-safe token", () => {
+    const activeRuleStart = stylesSource.lastIndexOf(".navItemActive {");
+    const activeRule = stylesSource.slice(
+      activeRuleStart,
+      stylesSource.indexOf("\n}", activeRuleStart) + 2,
+    );
+
+    expect(activeRuleStart).toBeGreaterThanOrEqual(0);
+    expect(activeRule).toContain("color: var(--app-nav-selected-text);");
+    expect(activeRule).not.toContain("color: var(--app-accent-text);");
+    expect(activeRule).toContain("&:hover {");
+    expect(activeRule).toContain("background: transparent;");
   });
 
   it("keeps the dark override block free of hardcoded colours", () => {

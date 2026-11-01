@@ -28,6 +28,7 @@ describe("settings search", () => {
       for (const [page, keys] of Object.entries(SETTINGS_SEARCH_KEYS)) {
         for (const key of keys) {
           expect(i18n.exists(key), `${language}: ${key}`).toBe(true);
+          expect(i18n.t(key), `${language}: ${key}`).not.toMatch(/{{.+?}}/);
           expect(searchSettingsItems(page, i18n.t(key), i18n.t)).toContain(key);
         }
       }

@@ -42,14 +42,25 @@ def cron_workspace(tmp_path, monkeypatch):
             AsyncMock(return_value=[]),
         )
 
-    def make(name):
+    def make(name, channels=None):
         workspace = Workspace(
             agent_id="agent-1",
             workspace_dir=str(tmp_path / name),
         )
         workspace._service_manager = ServiceManager(workspace)
         repo = JsonJobRepository(tmp_path / name / "jobs.json")
-        channels = SimpleNamespace(send_event=AsyncMock())
+        real_channels = channels is not None
+        if channels is None:
+            channels = SimpleNamespace(send_event=AsyncMock())
+        else:
+            workspace._service_manager.register(
+                ServiceDescriptor(
+                    name="channel_manager",
+                    stop_method="stop_all",
+                    reusable=False,
+                ),
+            )
+            workspace._service_manager.services["channel_manager"] = channels
         workspace._service_manager.register(
             ServiceDescriptor(
                 name="cron_manager",
@@ -60,6 +71,13 @@ def cron_workspace(tmp_path, monkeypatch):
 
         async def start():
             workspace._start_attempted = True
+            if real_channels:
+                channels._defer_channel_start = getattr(
+                    workspace,
+                    "_defer_channel_start",
+                    False,
+                )
+                await channels.start_all()
             cron = CronManager(
                 repo=repo,
                 workspace=workspace,
@@ -421,7 +439,7 @@ async def test_shutdown_immediately_after_reload_drains_cancelled_history(
     """Shutdown owns retiring workspaces even before cleanup first runs."""
     manager, old, new, repo, job = reload_pair
     entered, cancelled = asyncio.Event(), asyncio.Event()
-    other = SimpleNamespace(stop=AsyncMock())
+    other = SimpleNamespace(agent_id="other-agent", stop=AsyncMock())
     manager.agents["other-agent"] = other
 
     async def stream(_request):
@@ -694,3 +712,230 @@ async def test_scheduler_limits_survive_repeated_handoffs(
             release.set()
         for workspace in workspaces:
             await workspace.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handoff",
+    ["committed", "pending", "rollback", "cancel", "sending"],
+)
+async def test_retired_cron_delivers_through_replacement_channel_owner(
+    cron_workspace,
+    monkeypatch,
+    handoff,
+):
+    from qwenpaw.app.channels.manager import ChannelManager
+
+    def transport():
+        return SimpleNamespace(
+            channel="console",
+            uses_manager_queue=False,
+            start=AsyncMock(),
+            stop=AsyncMock(),
+            prepare_stop=AsyncMock(return_value=False),
+            set_enqueue=MagicMock(),
+            send_event=AsyncMock(),
+        )
+
+    old_transport, new_transport = transport(), transport()
+    restored_transport = transport()
+    old_channels = ChannelManager([old_transport])
+    new_channels = ChannelManager([new_transport])
+    old, repo, _ = cron_workspace("old-owner", old_channels)
+    new, _, _ = cron_workspace("new-owner", new_channels)
+    entered, release = asyncio.Event(), asyncio.Event()
+    yielded = asyncio.Event()
+    handoff_entered, finish_handoff = asyncio.Event(), asyncio.Event()
+    event = SimpleNamespace(object="message", status="completed")
+    second_event = SimpleNamespace(object="message", status="completed")
+    send_entered, finish_send = asyncio.Event(), asyncio.Event()
+    candidate_prepared, second_release = asyncio.Event(), asyncio.Event()
+
+    async def blocking_send(**_kwargs):
+        send_entered.set()
+        await finish_send.wait()
+
+    if handoff == "sending":
+        old_transport.send_event.side_effect = blocking_send
+
+    async def stream(_request):
+        entered.set()
+        await release.wait()
+        yielded.set()
+        yield event
+        if handoff == "sending":
+            await second_release.wait()
+            yield second_event
+
+    old.stream_query = stream
+    old_channels._process = stream
+    start_new_channels = new_channels.start_all
+
+    async def gated_start_channels():
+        await start_new_channels()
+        if not new_channels._defer_channel_start:
+            handoff_entered.set()
+            await finish_handoff.wait()
+            if handoff == "rollback":
+                raise RuntimeError("replacement activation failed")
+
+    if handoff not in {"committed", "sending"}:
+        monkeypatch.setattr(new_channels, "start_all", gated_start_channels)
+
+    def restore_transport(key, _config, **_kwargs):
+        assert key == "console"
+        return restored_transport
+
+    monkeypatch.setattr(
+        "qwenpaw.app.channels.manager.instantiate_channel",
+        restore_transport,
+    )
+    job = CronJobSpec(
+        id="owner-handoff",
+        name="owner-handoff",
+        schedule={"cron": "0 0 1 1 *"},
+        request={"input": "test"},
+        dispatch={
+            "channel": "console",
+            "mode": "stream",
+            "target": {"user_id": "u", "session_id": "s"},
+        },
+        save_result_to_inbox=False,
+    )
+    await repo.upsert_job(job)
+    manager = MultiAgentManager()
+    manager.agents[old.agent_id] = old
+    old.set_manager(manager)
+    manager._create_workspace = MagicMock(return_value=new)
+
+    async def prepared(*_args):
+        candidate_prepared.set()
+
+    manager._setup_workspace_plugins = AsyncMock(side_effect=prepared)
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: SimpleNamespace(
+            agents=SimpleNamespace(
+                profiles={
+                    old.agent_id: SimpleNamespace(
+                        workspace_dir=str(new.workspace_dir),
+                    ),
+                },
+            ),
+        ),
+    )
+    reloading = None
+    try:
+        await old.start()
+        old.cron_manager._scheduler.add_job(
+            old.cron_manager._scheduled_callback,
+            "date",
+            args=[job.id],
+        )
+        await asyncio.wait_for(entered.wait(), 3)
+        if handoff == "sending":
+            release.set()
+            await asyncio.wait_for(send_entered.wait(), 3)
+            reloading = asyncio.create_task(manager.reload_agent(old.agent_id))
+            await asyncio.wait_for(candidate_prepared.wait(), 3)
+            await asyncio.sleep(0)
+            assert not reloading.done()
+            old_transport.stop.assert_not_awaited()
+            assert old_channels.channels == [old_transport]
+            finish_send.set()
+            assert await asyncio.wait_for(reloading, 3)
+            assert old_channels.channels == []
+            second_release.set()
+            await asyncio.wait_for(
+                asyncio.gather(*list(manager._cleanup_tasks)),
+                3,
+            )
+        elif handoff == "committed":
+            assert await manager.reload_agent(old.agent_id)
+            assert old_channels.channels == []
+            assert old._started
+            cleanup = list(manager._cleanup_tasks)
+            release.set()
+            await asyncio.wait_for(asyncio.gather(*cleanup), 3)
+        else:
+            reloading = asyncio.create_task(manager.reload_agent(old.agent_id))
+            await asyncio.wait_for(handoff_entered.wait(), 3)
+            assert old_channels.channels == []
+            active = list(old.cron_manager.snapshot_active_tasks().values())
+            assert len(active) == 1
+            release.set()
+            await asyncio.wait_for(yielded.wait(), 3)
+            await asyncio.sleep(0)
+            assert await repo.get_history(job.id) == []
+            old_transport.send_event.assert_not_awaited()
+            new_transport.send_event.assert_not_awaited()
+            if handoff == "cancel":
+                active[0].cancel()
+                await asyncio.wait_for(
+                    asyncio.gather(*active, return_exceptions=True),
+                    3,
+                )
+            finish_handoff.set()
+            assert await asyncio.wait_for(reloading, 3) is (
+                handoff != "rollback"
+            )
+            await asyncio.wait_for(
+                asyncio.gather(*active, return_exceptions=True),
+                3,
+            )
+            await asyncio.wait_for(
+                asyncio.gather(*list(manager._cleanup_tasks)),
+                3,
+            )
+        old_transport.stop.assert_awaited_once_with()
+        history = await repo.get_history(job.id)
+        assert len(history) == 1
+        assert history[0].status == (
+            "cancelled" if handoff == "cancel" else "success"
+        )
+        if handoff == "sending":
+            old_transport.send_event.assert_awaited_once()
+            assert old_transport.send_event.await_args.kwargs["event"] is event
+        else:
+            old_transport.send_event.assert_not_awaited()
+        if handoff == "cancel":
+            new_transport.send_event.assert_not_awaited()
+            # A cancelled waiter must leave delivery usable by later cron work.
+            text_job = job.model_copy(
+                update={
+                    "id": "after-cancel",
+                    "task_type": "text",
+                    "text": "ready",
+                },
+            )
+            new_transport.to_handle_from_target = MagicMock(return_value="u")
+            new_transport.send_content_parts = AsyncMock()
+            result = await new.cron_manager._executor.execute(text_job)
+            assert result["delivery_status"] == "success"
+            new_transport.send_content_parts.assert_awaited_once()
+            return
+        recipient = (
+            restored_transport if handoff == "rollback" else new_transport
+        )
+        if handoff == "rollback":
+            assert manager.agents[old.agent_id] is old
+            assert old_channels.channels == [restored_transport]
+            new_transport.send_event.assert_not_awaited()
+        recipient.send_event.assert_awaited_once_with(
+            user_id="u",
+            session_id="s",
+            event=second_event if handoff == "sending" else event,
+            meta={
+                "suppress_console_push": True,
+                "session_id": "s",
+                "user_id": "u",
+            },
+        )
+    finally:
+        release.set()
+        finish_handoff.set()
+        finish_send.set()
+        second_release.set()
+        if reloading is not None:
+            await asyncio.gather(reloading, return_exceptions=True)
+        await manager.stop_all()

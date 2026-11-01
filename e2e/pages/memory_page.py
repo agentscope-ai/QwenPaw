@@ -62,10 +62,10 @@ class MemoryPage(BasePage):
     AUTO_MEMORY_ENABLED_SWITCH = (
         'section[class*="memoryConfigPanel"]:'
         'has(h3:has-text("Auto-memory")) '
-        'button[role="switch"][aria-label="Enable conversation memory"], '
+        'button[role="switch"][aria-label="Enable periodic auto-memory"], '
         'section[class*="memoryConfigPanel"]:'
         'has(h3:has-text("自动记忆")) '
-        'button[role="switch"][aria-label="启用对话记忆"]'
+        'button[role="switch"][aria-label="启用定期自动记忆"]'
     )
     DREAM_CRON_ENABLED_SWITCH = (
         'section[class*="memoryConfigPanel"]:'

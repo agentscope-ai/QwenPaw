@@ -148,6 +148,8 @@ qwenpaw acp --agent-mode goal
 
 The process communicates over stdin/stdout using the ACP JSON-RPC protocol. stderr is used for logging.
 
+`--agent-mode code` enables Python tool orchestration for every request, including loaded and resumed sessions. It exposes `run_code` without adding a slash-command prefix or changing saved agent configuration. The worker follows the global `security.sandbox_enabled` setting, which defaults to `false`; enabling Code Mode does not enable the sandbox.
+
 `--agent-mode MODE_ID` selects from the same workspace loop catalog as the Console (`GET /api/loops`). Built-in IDs include `default`, `goal`, and `mission`; configured custom modes use `custom:<id>` and plugin modes use `plugin:<name>`.
 
 For example, `--agent-mode goal` adds `/goal` to the first message of each new session. If custom mode `quality` registers `/verify`, `--agent-mode custom:quality` adds `/verify`, not `/custom:quality`. Activation goes through the existing runtime slash-command registry. Unknown, disabled, or unregistered modes return a request error instead of silently falling back.

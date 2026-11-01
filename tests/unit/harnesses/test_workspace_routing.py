@@ -27,13 +27,12 @@ class FakeHarnessRuntime:
 
 
 @pytest.mark.asyncio
-async def test_coding_mode_routes_directly_to_harness(
+async def test_selected_backend_routes_directly_to_harness(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = SimpleNamespace(
         backend="codex",
-        coding_mode=SimpleNamespace(enabled=False),
     )
     monkeypatch.setattr(
         "qwenpaw.app.workspace.workspace.load_agent_config",

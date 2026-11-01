@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 
 _STREAM_CLEANUP_TIMEOUT = 1.0
 _STREAM_CLEANUP_QUARANTINE_TIMEOUT = 60.0
+_ACQUIRE_WARNING_DELAY = 10.0
 _STREAM_FIRST_CONTENT_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT"
 _STREAM_IDLE_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_IDLE_TIMEOUT"
 _pending_stream_cleanup_tasks: set[asyncio.Future[Any]] = set()
@@ -543,6 +544,7 @@ class RetryChatModel(ChatModelBase):
         stream: AsyncGenerator[ChatResponse, None],
         limiter: LLMRateLimiter,
         acquired_at: float,
+        first_content_budget: float | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         """Yield chunks while managing the slot and upstream idle budget.
 
@@ -568,18 +570,12 @@ class RetryChatModel(ChatModelBase):
         Args:
             acquired_at: Timestamp from ``limiter.acquire()``, forwarded to
                 ``on_success()`` so only stale pauses are cleared.
+            first_content_budget: Remaining upstream wait after startup,
+                excluding time spent queueing or waiting for the consumer.
         """
         first_chunk = True
         loop = asyncio.get_running_loop()
-        first_content_timeout = (
-            max(0.0, float(self._stream_first_content_timeout_override))
-            if self._stream_first_content_timeout_override is not None
-            else EnvVarLoader.get_float(
-                _STREAM_FIRST_CONTENT_TIMEOUT_ENV,
-                30.0,
-                min_value=0.0,
-            )
-        )
+        first_content_timeout = self._first_content_timeout()
         idle_timeout = (
             max(0.0, float(self._stream_idle_timeout_override))
             if self._stream_idle_timeout_override is not None
@@ -591,7 +587,11 @@ class RetryChatModel(ChatModelBase):
         )
         active_timeout = first_content_timeout
         timeout_setting = _STREAM_FIRST_CONTENT_TIMEOUT_ENV
-        idle_budget = active_timeout
+        idle_budget = (
+            first_content_budget
+            if first_content_budget is not None
+            else active_timeout
+        )
         iterator = stream.__aiter__()
         cleanup_state = _StreamCleanupState()
         try:
@@ -763,6 +763,117 @@ class RetryChatModel(ChatModelBase):
                 f"Stream close for {self.model_key} failed: {results[0]}",
             )
 
+    def _first_content_timeout(self) -> float:
+        """Read the startup and first-content budget for this attempt."""
+        if self._stream_first_content_timeout_override is not None:
+            return max(0.0, float(self._stream_first_content_timeout_override))
+        return EnvVarLoader.get_float(
+            _STREAM_FIRST_CONTENT_TIMEOUT_ENV,
+            30.0,
+            min_value=0.0,
+        )
+
+    async def _call_inner(
+        self,
+        args: tuple,
+        kwargs: dict,
+    ) -> tuple[Any, float | None]:
+        """Bound stream startup and return the remaining content budget."""
+        if not self.stream:
+            return await self._inner(*args, **kwargs), None
+        timeout = self._first_content_timeout()
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        call = asyncio.ensure_future(self._inner(*args, **kwargs))
+        try:
+            done, _ = await asyncio.wait(
+                {call},
+                timeout=timeout if timeout > 0 else None,
+            )
+        except BaseException:
+            await self._cancel_model_call(call)
+            raise
+        if done:
+            remaining = (
+                max(0.0, timeout - (loop.time() - started))
+                if timeout > 0
+                else None
+            )
+            return call.result(), remaining
+
+        deferred = await self._cancel_model_call(call)
+        logger.warning(
+            "LLM stream startup timed out for %s after %.1fs "
+            "(cleanup_deferred=%s)",
+            self.model_key,
+            loop.time() - started,
+            deferred,
+        )
+        raise StreamIdleTimeoutError(
+            self.model_key,
+            timeout,
+            _STREAM_FIRST_CONTENT_TIMEOUT_ENV,
+            cleanup_deferred=deferred,
+        )
+
+    async def _cancel_model_call(self, call: asyncio.Future[Any]) -> bool:
+        """Cancel startup and close any stream returned after cancellation."""
+        call.cancel()
+        cleanup = asyncio.create_task(self._finish_model_call_cleanup(call))
+        try:
+            done, _ = await asyncio.wait(
+                {cleanup},
+                timeout=_STREAM_CLEANUP_TIMEOUT,
+            )
+        except BaseException:
+            self._track_provider_cleanup(
+                cleanup,
+                f"stream startup cleanup for {self.model_key}",
+            )
+            raise
+        if not done:
+            self._track_provider_cleanup(
+                cleanup,
+                f"stream startup cleanup for {self.model_key}",
+            )
+            logger.warning(
+                "Stream startup cleanup for %s exceeded %.1fs; "
+                "cleanup continues in the background",
+                self.model_key,
+                _STREAM_CLEANUP_TIMEOUT,
+            )
+            return True
+        await cleanup
+        return bool(self._pending_provider_cleanup_tasks)
+
+    async def _finish_model_call_cleanup(
+        self,
+        call: asyncio.Future[Any],
+    ) -> None:
+        """Dispose of a late response without suppressing caller errors."""
+        results = await asyncio.gather(call, return_exceptions=True)
+        if isinstance(results[0], AsyncGenerator):
+            await self._close_stream_bounded(results[0])
+
+    async def _acquire_with_warning(self, limiter: LLMRateLimiter) -> float:
+        """Report a slow acquire once, without changing its timeout policy."""
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+
+        def warn_waiting() -> None:
+            logger.warning(
+                "LLM acquire still waiting for %s after %.1fs: %s",
+                self.model_key,
+                loop.time() - started,
+                limiter.stats(),
+            )
+
+        warning = loop.call_later(_ACQUIRE_WARNING_DELAY, warn_waiting)
+        try:
+            return await limiter.acquire()
+        finally:
+            warning.cancel()
+
     async def generate_structured_output(
         self,
         *args: Any,
@@ -786,7 +897,7 @@ class RetryChatModel(ChatModelBase):
                 self._ensure_provider_available()
                 try:
                     acquired_at = await asyncio.wait_for(
-                        limiter.acquire(),
+                        self._acquire_with_warning(limiter),
                         timeout=self._rate_limit_config.acquire_timeout,
                     )
                     acquired = True
@@ -872,7 +983,7 @@ class RetryChatModel(ChatModelBase):
                 self._ensure_provider_available()
                 try:
                     acquired_at = await asyncio.wait_for(
-                        limiter.acquire(),
+                        self._acquire_with_warning(limiter),
                         timeout=self._rate_limit_config.acquire_timeout,
                     )
                     acquired = True
@@ -892,7 +1003,10 @@ class RetryChatModel(ChatModelBase):
 
                 self._ensure_provider_available()
                 try:
-                    result = await self._inner(*args, **kwargs)
+                    result, first_content_budget = await self._call_inner(
+                        args,
+                        kwargs,
+                    )
                 except Exception as inner_exc:
                     if not (
                         _is_missing_reasoning_content_error(inner_exc)
@@ -911,7 +1025,10 @@ class RetryChatModel(ChatModelBase):
                         "(learned for future calls).",
                     )
                     self._ensure_provider_available()
-                    result = await self._inner(*args, **kwargs)
+                    result, first_content_budget = await self._call_inner(
+                        args,
+                        kwargs,
+                    )
 
                 if isinstance(result, AsyncGenerator):
                     # Transfer semaphore ownership to _wrap_stream, which uses
@@ -926,6 +1043,7 @@ class RetryChatModel(ChatModelBase):
                         attempts,
                         limiter,
                         acquired_at,
+                        first_content_budget,
                     )
 
                 # Non-streaming success: clear any stale rate-limit pause so
@@ -969,6 +1087,7 @@ class RetryChatModel(ChatModelBase):
         max_attempts: int,
         limiter: LLMRateLimiter,
         acquired_at: float = 0.0,
+        first_content_budget: float | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         """Yield chunks from *stream*; on transient failure, retry the full
         request and yield from the new stream instead.
@@ -977,6 +1096,7 @@ class RetryChatModel(ChatModelBase):
             acquired_at: Timestamp from ``limiter.acquire()``, forwarded to
                 ``on_success()`` so stale pauses are cleared but fresh ones
                 (set by a concurrent 429 after this call acquired) are kept.
+            first_content_budget: First-content timeout minus startup time.
         """
         attempt = current_attempt
         pending_stream: AsyncGenerator[ChatResponse, None] | None = stream
@@ -991,6 +1111,7 @@ class RetryChatModel(ChatModelBase):
                         pending_stream,
                         limiter,
                         pending_acquired_at,
+                        first_content_budget,
                     )
                     try:
                         async for chunk in active_stream:
@@ -1009,7 +1130,7 @@ class RetryChatModel(ChatModelBase):
                     self._ensure_provider_available()
                     try:
                         retry_acquired_at = await asyncio.wait_for(
-                            limiter.acquire(),
+                            self._acquire_with_warning(limiter),
                             timeout=self._rate_limit_config.acquire_timeout,
                         )
                         acquired = True
@@ -1027,7 +1148,10 @@ class RetryChatModel(ChatModelBase):
                         ) from exc
 
                     self._ensure_provider_available()
-                    result = await self._inner(*call_args, **call_kwargs)
+                    result, first_content_budget = await self._call_inner(
+                        call_args,
+                        call_kwargs,
+                    )
 
                     if isinstance(result, AsyncGenerator):
                         owns_semaphore = False

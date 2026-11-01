@@ -51,9 +51,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import {
   getDraftStorageKey,
-  parseDraft,
-  serializeDraft,
-  type DraftState,
+  handoverDraftToSession,
+  useChatInputDraft,
 } from "./chatInputDraft";
 import {
   stopBackgroundQueue,
@@ -73,7 +72,7 @@ import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import type { SkillSpec } from "../../api/types";
 import {
   AdvisorModelsPill,
   useIsAdvisorConversation,
@@ -262,6 +261,8 @@ import {
 } from "../../utils/sessionRoute";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import ChatSenderTabsPanel from "./components/ChatSenderTabsPanel";
+import ComposerAccessibilityLabels from "./components/ComposerAccessibilityLabels";
+import ApprovalQueueOverlay from "./components/ApprovalQueueOverlay";
 import {
   selectTasksForSession,
   useBackgroundTasksStore,
@@ -920,10 +921,10 @@ function useMultimodalCapabilities(
       return;
     }
     try {
-      const [providers, activeModels] = await Promise.all([
-        providerApi.listProviders(),
-        loadSessionModel(selectedAgent, { sessionId, chatId }),
-      ]);
+      const activeModels = await loadSessionModel(selectedAgent, {
+        sessionId,
+        chatId,
+      });
       if (revision !== capsRevision.current) return;
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
@@ -931,20 +932,17 @@ function useMultimodalCapabilities(
         updateCapsIfChanged(noCaps);
         return;
       }
-      const provider = (providers as ProviderInfo[]).find(
-        (p) => p.id === activeProviderId,
+      const model = await providerApi.previewModelInfo(
+        activeProviderId,
+        activeModelId,
       );
-      if (!provider) {
-        updateCapsIfChanged(noCaps);
-        return;
-      }
-      const allModels: ModelInfo[] = [
-        ...(provider.models ?? []),
-        ...(provider.extra_models ?? []),
-      ];
-      const model = allModels.find((m) => m.id === activeModelId);
+      if (revision !== capsRevision.current) return;
       updateCapsIfChanged({
-        supportsMultimodal: model?.supports_multimodal ?? false,
+        supportsMultimodal: Boolean(
+          model?.supports_multimodal ||
+            model?.supports_image ||
+            model?.supports_video,
+        ),
         supportsImage: model?.supports_image ?? false,
         supportsVideo: model?.supports_video ?? false,
       });
@@ -1132,88 +1130,6 @@ function useMessageHistoryNavigation(
   }, [isChatActive, isComposingRef, getUserMessagesWithText]);
 }
 
-// ---------------------------------------------------------------------------
-// Chat input draft persistence
-// ---------------------------------------------------------------------------
-
-function useChatInputDraft(active: boolean, agentId?: string) {
-  const storageKey = getDraftStorageKey(agentId);
-
-  useEffect(() => {
-    if (!active) return;
-
-    const getTextarea = (): HTMLTextAreaElement | null => {
-      const sender = document.querySelector('[class*="sender"]');
-      return sender?.querySelector("textarea") as HTMLTextAreaElement | null;
-    };
-
-    const saveDraft = (textarea: HTMLTextAreaElement) => {
-      const draft: DraftState = {
-        value: textarea.value,
-        selectionStart: textarea.selectionStart,
-        selectionEnd: textarea.selectionEnd,
-      };
-      const serialized = serializeDraft(draft);
-      if (serialized) {
-        localStorage.setItem(storageKey, serialized);
-      } else {
-        localStorage.removeItem(storageKey);
-      }
-    };
-
-    const handleInput = (e: Event) => {
-      const target = e.target as HTMLElement;
-      if (target?.tagName !== "TEXTAREA") return;
-      if (!target?.closest('[class*="sender"]')) return;
-
-      saveDraft(target as HTMLTextAreaElement);
-
-      // Minimal loop mode detection: sync indicator with availableModes
-      const val = (target as HTMLTextAreaElement).value.trimStart();
-      const modes = useLoopStore.getState().availableModes;
-      const match = modes.find((m) => {
-        if (!m.slash_command) return false;
-        const prefix = `/${m.slash_command}`;
-        // Match "/cmd" or "/cmd " exactly, avoid "/cmdxxx"
-        return val === prefix || val.startsWith(`${prefix} `);
-      });
-      if (match) useLoopStore.getState().setSelectedMode(match.id);
-    };
-
-    // Restore draft on mount with polling for textarea readiness
-    let restoreAttempts = 0;
-    const maxRestoreAttempts = 20;
-    const restoreInterval = setInterval(() => {
-      restoreAttempts++;
-      const textarea = getTextarea();
-      if (textarea) {
-        clearInterval(restoreInterval);
-        // parseDraft fails soft on missing/malformed/empty stored data
-        const draft = parseDraft(localStorage.getItem(storageKey));
-        if (draft) {
-          setTextareaValue(textarea, draft.value);
-          requestAnimationFrame(() => {
-            textarea.selectionStart = draft.selectionStart;
-            textarea.selectionEnd = draft.selectionEnd;
-          });
-        }
-      } else if (restoreAttempts >= maxRestoreAttempts) {
-        clearInterval(restoreInterval);
-      }
-    }, 100);
-
-    document.addEventListener("input", handleInput, true);
-
-    return () => {
-      clearInterval(restoreInterval);
-      document.removeEventListener("input", handleInput, true);
-
-      // Input events already saved the draft. Cleanup must not overwrite it
-      // with a cleared/remounted composer (including another browser tab).
-    };
-  }, [active, storageKey]);
-}
-
 function RuntimeLoadingBridge({
   bridgeRef,
   onLoadingChange,
@@ -1297,6 +1213,10 @@ export default function ChatPage() {
   const location = useLocation();
   const { isDark, previewTheme = {} } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
+  // useLocation().pathname is already basename-relative. React Router
+  // strips the basename before exposing it (Desktop `/console/chat/<id>`
+  // is `/chat/<id>` here). Do not strip again: a basename of `/chat`
+  // would erase the session id. Raw window.location stays in hostSdk.
   const routeChatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
@@ -2437,7 +2357,7 @@ export default function ChatPage() {
   }, []);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
-  useChatInputDraft(isChatActiveRef.current, selectedAgent);
+  useChatInputDraft(isChatActiveRef.current, selectedAgent, routeChatId);
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
@@ -2989,6 +2909,9 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       const agentId = selectedAgentRef.current;
       migrateSessionResources(agentId, tempId, realId);
+      // The first send stays on /chat until this id exists. Move the
+      // follow-up typed there onto the new session before the route changes.
+      handoverDraftToSession(agentId, realId);
       lastSessionIdRef.current = realId;
       sessionApi.trackNavigatedSession(
         realId,
@@ -3165,6 +3088,7 @@ export default function ChatPage() {
         removeLastChatIdRef.current(selectedAgentRef.current);
       } else {
         setLastChatIdRef.current(selectedAgentRef.current, sessionId);
+        handoverDraftToSession(agentId, sessionId);
       }
       navigateRef.current(
         isLocalTimestampId(sessionId)
@@ -3688,7 +3612,7 @@ export default function ChatPage() {
       const backendChatId = resolveBackendChatId(chatIdRef.current);
       const textarea = getActiveSenderTextarea();
       const val = data.query.trim() || textarea?.value.trim() || "";
-      const draftStorageKey = getDraftStorageKey(selectedAgent);
+      const draftStorageKey = getDraftStorageKey(selectedAgent, chatId);
       const submittedDraft = localStorage.getItem(draftStorageKey);
       const submittedFiles = new Set(pendingFileListRef.current);
       const submittedAttachments = getSubmissionAttachments(data);
@@ -3750,7 +3674,7 @@ export default function ChatPage() {
         });
         if (sameVisit) {
           pendingFileListRef.current = [];
-          localStorage.removeItem(getDraftStorageKey(selectedAgent));
+          localStorage.removeItem(getDraftStorageKey(selectedAgent, chatId));
         } else if (
           enqueueIdentity.sessionId &&
           backendChatId &&
@@ -4073,6 +3997,7 @@ export default function ChatPage() {
               sessionId={chatId}
               agentTransition={isSessionTransition}
             />
+            <ComposerAccessibilityLabels />
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
             <ChatActionGroup
@@ -4258,6 +4183,7 @@ export default function ChatPage() {
                   return (
                     <Tooltip title={tooltipTitle}>
                       <IconButton
+                        aria-label={t("chat.composer.attach")}
                         disabled={props?.disabled}
                         icon={<SparkAttachmentLine size="1em" />}
                         bordered={false}
@@ -4738,102 +4664,88 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Render approval cards as overlays */}
-          {Array.from(
-            chatId && !isSessionTransition ? approvalRequests.values() : [],
-          ).map((request) => {
-            const renderer = approvalRenderers.get(request.sourceType);
-            const CustomApprovalCard = renderer?.item.render;
-            const defaultApprovalCard = (
-              <ApprovalCard
-                requestId={request.requestId}
-                agentId={request.agentId}
-                toolName={request.toolName}
-                toolSource={request.toolSource}
-                severity={request.severity}
-                findingsCount={request.findingsCount}
-                findingsSummary={request.findingsSummary}
-                toolParams={request.toolParams}
-                reasoning={request.reasoning}
-                createdAt={request.createdAt}
-                timeoutSeconds={request.timeoutSeconds}
-                sessionId={request.sessionId}
-                rootSessionId={request.rootSessionId}
-                isGeneralized={request.isGeneralized}
-                exactTarget={request.exactTarget}
-                similarTarget={request.similarTarget}
-                onApprove={(reqId, scope) => handleApprove(reqId, scope)}
-                onDeny={handleDeny}
-                onCancel={() => {
-                  const routeChatId = chatIdRef.current;
-                  const routeIdentity =
-                    sessionApi.getSessionIdentity(routeChatId);
-                  const rootSessionId =
-                    request.rootSessionId || request.sessionId;
-                  const resolvedChatId = resolveBackendChatId(routeChatId);
+          <ApprovalQueueOverlay
+            items={Array.from(
+              chatId && !isSessionTransition ? approvalRequests.values() : [],
+            )}
+            renderItem={(request) => {
+              const renderer = approvalRenderers.get(request.sourceType);
+              const CustomApprovalCard = renderer?.item.render;
+              const defaultApprovalCard = (
+                <ApprovalCard
+                  requestId={request.requestId}
+                  agentId={request.agentId}
+                  toolName={request.toolName}
+                  toolSource={request.toolSource}
+                  severity={request.severity}
+                  findingsCount={request.findingsCount}
+                  findingsSummary={request.findingsSummary}
+                  toolParams={request.toolParams}
+                  reasoning={request.reasoning}
+                  createdAt={request.createdAt}
+                  timeoutSeconds={request.timeoutSeconds}
+                  sessionId={request.sessionId}
+                  rootSessionId={request.rootSessionId}
+                  isGeneralized={request.isGeneralized}
+                  exactTarget={request.exactTarget}
+                  similarTarget={request.similarTarget}
+                  onApprove={(reqId, scope) => handleApprove(reqId, scope)}
+                  onDeny={handleDeny}
+                  onCancel={() => {
+                    const routeChatId = chatIdRef.current;
+                    const routeIdentity =
+                      sessionApi.getSessionIdentity(routeChatId);
+                    const rootSessionId =
+                      request.rootSessionId || request.sessionId;
+                    const resolvedChatId = resolveBackendChatId(routeChatId);
 
-                  if (
-                    !isSessionTransitionRef.current &&
-                    rootSessionId &&
-                    routeIdentity.sessionId === rootSessionId &&
-                    resolvedChatId
-                  ) {
-                    console.log(
-                      "[Chat] Calling stopChat with:",
-                      resolvedChatId,
-                    );
-                    chatApi
-                      .stopChat(resolvedChatId)
-                      .then(() => {
-                        console.log("[Chat] stopChat succeeded");
-                        setApprovals((prev) =>
-                          prev.filter(
-                            (item) => item.root_session_id !== rootSessionId,
-                          ),
-                        );
-                      })
-                      .catch((err) => {
-                        console.error("[Chat] stopChat failed:", err);
-                      });
-                  } else {
-                    console.warn(
-                      "[Chat] Ignoring stale approval cancel target",
-                    );
-                  }
-                }}
-              />
-            );
-
-            return (
-              <div
-                key={request.requestId}
-                data-approval-id={request.requestId}
-                style={{
-                  position: "fixed",
-                  bottom: 80,
-                  right: 24,
-                  zIndex: 1000,
-                  maxWidth: 480,
-                  width: "calc(100vw - 48px)",
-                }}
-              >
-                {CustomApprovalCard ? (
-                  <PluginSlotBoundary
-                    slot={`approval:${request.sourceType}`}
-                    pluginId={renderer.pluginId}
-                    fallback={defaultApprovalCard}
-                  >
-                    <CustomApprovalCard
-                      approval={request}
-                      onResolved={() => dismissApproval(request.requestId)}
-                    />
-                  </PluginSlotBoundary>
-                ) : (
-                  defaultApprovalCard
-                )}
-              </div>
-            );
-          })}
+                    if (
+                      !isSessionTransitionRef.current &&
+                      rootSessionId &&
+                      routeIdentity.sessionId === rootSessionId &&
+                      resolvedChatId
+                    ) {
+                      console.log(
+                        "[Chat] Calling stopChat with:",
+                        resolvedChatId,
+                      );
+                      chatApi
+                        .stopChat(resolvedChatId)
+                        .then(() => {
+                          console.log("[Chat] stopChat succeeded");
+                          setApprovals((prev) =>
+                            prev.filter(
+                              (item) => item.root_session_id !== rootSessionId,
+                            ),
+                          );
+                        })
+                        .catch((err) => {
+                          console.error("[Chat] stopChat failed:", err);
+                        });
+                    } else {
+                      console.warn(
+                        "[Chat] Ignoring stale approval cancel target",
+                      );
+                    }
+                  }}
+                />
+              );
+              return CustomApprovalCard ? (
+                <PluginSlotBoundary
+                  slot={`approval:${request.sourceType}`}
+                  pluginId={renderer.pluginId}
+                  fallback={defaultApprovalCard}
+                >
+                  <CustomApprovalCard
+                    approval={request}
+                    onResolved={() => dismissApproval(request.requestId)}
+                  />
+                </PluginSlotBoundary>
+              ) : (
+                defaultApprovalCard
+              );
+            }}
+          />
 
           <Modal
             open={usesQwenPawBackend && showModelPrompt}

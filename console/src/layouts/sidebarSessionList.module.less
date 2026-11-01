@@ -121,7 +121,7 @@
 .historyHeaderRow {
   display: flex;
   align-items: center;
-  min-height: 30px;
+  min-height: var(--app-control-md);
 }
 
 .historyHeader {
@@ -152,8 +152,8 @@
 
 .historyAction {
   display: inline-flex;
-  width: 26px;
-  height: 26px;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -169,8 +169,19 @@
   }
 
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--app-accent) 38%, transparent);
-    outline-offset: 1px;
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
+  }
+}
+
+@media (any-pointer: coarse) {
+  .historyAction,
+  .historyHeader {
+    min-height: var(--app-hit-touch);
+  }
+
+  .historyAction {
+    width: var(--app-hit-touch);
   }
 }
 

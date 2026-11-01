@@ -1,20 +1,25 @@
 # -*- coding: utf-8 -*-
-"""Plugin router lifecycle wiring: post-load / unload bookkeeping.
+"""Plugin routes delegate lifecycle work and report real completion.
 
-The helpers covered here run *around* the loader: registering providers
-and control commands, executing startup hooks, syncing plugin tools into
-every agent config, and cleaning the same registrations up again on
-uninstall.  They are exercised through stub loader / app objects so no
-real plugin module is ever imported.
+Router tests cover loader wiring, compatibility helpers, archive safety,
+HTTP errors, and metadata. Registration and revocation belong to the
+lifecycle tests rather than removed router bookkeeping helpers.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 # pylint: disable=use-implicit-booleaness-not-comparison
 from __future__ import annotations
 
+import asyncio
+import http.client
 import io
 import json
+import shutil
+import ssl
 import tempfile
+import urllib.error
 import zipfile
+from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -27,16 +32,9 @@ from qwenpaw.app.routers import plugins as plugins_module
 from qwenpaw.app.routers.plugins import (
     _DOWNLOAD_TIMEOUT,
     _async_download,
-    _collect_plugin_runtime_ids,
     _load_plugin_with_optional_force_reinstall,
     _extract_downloaded_plugin_zip,
     _extract_plugin_zip_bytes,
-    _post_load_setup,
-    _post_unload_cleanup,
-    _remove_named_tools_from_agents,
-    _remove_plugin_tools_from_agents,
-    _schedule_all_agents_reload,
-    _sync_plugin_tools_to_agents,
     install_plugin,
     install_plugin_source,
     search_market_plugins,
@@ -45,20 +43,10 @@ from qwenpaw.app.routers.plugins import (
 )
 
 
-# Patch targets longer than the 79-column limit are hoisted so each stays a
-# single string literal (pylint W1404 implicit-str-concat).
-_FINISH_INSTALL = (
-    "qwenpaw.app.routers.plugins._finish_plugin_install_after_load"
-)
-_CMD_HANDLER_REGISTER = "qwenpaw.runtime.commands.control.register_command"
-_CMD_HANDLER_UNREGISTER = "qwenpaw.runtime.commands.control.unregister_command"
-_PRIORITY_REGISTER = (
-    "qwenpaw.app.channels.command_registry.CommandRegistry.register_command"
-)
-_PRIORITY_UNREGISTER = (
-    "qwenpaw.app.channels.command_registry.CommandRegistry.unregister_command"
-)
-_SYNC_TOOLS = "qwenpaw.app.routers.plugins._sync_plugin_tools_to_agents"
+@pytest.fixture(autouse=True)
+def isolated_plugin_settings(monkeypatch):
+    """Do not read real plugin settings for route metadata assertions."""
+    monkeypatch.setattr(plugins_module, "_plugin_config_row", lambda _id: {})
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +78,8 @@ def _record(plugin_id: str = "plug", meta: dict | None = None) -> Any:
         manifest=manifest,
         source_path=Path("/nonexistent/plugin"),
         enabled=True,
+        status="active",
+        diagnostics=[],
     )
 
 
@@ -139,8 +129,8 @@ def _loader_stub(
         log,
         f"lifecycle({plugin_id})",
     )
-    loader.unload_plugin = AsyncMock(
-        side_effect=lambda *a, **k: log.append("unload_plugin"),
+    loader.lifecycle.unload = AsyncMock(
+        side_effect=lambda *a, **k: log.append("lifecycle.unload"),
     )
 
     def _load(**kwargs):
@@ -153,651 +143,16 @@ def _loader_stub(
         return load_result
 
     loader.load_plugin_from_path = AsyncMock(side_effect=_load)
+    loader.retains_preparation_source.return_value = False
+
+    async def _cleanup_preparation_source(root):
+        await asyncio.to_thread(shutil.rmtree, root, True)
+        return True
+
+    loader.cleanup_preparation_source = AsyncMock(
+        side_effect=_cleanup_preparation_source,
+    )
     return loader
-
-
-class _AgentCfg:
-    """Agent config stand-in carrying a mutable builtin_tools dict."""
-
-    def __init__(self, tools: dict[str, Any]) -> None:
-        self.tools = SimpleNamespace(builtin_tools=tools)
-
-
-class _ConfigLayer:
-    """Patch ``load_config`` / ``load_agent_config`` / ``save_agent_config``.
-
-    Records every call so assertions target observable effects (which
-    agents were read, which were written, with what payload) rather than
-    mock internals.
-    """
-
-    def __init__(
-        self,
-        profiles: dict[str, Any] | None,
-        agent_cfgs: dict[str, Any] | None = None,
-        *,
-        load_config_error: Exception | None = None,
-        failing_agents: tuple[str, ...] = (),
-    ) -> None:
-        self.profiles = profiles
-        self.agent_cfgs = dict(agent_cfgs or {})
-        self.load_config_error = load_config_error
-        self.failing_agents = set(failing_agents)
-        self.loaded_agents: list[str] = []
-        self.saved: list[tuple[str, Any]] = []
-        self._patches = (
-            patch(
-                "qwenpaw.config.utils.load_config",
-                side_effect=self._load_config,
-            ),
-            patch(
-                "qwenpaw.config.config.load_agent_config",
-                side_effect=self._load_agent_config,
-            ),
-            patch(
-                "qwenpaw.config.config.save_agent_config",
-                side_effect=self._save_agent_config,
-            ),
-        )
-
-    # -- stub behaviour ----------------------------------------------------
-    def _load_config(self):
-        if self.load_config_error is not None:
-            raise self.load_config_error
-        agents = (
-            SimpleNamespace(profiles=self.profiles)
-            if self.profiles is not None
-            else None
-        )
-        return SimpleNamespace(agents=agents)
-
-    def _load_agent_config(self, agent_id: str):
-        self.loaded_agents.append(agent_id)
-        if agent_id in self.failing_agents:
-            raise RuntimeError(f"boom-{agent_id}")
-        cfg = self.agent_cfgs.get(agent_id)
-        if cfg is None:
-            raise KeyError(agent_id)
-        return cfg
-
-    def _save_agent_config(self, agent_id: str, cfg: Any) -> None:
-        self.saved.append((agent_id, cfg))
-
-    # -- context manager ---------------------------------------------------
-    def __enter__(self) -> "_ConfigLayer":
-        for item in self._patches:
-            item.start()
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        for item in reversed(self._patches):
-            item.stop()
-
-
-def _provider_reg(plugin_id: str, provider_id: str) -> Any:
-    return SimpleNamespace(
-        plugin_id=plugin_id,
-        provider_id=provider_id,
-        provider_class=type("StubProvider", (), {}),
-        label="Stub",
-        base_url="https://stub.invalid",
-        metadata={"k": "v"},
-    )
-
-
-def _cmd_reg(plugin_id: str, command_name: str) -> Any:
-    return SimpleNamespace(
-        plugin_id=plugin_id,
-        handler=SimpleNamespace(command_name=command_name),
-        priority_level=7,
-    )
-
-
-def _hook_reg(plugin_id: str, hook_name: str, callback: Any) -> Any:
-    return SimpleNamespace(
-        plugin_id=plugin_id,
-        hook_name=hook_name,
-        callback=callback,
-    )
-
-
-def _registry(
-    providers: dict | None = None,
-    commands: list | None = None,
-    hooks: list | None = None,
-) -> Any:
-    registry = MagicMock(name="PluginRegistry")
-    registry.get_all_providers.return_value = providers or {}
-    registry.get_control_commands.return_value = commands or []
-    registry.get_startup_hooks.return_value = hooks or []
-    return registry
-
-
-# ---------------------------------------------------------------------------
-# _sync_plugin_tools_to_agents
-# ---------------------------------------------------------------------------
-
-
-class TestSyncPluginToolsToAgents:
-    def test_unknown_plugin_touches_no_config(self):
-        loader = MagicMock()
-        loader.get_loaded_plugin.return_value = None
-        with _ConfigLayer({"a": object()}) as layer:
-            _sync_plugin_tools_to_agents(loader, "ghost")
-        assert layer.loaded_agents == []
-        assert layer.saved == []
-
-    def test_manifest_without_tools_touches_no_config(self):
-        loader = MagicMock()
-        loader.get_loaded_plugin.return_value = _record(meta={})
-        with _ConfigLayer({"a": object()}) as layer:
-            _sync_plugin_tools_to_agents(loader, "plug")
-        assert layer.loaded_agents == []
-        assert layer.saved == []
-
-    def test_no_configured_agents_saves_nothing(self):
-        loader = MagicMock()
-        loader.get_loaded_plugin.return_value = _record(
-            meta={"tool_name": "alpha"},
-        )
-        with _ConfigLayer({}) as layer:
-            _sync_plugin_tools_to_agents(loader, "plug")
-        assert layer.loaded_agents == []
-        assert layer.saved == []
-
-    def test_adds_missing_tools_disabled(self):
-        loader = MagicMock()
-        loader.get_loaded_plugin.return_value = _record(
-            meta={"tools": [{"name": "alpha"}, {"name": "beta"}]},
-        )
-        cfg_a = _AgentCfg({"alpha": object()})
-        cfg_b = _AgentCfg({})
-        with _ConfigLayer(
-            {"a": object(), "b": object()},
-            {"a": cfg_a, "b": cfg_b},
-        ) as layer:
-            _sync_plugin_tools_to_agents(loader, "plug")
-        assert [name for name, _ in layer.saved] == ["a", "b"]
-        # already-present tool is left alone, the new one is added disabled
-        assert cfg_a.tools.builtin_tools["alpha"] is not None
-        beta = cfg_a.tools.builtin_tools["beta"]
-        assert (beta.name, beta.enabled, beta.config) == ("beta", False, {})
-        assert set(cfg_b.tools.builtin_tools) == {"alpha", "beta"}
-        assert cfg_b.tools.builtin_tools["alpha"].enabled is False
-
-    def test_second_call_is_a_no_op(self):
-        loader = MagicMock()
-        loader.get_loaded_plugin.return_value = _record(
-            meta={"tool_name": "alpha"},
-        )
-        cfg = _AgentCfg({})
-        with _ConfigLayer({"a": object()}, {"a": cfg}) as layer:
-            _sync_plugin_tools_to_agents(loader, "plug")
-            _sync_plugin_tools_to_agents(loader, "plug")
-        assert len(layer.saved) == 1
-
-    def test_one_bad_agent_does_not_block_the_other(self, caplog):
-        loader = MagicMock()
-        loader.get_loaded_plugin.return_value = _record(
-            meta={"tool_name": "alpha"},
-        )
-        cfg_b = _AgentCfg({})
-        with _ConfigLayer(
-            {"a": object(), "b": object()},
-            {"b": cfg_b},
-            failing_agents=("a",),
-        ) as layer:
-            _sync_plugin_tools_to_agents(loader, "plug")
-        assert [name for name, _ in layer.saved] == ["b"]
-        assert "boom-a" in caplog.text
-
-    def test_load_config_failure_is_swallowed(self, caplog):
-        loader = MagicMock()
-        loader.get_loaded_plugin.return_value = _record(
-            meta={"tool_name": "alpha"},
-        )
-        with _ConfigLayer(
-            None,
-            load_config_error=RuntimeError("cfg-down"),
-        ) as layer:
-            _sync_plugin_tools_to_agents(loader, "plug")
-        assert layer.loaded_agents == []
-        assert layer.saved == []
-        assert "Tool sync skipped" in caplog.text
-        assert "cfg-down" in caplog.text
-
-
-# ---------------------------------------------------------------------------
-# _remove_named_tools_from_agents / _remove_plugin_tools_from_agents
-# ---------------------------------------------------------------------------
-
-
-class TestRemoveToolsFromAgents:
-    def test_empty_tool_list_short_circuits(self):
-        with _ConfigLayer({"a": object()}) as layer:
-            _remove_named_tools_from_agents("plug", [])
-        assert layer.loaded_agents == []
-        assert layer.saved == []
-
-    def test_removes_only_the_named_tools(self):
-        cfg = _AgentCfg({"alpha": object(), "keep": object()})
-        with _ConfigLayer({"a": object()}, {"a": cfg}) as layer:
-            _remove_named_tools_from_agents("plug", ["alpha", "ghost"])
-        assert list(cfg.tools.builtin_tools) == ["keep"]
-        assert [name for name, _ in layer.saved] == ["a"]
-
-    def test_absent_tool_saves_nothing(self):
-        cfg = _AgentCfg({"keep": object()})
-        with _ConfigLayer({"a": object()}, {"a": cfg}) as layer:
-            _remove_named_tools_from_agents("plug", ["alpha"])
-        assert layer.saved == []
-        assert list(cfg.tools.builtin_tools) == ["keep"]
-
-    def test_one_bad_agent_does_not_block_the_other(self, caplog):
-        cfg_b = _AgentCfg({"alpha": object()})
-        with _ConfigLayer(
-            {"a": object(), "b": object()},
-            {"b": cfg_b},
-            failing_agents=("a",),
-        ) as layer:
-            _remove_named_tools_from_agents("plug", ["alpha"])
-        assert [name for name, _ in layer.saved] == ["b"]
-        assert cfg_b.tools.builtin_tools == {}
-        assert "boom-a" in caplog.text
-
-    def test_load_config_failure_logs_and_returns(self, caplog):
-        with _ConfigLayer(
-            None,
-            load_config_error=RuntimeError("cfg-down"),
-        ) as layer:
-            _remove_named_tools_from_agents("plug", ["alpha"])
-        assert layer.saved == []
-        assert "Tool removal from agents skipped" in caplog.text
-
-    def test_newlines_in_ids_are_stripped_from_the_log(self, caplog):
-        """``_log_safe`` must keep request-derived text out of log lines."""
-        with _ConfigLayer(
-            None,
-            load_config_error=RuntimeError("bad\nvalue"),
-        ) as layer:
-            _remove_named_tools_from_agents("plug\nid", ["alpha"])
-        assert layer.saved == []
-        assert "bad\nvalue" not in caplog.text
-        assert "badvalue" in caplog.text
-
-    def test_remove_plugin_tools_reads_the_manifest(self):
-        cfg = _AgentCfg({"alpha": object(), "legacy": object()})
-        meta = {
-            "tool_name": "legacy",
-            "tools": [{"name": "alpha"}, "not-a-dict"],
-        }
-        with _ConfigLayer({"a": object()}, {"a": cfg}) as layer:
-            _remove_plugin_tools_from_agents("plug", meta)
-        assert cfg.tools.builtin_tools == {}
-        assert [name for name, _ in layer.saved] == ["a"]
-
-    def test_remove_plugin_tools_with_empty_meta(self):
-        with _ConfigLayer({"a": object()}) as layer:
-            _remove_plugin_tools_from_agents("plug", {})
-        assert layer.loaded_agents == []
-        assert layer.saved == []
-
-
-# ---------------------------------------------------------------------------
-# _post_unload_cleanup
-# ---------------------------------------------------------------------------
-
-
-class TestPostUnloadCleanup:
-    def test_providers_and_commands_are_unregistered(self):
-        provider_manager = MagicMock()
-        calls: list[str] = []
-        with patch(
-            _CMD_HANDLER_UNREGISTER,
-            side_effect=lambda name: calls.append(f"handler:{name}"),
-        ), patch(
-            _PRIORITY_UNREGISTER,
-            side_effect=lambda prefix: calls.append(f"priority:{prefix}"),
-        ):
-            _post_unload_cleanup(
-                _request(_app(None, provider_manager)),
-                "plug",
-                ["prov-a", "prov-b"],
-                ["mycmd"],
-            )
-        assert provider_manager.unregister_plugin_provider.call_args_list[
-            0
-        ].args == ("prov-a",)
-        assert provider_manager.unregister_plugin_provider.call_count == 2
-        assert calls == ["handler:mycmd", "priority:/mycmd"]
-
-    def test_provider_failure_does_not_skip_remaining_providers(
-        self,
-        caplog,
-    ):
-        provider_manager = MagicMock()
-        provider_manager.unregister_plugin_provider.side_effect = [
-            RuntimeError("boom-prov"),
-            None,
-        ]
-        with patch(
-            _CMD_HANDLER_UNREGISTER,
-        ), patch(
-            _PRIORITY_UNREGISTER,
-        ):
-            _post_unload_cleanup(
-                _request(_app(None, provider_manager)),
-                "plug",
-                ["prov-a", "prov-b"],
-                [],
-            )
-        assert provider_manager.unregister_plugin_provider.call_count == 2
-        assert "boom-prov" in caplog.text
-
-    def test_command_failure_does_not_skip_priority_unregister(self, caplog):
-        calls: list[str] = []
-        with patch(
-            _CMD_HANDLER_UNREGISTER,
-            side_effect=RuntimeError("boom-handler"),
-        ), patch(
-            _PRIORITY_UNREGISTER,
-            side_effect=calls.append,
-        ):
-            _post_unload_cleanup(
-                _request(_app(None, None)),
-                "plug",
-                [],
-                ["mycmd"],
-            )
-        assert calls == ["/mycmd"]
-        assert "boom-handler" in caplog.text
-
-    def test_handler_unimportable_is_swallowed(self, caplog):
-        provider_manager = MagicMock()
-        with patch.dict(
-            "sys.modules",
-            {"qwenpaw.runtime.commands.control": None},
-        ):
-            _post_unload_cleanup(
-                _request(_app(None, provider_manager)),
-                "plug",
-                ["prov-a"],
-                ["mycmd"],
-            )
-        # providers are cleaned up before the command block runs
-        provider_manager.unregister_plugin_provider.assert_called_once_with(
-            "prov-a",
-        )
-        assert "Command cleanup skipped" in caplog.text
-
-    def test_no_provider_manager_and_no_commands_is_a_no_op(self):
-        _post_unload_cleanup(_request(_app(None, None)), "plug", [], [])
-
-    def test_newlines_in_ids_are_stripped_from_the_log(self, caplog):
-        provider_manager = MagicMock()
-        provider_manager.unregister_plugin_provider.side_effect = RuntimeError(
-            "boom",
-        )
-        with patch(
-            _CMD_HANDLER_UNREGISTER,
-        ), patch(
-            _PRIORITY_UNREGISTER,
-        ):
-            _post_unload_cleanup(
-                _request(_app(None, provider_manager)),
-                "pl\nug",
-                ["pr\nov"],
-                [],
-            )
-        assert "pl\nug" not in caplog.text
-        assert "pr\nov" not in caplog.text
-        assert "pl" "ug" in caplog.text
-
-
-# ---------------------------------------------------------------------------
-# _post_load_setup
-# ---------------------------------------------------------------------------
-
-
-class TestPostLoadSetup:
-    async def test_without_loader_returns_immediately(self):
-        registry = _registry()
-        await _post_load_setup(_request(_app(None, None)), "plug")
-        registry.get_all_providers.assert_not_called()
-
-    async def test_registers_only_this_plugins_provider(self):
-        provider_manager = MagicMock()
-        provider_manager.register_plugin_provider_async = AsyncMock()
-        registry = _registry(
-            providers={
-                "mine": _provider_reg("plug", "mine"),
-                "other": _provider_reg("other-plugin", "other"),
-            },
-        )
-        loader = MagicMock()
-        loader.registry = registry
-        with patch(
-            _SYNC_TOOLS,
-        ) as sync:
-            await _post_load_setup(
-                _request(_app(loader, provider_manager)),
-                "plug",
-            )
-        kwargs = provider_manager.register_plugin_provider_async.call_args
-        assert kwargs.kwargs["provider_id"] == "mine"
-        assert kwargs.kwargs["label"] == "Stub"
-        assert kwargs.kwargs["base_url"] == "https://stub.invalid"
-        assert kwargs.kwargs["metadata"] == {"k": "v"}
-        assert provider_manager.register_plugin_provider_async.call_count == 1
-        sync.assert_called_once_with(loader, "plug")
-
-    async def test_provider_failure_is_logged_not_raised(self, caplog):
-        provider_manager = MagicMock()
-        provider_manager.register_plugin_provider_async = AsyncMock(
-            side_effect=RuntimeError("boom-provider"),
-        )
-        registry = _registry(
-            providers={"mine": _provider_reg("plug", "mine")},
-        )
-        loader = MagicMock()
-        loader.registry = registry
-        with patch(
-            _SYNC_TOOLS,
-        ):
-            await _post_load_setup(
-                _request(_app(loader, provider_manager)),
-                "plug",
-            )
-        assert "Could not register provider 'mine'" in caplog.text
-        assert "boom-provider" in caplog.text
-
-    async def test_registers_control_command_with_its_priority(self):
-        registry = _registry(
-            commands=[
-                _cmd_reg("plug", "mycmd"),
-                _cmd_reg("other-plugin", "theirs"),
-            ],
-        )
-        loader = MagicMock()
-        loader.registry = registry
-        handlers: list[str] = []
-        # Patch the whole class: instantiating the real one would run its
-        # own default registrations and drown the assertions.
-        with patch(
-            _CMD_HANDLER_REGISTER,
-            side_effect=lambda handler: handlers.append(handler.command_name),
-        ), patch(
-            "qwenpaw.app.channels.command_registry.CommandRegistry",
-        ) as registry_cls, patch(
-            _SYNC_TOOLS,
-        ):
-            await _post_load_setup(_request(_app(loader, None)), "plug")
-        assert handlers == ["mycmd"]
-        registry_cls.return_value.register_command.assert_called_once_with(
-            "/mycmd",
-            priority_level=7,
-        )
-
-    async def test_command_failure_is_logged_not_raised(self, caplog):
-        registry = _registry(commands=[_cmd_reg("plug", "mycmd")])
-        loader = MagicMock()
-        loader.registry = registry
-        with patch(
-            _CMD_HANDLER_REGISTER,
-            side_effect=ValueError("already registered"),
-        ), patch(
-            "qwenpaw.app.channels.command_registry.CommandRegistry",
-        ), patch(
-            _SYNC_TOOLS,
-        ):
-            await _post_load_setup(_request(_app(loader, None)), "plug")
-        assert "Could not register control command 'mycmd'" in caplog.text
-        assert "already registered" in caplog.text
-
-    async def test_command_registry_unimportable_is_swallowed(self, caplog):
-        registry = _registry()
-        loader = MagicMock()
-        loader.registry = registry
-        with patch.dict(
-            "sys.modules",
-            {"qwenpaw.app.channels.command_registry": None},
-        ), patch(
-            _SYNC_TOOLS,
-        ):
-            await _post_load_setup(_request(_app(loader, None)), "plug")
-        assert "Control command setup skipped" in caplog.text
-
-    async def test_sync_and_async_startup_hooks_are_both_awaited(self):
-        order: list[str] = []
-
-        def _sync_hook():
-            order.append("sync")
-
-        async def _async_hook():
-            order.append("async")
-
-        registry = _registry(
-            hooks=[
-                _hook_reg(
-                    "other-plugin",
-                    "theirs",
-                    lambda: order.append(
-                        "wrong-plugin",
-                    ),
-                ),
-                _hook_reg("plug", "sync-hook", _sync_hook),
-                _hook_reg("plug", "async-hook", _async_hook),
-            ],
-        )
-        loader = MagicMock()
-        loader.registry = registry
-        with patch(
-            _SYNC_TOOLS,
-        ):
-            await _post_load_setup(_request(_app(loader, None)), "plug")
-        assert order == ["sync", "async"]
-
-    async def test_startup_hook_failure_is_logged_not_raised(self, caplog):
-        def _bad_hook():
-            raise RuntimeError("boom-hook")
-
-        registry = _registry(
-            hooks=[_hook_reg("plug", "bad-hook", _bad_hook)],
-        )
-        loader = MagicMock()
-        loader.registry = registry
-        with patch(
-            _SYNC_TOOLS,
-        ) as sync:
-            await _post_load_setup(_request(_app(loader, None)), "plug")
-        assert "Startup hook 'bad-hook' failed" in caplog.text
-        assert "boom-hook" in caplog.text
-        # tool sync still runs after a failing hook
-        sync.assert_called_once_with(loader, "plug")
-
-    async def test_tool_sync_runs_off_the_event_loop(self):
-        """Config file I/O must be dispatched to a worker thread."""
-        registry = _registry()
-        loader = MagicMock()
-        loader.registry = registry
-        calls: list[tuple[Any, ...]] = []
-
-        async def _to_thread(fn, *args):
-            calls.append((fn, args))
-            return fn(*args)
-
-        with patch(
-            "qwenpaw.app.routers.plugins.asyncio.to_thread",
-            new=_to_thread,
-        ):
-            await _post_load_setup(_request(_app(loader, None)), "plug")
-        assert len(calls) == 1
-        assert calls[0][0] is _sync_plugin_tools_to_agents
-        assert calls[0][1] == (loader, "plug")
-
-
-# ---------------------------------------------------------------------------
-# _collect_plugin_runtime_ids
-# ---------------------------------------------------------------------------
-
-
-class TestCollectPluginRuntimeIds:
-    def test_filters_by_plugin_id(self):
-        registry = _registry(
-            providers={
-                "mine": _provider_reg("plug", "mine"),
-                "theirs": _provider_reg("other-plugin", "theirs"),
-            },
-            commands=[
-                _cmd_reg("plug", "mycmd"),
-                _cmd_reg("other-plugin", "theirs"),
-            ],
-        )
-        assert _collect_plugin_runtime_ids(registry, "plug") == (
-            ["mine"],
-            ["mycmd"],
-        )
-
-    def test_empty_registry_yields_empty_lists(self):
-        assert _collect_plugin_runtime_ids(_registry(), "plug") == ([], [])
-
-
-# ---------------------------------------------------------------------------
-# _schedule_all_agents_reload
-# ---------------------------------------------------------------------------
-
-
-class TestScheduleAllAgentsReload:
-    async def test_schedules_every_configured_agent(self):
-        scheduled: list[str] = []
-        with _ConfigLayer({"a": object(), "b": object()}), patch(
-            "qwenpaw.app.routers.plugins.schedule_agent_reload",
-            side_effect=lambda request, agent_id: scheduled.append(agent_id),
-        ):
-            await _schedule_all_agents_reload(_request(_app()))
-        assert scheduled == ["a", "b"]
-
-    async def test_no_profiles_schedules_nothing(self):
-        with _ConfigLayer({}), patch(
-            "qwenpaw.app.routers.plugins.schedule_agent_reload",
-        ) as schedule:
-            await _schedule_all_agents_reload(_request(_app()))
-        schedule.assert_not_called()
-
-    async def test_load_config_failure_is_swallowed(self, caplog):
-        with _ConfigLayer(
-            None,
-            load_config_error=RuntimeError("cfg-down"),
-        ), patch(
-            "qwenpaw.app.routers.plugins.schedule_agent_reload",
-        ):
-            await _schedule_all_agents_reload(_request(_app()))
-        assert "Could not schedule agent reloads" in caplog.text
-
-
-# ---------------------------------------------------------------------------
-# zip extraction helpers
-# ---------------------------------------------------------------------------
 
 
 class TestZipExtractionHelpers:
@@ -870,6 +225,54 @@ class _FakeResponse:
 
 
 class TestAsyncDownload:
+    @pytest.mark.parametrize("stage", ["connect", "read"])
+    @pytest.mark.parametrize(
+        "error",
+        [
+            urllib.error.URLError("dns"),
+            urllib.error.URLError(TimeoutError("connect timed out")),
+            urllib.error.HTTPError(
+                "https://example.test/p.zip",
+                404,
+                "Not Found",
+                Message(),
+                None,
+            ),
+            TimeoutError("timed out"),
+            ConnectionResetError("connection reset"),
+            BrokenPipeError("broken pipe"),
+            ssl.SSLError("TLS read failed"),
+            http.client.IncompleteRead(b"partial", 10),
+            http.client.RemoteDisconnected("connection closed"),
+        ],
+    )
+    async def test_network_failure_is_normalized(
+        self,
+        tmp_path,
+        stage,
+        error,
+    ):
+        dest = tmp_path / "out.bin"
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.side_effect = [b"partial", error]
+        with patch(
+            "qwenpaw.app.routers.plugins.urllib.request.urlopen",
+            return_value=response,
+            side_effect=error if stage == "connect" else None,
+        ):
+            with pytest.raises(RuntimeError) as caught:
+                await _async_download("https://example.test/p.zip", dest)
+        assert str(caught.value) == f"Plugin download failed: {error}"
+        # Python 3.11 asyncio recreates TimeoutError across futures.
+        assert type(caught.value.__cause__) is type(error)
+        assert caught.value.__cause__.args == error.args
+        if stage == "read":
+            assert dest.read_bytes() == b"partial"
+            response.__exit__.assert_called_once()
+        else:
+            assert not dest.exists()
+
     async def test_writes_the_full_payload(self, tmp_path):
         dest = tmp_path / "out.bin"
         response = _FakeResponse(b"hello world")
@@ -906,13 +309,14 @@ class TestAsyncDownload:
         # only what fit under the cap was written; the rest is dropped
         assert dest.stat().st_size == 4
 
-    async def test_urlopen_failure_propagates(self, tmp_path):
+    async def test_unclassified_os_error_propagates(self, tmp_path):
+        """Do not normalize OSError outside the known network types."""
         dest = tmp_path / "out.bin"
         with patch(
             "qwenpaw.app.routers.plugins.urllib.request.urlopen",
-            side_effect=OSError("network down"),
+            side_effect=OSError("unclassified failure"),
         ):
-            with pytest.raises(OSError, match="network down"):
+            with pytest.raises(OSError, match="unclassified failure"):
                 await _async_download("https://example.test/p.zip", dest)
         assert not dest.exists()
 
@@ -922,17 +326,27 @@ class TestAsyncDownload:
 # ---------------------------------------------------------------------------
 
 
-def _client(loader: Any = None, provider_manager: Any = None):
+def _client(
+    loader: Any = None,
+    provider_manager: Any = None,
+    *,
+    raise_server_exceptions: bool = True,
+):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     from qwenpaw.app.routers.plugins import router as plugins_router
+    from qwenpaw.app.routers.pawapps import router as pawapps_router
 
     app = FastAPI()
     app.state.plugin_loader = loader
     app.state.provider_manager = provider_manager
+    from qwenpaw.app.routers.frontend_plugin import router as frontend_router
+
+    app.include_router(frontend_router, prefix="/api")
     app.include_router(plugins_router, prefix="/api")
-    return TestClient(app)
+    app.include_router(pawapps_router, prefix="/api")
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 class TestListPluginsRoute:
@@ -986,6 +400,8 @@ class TestListPluginsRoute:
                 "author": "auth",
                 "enabled": True,
                 "loaded": True,
+                "status": "active",
+                "diagnostics": [],
                 "plugin_type": "general",
                 "frontend_entry": "ui/index.js",
             },
@@ -994,7 +410,42 @@ class TestListPluginsRoute:
     def test_empty_loader_returns_empty_list(self):
         loader = MagicMock()
         loader.get_all_loaded_plugins.return_value = {}
-        assert _client(loader).get("/api/plugins").json() == []
+        response = _client(loader).get("/api/plugins")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_disk_entries_and_failed_runtime_keep_real_settings(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        for plugin_id in ("disk-only", "plug"):
+            source = tmp_path / plugin_id
+            source.mkdir()
+            (source / "plugin.json").write_text(
+                json.dumps({"id": plugin_id, "version": "0.1"}),
+            )
+        record = _record()
+        record.status = "failed"
+        record.enabled = False
+        record.diagnostics = ["startup failed"]
+        loader = _loader_stub([], record=record)
+        monkeypatch.setattr(
+            plugins_module,
+            "_plugin_config_row",
+            lambda plugin_id: {"enabled": plugin_id == "plug"},
+        )
+        response = _client(loader).get("/api/plugins")
+        assert response.status_code == 200
+        rows = {row["id"]: row for row in response.json()}
+        assert len(response.json()) == len(rows) == 2
+        assert rows["disk-only"]["loaded"] is False
+        assert rows["disk-only"]["enabled"] is False
+        assert rows["plug"]["version"] == record.manifest.version
+        assert rows["plug"]["loaded"] is True
+        assert rows["plug"]["enabled"] is True
+        assert rows["plug"]["status"] == "failed"
+        assert rows["plug"]["diagnostics"] == ["startup failed"]
 
 
 class TestGetPluginStatusRoute:
@@ -1007,6 +458,8 @@ class TestGetPluginStatusRoute:
             "id": "plug",
             "loaded": True,
             "enabled": True,
+            "status": "active",
+            "diagnostics": [],
             "version": "1.2.3",
         }
 
@@ -1027,7 +480,7 @@ class TestGetPluginStatusRoute:
         assert response.json() == {
             "id": "plug",
             "loaded": False,
-            "enabled": False,
+            "enabled": True,
         }
 
     def test_unknown_plugin_is_404(self, tmp_path):
@@ -1091,127 +544,48 @@ class TestLoaderNotReady:
 
 
 class TestLoadPluginWithOptionalForceReinstall:
-    async def test_non_force_passes_no_unload_hooks(self, tmp_path):
-        log: list[str] = []
-        loader = _loader_stub(log)
-        with patch(
-            "qwenpaw.config.utils.get_plugins_dir",
-            return_value=tmp_path,
-        ), patch(
-            _FINISH_INSTALL,
-            new=AsyncMock(side_effect=lambda *a, **k: log.append("finish")),
-        ):
-            result = await _load_plugin_with_optional_force_reinstall(
-                loader,
-                _request(_app(loader)),
-                tmp_path,
-                force=False,
-            )
-        assert result == "LOADED"
-        kwargs = loader.load_plugin_from_path.call_args.kwargs
-        assert kwargs["force"] is False
-        assert kwargs["before_force_unload"] is None
-        assert kwargs["after_force_unload"] is None
-        assert kwargs["install_dir"] == tmp_path
-        assert kwargs["pawport_owner"] is None
-        assert kwargs["recover_incomplete"] is False
-        assert log == [
-            "load_plugin_from_path:force=False:before=False:after=False",
-        ]
-
-    async def test_force_runs_unload_hooks_and_passes_flags(
+    @pytest.mark.parametrize("force", [False, True])
+    async def test_delegates_transaction_and_forwards_pawport_flags(
         self,
         tmp_path,
+        force,
     ):
-        log: list[str] = []
-        old_record = _record("plug", meta={"tool_name": "old_tool"})
-        registry = _registry(
-            providers={"prov": _provider_reg("plug", "prov")},
-            commands=[_cmd_reg("plug", "mycmd")],
-        )
-        loader = _loader_stub(log, record=old_record, registry=registry)
-        captured: dict[str, Any] = {}
+        log = []
+        loader = _loader_stub(log)
+        record = _record()
 
-        def _fake_cleanup(request, plugin_id, provider_ids, command_names):
-            log.append("cleanup")
-            captured["ids"] = (plugin_id, provider_ids, command_names)
+        async def load(**kwargs):
+            if force:
+                kwargs["before_force_unload"]("plug")
+            assert "after_force_unload" not in kwargs
+            assert "after_load" not in kwargs
+            return record
 
-        finish_calls: list[Any] = []
-
-        async def _capture_load(**kwargs):
-            captured["kwargs"] = kwargs
-            # the real loader calls these inside the lifecycle lock
-            kwargs["before_force_unload"]("plug")
-            log.append("load")
-            kwargs["after_force_unload"]("plug")
-            await kwargs["after_load"]("RECORD")
-            return "LOADED"
-
-        loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
-
-        with patch(
-            "qwenpaw.config.utils.get_plugins_dir",
-            return_value=tmp_path,
-        ), patch(
-            "qwenpaw.app.routers.plugins._post_unload_cleanup",
-            side_effect=_fake_cleanup,
-        ), patch(
-            _FINISH_INSTALL,
-            new=AsyncMock(
-                side_effect=lambda *a, **k: finish_calls.append((a, k)),
+        loader.load_plugin_from_path.side_effect = load
+        with (
+            patch(
+                "qwenpaw.config.utils.get_plugins_dir",
+                return_value=tmp_path,
             ),
         ):
             result = await _load_plugin_with_optional_force_reinstall(
                 loader,
                 _request(_app(loader)),
                 tmp_path,
-                force=True,
+                force=force,
                 reload_agents=False,
-                pawport_owner={"id": "owner"},
+                pawport_owner={"owner": "pawport"},
                 recover_incomplete=True,
             )
-        assert result == "LOADED"
-        assert captured["ids"] == ("plug", ["prov"], ["mycmd"])
-        kwargs = captured["kwargs"]
-        assert kwargs["force"] is True
-        assert kwargs["pawport_owner"] == {"id": "owner"}
+        assert result is record
+        kwargs = loader.load_plugin_from_path.call_args.kwargs
+        assert kwargs["source_path"] == tmp_path
+        assert kwargs["install_dir"] == tmp_path
+        assert kwargs["force"] is force
+        assert (kwargs["before_force_unload"] is not None) is force
+        assert kwargs["pawport_owner"] == {"owner": "pawport"}
         assert kwargs["recover_incomplete"] is True
-        # before_force_unload ran and snapshotted the old tool set
-        _, finish_kwargs = finish_calls[0]
-        assert finish_kwargs["force"] is True
-        assert finish_kwargs["old_tools"] == {"old_tool"}
-        assert finish_kwargs["reload_agents"] is False
-
-    async def test_force_without_old_record_snapshots_no_tools(
-        self,
-        tmp_path,
-    ):
-        loader = _loader_stub([], record=None)
-        captured: dict[str, Any] = {}
-
-        async def _capture_load(**kwargs):
-            kwargs["before_force_unload"]("plug")
-            captured["kwargs"] = kwargs
-            await kwargs["after_load"]("RECORD")
-            return "LOADED"
-
-        loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
-        with patch(
-            "qwenpaw.config.utils.get_plugins_dir",
-            return_value=tmp_path,
-        ), patch(
-            "qwenpaw.app.routers.plugins._post_unload_cleanup",
-        ), patch(
-            _FINISH_INSTALL,
-            new=AsyncMock(),
-        ) as finish:
-            await _load_plugin_with_optional_force_reinstall(
-                loader,
-                _request(_app(loader)),
-                tmp_path,
-                force=True,
-            )
-        assert finish.call_args.kwargs["old_tools"] == set()
+        loader.lifecycle.unload.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -1224,12 +598,11 @@ class TestInstallPluginSource:
         log: list[str] = []
         loader = _loader_stub(log)
         app = _app(loader)
-        with patch(
-            "qwenpaw.config.utils.get_plugins_dir",
-            return_value=tmp_path,
-        ), patch(
-            _FINISH_INSTALL,
-            new=AsyncMock(),
+        with (
+            patch(
+                "qwenpaw.config.utils.get_plugins_dir",
+                return_value=tmp_path,
+            ),
         ):
             result = await install_plugin_source(
                 f"  {tmp_path}  ",
@@ -1279,15 +652,19 @@ class TestInstallPluginSource:
             return "LOADED"
 
         loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
-        with patch(
-            "qwenpaw.config.utils.get_plugins_dir",
-            return_value=tmp_path,
-        ), patch(
-            "qwenpaw.app.routers.plugins._async_download",
-            new=_fake_download,
-        ), patch(
-            "qwenpaw.app.routers.plugins.tempfile.mkdtemp",
-            side_effect=_mkdtemp,
+        with (
+            patch(
+                "qwenpaw.config.utils.get_plugins_dir",
+                return_value=tmp_path,
+            ),
+            patch(
+                "qwenpaw.app.routers.plugins._async_download",
+                new=_fake_download,
+            ),
+            patch(
+                "qwenpaw.app.routers.plugins.tempfile.mkdtemp",
+                side_effect=_mkdtemp,
+            ),
         ):
             await install_plugin_source(
                 "https://example.test/p.zip",
@@ -1325,15 +702,19 @@ class TestInstallPluginSource:
             made.append(path)
             return str(path)
 
-        with patch(
-            "qwenpaw.config.utils.get_plugins_dir",
-            return_value=tmp_path,
-        ), patch(
-            "qwenpaw.app.routers.plugins._async_download",
-            new=_fake_download,
-        ), patch(
-            "qwenpaw.app.routers.plugins.tempfile.mkdtemp",
-            side_effect=_mkdtemp,
+        with (
+            patch(
+                "qwenpaw.config.utils.get_plugins_dir",
+                return_value=tmp_path,
+            ),
+            patch(
+                "qwenpaw.app.routers.plugins._async_download",
+                new=_fake_download,
+            ),
+            patch(
+                "qwenpaw.app.routers.plugins.tempfile.mkdtemp",
+                side_effect=_mkdtemp,
+            ),
         ):
             with pytest.raises(RuntimeError, match="load failed"):
                 await install_plugin_source(
@@ -1348,103 +729,117 @@ class TestUninstallPluginSource:
     async def test_failed_plugin_removal_preserves_tool_config(
         self,
         tmp_path,
+        monkeypatch,
     ):
-        tool_names = [
-            "other_plugin_tool",
-            "execute_shell_command",
-            "previous_plugin_tool",
-        ]
-        source_path = tmp_path / "installed-directory"
-        source_path.mkdir()
-        manifest = _record(
-            "failed-plugin",
-            meta={
-                "tool_name": tool_names[0],
-                "tools": [{"name": name} for name in tool_names[1:]],
-            },
-        ).manifest
-        loader = _loader_stub([], record=None)
-        loader.discover_plugins.return_value = [(manifest, source_path)]
-        settings = {
-            name: {"enabled": True, "config": {"timeout": 42}}
-            for name in tool_names
-        }
-        cfg = _AgentCfg(settings.copy())
-        with _ConfigLayer({"a": {}}, {"a": cfg}) as layer, patch(
-            "qwenpaw.app.routers.plugins._schedule_all_agents_reload",
-            new_callable=AsyncMock,
-        ) as reload_agents:
-            await uninstall_plugin_source("failed-plugin", app=_app(loader))
+        from qwenpaw.plugins import api as plugin_api
+        from qwenpaw.plugins.loader import PluginLoader
+        from qwenpaw.plugins.registry import PluginRegistry
 
-        assert not source_path.exists()
-        assert cfg.tools.builtin_tools == settings
-        assert layer.saved == []
-        loader.unload_plugin.assert_not_called()
-        reload_agents.assert_not_awaited()
-
-    async def test_unloads_cleans_up_and_reloads(self):
-        log: list[str] = []
-        record = _record("plug", meta={"tool_name": "alpha"})
-        registry = _registry(
-            providers={"prov": _provider_reg("plug", "prov")},
-            commands=[_cmd_reg("plug", "mycmd")],
+        monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+        monkeypatch.setattr(PluginRegistry, "_instance", None)
+        names = ["other_plugin_tool", "execute_shell_command"]
+        source = tmp_path / "installed-directory"
+        source.mkdir()
+        (source / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": "failed-plugin",
+                    "version": "1.0",
+                    "meta": {
+                        "tool_name": names[0],
+                        "tools": [{"name": names[1]}],
+                    },
+                },
+            ),
         )
-        loader = _loader_stub(log, record=record, registry=registry)
-        cleanup: list[Any] = []
-        removed: list[Any] = []
-        with patch(
-            "qwenpaw.app.routers.plugins._post_unload_cleanup",
-            side_effect=lambda *a: cleanup.append(a),
-        ), patch(
-            "qwenpaw.app.routers.plugins._remove_plugin_tools_from_agents",
-            side_effect=lambda *a: removed.append(a),
-        ), patch(
-            "qwenpaw.app.routers.plugins._schedule_all_agents_reload",
-            new=AsyncMock(side_effect=lambda request: log.append("reload")),
+        settings = {name: {"enabled": True} for name in names}
+        cfg = SimpleNamespace(
+            tools=SimpleNamespace(builtin_tools=settings.copy()),
+        )
+        loader = PluginLoader([tmp_path])
+        with (
+            patch(
+                "qwenpaw.config.config.load_agent_config",
+                return_value=cfg,
+            ),
+            patch("qwenpaw.config.config.save_agent_config") as save,
+            patch(
+                "qwenpaw.plugins.api._remove_tool_config",
+                wraps=plugin_api._remove_tool_config,
+            ) as remove,
         ):
-            await uninstall_plugin_source(
-                "plug",
-                app=_app(loader),
-                reload_agents=True,
-            )
-        assert log == [
-            "lifecycle(plug):enter",
-            "unload_plugin",
-            "reload",
-            "lifecycle(plug):exit",
-        ]
-        assert cleanup[0][1:] == ("plug", ["prov"], ["mycmd"])
-        assert removed == [("plug", {"tool_name": "alpha"})]
-        loader.unload_plugin.assert_awaited_once_with(
+            await uninstall_plugin_source("failed-plugin", app=_app(loader))
+        assert not source.exists()
+        assert cfg.tools.builtin_tools == settings
+        remove.assert_not_called()
+        save.assert_not_called()
+
+    @pytest.mark.parametrize("reload_agents", [False, True])
+    async def test_uninstall_uses_lifecycle_without_rebuilding_agents(
+        self,
+        reload_agents,
+    ):
+        from qwenpaw.plugins.lifecycle import UnloadMode, UnloadReport
+
+        log = []
+        loader = _loader_stub(log)
+        report = UnloadReport(plugin_id="plug", mode=UnloadMode.UNINSTALL)
+
+        async def unload(*args, **kwargs):
+            log.append("lifecycle.unload")
+            return report
+
+        loader.lifecycle.unload.side_effect = unload
+        app = _app(loader)
+        await uninstall_plugin_source(
             "plug",
+            app=app,
+            reload_agents=reload_agents,
+        )
+        loader.lifecycle.unload.assert_awaited_once_with(
+            "plug",
+            UnloadMode.UNINSTALL,
             delete_files=True,
         )
+        assert log == [
+            "lifecycle(plug):enter",
+            "lifecycle.unload",
+            "lifecycle(plug):exit",
+        ]
+        assert not app.state.multi_agent_manager.mock_calls
 
-    async def test_unknown_plugin_raises_key_error(self):
-        log: list[str] = []
-        loader = _loader_stub(log, record=None)
-        with pytest.raises(KeyError, match="is not loaded"):
+    async def test_unknown_plugin_error_comes_from_lifecycle(self):
+        loader = _loader_stub([])
+        loader.lifecycle.unload.side_effect = KeyError(
+            "Plugin 'ghost' not found",
+        )
+        with pytest.raises(KeyError, match="ghost"):
             await uninstall_plugin_source("ghost", app=_app(loader))
-        loader.unload_plugin.assert_not_called()
-        assert log == ["lifecycle(ghost):enter", "lifecycle(ghost):exit"]
+        loader.lifecycle.unload.assert_awaited_once()
 
-    async def test_reload_can_be_skipped(self):
-        log: list[str] = []
-        loader = _loader_stub(log, record=_record("plug"))
-        with patch(
-            "qwenpaw.app.routers.plugins._post_unload_cleanup",
-        ), patch(
-            "qwenpaw.app.routers.plugins._remove_plugin_tools_from_agents",
-        ), patch(
-            "qwenpaw.app.routers.plugins._schedule_all_agents_reload",
-            new=AsyncMock(side_effect=lambda request: log.append("reload")),
-        ):
-            await uninstall_plugin_source(
-                "plug",
-                app=_app(loader),
-                reload_agents=False,
-            )
-        assert "reload" not in log
+    @pytest.mark.parametrize(
+        "quiescent,loaded",
+        [(False, True), (False, False), (True, True)],
+    )
+    async def test_incomplete_uninstall_is_not_reported_as_success(
+        self,
+        quiescent,
+        loaded,
+    ):
+        from qwenpaw.plugins.lifecycle import UnloadMode, UnloadReport
+
+        loader = _loader_stub([], record=_record() if loaded else None)
+        report = UnloadReport(
+            plugin_id="plug",
+            mode=UnloadMode.UNINSTALL,
+            quiescent=quiescent,
+            needs_restart=True,
+        )
+        loader.lifecycle.unload = AsyncMock(return_value=report)
+        with pytest.raises(plugins_module.UnquiescentUnloadError) as caught:
+            await uninstall_plugin_source("plug", app=_app(loader))
+        assert caught.value.report is report
+        assert caught.value.loaded is loaded
 
 
 # ---------------------------------------------------------------------------
@@ -1453,11 +848,72 @@ class TestUninstallPluginSource:
 
 
 class TestInstallPluginRoute:
-    def test_success_payload(self, tmp_path):
+    @pytest.mark.parametrize(
+        "stage,error,status",
+        [
+            ("read", http.client.IncompleteRead(b"partial", 10), 400),
+            ("open", PermissionError("permission denied"), 500),
+            ("write", OSError("disk full"), 500),
+        ],
+    )
+    def test_download_failure_mapping_and_cleanup(
+        self,
+        tmp_path,
+        stage,
+        error,
+        status,
+    ):
+        download_dir = tmp_path / "download"
+        download_dir.mkdir()
         loader = _loader_stub([])
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.side_effect = [b"partial", b""]
+        if stage == "read":
+            response.read.side_effect = [b"partial", error]
+        file = MagicMock()
+        file.__enter__.return_value = file
+        file.write.side_effect = error if stage == "write" else None
+        with (
+            patch(
+                "qwenpaw.app.routers.plugins.tempfile.mkdtemp",
+                return_value=str(download_dir),
+            ),
+            patch(
+                "qwenpaw.app.routers.plugins.urllib.request.urlopen",
+                return_value=response,
+            ),
+            patch(
+                "qwenpaw.app.routers.plugins.open",
+                return_value=file,
+                side_effect=error if stage == "open" else None,
+            ),
+        ):
+            result = _client(loader).post(
+                "/api/plugins/install",
+                json={"source": "https://example.test/p.zip"},
+            )
+        prefix = (
+            "Plugin download failed"
+            if status == 400
+            else "Plugin installation failed"
+        )
+        assert result.status_code == status
+        assert result.json() == {"detail": f"{prefix}: {error}"}
+        loader.load_plugin_from_path.assert_not_called()
+        assert not download_dir.exists()
+
+    @pytest.mark.parametrize(
+        "diagnostics",
+        [[], ["Existing files preserved at: /plugins/.plug.bak"]],
+    )
+    def test_success_payload(self, tmp_path, diagnostics):
+        loader = _loader_stub([])
+        record = _record("plug")
+        record.diagnostics = diagnostics
         with patch(
             "qwenpaw.app.routers.plugins.install_plugin_source",
-            new=AsyncMock(return_value=_record("plug")),
+            new=AsyncMock(return_value=record),
         ):
             response = _client(loader).post(
                 "/api/plugins/install",
@@ -1471,7 +927,10 @@ class TestInstallPluginRoute:
             "description": "desc",
             "author": "auth",
             "loaded": True,
-            "message": "Plugin 'plug display name' installed successfully.",
+            "status": "active",
+            "enabled": True,
+            "diagnostics": diagnostics,
+            "message": "Plugin 'plug display name' installation: active.",
         }
 
     @pytest.mark.parametrize(
@@ -1538,7 +997,262 @@ class TestInstallPluginRoute:
         assert sorted(seen) == ["app", "force", "source"]
 
 
+class TestSetPluginEnabledRoute:
+    @staticmethod
+    def _disable_loader(
+        monkeypatch,
+        tmp_path,
+        *,
+        enabled=True,
+        loaded=True,
+        quiescent=True,
+    ):
+        from qwenpaw.plugins.lifecycle import UnloadMode, UnloadReport
+
+        plugin_dir = tmp_path / "plug"
+        plugin_dir.mkdir()
+        (plugin_dir / "plugin.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(
+            "qwenpaw.config.utils.get_plugins_dir",
+            lambda: tmp_path,
+        )
+        settings = {"enabled": enabled}
+        monkeypatch.setattr(
+            plugins_module,
+            "_plugin_config_row",
+            lambda _id: settings,
+        )
+        loader = _loader_stub([], record=_record() if loaded else None)
+
+        async def disable(plugin_id, requested_enabled):
+            assert plugin_id == "plug"
+            assert requested_enabled is False
+            if quiescent:
+                settings["enabled"] = False
+                loader.get_loaded_plugin.return_value = None
+            return UnloadReport(
+                plugin_id=plugin_id,
+                mode=UnloadMode.UNLOAD,
+                clean=quiescent,
+                quiescent=quiescent,
+                needs_restart=not quiescent,
+                errors=[] if quiescent else ["connection still alive"],
+            )
+
+        loader.lifecycle.set_enabled = AsyncMock(side_effect=disable)
+        return loader, settings
+
+    def test_disable_and_repeat_report_persisted_disabled_state(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        loader, settings = self._disable_loader(
+            monkeypatch,
+            tmp_path,
+        )
+        client = _client(loader)
+        for _ in range(2):
+            response = client.post(
+                "/api/plugins/plug/enabled",
+                json={"enabled": False},
+            )
+            assert response.status_code == 200
+            assert settings["enabled"] is False
+            payload = response.json()
+            assert payload["enabled"] is False
+            assert payload["loaded"] is False
+            assert payload["clean"] and payload["quiescent"]
+        assert loader.lifecycle.set_enabled.await_count == 2
+
+    @pytest.mark.parametrize(
+        "persisted_enabled,loaded",
+        [(True, False), (False, True)],
+    )
+    def test_failed_disable_reports_settings_and_loaded_state_separately(
+        self,
+        monkeypatch,
+        tmp_path,
+        persisted_enabled,
+        loaded,
+    ):
+        loader, settings = self._disable_loader(
+            monkeypatch,
+            tmp_path,
+            enabled=persisted_enabled,
+            loaded=loaded,
+            quiescent=False,
+        )
+        response = _client(loader).post(
+            "/api/plugins/plug/enabled",
+            json={"enabled": False},
+        )
+        assert response.status_code == 409
+        assert settings["enabled"] is persisted_enabled
+        detail = response.json()["detail"]
+        assert detail["enabled"] is persisted_enabled
+        assert detail["loaded"] is loaded
+        assert not detail["quiescent"]
+        assert detail["needs_restart"]
+        loader.lifecycle.set_enabled.assert_awaited_once_with("plug", False)
+
+
 class TestUninstallPluginRoute:
+    @pytest.mark.parametrize("endpoint", ["plugins", "pawapps"])
+    @pytest.mark.parametrize("interrupt_tasks", [False, True])
+    def test_busy_response_preserves_explicit_interrupt_option(
+        self,
+        endpoint,
+        interrupt_tasks,
+    ):
+        from qwenpaw.plugins.activity import PluginBusyError
+
+        loader = _loader_stub([], record=_record())
+        error = PluginBusyError("plug", 1, can_interrupt=not interrupt_tasks)
+        loader.lifecycle.unload.side_effect = error
+        response = _client(loader).delete(
+            f"/api/{endpoint}/plug"
+            f"?interrupt_tasks={str(interrupt_tasks).lower()}",
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"] == error.detail
+        assert (
+            loader.lifecycle.unload.call_args.kwargs.get(
+                "interrupt_tasks",
+                False,
+            )
+            is interrupt_tasks
+        )
+
+    @pytest.mark.parametrize(
+        "endpoint,kind",
+        [("plugins", "Plugin"), ("pawapps", "PawApp")],
+    )
+    def test_stopped_but_unclean_uninstall_returns_failure(
+        self,
+        endpoint,
+        kind,
+    ):
+        from qwenpaw.plugins.lifecycle import UnloadMode, UnloadReport
+
+        loader = _loader_stub([])
+        loader.lifecycle.unload = AsyncMock(
+            return_value=UnloadReport(
+                plugin_id="plug",
+                mode=UnloadMode.UNINSTALL,
+                clean=False,
+                quiescent=True,
+                needs_restart=False,
+                errors=["agent.json: permission denied"],
+            ),
+        )
+        response = _client(loader).delete(f"/api/{endpoint}/plug")
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["clean"] is False
+        assert detail["quiescent"] is True
+        assert detail["loaded"] is False
+        assert detail["needs_restart"] is False
+        assert detail["errors"] == ["agent.json: permission denied"]
+        assert detail["message"].startswith(f"{kind} 'plug'")
+        assert "success" not in detail["message"].lower()
+
+    @pytest.mark.parametrize("quiescent,loaded", [(False, True), (True, True)])
+    def test_incomplete_lifecycle_result_returns_structured_409(
+        self,
+        quiescent,
+        loaded,
+    ):
+        from qwenpaw.plugins.lifecycle import UnloadMode, UnloadReport
+
+        loader = _loader_stub([], record=_record() if loaded else None)
+        loader.lifecycle.unload = AsyncMock(
+            return_value=UnloadReport(
+                plugin_id="plug",
+                mode=UnloadMode.UNINSTALL,
+                clean=False,
+                quiescent=quiescent,
+                needs_restart=True,
+                errors=["connection still alive"],
+            ),
+        )
+        response = _client(loader).delete("/api/plugins/plug")
+        assert response.status_code == 409
+        assert response.json()["detail"] == {
+            "id": "plug",
+            "loaded": loaded,
+            "clean": False,
+            "quiescent": quiescent,
+            "needs_restart": True,
+            "errors": ["connection still alive"],
+            "message": (
+                "Plugin 'plug' cleanup is incomplete."
+                if quiescent
+                else "Plugin 'plug' did not go quiescent."
+            ),
+        }
+
+    @pytest.mark.p1
+    @pytest.mark.parametrize(
+        "method,endpoint,kind",
+        [
+            ("delete", "plugins/plug", "Plugin"),
+            ("post", "plugins/plug/unload", "Plugin"),
+            ("delete", "pawapps/plug", "PawApp"),
+        ],
+    )
+    @pytest.mark.parametrize("loaded", [False, True])
+    @pytest.mark.parametrize("memory_in_use", [False, True])
+    def test_memory_conflict_is_classified_by_type(
+        self,
+        monkeypatch,
+        tmp_path,
+        method,
+        endpoint,
+        kind,
+        loaded,
+        memory_in_use,
+    ):
+        from qwenpaw.plugins.registry import MemoryBackendInUseError
+
+        monkeypatch.setattr(
+            "qwenpaw.app.routers.pawapps._get_apps_dir",
+            lambda: tmp_path,
+        )
+        error = (
+            MemoryBackendInUseError("backend still has active users")
+            if memory_in_use
+            else RuntimeError("memory backend is in use")
+        )
+        loader = _loader_stub([], record=_record() if loaded else None)
+        loader.lifecycle.unload.side_effect = error
+        client = _client(loader, raise_server_exceptions=False)
+        response = client.request(method, f"/api/{endpoint}")
+        assert response.status_code == (409 if memory_in_use else 500)
+        if memory_in_use:
+            assert response.json()["detail"] == {
+                "id": "plug",
+                "loaded": loaded,
+                "clean": False,
+                "quiescent": False,
+                "needs_restart": True,
+                "errors": [str(error)],
+                "message": f"{kind} 'plug': {error}",
+            }
+        assert (loader.get_loaded_plugin("plug") is not None) is loaded
+        loader.lifecycle.unload.assert_awaited_once()
+
+    def test_busy_market_provider_returns_409(self):
+        from qwenpaw.market.registry import MarketProviderBusyError
+
+        loader = _loader_stub([], record=_record())
+        loader.lifecycle.unload.side_effect = MarketProviderBusyError(
+            "Hub plugin 'plug' is in use; please retry later",
+        )
+        response = _client(loader).delete("/api/plugins/plug")
+        assert response.status_code == 409
+        assert "please retry later" in response.json()["detail"]
+
     def test_success_payload(self):
         loader = _loader_stub([])
         with patch(
@@ -1576,13 +1290,19 @@ class TestUninstallPluginRoute:
 
 
 class TestUploadPluginRoute:
-    def test_success_payload(self):
+    @pytest.mark.parametrize(
+        "diagnostics",
+        [[], ["Existing files preserved at: /plugins/.plug.bak"]],
+    )
+    def test_success_payload(self, diagnostics):
         loader = _loader_stub([])
+        record = _record("plug")
+        record.diagnostics = diagnostics
         payload = _zip_bytes({"plugin.json": '{"id": "p"}'})
         with patch(
             "qwenpaw.app.routers.plugins."
             "_load_plugin_with_optional_force_reinstall",
-            new=AsyncMock(return_value=_record("plug")),
+            new=AsyncMock(return_value=record),
         ):
             response = _client(loader).post(
                 "/api/plugins/upload?force=true",
@@ -1591,6 +1311,7 @@ class TestUploadPluginRoute:
         assert response.status_code == 200
         assert response.json()["id"] == "plug"
         assert response.json()["loaded"] is True
+        assert response.json()["diagnostics"] == diagnostics
 
     def test_non_zip_filename_is_400(self):
         loader = _loader_stub([])
@@ -1637,6 +1358,53 @@ class TestUploadPluginRoute:
                 files={"file": ("plug.zip", _zip_bytes({"a.txt": "A"}))},
             )
         assert response.status_code == 400
+
+    def test_manifest_without_entry_is_400(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "mkdtemp", lambda: str(tmp_path))
+        from qwenpaw.plugins.loader import PluginLoader
+        from qwenpaw.plugins.python_backend import PythonBackend
+
+        async def validate_source(loader, request, source_path, **kwargs):
+            # Real disk manifest reader and backend entry validator; no error stub.
+            _, manifest = PluginLoader.__new__(
+                PluginLoader,
+            ).read_source_manifest(
+                source_path,
+            )
+            PythonBackend.validate_entry_points(
+                manifest.id,
+                source_path / manifest.entry.backend
+                if manifest.entry.backend
+                else None,
+                source_path / manifest.entry.frontend
+                if manifest.entry.frontend
+                else None,
+            )
+            pytest.fail("Entry-less manifest was accepted")
+
+        payload = _zip_bytes(
+            {
+                "plugin.json": json.dumps(
+                    {
+                        "id": "no-entry",
+                        "name": "No entry",
+                        "version": "1.0.0",
+                        "entry": {},
+                    },
+                ),
+            },
+        )
+        with patch(
+            "qwenpaw.app.routers.plugins."
+            "_load_plugin_with_optional_force_reinstall",
+            new=validate_source,
+        ):
+            response = _client(_loader_stub([])).post(
+                "/api/plugins/upload",
+                files={"file": ("no-entry.zip", payload, "application/zip")},
+            )
+        assert response.status_code == 400
+        assert "no entry points declared" in response.json()["detail"]
 
     def test_unexpected_error_is_500(self):
         loader = _loader_stub([])
@@ -1783,29 +1551,6 @@ class TestSearchMarketPlugins:
 
 
 class TestResidualBranches:
-    def test_remove_tools_without_profiles_saves_nothing(self):
-        with _ConfigLayer({}) as layer:
-            _remove_named_tools_from_agents("plug", ["alpha"])
-        assert layer.loaded_agents == []
-        assert layer.saved == []
-
-    def test_priority_unregister_failure_is_logged(self, caplog):
-        with patch(
-            _CMD_HANDLER_UNREGISTER,
-            return_value=True,
-        ), patch(
-            _PRIORITY_UNREGISTER,
-            side_effect=RuntimeError("boom-priority"),
-        ):
-            _post_unload_cleanup(
-                _request(_app(None, None)),
-                "plug",
-                [],
-                ["mycmd"],
-            )
-        assert "Could not unregister priority for '/mycmd'" in caplog.text
-        assert "boom-priority" in caplog.text
-
     async def test_catalog_route_proxies_the_fetcher(self):
         with patch(
             "qwenpaw.plugins.download_catalog.fetch_plugin_catalog_async",
@@ -1852,3 +1597,63 @@ class TestResidualBranches:
         )
         assert Path(response.path) == asset
         assert response.headers["Cache-Control"] == "no-cache"
+
+
+class TestPublicPluginAndFileContracts:
+    @pytest.mark.parametrize("records", [False, True])
+    def test_frontend_list_contract(self, records):
+        loader = _loader_stub([], record=_record() if records else None)
+        response = _client(loader).get("/api/frontend_plugin")
+        assert response.status_code == 200
+        payload = response.json()
+        assert isinstance(payload, list)
+        assert len(payload) == int(records)
+        for item in payload:
+            assert isinstance(item.get("id"), str) and item["id"]
+            assert isinstance(item.get("name"), str) and item["name"]
+
+    @pytest.mark.parametrize("endpoint", ["plugins", "frontend_plugin"])
+    def test_unknown_plugin_file_is_404(self, endpoint):
+        response = _client(_loader_stub([])).get(
+            f"/api/{endpoint}/ghost/files/main.js",
+        )
+        assert response.status_code == 404
+        assert "not found" in response.text.lower()
+
+    def test_existing_plugin_file_guards(self, tmp_path):
+        from qwenpaw.plugins.architecture import PluginManifest
+
+        source = tmp_path / "plug"
+        source.mkdir()
+        manifest_data = {
+            "id": "plug",
+            "name": "Plugin",
+            "version": "1.0.0",
+            "entry": {"frontend": "main.js"},
+        }
+        (source / "plugin.json").write_text(json.dumps(manifest_data))
+        (source / "main.js").write_text("console.log(1)")
+        record = _record()
+        record.manifest = PluginManifest.from_dict(manifest_data)
+        record.source_path = source
+        client = _client(_loader_stub([], record=record))
+        response = client.get("/api/plugins/plug/files/main.js")
+        assert response.status_code == 200
+        assert response.text == "console.log(1)"
+        response = client.get(
+            "/api/plugins/plug/files/%2e%2e/%2e%2e/%2e%2e/etc/passwd",
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Access denied"
+        assert "root:" not in response.text
+        response = client.get("/api/plugins/plug/files/no-such-asset.js")
+        assert response.status_code == 404
+        assert "File not found" in response.json()["detail"]
+
+    def test_invalid_install_source_is_400(self, tmp_path):
+        response = _client(_loader_stub([])).post(
+            "/api/plugins/install",
+            json={"source": str(tmp_path / "missing"), "force": False},
+        )
+        assert response.status_code == 400
+        assert "Path not found" in response.json()["detail"]

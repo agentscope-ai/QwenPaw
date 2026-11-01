@@ -59,6 +59,12 @@ describe("BUILTIN_ROUTES", () => {
     }
   });
 
+  it("keeps the canonical ACP route case-sensitive", () => {
+    const canonicalRoute = BUILTIN_ROUTES.find(({ id }) => id === "core.acp");
+
+    expect(canonicalRoute?.caseSensitive).toBe(true);
+  });
+
   it("resolves titles with the requested locale", async () => {
     await i18nReady;
     const previousLanguage = i18next.language;

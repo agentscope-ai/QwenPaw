@@ -58,20 +58,37 @@ class TestAgentStatsPageDisplay:
             page.wait_for_timeout(2000)
             logger.info("Agent stats page loaded")
 
-            # 2. Verify page header
+            # 2. Verify the page header.
+            # Upstream #8130 ("keep only the page title in settings
+            # headers", merged 2026-10-09) deliberately dropped the
+            # "Settings /" parent crumb from every settings page header:
+            # PageHeader now receives only ``current``. The product is
+            # correct by design; the old assertion that required
+            # "Settings"/"设置" inside the breadcrumb text was stale and
+            # failed with "Breadcrumb should contain Settings" (nightly
+            # 2026-10). We now assert the header carries THIS page's title
+            # (agentStats.title = "Agent Statistics" / "智能体统计") and
+            # never silently skip when the header is missing. Anchor on
+            # the breadcrumbCurrent span (#8247) -- the generic
+            # [class*="breadcrumb"] match also hits the wrapper.
             log_test_step("2. Verify page header")
             page_title = page.locator(
                 'span[class*="breadcrumbCurrent"]'
             ).first
             expect(page_title).to_be_visible(timeout=5000)
-            page_title_text = page_title.inner_text().strip()
-            logger.info(f"Page header content: {page_title_text}")
+            breadcrumb_text = page_title.inner_text().strip()
+            logger.info(f"Header content: {breadcrumb_text}")
             assert (
-                "Agent Stats" in page_title_text
-                or "Statistics" in page_title_text
-                or "统计" in page_title_text
-                or "Stats" in page_title_text
-            ), "Page header should contain Agent Stats/Statistics"
+                "Agent Statistics" in breadcrumb_text
+                or "Agent Stats" in breadcrumb_text
+                or "Statistics" in breadcrumb_text
+                or "智能体统计" in breadcrumb_text
+                or "统计" in breadcrumb_text
+                or "Stats" in breadcrumb_text
+            ), (
+                f"Page header should carry the Agent Statistics title, "
+                f"got: {breadcrumb_text!r}"
+            )
             logger.info("Page header validation passed")
 
             # 3. Verify summary cards area

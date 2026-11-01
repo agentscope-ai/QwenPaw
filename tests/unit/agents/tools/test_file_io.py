@@ -12,6 +12,7 @@ Covers:
 # pylint: disable=protected-access,unused-argument
 
 import asyncio
+from codecs import BOM_UTF8
 import os
 import stat
 import threading
@@ -21,6 +22,7 @@ from unittest.mock import patch
 import pytest
 
 from qwenpaw.agents.tools.file_io import (
+    _append_file,
     _get_encoding_for_file,
     _resolve_file_path,
     append_file,
@@ -93,17 +95,19 @@ class TestGetEncodingForFile:
 
     @pytest.mark.parametrize(
         "ext",
-        [".csv", ".tsv", ".tab", ".txt", ".log"],
+        [f".csv", f".tsv", f".tab"],
     )
-    def test_bom_extensions(self, ext):
-        assert _get_encoding_for_file(f"data{ext}") == "utf-8-sig"
+    def test_bom_extensions(self, ext, tmp_path):
+        path = tmp_path / f"data{ext}"
+        assert _get_encoding_for_file(str(path)) == f"utf-8-sig"
 
     @pytest.mark.parametrize(
         "ext",
-        [".py", ".json", ".yaml", ".sh", ".md", ".js"],
+        [f".py", f".json", f".yaml", f".sh", f".md", f".js", f".txt", f".log"],
     )
-    def test_non_bom_extensions(self, ext):
-        assert _get_encoding_for_file(f"code{ext}") == "utf-8"
+    def test_non_bom_extensions(self, ext, tmp_path):
+        path = tmp_path / f"code{ext}"
+        assert _get_encoding_for_file(str(path)) == f"utf-8"
 
 
 # ---------------------------------------------------------------------------
@@ -214,21 +218,23 @@ class TestWriteFile:
     """Tests for write_file."""
 
     @pytest.mark.asyncio
-    async def test_write_new_file(self, tmp_path):
-        f = tmp_path / "new.txt"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".log"])
+    async def test_write_new_file(self, tmp_path, ext):
+        f = tmp_path / f"new{ext}"
         result = await write_file(str(f), "hello")
         assert "Wrote" in result.content[0].text
-        # .txt uses utf-8-sig which adds BOM
-        assert f.read_text(encoding="utf-8-sig") == "hello"
+        assert f.read_bytes() == f"hello".encode(f"utf-8")
         if os.name != "nt":
             assert stat.S_IMODE(f.stat().st_mode) == 0o644
 
     @pytest.mark.asyncio
-    async def test_write_overwrites_existing(self, tmp_path):
-        f = tmp_path / "existing.txt"
-        f.write_text("old", encoding="utf-8")
-        await write_file(str(f), "new")
-        assert f.read_text(encoding="utf-8-sig") == "new"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".csv", f".py"])
+    @pytest.mark.parametrize(f"encoding", [f"utf-8", f"utf-8-sig"])
+    async def test_write_overwrites_existing(self, tmp_path, ext, encoding):
+        f = tmp_path / f"existing{ext}"
+        f.write_bytes(f"old".encode(encoding))
+        await write_file(str(f), f"green, white")
+        assert f.read_bytes() == f"green, white".encode(encoding)
 
     @pytest.mark.asyncio
     async def test_write_empty_path(self):
@@ -263,12 +269,14 @@ class TestEditFile:
     """Tests for edit_file."""
 
     @pytest.mark.asyncio
-    async def test_edit_replaces_text(self, tmp_path):
-        f = tmp_path / "edit.txt"
-        f.write_text("hello world", encoding="utf-8")
-        result = await edit_file(str(f), "hello", "goodbye")
-        assert "Successfully replaced" in result.content[0].text
-        assert f.read_text(encoding="utf-8-sig") == "goodbye world"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".csv", f".py"])
+    @pytest.mark.parametrize(f"encoding", [f"utf-8", f"utf-8-sig"])
+    async def test_edit_replaces_text(self, tmp_path, ext, encoding):
+        f = tmp_path / f"edit{ext}"
+        f.write_bytes(f"hello world".encode(encoding))
+        result = await edit_file(str(f), f"hello", f"goodbye")
+        assert f"Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == f"goodbye world".encode(encoding)
 
     @pytest.mark.asyncio
     async def test_edit_text_not_found(self, tmp_path):
@@ -307,19 +315,30 @@ class TestAppendFile:
     """Tests for append_file."""
 
     @pytest.mark.asyncio
-    async def test_append_to_existing(self, tmp_path):
-        f = tmp_path / "append.txt"
-        f.write_text("line1\n", encoding="utf-8")
-        result = await append_file(str(f), "line2\n")
-        assert "Appended" in result.content[0].text
-        assert f.read_text(encoding="utf-8") == "line1\nline2\n"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".csv"])
+    @pytest.mark.parametrize(f"encoding", [f"utf-8", f"utf-8-sig"])
+    @pytest.mark.parametrize(f"initial", [f"", f"first"])
+    async def test_append_to_existing(
+        self,
+        tmp_path,
+        ext,
+        encoding,
+        initial,
+    ):
+        f = tmp_path / f"append{ext}"
+        f.write_bytes(initial.encode(encoding))
+        result = await append_file(str(f), f"second")
+        assert f"Appended" in result.content[0].text
+        assert f.read_bytes() == f"{initial}second".encode(encoding)
 
     @pytest.mark.asyncio
-    async def test_append_creates_new_file(self, tmp_path):
-        f = tmp_path / "new_append.txt"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".log", f".csv"])
+    async def test_append_creates_new_file(self, tmp_path, ext):
+        f = tmp_path / f"new_append{ext}"
         result = await append_file(str(f), "first line")
         assert "Appended" in result.content[0].text
-        assert f.read_text(encoding="utf-8-sig") == "first line"
+        bom = BOM_UTF8 if ext == f".csv" else bytes()
+        assert f.read_bytes() == bom + f"first line".encode(f"utf-8")
 
     @pytest.mark.asyncio
     async def test_append_empty_path(self):
@@ -336,19 +355,18 @@ class TestAppendFile:
         max_active = 0
         guard = threading.Lock()
 
-        def delayed_append(file_path, content, encoding):
+        def delayed_append(file_path, content):
             nonlocal active, max_active
             with guard:
                 active += 1
                 max_active = max(max_active, active)
             time.sleep(0.01)
-            with open(file_path, "a", encoding=encoding) as handle:
-                handle.write(content)
+            _append_file(file_path, content)
             with guard:
                 active -= 1
 
         with patch(
-            "qwenpaw.utils.io_utils._append_text",
+            f"qwenpaw.agents.tools.file_io._append_file",
             delayed_append,
         ):
             await asyncio.gather(

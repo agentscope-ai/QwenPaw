@@ -12,6 +12,7 @@ from qwenpaw.agents.memory.prompts import build_memory_guidance_prompt
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
 )
+from qwenpaw.config.config import ReMeLightMemoryConfig
 
 
 @pytest.mark.asyncio
@@ -116,6 +117,7 @@ async def test_daily_paper_reports_the_real_execution_failure() -> None:
         ),
     )
     manager._lifecycle_condition = asyncio.Condition()
+    manager._llm_job_lock = asyncio.Lock()
     manager._lifecycle_operation = None
     manager._active_reme_jobs = 0
     manager._update_qwenpaw_model = AsyncMock()
@@ -166,13 +168,13 @@ async def test_daily_paper_result_is_delivered_to_inbox() -> None:
 
 def test_memory_search_tool_exposure_has_an_independent_switch() -> None:
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    manager._load_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: ReMeLightMemoryConfig(
         memory_search_enabled=False,
     )
 
     assert not manager.list_memory_tools()
 
-    manager._load_memory_config = lambda: SimpleNamespace(
+    manager._load_memory_config = lambda: ReMeLightMemoryConfig(
         memory_search_enabled=True,
     )
     assert manager.list_memory_tools() == [manager.memory_search]
@@ -184,7 +186,7 @@ def test_memory_prompt_omits_disabled_search_tool() -> None:
     agent_config = SimpleNamespace(
         language="en",
         running=SimpleNamespace(
-            reme_light_memory_config=SimpleNamespace(
+            reme_light_memory_config=ReMeLightMemoryConfig(
                 memory_search_enabled=False,
             ),
         ),
@@ -210,7 +212,7 @@ def test_memory_prompt_includes_enabled_search_tool() -> None:
     agent_config = SimpleNamespace(
         language="en",
         running=SimpleNamespace(
-            reme_light_memory_config=SimpleNamespace(
+            reme_light_memory_config=ReMeLightMemoryConfig(
                 memory_search_enabled=True,
                 daily_dir="daily-notes",
                 digest_dir="knowledge",

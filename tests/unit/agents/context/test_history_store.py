@@ -559,11 +559,17 @@ def test_init_fts_degrades_and_warns_without_fts5(tmp_path: Path, caplog):
         HistoryStore._fts_unavailable_warned = False
 
 
-def test_note_write_failure_sets_degraded(store: HistoryStore):
+@pytest.mark.parametrize("code", [sqlite3.SQLITE_FULL, sqlite3.SQLITE_CORRUPT])
+def test_note_write_failure_sets_degraded(store: HistoryStore, code):
     assert store.degraded is False
-    store.note_write_failure(sqlite3.OperationalError("disk full"))
+    error = sqlite3.DatabaseError("write failed")
+    error.sqlite_errorcode = code
+    store.note_write_failure(error)
     assert store.degraded is True
     assert store.write_failures == 1
+    assert store._fts_check_pending == (
+        store._fts and code == sqlite3.SQLITE_CORRUPT
+    )
     store.note_write_failure(OSError("still bad"))
     assert store.write_failures == 2  # counted, stays degraded
 
@@ -1094,6 +1100,51 @@ def test_startup_lock_does_not_quarantine(tmp_path):
             "SELECT content FROM conversation_history",
         ).fetchone() == ("aardvark",)
     assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_borrow_retries_deferred_fts_repair(tmp_path, monkeypatch):
+    path = tmp_path / "history.db"
+    initial = HistoryStore(path)
+    if not initial._fts:
+        initial.close()
+        pytest.skip("SQLite build lacks FTS5")
+    initial.append(session_id="s", entry=_entry("aardvark"))
+    initial.close()
+    writer = sqlite3.connect(path)
+    store = None
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute(
+            "UPDATE conversation_history_fts_data SET block=x'00' WHERE id>10",
+        )
+        store = HistoryStore(path)
+        connection = store._conn
+        store._conn.execute("PRAGMA busy_timeout=1234")
+        # A borrow while the writer holds its lock still proceeds immediately.
+        store.acquire()
+        store.release()
+        assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 1234
+        writer.commit()
+        with pytest.raises(sqlite3.DatabaseError):
+            _fts_hits(store, "aardvark")
+        store.acquire()
+        store.release()
+        assert store._conn is connection
+        assert _fts_hits(store, "aardvark")
+        assert store.count("s") == 1
+        assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 1234
+        assert store.quarantined_to is None
+
+        def unexpected_check():
+            pytest.fail("Successful FTS checks must not repeat per request")
+
+        monkeypatch.setattr(store, "_check_fts", unexpected_check)
+        store.acquire()
+        store.release()
+    finally:
+        writer.close()
+        if store is not None:
+            store.close()
 
 
 def test_startup_fts_check_defers_while_wal_writer_is_active(

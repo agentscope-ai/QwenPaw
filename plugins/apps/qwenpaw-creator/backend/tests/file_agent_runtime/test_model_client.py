@@ -268,6 +268,84 @@ def test_default_client_constructs_real_agentscope_dashscope_model(
 
 
 @pytest.mark.parametrize(
+    ("model_name", "expected_temperature"),
+    [("qwen3.7-plus", 0.2), ("kimi-k3", None)],
+)
+def test_kimi_k3_omits_unsupported_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+    model_name: str,
+    expected_temperature: float | None,
+) -> None:
+    # DashScope rejects an explicit ``temperature`` for kimi-k3, so the client
+    # must drop it and let the gateway apply the model default; every other
+    # model keeps the Creator sampling default.
+    _configure_text_model(monkeypatch)
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_model_name",
+        lambda: model_name,
+    )
+
+    configured = AgentScopeAgentChatClient()._configured_model()
+
+    assert isinstance(configured, DashScopeChatModel)
+    assert configured.parameters.temperature == expected_temperature
+
+
+def test_temperature_refusal_rebuilds_cached_model_without_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A first-turn refusal must invalidate the cached model so the *next*
+    # Agent turn is rebuilt without a temperature. ``_configured_model()``
+    # keys only on the connection tuple, which the capability flip does not
+    # change, so the client has to drop ``model``/``_configuration`` itself.
+    # pylint: disable=protected-access
+    from models.model_capability_cache import get_capability_cache
+
+    model_config = model_client.model_config
+    _configure_text_model(monkeypatch)
+    monkeypatch.setattr(
+        model_config,
+        "get_text_model_name",
+        lambda: "brand-new-model",
+    )
+    cache = get_capability_cache()
+    key = model_config._temperature_capability_key("brand-new-model")
+    cache.clear(key)
+    try:
+        client = AgentScopeAgentChatClient()
+        first = client._configured_model()
+        assert isinstance(first, DashScopeChatModel)
+        # Before any refusal the sampling default is still sent.
+        assert first.parameters.temperature == 0.2
+
+        async def _refuse(self, *_args, **_kwargs):
+            raise RuntimeError(
+                "Parameter 'temperature'=0.2 is not supported "
+                "for brand-new-model",
+            )
+
+        monkeypatch.setattr(DashScopeChatModel, "__call__", _refuse)
+        with pytest.raises(AgentModelError):
+            asyncio.run(
+                client.complete(
+                    messages=[{"role": "user", "content": "ping"}],
+                    tools=[],
+                ),
+            )
+
+        # The refusal was learned and the cached model dropped, so the next
+        # turn rebuilds and omits the temperature entirely.
+        assert model_config.chat_temperature("brand-new-model", 0.2) is None
+        assert client.model is None
+        second = client._configured_model()
+        assert second is not first
+        assert second.parameters.temperature is None
+    finally:
+        cache.clear(key)
+
+
+@pytest.mark.parametrize(
     ("protocol", "base_url"),
     [
         ("Anthropic Claude", "https://api.anthropic.com"),

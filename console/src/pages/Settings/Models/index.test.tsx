@@ -22,6 +22,7 @@ const providersMock = vi.hoisted(() => ({
   error: null as string | null,
   fetchAll: vi.fn(),
 }));
+const modalPropsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./useProviders", () => ({
   useProviders: () => providersMock,
@@ -107,7 +108,10 @@ vi.mock("@agentscope-ai/design", async (importOriginal) => {
     ...original,
     Input: antd.Input,
     Button: antd.Button,
-    Modal: antd.Modal,
+    Modal: (props: React.ComponentProps<typeof antd.Modal>) => {
+      modalPropsMock(props);
+      return React.createElement(antd.Modal, props);
+    },
   };
 });
 
@@ -226,8 +230,13 @@ describe("ModelsPage", () => {
     // Default tab is cloud
     expect(screen.getByTestId("provider-card:openai")).toBeInTheDocument();
 
-    await user.click(screen.getByText(/models\.localCustomGroup/));
+    const localTab = screen.getByRole("tab", {
+      name: /models\.localCustomGroup/,
+    });
+    expect(localTab).toHaveAttribute("aria-selected", "false");
+    await user.click(localTab);
     expect(screen.getByTestId("provider-card:loc")).toBeInTheDocument();
+    expect(localTab).toHaveAttribute("aria-selected", "true");
     expect(localStorage.getItem("models_tab")).toBe("local");
   });
 
@@ -289,7 +298,7 @@ describe("ModelsPage", () => {
     ]);
     renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
 
-    await user.click(screen.getByTitle("common.refresh"));
+    await user.click(screen.getByRole("button", { name: "common.refresh" }));
     expect(providersMock.fetchAll).toHaveBeenCalled();
   });
 
@@ -338,6 +347,60 @@ describe("ModelsPage", () => {
     await user.click(screen.getByTestId("icon:azure-a"));
     await waitFor(() =>
       expect(screen.getByText(/models\.selectVariant/)).toBeInTheDocument(),
+    );
+  });
+
+  it("tears down the variant selector and supports reopening it", async () => {
+    const user = userEvent.setup();
+    setProviders([
+      makeProvider({
+        id: "azure-a",
+        name: "Azure A",
+        provider_group: "azure",
+        provider_group_name: "Azure",
+        api_key: "",
+      }),
+      makeProvider({
+        id: "azure-b",
+        name: "Azure B",
+        provider_group: "azure",
+        provider_group_name: "Azure",
+        api_key: "",
+      }),
+    ]);
+    renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
+
+    const trigger = screen.getByTestId("icon:azure-a").closest("button");
+    expect(trigger).not.toBeNull();
+
+    await user.click(trigger!);
+    await screen.findByText(/models\.selectVariant/);
+    expect(modalPropsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ destroyOnHidden: true }),
+    );
+    expect(modalPropsMock.mock.lastCall?.[0]).not.toHaveProperty(
+      "destroyOnClose",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() =>
+      expect(modalPropsMock.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({ open: false }),
+      ),
+    );
+    await user.click(trigger!);
+    await waitFor(() =>
+      expect(modalPropsMock.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({ open: true }),
+      ),
+    );
+    await user.click(await screen.findByText("Azure B"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("config-modal:azure-b")).toBeInTheDocument(),
+    );
+    expect(modalPropsMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ open: false }),
     );
   });
 

@@ -3,6 +3,10 @@
 # Default port 8088; override at runtime with -e QWENPAW_PORT=3000.
 set -e
 
+# Build policy reaches the actual mounted working directory through C6 boot.
+# Persisted user choices and uninstall tombstones take precedence there.
+export QWENPAW_CHANNEL_PRESET="${QWENPAW_CHANNEL_PRESET:-light}"
+
 is_auth_enabled() {
   if [ "${QWENPAW_AUTH_ENABLED+x}" ]; then
     flag="${QWENPAW_AUTH_ENABLED}"

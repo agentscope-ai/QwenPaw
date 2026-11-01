@@ -154,7 +154,7 @@ export function AdvisorSetupPopover({
       content={content}
       onOpenChange={onOpenChange}
       open={open}
-      overlayClassName={styles.modePopover}
+      classNames={{ root: styles.modePopover }}
       placement={placement}
       trigger="click"
     >

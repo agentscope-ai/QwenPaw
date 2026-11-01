@@ -217,7 +217,7 @@ const ChatHeaderTitle: React.FC = () => {
                 onOpenChange={setOpen}
                 trigger={["click"]}
                 placement="bottomLeft"
-                overlayClassName={styles.sessionDropdown}
+                rootClassName={styles.sessionDropdown}
               >
                 <button
                   type="button"
