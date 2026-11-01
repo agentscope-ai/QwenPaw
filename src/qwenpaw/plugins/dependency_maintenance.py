@@ -204,21 +204,32 @@ def state_root():
             if os.name == "nt":
                 home = Path(os.environ["USERPROFILE"])
             else:
-                import pwd
+                # ``os.environ["HOME"]`` wins over the passwd database: managed
+                # deployment sandboxes (e.g. fnOS NAS app users) create
+                # dedicated accounts whose passwd home need not exist and may
+                # be unwritable, while HOME reflects the launched environment.
+                home = os.environ.get("HOME")
+                if not home or not Path(home).is_absolute():
+                    import pwd
 
-                try:
-                    value = getattr(pwd.getpwuid(os.getuid()), "pw_dir", None)
-                except KeyError:
-                    value = None
-                if not value or not Path(value).is_absolute():
-                    value = os.environ.get("HOME")
-                if not value or not Path(value).is_absolute():
+                    try:
+                        value = getattr(
+                            pwd.getpwuid(os.getuid()),
+                            "pw_dir",
+                            None,
+                        )
+                    except KeyError:
+                        value = None
+                    if value and Path(value).is_absolute():
+                        home = value
+                if not home:
                     raise RuntimeError(
-                        "DEPENDENCY_STATE_ROOT_UNAVAILABLE: provide a stable "
-                        "absolute startup HOME or an absolute shared "
-                        "QWENPAW_DEPENDENCY_STATE_DIR.",
+                        "DEPENDENCY_STATE_ROOT_UNAVAILABLE: no writable base "
+                        "directory. Set an absolute shared "
+                        "QWENPAW_DEPENDENCY_STATE_DIR (checked first) or fix "
+                        "HOME for the service account.",
                     )
-                home = Path(value)
+                home = Path(home)
             root = canonical(home / ".qwenpaw" / "dependency-environments")
         _STATE_ROOT = root
         os.environ[_STATE_ENV] = str(root)

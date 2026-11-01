@@ -13,6 +13,7 @@ Probed on this platform: two fds in one process *do* contend on ``flock``
 import errno
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -275,7 +276,7 @@ class TestEnvironmentIdentity:
     @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
     @pytest.mark.parametrize(
         "selection",
-        ["passwd", "home", "explicit", "none"],
+        ["home", "passwd", "home_wins_over_passwd", "explicit", "none"],
     )
     def test_state_root_selection_is_stable(
         self,
@@ -300,13 +301,14 @@ class TestEnvironmentIdentity:
         override = tmp_path / "state"
         monkeypatch.delenv(fresh._STATE_ENV, raising=False)
         monkeypatch.delenv("HOME", raising=False)
-        if selection != "none":
+        if selection in ("home", "home_wins_over_passwd"):
             monkeypatch.setenv("HOME", str(home))
         if selection == "explicit":
             monkeypatch.setenv(fresh._STATE_ENV, str(override))
 
         def account(_uid):
-            if selection == "passwd":
+            if selection in ("passwd", "home_wins_over_passwd"):
+                # A passwd entry with a non-existent, unwritable home (issue #8515).
                 return SimpleNamespace(pw_dir=str(passwd_home))
             raise KeyError("uid not found")
 
@@ -318,13 +320,16 @@ class TestEnvironmentIdentity:
             ):
                 fresh.state_root()
             return
-        expected = (
-            override
-            if selection == "explicit"
-            else (passwd_home if selection == "passwd" else home)
-            / ".qwenpaw"
-            / "dependency-environments"
-        )
+        if selection == "home_wins_over_passwd":
+            # HOME reflects the launched environment and must win over the
+            # passwd database home, which sandboxes may not have created.
+            expected = home / ".qwenpaw" / "dependency-environments"
+        elif selection == "explicit":
+            expected = override / ".qwenpaw" / "dependency-environments"
+        elif selection == "passwd":
+            expected = passwd_home / ".qwenpaw" / "dependency-environments"
+        else:
+            expected = home / ".qwenpaw" / "dependency-environments"
         try:
             assert fresh.state_root() == expected.resolve()
             monkeypatch.setenv("HOME", str(tmp_path / "changed-home"))
@@ -344,6 +349,47 @@ class TestEnvironmentIdentity:
             assert fresh._readers_dir(site).is_relative_to(expected.resolve())
         finally:
             fresh._close_readers()
+
+    @pytest.mark.skipif(
+        _WINDOWS,
+        reason="the raise path only exists in the POSIX home selection",
+    )
+    def test_state_root_missing_home_error_names_the_override(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """The failure message tells the operator about the override variable.
+
+        Sandboxed service accounts (fnOS NAS app users, issue #8515) have a
+        passwd home that does not exist; without the variable name in the
+        error there was no discoverable recovery path.
+        """
+        import importlib.util
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.delenv("HOME", raising=False)
+        import pwd as pwd_module
+
+        monkeypatch.setattr(
+            pwd_module,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir="/nonexistent-qwenpaw"),
+        )
+
+        with pytest.raises(
+            RuntimeError,
+            match=r"DEPENDENCY_STATE_ROOT_UNAVAILABLE.*QWENPAW_DEPENDENCY_STATE_DIR",
+        ):
+            fresh.state_root()
 
     @pytest.mark.parametrize("alias_kind", ["symlink", "case", "distinct"])
     @pytest.mark.parametrize("owner", ["reader", "writer"])
@@ -469,11 +515,7 @@ finally:
     barrier = maintenance.marker(site)
 
     async def line():
-        return (
-            (await asyncio.wait_for(peer.stdout.readline(), 5))
-            .decode()
-            .strip()
-        )
+        return (await asyncio.wait_for(peer.stdout.readline(), 5)).decode().strip()
 
     async def resume():
         peer.stdin.write(b"continue\n")
@@ -520,9 +562,7 @@ finally:
         if outcome != "maintenance":
             await resume()
             expected = (
-                "admitted"
-                if outcome == "success"
-                else "DEPENDENCY_REPAIR_REQUIRED"
+                "admitted" if outcome == "success" else "DEPENDENCY_REPAIR_REQUIRED"
             )
             assert await line() == expected
             readers = maintenance.live_readers([site])
@@ -674,9 +714,7 @@ m._close_readers()
                     pytest.fail("observation admitted a competing writer")
             # The parent custody is scoped, never inserted into lifetime leases.
             assert str(site.resolve()) not in maintenance._READERS
-            assert [
-                row["pid"] for row in maintenance.live_readers([site])
-            ] == [
+            assert [row["pid"] for row in maintenance.live_readers([site])] == [
                 os.getpid(),
             ]
             try:
@@ -716,9 +754,7 @@ m._close_readers()
                     WAIT_TIMEOUT,
                 )
                 assert peer.returncode == 0, error
-                assert [
-                    row["pid"] for row in maintenance.live_readers([site])
-                ] == [
+                assert [row["pid"] for row in maintenance.live_readers([site])] == [
                     os.getpid(),
                 ]
                 ready.set()
@@ -831,9 +867,9 @@ sys.stdin.readline()
         ) as peer:
             try:
                 assert peer.stdout.readline().strip() == "held"
-                assert [
-                    row["pid"] for row in maintenance.live_readers([site])
-                ] == [peer.pid]
+                assert [row["pid"] for row in maintenance.live_readers([site])] == [
+                    peer.pid
+                ]
                 assert list(directory.glob("*.lease"))
                 with pytest.raises(RuntimeError, match="BUSY"):
                     with maintenance.maintenance([site], "test", "token"):
