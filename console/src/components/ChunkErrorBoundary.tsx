@@ -7,6 +7,7 @@ import { hubApi } from "../api/modules/hub";
 import {
   blockChunkRecoveryHealth,
   isChunkLoadError,
+  isErrorLike,
   reloadAfterChunkError,
 } from "../utils/chunkRecovery";
 import type { ErrorLike } from "../utils/chunkRecovery";
@@ -22,6 +23,9 @@ import type { ChunkDiagnostic } from "../utils/chunkDiagnostics";
 import { waitForChunkServerReady } from "../utils/chunkServerReadiness";
 import { copyText } from "../utils/clipboard";
 import styles from "./ChunkErrorBoundary.module.less";
+
+/** Give up retrying after this many attempts and fall back to a reload. */
+export const MAX_RENDER_ERROR_RETRIES = 2;
 
 interface Props {
   children: ReactNode;
@@ -41,6 +45,17 @@ interface State {
   copyFailed: boolean;
   waitingForServer: boolean;
   recovering: boolean;
+  /**
+   * Whether the error is eligible for an in-place retry.
+   *
+   * The original PR #7889 gated this on a `NotFoundError` /
+   * `HierarchyRequestError` heuristic. Per the rebase review we now rely on
+   * `isErrorLike` (cross-realm-safe) so that any Error-like render error is
+   * considered for in-place retry; the retry budget
+   * (`MAX_RENDER_ERROR_RETRIES`) prevents a permanently broken page from
+   * looping forever.
+   */
+  isRetryableError: boolean;
 }
 
 /**
@@ -49,7 +64,8 @@ interface State {
  * - **Chunk-load errors** reset rejected imports and refresh twice per recovery cycle.
  *   Persistent failures retain a targeted fallback and manual refresh.
  * - **Other render errors** (runtime bugs) get a generic fallback so the
- *   rest of the app remains functional.
+ *   rest of the app remains functional. Transient races additionally offer an
+ *   in-place retry, since a full page reload is unnecessary for them.
  *
  * Pass a `resetKey` derived from the current route so the boundary
  * automatically recovers when the user navigates to a different page.
@@ -66,11 +82,14 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     copyFailed: false,
     waitingForServer: false,
     recovering: false,
+    isRetryableError: false,
   };
 
   private diagnosticGeneration = 0;
   private releaseHealthBlock: (() => void) | null = null;
   private readinessController: AbortController | null = null;
+  /** How many times the user asked to re-render after a render error. */
+  private retryCount = 0;
 
   static getDerivedStateFromError(error: unknown): State {
     return {
@@ -84,6 +103,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       copyFailed: false,
       waitingForServer: false,
       recovering: isChunkLoadError(error),
+      isRetryableError: isErrorLike(error),
     };
   }
 
@@ -93,6 +113,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       this.readinessController?.abort();
       this.releaseHealthBlock?.();
       this.releaseHealthBlock = null;
+      this.retryCount = 0;
       this.setState({
         hasError: false,
         isChunkError: false,
@@ -104,6 +125,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
         copyFailed: false,
         waitingForServer: false,
         recovering: false,
+        isRetryableError: false,
       });
     }
   }
@@ -182,6 +204,28 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     if (!reloading) this.setState({ recovering: false });
   };
 
+  /** Re-render the same subtree without reloading the page. */
+  retryRender = () => {
+    this.retryCount += 1;
+    this.diagnosticGeneration += 1;
+    this.readinessController?.abort();
+    this.releaseHealthBlock?.();
+    this.releaseHealthBlock = null;
+    this.setState({
+      hasError: false,
+      isChunkError: false,
+      restarting: false,
+      restartError: "",
+      diagnostic: null,
+      previousDiagnostic: null,
+      copied: false,
+      copyFailed: false,
+      waitingForServer: false,
+      recovering: false,
+      isRetryableError: false,
+    });
+  };
+
   copyDiagnostic = async () => {
     this.setState({ copied: false, copyFailed: false });
     try {
@@ -244,6 +288,12 @@ export class ChunkErrorBoundary extends Component<Props, State> {
         ? "chunkError.subTitle"
         : "chunkError.genericSubTitle";
 
+      const canRetry =
+        this.state.isRetryableError &&
+        !this.state.isChunkError &&
+        !recovering &&
+        this.retryCount < MAX_RENDER_ERROR_RETRIES;
+
       return (
         <Result
           status={recovering ? "info" : "error"}
@@ -286,6 +336,11 @@ export class ChunkErrorBoundary extends Component<Props, State> {
                 </div>
               )}
               <Space wrap className={styles.actions}>
+                {canRetry && (
+                  <Button type="primary" onClick={this.retryRender}>
+                    {i18n.t("chunkError.retry")}
+                  </Button>
+                )}
                 {this.state.diagnostic && (
                   <Button
                     icon={
@@ -305,7 +360,7 @@ export class ChunkErrorBoundary extends Component<Props, State> {
                   </Button>
                 )}
                 <Button
-                  type={recovering ? "default" : "primary"}
+                  type={recovering || canRetry ? "default" : "primary"}
                   onClick={this.reloadPage}
                 >
                   {i18n.t("chunkError.reload")}
