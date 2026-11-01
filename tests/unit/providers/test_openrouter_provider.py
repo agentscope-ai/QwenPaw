@@ -7,11 +7,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from agentscope.model import OpenAIChatModel
 import pytest
 
 import qwenpaw.providers.openrouter_provider as openrouter_provider_module
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
+from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.providers.thinking import ThinkingControl
 
 
 def _make_provider() -> OpenRouterProvider:
@@ -21,6 +24,44 @@ def _make_provider() -> OpenRouterProvider:
         base_url="https://openrouter.example/v1",
         api_key="sk-or-test",
     )
+
+
+async def test_summary_uses_declared_disable_thinking_wire(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="vendor/strict-model",
+            name="Strict model",
+            thinking_control=ThinkingControl(
+                kind="effort",
+                efforts=["low", "high"],
+                supports_off=True,
+                wire="compat_effort",
+            ),
+        ),
+    ]
+    captured: dict = {}
+
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("vendor/strict-model")
+    result = await model._call_api(
+        "vendor/strict-model",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured["extra_body"] == {
+        "thinking": {"type": "disabled"},
+    }
+    assert "disable_thinking" not in captured
 
 
 async def test_check_connection_closes_client(monkeypatch) -> None:

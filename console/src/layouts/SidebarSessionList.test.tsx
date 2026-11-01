@@ -808,6 +808,41 @@ describe("SidebarSessionList", () => {
       expect(list.itemSize(0)).toBe(36);
       expect(list.itemSize(1)).toBe(38);
     });
+
+    it.each(["cron", "subagents"] as const)(
+      "reserves the %s header's source spacing before a conversation",
+      async (kind) => {
+        localStorage.setItem("qwenpaw_session_group_mode", "source");
+        mockData([{ ...sessionA, groupId: kind }]);
+        mockChatGroups.mockReturnValue({
+          groups: [
+            {
+              id: "default",
+              name: "Uncategorized",
+              kind: "default",
+              order: 0,
+              pinned: false,
+            },
+            { id: kind, name: kind, kind, order: 1, pinned: false },
+          ],
+          createGroup: vi.fn(),
+          renameGroup: vi.fn(),
+          pinGroup: vi.fn(),
+          deleteGroup: vi.fn(),
+          reorderGroups: vi.fn(),
+        });
+        renderWithProviders(<SidebarSessionList />);
+        await waitFor(() => {
+          expect(screen.getByTestId(`group-header-${kind}`)).toBeTruthy();
+          expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+        });
+        const list = mockListProps.current!;
+        // The source chip is 32px high with 8px top / 2px bottom margins.
+        expect(list.itemSize(0)).toBe(36);
+        expect(list.itemSize(1)).toBe(42);
+        expect(list.itemSize(2)).toBe(38);
+      },
+    );
   });
 
   it("shows empty groups in source mode", async () => {

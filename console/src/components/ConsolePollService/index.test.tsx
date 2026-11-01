@@ -190,6 +190,27 @@ describe("ConsolePollService", () => {
     expect(mocks.getPushMessages).toHaveBeenCalledTimes(2);
   });
 
+  it("queues only one immediate refresh when visibility returns in-flight", async () => {
+    const pending = deferred<ReturnType<typeof respond>>();
+    mocks.getPushMessages
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(respond([]));
+    render(<ConsolePollService />);
+    await poll(0);
+
+    setHidden(true);
+    fireVisibility("hidden");
+    setHidden(false);
+    fireVisibility("visible");
+    fireVisibility("visible");
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(1);
+
+    pending.resolve(respond([]));
+    await poll(0);
+
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(2);
+  });
+
   it("does not update state after unmounting an in-flight request", async () => {
     const pending = deferred<ReturnType<typeof respond>>();
     mocks.getPushMessages.mockReturnValueOnce(pending.promise);

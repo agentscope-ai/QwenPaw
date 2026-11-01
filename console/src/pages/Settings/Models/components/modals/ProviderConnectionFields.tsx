@@ -14,6 +14,7 @@ interface ProviderConnectionFieldsProps {
   validApiKeyPrefixes: string[];
   authMode?: "api_key" | "auth_token";
   requireApiKey?: boolean;
+  credentialField?: ReactNode;
 }
 
 export function ProviderConnectionFields({
@@ -26,6 +27,7 @@ export function ProviderConnectionFields({
   validApiKeyPrefixes,
   authMode = "api_key",
   requireApiKey = false,
+  credentialField,
 }: ProviderConnectionFieldsProps) {
   const { t } = useTranslation();
   const useBaseUrlSelect = canEditBaseUrl && baseUrlOptions.length > 0;
@@ -82,35 +84,36 @@ export function ProviderConnectionFields({
         )}
       </Form.Item>
 
-      {/* API Key */}
-      <Form.Item
-        name="api_key"
-        label={apiKeyLabel}
-        rules={[
-          { required: requireApiKey, message: t("models.apiKey") },
-          {
-            validator: (_, value) => {
-              const result = validateApiKey(
-                value,
-                validApiKeyPrefixes,
-                authMode,
-              );
-              if (!result.valid) {
-                return Promise.reject(
-                  new Error(
-                    t("models.apiKeyShouldStart", {
-                      prefix: result.prefix,
-                    }),
-                  ),
+      {credentialField ?? (
+        <Form.Item
+          name="api_key"
+          label={apiKeyLabel}
+          rules={[
+            { required: requireApiKey, message: t("models.apiKey") },
+            {
+              validator: (_, value) => {
+                const result = validateApiKey(
+                  value,
+                  validApiKeyPrefixes,
+                  authMode,
                 );
-              }
-              return Promise.resolve();
+                if (!result.valid) {
+                  return Promise.reject(
+                    new Error(
+                      t("models.apiKeyShouldStart", {
+                        prefix: result.prefix,
+                      }),
+                    ),
+                  );
+                }
+                return Promise.resolve();
+              },
             },
-          },
-        ]}
-      >
-        <Input.Password placeholder={apiKeyPlaceholder} />
-      </Form.Item>
+          ]}
+        >
+          <Input.Password placeholder={apiKeyPlaceholder} />
+        </Form.Item>
+      )}
     </>
   );
 }

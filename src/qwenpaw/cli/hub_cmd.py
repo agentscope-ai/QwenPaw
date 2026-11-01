@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import click
@@ -138,6 +139,8 @@ def hub_cmd(
         log_level,
         hide_access_paths,
     )
+
+    os.environ["QWENPAW_RUNTIME_MODE"] = "hub"
 
     try:
         from ..hub.control_app import run_hub_app

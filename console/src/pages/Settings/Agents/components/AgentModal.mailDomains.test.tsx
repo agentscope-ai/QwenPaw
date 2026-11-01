@@ -35,7 +35,6 @@ const EDITING_AGENT: AgentSummary = {
 
 const stableCallbacks = {
   onSelectedSkillsChange: vi.fn(),
-  onInstalledSkillsLoaded: vi.fn(),
   onSave: vi.fn().mockResolvedValue(undefined),
   onCancel: vi.fn(),
 };

@@ -137,6 +137,12 @@ def get_tool_base_dir() -> Path:
     return WORKING_DIR
 
 
+# Preserve raw native results until Python selects model-visible output.
+current_script_tool_call: ContextVar[bool] = ContextVar(
+    "current_script_tool_call",
+    default=False,
+)
+
 # Context variable to store the recent_max_bytes limit
 current_recent_max_bytes: ContextVar[int | None] = ContextVar(
     "current_recent_max_bytes",

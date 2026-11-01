@@ -207,6 +207,11 @@ def configure_provider_api_key_interactive(
             base_url = None
 
     if not defn.require_api_key:
+        if base_url is not None and not manager.update_provider(
+            provider_id,
+            {"base_url": base_url},
+        ):
+            raise click.ClickException("Failed to update provider base URL.")
         click.echo(
             f"{defn.name} does not require API key configuration. Skipping.",
         )
@@ -356,13 +361,17 @@ def _select_llm_model(defn, pid, current_slot, *, use_defaults):
         discovery = asyncio.run(
             manager.discover_provider_models(pid, save=False),
         )
-        if not discovery.success:
-            raise click.ClickException(
-                f"Cannot discover Ollama models: {discovery.error}",
-            )
         models = [m for m in discovery.models if m.model_type == "chat"]
-        if not models:
-            raise click.ClickException("Ollama returned no chat models.")
+        if not discovery.success or not models:
+            reason = (
+                f"Cannot discover Ollama models: {discovery.error}"
+                if not discovery.success
+                else "Ollama returned no chat models."
+            )
+            if not all_models:
+                raise click.ClickException(reason)
+            click.echo(f"{reason} Using configured models.", err=True)
+            models = all_models
         selected = _pick_model_from_list(
             models,
             "Select LLM model:",

@@ -43,6 +43,16 @@ else
 fi
 
 mkdir -p "${BINARIES_DIR}"
+# Check an existing uv before it downloads build dependencies.
+if command -v uv >/dev/null 2>&1; then
+    uv_version=$(uv --version | awk '{print $2}')
+    if [[ ! "$uv_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] ||
+       ! (( 10#${BASH_REMATCH[1]} > 0 || 10#${BASH_REMATCH[2]} > 13 ||
+            (10#${BASH_REMATCH[2]} == 13 && 10#${BASH_REMATCH[3]} >= 4) )); then
+        echo "ERROR: uv >= 0.13.4 is required; update uv and retry"
+        exit 1
+    fi
+fi
 
 # The staged python-build-standalone runtime is the canonical source for both
 # the helper interpreter and the PyInstaller build environment. The PATH
@@ -56,7 +66,11 @@ if [ ! -f "$NATIVE_HOST_PYTHON" ]; then
 fi
 
 echo "== Creating PyInstaller build environment =="
+"$NATIVE_HOST_PYTHON" -m pip install --upgrade "pip>=26.2.2"
+"$NATIVE_HOST_PYTHON" -m pip install --upgrade "certifi>=2026.10.19"
 "$NATIVE_HOST_PYTHON" -m venv --clear "$BUILD_VENV"
+"$PYTHON_BIN" -m pip install --upgrade "pip>=26.2.2"
+"$PYTHON_BIN" -m pip install --upgrade "certifi>=2026.10.19"
 
 echo "Python: $("$PYTHON_BIN" --version)"
 echo ""
@@ -86,7 +100,10 @@ fi
 echo "PyInstaller installed"
 
 # Install project dependencies (ensures ALL runtime deps are importable)
-echo "== Installing project dependencies =="
+echo "== Preparing desktop dependency wheels =="
+DESKTOP_WHEELS="${DIST}/desktop-wheels"
+rm -rf "$DESKTOP_WHEELS"
+mkdir -p "$DESKTOP_WHEELS"
 # Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace
 # at import time. A *fresh* install of setuptools >= 82 removes pkg_resources
 # wholesale, so lark-oapi's except-ImportError fallback (pkgutil.extend_path)
@@ -96,7 +113,19 @@ echo "== Installing project dependencies =="
 # half-removed pkg_resources (module present, declare_namespace gone), which
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
-install_python_packages -e ".[full]" "setuptools<82"
+# Reuse published wheels; build source-only dependencies once for both the
+# frozen host and readable runtime, using the canonical Python ABI.
+"$PYTHON_BIN" -m pip wheel --prefer-binary --wheel-dir "$DESKTOP_WHEELS" \
+    ".[full]" "setuptools<82" wheel \
+    -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
+HOST_WHEELS=("$DESKTOP_WHEELS"/qwenpaw-*.whl)
+[ "${#HOST_WHEELS[@]}" -eq 1 ] && [ -f "${HOST_WHEELS[0]}" ] || \
+    { echo "Expected one host wheel"; exit 1; }
+HOST_WHEEL="${HOST_WHEELS[0]}"
+
+echo "== Installing project dependencies =="
+install_python_packages --no-index --only-binary=:all: \
+    --find-links "$DESKTOP_WHEELS" "${HOST_WHEEL}[full]" "setuptools<82" wheel
 echo "Project dependencies installed with full extras"
 
 # Fix agent-client-protocol namespace collision
@@ -104,7 +133,9 @@ echo "Project dependencies installed with full extras"
 if ! "$PYTHON_BIN" -c "from acp import Agent" 2> /dev/null; then
     echo "Fixing agent-client-protocol namespace..."
     uninstall_python_package acp
-    install_python_packages "agent-client-protocol>=0.9.0,<0.11.0"
+    install_python_packages --no-index --only-binary=:all: \
+        --find-links "$DESKTOP_WHEELS" --force-reinstall --no-deps \
+        "agent-client-protocol>=0.9.0,<0.11.0"
 fi
 echo ""
 
@@ -171,12 +202,30 @@ echo "== Installing bundled Python helper dependencies =="
     --disable-pip-version-check \
     --no-input \
     --no-deps \
+    --no-index \
+    --find-links "$DESKTOP_WHEELS" \
     --only-binary=:all: \
     -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
 "$NATIVE_HOST_PYTHON" \
     "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
     --check-runtime
 echo ""
+
+echo "== Building readable channel runtime =="
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack/validate_channel_contracts.py" --project-root "$REPO_ROOT"
+CHANNEL_WHEELS="${DIST}/channel-wheels"
+rm -rf "$CHANNEL_WHEELS" "${BINARIES_DIR}/channel-runtime"
+mkdir -p "$CHANNEL_WHEELS"
+# Select only channel dependencies from the shared pool with the target
+# interpreter; full-only extras must not enlarge the readable runtime.
+"$NATIVE_HOST_PYTHON" -m pip download --no-index --only-binary=:all: \
+    --find-links "$DESKTOP_WHEELS" \
+    --dest "$CHANNEL_WHEELS" "${HOST_WHEEL}[channels]"
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_channel_runtime.py" \
+    --python "$NATIVE_HOST_PYTHON" --wheel "$HOST_WHEEL" \
+    --resource-dir "${REPO_ROOT}/console/src-tauri" \
+    --wheelhouse "$CHANNEL_WHEELS" \
+    --python-runtime-release "$(cat "${PYTHON_RUNTIME_DIR}/.python-runtime-version")"
 
 echo "== Staging bundled Node runtime =="
 "$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_node_runtime.py" \

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { chatApi } from "./chat";
+import { chatApi, sessionApi } from "./chat";
 
 // chat.ts uses both fetch (uploadFile) and the request wrapper (others) — mock both
 vi.mock("../request", () => ({ request: vi.fn() }));
@@ -13,6 +13,19 @@ vi.mock("../authHeaders", () => ({
 
 import { request } from "../request";
 import { getApiToken } from "../config";
+
+it("resolves a deep link with an explicit alias scope and abort signal", async () => {
+  const controller = new AbortController();
+  await chatApi.resolveChat("chat/id", {
+    currentAgentId: "agent a",
+    signal: controller.signal,
+  });
+
+  expect(request).toHaveBeenCalledWith(
+    "/chats/resolve?chat_id=chat%2Fid&current_agent_id=agent+a",
+    { signal: controller.signal },
+  );
+});
 
 // ---------------------------------------------------------------------------
 // filePreviewUrl — pure function, highest ROI
@@ -278,6 +291,24 @@ describe("chatApi CRUD", () => {
         body: JSON.stringify(["id1", "id2"]),
       }),
     );
+  });
+
+  it("forwards captured agent identity for session mutations", async () => {
+    vi.mocked(request).mockClear();
+    await chatApi.archiveChat("chat-1", "agent-a");
+    await chatApi.unarchiveChat("chat-1", "agent-a");
+    await chatApi.batchArchiveChats(["chat-1"], "agent-a");
+    await chatApi.batchUnarchiveChats(["chat-1"], "agent-a");
+    await sessionApi.updateSession("chat-1", { name: "Renamed" }, "agent-a");
+    await sessionApi.deleteSession("chat-1", "agent-a");
+    await sessionApi.batchDeleteSessions(["chat-1"], "agent-a");
+
+    expect(request).toHaveBeenCalledTimes(7);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(options).toEqual(
+        expect.objectContaining({ headers: { "X-Agent-Id": "agent-a" } }),
+      );
+    }
   });
 
   it("creates and renames chat groups", async () => {

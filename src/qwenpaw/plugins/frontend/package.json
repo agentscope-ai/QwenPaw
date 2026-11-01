@@ -1,0 +1,26 @@
+{
+  "name": "@qwenpaw/plugin-sdk",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./globals": {
+      "types": "./globals.d.ts",
+      "default": "./globals.js"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.d.ts",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@types/react": ">=18 <20"
+  },
+  "license": "Apache-2.0"
+}

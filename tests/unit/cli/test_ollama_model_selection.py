@@ -114,7 +114,7 @@ def test_discovers_and_persists_selected_ollama_model(
 
 
 @pytest.mark.parametrize("status, models", [(200, []), (401, ["qwen3:32b"])])
-def test_discovery_failure_preserves_active_model(
+def test_discovery_failure_falls_back_to_configured_models(
     manager,
     ollama_endpoint,
     status,
@@ -138,7 +138,8 @@ def test_discovery_failure_preserves_active_model(
         ["set-llm"],
         input="qwen3:32b\n",
     )
-    assert result.exit_code == 1
+    assert result.exit_code == 0, result.output
+    assert "Using configured models" in result.output
     assert ollama_endpoint["requests"]
     assert "Ollama" in result.output
     assert ProviderManager().get_active_model() == original
@@ -205,3 +206,38 @@ def test_defaults_do_not_discover_ollama_models(manager, ollama_endpoint):
         == "old-model"
     )
     assert ollama_endpoint["requests"] == []
+
+
+@pytest.mark.parametrize("status, models", [(200, []), (401, ["qwen3:32b"])])
+def test_failed_discovery_without_configured_models_is_an_error(
+    manager,
+    ollama_endpoint,
+    status,
+    models,
+):
+    ollama_endpoint.update(status=status, models=models)
+    result = CliRunner().invoke(providers_cmd.models_group, ["set-llm"])
+    assert result.exit_code == 1
+    assert "Ollama" in result.output
+    assert ProviderManager().get_provider("ollama").all_models() == []
+
+
+def test_configured_base_url_is_saved_before_ollama_discovery(
+    manager,
+    ollama_endpoint,
+):
+    manager.update_provider("ollama", {"base_url": "http://127.0.0.1:1/v1"})
+    result = CliRunner().invoke(
+        providers_cmd.models_group,
+        ["config"],
+        input=ollama_endpoint["url"] + "\n",
+    )
+    assert result.exit_code == 0, result.output
+    reloaded = ProviderManager()
+    assert reloaded.get_provider("ollama").base_url == ollama_endpoint[
+        "url"
+    ].removesuffix("/v1")
+    assert reloaded.get_active_model().model == "qwen3:32b"
+    assert ollama_endpoint["requests"] == [
+        ("/ollama-proxy/v1/models", "Bearer test-ollama-key"),
+    ]

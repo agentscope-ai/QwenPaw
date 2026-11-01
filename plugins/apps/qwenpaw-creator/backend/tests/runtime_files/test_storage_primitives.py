@@ -871,3 +871,92 @@ def test_forward_cursor_fails_closed_on_durable_stream_changes(
             handle.write(line)
     with pytest.raises(JsonlCorruptionError):
         reader.read()
+
+
+def test_compressed_records_keep_checksums_and_stay_readable(tmp_path):
+    plain = AtomicJsonRecordStore(tmp_path / "plain.json", DemoRecord)
+    packed = AtomicJsonRecordStore(
+        tmp_path / "packed.json",
+        DemoRecord,
+        compress_payload=True,
+    )
+    value = {"name": "delivery", "count": 7}
+
+    plain_snapshot = plain.write(value)
+    packed_snapshot = packed.write(value)
+
+    assert (tmp_path / "packed.json").read_bytes()[:2] == b"\x1f\x8b"
+    assert (tmp_path / "plain.json").read_bytes()[:2] != b"\x1f\x8b"
+    assert packed.read() == DemoRecord(**value)
+    # The container must not leak into identity: a journal etags the value.
+    assert packed_snapshot.checksum == plain_snapshot.checksum
+    # A store that was never told stays able to read either container, so
+    # snapshots written before compression existed keep verifying.
+    reopened = AtomicJsonRecordStore(
+        tmp_path / "packed.json",
+        DemoRecord,
+    )
+
+    assert reopened.read().count == 7
+
+
+def test_compressed_record_supports_create_and_cas(tmp_path):
+    store = AtomicJsonRecordStore(
+        tmp_path / "state.json",
+        DemoRecord,
+        compress_payload=True,
+    )
+
+    created = store.create({"name": "before", "count": 1})
+    moved = store.compare_and_swap(
+        expected_checksum=created.checksum,
+        value=DemoRecord(name="after", count=2),
+    )
+
+    assert store.read().name == "after"
+    assert moved.checksum == store.read_snapshot().checksum
+    with pytest.raises(RecordConflictError):
+        store.compare_and_swap(
+            expected_checksum=created.checksum,
+            value=DemoRecord(name="stale", count=3),
+        )
+
+
+def test_truncated_compressed_record_reports_corruption(tmp_path):
+    path = tmp_path / "state.json"
+    AtomicJsonRecordStore(
+        path,
+        DemoRecord,
+        compress_payload=True,
+    ).write({"name": "delivery", "count": 7})
+
+    path.write_bytes(path.read_bytes()[:6])
+
+    with pytest.raises(CorruptRecordError):
+        AtomicJsonRecordStore(path, DemoRecord).read()
+
+
+def test_staged_temp_path_is_never_longer_than_its_target(tmp_path) -> None:
+    """A publish must never need a longer path than the record it writes.
+
+    Staging created ``.<name>.<8 random>.tmp``, about 14 characters longer
+    than the target, so on Windows with long paths disabled a record that
+    fits under the legacy MAX_PATH limit still failed in ``mkstemp`` and left
+    its parent directory behind (#8163).
+    """
+    captured: list[tuple[str, Path]] = []
+    for label, publish in (
+        ("create", atomic_store_module.atomic_create_bytes),
+        ("replace", atomic_store_module.atomic_replace_bytes),
+    ):
+        target = tmp_path / label / "journal.json"
+        captured.clear()
+        publish(
+            target,
+            b"{}\n",
+            stage_hook=lambda stage, path: captured.append((stage, path)),
+        )
+        staged = [path for stage, path in captured if stage == "temp_created"]
+        assert len(staged) == 1
+        assert staged[0].parent == target.parent
+        assert len(str(staged[0])) <= len(str(target))

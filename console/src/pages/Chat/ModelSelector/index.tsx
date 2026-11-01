@@ -688,6 +688,7 @@ export default function ModelSelector({
     provider: EligibleProvider,
     limitInitialModels = false,
   ) => {
+    const isManagingProvider = managingModels && addingProvider === provider.id;
     const needsOAuth =
       provider.supports_oauth &&
       !provider.has_api_key &&
@@ -873,7 +874,12 @@ export default function ModelSelector({
         <button
           type="button"
           className={styles.manageModelsEntry}
+          aria-expanded={isManagingProvider}
           onClick={() => {
+            if (isManagingProvider) {
+              setAddingProvider(null);
+              return;
+            }
             setCollapsedProviders((previous) => {
               const next = new Set(previous);
               next.delete(provider.id);
@@ -891,7 +897,11 @@ export default function ModelSelector({
                 : "modelSelector.addModels",
             )}
           </span>
-          <ChevronRight size={14} />
+          {isManagingProvider ? (
+            <ChevronUp size={14} />
+          ) : (
+            <ChevronRight size={14} />
+          )}
         </button>
       </div>
     );
@@ -1207,18 +1217,37 @@ export default function ModelSelector({
               <Gift size={17} />
             </button>
           </Tooltip>
-          <Tooltip title={t("modelSelector.manageSelectorModels")}>
+          <Tooltip
+            title={t(
+              managingModels
+                ? "common.done"
+                : "modelSelector.manageSelectorModels",
+            )}
+          >
             <button
               type="button"
-              className={styles.manageButton}
-              aria-label={t("modelSelector.manageSelectorModels")}
-              aria-pressed={managingModels}
+              className={[
+                styles.manageButton,
+                managingModels ? styles.manageDoneButton : "",
+              ].join(" ")}
+              aria-label={t(
+                managingModels
+                  ? "common.done"
+                  : "modelSelector.manageSelectorModels",
+              )}
               onClick={() => {
                 setManagingModels((value) => !value);
                 setAddingProvider(null);
               }}
             >
-              <Settings size={17} />
+              {managingModels ? (
+                <>
+                  <Check size={15} />
+                  <span>{t("common.done")}</span>
+                </>
+              ) : (
+                <Settings size={17} />
+              )}
             </button>
           </Tooltip>
         </div>

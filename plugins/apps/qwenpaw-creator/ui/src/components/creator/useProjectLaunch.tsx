@@ -12,16 +12,26 @@ import {
   createProject,
   getAssetImport,
   getTask,
+  importTimelineScript,
   ingestAssetFile,
   ingestAssetValue,
   newClientId,
   sendCreatorMessage,
 } from "@/api/creator";
+import {
+  detectScriptUpload,
+  type ScriptUploadKind,
+} from "@/lib/scriptUploadDetect";
 import { useModelConfigStore } from "@/store/modelConfigStore";
 import { useLaunchUploadStore } from "@/store/launchUploadStore";
 import { taskErrorMessage } from "@/lib/taskPresentation";
 import { creatorStatusLabel } from "@/lib/creatorPresentation";
 import { useRouter } from "@/routing/navigation";
+
+// A freshly created Project always ships this default Timeline (see backend
+// models.Project.new), so a script attachment can land on it right after
+// createProject returns and before the first Agent message.
+const DEFAULT_TIMELINE_ID = "timeline:main";
 
 export type AttachmentDraft =
   | {
@@ -30,6 +40,11 @@ export type AttachmentDraft =
       file: File;
       source: "file" | "folder";
       relativePath?: string;
+      // Detection result + the user's current choice. The default is 素材
+      // (asScript=false); at most one attachment carries asScript=true at
+      // creation (single default Timeline).
+      scriptKind: ScriptUploadKind;
+      asScript: boolean;
     }
   | { kind: "url"; id: string; url: string };
 
@@ -132,6 +147,8 @@ async function mapWithConcurrency<T>(
 interface LaunchContinuation {
   project: Awaited<ReturnType<typeof createProject>>;
   goal: string;
+  scriptAttachment: Extract<AttachmentDraft, { kind: "file" }> | null;
+  scriptIdempotencyKey: string;
   folderFiles: Extract<AttachmentDraft, { kind: "file" }>[];
   looseFiles: Extract<AttachmentDraft, { kind: "file" }>[];
   urlAttachments: Extract<AttachmentDraft, { kind: "url" }>[];
@@ -146,6 +163,8 @@ interface LaunchContinuation {
 async function continueLaunchInBackground({
   project,
   goal,
+  scriptAttachment,
+  scriptIdempotencyKey,
   folderFiles,
   looseFiles,
   urlAttachments,
@@ -154,11 +173,66 @@ async function continueLaunchInBackground({
   const progress = useLaunchUploadStore.getState();
   progress.begin(
     projectId,
-    folderFiles.length + looseFiles.length + urlAttachments.length,
+    folderFiles.length +
+      looseFiles.length +
+      urlAttachments.length +
+      (scriptAttachment ? 1 : 0),
   );
   const refs: string[] = [];
   const remoteContentParts: CreatorContentPart[] = [];
   try {
+    // Land a user-provided script directly on the default Timeline before the
+    // first Agent message: it becomes the selected timeline_script version
+    // without creating a ProjectSource, so it never enters material
+    // understanding and the Agent reuses it instead of re-drafting.
+    if (scriptAttachment) {
+      const scriptName = scriptAttachment.file.name;
+      useLaunchUploadStore.getState().fileStarted(projectId, scriptName);
+      try {
+        await importTimelineScript(
+          project.projectId,
+          DEFAULT_TIMELINE_ID,
+          { file: scriptAttachment.file },
+          scriptIdempotencyKey || undefined,
+        );
+        useLaunchUploadStore
+          .getState()
+          .fileFinished(projectId, scriptName, true);
+      } catch (error) {
+        // Never lose the user's file: warn and fall back to material ingest.
+        message.warning(
+          i18n.t("home.scriptImportAtLaunchFailed", {
+            detail: (error as Error).message,
+          }),
+        );
+        try {
+          const accepted = await ingestAssetFile(
+            project.projectId,
+            scriptAttachment.file,
+            "NONE",
+            { clientRequestId: newClientId("asset") },
+          );
+          const taskRefs = accepted.assetVersionId
+            ? [`asset-version:${accepted.assetVersionId}`]
+            : await waitForTask(project.projectId, accepted.taskId);
+          refs.push(...taskRefs);
+          useLaunchUploadStore
+            .getState()
+            .fileFinished(projectId, scriptName, true);
+        } catch (fallbackError) {
+          useLaunchUploadStore
+            .getState()
+            .fileFinished(projectId, scriptName, false);
+          message.warning(
+            i18n.t("lib.attachmentIngestFailed", {
+              name: scriptName,
+              detail: (fallbackError as Error).message,
+            }),
+          );
+        }
+      }
+    }
+
     if (folderFiles.length > 0) {
       const files = folderFiles.map((att) => att.file);
       try {
@@ -451,11 +525,12 @@ export function useProjectLaunch(options?: {
 
   const addFiles = useCallback(
     (files: FileList | File[], source: "file" | "folder" = "file") => {
-      if (stopOnOversizedFiles(Array.from(files))) {
+      const incoming = Array.from(files);
+      if (stopOnOversizedFiles(incoming)) {
         return;
       }
-      const drafts: AttachmentDraft[] = Array.from(files).map((file) => ({
-        kind: "file",
+      const drafts = incoming.map((file) => ({
+        kind: "file" as const,
         id: newClientId("att"),
         file,
         source,
@@ -464,8 +539,31 @@ export function useProjectLaunch(options?: {
             ? (file as File & { webkitRelativePath?: string })
                 .webkitRelativePath || file.name
             : undefined,
+        scriptKind: "none" as ScriptUploadKind,
+        asScript: false,
       }));
       setAttachments((prev) => [...prev, ...drafts]);
+      // Detect script-like files in the background and patch the chips in
+      // place. Media short-circuits to "none" without reading; text reads only
+      // the first screen. Detection just reveals the 剧本/素材 switch — the
+      // default stays 素材 (asScript=false), so a file is imported as a script
+      // only when the user explicitly opts in via its chip.
+      void Promise.all(
+        drafts.map(async (draft) => ({
+          id: draft.id,
+          detected: await detectScriptUpload(draft.file),
+        })),
+      ).then((results) => {
+        const detectedById = new Map(results.map((r) => [r.id, r.detected]));
+        setAttachments((prev) =>
+          prev.map((att) => {
+            if (att.kind !== "file") return att;
+            const detected = detectedById.get(att.id);
+            if (!detected || detected === "none") return att;
+            return { ...att, scriptKind: detected };
+          }),
+        );
+      });
     },
     [],
   );
@@ -487,6 +585,21 @@ export function useProjectLaunch(options?: {
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((att) => att.id !== id));
   };
+
+  // Flip a file between "import as script" and "understand as material".
+  // Marking one as script clears any other, so creation lands at most one
+  // script on the single default Timeline.
+  const toggleAttachmentScript = useCallback((id: string) => {
+    setAttachments((prev) => {
+      const target = prev.find((att) => att.id === id);
+      const next = !(target && target.kind === "file" && target.asScript);
+      return prev.map((att) => {
+        if (att.kind !== "file") return att;
+        if (att.id === id) return { ...att, asScript: next };
+        return next ? { ...att, asScript: false } : att;
+      });
+    });
+  }, []);
 
   const isVideoEdit = scenario === "video_edit";
   const hasMissingModels =
@@ -559,12 +672,20 @@ export function useProjectLaunch(options?: {
         (att): att is Extract<AttachmentDraft, { kind: "file" }> =>
           att.kind === "file",
       );
-      const folderFiles = fileAttachments.filter(
+      // A file the user marked as a script lands directly (no source ingest);
+      // everything else keeps the unchanged material-understanding path.
+      const scriptAttachment =
+        fileAttachments.find((att) => att.asScript) ?? null;
+      const scriptIdempotencyKey = scriptAttachment
+        ? requestIdFor(`script:${scriptAttachment.id}`)
+        : "";
+      const materialFiles = scriptAttachment
+        ? fileAttachments.filter((att) => att.id !== scriptAttachment.id)
+        : fileAttachments;
+      const folderFiles = materialFiles.filter(
         (att) => att.source === "folder",
       );
-      const looseFiles = fileAttachments.filter(
-        (att) => att.source !== "folder",
-      );
+      const looseFiles = materialFiles.filter((att) => att.source !== "folder");
       const committedUrlAttachments = attachments.filter(
         (att): att is Extract<AttachmentDraft, { kind: "url" }> =>
           att.kind === "url",
@@ -599,6 +720,8 @@ export function useProjectLaunch(options?: {
       void continueLaunchInBackground({
         project,
         goal: projectDescription.trim(),
+        scriptAttachment,
+        scriptIdempotencyKey,
         folderFiles,
         looseFiles,
         urlAttachments,
@@ -629,6 +752,7 @@ export function useProjectLaunch(options?: {
     addFiles,
     addUrl,
     removeAttachment,
+    toggleAttachmentScript,
     urlDraft,
     setUrlDraft,
     launching,
