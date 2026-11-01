@@ -18,6 +18,20 @@ EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_BODY_CHARS = 4000
 
 
+def report_tag_failures(response: Any) -> bool:
+    """Keep saved memory successful while making tag failures visible."""
+    metadata = getattr(response, "metadata", None)
+    auto_tag = metadata.get("auto_tag") if isinstance(metadata, dict) else None
+    failed = auto_tag.get("failed", 0) if isinstance(auto_tag, dict) else 0
+    if not isinstance(failed, int) or failed <= 0:
+        return False
+    warning = f"Warning: auto-tagging failed for {failed} file(s)."
+    answer = str(getattr(response, "answer", "") or "").strip()
+    if not answer.startswith(warning):
+        response.answer = f"{warning}\n\n{answer}".rstrip()
+    return True
+
+
 def is_successful_noop(name: str, response: Any) -> bool:
     """Return whether a successful job made no meaningful change."""
     if not bool(getattr(response, "success", False)):
@@ -83,6 +97,13 @@ def build_payload(
         "date": str(kwargs.get("date") or ""),
         "hint": str(kwargs.get("memory_hint") or kwargs.get("hint") or ""),
     }
+    auto_tag = metadata.get("auto_tag") if isinstance(metadata, dict) else None
+    if isinstance(auto_tag, dict):
+        payload["auto_tag"] = {
+            key: auto_tag[key]
+            for key in ("processed", "succeeded", "failed")
+            if key in auto_tag
+        }
     if name not in {"daily_paper", "auto_fin"}:
         return payload
     payload["topics"] = str(kwargs.get("topics") or "")
@@ -142,7 +163,8 @@ async def emit_job_result(
     metadata = getattr(response, "metadata", None)
     if isinstance(metadata, dict) and metadata.get(EMITTED_METADATA_KEY):
         return False
-    if is_successful_noop(name, response):
+    tag_failed = report_tag_failures(response)
+    if not tag_failed and is_successful_noop(name, response):
         logger.info(
             "ReMe inbox push skipped; successful no-op: agent_id=%s job=%s",
             agent_id,
@@ -154,6 +176,7 @@ async def emit_job_result(
     if len(answer) > MAX_BODY_CHARS:
         answer = f"{answer[:MAX_BODY_CHARS].rstrip()}\n..."
     success = bool(getattr(response, "success", False))
+    severity = "warning" if tag_failed else "info"
     try:
         event = await append_event(
             agent_id=agent_id,
@@ -161,7 +184,7 @@ async def emit_job_result(
             source_id=name,
             event_type=f"{name}_result",
             status="success" if success else "error",
-            severity="info" if success else "error",
+            severity=severity if success else "error",
             title=result_title(name),
             body=answer
             or (

@@ -12,7 +12,7 @@
  * Naming convention mirrors builtinMenu: `core.<key>`.
  */
 import { Suspense } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import i18next from "../../i18n";
 import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
 import { routeRegistry } from "../../plugins/registry/store";
@@ -70,7 +70,18 @@ function DefaultRedirect() {
 
 /** Synonym for /acp. Kept for plugins / external links that reference uppercase. */
 function ACPRedirect() {
-  return <Navigate to="/acp" replace />;
+  const location = useLocation();
+
+  return (
+    <Navigate
+      to={{
+        pathname: "/acp",
+        search: location.search,
+        hash: location.hash,
+      }}
+      replace
+    />
+  );
 }
 
 function routeMeta(
@@ -201,6 +212,7 @@ export const BUILTIN_ROUTES: Route[] = [
   {
     id: "core.acp",
     path: "/acp",
+    caseSensitive: true,
     component: ACPPage,
     meta: routeMeta("nav.acp", "ACP", "workspace", "agent"),
   },

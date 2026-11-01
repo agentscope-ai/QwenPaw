@@ -20,7 +20,7 @@ on:
         type: boolean
         default: false
       docker_node_image:
-        description: "Override Dockerfile NODE_IMAGE build-arg (for fork without ACR access)"
+        description: "Override Dockerfile NODE_IMAGE build-arg for a registry mirror"
         type: string
         default: ""
       docker_uv_image:
@@ -51,6 +51,13 @@ jobs:
             python-version: "3.11"
 
     steps:
+      - name: Checkout TLS bootstrap
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          sparse-checkout: src/qwenpaw/security
+          persist-credentials: false
+
       - name: Download dist artifacts
         uses: actions/download-artifact@v4
         with:
@@ -68,6 +75,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install wheel in clean venv
         shell: bash
         run: |
@@ -78,8 +91,8 @@ jobs:
             VENV_BIN="$(cd .verify-venv/bin && pwd)"
           fi
           source "$VENV_BIN/activate"
-          python -m pip install --upgrade pip
-          pip install dist/*.whl
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install dist/*.whl "certifi>=2026.10.19"
           echo "$VENV_BIN" >> "$GITHUB_PATH"
 
       - name: Read expected version
@@ -200,7 +213,7 @@ jobs:
           if [ -n "$DOCKER_UV_IMAGE" ]; then
             BUILD_ARGS="$BUILD_ARGS --build-arg UV_IMAGE=$DOCKER_UV_IMAGE"
           fi
-          docker build \
+          docker build --pull --no-cache \
             -f deploy/Dockerfile \
             -t qwenpaw-verify:test \
             --build-arg \
@@ -287,7 +300,7 @@ jobs:
       - name: Set up Node.js (for console build during from-source install)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 

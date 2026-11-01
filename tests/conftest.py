@@ -22,6 +22,9 @@ import pytest
 
 from qwenpaw.providers import provider_manager as _provider_manager_module
 
+# Fixture data is loaded explicitly by tests, never collected as a suite.
+collect_ignore = ["fixtures"]
+
 
 @pytest.fixture(autouse=True)
 def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -466,3 +469,24 @@ def isolated_secret_dir(monkeypatch, tmp_path):
         None,
     )
     return secret_dir
+
+
+@pytest.fixture
+def mock_typesafe(monkeypatch):
+    """Route TypeSafe SDK clients created by agentscope to a handler."""
+    import httpx2
+    import typesafe_sdk
+
+    def install(handler):
+        original_client = typesafe_sdk.AsyncTypeSafeClient
+        monkeypatch.setattr(
+            typesafe_sdk,
+            "AsyncTypeSafeClient",
+            lambda **kwargs: original_client(
+                transport=httpx2.MockTransport(handler),
+                compression=False,
+                **kwargs,
+            ),
+        )
+
+    return install

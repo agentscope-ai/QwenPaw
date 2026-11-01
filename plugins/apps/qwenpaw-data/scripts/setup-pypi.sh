@@ -23,10 +23,10 @@ fi
 
 echo "==> Installing qwenpaw-data runtime packages with $PYTHON_BIN"
 "$PYTHON_BIN" -m pip install --upgrade \
-  "qwenpaw-data-context>=0.3,<0.4" \
-  "qwenpaw-data-host-core[service]>=0.3,<0.4" \
-  "qwenpaw-data-cli>=0.3,<0.4" \
-  "qwenpaw-data-skills>=0.3,<0.4"
+  "qwenpaw-data-context>=0.3.3,<0.4" \
+  "qwenpaw-data-host-core[service]>=0.3.3,<0.4" \
+  "qwenpaw-data-cli>=0.3.3,<0.4" \
+  "qwenpaw-data-skills>=0.3.3,<0.4"
 
 echo ""
 echo "==> Installed versions:"

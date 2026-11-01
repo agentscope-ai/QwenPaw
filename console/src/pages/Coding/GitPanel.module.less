@@ -1,3 +1,5 @@
+@import (reference) "../../styles/controlIcons.less";
+
 .panel {
   display: flex;
   flex-direction: column;
@@ -247,20 +249,7 @@
 
 // ---- Shared utilities ----------------------------------------------------
 .iconBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 3px;
-  color: var(--app-text-secondary);
-  padding: 0;
-  transition:
-    background 0.1s,
-    color 0.1s;
+  .icon-action(20px; 3px; 0.1s);
   flex-shrink: 0;
 
   &:hover {

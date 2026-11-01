@@ -1,9 +1,9 @@
 .card {
   cursor: pointer;
-  padding: 20px;
+  padding: var(--app-space-5);
   height: 100%;
   border: 1px solid var(--app-border-subtle);
-  border-radius: 20px;
+  border-radius: var(--app-radius-card);
   background: var(--app-surface);
   --reflection-highlight: var(--app-accent-faint);
   --reflection-silver: transparent;
@@ -12,7 +12,7 @@
 .heading {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--app-space-2);
   h3 {
     flex: 1;
     min-width: 0;
@@ -31,9 +31,9 @@
     cursor: pointer;
   }
   button:focus-visible {
-    outline: 2px solid var(--app-focus-ring);
-    outline-offset: 4px;
-    border-radius: 4px;
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
+    border-radius: var(--app-space-1);
   }
 }
 .metadata {
@@ -41,27 +41,45 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0 16px;
+  gap: var(--app-space-2);
+  margin: var(--app-space-3) 0 var(--app-space-4);
   font-size: 12px;
   color: var(--app-text-secondary);
   overflow-wrap: anywhere;
 }
 .actions {
   border-top: 1px solid var(--app-border-subtle);
-  padding-top: 12px;
+  padding-top: var(--app-space-3);
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--app-space-2);
   > button {
-    margin-left: -8px;
+    margin-left: calc(-1 * var(--app-space-2));
   }
 }
 .trailing {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--app-space-2);
+}
+
+@media (max-width: 768px) {
+  .heading h3 button,
+  .actions > button,
+  .trailing > button:not(:global(.ant-switch)):not(:global(.qwenpaw-switch)) {
+    min-height: var(--app-hit-touch);
+  }
+
+  .heading h3 button {
+    display: inline-flex;
+    align-items: center;
+    min-width: var(--app-hit-touch);
+  }
+
+  .trailing > button:not(:global(.ant-switch)):not(:global(.qwenpaw-switch)) {
+    min-width: var(--app-hit-touch);
+  }
 }

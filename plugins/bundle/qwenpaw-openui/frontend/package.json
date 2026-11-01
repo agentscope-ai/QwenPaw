@@ -1,0 +1,33 @@
+{
+  "name": "qwenpaw-openui-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "test": "npm run build && vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openuidev/react-headless": "0.18.0",
+    "@openuidev/react-lang": "1.0.0",
+    "@openuidev/react-ui": "0.18.0",
+    "zod": "3.25.76",
+    "zustand": "4.5.7"
+  },
+  "devDependencies": {
+    "@testing-library/react": "16.3.2",
+    "@types/react": "18.3.27",
+    "@types/react-dom": "18.3.7",
+    "esbuild": "0.25.12",
+    "jsdom": "29.0.2",
+    "postcss": "8.5.6",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "5.8.3",
+    "vitest": "4.1.6"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+  }
+}

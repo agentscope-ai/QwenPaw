@@ -1,0 +1,201 @@
+{
+  "schema_version": 2,
+  "channel_key": "voice",
+  "label": {
+    "en": "Voice",
+    "zh": "语音"
+  },
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {
+    "scope": "runner",
+    "module": "qwenpaw_channel_voice.driver",
+    "qualname": "VoiceDriver"
+  },
+  "requirements_file": "requirements.txt",
+  "config_schema": {
+    "type": "object",
+    "title": "VoiceChannelConfig",
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "bot_prefix": {
+        "default": "",
+        "title": "Bot Prefix",
+        "type": "string"
+      },
+      "show_tool_calls": {
+        "default": true,
+        "title": "Show Tool Calls",
+        "type": "boolean"
+      },
+      "show_tool_results": {
+        "default": true,
+        "title": "Show Tool Results",
+        "type": "boolean"
+      },
+      "tool_call_max_length": {
+        "default": 200,
+        "minimum": 0,
+        "title": "Tool Call Max Length",
+        "type": "integer"
+      },
+      "tool_result_max_length": {
+        "default": 500,
+        "minimum": 0,
+        "title": "Tool Result Max Length",
+        "type": "integer"
+      },
+      "show_thinking": {
+        "default": true,
+        "title": "Show Thinking",
+        "type": "boolean"
+      },
+      "dm_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Dm Policy",
+        "type": "string"
+      },
+      "group_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Group Policy",
+        "type": "string"
+      },
+      "allow_from": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Allow From",
+        "type": "array",
+        "default": []
+      },
+      "deny_message": {
+        "default": "",
+        "title": "Deny Message",
+        "type": "string"
+      },
+      "require_mention": {
+        "default": false,
+        "title": "Require Mention",
+        "type": "boolean"
+      },
+      "no_text_debounce": {
+        "default": true,
+        "title": "No Text Debounce",
+        "type": "boolean"
+      },
+      "access_control_dm": {
+        "default": false,
+        "title": "Access Control Dm",
+        "type": "boolean"
+      },
+      "access_control_group": {
+        "default": false,
+        "title": "Access Control Group",
+        "type": "boolean"
+      },
+      "dm_disabled": {
+        "default": false,
+        "title": "Dm Disabled",
+        "type": "boolean"
+      },
+      "group_disabled": {
+        "default": false,
+        "title": "Group Disabled",
+        "type": "boolean"
+      },
+      "twilio_account_sid": {
+        "default": "",
+        "title": "Twilio Account Sid",
+        "type": "string"
+      },
+      "twilio_auth_token": {
+        "default": "",
+        "title": "Twilio Auth Token",
+        "type": "string"
+      },
+      "phone_number": {
+        "default": "",
+        "title": "Phone Number",
+        "type": "string"
+      },
+      "phone_number_sid": {
+        "default": "",
+        "title": "Phone Number Sid",
+        "type": "string"
+      },
+      "tts_provider": {
+        "default": "google",
+        "title": "Tts Provider",
+        "type": "string"
+      },
+      "tts_voice": {
+        "default": "en-US-Journey-D",
+        "title": "Tts Voice",
+        "type": "string"
+      },
+      "stt_provider": {
+        "default": "deepgram",
+        "title": "Stt Provider",
+        "type": "string"
+      },
+      "language": {
+        "default": "en-US",
+        "title": "Language",
+        "type": "string"
+      },
+      "welcome_greeting": {
+        "default": "Hi! This is QwenPaw. How can I help you?",
+        "title": "Welcome Greeting",
+        "type": "string"
+      }
+    }
+  },
+  "config_fields": [
+    "enabled",
+    "bot_prefix",
+    "show_tool_calls",
+    "show_tool_results",
+    "tool_call_max_length",
+    "tool_result_max_length",
+    "show_thinking",
+    "dm_policy",
+    "group_policy",
+    "allow_from",
+    "deny_message",
+    "require_mention",
+    "no_text_debounce",
+    "access_control_dm",
+    "access_control_group",
+    "dm_disabled",
+    "group_disabled",
+    "twilio_account_sid",
+    "twilio_auth_token",
+    "phone_number",
+    "phone_number_sid",
+    "tts_provider",
+    "tts_voice",
+    "stt_provider",
+    "language",
+    "welcome_greeting"
+  ],
+  "capabilities": [
+    "channel.generic.v1",
+    "event.unknown_actor.v1",
+    "ingress_endpoint",
+    "send.content_source.v1",
+    "send.raw_completed_text.v1",
+    "send.semantic_parts.v1"
+  ]
+}

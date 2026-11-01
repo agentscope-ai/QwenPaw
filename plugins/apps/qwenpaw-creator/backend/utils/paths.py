@@ -122,6 +122,15 @@ def task_work_root(task_id: str | None = None) -> Path:
             project_root / "runtime",
             label="Project runtime",
         )
+        # Baseline the scratch sweep at allocation, not at Project creation:
+        # an archive import or an example install never goes through
+        # ProjectStore.create, so only this choke point guarantees that a
+        # Project with scratch also has a baseline earlier than any Task it
+        # writes.  Stamping here is idempotent and keeps pre-existing history
+        # protected, because those tasks predate this moment.
+        from services.media_files.task_scratch import stamp_scratch_baseline
+
+        stamp_scratch_baseline(project_root)
         task_work = _ensure_real_child(
             runtime_root,
             "task-work",

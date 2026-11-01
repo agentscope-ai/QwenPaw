@@ -9,8 +9,9 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 import pytest
 
-from qwenpaw.app.channels.matrix import channel as matrix_module
-from qwenpaw.app.channels.matrix.channel import MatrixChannel
+from tests.channel_support.driver import module
+
+MatrixPlatform = module("matrix", "platform").MatrixPlatform
 
 
 USER_ID = "@bot:example.com"
@@ -23,10 +24,13 @@ async def unused_process(*_args, **_kwargs):
     raise AssertionError("No agent message expected")
 
 
+async def unused_state(_state):
+    """Accept connection state notifications."""
+
+
 @pytest.fixture
-async def matrix_homeserver(tmp_path, monkeypatch):
+async def matrix_homeserver():
     """Run a strict local homeserver and isolate persisted Matrix state."""
-    monkeypatch.setattr(matrix_module, "WORKING_DIR", tmp_path)
     requests = []
 
     async def whoami(request):
@@ -86,18 +90,21 @@ async def test_pasted_credentials_start_real_matrix_client(
     user_id,
     access_token,
     padded_server,
+    tmp_path,
 ):
     """Pasted whitespace must not change authentication or owner checks."""
     homeserver, requests = matrix_homeserver
-    channel = MatrixChannel.from_config(
-        process=unused_process,
-        config={
+    channel = MatrixPlatform(
+        {
+            "workspace_dir": str(tmp_path),
             "homeserver": f" {homeserver}/// \t"
             if padded_server
             else homeserver,
             "user_id": user_id,
             "access_token": access_token,
         },
+        unused_process,
+        unused_state,
     )
     try:
         await asyncio.wait_for(channel.start(), timeout=5)
@@ -118,17 +125,23 @@ async def test_invalid_credentials_are_still_rejected(
     matrix_homeserver,
     user_id,
     access_token,
+    tmp_path,
 ):
     """Boundary cleanup must preserve token and account identity checks."""
     homeserver, requests = matrix_homeserver
-    channel = MatrixChannel(
-        process=unused_process,
-        homeserver=homeserver,
-        matrix_user_id=user_id,
-        access_token=access_token,
+    channel = MatrixPlatform(
+        {
+            "workspace_dir": str(tmp_path),
+            "homeserver": homeserver,
+            "user_id": user_id,
+            "access_token": access_token,
+        },
+        unused_process,
+        unused_state,
     )
     try:
-        await asyncio.wait_for(channel.start(), timeout=5)
+        with pytest.raises(RuntimeError, match="MATRIX_AUTHENTICATION_FAILED"):
+            await asyncio.wait_for(channel.start(), timeout=5)
         assert requests == [f"Bearer {access_token}"]
         assert channel._user_id is None
         assert channel._sync_task is None
@@ -136,35 +149,22 @@ async def test_invalid_credentials_are_still_rejected(
         await channel.stop()
 
 
-async def test_password_whitespace_is_preserved(matrix_homeserver):
+async def test_password_whitespace_is_preserved(matrix_homeserver, tmp_path):
     """A password's surrounding spaces remain part of the secret."""
     homeserver, requests = matrix_homeserver
-    channel = MatrixChannel.from_config(
-        process=unused_process,
-        config={
+    channel = MatrixPlatform(
+        {
+            "workspace_dir": str(tmp_path),
             "homeserver": homeserver,
             "user_id": f" {USER_ID} ",
             "password": PASSWORD,
         },
+        unused_process,
+        unused_state,
     )
     try:
         await asyncio.wait_for(channel.start(), timeout=5)
         assert requests[0]["password"] == PASSWORD
-        assert channel._user_id == USER_ID
-        assert channel._sync_task is not None
-    finally:
-        await channel.stop()
-
-
-async def test_pasted_environment_token(matrix_homeserver, monkeypatch):
-    """Environment credentials share the constructor's input boundary."""
-    homeserver, requests = matrix_homeserver
-    monkeypatch.setenv("HICLAW_MATRIX_SERVER", f" {homeserver}/ ")
-    monkeypatch.setenv("HICLAW_MATRIX_TOKEN", f" {ACCESS_TOKEN} ")
-    channel = MatrixChannel.from_env(process=unused_process)
-    try:
-        await asyncio.wait_for(channel.start(), timeout=5)
-        assert requests == [f"Bearer {ACCESS_TOKEN}"]
         assert channel._user_id == USER_ID
         assert channel._sync_task is not None
     finally:

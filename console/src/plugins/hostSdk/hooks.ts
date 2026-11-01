@@ -11,6 +11,7 @@ import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { useTheme as useThemeCtx } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import sessionApi from "../../pages/Chat/sessionApi";
+import { stripRouterBasename } from "../../utils/navigationMode";
 import { getSessionIdFromPath } from "../../utils/sessionRoute";
 import { getPawAppIdFromPath } from "../pawapp-sdk/context";
 
@@ -48,7 +49,9 @@ export function getSelectedAgentId(): string {
 
 export function getCurrentSessionId(): string | null {
   if (typeof window === "undefined") return null;
-  const routeChatId = getSessionIdFromPath(window.location.pathname);
+  const routeChatId = getSessionIdFromPath(
+    stripRouterBasename(window.location.pathname),
+  );
   if (routeChatId) {
     return sessionApi.getSessionIdentity(routeChatId).sessionId || null;
   }

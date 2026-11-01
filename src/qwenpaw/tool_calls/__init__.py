@@ -5,6 +5,7 @@ from ._context import (
     CancelReason,
     OffloadReason,
     ToolCallContext,
+    cancellation_reason,
     format_cancel_message,
 )
 from ._coordinator import ToolCoordinator
@@ -37,6 +38,7 @@ __all__ = [
     "ToolStream",
     "arm_kill_deadline",
     "cancellable_wait",
+    "cancellation_reason",
     "effective_timeout",
     "format_cancel_message",
     "get_call_context",

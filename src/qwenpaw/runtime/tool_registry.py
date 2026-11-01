@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+from .occupancy import occupancy_conflict
+
 
 @dataclass(frozen=True)
 class ToolGovernanceSpec:
@@ -84,6 +86,7 @@ class ToolDescriptor:
         default_factory=ToolGovernanceSpec,
     )
     ui: ToolUISpec = field(default_factory=ToolUISpec)
+    owner_plugin_id: str = ""
 
 
 class ToolRegistry:
@@ -100,16 +103,29 @@ class ToolRegistry:
                 f" got {type(desc).__name__}",
             )
         if desc.name in self._descs:
-            raise ValueError(f"tool {desc.name!r} already registered")
+            existing = self._descs[desc.name]
+            raise ValueError(
+                occupancy_conflict(
+                    "tool",
+                    desc.name,
+                    getattr(existing, "owner_plugin_id", "") or "",
+                ),
+            )
         self._descs[desc.name] = desc
 
     def register_many(self, descs: Iterable[ToolDescriptor]) -> None:
         for d in descs:
             self.register(d)
 
-    def unregister(self, name: str) -> bool:
-        """Remove a tool by name. Returns ``True`` if it was present."""
-        return self._descs.pop(name, None) is not None
+    def unregister(self, name: str, expected: Any = None) -> bool:
+        """Remove a tool only if *expected* still occupies the row."""
+        current = self._descs.get(name)
+        if current is None:
+            return False
+        if expected is not None and current is not expected:
+            return False
+        self._descs.pop(name, None)
+        return True
 
     def get(self, name: str) -> ToolDescriptor | None:
         return self._descs.get(name)
