@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Consistency guards for built-in channel shape declarations.
+"""Consistency guards for legacy channel shape declarations.
 
-A built-in channel is declared in more than one place, and those places
-must stay in sync.  ``ChannelConfig`` is the source of truth for the
-config shape (this is what doctor already walks), while the registry
-and the API layer keep their own lists.
+``ChannelConfig`` retains legacy config shapes while official channels
+move to plugins. Its fields must have built-in or official owners; new
+plugin-only channels need not add legacy config fields. The union and
+API layer must still cover every declared legacy shape.
 
-These tests fail loudly when a newly added channel is missing from one
-of those lists.  That drift is what made ``GET`` on a single channel
+These tests fail loudly when a declared legacy shape is missing from
+one of those lists. That drift is what made ``GET`` on a single channel
 answer with an unrelated channel's fields for ``onebot``, and what let
 ``PUT`` write an unvalidated dict to disk.
 """
@@ -20,6 +20,7 @@ from typing import get_args
 from qwenpaw.app.channels.registry import _BUILTIN_SPECS
 from qwenpaw.app.routers.config import _channel_config_class
 from qwenpaw.config.config import ChannelConfig, ChannelConfigUnion
+from qwenpaw.plugins.official_channel_catalog import official_channel_owners
 
 
 def _declared_config_classes() -> set[type]:
@@ -28,8 +29,13 @@ def _declared_config_classes() -> set[type]:
 
 
 def test_builtin_specs_match_channel_config_fields() -> None:
-    """Every built-in channel implementation has a config field."""
-    assert set(_BUILTIN_SPECS) == set(ChannelConfig.model_fields)
+    """Legacy fields have owners; every built-in keeps its config shape."""
+    builtin = set(_BUILTIN_SPECS)
+    official = set(official_channel_owners())
+    legacy = set(ChannelConfig.model_fields)
+    assert builtin.isdisjoint(official)
+    assert builtin <= legacy
+    assert legacy <= builtin | official
 
 
 def test_channel_config_union_covers_every_builtin_channel() -> None:
@@ -40,7 +46,7 @@ def test_channel_config_union_covers_every_builtin_channel() -> None:
     falls back to coercing it into another member, silently dropping
     the channel's own fields.
     """
-    assert set(get_args(ChannelConfigUnion)) == _declared_config_classes()
+    assert _declared_config_classes() <= set(get_args(ChannelConfigUnion))
 
 
 def test_channel_config_class_resolves_every_builtin_channel() -> None:

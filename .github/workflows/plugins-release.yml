@@ -79,6 +79,9 @@ jobs:
             npm --prefix "$frontend_dir" run build
           done
 
+      - name: Install channel contract preflight dependencies
+        run: python -m pip install -r scripts/pack/channel-contract-requirements.txt
+
       - name: Pack plugins and build index
         # qwenpaw-creator and qwenpaw-data are released through their own
         # version-driven pipelines (creator-release.yml,

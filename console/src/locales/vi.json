@@ -62,13 +62,26 @@
     "cliAuthenticated": "{{type}} CLI đã xác thực"
   },
   "desktop": {
+    "update": {
+      "title": "Cập nhật QwenPaw?",
+      "otherWindows": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_one": "Còn {{count}} cửa sổ khác đang mở.",
+      "otherWindows_other": "Còn {{count}} cửa sổ khác đang mở.",
+      "description": "Cập nhật sẽ đóng tất cả cửa sổ QwenPaw và ngắt các tác vụ đang chạy.",
+      "confirm": "Đóng và cập nhật",
+      "preparing": "Đang đóng cửa sổ…"
+    },
     "closeWindow": {
-      "title": "Đóng cửa sổ",
-      "description": "Bạn muốn thực hiện thao tác nào khi đóng cửa sổ? Thoát ứng dụng sẽ dừng tất cả tác vụ đang chạy và tác vụ đã lên lịch.",
+      "title": "Đóng QwenPaw?",
+      "description": "Tiếp tục chạy nền để duy trì tác vụ. Thoát hoàn toàn sẽ kết thúc các tác vụ đang chạy.",
       "remember": "Ghi nhớ lựa chọn của tôi",
       "showWindow": "Hiển thị cửa sổ",
       "minimizeToTray": "Thu nhỏ xuống khay hệ thống",
       "quitApp": "Thoát ứng dụng",
+      "keepRunning": "Tiếp tục chạy nền",
+      "quitting": "Đang thoát…",
+      "stopService": "Thoát hoàn toàn",
+      "stopBlocked": "QwenPaw vẫn đang được sử dụng trong cửa sổ hoặc ứng dụng khác. Hãy đóng chúng trước khi thoát hoàn toàn.",
       "preference": "Đóng cửa sổ",
       "askEveryTime": "Hỏi mỗi lần"
     }
@@ -1321,6 +1334,8 @@
     "from": "Từ:",
     "requestedBy": "Bởi",
     "markRead": "Đánh dấu đã đọc",
+    "unreadOnly": "Chỉ hiện chưa đọc",
+    "emptyUnread": "Không có tin nhắn chưa đọc phù hợp với bộ lọc hiện tại",
     "markAllRead": "Đánh dấu tất cả đã đọc",
     "markAllReadNoUnread": "Không có tin nhắn chưa đọc",
     "markAllReadSuccess": "Đã đánh dấu {{count}} tin nhắn đã đọc",
@@ -1983,10 +1998,6 @@
         "name": "Tìm tệp",
         "description": "Tìm tệp theo tên hoặc mẫu đường dẫn."
       },
-      "ast_search": {
-        "name": "Tìm cấu trúc mã",
-        "description": "Tìm mẫu mã dựa trên cú pháp."
-      },
       "desktop_screenshot": {
         "name": "Chụp màn hình",
         "description": "Chụp màn hình máy tính để tác tử kiểm tra."
@@ -2221,7 +2232,15 @@
     "currentModelProtected": "Switch the current model before removing it",
     "addToSelector": "Add to selector",
     "removeFromSelector": "Remove from selector",
-    "searchCandidates": "Search candidate models..."
+    "searchCandidates": "Search candidate models...",
+    "oauthTitle": "Kết nối {{provider}}",
+    "oauthDescription": "Một cửa sổ trình duyệt sẽ mở để cấp quyền truy cập {{provider}}. Khóa API sẽ được lưu tự động.",
+    "oauthContinue": "Tiếp tục",
+    "oauthWaiting": "Đang chờ cấp quyền…",
+    "oauthWaitingDescription": "Vui lòng hoàn tất cấp quyền trong trình duyệt.",
+    "oauthConnected": "Đã kết nối {{provider}}",
+    "oauthFailed": "Cấp quyền thất bại, vui lòng thử lại",
+    "oauthTimeout": "Đã hết thời gian cấp quyền, vui lòng thử lại"
   },
   "modelConfig": {
     "title": "Cấu hình mô hình",
@@ -2292,6 +2311,9 @@
     "acknowledge": "Đã Hiểu"
   },
   "preview": {
+    "unavailable": "Không thể xem trước",
+    "showDetails": "Xem nguyên nhân",
+    "hideDetails": "Ẩn chi tiết",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "File bị chặn bởi File Guard (bảo vệ file nhạy cảm).",
       "OUTSIDE_WORKSPACE": "File nằm ngoài phạm vi workspace. Bật \"Cho phép xem trước ngoài Workspace\" trong Cài đặt → Bảo mật → File Guard.",
@@ -2500,9 +2522,6 @@
     "changeProjectDirectory": "Quản lý",
     "manageDefaultFolders": "Workspace mặc định",
     "projectDirectoryWorkspaceFallback": "Đang dùng thư mục cấu hình Agent",
-    "enhancedCodeCapability": "Tăng cường khả năng lập trình",
-    "enhancedCodeCapabilityTooltip": "Thêm công cụ mã mà không đổi thư mục dự án.",
-    "enhancedCodeCapabilityDescription": "Bật AST, LSP, prompt mã, ngữ cảnh Git và quản lý mã nguồn.",
     "description": "Cấu hình các tham số runtime của agent",
     "visualCompactCollapseLabel": "Nén trực quan",
     "visualCompactDescription": "Chuyển lịch sử hội thoại cũ thành ảnh để tiết kiệm token. Chỉ dẫn hệ thống và hội thoại gần đây vẫn là văn bản.",
@@ -3006,6 +3025,8 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "connect": "Xác thực OAuth",
+    "settings": "Cài đặt",
     "disableBtn": "Vô hiệu hóa",
     "llmConfiguration": "Cấu hình LLM",
     "providersTitle": "Nhà cung cấp",
@@ -3146,7 +3167,28 @@
       "free": "Free"
     },
     "manageModels": "Quản lý mô hình",
-    "localRuntimeSectionTitle": "Môi trường chạy mô hình cục bộ"
+    "localRuntimeSectionTitle": "Môi trường chạy mô hình cục bộ",
+    "chatgpt": {
+      "contextHelp": "Giới hạn tài khoản: {{maximum}} token; ngân sách phiên mặc định: {{default}} token.",
+      "localHelp": "Do chính sách OpenAI và yêu cầu gọi lại OAuth cục bộ, QwenPaw và trình duyệt phải chạy trên cùng một máy tính.",
+      "account": "Tài khoản ChatGPT",
+      "connected": "Đã kết nối gói ChatGPT",
+      "disconnected": "Chưa kết nối",
+      "permissionMissing": "Chưa cấp quyền sử dụng gói",
+      "failed": "Đăng nhập chưa hoàn tất. Vui lòng thử lại.",
+      "usage": "Quản lý mức sử dụng",
+      "reconnect": "Đăng nhập lại",
+      "changeAccount": "Đổi tài khoản",
+      "accountActions": "Thao tác tài khoản ChatGPT",
+      "connectedShort": "Đã kết nối",
+      "signOut": "Đăng xuất",
+      "revokeWarning": "Đã đăng xuất cục bộ. Chưa xác nhận việc thu hồi quyền; hãy ngắt kết nối QwenPaw trong cài đặt ChatGPT.",
+      "modelHelp": "Mô hình được lấy từ tài khoản ChatGPT hiện tại. Mức sử dụng được tính vào hạn mức gói hoặc tín dụng. Cách truy cập này không hỗ trợ cài đặt lấy mẫu và giới hạn token đầu ra.",
+      "oauthDescription": "Trình duyệt sẽ mở để cấp quyền sử dụng gói ChatGPT của bạn. Quay lại QwenPaw khi hoàn tất."
+    },
+    "providerVariants": {
+      "chatgpt": "Gói ChatGPT"
+    }
   },
   "security": {
     "parent": "Cài đặt",
@@ -3211,6 +3253,10 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
+    "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
+    "runtime": {
+      "missing_code": "Chưa cài đặt plugin"
+    },
     "title": "Kênh",
     "description": "Quản lý và cấu hình các kênh nhắn tin",
     "loading": "Đang tải kênh...",

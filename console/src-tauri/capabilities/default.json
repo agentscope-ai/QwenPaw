@@ -3,9 +3,6 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": ["main"],
-  "remote": {
-    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
-  },
   "permissions": [
     "backend",
     "backend-download",

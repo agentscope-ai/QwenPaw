@@ -1,3 +1,5 @@
+@import (reference) "../../styles/controlIcons.less";
+
 .modal {
   :global(.ant-modal-close),
   :global(.qwenpaw-modal-close) {
@@ -18,16 +20,7 @@
     border-radius: var(--app-radius-panel);
     overflow: hidden;
   }
-  :global(.ant-btn-icon),
-  :global(.qwenpaw-btn-icon) {
-    display: inline-flex;
-    align-items: center;
-    > svg {
-      width: 16px;
-      height: 16px;
-      flex: 0 0 16px;
-    }
-  }
+  .button-icon-alignment();
 }
 
 @media (any-pointer: coarse) {

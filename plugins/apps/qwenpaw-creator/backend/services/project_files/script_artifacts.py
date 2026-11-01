@@ -46,12 +46,20 @@ def script_file_relative_uri(file_id: str) -> str:
     return PurePosixPath("assets", "artifacts", f"{file_id}.md").as_posix()
 
 
-def script_version_id(timeline_id: str, checksum: str) -> str:
-    """内容寻址的版本 ID：同一 timeline 的同一内容不会重复建版本。"""
+def script_version_id(project_id: str, timeline_id: str, checksum: str) -> str:
+    """内容寻址的版本 ID：同一 Project 同一 timeline 的同一内容不会重复建版本。
+
+    版本 ID 必须带 ``project_id`` 作用域：媒体读取路由
+    ``/media/artifacts/{version_id}`` 跨所有 Project 扫描并要求唯一命中，若只
+    按 timeline+内容寻址，两个 Project 把同一剧本导入 ``timeline:main`` 会得到
+    相同 version_id，触发 ``StorageIntegrityError`` → HTTP 503。与同模块已按
+    Project 作用域的 ``script_import_file_id`` 保持一致。
+    """
 
     digest = uuid5(
         NAMESPACE_URL,
-        f"qwenpaw-creator:timeline-script:{timeline_id}:{checksum}",
+        "qwenpaw-creator:timeline-script:"
+        f"{project_id}:{timeline_id}:{checksum}",
     ).hex
     return f"artifact-script-{digest}"
 
@@ -101,7 +109,7 @@ def add_script_version(
     """
 
     slot_id = ensure_timeline_script_slot(project, timeline_id)
-    version_id = script_version_id(timeline_id, checksum)
+    version_id = script_version_id(project.project_id, timeline_id, checksum)
     existing = project.assets.artifact_versions_by_id.get(version_id)
     slot = project.assets.artifact_slots_by_id.get(slot_id)
     if existing is not None and slot is not None:

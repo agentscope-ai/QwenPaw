@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from functools import partial
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from ..providers.model_selection import request_model_override
 from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
@@ -172,7 +174,18 @@ class AgentBuilder:
 
         # Final pass: cover workspace + extras + memory in one filter.
         tools = self.apply_subagent_tool_whitelist(tools, request_context)
+        coding = agent_config.coding_mode.enabled
         tools.sort(key=self._tool_name)
+        make_toolkit = partial(Toolkit, tools=tools)
+        if coding:
+            from ..modes.coding.code_mode import build_code_mode_toolkit
+
+            make_toolkit = partial(
+                build_code_mode_toolkit,
+                tools=tools,
+                governor=governor,
+                request_context=request_context,
+            )
 
         skills = await run_sync_io(
             self._load_runtime_skills,
@@ -181,7 +194,7 @@ class AgentBuilder:
             tools,
         )
         if ctx is None:
-            return Toolkit(tools=tools, skills_or_loaders=skills)
+            return make_toolkit(skills_or_loaders=skills)
 
         from ..agents.skill_system import (
             get_workspace_skills_dir,
@@ -216,7 +229,7 @@ class AgentBuilder:
             if skill.name not in preloaded_skills
         ]
         ctx.extras["preloaded_skills"] = list(preloaded_skills.values())
-        return Toolkit(tools=tools, skills_or_loaders=viewer_skills)
+        return make_toolkit(skills_or_loaders=viewer_skills)
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
@@ -347,6 +360,9 @@ class AgentBuilder:
             agent_config,
             request_context,
         )
+        if request_context.get(f"coding_mode") is True:
+            agent_config = agent_config.model_copy(deep=True)
+            agent_config.coding_mode.enabled = True
         agent_config = await apply_session_thinking(ctx, agent_config)
         ctx.agent_config = agent_config
 
@@ -424,20 +440,11 @@ class AgentBuilder:
             local_ws.set_governor(governor)
 
         # Toolkit.
-        extra_tools = self._collect_coding_mode_tools(
+        extra_tools = self._collect_context_recall_tools(
             agent_config,
-            workspace_dir,
             agent_id,
             request_context,
             governor,
-        )
-        extra_tools.extend(
-            self._collect_context_recall_tools(
-                agent_config,
-                agent_id,
-                request_context,
-                governor,
-            ),
         )
         (
             driver_tools,
@@ -453,9 +460,7 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model_slot_override = getattr(ctx.request, "model_slot_override", None)
-        if model_slot_override is None:
-            model_slot_override = request_context.get("model_slot_override")
+        model_slot_override = request_model_override(ctx.request)
         model, _formatter = await run_sync_io(
             self.build_model,
             agent_config,
@@ -494,6 +499,7 @@ class AgentBuilder:
                 "allow_unsandboxed is off) — falling back to native context "
                 "management so evicted history stays accessible",
             )
+            await run_sync_io(scroll.context_manager.close)
             scroll = None
         if scroll is not None:
             self._append_scroll_recall_tools(
@@ -566,6 +572,15 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+
+        if agent_config.coding_mode.enabled:
+            code_tool = await toolkit.get_tool("run_code")
+            code_tool.check_permission = (
+                agent._check_permission  # pylint: disable=protected-access
+            )
+            code_tool.acting = (
+                agent._acting  # pylint: disable=protected-access
+            )
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
@@ -916,9 +931,19 @@ class AgentBuilder:
             or os.environ.get("SHELL")
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
-        _model_name = (getattr(ctx, f"extras", None) or {}).get(
+        _extras = getattr(ctx, "extras", None) or {}
+        _model_name = _extras.get(
             f"active_model_display_name",
         )
+        if "active_model_display_name" not in _extras:
+            # Standalone commands rebuild prompts without building a model.
+            # A built model's absent name is authoritative, and managed IDs
+            # are internal routing keys rather than public model identities.
+            from ..providers.hub_managed import PROVIDER_ID
+
+            slot = getattr(agent_config, "active_model", None)
+            if slot is not None and slot.provider_id != PROVIDER_ID:
+                _model_name = slot.model
         return build_env_context(
             agent_id=getattr(agent_config, "id", None),
             session_id=getattr(ctx, "session_id", ""),
@@ -929,24 +954,6 @@ class AgentBuilder:
             default_shell=_default_shell,
             project_dir=_project_dir,
             active_model_name=_model_name,
-        )
-
-    @staticmethod
-    def _collect_coding_mode_tools(
-        agent_config: Any,
-        workspace_dir: Any,
-        agent_id: str,
-        request_context: dict[str, Any],
-        governor: Any = None,
-    ) -> list[Any]:
-        from ..modes.coding import collect_coding_tools
-
-        return collect_coding_tools(
-            agent_config,
-            workspace_dir,
-            agent_id=agent_id,
-            request_context=request_context,
-            governor=governor,
         )
 
     @staticmethod
@@ -1107,6 +1114,7 @@ class AgentBuilder:
             session_id=session_id,
             agent_id=agent_id,
             offloader=offloader,
+            history_store=getattr(workspace, "history_store", None),
         )
 
     @staticmethod

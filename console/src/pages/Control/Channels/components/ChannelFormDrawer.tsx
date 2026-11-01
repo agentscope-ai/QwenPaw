@@ -1,5 +1,5 @@
 import { Form } from "@agentscope-ai/design";
-import { useLayoutEffect, useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { ComponentProps } from "react";
 import { ChannelDrawer } from "./ChannelDrawer";
 import { normalizeChannelSubmitValues } from "./channelConfig";
@@ -21,7 +21,7 @@ const SENSITIVE_FIELDS = [
 
 function normalizeChannelFormValues(
   values: Record<string, unknown> | undefined,
-) {
+): Record<string, unknown> {
   const clearedSecrets = Object.fromEntries(
     SENSITIVE_FIELDS.map((field) => [field, undefined]),
   );
@@ -64,10 +64,41 @@ export function ChannelFormDrawer({
     () => normalizeChannelFormValues(initialValues),
     [initialValues],
   );
+  const previous = useRef<{
+    ownerKey: string;
+    open: boolean;
+    values: Record<string, unknown>;
+  }>();
 
   useLayoutEffect(() => {
-    form.resetFields();
-    if (open) form.setFieldsValue(normalizedValues);
+    const previousSession = previous.current;
+    const initialize =
+      !open || !previousSession?.open || previousSession.ownerKey !== ownerKey;
+    if (initialize) form.resetFields();
+    if (open) {
+      const names = new Set([
+        ...Object.keys(previousSession?.values ?? {}),
+        ...Object.keys(normalizedValues),
+      ]);
+      // Save acknowledgements may arrive after a newer, even invalid edit.
+      // Sync clean fields and acknowledge matching drafts without resetting.
+      form.setFields(
+        Array.from(names)
+          .filter(
+            (name) =>
+              initialize ||
+              !form.isFieldTouched(name) ||
+              JSON.stringify(form.getFieldValue(name)) ===
+                JSON.stringify(normalizedValues[name]),
+          )
+          .map((name) => ({
+            name,
+            value: normalizedValues[name],
+            touched: false,
+          })),
+      );
+    }
+    previous.current = { ownerKey, open, values: normalizedValues };
   }, [form, normalizedValues, open, ownerKey]);
 
   return (

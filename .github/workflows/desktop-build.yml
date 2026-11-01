@@ -186,7 +186,7 @@ jobs:
           path: |
             ${{ runner.temp }}/qwenpaw-desktop-stdout.log
             ${{ runner.temp }}/qwenpaw-desktop-stderr.log
-            ~/AppData/Local/com.qwenpaw.desktop/logs/
+            ${{ runner.temp }}/qwenpaw-desktop-logs/
           if-no-files-found: ignore
           retention-days: 7
 

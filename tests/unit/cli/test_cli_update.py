@@ -884,6 +884,7 @@ def _write_plan(
     command: list[str],
     current_version: str = "1.0.0",
     latest_version: str = "9.9.9",
+    prepare_channels_command: list[str] | None = None,
 ) -> None:
     plan = {
         "current_version": current_version,
@@ -892,6 +893,8 @@ def _write_plan(
         "command": command,
         "install": {},
     }
+    if prepare_channels_command is not None:
+        plan["prepare_channels_command"] = prepare_channels_command
     plan_path.write_text(json.dumps(plan), encoding="utf-8")
 
 
@@ -984,3 +987,99 @@ def test_update_worker_rejects_unsafe_installer(
     assert run_update_worker(plan_path) == 1
     assert not plan_path.exists()
     assert "Unsafe installer" in capsys.readouterr().out
+
+
+def test_update_worker_rejects_missing_pip_before_starting(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    plan_path = tmp_path / "plan.json"
+    _write_plan(
+        plan_path,
+        command=["python", "-m", "pip", "install", "qwenpaw"],
+    )
+    monkeypatch.setattr("qwenpaw.cli.update_cmd.require_pip", lambda _: False)
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("Missing pip must not start an update")
+
+    monkeypatch.setattr("qwenpaw.cli.update_cmd.subprocess.Popen", unexpected)
+    assert run_update_worker(plan_path) == 1
+    assert not plan_path.exists()
+    assert "pip is missing" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "prepare",
+    [
+        ["prepare-python", "-m", "pip", "install", "channel-sdk"],
+        ["uv", "pip", "install", "channel-sdk"],
+    ],
+)
+def test_update_worker_preflights_the_entire_command_chain(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    prepare,
+):
+    """A bad later installer must not leave an already-upgraded host."""
+    plan_path = tmp_path / "plan.json"
+    _write_plan(
+        plan_path,
+        command=["host-python", "-m", "pip", "install", "qwenpaw"],
+        prepare_channels_command=prepare,
+    )
+    checked = []
+
+    def check_pip(python):
+        checked.append(python)
+        if python == "prepare-python":
+            raise RuntimeError("Unsafe later installer")
+        return True
+
+    def check_uv(uv):
+        checked.append(uv)
+        raise RuntimeError("Unsafe later installer")
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("All commands must pass preflight before the first starts")
+
+    monkeypatch.setattr("qwenpaw.cli.update_cmd.require_pip", check_pip)
+    monkeypatch.setattr("qwenpaw.cli.update_cmd.require_uv", check_uv)
+    monkeypatch.setattr("qwenpaw.cli.update_cmd.subprocess.Popen", unexpected)
+    assert run_update_worker(plan_path) == 1
+    assert checked == ["host-python", prepare[0]]
+    assert not plan_path.exists()
+    assert "Unsafe later installer" in capsys.readouterr().out
+
+
+def test_update_worker_runs_upgrade_before_channel_preparation(
+    tmp_path,
+    capsys,
+):
+    marker = tmp_path / "order.txt"
+    plan_path = tmp_path / "plan.json"
+    upgrade = [
+        sys.executable,
+        "-c",
+        "from pathlib import Path; import sys; "
+        "Path(sys.argv[1]).write_text('upgrade\\n'); print('upgraded')",
+        str(marker),
+    ]
+    prepare = [
+        sys.executable,
+        "-c",
+        "from pathlib import Path; import sys; p=Path(sys.argv[1]); "
+        "assert p.read_text() == 'upgrade\\n'; "
+        "p.write_text(p.read_text() + 'prepare\\n'); print('prepared')",
+        str(marker),
+    ]
+    _write_plan(plan_path, command=upgrade, prepare_channels_command=prepare)
+
+    assert run_update_worker(plan_path) == 0
+    assert marker.read_text() == "upgrade\nprepare\n"
+    assert not plan_path.exists()
+    output = capsys.readouterr().out
+    assert output.index("upgraded") < output.index("prepared")
+    assert "Update completed successfully" in output

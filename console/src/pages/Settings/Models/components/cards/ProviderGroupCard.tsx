@@ -1,3 +1,4 @@
+import { ChatGPTCredentialField } from "./ChatGPTCredentialField";
 import { ProviderCredentialField } from "./ProviderCredentialField";
 import { ProviderCardStatus } from "./ProviderCardStatus";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
@@ -20,6 +21,7 @@ interface ProviderGroupCardProps {
 
 const KNOWN_VARIANTS = new Set([
   "dashscope",
+  "chatgpt",
   "chat_completions",
   "responses",
   "open_platform",
@@ -41,15 +43,27 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   onOpenModels,
 }: ProviderGroupCardProps) {
   const { t } = useTranslation();
-  const [activeIdx, setActiveIdx] = useState(0);
+  const openaiOrder = ["openai", "openai-response", "openai-chatgpt"];
+  const providers =
+    group.groupKey === "openai"
+      ? [...group.providers].sort(
+          (a, b) => openaiOrder.indexOf(a.id) - openaiOrder.indexOf(b.id),
+        )
+      : group.providers;
+  const [activeId, setActiveId] = useState(() =>
+    group.groupKey === "openai"
+      ? (providers.find(getIsConfigured) ?? providers[0]).id
+      : providers[0].id,
+  );
 
-  const activeProvider = group.providers[activeIdx] || group.providers[0];
+  const activeProvider =
+    providers.find((provider) => provider.id === activeId) ?? providers[0];
   const totalModels = new Set(
     [...activeProvider.models, ...activeProvider.extra_models].map(
       (model) => model.id,
     ),
   ).size;
-  const liveCount = group.providers.filter(getIsConfigured).length;
+  const liveCount = providers.filter(getIsConfigured).length;
   const hasFreeTier = activeProvider.is_free_tier;
 
   return (
@@ -59,7 +73,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       tilt={2}
     >
       <ProviderCloseButton
-        ids={group.providers.map((provider) => provider.id)}
+        ids={providers.map((provider) => provider.id)}
         providerName={group.groupName}
         onSaved={onSaved}
         onConfigure={() => onOpenConfig(activeProvider)}
@@ -67,7 +81,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       {/* Header */}
       <div className={styles.groupCardHeader}>
         <ProviderIcon
-          providerId={group.providers[0]?.id ?? ""}
+          providerId={providers[0]?.id ?? ""}
           size={36}
           decorative
         />
@@ -81,7 +95,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
 
       {/* Segmented Control */}
       <div className={styles.groupSegmented}>
-        {group.providers.map((provider, idx) => {
+        {providers.map((provider) => {
           const configured = getIsConfigured(provider);
           const variant = provider.provider_variant || "";
           const label = KNOWN_VARIANTS.has(variant)
@@ -90,13 +104,15 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           return (
             <button
               type="button"
-              aria-pressed={idx === activeIdx}
+              aria-pressed={provider.id === activeProvider.id}
               key={provider.id}
               className={[
                 styles.groupSegBtn,
-                idx === activeIdx ? styles.groupSegBtnActive : "",
+                provider.id === activeProvider.id
+                  ? styles.groupSegBtnActive
+                  : "",
               ].join(" ")}
-              onClick={() => setActiveIdx(idx)}
+              onClick={() => setActiveId(provider.id)}
             >
               <span
                 className={[
@@ -121,11 +137,18 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           </div>
         </div>
 
-        <ProviderCredentialField
-          key={activeProvider.id}
-          provider={activeProvider}
-          onSaved={onSaved}
-        />
+        {activeProvider.id === "openai-chatgpt" ? (
+          <ChatGPTCredentialField
+            provider={activeProvider}
+            onConfigure={() => onOpenConfig(activeProvider)}
+          />
+        ) : (
+          <ProviderCredentialField
+            key={activeProvider.id}
+            provider={activeProvider}
+            onSaved={onSaved}
+          />
+        )}
 
         <button
           type="button"

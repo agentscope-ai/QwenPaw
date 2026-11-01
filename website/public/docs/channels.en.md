@@ -931,7 +931,7 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 - Only rooms the bot has already joined are monitored. Invite the bot to a room before sending messages.
 - For self-hosted homeservers, set `homeserver` to your server's base URL (e.g. `https://matrix.example.com`).
 - Password authentication reuses the saved session on restart after validating it with the homeserver. A changed server, login identity, device, or password requires a new login; an expired session falls back to password login.
-- With encryption enabled, startup checks the device keys on the homeserver and restores missing keys using the existing local crypto store. Channel health reports missing or conflicting keys and failed startup. Keep `matrix_crypto_store` when restarting so the bot retains its encryption identity and sessions.
+- With encryption enabled, startup checks the device keys on the homeserver and restores missing keys using the existing local crypto store. Channel health reports missing or conflicting keys and failed startup. Keep the instance’s `channel_state/matrix` directory when restarting so the bot retains its encryption identity and sessions. Existing legacy crypto stores remain owned by the native plugin migration.
 - Group rooms share one session by default to preserve the previous behavior. Set `share_session_in_group` to `false` to give each member an independent conversation context. Direct messages keep their existing room-based session identity.
 
 ---

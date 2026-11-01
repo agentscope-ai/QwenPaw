@@ -70,6 +70,7 @@ export function RemoteModelManageModal({
   const [seenIds, setSeenIds] = useState(seen.current);
   const hoverTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const managed = provider.id === "hub-managed";
+  const subscription = provider.id === "openai-chatgpt";
 
   useEffect(() => {
     setCurrent(provider);
@@ -448,18 +449,52 @@ export function RemoteModelManageModal({
                         {model.remote_missing && (
                           <Tag color="warning">{t("models.remoteMissing")}</Tag>
                         )}
-                        <BillingTag model={model} />
-                        <span>
-                          {t("models.pool.context")}:{" "}
-                          {number(
-                            model.effective_max_input_length ??
-                              model.max_input_length,
-                          )}
-                        </span>
-                        <span>
-                          {t("models.pool.output")}:{" "}
-                          {number(model.max_output_length)}
-                        </span>
+                        {subscription ? (
+                          <Tooltip
+                            title={t("models.chatgpt.modelHelp")}
+                            trigger={["hover", "focus"]}
+                          >
+                            <Tag tabIndex={0}>
+                              {t("models.providerVariants.chatgpt")}
+                            </Tag>
+                          </Tooltip>
+                        ) : (
+                          <BillingTag
+                            model={model}
+                            priceDetails={
+                              provider.id === "openai" ||
+                              provider.id === "openai-response"
+                            }
+                          />
+                        )}
+                        <Tooltip
+                          title={
+                            subscription && model.max_input_length_auto_detected
+                              ? t("models.chatgpt.contextHelp", {
+                                  maximum:
+                                    model.max_input_length_auto_detected.toLocaleString(),
+                                  default:
+                                    model.max_input_length.toLocaleString(),
+                                })
+                              : undefined
+                          }
+                        >
+                          <span tabIndex={subscription ? 0 : undefined}>
+                            {t("models.pool.context")}:{" "}
+                            {number(
+                              subscription
+                                ? model.max_input_length_auto_detected
+                                : model.effective_max_input_length ??
+                                    model.max_input_length,
+                            )}
+                          </span>
+                        </Tooltip>
+                        {!subscription && (
+                          <span>
+                            {t("models.pool.output")}:{" "}
+                            {number(model.max_output_length)}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className={styles.actions}>
@@ -493,23 +528,25 @@ export function RemoteModelManageModal({
                               onClick={() => test(model)}
                             />
                           </Tooltip>
-                          <Tooltip title={t("models.modelConfigLabel")}>
-                            <Button
-                              disabled={loading}
-                              type="text"
-                              icon={
-                                expanded ? (
-                                  <ChevronDown size={17} />
-                                ) : (
-                                  <Settings size={17} />
-                                )
-                              }
-                              aria-label={t("models.modelConfigLabel")}
-                              onClick={() =>
-                                setConfigId(expanded ? null : model.id)
-                              }
-                            />
-                          </Tooltip>
+                          {!subscription && (
+                            <Tooltip title={t("models.modelConfigLabel")}>
+                              <Button
+                                disabled={loading}
+                                type="text"
+                                icon={
+                                  expanded ? (
+                                    <ChevronDown size={17} />
+                                  ) : (
+                                    <Settings size={17} />
+                                  )
+                                }
+                                aria-label={t("models.modelConfigLabel")}
+                                onClick={() =>
+                                  setConfigId(expanded ? null : model.id)
+                                }
+                              />
+                            </Tooltip>
+                          )}
                         </>
                       )}
                       <label className={styles.selectionToggle}>
@@ -558,7 +595,7 @@ export function RemoteModelManageModal({
             />
           )}
         </div>
-        {!managed && (
+        {!managed && !subscription && (
           <div className={styles.footer}>
             <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>
               {t("models.addModel")}

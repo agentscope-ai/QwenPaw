@@ -88,6 +88,10 @@ from services.project_files.agent_tools import (
 from services.project_files.jq_transform import JqTransformError
 from services.project_files.commit import ProjectCommitBoundary
 from services.project_files.facade import CreatorFileServices
+from services.project_files.script_import import (
+    IMPORT_SCRIPT_TOOL_NAME,
+    import_script_tool_manifest,
+)
 from services.project_files.assets import AssetAlreadyExists, AssetFileStore
 from services.project_files.models import (
     IndexedFile,
@@ -335,6 +339,17 @@ _LIVE_EDIT_CONTEXT_MAX_RAW_FACTS = 320
 _VIDEO_FRAME_TOOL_NAMES = frozenset(
     {"read_source_video", "check_observation_tasks"},
 )
+
+# Observation tools that can run detached. Waiting on them one at a time
+# adds up every VLM round trip, while background submissions overlap and
+# cost only the slowest one, so a run that keeps waiting synchronously
+# gets an in-result reminder on top of the system prompt. The reminder is
+# capped: it must not become context noise of its own.
+_BACKGROUND_OBSERVATION_TOOL_NAMES = frozenset(
+    {"observe_source_clip", "read_source_video"},
+)
+_SYNC_OBSERVATION_HINT_AFTER = 2
+_SYNC_OBSERVATION_HINT_MAX = 2
 
 
 def _compact_live_operation_location(
@@ -1041,6 +1056,9 @@ def _creator_agent_tool_manifest(
 ) -> list[dict[str, Any]]:
     manifest = [*agent_project_tool_manifest()]
     manifest.append(request_workgraph_tool_manifest())
+    # 剧本直登 is mainline-only: specialists never see it, so a material that
+    # is already a written script cannot be routed into 素材理解 by accident.
+    manifest.append(import_script_tool_manifest())
     if get_web_grounding_enabled():
         manifest.append(_ground_prompt_context_tool_manifest())
     manifest.append(_object_grounding_tool_manifest())
@@ -3826,7 +3844,11 @@ class FileCreatorAgentRuntime:
                         tool_name=call.name,
                         result=result,
                     )
-                    if call.name in {"jq_project", "patch_project"}:
+                    if call.name in {
+                        "jq_project",
+                        "patch_project",
+                        IMPORT_SCRIPT_TOOL_NAME,
+                    }:
                         await self._workspace_changed(
                             project_id,
                             session_id,
@@ -5946,6 +5968,8 @@ class FileCreatorAgentRuntime:
         malformed_jq_attempts = 0
         malformed_jq_fingerprints: set[str] = set()
         deterministic_failure_counts: dict[str, int] = {}
+        sync_observation_count = 0
+        parallel_hint_count = 0
         try:
             for _turn_number in range(
                 1,
@@ -6483,6 +6507,25 @@ class FileCreatorAgentRuntime:
                                 )
                                 else None
                             ),
+                        )
+                if (
+                    not failed
+                    and call.name in _BACKGROUND_OBSERVATION_TOOL_NAMES
+                    and not result.get("background")
+                ):
+                    sync_observation_count += 1
+                    if (
+                        sync_observation_count >= _SYNC_OBSERVATION_HINT_AFTER
+                        and parallel_hint_count < _SYNC_OBSERVATION_HINT_MAX
+                    ):
+                        parallel_hint_count += 1
+                        result["parallelObservationHint"] = (
+                            f"本 Run 已同步等待 {sync_observation_count} 次"
+                            "观察，每次的 VLM 耗时是相加的。互相独立的观察"
+                            "请在接下来的回合里全部以 background=true 提交，"
+                            "再用 check_observation_tasks 一次收割（taskIds 可"
+                            "省略），总耗时等于最慢的一个；只有要先看到结果"
+                            "才能决定下一段看哪里的观察才保持同步。"
                         )
                 await asyncio.to_thread(
                     self.executions.append_specialist_message,

@@ -158,6 +158,30 @@ jobs:
           # there, so no threshold is lowered by this removal.
           pytest tests/unit -v
 
+      - name: Build and verify installed public Plugin SDK
+        if: matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          python -m pip install build
+          python -m build --outdir "$RUNNER_TEMP/sdk-dist"
+          python -m venv "$RUNNER_TEMP/sdk-author-venv"
+          wheel=("$RUNNER_TEMP/sdk-dist/"*.whl)
+          sdist=("$RUNNER_TEMP/sdk-dist/"*.tar.gz)
+          "$RUNNER_TEMP/sdk-author-venv/bin/python" -m pip install "${wheel[0]}[test,full]" mypy
+          export PATH="$RUNNER_TEMP/sdk-author-venv/bin:$PATH"
+          python scripts/check_plugin_sdk_artifacts.py \
+            --wheel "${wheel[0]}" --sdist "${sdist[0]}" \
+            --python "$RUNNER_TEMP/sdk-author-venv/bin/python" \
+            --source-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/sdk-author"
+
+      - name: Upload public SDK author verification
+        if: always() && matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-sdk-author
+          path: ${{ runner.temp }}/sdk-author/
+          retention-days: 7
+
       - name: Run Hub Local runtime E2E
         if: matrix.python-version == '3.11'
         shell: bash
@@ -216,13 +240,6 @@ jobs:
         shell: bash
         run: |
           pip install -e ".[dev,test,full]"
-
-      - name: Check channel contract coverage
-        run: python scripts/check_channel_contracts.py
-
-      - name: Validate channel check script
-        shell: bash
-        run: bash -n scripts/check-channels.sh
 
       - name: Run contract tests
         shell: bash

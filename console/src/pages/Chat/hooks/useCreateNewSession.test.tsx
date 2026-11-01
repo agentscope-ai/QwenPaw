@@ -30,6 +30,7 @@ import {
 } from "../../../features/thinking/sessionThinkingApi";
 import { useCreateNewSession } from "./useCreateNewSession";
 import sessionApi from "../sessionApi";
+import { getDraftStorageKey } from "../chatInputDraft";
 import { useAgentStore } from "../../../stores/agentStore";
 
 describe("useCreateNewSession", () => {
@@ -118,5 +119,22 @@ describe("useCreateNewSession", () => {
       chatId: null,
     });
     window.removeEventListener("session-model-changed", changed);
+  });
+
+  it("opens a fresh pre-creation draft slot instead of the previous new chat", async () => {
+    sessionStorage.clear();
+    localStorage.clear();
+    const agent = useAgentStore.getState().selectedAgent;
+    const previous = getDraftStorageKey(agent);
+    const { result } = renderHook(() => useCreateNewSession());
+
+    await act(async () => {
+      await result.current();
+    });
+
+    expect(getDraftStorageKey(agent)).not.toBe(previous);
+    expect(
+      previous.startsWith(`qwenpaw_chat_input_draft_${agent}_pending_`),
+    ).toBe(true);
   });
 });

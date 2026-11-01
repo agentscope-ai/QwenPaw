@@ -1,3 +1,4 @@
+import { useAgentStore } from "@/stores/agentStore";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { Cascade } from "@/components/interaction/Cascade";
 import {
@@ -29,9 +30,11 @@ import {
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
+  captureChannelSaveJob,
   keepConsoleEnabled,
   normalizeChannelSubmitValues,
 } from "./components/channelConfig";
+import type { ChannelSaveJob } from "../../../api/modules/channel";
 import styles from "./index.module.less";
 
 type FilterType = "all" | "builtin" | "custom";
@@ -44,6 +47,7 @@ function ChannelsPage() {
     channels,
     orderedKeys,
     channelSchemas,
+    schemasLoading,
     isBuiltin,
     loading,
     error,
@@ -64,6 +68,8 @@ function ChannelsPage() {
     string | null
   >(null);
   const [pendingCount, setPendingCount] = useState(0);
+  const scopeGeneration = useRef(0);
+  const mounted = useRef(true);
   const agentIdRef = useRef(agentId);
   const pendingCountRequestIdRef = useRef(0);
   const proposalIdRef = useRef(0);
@@ -90,7 +96,8 @@ function ChannelsPage() {
     void fetchPendingCount();
   }, [agentId, fetchPendingCount]);
 
-  useLayoutEffect(() => {
+  const resetScope = useCallback(() => {
+    scopeGeneration.current += 1;
     pendingCountRequestIdRef.current += 1;
     proposalIdRef.current += 1;
     conflictModalDestroyRef.current?.();
@@ -104,7 +111,28 @@ function ChannelsPage() {
     setPendingDrawerAgentId(null);
     setPendingCount(0);
     setSaving(false);
-  }, [agentId]);
+  }, []);
+
+  useLayoutEffect(resetScope, [agentId, resetScope]);
+  useLayoutEffect(
+    () =>
+      useAgentStore.subscribe((next, previous) => {
+        if (next.selectedAgent !== previous.selectedAgent) {
+          agentIdRef.current = next.selectedAgent || "default";
+          resetScope();
+        }
+      }),
+    [resetScope],
+  );
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      scopeGeneration.current += 1;
+      pendingCountRequestIdRef.current += 1;
+      conflictModalDestroyRef.current?.();
+    };
+  }, []);
 
   // Sort cards: enabled first, then disabled (preserve orderedKeys order within each group)
   const { enabledCards, disabledCards } = useMemo(() => {
@@ -133,11 +161,12 @@ function ChannelsPage() {
   const handleCardClick = useCallback(
     (key: ChannelKey) => {
       if (!ready) return;
+      void fetchChannels(true);
       setActiveKey(key);
       setDrawerAgentId(agentId);
       setDrawerOpen(true);
     },
-    [agentId, ready],
+    [agentId, ready, fetchChannels],
   );
 
   const handleDrawerClose = () => {
@@ -146,44 +175,47 @@ function ChannelsPage() {
     setDrawerAgentId(null);
   };
 
-  const handleSubmit = async (values: Record<string, unknown>) => {
-    if (!activeKey || !drawerAgentId || !canMutate(drawerAgentId)) {
-      void fetchChannels();
-      return false;
-    }
-    const ownerAgentId = drawerAgentId;
-    const channelKey = activeKey;
-    const proposalId = ++proposalIdRef.current;
-    conflictModalDestroyRef.current?.();
-    conflictModalDestroyRef.current = null;
+  const submitJob = async (job: ChannelSaveJob, detached: boolean) => {
+    const generation = scopeGeneration.current;
+    const currentScope = () =>
+      mounted.current &&
+      generation === scopeGeneration.current &&
+      agentIdRef.current === job.agentId &&
+      canMutate(job.agentId);
+    const proposalId = currentScope() ? ++proposalIdRef.current : undefined;
     const ownsProposal = () =>
-      proposalIdRef.current === proposalId && canMutate(ownerAgentId);
+      proposalId !== undefined &&
+      proposalIdRef.current === proposalId &&
+      currentScope();
+    if (!detached && !ownsProposal()) return false;
+    if (ownsProposal()) {
+      conflictModalDestroyRef.current?.();
+      conflictModalDestroyRef.current = null;
+      setSaving(true);
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { isBuiltin: _isBuiltin, ...savedConfig } =
-      channels[channelKey] || {};
+    const { isBuiltin: _isBuiltin, ...savedConfig } = job.body;
     const updatedChannel = normalizeChannelSubmitValues(
-      channelKey,
-      keepConsoleEnabled(channelKey, {
-        ...savedConfig,
-        ...values,
-      }),
+      job.channel,
+      keepConsoleEnabled(job.channel, savedConfig),
     );
     const proposedConfig = updatedChannel as unknown as Parameters<
       typeof api.updateChannelConfig
     >[1];
 
-    setSaving(true);
     try {
       if (updatedChannel.enabled === true) {
         try {
           const result = await api.checkChannelConflict(
-            channelKey,
+            job.channel,
             proposedConfig,
-            ownerAgentId,
+            job.agentId,
           );
-          if (!ownsProposal()) return;
+          if (!detached && !ownsProposal()) return false;
           if (result.conflict) {
+            // A conflict needs confirmation in its originating workspace.
+            if (!ownsProposal()) return false;
             const agentNames = result.agents
               .map(({ agent_id, agent_name }) =>
                 agent_name === agent_id
@@ -201,7 +233,6 @@ function ChannelsPage() {
                 }
                 resolve(value && ownsProposal());
               };
-
               const instance = modal.confirm({
                 centered: true,
                 title: t("channels.botConflictTitle"),
@@ -217,42 +248,76 @@ function ChannelsPage() {
               });
               conflictModalDestroyRef.current = instance.destroy;
             });
-            if (!shouldSave || !ownsProposal()) return false;
+            if (!shouldSave) return false;
           }
         } catch (error) {
-          if (!ownsProposal()) return false;
+          if (!detached && !ownsProposal()) return false;
           console.warn("Failed to check channel Bot conflicts:", error);
         }
       }
+      if (!detached && !ownsProposal()) return false;
 
-      if (!ownsProposal()) {
-        void fetchChannels();
-        return false;
+      // Validated tasks retain their captured owner and authorization after
+      // navigation; only their UI acknowledgement belongs to the live scope.
+      if (job.authSession === undefined) {
+        await api.updateChannelConfig(job.channel, proposedConfig, job.agentId);
+      } else {
+        await api.updateChannelConfig(
+          job.channel,
+          proposedConfig,
+          job.agentId,
+          job.authSession,
+        );
       }
-
-      await api.updateChannelConfig(channelKey, proposedConfig, ownerAgentId);
-      if (!ownsProposal()) return false;
-      setChannels(ownerAgentId, (current) => {
-        const isBuiltin = current[channelKey]?.isBuiltin;
-        return {
-          ...current,
-          [channelKey]: {
-            ...updatedChannel,
-            ...(typeof isBuiltin === "boolean" ? { isBuiltin } : {}),
-          },
-        };
-      });
+      if (ownsProposal()) {
+        setChannels(job.agentId, (current) => {
+          const isBuiltin = current[job.channel]?.isBuiltin;
+          return {
+            ...current,
+            [job.channel]: {
+              ...updatedChannel,
+              ...(typeof isBuiltin === "boolean" ? { isBuiltin } : {}),
+            },
+          };
+        });
+      }
       return true;
     } catch (error) {
-      if (!ownsProposal()) return false;
       console.error("Failed to update channel config:", error);
       throw error;
     } finally {
-      if (proposalIdRef.current === proposalId) setSaving(false);
+      if (ownsProposal()) setSaving(false);
     }
   };
 
+  const handleSubmitSnapshot = (job: ChannelSaveJob) => submitJob(job, true);
+  const handleSubmit = async (values: Record<string, unknown>) => {
+    if (!activeKey || !drawerAgentId || !canMutate(drawerAgentId)) {
+      void fetchChannels();
+      return false;
+    }
+    return submitJob(
+      captureChannelSaveJob({
+        agentId: drawerAgentId,
+        channel: activeKey,
+        body: { ...channels[activeKey], ...values },
+        formRevision: 0,
+      }),
+      false,
+    );
+  };
+
   const activeLabel = activeKey ? getChannelLabel(activeKey, t) : "";
+  const activeValues = useMemo(
+    () =>
+      activeKey
+        ? keepConsoleEnabled(
+            activeKey,
+            channels[activeKey] || { enabled: false, bot_prefix: "" },
+          )
+        : undefined,
+    [activeKey, channels],
+  );
 
   const FILTER_TABS: { key: FilterType; label: string }[] = [
     { key: "all", label: t("channels.filterAll") },
@@ -402,18 +467,16 @@ function ChannelsPage() {
         activeKey={activeKey}
         activeLabel={activeLabel}
         saving={saving}
-        initialValues={
-          activeKey
-            ? keepConsoleEnabled(
-                activeKey,
-                channels[activeKey] || { enabled: false, bot_prefix: "" },
-              )
-            : undefined
-        }
+        initialValues={activeValues}
         isBuiltin={activeKey ? isBuiltin(activeKey) : true}
         channelSchema={activeKey ? channelSchemas[activeKey] : undefined}
+        channelSchemaLoading={
+          schemasLoading || (!!activeKey && !channelSchemas[activeKey])
+        }
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+        onSubmitSnapshot={handleSubmitSnapshot}
+        onRuntimeChange={fetchChannels}
       />
       <AccessControlDrawer
         open={aclDrawerOpen && aclDrawerAgentId !== null}

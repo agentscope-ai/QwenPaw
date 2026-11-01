@@ -7,7 +7,7 @@ const hoisted = vi.hoisted(() => ({
     success: vi.fn(),
     error: vi.fn(),
   },
-  stableT: (k: string) => k,
+  stableT: vi.fn((k: string, _options?: unknown) => k),
   fetchPluginsMock: vi.fn(),
   fetchPluginCatalogMock: vi.fn(),
   fetchMarketPluginsMock: vi.fn(),
@@ -389,4 +389,42 @@ describe("usePluginManager", () => {
       "pluginManager.updateAllResult",
     );
   });
+});
+
+it("update-all includes the actionable conflict in its failure summary", async () => {
+  const plugin = {
+    id: "conflicted",
+    name: "Conflicted",
+    version: "1.0.0",
+  } as PluginInfo;
+  hoisted.pluginsData = [plugin];
+  hoisted.fetchPluginCatalogMock.mockResolvedValue({
+    plugins: [
+      {
+        plugin_id: "conflicted",
+        name: "Conflicted",
+        version: "2.0.0",
+        install_url: "https://example.invalid/conflict.zip",
+        upgrade_available: true,
+      },
+    ],
+  });
+  hoisted.fetchMarketPluginsMock.mockResolvedValue({ plugins: [], total: 0 });
+  hoisted.installPluginMock.mockRejectedValue(
+    new Error(
+      "DEPENDENCY_CONFLICT: disable the incompatible consumer before retrying",
+    ),
+  );
+  const { result } = renderHook(() => usePluginManager());
+  await waitFor(() => expect(result.current.updates.size).toBe(1));
+  hoisted.stableT.mockClear();
+  await act(async () => {
+    await result.current.updateAll();
+  });
+  const summary = hoisted.stableT.mock.calls.find(
+    ([key]) => key === "pluginManager.updateAllResult",
+  );
+  expect(JSON.stringify(summary?.[1])).toContain(
+    "disable the incompatible consumer before retrying",
+  );
 });

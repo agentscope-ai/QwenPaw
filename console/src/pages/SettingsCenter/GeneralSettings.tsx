@@ -154,9 +154,19 @@ export default function GeneralSettings() {
   )
     ? rawLanguage
     : rawLanguage.split("-")[0];
-  const closeBehavior = isTauriRuntime()
-    ? getRememberedCloseAction() ?? "ask"
-    : "ask";
+  const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>("ask");
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let disposed = false;
+    void getRememberedCloseAction()
+      .then((action) => {
+        if (!disposed) setCloseBehavior(action ?? "ask");
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     setDraftTheme(previewTheme);
@@ -210,9 +220,14 @@ export default function GeneralSettings() {
     });
   };
 
-  const changeCloseBehavior = (value: CloseBehavior) => {
-    if (value === "ask") clearRememberedCloseAction();
-    else setRememberedCloseAction(value);
+  const changeCloseBehavior = async (value: CloseBehavior) => {
+    try {
+      if (value === "ask") await clearRememberedCloseAction();
+      else await setRememberedCloseAction(value);
+      setCloseBehavior(value);
+    } catch (error) {
+      message.error(String(error));
+    }
   };
 
   const changeContentWidth = (width: ContentWidth) => {
@@ -712,7 +727,7 @@ export default function GeneralSettings() {
                   </span>
                   <Select<CloseBehavior>
                     className={styles.settingControl}
-                    defaultValue={closeBehavior}
+                    value={closeBehavior}
                     onChange={changeCloseBehavior}
                     options={[
                       {
@@ -725,7 +740,11 @@ export default function GeneralSettings() {
                       },
                       {
                         value: "quit",
-                        label: t("desktop.closeWindow.quitApp"),
+                        label: t("desktop.closeWindow.keepRunning"),
+                      },
+                      {
+                        value: "stop-service",
+                        label: t("desktop.closeWindow.stopService"),
                       },
                     ]}
                   />

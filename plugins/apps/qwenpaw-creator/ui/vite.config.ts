@@ -2,10 +2,20 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { readFileSync } from "fs";
+
+// plugin.json is the single source of truth for the shipped version; inject it
+// at build time so the header can render it without an extra runtime request.
+const creatorVersion: string = JSON.parse(
+  readFileSync(path.resolve(__dirname, "../plugin.json"), "utf-8"),
+).version;
 
 export default defineConfig({
   base: "./",
   plugins: [react(), tailwindcss()],
+  define: {
+    __CREATOR_VERSION__: JSON.stringify(creatorVersion ?? ""),
+  },
   server: {
     proxy: {
       "/api/qwenpaw-creator": {

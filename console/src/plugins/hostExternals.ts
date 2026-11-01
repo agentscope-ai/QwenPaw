@@ -17,7 +17,7 @@ import i18n from "../i18n";
 import ReactDOM from "react-dom";
 import * as antd from "antd";
 import * as antdIcons from "@ant-design/icons";
-import { getApiUrl, getApiToken } from "../api/config";
+import { getApiUrl, getApiToken, getApiBaseUrl } from "../api/config";
 import {
   buildAuditNamespace,
   buildMenuNamespace,
@@ -42,8 +42,6 @@ import {
   memoryBackendNamespace,
   type MemoryBackendNamespace,
 } from "./memoryBackends";
-
-declare const VITE_API_BASE_URL: string;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -248,9 +246,6 @@ function ensurePluginsGroup(): void {
 }
 
 export function installHostExternals(): void {
-  const apiBaseUrl =
-    typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
-
   if (!window.QwenPaw) {
     (window as any).QwenPaw = {} as WindowNamespace;
   }
@@ -261,7 +256,9 @@ export function installHostExternals(): void {
       ReactDOM,
       antd,
       antdIcons,
-      apiBaseUrl,
+      get apiBaseUrl() {
+        return getApiBaseUrl();
+      },
       getApiUrl,
       getApiToken,
       prepareBrowserSession,

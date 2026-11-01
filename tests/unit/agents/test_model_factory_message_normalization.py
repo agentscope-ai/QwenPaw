@@ -109,10 +109,26 @@ async def test_video_strip_runs_before_local_media_preparation(
     assert [msg.model_dump() for msg in messages] == before
 
 
-def _png_bytes(size: tuple[int, int]) -> bytes:
+def _png_bytes(size: tuple[int, int], *, compress_level: int = 6) -> bytes:
     output = BytesIO()
-    Image.new("RGB", size, color="red").save(output, format="PNG")
+    Image.new("RGB", size, color="red").save(
+        output,
+        format="PNG",
+        compress_level=compress_level,
+    )
     return output.getvalue()
+
+
+def _mock_remote_media(monkeypatch, content: bytes, *, headers=None):
+    client_type = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, content=content, headers=headers),
+    )
+    monkeypatch.setattr(
+        model_factory.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(transport=transport, **kwargs),
+    )
 
 
 def _oriented_jpeg_bytes(
@@ -286,6 +302,119 @@ async def test_anthropic_dedup_omits_identical_media() -> None:
     assert [item["type"] for item in content] == ["image", "text"]
     assert "omitted" in content[1]["text"]
     assert formatter._qwenpaw_last_wire_media_count == 1
+
+
+@pytest.mark.asyncio
+async def test_memory_image_preview_fits_cap_without_modifying_original(
+    monkeypatch,
+):
+    monkeypatch.delenv("QWENPAW_MAX_IMAGE_PIXELS", raising=False)
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        max_bytes=1024,
+        resize_images_to_max_bytes=True,
+    )
+    original_bytes = _png_bytes((1000, 1000))
+    original = _base64_data_block("image/png", original_bytes)
+    message = Msg(name="user", role="user", content=[original])
+
+    formatted = await formatter.format([message])
+
+    image_url = formatted[0]["content"][0]["image_url"]["url"]
+    preview_bytes = base64.b64decode(image_url.split(",", 1)[1])
+    assert len(preview_bytes) <= formatter.max_bytes
+    with Image.open(BytesIO(preview_bytes)) as preview:
+        assert preview.width < 1000
+    assert base64.b64decode(original.source.data) == original_bytes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["url", "file"])
+@pytest.mark.parametrize(
+    "base_formatter",
+    [
+        _CappingOpenAIFormatter,
+        _CappingAnthropicFormatter,
+        _CappingGeminiFormatter,
+        _CappingDashScopeFormatter,
+    ],
+)
+async def test_memory_url_images_fit_inline_cap(
+    monkeypatch,
+    tmp_path,
+    source,
+    base_formatter,
+):
+    """Fit downloaded/local originals before capping, for every image API."""
+    monkeypatch.delenv("QWENPAW_MAX_IMAGE_PIXELS", raising=False)
+    original_bytes = _png_bytes((1000, 1000), compress_level=0)
+    _mock_remote_media(monkeypatch, original_bytes)
+    if source == "file":
+        path = tmp_path / "large.png"
+        path.write_bytes(original_bytes)
+        url = path.as_uri()
+    else:
+        url = "https://example.com/large.png"
+    formatter = model_factory._create_file_block_support_formatter(
+        base_formatter,
+    )(
+        resize_images_to_max_bytes=True,
+    )
+    message = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("image/png", url)],
+    )
+    original = message.model_dump(mode="json")
+
+    wire = await formatter.format([message])
+
+    assert len(original_bytes) > formatter.max_bytes
+    assert formatter._qwenpaw_last_wire_media_count == 1
+    assert "omitted" not in json.dumps(wire)
+    assert message.model_dump(mode="json") == original
+    if source == "file":
+        assert path.read_bytes() == original_bytes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("too_large", [False, True])
+async def test_memory_url_images_fail_explicitly_when_unusable(
+    monkeypatch,
+    too_large,
+):
+    """Animated images and inputs beyond the read bound cannot disappear."""
+    output = BytesIO()
+    Image.new("RGB", (32, 32), "red").save(
+        output,
+        format="GIF",
+        save_all=True,
+        append_images=[Image.new("RGB", (32, 32), "blue")],
+    )
+    raw = output.getvalue()
+    headers = (
+        {"content-length": str(model_factory.MAX_SNAPSHOT_IMAGE_BYTES + 1)}
+        if too_large
+        else {}
+    )
+    _mock_remote_media(monkeypatch, raw, headers=headers)
+    formatter = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )(max_bytes=100, resize_images_to_max_bytes=True)
+    message = Msg(
+        name="user",
+        role="user",
+        content=[
+            _data_block("image/gif", "https://example.com/animated.gif"),
+        ],
+    )
+    with pytest.raises(
+        ValueError,
+        match="preparation limit" if too_large else "[Aa]nimated",
+    ):
+        await formatter.format([message])
 
 
 @pytest.mark.asyncio

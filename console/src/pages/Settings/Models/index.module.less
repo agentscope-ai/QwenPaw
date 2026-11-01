@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/contentStates.less";
+
 @import (reference) "../../../styles/modelSurfaces.less";
 @import (reference) "../../../styles/scaledTypography.less";
 
@@ -551,8 +553,7 @@
 }
 
 .loading {
-  text-align: center;
-  padding: 60px;
+  .loading-state();
 }
 
 .loadingText {

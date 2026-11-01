@@ -767,7 +767,7 @@ describe("useSessionListData polling", () => {
 
     // Next poll returns the same list → no redundant state update
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10000);
     });
     expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(setSessions).toHaveBeenCalledTimes(1);
@@ -775,7 +775,7 @@ describe("useSessionListData polling", () => {
     // A changed list is applied
     listSpy.mockResolvedValue([makeSession("s2")] as unknown as ChatSpec[]);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10000);
     });
     expect(setSessions).toHaveBeenCalledTimes(2);
     expect(
@@ -795,10 +795,55 @@ describe("useSessionListData polling", () => {
 
     sessionApi.isSessionSwitching = true;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(9000);
+      await vi.advanceTimersByTimeAsync(30000);
     });
     expect(listSpy.mock.calls.length).toBe(callsAfterInitial);
     sessionApi.isSessionSwitching = false;
+  });
+
+  it("waits ten seconds before refreshing an idle session list", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    renderActive(vi.fn());
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const initialCalls = listSpy.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(9999));
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls + 1);
+  });
+
+  it("pauses hidden tabs and refreshes immediately when visible", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    renderActive(vi.fn());
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const initialCalls = listSpy.mock.calls.length;
+    hidden.mockReturnValue(true);
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls);
+
+    hidden.mockReturnValue(false);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls + 1);
+  });
+
+  it("does not overlap a slow session refresh", async () => {
+    const pending = deferred<ExtendedChatSession[]>();
+    const listSpy = vi
+      .spyOn(sessionApi, "getSessionList")
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue([]);
+    renderActive(vi.fn());
+
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(listSpy).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve([]));
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(listSpy).toHaveBeenCalledTimes(2);
   });
 
   it("keeps polling after a failed fetch and reports the initial failure", async () => {
@@ -818,14 +863,14 @@ describe("useSessionListData polling", () => {
     // Polling errors are swallowed silently and polling continues
     consoleSpy.mockClear();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10000);
     });
     expect(consoleSpy).not.toHaveBeenCalled();
 
     // Recovery: next poll succeeds and updates the list
     listSpy.mockResolvedValue([makeSession("s1")] as unknown as ChatSpec[]);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10000);
     });
     expect(setSessions).toHaveBeenCalledTimes(1);
     consoleSpy.mockRestore();
@@ -871,7 +916,7 @@ describe("useSessionListData polling", () => {
     const callsAfterDeactivate = listSpy.mock.calls.length;
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(9000);
+      await vi.advanceTimersByTimeAsync(30000);
     });
     expect(listSpy.mock.calls.length).toBe(callsAfterDeactivate);
   });

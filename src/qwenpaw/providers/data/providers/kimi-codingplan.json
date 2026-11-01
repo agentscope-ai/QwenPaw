@@ -5,9 +5,67 @@
   "remote_id": null,
   "template_owner": false,
   "default_model_ids": [
+    "k3.1-pro",
+    "k3.1-pro-highspeed",
     "kimi-for-coding"
   ],
   "models": [
+    {
+      "id": "k3.1-pro",
+      "name": "Kimi K3.1 Pro",
+      "max_input_length": 1048576,
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": ["low", "high", "max"],
+        "supports_off": false,
+        "wire": "native"
+      },
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://www.kimi.com/code/docs/kimi-code/models.html",
+          "updated_at": "2026-10-26",
+          "note": "Maximum context is plan-dependent. K3.1 Pro defaults to high effort on Coding Plan; the standard API defaults to max. Coding Plan documentation does not specify a separate maximum output length; it is intentionally left unknown rather than copied from the standard API."
+        }
+      },
+      "released_at": "2026-10-23"
+    },
+    {
+      "id": "k3.1-pro-highspeed",
+      "name": "Kimi K3.1 Pro Highspeed",
+      "max_input_length": 1048576,
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": ["low", "high", "max"],
+        "supports_off": false,
+        "wire": "native"
+      },
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://www.kimi.com/code/docs/kimi-code/models.html",
+          "updated_at": "2026-10-26",
+          "note": "Maximum context is plan-dependent. K3.1 Pro Highspeed defaults to high effort on Coding Plan; the standard API defaults to max. Coding Plan documentation does not specify a separate maximum output length; it is intentionally left unknown rather than copied from the standard API."
+        }
+      },
+      "released_at": "2026-10-23"
+    },
     {
       "id": "kimi-for-coding",
       "name": "Kimi for Coding",

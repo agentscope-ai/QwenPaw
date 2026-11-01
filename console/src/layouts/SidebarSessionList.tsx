@@ -73,6 +73,8 @@ import styles from "./sidebarSessionList.module.less";
  */
 const SESSION_ROW_HEIGHT = 38;
 const GROUP_HEADER_HEIGHT = 36;
+// Source chips have 8px top / 2px bottom margins around their 32px height.
+const SOURCE_GROUP_HEADER_HEIGHT = 42;
 const DATE_HEADER_HEIGHT = 36;
 
 /** A flattened row rendered by the virtualized session list. */
@@ -717,9 +719,12 @@ export default function SidebarSessionList({
     (index: number) => {
       const row = flatRows[index];
       if (!row) return SESSION_ROW_HEIGHT;
-      return row.kind === "groupHeader"
-        ? GROUP_HEADER_HEIGHT
-        : row.kind === "dateHeader"
+      if (row.kind === "groupHeader") {
+        return row.group.kind === "cron" || row.group.kind === "subagents"
+          ? SOURCE_GROUP_HEADER_HEIGHT
+          : GROUP_HEADER_HEIGHT;
+      }
+      return row.kind === "dateHeader"
         ? DATE_HEADER_HEIGHT
         : SESSION_ROW_HEIGHT;
     },

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections import OrderedDict
@@ -111,6 +112,7 @@ class ToolCoordinator:
         root_agent_id: str = "",
         deadline_override: float | None = None,
         background_result_processor: BackgroundResultProcessor | None = None,
+        allow_offload: bool = True,
     ) -> AsyncGenerator[Any, None]:
         entry = self._create_entry(
             tool_call,
@@ -121,6 +123,14 @@ class ToolCoordinator:
             root_agent_id,
         )
         ctx = entry.ctx
+        if not allow_offload and ctx.offload_deadline is not None:
+            # A script awaits the real result, not a background placeholder.
+            ctx.kill_deadline = (
+                ctx.started_at
+                + (ctx.offload_deadline - ctx.started_at)
+                / OFFLOAD_TIMEOUT_RATIO
+            )
+            ctx.offload_deadline = None
 
         async with self._entries_lock:
             self._entries[ctx.tool_call_id] = entry
@@ -145,7 +155,7 @@ class ToolCoordinator:
                 elif event.type == "stream_closed":
                     break
                 elif event.type == "deadline_reached":
-                    if (
+                    if allow_offload and (
                         self._offload_on_deadline
                         or ctx.offload_reason == OffloadReason.USER
                     ):
@@ -1180,11 +1190,22 @@ class ToolCoordinator:
 
 def _parse_tool_input(tool_call: Any) -> dict[str, Any]:
     raw = getattr(tool_call, "input", None)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
     if isinstance(raw, dict):
         return dict(raw)
     return {}
 
 
 def _update_tool_input(tool_call: Any, modified: dict[str, Any]) -> None:
+    if isinstance(getattr(tool_call, "input", None), str):
+        tool_call.input = json.dumps(
+            {**_parse_tool_input(tool_call), **modified},
+            ensure_ascii=False,
+        )
+        return
     if hasattr(tool_call, "input") and isinstance(tool_call.input, dict):
         tool_call.input.update(modified)

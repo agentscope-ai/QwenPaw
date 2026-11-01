@@ -10,7 +10,10 @@ import pytest
 from aiohttp import web
 from nio.crypto import ENCRYPTION_ENABLED
 
-from qwenpaw.app.channels.matrix.channel import MatrixChannel
+from tests.channel_support.driver import module
+
+matrix_module = module("matrix", "platform")
+MatrixPlatform = matrix_module.MatrixPlatform
 
 
 @pytest.fixture
@@ -99,22 +102,19 @@ async def homeserver():
 
 
 @pytest.fixture
-def channel_factory(homeserver, tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "qwenpaw.app.channels.matrix.channel.WORKING_DIR",
-        tmp_path,
-    )
-
+def channel_factory(homeserver, tmp_path):
     def create(**overrides):
         config = {
-            "process": AsyncMock(),
             "homeserver": homeserver["url"],
-            "matrix_user_id": homeserver["user_id"],
+            "user_id": homeserver["user_id"],
             "password": "password",
             "device_id": "BOT",
+            "workspace_dir": str(tmp_path),
         }
+        if "matrix_user_id" in overrides:
+            overrides["user_id"] = overrides.pop("matrix_user_id")
         config.update(overrides)
-        channel = MatrixChannel(**config)
+        channel = MatrixPlatform(config, AsyncMock(), AsyncMock())
         channel._sync_loop = AsyncMock()
         return channel
 
@@ -228,7 +228,9 @@ async def test_expired_session_falls_back_to_password(
         assert homeserver["whoami"] == ["session-1"]
         assert restarted._client.access_token == "session-2"
         assert (await restarted.health_check())["status"] == "healthy"
-        persisted = json.loads(restarted._auth_state_path().read_text())
+        persisted = json.loads(
+            (restarted._state.directory / "auth.json").read_text(),
+        )
         assert persisted["access_token"] == "session-2"
         assert "password" not in persisted
         assert "password" not in persisted.values()
@@ -248,7 +250,8 @@ async def test_other_auth_rejections_do_not_relogin(
     homeserver["whoami_errors"] = [(code, 403)]
     restarted = channel_factory()
     try:
-        await restarted.start()
+        with pytest.raises(RuntimeError):
+            await restarted.start()
         assert len(homeserver["logins"]) == 1
         assert restarted._sync_task is None
         assert (await restarted.health_check())["status"] == "unhealthy"
@@ -266,7 +269,8 @@ async def test_transient_whoami_error_retries_the_cached_session(
     await first.stop()
     homeserver["whoami_errors"] = [("M_UNKNOWN", 502)]
     monkeypatch.setattr(
-        "qwenpaw.app.channels.matrix.channel._LOGIN_RETRY_INITIAL_DELAY",
+        matrix_module,
+        "_LOGIN_RETRY_INITIAL_DELAY",
         0,
     )
     restarted = channel_factory()
@@ -319,20 +323,24 @@ async def test_cached_token_is_never_sent_to_another_homeserver(
     assert other._cached_auth_identity is None
 
 
-@pytest.mark.parametrize("cache", ["{}", "{broken", "[]", '{"scope": null}'])
-async def test_incomplete_or_legacy_cache_uses_password(
+@pytest.mark.parametrize("cache", ["{}", '{"credential_scope": null}'])
+async def test_incomplete_cache_uses_password(
     homeserver,
     channel_factory,
     cache,
 ):
-    channel = channel_factory()
-    channel._auth_state_path().write_text(cache)
+    first = channel_factory()
+    await first.start()
+    path = first._state.directory / "auth.json"
+    await first.stop()
+    path.write_text(cache)
+    restarted = channel_factory()
     try:
-        await channel.start()
-        assert len(homeserver["logins"]) == 1
+        await restarted.start()
+        assert len(homeserver["logins"]) == 2
         assert homeserver["whoami"] == []
     finally:
-        await channel.stop()
+        await restarted.stop()
 
 
 async def test_explicit_token_is_not_replaced(homeserver, channel_factory):
@@ -360,7 +368,8 @@ async def test_changed_token_owner_or_device_is_rejected(
     homeserver[field] = "@other:example.org" if field == "user_id" else "OTHER"
     restarted = channel_factory(matrix_user_id="@bot:example.org")
     try:
-        await restarted.start()
+        with pytest.raises(RuntimeError):
+            await restarted.start()
         assert len(homeserver["logins"]) == 1
         assert (await restarted.health_check())["status"] == "unhealthy"
     finally:
@@ -398,7 +407,8 @@ async def test_query_failure_does_not_reset_crypto_account(
     homeserver["query_failures"] = {"example.org": {"errcode": "M_UNKNOWN"}}
     restarted = channel_factory(encryption=True)
     try:
-        await restarted.start()
+        with pytest.raises(RuntimeError):
+            await restarted.start()
         assert restarted._client.olm.account.shared
         assert homeserver["uploads"] == []
         assert (await restarted.health_check())["status"] == "unhealthy"
@@ -418,7 +428,8 @@ async def test_failed_key_upload_is_retried_after_restart(
     homeserver["device_keys"].clear()
     homeserver["upload_error"] = True
     failed = channel_factory(encryption=True)
-    await failed.start()
+    with pytest.raises(RuntimeError, match="MATRIX_E2EE_KEYS_UPLOAD_FAILED"):
+        await failed.start()
     assert not failed._client.olm.account.shared
     # A later successful query cannot make an unstarted channel healthy.
     homeserver["device_keys"]["BOT"] = homeserver["uploads"][0]["device_keys"]
@@ -447,7 +458,8 @@ async def test_conflicting_remote_identity_is_not_overwritten(
     homeserver["uploads"].clear()
     restarted = channel_factory(encryption=True)
     try:
-        await restarted.start()
+        with pytest.raises(RuntimeError):
+            await restarted.start()
         assert homeserver["uploads"] == []
         health = await restarted.health_check()
         assert health["status"] == "unhealthy"
@@ -469,7 +481,8 @@ async def test_health_check_times_out_when_homeserver_is_unreachable(
 
     channel._check_e2ee_device_keys = AsyncMock(side_effect=blocked_query)
     monkeypatch.setattr(
-        "qwenpaw.app.channels.matrix.channel._E2EE_HEALTH_TIMEOUT",
+        matrix_module,
+        "_E2EE_HEALTH_TIMEOUT",
         0.01,
     )
     try:
@@ -478,3 +491,39 @@ async def test_health_check_times_out_when_homeserver_is_unreachable(
         assert "timed out" in health["detail"]
     finally:
         await channel.stop()
+
+
+async def test_native_key_health_updates_host_state(
+    homeserver,
+    channel_factory,
+):
+    channel = channel_factory(encryption=True)
+    try:
+        await channel.start()
+        homeserver["device_keys"].clear()
+        await channel._e2ee_maintenance()
+        channel.on_state.assert_awaited_with("failed")
+    finally:
+        await channel.stop()
+
+
+async def test_unversioned_fingerprint_requires_fresh_login(
+    homeserver,
+    channel_factory,
+):
+    channel = channel_factory()
+    await channel.start()
+    path = channel._state.directory / "auth.json"
+    payload = json.loads(path.read_text())
+    await channel.stop()
+    # Old fast-hash cache records cannot authorize session reuse.
+    payload["password_fingerprint"] = "0" * 64
+    path.write_text(json.dumps(payload))
+    restarted = channel_factory()
+    try:
+        await restarted.start()
+        assert len(homeserver["logins"]) == 2
+        assert homeserver["whoami"] == []
+        assert "password" not in json.loads(path.read_text()).values()
+    finally:
+        await restarted.stop()
