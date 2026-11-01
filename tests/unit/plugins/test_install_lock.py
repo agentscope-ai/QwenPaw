@@ -345,6 +345,181 @@ class TestEnvironmentIdentity:
         finally:
             fresh._close_readers()
 
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    def test_state_root_reports_an_unusable_passwd_home(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A passwd home that cannot host the root fails during selection.
+
+        Managed hosts advertise one the account may not write, and sometimes
+        one that is not a directory at all (issue #8515). Leaving that to the
+        first ``mkdir`` aborts startup inside the lock helper with a bare
+        ``PermissionError`` and nothing for the operator to act on.
+        """
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_unusable",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "app-home"
+        home.mkdir()
+        blocker = tmp_path / "not-a-directory"
+        blocker.write_text("blocks every path underneath", encoding="utf-8")
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(blocker / "passwd-home")),
+        )
+        with pytest.raises(RuntimeError) as raised:
+            fresh.state_root()
+        message = str(raised.value)
+        assert "DEPENDENCY_STATE_ROOT_UNAVAILABLE" in message
+        assert fresh._STATE_ENV in message
+        assert "not a directory" in message
+        # The explicit override stays authoritative and is never probed.
+        monkeypatch.setenv(fresh._STATE_ENV, str(tmp_path / "state"))
+        assert fresh.state_root() == (tmp_path / "state").resolve()
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    def test_state_root_reports_a_dangling_coordination_directory(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A dangling link at the coordination directory is reported too.
+
+        canonical() refuses dangling links and re-raises FileNotFoundError,
+        which would otherwise abort the import without the context added
+        during selection.
+        """
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_dangling",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "app-home"
+        coordination = home / ".qwenpaw"
+        coordination.mkdir(parents=True)
+        (coordination / "dependency-environments").symlink_to(
+            tmp_path / "nowhere",
+        )
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(home)),
+        )
+        with pytest.raises(RuntimeError) as raised:
+            fresh.state_root()
+        message = str(raised.value)
+        assert "DEPENDENCY_STATE_ROOT_UNAVAILABLE" in message
+        assert "dangling" in message
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root ignores directory permission bits",
+    )
+    def test_state_root_reports_a_read_only_home(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A home the account may not write is reported, not discovered later."""
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_read_only",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        read_only = tmp_path / "read-only-home"
+        read_only.mkdir()
+        read_only.chmod(0o500)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "app-home"))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(read_only)),
+        )
+        try:
+            with pytest.raises(RuntimeError) as raised:
+                fresh.state_root()
+            message = str(raised.value)
+            assert "DEPENDENCY_STATE_ROOT_UNAVAILABLE" in message
+            assert "not writable" in message
+        finally:
+            read_only.chmod(0o755)
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root ignores directory permission bits",
+    )
+    def test_state_root_accepts_a_prepared_root_under_a_read_only_home(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A prepared, writable coordination directory still works.
+
+        Read-only images commonly mount writable storage at
+        ``~/.qwenpaw/dependency-environments`` while the home itself stays
+        read-only. Selection must not reject what it can already use.
+        """
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_prepared",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "read-only-home"
+        prepared = home / ".qwenpaw" / "dependency-environments"
+        prepared.mkdir(parents=True)
+        home.chmod(0o500)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "app-home"))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(home)),
+        )
+        try:
+            assert fresh.state_root() == prepared.resolve()
+        finally:
+            home.chmod(0o755)
+
     @pytest.mark.parametrize("alias_kind", ["symlink", "case", "distinct"])
     @pytest.mark.parametrize("owner", ["reader", "writer"])
     def test_site_aliases_share_one_cross_process_lock(
