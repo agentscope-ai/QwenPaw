@@ -1,0 +1,15 @@
+{
+  "id": "dingtalk",
+  "name": "DingTalk",
+  "version": "0.1.0.dev0",
+  "type": "channel",
+  "description": "DingTalk messaging channel; standalone integration preview.",
+  "author": "QwenPaw Team",
+  "entry": {
+    "descriptor": "channel.json"
+  },
+  "qwenpaw_version": {
+    "min": "2.2.2b4"
+  },
+  "publish": false
+}

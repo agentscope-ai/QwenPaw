@@ -346,17 +346,19 @@ async def test_user_install_rejects_httpx_upgrade(
         loader,
         "_install_requirements_locked",
         side_effect=AssertionError("site must not be written"),
-    ):
-        with pytest.raises(RuntimeError, match="Restart"):
-            await loader.load_plugin(
-                PluginManifest.from_dict(
-                    json.loads(
-                        (root / "plugin.json").read_text(encoding="utf-8"),
-                    ),
+    ) as installer:
+        record = await loader.load_plugin(
+            PluginManifest.from_dict(
+                json.loads(
+                    (root / "plugin.json").read_text(encoding="utf-8"),
                 ),
-                root,
-                allow_install=True,
-            )
+            ),
+            root,
+            allow_install=True,
+        )
+        assert record.status == "failed" and not record.enabled
+        assert "Restart" in " ".join(record.diagnostics)
+        installer.assert_not_called()
 
 
 @pytest.mark.asyncio

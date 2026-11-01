@@ -1,7 +1,7 @@
 import { notifyPluginChange } from "../../utils/pluginChangeEvents";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
-import { responseErrorMessage } from "../error";
+import { formatApiError, responseErrorMessage } from "../error";
 import { requestWithPluginBusyConfirmation } from "../pluginBusy";
 
 /** Matches the backend ``PluginType`` enum values. */
@@ -45,6 +45,118 @@ export interface InstallPluginResult {
   loaded: boolean;
   message: string;
 }
+
+export interface RepairPluginDependenciesResult {
+  id: string;
+  status: string;
+  enabled: boolean;
+  diagnostics: string[];
+  message: string;
+}
+
+export interface DependencyUpgradeOperation {
+  id: string;
+  plugin_id: string;
+  status:
+    | "needs_confirmation"
+    | "preparing"
+    | "applying"
+    | "waiting_restart"
+    | "succeeded"
+    | "failed"
+    | "cancelled";
+  changes: {
+    name: string;
+    current_version: string | null;
+    target_version: string;
+  }[];
+  affected_instances: {
+    plugin_id: string;
+    instance_id: string | null;
+    generation: number | null;
+    origin: string;
+    active: boolean;
+  }[];
+  requires_restart: boolean;
+  message: string;
+  result?: InstallPluginResult;
+  error?: { code: string; message: string } | null;
+  retryable?: boolean;
+  instructions?: string[];
+}
+
+interface PluginErrorDetail {
+  code?: string;
+  operation?: DependencyUpgradeOperation;
+  instructions?: string[];
+}
+
+export class PluginApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly operation?: DependencyUpgradeOperation;
+  readonly instructions: string[];
+
+  constructor(message: string, status: number, detail: PluginErrorDetail = {}) {
+    const instructions = Array.isArray(detail.instructions)
+      ? detail.instructions.filter(
+          (item): item is string => typeof item === "string" && Boolean(item),
+        )
+      : [];
+    super(
+      [message, ...instructions.filter((item) => !message.includes(item))].join(
+        "\n",
+      ),
+    );
+    this.name = "PluginApiError";
+    this.status = status;
+    this.code = detail.code;
+    this.operation = detail.operation;
+    this.instructions = instructions;
+  }
+}
+
+async function pluginResponseError(response: Response, fallback: string) {
+  const payload: unknown = await response.json().catch(() => null);
+  const detail =
+    payload && typeof payload === "object" && "detail" in payload
+      ? payload.detail
+      : null;
+  return new PluginApiError(
+    formatApiError(payload, fallback),
+    response.status,
+    detail && typeof detail === "object" ? detail : {},
+  );
+}
+
+async function requestDependencyUpgrade(
+  id: string,
+  method: "GET" | "POST" | "DELETE",
+): Promise<DependencyUpgradeOperation> {
+  const path = `/plugins/dependency-upgrades/${encodeURIComponent(id)}${
+    method === "POST" ? "/apply" : ""
+  }`;
+  const response = await fetch(getApiUrl(path), {
+    method,
+    headers: buildAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw await pluginResponseError(
+      response,
+      `Dependency upgrade failed (${response.status})`,
+    );
+  }
+  return response.json();
+}
+
+export const fetchDependencyUpgrade = (id: string) =>
+  requestDependencyUpgrade(id, "GET");
+
+export const applyDependencyUpgrade = (id: string) =>
+  requestDependencyUpgrade(id, "POST");
+
+export const cancelDependencyUpgrade = (id: string) =>
+  requestDependencyUpgrade(id, "DELETE");
 
 export interface PluginStatus {
   id: string;
@@ -143,11 +255,9 @@ export async function installPlugin(
   );
 
   if (!response.ok) {
-    throw new Error(
-      await responseErrorMessage(
-        response,
-        `Install failed (${response.status})`,
-      ),
+    throw await pluginResponseError(
+      response,
+      `Install failed (${response.status})`,
     );
   }
 
@@ -179,17 +289,31 @@ export async function uploadPlugin(file: File): Promise<InstallPluginResult> {
   );
 
   if (!response.ok) {
-    throw new Error(
-      await responseErrorMessage(
-        response,
-        `Upload failed (${response.status})`,
-      ),
+    throw await pluginResponseError(
+      response,
+      `Upload failed (${response.status})`,
     );
   }
 
   const result = await response.json();
   notifyPluginChange();
   return result;
+}
+
+export async function repairPluginDependencies(
+  pluginId: string,
+): Promise<RepairPluginDependenciesResult> {
+  const response = await fetch(
+    getApiUrl(`/plugins/${encodeURIComponent(pluginId)}/repair-dependencies`),
+    { method: "POST", headers: buildAuthHeaders() },
+  );
+  if (!response.ok) {
+    throw await pluginResponseError(
+      response,
+      `Dependency repair failed (${response.status})`,
+    );
+  }
+  return response.json();
 }
 
 /**

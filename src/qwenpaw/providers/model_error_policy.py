@@ -10,7 +10,7 @@ import anthropic
 import httpx
 import openai
 
-from .error_utils import extract_status_code
+from .error_utils import extract_status_code, is_request_body_too_large
 
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504, 529})
 
@@ -18,6 +18,7 @@ ModelErrorKind = Literal[
     "authentication",
     "bad_request",
     "context_overflow",
+    "request_body_overflow",
     "content_safety",
     "model_not_found",
     "rate_limited",
@@ -72,6 +73,8 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
         kind = "model_not_found"
     elif status == 429 or _is_sdk_rate_limit(exc):
         kind = "rate_limited"
+    elif is_request_body_too_large(exc):
+        kind = "request_body_overflow"
     elif (
         status in RETRYABLE_STATUS_CODES
         or isinstance(

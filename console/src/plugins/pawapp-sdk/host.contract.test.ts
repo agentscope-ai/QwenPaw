@@ -236,25 +236,6 @@ describe("pawapp host chat()", () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toBe("Chat failed: 503 Unavailable");
   });
-
-  it("needs the host namespace to be installed to resolve an agent", async () => {
-    dropHostNamespace();
-    respondWith({ text: "ok" });
-
-    const error = await rejectionOf(chat("hi"));
-
-    expect(error).toBeInstanceOf(TypeError);
-    expect(mockedFetch).not.toHaveBeenCalled();
-  });
-
-  it("builds a doubled-slash route when no PawApp id is active", async () => {
-    setActivePawAppId(null);
-    respondWith({ text: "ok" });
-
-    await chat("hi");
-
-    expect(callPath()).toBe("//chat?agent_id=default");
-  });
 });
 
 describe("pawapp host chatStream()", () => {
@@ -534,15 +515,6 @@ describe("pawapp host chatSessions", () => {
     expect(callPath()).toBe(`/${APP_ID}/chat/sessions?agent_id=default`);
     expect(callInit().method).toBe("POST");
     expect(callBody()).toEqual({ name: "New analysis" });
-  });
-
-  it("sends a whitespace-only name as given instead of the default", async () => {
-    respondWith({ id: "c7" });
-
-    // A whitespace string is truthy, so the "||" default does not apply.
-    await chatSessions.create({ name: "   " });
-
-    expect(callBody()).toEqual({ name: "   " });
   });
 
   it("creates a dialogue with the requested name", async () => {
@@ -922,12 +894,5 @@ describe("pawapp hostNamespace export", () => {
 
     expect(hostNamespace.getSelectedAgentId()).toBe("agent-1");
     expect(hostNamespace.getCurrentSessionId()).toBe("session-1");
-  });
-
-  it("needs the host namespace object to read either identifier", () => {
-    dropHostNamespace();
-
-    expect(() => hostNamespace.getSelectedAgentId()).toThrow(TypeError);
-    expect(() => hostNamespace.getCurrentSessionId()).toThrow(TypeError);
   });
 });

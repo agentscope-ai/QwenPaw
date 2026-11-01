@@ -150,14 +150,15 @@ async def test_stop_cancellation_does_not_commit_workspace_stopped(workspace):
 
 
 @pytest.mark.asyncio
-async def test_reused_service_can_be_rejected_by_configuration():
+@pytest.mark.parametrize("present", [True, False])
+async def test_reused_service_can_be_rejected_by_configuration(present):
     workspace = SimpleNamespace(agent_id="agent-1", marker="new")
     manager = ServiceManager(workspace)
 
     class Service:
         marker = "old"
 
-    service = Service()
+    service = Service() if present else None
     manager.register(
         ServiceDescriptor(
             name="memory_manager",

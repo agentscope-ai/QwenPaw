@@ -533,7 +533,6 @@
     "selectBuiltin": "Встроенные",
     "selectNone": "Очистить",
     "noPoolSkills": "В пуле нет доступных навыков",
-    "addSkillsToAgent": "Добавить навыки",
     "copyTooltip": "Копировать конфигурацию агента",
     "copyDefaultTooltip": "Копировать, используя агента по умолчанию как шаблон",
     "copyTitle": "Копировать конфигурацию агента",
@@ -1397,8 +1396,10 @@
     "selectAtLeastOneDay": "Выберите хотя бы один день."
   },
   "channels": {
-    "customFieldJsonArray": "Введите корректный JSON-массив.",
-    "customFieldJsonObject": "Введите корректный JSON-объект.",
+    "qrcodeInstallRequired": "Установите плагин для сканирования QR-кода",
+    "runtime": {
+      "missing_code": "Плагин не установлен"
+    },
     "title": "Каналы",
     "description": "Управление и настройка каналов сообщений",
     "loading": "Загрузка каналов...",
@@ -1690,7 +1691,9 @@
     "requiredField": "Введите {{field}}",
     "portRange": "Порт должен быть от 1 до 65535",
     "developmentMode": "Разработка (pyVoIP)",
-    "productionMode": "Эксплуатация (LiveKit)"
+    "productionMode": "Эксплуатация (LiveKit)",
+    "customFieldJsonArray": "Введите корректный JSON-массив.",
+    "customFieldJsonObject": "Введите корректный JSON-объект."
   },
   "sessions": {
     "title": "Сессии",
@@ -4743,6 +4746,8 @@
     "from": "От:",
     "requestedBy": "Кем:",
     "markRead": "Прочитано",
+    "unreadOnly": "Только непрочитанные",
+    "emptyUnread": "Нет непрочитанных сообщений, соответствующих текущим фильтрам",
     "markAllRead": "Прочитать всё",
     "markAllReadNoUnread": "Нет непрочитанных сообщений",
     "markAllReadSuccess": "Отмечено как прочитанное: {{count}} сообщ.",
@@ -4945,6 +4950,9 @@
     "retry": "Повторить"
   },
   "preview": {
+    "unavailable": "Предпросмотр недоступен",
+    "showDetails": "Показать причину",
+    "hideDetails": "Скрыть подробности",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "Этот файл заблокирован защитой файлов (защита конфиденциальных файлов).",
       "OUTSIDE_WORKSPACE": "Этот файл находится за пределами рабочего пространства. Включите «Разрешить предпросмотр файлов вне рабочего пространства» в Настройки → Безопасность → Защита файлов.",

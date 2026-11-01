@@ -1782,8 +1782,10 @@
     "updateFailed": "Pembaruan gagal"
   },
   "channels": {
-    "customFieldJsonArray": "Masukkan array JSON yang valid.",
-    "customFieldJsonObject": "Masukkan objek JSON yang valid.",
+    "qrcodeInstallRequired": "Instal plugin untuk memindai kode QR",
+    "runtime": {
+      "missing_code": "Plugin belum diinstal"
+    },
     "title": "Saluran",
     "description": "Kelola dan konfigurasi saluran pesan",
     "loading": "Memuat saluran...",
@@ -2075,7 +2077,9 @@
     "requiredField": "Masukkan {{field}}",
     "portRange": "Port harus antara 1 dan 65535",
     "developmentMode": "Pengembangan (pyVoIP)",
-    "productionMode": "Produksi (LiveKit)"
+    "productionMode": "Produksi (LiveKit)",
+    "customFieldJsonArray": "Masukkan array JSON yang valid.",
+    "customFieldJsonObject": "Masukkan objek JSON yang valid."
   },
   "tools": {
     "title": "Alat",
@@ -2901,6 +2905,9 @@
     "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP."
   },
   "preview": {
+    "unavailable": "Pratinjau tidak tersedia",
+    "showDetails": "Lihat penyebab",
+    "hideDetails": "Sembunyikan detail",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "File diblokir oleh File Guard (perlindungan file sensitif).",
       "OUTSIDE_WORKSPACE": "File berada di luar cakupan workspace. Aktifkan \"Izinkan Pratinjau Konsol di Luar Workspace\" di Pengaturan → Keamanan → File Guard.",
@@ -3118,6 +3125,8 @@
     "from": "Dari:",
     "requestedBy": "Oleh",
     "markRead": "Tandai Dibaca",
+    "unreadOnly": "Hanya yang belum dibaca",
+    "emptyUnread": "Tidak ada pesan belum dibaca yang sesuai dengan filter saat ini",
     "markAllRead": "Tandai Semua Dibaca",
     "markAllReadNoUnread": "Tidak ada pesan yang belum dibaca",
     "markAllReadSuccess": "{{count}} pesan ditandai dibaca",

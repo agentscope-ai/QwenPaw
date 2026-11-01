@@ -32,6 +32,66 @@ def accounts(tmp_path, monkeypatch):
     return auth_module.ChatGPTAccounts(tmp_path)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "peer,forwarded,trusted,status",
+    [
+        ("127.0.0.1", "", ["127.0.0.1/32"], 200),
+        ("127.0.0.1", "127.0.0.1", ["127.0.0.1/32"], 200),
+        ("127.0.0.1", "203.0.113.7", ["127.0.0.1/32"], 403),
+        ("203.0.113.7", "127.0.0.1", [], 403),
+        ("203.0.113.7", "127.0.0.1", ["203.0.113.7/32"], 403),
+    ],
+)
+async def test_account_controls_require_local_client_through_proxy(
+    monkeypatch,
+    peer,
+    forwarded,
+    trusted,
+    status,
+):
+    from fastapi import Depends, FastAPI
+    from qwenpaw.app import auth
+    from qwenpaw.app.routers.chatgpt import require_local
+
+    config = SimpleNamespace(
+        security=SimpleNamespace(allow_no_auth_hosts=[]),
+    )
+    networks = auth._parse_networks(trusted)
+    monkeypatch.setattr(auth, "_get_config_cached", lambda: (config, networks))
+    monkeypatch.setattr(auth, "is_auth_enabled", lambda: True)
+    monkeypatch.setattr(auth, "has_registered_users", lambda: True)
+    monkeypatch.setattr(
+        auth,
+        "verify_token",
+        lambda token: "alice" if token == "valid" else None,
+    )
+    app = FastAPI()
+
+    @app.get("/api/account-controls", dependencies=[Depends(require_local)])
+    async def account_controls():
+        return {"available": True}
+
+    app.add_middleware(auth.AuthMiddleware)
+    app.add_middleware(auth.TrustedProxySchemeMiddleware)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, client=(peer, 12345)),
+        base_url="http://127.0.0.1:8088",
+    ) as client:
+        response = await client.get(
+            "/api/account-controls",
+            headers={
+                "Authorization": "Bearer valid",
+                "X-Forwarded-For": forwarded,
+                "X-Forwarded-Proto": "https",
+            },
+        )
+    assert response.status_code == status
+    if status == 200:
+        assert response.json() == {"available": True}
+        assert response.headers["Cache-Control"] == "no-store"
+
+
 def test_loopback_registration_identity_refresh_and_signout(
     accounts,
     monkeypatch,

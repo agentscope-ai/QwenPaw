@@ -54,7 +54,7 @@ class Plugin:
             directory.mkdir(parents=True, exist_ok=True)
             path = directory / "state.json"
             state = (
-                json.loads(path.read_text())
+                json.loads(path.read_text(encoding="utf-8"))
                 if path.exists()
                 else {"calls": 0, "user_note": "keep"}
             )
@@ -95,7 +95,7 @@ async def run(phase):
         path = working / "config.json"
         if not path.exists():
             return
-        config = json.loads(path.read_text())
+        config = json.loads(path.read_text(encoding="utf-8"))
         for identifier, profile in (
             config.get("agents", {}).get("profiles", {}).items()
         ):
@@ -150,7 +150,12 @@ async def run(phase):
             load_config().plugins,
             activate=True,
         )
-        assert records[PLUGIN_ID].status == "active"
+        record = records[PLUGIN_ID]
+        assert record.status == "active", {
+            "phase": phase,
+            "status": record.status,
+            "diagnostics": record.diagnostics,
+        }
         if phase == "cycle":
             await call("initial", "1.0.0", 2)
             report = await loader.lifecycle.update_config(
@@ -173,7 +178,11 @@ async def run(phase):
             assert not hasattr(tools, TOOL_NAME)
             assert load_config().plugins[PLUGIN_ID]["enabled"] is False
             record = await loader.lifecycle.set_enabled(PLUGIN_ID, True)
-            assert record.status == "active"
+            assert record.status == "active", {
+                "phase": phase,
+                "status": record.status,
+                "diagnostics": record.diagnostics,
+            }
             await call("updated", "2.0.0", 5)
         elif phase == "cold":
             await call("updated", "2.0.0", 6)
@@ -188,7 +197,9 @@ async def run(phase):
             assert not hasattr(tools, TOOL_NAME)
             assert PLUGIN_ID not in load_config().plugins
             assert json.loads(
-                (working / "legacy-user-data/state.json").read_text(),
+                (working / "legacy-user-data/state.json").read_text(
+                    encoding="utf-8",
+                ),
             ) == {
                 "calls": 6,
                 "user_note": "keep",

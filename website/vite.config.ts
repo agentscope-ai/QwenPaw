@@ -18,18 +18,8 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: {
-            markdown: [
-              "react-markdown",
-              "remark-gfm",
-              "rehype-highlight",
-              "rehype-raw",
-              "highlight.js",
-              "react-syntax-highlighter",
-            ],
-            mermaid: ["mermaid"],
-            router: ["react-router-dom"],
-            i18n: ["i18next", "react-i18next"],
+          manualChunks(id) {
+            if (id.includes("commonjsHelpers")) return "runtime";
           },
         },
       },

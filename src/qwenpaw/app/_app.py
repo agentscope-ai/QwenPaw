@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import mimetypes
 import os
+import stat
 import sys
 import threading
 import time
@@ -44,6 +45,7 @@ from ..utils.system_info import summarize_python_environment
 from .auth import (
     AuthMiddleware,
     RuntimeBoundaryMiddleware,
+    TrustedProxySchemeMiddleware,
     auto_register_from_env,
     check_proxy_config_sanity,
 )
@@ -107,7 +109,14 @@ async def _shutdown_plugins(app: FastAPI) -> None:
         logger.info("Executing plugin shutdown (mode=shutdown)...")
         from ..plugins.lifecycle import UnloadMode
 
-        await plugin_loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+        reports = await plugin_loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+        failed = [
+            report.plugin_id for report in reports if not report.quiescent
+        ]
+        if failed:
+            raise RuntimeError(
+                "Plugin shutdown incomplete: " + ", ".join(failed),
+            )
         return
     plugin_registry = getattr(app.state, "plugin_registry", None)
     if plugin_registry is None:
@@ -184,7 +193,24 @@ async def _stop_workspaces_after_dependents_impl(
     app: FastAPI,
     import_jobs: Any,
 ) -> None:
-    """Quiesce imports and plugin hooks before destroying workspaces."""
+    """Quiesce management, imports and hooks before destroying workspaces."""
+    failures = []
+    for name in (
+        "channel_ingress",
+        "channel_qrcode_sessions",
+        "channel_management",
+    ):
+        service = getattr(app.state, name, None)
+        if service is not None:
+            try:
+                await service.aclose()
+            except (Exception, asyncio.CancelledError) as exc:
+                failures.append(exc)
+    if failures:
+        for error in failures:
+            if not isinstance(error, asyncio.CancelledError):
+                raise error
+        raise failures[0]
     imports_quiesced = await import_jobs.shutdown()
     while not imports_quiesced:
         # A bounded cancellation attempt is not proof that a worker has
@@ -440,6 +466,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.backup_manager = backup_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
+    app.state.channel_management = None
+    app.state.channel_qrcode_sessions = None
 
     async def _get_agent_by_id(agent_id: str = None):
         """Get agent instance by ID, or active agent if not specified."""
@@ -521,8 +549,60 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             plugin_dirs = [get_plugins_dir()]
 
-            plugin_loader = PluginLoader(plugin_dirs)
+            from ..plugins.official_channels import (
+                provision_bundled_channels,
+                resolve_default_channel_runtime,
+            )
 
+            try:
+                channel_runtime = await asyncio.to_thread(
+                    resolve_default_channel_runtime,
+                )
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                logger.exception("Official channel runtime unavailable")
+                channel_runtime = None
+            plugin_loader = await PluginLoader.create(
+                plugin_dirs,
+                channel_runtime=channel_runtime,
+            )
+            from ..cli.app_cmd import _dependency_restart
+
+            if _dependency_restart is not None:
+                import signal
+
+                plugin_loader.dependency_upgrade_restart = _dependency_restart
+                plugin_loader.dependency_upgrade_shutdown = (
+                    lambda: signal.raise_signal(signal.SIGINT)
+                )
+            from .channels.management import ChannelManagementService
+            from .channels.qrcode_sessions import ChannelQRCodeSessions
+
+            app.state.plugin_loader = plugin_loader
+            app.state.plugin_registry = plugin_loader.registry
+            from .channels.ingress import ChannelIngressService
+            from .server_context import server_port
+            from .auth import is_trusted_proxy
+
+            app.state.channel_ingress = ChannelIngressService(
+                plugin_loader.registry,
+                host_port=server_port(app),
+                trusted_proxy=is_trusted_proxy,
+            )
+            plugin_loader.registry.channel_ingress_service = (
+                app.state.channel_ingress
+            )
+            app.state.channel_management = ChannelManagementService(
+                plugin_loader,
+            )
+            app.state.channel_qrcode_sessions = ChannelQRCodeSessions(
+                plugin_loader,
+                app.state.channel_management,
+            )
+            workspace_registry.channel_qrcode_sessions = (
+                app.state.channel_qrcode_sessions
+            )
+
+            plugin_loader.registry.set_workspace_manager(workspace_registry)
             plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
@@ -539,6 +619,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 types=["channel", "memory", "hub"],
                 activate=False,
             )
+            try:
+                seed_errors = await provision_bundled_channels(plugin_loader)
+                for plugin_id, reason in seed_errors.items():
+                    logger.warning(
+                        "Official channel %s needs repair: %s",
+                        plugin_id,
+                        reason,
+                    )
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                logger.exception("Official channel migration pending")
             logger.debug("Phase 1: channel, memory and Hub plugins loaded")
             app.state.market_ready.set()
 
@@ -771,6 +861,7 @@ app.add_middleware(ResponseCompressionMiddleware, minimum_size=1000)
 app.add_middleware(AgentContextMiddleware)
 
 app.add_middleware(AuthMiddleware)
+app.add_middleware(TrustedProxySchemeMiddleware)
 app.add_middleware(RuntimeBoundaryMiddleware)
 
 # Apply CORS middleware if CORS_ORIGINS is set
@@ -927,6 +1018,10 @@ app.include_router(voice_router, tags=["voice"])
 # Register these AFTER API routes to ensure proper routing priority
 if os.path.isdir(_CONSOLE_STATIC_DIR):
     _console_path = Path(_CONSOLE_STATIC_DIR)
+    _console_static = StaticFiles(
+        directory=str(_console_path),
+        check_dir=False,
+    )
 
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
@@ -970,10 +1065,11 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         # favicons, images placed in public/).  Only serve regular files whose
         # path does not escape the console directory.
         if full_path and ".." not in full_path:
-            # Security: Reject absolute paths to prevent path traversal bypass
-            if not Path(full_path).is_absolute():
-                static_file = _console_path / full_path
-                if static_file.is_file():
-                    return FileResponse(static_file)
+            try:
+                static_file, file_stat = _console_static.lookup_path(full_path)
+            except (OSError, ValueError):
+                return _serve_console_index()
+            if file_stat and stat.S_ISREG(file_stat.st_mode):
+                return FileResponse(static_file, stat_result=file_stat)
 
         return _serve_console_index()

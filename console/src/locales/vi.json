@@ -1334,6 +1334,8 @@
     "from": "Từ:",
     "requestedBy": "Bởi",
     "markRead": "Đánh dấu đã đọc",
+    "unreadOnly": "Chỉ hiện chưa đọc",
+    "emptyUnread": "Không có tin nhắn chưa đọc phù hợp với bộ lọc hiện tại",
     "markAllRead": "Đánh dấu tất cả đã đọc",
     "markAllReadNoUnread": "Không có tin nhắn chưa đọc",
     "markAllReadSuccess": "Đã đánh dấu {{count}} tin nhắn đã đọc",
@@ -2309,6 +2311,9 @@
     "acknowledge": "Đã Hiểu"
   },
   "preview": {
+    "unavailable": "Không thể xem trước",
+    "showDetails": "Xem nguyên nhân",
+    "hideDetails": "Ẩn chi tiết",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "File bị chặn bởi File Guard (bảo vệ file nhạy cảm).",
       "OUTSIDE_WORKSPACE": "File nằm ngoài phạm vi workspace. Bật \"Cho phép xem trước ngoài Workspace\" trong Cài đặt → Bảo mật → File Guard.",
@@ -3248,8 +3253,10 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
-    "customFieldJsonArray": "Vui lòng nhập mảng JSON hợp lệ.",
-    "customFieldJsonObject": "Vui lòng nhập đối tượng JSON hợp lệ.",
+    "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
+    "runtime": {
+      "missing_code": "Chưa cài đặt plugin"
+    },
     "title": "Kênh",
     "description": "Quản lý và cấu hình các kênh nhắn tin",
     "loading": "Đang tải kênh...",
@@ -3541,7 +3548,9 @@
     "requiredField": "Nhập {{field}}",
     "portRange": "Cổng phải từ 1 đến 65535",
     "developmentMode": "Phát triển (pyVoIP)",
-    "productionMode": "Triển khai (LiveKit)"
+    "productionMode": "Triển khai (LiveKit)",
+    "customFieldJsonArray": "Vui lòng nhập mảng JSON hợp lệ.",
+    "customFieldJsonObject": "Vui lòng nhập đối tượng JSON hợp lệ."
   },
   "cronJobs": {
     "title": "Tác vụ định kỳ",
