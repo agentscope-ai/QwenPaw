@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Plus as PlusOutlined } from "lucide-react";
 import { Button } from "@agentscope-ai/design";
+import { Alert } from "antd";
 import {
   SkillCard,
   SkillDrawer,
@@ -37,6 +38,8 @@ function SkillsPage() {
     sortedSkills,
     conflictRenameModal,
     loading,
+    error,
+    ready,
     uploading,
     importing,
     drawerOpen,
@@ -80,6 +83,7 @@ function SkillsPage() {
     clearSelection,
     toggleBatchMode,
     toggleEnabled,
+    refreshSkills,
     hardRefresh,
     cancelImport,
   } = useSkillsPage();
@@ -133,6 +137,37 @@ function SkillsPage() {
       handleDelete,
     ],
   );
+
+  if (error) {
+    return (
+      <div className={styles.skillsPage}>
+        <PageHeader items={[{ title: t("skills.title") }]} />
+        <div className={styles.loadError}>
+          <Alert
+            type="error"
+            showIcon
+            message={t("skills.loadFailed")}
+            action={
+              <Button type="primary" onClick={() => void refreshSkills()}>
+                {t("common.retry")}
+              </Button>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (loading || !ready) {
+    return (
+      <div className={styles.skillsPage}>
+        <PageHeader items={[{ title: t("skills.title") }]} />
+        <div className={styles.loading} role="status">
+          <span className={styles.loadingText}>{t("common.loading")}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.skillsPage}>
@@ -197,11 +232,7 @@ function SkillsPage() {
         />
       )}
 
-      {loading ? (
-        <div className={styles.loading}>
-          <span className={styles.loadingText}>{t("common.loading")}</span>
-        </div>
-      ) : skills.length === 0 ? (
+      {skills.length === 0 ? (
         <div
           className={`${styles.emptyState} ${
             providerSkills.length > 0 ? styles.emptyStateCompact : ""

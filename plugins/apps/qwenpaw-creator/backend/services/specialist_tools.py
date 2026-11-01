@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from domain.enums import CreatorCommandType, SpecialistRole, TaskKind
 from domain.errors import PermissionDeniedError, ValidationError
@@ -56,6 +56,11 @@ from services.source_analysis import (
     SourceAgentToolContext,
     source_analysis_service,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from services.runtime_files.execution_store import (
+        ProjectExecutionStore,
+    )
 
 logger = logging.getLogger("creator.specialist_tools")
 
@@ -764,6 +769,7 @@ _CHECK_OBSERVATION_ARGUMENTS = _arguments_schema(
             "description": (
                 "要收割的观察任务 id（observe_source_clip / "
                 "read_source_video 以 background=true 提交时返回）。"
+                "省略或留空=收割本 Run 已提交的全部观察任务。"
             ),
         },
         "wait": {
@@ -772,8 +778,18 @@ _CHECK_OBSERVATION_ARGUMENTS = _arguments_schema(
                 "true（默认）=并行等待全部任务到终态后返回结果；" "false=立即返回当前状态快照，不等待。"
             ),
         },
+        "harvestOffset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": (
+                "仅在省略 taskIds（收割本 Run 全部观察）时生效的分页游标："
+                "从第几个任务开始收割。一次最多收割 32 个；若还有剩余，"
+                "返回的 note 会给出下一次的 harvestOffset，回填它即可继续"
+                "收割，无需记住任何 taskId。默认 0。"
+            ),
+        },
     },
-    ("taskIds",),
+    (),
 )
 
 _REVIEW_SCENE_ARGUMENTS = _arguments_schema(
@@ -924,7 +940,10 @@ _SPECS = (
             "回原片核验：按时间窗从当前 exact Source 的原始媒体抽出连续"
             "片段，由 VLM 真实观看后回答问题并附时间戳证据。"
             "query_source_memory 的 hitWindowsMs 结论在用于剪辑选段前必须"
-            "经本工具逐窗核验；窗口 0.5–120 秒。"
+            "经本工具逐窗核验；窗口 0.5–120 秒。多个互相独立的窗口"
+            "请在连续回合里全部以 background=true 提交，再用 "
+            "check_observation_tasks 一次收割；逐个同步等待会把耗时"
+            "相加。"
         ),
         roles=frozenset(
             {
@@ -945,7 +964,8 @@ _SPECS = (
             "视频按动态分辨率/帧率抽帧，帧序列带时间戳以原生图片进入你的"
             "下一条消息。典型用法：budget=small 不传时间窗扫全片建立定位，"
             "再对命中段用 budget=large + 时间窗细看；需要连续动态细节时"
-            "改用 observe_source_clip。"
+            "改用 observe_source_clip。多个互不依赖的时段/素材请以 "
+            "background=true 批量提交后一次收割。"
         ),
         roles=frozenset(
             {
@@ -964,7 +984,9 @@ _SPECS = (
             "收割以 background=true 提交的观察任务（observe_source_clip /"
             " read_source_video）：wait=true（默认）并行等待全部任务完成后"
             "返回各自结果（read 任务的帧图随之注入）；wait=false 立即返回"
-            "状态快照。提交的后台任务必须在结束工作前收割。"
+            "状态快照。taskIds 可省略：省略即收割本 Run 已提交的全部观察"
+            "任务，批量并行提交时不必记住每个 taskId。提交的后台任务必须"
+            "在结束工作前收割。"
         ),
         roles=frozenset(
             {
@@ -1069,6 +1091,101 @@ def _tool_available(name: str) -> bool:
     if name in _S2V_TOOL_NAMES:
         return is_s2v_configured()
     return True
+
+
+_OBSERVATION_TASK_KINDS = frozenset(
+    {
+        TaskKind.OBSERVE_SOURCE_CLIP,
+        TaskKind.READ_SOURCE_VIDEO,
+    },
+)
+# Harvest-all is bounded so one long run cannot pull an unbounded task
+# list into the model context. The overflow is reported, never dropped
+# silently: an unharvested observation is work the model already paid for.
+_MAX_HARVEST_TASKS = 32
+_MAX_REPORTED_OVERFLOW_TASKS = 16
+
+
+def _run_observation_task_ids(
+    executions: ProjectExecutionStore,
+    project_id: str,
+    specialist_run_id: str | None,
+) -> list[str]:
+    """Every observation task this specialist Run submitted.
+
+    Ordered by immutable ``created_at`` (``task_id`` breaks same-instant ties),
+    *not* by ``list_tasks``' ``updated_at``: a harvest page awaited to a
+    terminal state refreshes ``updated_at``, which would reshuffle the list
+    between paged ``harvestOffset`` calls and make the cursor repeat harvested
+    tasks while permanently skipping the rest.  This order decides which tasks
+    the harvest bound keeps and gives the pagination cursor a stable basis.
+
+    ``check_observation_tasks`` accepts an omitted ``taskIds`` so a model
+    can batch independent observations without tracking ids; ownership
+    therefore has to come from the durable records, and the lookup stays
+    read-only.  Terminal tasks are included on purpose: a background
+    observation that already finished still owes the model its result, and
+    harvesting it twice is idempotent.  The caller applies the harvest bound
+    so it can also report what the bound left out.
+    """
+
+    if not specialist_run_id:
+        return []
+    matched = [
+        record
+        for record in executions.list_tasks(project_id)
+        if record.kind in _OBSERVATION_TASK_KINDS
+        and specialist_run_id in (record.run_id, record.caused_by_request_id)
+    ]
+    matched.sort(key=lambda record: (record.created_at, record.task_id))
+    return [record.task_id for record in matched]
+
+
+def _harvest_offset(payload: Mapping[str, Any]) -> int:
+    """Validated harvest-all pagination cursor (0 when absent)."""
+
+    raw = payload.get("harvestOffset")
+    if raw is None:
+        return 0
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        raise ValidationError("harvestOffset 必须是非负整数")
+    try:
+        offset = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("harvestOffset 必须是非负整数") from exc
+    if offset < 0:
+        raise ValidationError("harvestOffset 必须是非负整数")
+    return offset
+
+
+def _harvest_overflow_note(
+    total: int,
+    rest: list[str],
+    next_offset: int,
+) -> str:
+    """Name the observations the harvest bound left out, and how to reach all.
+
+    Lists up to ``_MAX_REPORTED_OVERFLOW_TASKS`` ids for an immediate explicit
+    ``taskIds`` harvest, and always names the ``harvestOffset`` cursor that
+    pages through the remainder -- so a Run that submitted more observations
+    than one harvest (plus one id list) can still reach every task without the
+    model tracking ids.
+    """
+
+    shown = ", ".join(rest[:_MAX_REPORTED_OVERFLOW_TASKS])
+    tail = ""
+    if len(rest) > _MAX_REPORTED_OVERFLOW_TASKS:
+        tail = (
+            f" …（另有 {len(rest) - _MAX_REPORTED_OVERFLOW_TASKS} 个未在此"
+            f"列出，用 harvestOffset 翻页取全）"
+        )
+    return (
+        f"本 Run 共 {total} 个观察任务，一次最多收割 "
+        f"{_MAX_HARVEST_TASKS} 个；还有 {len(rest)} 个未收割。可用 "
+        f"taskIds 显式收割：{shown}{tail}；或省略 taskIds 并传 "
+        f"harvestOffset={next_offset} 收割下一批（无需记住 id，重复直到"
+        f"没有剩余）。"
+    )
 
 
 class FileSpecialistToolRegistry:
@@ -1209,7 +1326,14 @@ class FileSpecialistToolRegistry:
                 )
         payload = arguments.get("arguments")
         if not isinstance(payload, Mapping):
-            raise ValidationError("Specialist tool arguments 必须是 object")
+            if name == "check_observation_tasks" and payload is None:
+                # Harvest-all mode: with taskIds optional the natural call
+                # shape carries no arguments object at all.
+                payload = {}
+            else:
+                raise ValidationError(
+                    "Specialist tool arguments 必须是 object",
+                )
 
         if name in {
             "transcribe_source_audio",
@@ -1382,8 +1506,57 @@ class FileSpecialistToolRegistry:
                 ProjectExecutionStore,
             )
 
-            task_ids = [str(item) for item in payload["taskIds"]]
+            task_ids = [str(item) for item in payload.get("taskIds") or []]
             executions = ProjectExecutionStore(self.services.root)
+            overflow_note: str | None = None
+            if not task_ids:
+                # Harvest-all: batching independent observations is the
+                # fast path, and having to remember every taskId is what
+                # keeps a model from batching. Discovery is run-scoped.
+                discovered = await asyncio.to_thread(
+                    _run_observation_task_ids,
+                    executions,
+                    project_id,
+                    (
+                        context.specialist_run_id
+                        if context is not None
+                        else None
+                    ),
+                )
+                if not discovered:
+                    return SpecialistToolResult(
+                        payload={
+                            "ok": True,
+                            "tasks": [],
+                            "note": (
+                                "本 Run 没有已提交的观察任务；先用 "
+                                "observe_source_clip / read_source_video "
+                                "以 background=true 提交。"
+                            ),
+                        },
+                    )
+                offset = _harvest_offset(payload)
+                if offset >= len(discovered):
+                    # Paged past the end: every task was already harvested.
+                    return SpecialistToolResult(
+                        payload={
+                            "ok": True,
+                            "tasks": [],
+                            "note": (
+                                f"本 Run 共 {len(discovered)} 个观察任务，"
+                                f"harvestOffset={offset} 已越过全部，无需"
+                                f"再收割。"
+                            ),
+                        },
+                    )
+                task_ids = discovered[offset : offset + _MAX_HARVEST_TASKS]
+                rest = discovered[offset + _MAX_HARVEST_TASKS :]
+                if rest:
+                    overflow_note = _harvest_overflow_note(
+                        len(discovered),
+                        rest,
+                        offset + _MAX_HARVEST_TASKS,
+                    )
             snapshot: list[dict[str, Any]] = []
             for candidate_id in task_ids:
                 try:
@@ -1412,7 +1585,11 @@ class FileSpecialistToolRegistry:
                     },
                 )
             return SpecialistToolResult(
-                payload={"ok": True, "tasks": snapshot},
+                payload={
+                    "ok": True,
+                    "tasks": snapshot,
+                    **({"note": overflow_note} if overflow_note else {}),
+                },
                 task_ids=tuple(task_ids),
             )
 

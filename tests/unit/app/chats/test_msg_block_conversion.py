@@ -37,6 +37,7 @@ from agentscope.message import Msg
 
 from qwenpaw.app.chats import utils as chats_utils
 from qwenpaw.app.chats.utils import (
+    _MAX_TOOL_OUTPUT_CHARS,
     _abspath_from_url,
     _is_local_file_url,
     _resolve_content_url,
@@ -48,7 +49,7 @@ from qwenpaw.exceptions import AgentRuntimeErrorException
 from qwenpaw.schemas import ContentType, MessageType
 
 
-def _convert(msg, tz: str | None = "UTC"):
+def _convert(msg, tz: str | None = "UTC", truncate: bool = False):
     """Convert with a stubbed config so the user timezone is fixed.
 
     ``tz`` is widened to ``None`` because one test deliberately stubs a
@@ -60,7 +61,10 @@ def _convert(msg, tz: str | None = "UTC"):
         "load_config",
         return_value=SimpleNamespace(user_timezone=tz),
     ):
-        return agentscope_msg_to_message(msg)
+        return agentscope_msg_to_message(
+            msg,
+            truncate_oversized_outputs=truncate,
+        )
 
 
 def _msg(content, role: str = "assistant", **kw) -> Msg:
@@ -795,3 +799,118 @@ def test_env_context_invalid_timezone_falls_back_to_utc() -> None:
     assert "- Current date: " in out
     assert " UTC (" in out
     assert "Mars/Olympus" not in out
+
+
+# ---------------------------------------------------------------------------
+# tool_result oversized-output truncation (GH-8228)
+# ---------------------------------------------------------------------------
+
+
+def _tool_result_msg(output_length: int) -> Msg:
+    return _msg(
+        [
+            {
+                "type": "tool_result",
+                "id": "c",
+                "name": "f",
+                "output": "x" * output_length,
+            },
+        ],
+    )
+
+
+def test_tool_result_oversized_output_truncated_when_requested() -> None:
+    original_length = _MAX_TOOL_OUTPUT_CHARS + 1024
+    out = _convert(_tool_result_msg(original_length), truncate=True)
+    data = _contents(out[0])[0]["data"]
+    assert data["call_id"] == "c"
+    assert data["output"].startswith("x" * _MAX_TOOL_OUTPUT_CHARS)
+    assert "output truncated" in data["output"]
+    assert str(original_length) in data["output"]
+    # truncated payload keeps a bounded size regardless of the original blob
+    assert len(data["output"]) < _MAX_TOOL_OUTPUT_CHARS + 200
+
+
+def test_tool_result_oversized_output_kept_by_default() -> None:
+    original_length = _MAX_TOOL_OUTPUT_CHARS + 1024
+    out = _convert(_tool_result_msg(original_length))
+    data = _contents(out[0])[0]["data"]
+    assert data["output"] == "x" * original_length
+
+
+def test_tool_result_small_output_kept_when_truncation_requested() -> None:
+    out = _convert(_tool_result_msg(100), truncate=True)
+    data = _contents(out[0])[0]["data"]
+    assert data["output"] == "x" * 100
+
+
+def test_tool_result_list_base64_valid_json_when_truncated() -> None:
+    """Screenshots / view_image persist output as a list; the oversized
+    base64 DataBlock must be replaced structurally so the served JSON stays
+    valid and the TextBlock sibling survives."""
+    b64 = "A" * 120000
+    msg = _msg(
+        [
+            {
+                "type": "tool_result",
+                "id": "c",
+                "name": "view_image",
+                "output": [
+                    {"type": "text", "text": "ok"},
+                    {
+                        "type": "data",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": b64,
+                        },
+                    },
+                ],
+            },
+        ],
+    )
+    out = _convert(msg, truncate=True)
+    data = _contents(out[0])[0]["data"]
+    parsed = json.loads(data["output"])  # must remain parseable
+    texts = [
+        b.get("text")
+        for b in parsed
+        if isinstance(b, dict) and b.get("type") == "text"
+    ]
+    assert "ok" in texts
+    assert any(
+        isinstance(t, str) and "base64 omitted from history" in t
+        for t in texts
+    )
+    assert len(data["output"]) < 1024  # far below the original 120 KB blob
+
+
+def test_tool_result_url_source_kept_byte_identical_when_truncated() -> None:
+    """URL sources (e.g. send_file_to_user attachments) are small and
+    must be passed through byte-for-byte."""
+    msg = _msg(
+        [
+            {
+                "type": "tool_result",
+                "id": "c",
+                "name": "send_file_to_user",
+                "output": [
+                    {"type": "text", "text": "file sent"},
+                    {
+                        "type": "data",
+                        "source": {
+                            "type": "url",
+                            "url": "file:///tmp/x.pptx",
+                            "media_type": "application/octet-stream",
+                        },
+                    },
+                ],
+            },
+        ],
+    )
+    default_out = _contents(_convert(msg)[0])[0]["data"]["output"]
+    out = _convert(msg, truncate=True)
+    capped_out = _contents(out[0])[0]["data"]["output"]
+    assert capped_out == default_out
+    parsed = json.loads(capped_out)
+    assert parsed[1]["source"]["url"] == "file:///tmp/x.pptx"

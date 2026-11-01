@@ -8,8 +8,10 @@ from __future__ import annotations
 import pytest
 
 import qwenpaw.providers.provider_manager as provider_manager_module
+from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers.mimo_provider import MiMoProvider
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import (
     MIMO_MODELS,
     MIMO_TOKENPLAN_MODELS,
@@ -50,19 +52,18 @@ def test_mimo_standard_provider_config() -> None:
 
 def test_mimo_models_list() -> None:
     """Verify MiMo model definitions."""
-    tokenplan_ids = [m.id for m in MIMO_TOKENPLAN_MODELS]
-    assert "mimo-v2.5-pro" in tokenplan_ids
-    assert "mimo-v2.5" in tokenplan_ids
-    assert len(MIMO_TOKENPLAN_MODELS) == 2
-
-    standard_ids = [m.id for m in MIMO_MODELS]
-    assert "mimo-v2.5-pro" in standard_ids
-    assert "mimo-v2.5" in standard_ids
-    assert len(MIMO_MODELS) == 2
+    expected = [
+        "mimo-v2.6-pro",
+        "mimo-v2.6-flash",
+        "mimo-v2.5-pro",
+        "mimo-v2.5",
+    ]
+    assert [m.id for m in MIMO_TOKENPLAN_MODELS] == expected[:2]
+    assert [m.id for m in MIMO_MODELS] == expected
 
 
 def test_mimo_models_limits() -> None:
-    """MiMo V2.5 chat models: 1M context / 128K output, per official docs."""
+    """MiMo V2.5/V2.6 chat models have 1M context and 128K output."""
     for model in MIMO_TOKENPLAN_MODELS:
         assert model.max_input_length == 1024 * 1024
         assert model.max_output_length == 128 * 1024
@@ -73,21 +74,33 @@ def test_mimo_models_limits() -> None:
 
 def test_mimo_models_attributes() -> None:
     """Verify MiMo model attributes (multimodal flags per official docs)."""
-    for model in MIMO_TOKENPLAN_MODELS:
-        if model.id == "mimo-v2.5":
-            assert model.supports_image is True
-            assert model.supports_video is True
-        else:
-            assert model.supports_image is False
-            assert model.supports_video is False
-        assert model.probe_source == "documentation"
-    for model in MIMO_MODELS:
-        if model.id == "mimo-v2.5":
-            assert model.supports_image is True
-            assert model.supports_video is True
-        else:
-            assert model.supports_image is False
-            assert model.supports_video is False
+    expected = {
+        "mimo-v2.6-pro": (True, True, True, "documentation"),
+        "mimo-v2.6-flash": (True, True, True, "documentation"),
+        "mimo-v2.5-pro": (False, False, None, "documentation"),
+        "mimo-v2.5": (True, True, None, "documentation"),
+    }
+    assert {
+        model.id: (
+            model.supports_image,
+            model.supports_video,
+            model.supports_audio,
+            model.probe_source,
+        )
+        for model in MIMO_MODELS
+    } == expected
+    assert {
+        model.id: (
+            model.supports_image,
+            model.supports_video,
+            model.supports_audio,
+            model.probe_source,
+        )
+        for model in MIMO_TOKENPLAN_MODELS
+    } == {
+        "mimo-v2.6-pro": expected["mimo-v2.6-pro"],
+        "mimo-v2.6-flash": expected["mimo-v2.6-flash"],
+    }
 
 
 @pytest.fixture
@@ -125,10 +138,47 @@ def test_mimo_has_expected_models(isolated_secret_dir) -> None:
 
     assert provider is not None
     assert provider_standard is not None
-    assert provider.has_model("mimo-v2.5-pro")
-    assert provider.has_model("mimo-v2.5")
+    assert provider.has_model("mimo-v2.6-pro")
+    assert provider.has_model("mimo-v2.6-flash")
+    assert not provider.has_model("mimo-v2.5-pro")
+    assert not provider.has_model("mimo-v2.5")
     assert provider_standard.has_model("mimo-v2.5-pro")
     assert provider_standard.has_model("mimo-v2.5")
+
+
+@pytest.mark.parametrize("explicit_model", [False, True])
+def test_mimo_tokenplan_upgrade_preserves_active_selection(
+    isolated_secret_dir,
+    explicit_model,
+) -> None:
+    """Keep saved selections without silently migrating retired defaults."""
+    manager = ProviderManager()
+    saved = PROVIDER_MIMO_TOKENPLAN.model_copy(deep=True)
+    old = ModelInfo(
+        id="mimo-v2.5-pro",
+        name="MiMo V2.5 Pro",
+        source="user" if explicit_model else "builtin",
+    )
+    saved.models = [] if explicit_model else [old]
+    saved.extra_models = [old] if explicit_model else []
+    manager._save_provider(saved, is_builtin=True)
+    slot = ModelSlotConfig(provider_id=saved.id, model=old.id)
+    manager.save_active_model(slot)
+
+    restored = ProviderManager()
+    provider = restored.get_provider(saved.id)
+    assert provider is not None
+    assert {
+        "defaults": [model.id for model in provider.models],
+        "extra_models": [model.id for model in provider.extra_models],
+        "old_model_configured": provider.has_model(old.id),
+        "active_model": restored.get_active_model(),
+    } == {
+        "defaults": ["mimo-v2.6-pro", "mimo-v2.6-flash"],
+        "extra_models": [old.id] if explicit_model else [],
+        "old_model_configured": explicit_model,
+        "active_model": slot,
+    }
 
 
 def test_mimo_provider_list_includes_mimo(isolated_secret_dir) -> None:
@@ -174,8 +224,6 @@ def test_mimo_provider_filters_non_chat_models(
         assert _is_non_chat_model(mid) is True, mid
 
     async def fake_fetch(*args, **kwargs):  # noqa: ANN001, ANN002
-        from qwenpaw.providers.provider import ModelInfo
-
         return [ModelInfo(id=mid, name=mid) for mid in chat_ids + non_chat_ids]
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fake_fetch)

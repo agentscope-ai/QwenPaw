@@ -76,6 +76,7 @@ from services.media_files.publication_retry import (
     commit_with_lock_retry,
     record_materialized_result,
 )
+from services.media_files.task_scratch import terminal_release_listener
 from services.media_files.element_adapter import (
     bind_candidate_output,
     find_timeline_element,
@@ -1843,7 +1844,10 @@ class FileImageExecutionService:
             HoldAwareExecutionStore,
         )
 
-        self.executions = HoldAwareExecutionStore(services.root)
+        self.executions = HoldAwareExecutionStore(
+            services.root,
+            on_task_terminal=terminal_release_listener(services),
+        )
         self.max_output_bytes = max_output_bytes
         self.resume_poll_interval_seconds = resume_poll_interval_seconds
         self.resume_poll_budget_seconds = resume_poll_budget_seconds

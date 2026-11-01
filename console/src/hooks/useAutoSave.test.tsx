@@ -26,6 +26,29 @@ describe("settings autosave", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
+  it("ignores ordinary and fixed jobs while disabled", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const fixed = vi.fn().mockResolvedValue(undefined);
+    const { result, rerender, unmount } = renderHook(
+      ({ enabled }) => useAutoSave(save, 1000, enabled),
+      { initialProps: { enabled: false } },
+    );
+    act(() => {
+      result.current.schedule();
+      result.current.schedule(fixed);
+    });
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    await act(() => result.current.flush());
+    expect(save).not.toHaveBeenCalled();
+    expect(fixed).not.toHaveBeenCalled();
+    rerender({ enabled: true });
+    act(() => result.current.schedule(fixed));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(fixed).toHaveBeenCalledOnce();
+    expect(save).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("coalesces edits and saves the latest committed value", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const { result, rerender, unmount } = renderHook(

@@ -12,7 +12,6 @@ import dayjs, { type Dayjs } from "dayjs";
 import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import InlineHelp from "@/components/InlineHelp";
 import { NumberSlider } from "@/components/interaction/NumberSlider";
-import { useAutoSave } from "@/hooks/useAutoSave";
 import { DurationWheel } from "@/components/interaction/DurationWheel";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -103,23 +102,6 @@ export function JobDrawer({
   );
 
   const isEdit = !!editingJob;
-  const {
-    schedule: scheduleSave,
-    flush,
-    requestClose,
-  } = useAutoSave(async () => {
-    if (!isEdit) return;
-    const values = form.getFieldsValue(true);
-    try {
-      await form.validateFields();
-    } catch {
-      return false;
-    }
-    return onSubmit(values);
-  });
-  const close = () => {
-    void requestClose(onClose);
-  };
   const importReviewRequired =
     editingJob !== null && requiresCronImportReview(editingJob);
   const projectMappingRequired =
@@ -202,21 +184,15 @@ export function JobDrawer({
       placement="right"
       title={editingJob ? t("cronJobs.editJob") : t("cronJobs.createJob")}
       open={open}
-      onClose={close}
+      onClose={onClose}
       destroyOnHidden
       footer={
-        isEdit ? null : (
-          <div className={styles.formActions}>
-            <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button
-              type="primary"
-              loading={saving}
-              onClick={() => form.submit()}
-            >
-              {t("common.create")}
-            </Button>
-          </div>
-        )
+        <div className={styles.formActions}>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button type="primary" loading={saving} onClick={() => form.submit()}>
+            {t(isEdit ? "common.save" : "common.create")}
+          </Button>
+        </div>
       }
     >
       <Form
@@ -224,10 +200,7 @@ export function JobDrawer({
         layout="vertical"
         requiredMark={false}
         className={styles.jobEditor}
-        onValuesChange={() => {
-          if (isEdit) scheduleSave();
-        }}
-        onFinish={onSubmit}
+        onFinish={() => onSubmit(form.getFieldsValue(true))}
         onFinishFailed={({ errorFields }) => {
           const field = errorFields[0]?.name;
           if (!field) return;
@@ -327,10 +300,7 @@ export function JobDrawer({
 
         <Tabs
           activeKey={activeTab}
-          onChange={(key) => {
-            setActiveTab(key);
-            void flush();
-          }}
+          onChange={setActiveTab}
           items={[
             {
               key: "schedule",

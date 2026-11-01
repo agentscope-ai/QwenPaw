@@ -600,6 +600,7 @@ def _edit_client(*, description: str):
             "ground_image_objects",
             "browser_use",
             "elements_at",
+            "import_script_asset",
             "delegate_to_agent",
             "request_workgraph_execution",
         }
@@ -3905,6 +3906,97 @@ def test_inflight_target_refuses_duplicate_delegation(tmp_path) -> None:
     assert len(runs) == 1, "the duplicate delegation must not spawn a run"
     assert duplicate_error
     assert "already in flight" in duplicate_error[0]
+
+
+def test_repeated_sync_observation_gets_a_capped_parallel_hint(
+    tmp_path,
+) -> None:
+    """Waiting on observations one at a time adds up every VLM round trip.
+
+    From the second synchronous observation the tool result carries a
+    reminder to batch with ``background=true``. The reminder is capped:
+    uncapped it would become context noise of its own. The specialist
+    tool call is stubbed, so no media task is produced.
+    """
+
+    parent_turn = 0
+    specialist_turn = 0
+    # The mainline run must stay open while the detached specialist works:
+    # a completed goal cancels the specialist, exactly as a user stop does.
+    release = asyncio.Event()
+
+    async def callback(messages, tools):
+        nonlocal parent_turn, specialist_turn
+        names = {item["function"]["name"] for item in tools}
+        if "delegate_to_agent" in names:
+            parent_turn += 1
+            if parent_turn == 1:
+                return _delegate_call(
+                    "delegate-observe",
+                    role="ai_editing_director",
+                    target_refs=["timeline:timeline:main"],
+                    task="逐窗核验素材",
+                )
+            await release.wait()
+            return AgentModelTurn(content="收到。")
+        specialist_turn += 1
+        if specialist_turn <= 4:
+            return _tool_turn(
+                call_id=f"observe-{specialist_turn}",
+                name="observe_source_clip",
+                arguments={
+                    "projectId": PROJECT_ID,
+                    "targetRef": "timeline:timeline:main",
+                    "arguments": {
+                        "question": f"第 {specialist_turn} 段看到什么",
+                        "startMs": specialist_turn * 1000,
+                        "durationMs": 1000,
+                    },
+                },
+            )
+        return AgentModelTurn(content="[SUCCESS] 核验完成。")
+
+    async def scenario():
+        services, _snapshot = _create_project(tmp_path, initial_goal="剪辑")
+        driver = _driver(services, callback)
+
+        async def fake_invoke(**kwargs):
+            # No "background" key: this is the synchronous path the hint
+            # is written for.
+            return {"ok": True, "answer": kwargs["call_id"]}
+
+        driver._invoke_specialist_tool = fake_invoke
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(lambda: specialist_turn >= 5)
+        runs = driver.executions.list_specialist_runs(PROJECT_ID)
+        transcripts = [
+            driver.executions.list_specialist_messages(
+                PROJECT_ID,
+                record.run_id,
+            )
+            for record in runs
+        ]
+        release.set()
+        await driver.stop()
+        return transcripts
+
+    transcripts = asyncio.run(scenario())
+    tool_results = [
+        json.dumps(message.content_parts, ensure_ascii=False)
+        for messages in transcripts
+        for message in messages
+        if message.role == "tool"
+    ]
+    assert len(tool_results) == 4
+    hints = [
+        text for text in tool_results if "parallelObservationHint" in text
+    ]
+    # 第 2、3 次同步观察各提醒一次；第 4 次起被上限挡住，不让提醒
+    # 自己变成上下文噪声。
+    assert len(hints) == 2
+    assert "background=true" in hints[0]
+    assert "check_observation_tasks" in hints[0]
 
 
 def test_startup_reclaims_orphaned_specialist_runs(tmp_path) -> None:

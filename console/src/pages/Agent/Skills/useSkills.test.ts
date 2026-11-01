@@ -30,6 +30,7 @@ const hoisted = vi.hoisted(() => {
   const handleScanErrorMock = vi.fn().mockReturnValue(false);
   const checkScanWarningsMock = vi.fn().mockResolvedValue(undefined);
   const showScanErrorModalMock = vi.fn();
+  const showScanWarnModalMock = vi.fn();
   const harnessMocks = {
     listSkills: vi.fn(),
   };
@@ -51,6 +52,7 @@ const hoisted = vi.hoisted(() => {
     handleScanErrorMock,
     checkScanWarningsMock,
     showScanErrorModalMock,
+    showScanWarnModalMock,
     harnessMocks,
     agentState,
     stableT,
@@ -76,7 +78,9 @@ vi.mock("../../../api", () => ({
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => hoisted.agentState,
+  useAgentStore: Object.assign(() => hoisted.agentState, {
+    getState: () => hoisted.agentState,
+  }),
 }));
 
 vi.mock("../../../api/modules/harness", () => ({
@@ -106,6 +110,7 @@ vi.mock("../../../utils/scanError", () => ({
   handleScanError: hoisted.handleScanErrorMock,
   checkScanWarnings: hoisted.checkScanWarningsMock,
   showScanErrorModal: hoisted.showScanErrorModalMock,
+  showScanWarnModal: hoisted.showScanWarnModalMock,
 }));
 
 import { useSkills } from "./useSkills";
@@ -117,8 +122,10 @@ const {
   modalConfirmMock,
   parseErrorDetailMock,
   handleScanErrorMock,
+  checkScanWarningsMock,
   harnessMocks,
   agentState,
+  showScanWarnModalMock,
 } = hoisted;
 
 function makeSkill(overrides: Partial<SkillSpec> = {}): SkillSpec {
@@ -133,6 +140,16 @@ function makeSkill(overrides: Partial<SkillSpec> = {}): SkillSpec {
 
 function renderSkillsHook() {
   return renderHook(() => useSkills());
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("useSkills", () => {
@@ -157,7 +174,10 @@ describe("useSkills", () => {
     parseErrorDetailMock.mockReset();
     handleScanErrorMock.mockReset();
     handleScanErrorMock.mockReturnValue(false);
+    checkScanWarningsMock.mockReset();
+    checkScanWarningsMock.mockResolvedValue(undefined);
     harnessMocks.listSkills.mockReset();
+    showScanWarnModalMock.mockReset();
     agentState.selectedAgent = "agent-1";
     agentState.agents = [{ id: "agent-1", backend: "qwenpaw" }];
 
@@ -236,6 +256,332 @@ describe("useSkills", () => {
       expect(result.current.loading).toBe(false);
     });
     expect(messageMock.error).toHaveBeenCalledWith("skills.loadFailed");
+    expect(result.current.error).toEqual(new Error("boom"));
+    expect(result.current.ready).toBe(false);
+  });
+
+  it.each([
+    { label: "empty", recoveredSkills: [] as SkillSpec[] },
+    { label: "populated", recoveredSkills: [makeSkill({ name: "saved" })] },
+  ])("Retry recovers a real $label result", async ({ recoveredSkills }) => {
+    apiMocks.listSkills
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValueOnce(recoveredSkills);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = renderSkillsHook();
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+
+    await act(async () => {
+      await result.current.refreshSkills();
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.ready).toBe(true);
+    expect(result.current.skills).toEqual(recoveredSkills);
+  });
+
+  it("keeps agent B skills when agent A resolves after B", async () => {
+    const agentARequest = deferred<SkillSpec[]>();
+    const agentBRequest = deferred<SkillSpec[]>();
+    apiMocks.listSkills
+      .mockReturnValueOnce(agentARequest.promise)
+      .mockReturnValueOnce(agentBRequest.promise);
+    agentState.agents = [
+      { id: "agent-1", backend: "qwenpaw" },
+      { id: "agent-2", backend: "qwenpaw" },
+    ];
+
+    const { result, rerender } = renderSkillsHook();
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    const agentBSkills = [makeSkill({ name: "agent-b" })];
+    await act(async () => {
+      agentBRequest.resolve(agentBSkills);
+      await agentBRequest.promise;
+    });
+    expect(result.current.skills).toEqual(agentBSkills);
+    expect(result.current.ready).toBe(true);
+
+    await act(async () => {
+      agentARequest.resolve([makeSkill({ name: "agent-a" })]);
+      await agentARequest.promise;
+    });
+    expect(result.current.skills).toEqual(agentBSkills);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("ignores an agent A rejection after agent B loads", async () => {
+    const agentARequest = deferred<SkillSpec[]>();
+    apiMocks.listSkills
+      .mockReturnValueOnce(agentARequest.promise)
+      .mockResolvedValueOnce([makeSkill({ name: "agent-b" })]);
+    agentState.agents = [
+      { id: "agent-1", backend: "qwenpaw" },
+      { id: "agent-2", backend: "qwenpaw" },
+    ];
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { result, rerender } = renderSkillsHook();
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => {
+      agentARequest.reject(new Error("late A failure"));
+      await agentARequest.promise.catch(() => undefined);
+    });
+
+    expect(result.current.skills[0]?.name).toBe("agent-b");
+    expect(result.current.error).toBeNull();
+    expect(messageMock.error).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not expose agent A's load error after switching to agent B", async () => {
+    const agentBRequest = deferred<SkillSpec[]>();
+    apiMocks.listSkills
+      .mockRejectedValueOnce(new Error("agent A failed"))
+      .mockReturnValueOnce(agentBRequest.promise);
+    agentState.agents = [
+      { id: "agent-1", backend: "qwenpaw" },
+      { id: "agent-2", backend: "qwenpaw" },
+    ];
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result, rerender } = renderSkillsHook();
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+
+    agentState.selectedAgent = "agent-2";
+    rerender();
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.ready).toBe(false);
+    expect(apiMocks.listSkills).toHaveBeenNthCalledWith(1, "agent-1");
+    expect(apiMocks.listSkills).toHaveBeenNthCalledWith(2, "agent-2");
+
+    await act(async () => {
+      agentBRequest.resolve([]);
+      await agentBRequest.promise;
+    });
+  });
+
+  it("blocks create until the current agent has loaded", async () => {
+    const pendingLoad = deferred<SkillSpec[]>();
+    apiMocks.listSkills.mockReturnValue(pendingLoad.promise);
+    const { result } = renderSkillsHook();
+
+    let response: { success: boolean } | undefined;
+    await act(async () => {
+      response = await result.current.createSkill("unsafe", "content");
+    });
+
+    expect(response).toEqual({ success: false });
+    expect(apiMocks.createSkill).not.toHaveBeenCalled();
+    await act(async () => {
+      pendingLoad.resolve([]);
+      await pendingLoad.promise;
+    });
+  });
+
+  it("blocks stale agent A mutation callbacks after agent B loads", async () => {
+    agentState.agents = [
+      { id: "agent-1", backend: "qwenpaw" },
+      { id: "agent-2", backend: "qwenpaw" },
+    ];
+    apiMocks.listSkills.mockResolvedValue([]);
+    const { result, rerender } = renderSkillsHook();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const staleAgentAMutations = {
+      createSkill: result.current.createSkill,
+      uploadSkill: result.current.uploadSkill,
+      importFromHub: result.current.importFromHub,
+      toggleEnabled: result.current.toggleEnabled,
+      deleteSkill: result.current.deleteSkill,
+    };
+
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    vi.clearAllMocks();
+
+    await act(async () => {
+      await staleAgentAMutations.createSkill("stale", "content");
+      await staleAgentAMutations.uploadSkill(new File([], "stale.zip"));
+      await staleAgentAMutations.importFromHub("https://example.com/stale");
+      await staleAgentAMutations.toggleEnabled(makeSkill());
+      await staleAgentAMutations.deleteSkill(makeSkill());
+    });
+
+    expect(apiMocks.createSkill).not.toHaveBeenCalled();
+    expect(apiMocks.uploadSkill).not.toHaveBeenCalled();
+    expect(apiMocks.startHubSkillInstall).not.toHaveBeenCalled();
+    expect(apiMocks.enableSkill).not.toHaveBeenCalled();
+    expect(apiMocks.disableSkill).not.toHaveBeenCalled();
+    expect(apiMocks.deleteSkill).not.toHaveBeenCalled();
+    expect(modalConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["create", "upload", "toggle", "delete"] as const)(
+    "does not publish a late agent A %s result into agent B",
+    async (actionName) => {
+      agentState.agents = [
+        { id: "agent-1", backend: "qwenpaw" },
+        { id: "agent-2", backend: "qwenpaw" },
+      ];
+      apiMocks.listSkills.mockResolvedValue([]);
+      const operation = deferred<unknown>();
+      if (actionName === "create") {
+        apiMocks.createSkill.mockReturnValue(operation.promise);
+      } else if (actionName === "upload") {
+        apiMocks.uploadSkill.mockReturnValue(operation.promise);
+      } else if (actionName === "toggle") {
+        apiMocks.enableSkill.mockReturnValue(operation.promise);
+      } else {
+        apiMocks.deleteSkill.mockReturnValue(operation.promise);
+        modalConfirmMock.mockImplementation((options: { onOk: () => void }) =>
+          options.onOk(),
+        );
+      }
+      const { result, rerender } = renderSkillsHook();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+
+      let pending: Promise<unknown>;
+      act(() => {
+        if (actionName === "create") {
+          pending = result.current.createSkill("same-name", "content");
+        } else if (actionName === "upload") {
+          pending = result.current.uploadSkill(new File([], "skill.zip"));
+        } else if (actionName === "toggle") {
+          pending = result.current.toggleEnabled(
+            makeSkill({ name: "same-name", enabled: false }),
+          );
+        } else {
+          pending = result.current.deleteSkill(
+            makeSkill({ name: "same-name" }),
+          );
+        }
+      });
+
+      agentState.selectedAgent = "agent-2";
+      rerender();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      vi.clearAllMocks();
+      await act(async () => {
+        if (actionName === "create") {
+          operation.resolve({ created: true, name: "same-name" });
+        } else if (actionName === "upload") {
+          operation.resolve({ imported: ["same-name"], count: 1 });
+        } else if (actionName === "delete") {
+          operation.resolve({ deleted: true });
+        } else {
+          operation.resolve(undefined);
+        }
+        await pending!;
+      });
+
+      expect(messageMock.success).not.toHaveBeenCalled();
+      expect(messageMock.error).not.toHaveBeenCalled();
+      expect(result.current.uploading).toBe(false);
+      expect(result.current.ready).toBe(true);
+    },
+  );
+
+  it("does not publish a late agent A mutation rejection into agent B", async () => {
+    agentState.agents = [
+      { id: "agent-1", backend: "qwenpaw" },
+      { id: "agent-2", backend: "qwenpaw" },
+    ];
+    apiMocks.listSkills.mockResolvedValue([]);
+    const operation = deferred<unknown>();
+    apiMocks.uploadSkill.mockReturnValue(operation.promise);
+    const { result, rerender } = renderSkillsHook();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = result.current.uploadSkill(new File([], "skill.zip"));
+    });
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    vi.clearAllMocks();
+    await act(async () => {
+      operation.reject(new Error("late A failure"));
+      await pending;
+    });
+
+    expect(messageMock.error).not.toHaveBeenCalled();
+    expect(result.current.uploading).toBe(false);
+    expect(result.current.ready).toBe(true);
+  });
+
+  it.each([
+    ["A to B", false],
+    ["A to B to A", true],
+  ] as const)(
+    "does not show a stale scan warning after %s",
+    async (_label, switchBackToA) => {
+      agentState.agents = [
+        { id: "agent-1", backend: "qwenpaw" },
+        { id: "agent-2", backend: "qwenpaw" },
+      ];
+      apiMocks.listSkills.mockResolvedValue([]);
+      apiMocks.createSkill.mockResolvedValue({
+        created: true,
+        name: "agent-a-skill",
+      });
+      const scan = deferred<void>();
+      checkScanWarningsMock.mockImplementation(async (...args: unknown[]) => {
+        await scan.promise;
+        const shouldShow = args[4] as () => boolean;
+        if (shouldShow()) showScanWarnModalMock();
+      });
+      const { result, rerender } = renderSkillsHook();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+
+      let pending!: Promise<unknown>;
+      act(() => {
+        pending = result.current.createSkill("agent-a-skill", "content");
+      });
+      await waitFor(() =>
+        expect(checkScanWarningsMock).toHaveBeenCalledTimes(1),
+      );
+      agentState.selectedAgent = "agent-2";
+      rerender();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      if (switchBackToA) {
+        agentState.selectedAgent = "agent-1";
+        rerender();
+        await waitFor(() => expect(result.current.ready).toBe(true));
+      }
+
+      await act(async () => {
+        scan.resolve();
+        await pending;
+      });
+
+      expect(showScanWarnModalMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("shows a scan warning for the current agent mutation", async () => {
+    agentState.selectedAgent = "agent-2";
+    agentState.agents = [{ id: "agent-2", backend: "qwenpaw" }];
+    apiMocks.listSkills.mockResolvedValue([]);
+    apiMocks.createSkill.mockResolvedValue({
+      created: true,
+      name: "agent-b-skill",
+    });
+    checkScanWarningsMock.mockImplementation(async (...args: unknown[]) => {
+      const shouldShow = args[4] as () => boolean;
+      if (shouldShow()) showScanWarnModalMock();
+    });
+    const { result } = renderSkillsHook();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    await act(async () => {
+      await result.current.createSkill("agent-b-skill", "content");
+    });
+
+    expect(showScanWarnModalMock).toHaveBeenCalledTimes(1);
   });
 
   it("createSkill success: message.success + api.createSkill called + returns {success:true, name}", async () => {
@@ -258,6 +604,7 @@ describe("useSkills", () => {
       "content",
       undefined,
       undefined,
+      "agent-1",
     );
     expect(messageMock.success).toHaveBeenCalledWith(
       "skills.createdSuccessfully",
@@ -430,11 +777,18 @@ describe("useSkills", () => {
       ret = await result.current.importFromHub("http://example.com/x");
     });
 
-    expect(apiMocks.startHubSkillInstall).toHaveBeenCalledWith({
-      bundle_url: "http://example.com/x",
-      enable: true,
-      target_name: undefined,
-    });
+    expect(apiMocks.startHubSkillInstall).toHaveBeenCalledWith(
+      {
+        bundle_url: "http://example.com/x",
+        enable: true,
+        target_name: undefined,
+      },
+      "agent-1",
+    );
+    expect(apiMocks.getHubSkillInstallStatus).toHaveBeenCalledWith(
+      "task-1",
+      "agent-1",
+    );
     expect(messageMock.success).toHaveBeenCalled();
     expect(ret).toEqual({ success: true, name: "imported-skill" });
   });
@@ -478,6 +832,82 @@ describe("useSkills", () => {
     expect(ret).toEqual({ success: false, conflict: conflictResult });
   });
 
+  it("does not poll agent B when agent A hub start resolves late", async () => {
+    agentState.agents = [
+      { id: "agent-1", backend: "qwenpaw" },
+      { id: "agent-2", backend: "qwenpaw" },
+    ];
+    apiMocks.listSkills.mockResolvedValue([]);
+    const start = deferred<Record<string, unknown>>();
+    apiMocks.startHubSkillInstall.mockReturnValue(start.promise);
+    const { result, rerender } = renderSkillsHook();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = result.current.importFromHub("https://example.com/a.zip");
+    });
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => {
+      start.resolve({ task_id: "agent-a-task" });
+      await pending;
+    });
+
+    expect(apiMocks.startHubSkillInstall).toHaveBeenCalledWith(
+      expect.anything(),
+      "agent-1",
+    );
+    expect(apiMocks.getHubSkillInstallStatus).not.toHaveBeenCalled();
+    expect(result.current.importing).toBe(false);
+  });
+
+  it("keeps agent A hub polling and cancellation out of agent B", async () => {
+    agentState.agents = [
+      { id: "agent-1", backend: "qwenpaw" },
+      { id: "agent-2", backend: "qwenpaw" },
+    ];
+    apiMocks.listSkills.mockResolvedValue([]);
+    apiMocks.startHubSkillInstall.mockResolvedValue({
+      task_id: "agent-a-task",
+    });
+    const status = deferred<Record<string, unknown>>();
+    apiMocks.getHubSkillInstallStatus.mockReturnValue(status.promise);
+    apiMocks.cancelHubSkillInstall.mockResolvedValue(undefined);
+    const { result, rerender } = renderSkillsHook();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = result.current.importFromHub("https://example.com/a.zip");
+    });
+    await waitFor(() =>
+      expect(apiMocks.getHubSkillInstallStatus).toHaveBeenCalledWith(
+        "agent-a-task",
+        "agent-1",
+      ),
+    );
+    act(() => result.current.cancelImport());
+    expect(apiMocks.cancelHubSkillInstall).toHaveBeenCalledWith(
+      "agent-a-task",
+      "agent-1",
+    );
+
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    vi.clearAllMocks();
+    await act(async () => {
+      status.resolve({ status: "cancelled", result: null });
+      await pending;
+    });
+
+    expect(messageMock.warning).not.toHaveBeenCalled();
+    expect(apiMocks.cancelHubSkillInstall).not.toHaveBeenCalled();
+    expect(result.current.importing).toBe(false);
+  });
+
   it("toggleEnabled disabling an enabled skill: disableSkill + enabled:false + message.success", async () => {
     apiMocks.disableSkill.mockResolvedValue(undefined);
     const skill = makeSkill({ name: "s1", enabled: true });
@@ -492,7 +922,7 @@ describe("useSkills", () => {
       ok = await result.current.toggleEnabled(skill);
     });
 
-    expect(apiMocks.disableSkill).toHaveBeenCalledWith("s1");
+    expect(apiMocks.disableSkill).toHaveBeenCalledWith("s1", "agent-1");
     expect(messageMock.success).toHaveBeenCalledWith(
       "skills.disabledSuccessfully",
     );
@@ -518,7 +948,7 @@ describe("useSkills", () => {
       );
     });
 
-    expect(apiMocks.enableSkill).toHaveBeenCalledWith("s2");
+    expect(apiMocks.enableSkill).toHaveBeenCalledWith("s2", "agent-1");
     expect(messageMock.success).toHaveBeenCalledWith(
       "skills.enabledSuccessfully",
     );
@@ -542,7 +972,7 @@ describe("useSkills", () => {
     });
 
     expect(modalConfirmMock).toHaveBeenCalledTimes(1);
-    expect(apiMocks.deleteSkill).toHaveBeenCalledWith("to-delete");
+    expect(apiMocks.deleteSkill).toHaveBeenCalledWith("to-delete", "agent-1");
     expect(messageMock.success).toHaveBeenCalledWith("skills.deleteSuccess");
     expect(ret).toBe(true);
   });
@@ -563,5 +993,32 @@ describe("useSkills", () => {
 
     expect(apiMocks.deleteSkill).not.toHaveBeenCalled();
     expect(ret).toBe(false);
+  });
+
+  it("does not delete agent B from an agent A confirmation", async () => {
+    agentState.agents = [
+      { id: "agent-1", backend: "qwenpaw" },
+      { id: "agent-2", backend: "qwenpaw" },
+    ];
+    let confirm: { onOk: () => void } | undefined;
+    modalConfirmMock.mockImplementation((options) => {
+      confirm = options as { onOk: () => void };
+    });
+    const { result, rerender } = renderSkillsHook();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    let pending!: Promise<boolean>;
+    act(() => {
+      pending = result.current.deleteSkill(makeSkill({ name: "same-name" }));
+    });
+    await waitFor(() => expect(confirm).toBeDefined());
+
+    agentState.selectedAgent = "agent-2";
+    rerender();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => confirm?.onOk());
+    await act(async () => pending);
+
+    expect(apiMocks.deleteSkill).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,22 @@ class CancelReason(StrEnum):
     SHUTDOWN = "shutdown"
 
 
+def cancellation_reason(error: BaseException | None) -> str | None:
+    """Extract the cancel reason attached via ``Task.cancel(reason)``.
+
+    Returns the normalized :class:`CancelReason` value, or ``None`` when
+    the error is not a cancellation or carries no known reason. Single
+    source of truth so every cancel observer (runtime cancel-save,
+    ON_ERROR hooks, stop API) reports the same reason vocabulary.
+    """
+    if not isinstance(error, asyncio.CancelledError) or not error.args:
+        return None
+    try:
+        return CancelReason(error.args[0]).value
+    except ValueError:
+        return None
+
+
 def format_cancel_message(
     tool_name: str,
     cancel_reason: CancelReason | None,

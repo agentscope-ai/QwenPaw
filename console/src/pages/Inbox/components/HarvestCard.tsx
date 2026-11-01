@@ -39,7 +39,7 @@ export function HarvestCard({
         countdown.isOverdue ? styles.harvestCardReady : ""
       }`}
       hoverable
-      bodyStyle={{ padding: 14 }}
+      styles={{ body: { padding: 14 } }}
     >
       <div className={styles.cardHeader}>
         <div className={styles.titleRow}>
@@ -60,7 +60,9 @@ export function HarvestCard({
             size={90}
             percent={Math.round(countdown.percentage)}
             format={() => timeText}
-            strokeColor={countdown.isOverdue ? "#FFD700" : "var(--app-accent)"}
+            strokeColor={
+              countdown.isOverdue ? "var(--app-warning)" : "var(--app-accent)"
+            }
           />
           <div className={styles.countdownInfo}>
             <div className={styles.statusText}>

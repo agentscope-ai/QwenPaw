@@ -8,6 +8,7 @@ import {
   type InstallPluginResult,
   type OfficialPluginCatalogEntry,
 } from "@/api/modules/plugin";
+import { runPluginInstall } from "../dependencyUpgrade";
 
 interface UseOfficialPluginsOptions {
   onInstalled: (result: InstallPluginResult) => void | Promise<void>;
@@ -57,9 +58,14 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
     async (entry: OfficialPluginCatalogEntry) => {
       setInstallingId(entry.id);
       try {
-        const result = await installPlugin(entry.install_url, {
-          force: entry.installed || entry.upgrade_available,
-        });
+        const result = await runPluginInstall(
+          () =>
+            installPlugin(entry.install_url, {
+              force: entry.installed || entry.upgrade_available,
+            }),
+          t,
+        );
+        if (result === null) return;
         message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
         await onInstalled(result);
       } catch (err) {

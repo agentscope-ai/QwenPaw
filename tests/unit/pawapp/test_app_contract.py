@@ -385,14 +385,23 @@ def test_pawapp_delegates_extensions_through_plugin_api(
         "/capabilities",
     }
     assert api.register_http_router.call_count == 1
-    api.register_startup_hook.assert_any_call(
-        hook_name="pawapp_fixture_service_context",
-        callback=service.start,
-        priority=70,
+    service_hook = next(
+        call.kwargs
+        for call in api.register_startup_hook.call_args_list
+        if call.kwargs["hook_name"] == "pawapp_fixture_service_context"
     )
+    assert callable(service_hook["callback"])
+    assert service_hook["priority"] == 70
+    service_effect = next(
+        call.kwargs
+        for call in api.effect.call_args_list
+        if call.kwargs["desc"] == "pawapp:fixture:service:context"
+    )
+    closer = service_effect["teardown"]
+    assert closer.client is service
     api.register_shutdown_hook.assert_any_call(
         hook_name="pawapp_fixture_service_context",
-        callback=service.stop,
+        callback=closer,
         priority=130,
     )
 

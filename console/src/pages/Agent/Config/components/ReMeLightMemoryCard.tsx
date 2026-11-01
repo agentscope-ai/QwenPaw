@@ -350,27 +350,47 @@ export function ReMeLightMemoryCard() {
           <SettingsField
             label={t("agentConfig.memoryAutoRecordFrequency")}
             name={["reme_light_memory_config", "auto_memory_interval"]}
-            rules={[
-              {
-                required: true,
-                message: t("agentConfig.autoMemoryIntervalRequired"),
-              },
-              {
-                type: "number",
-                min: 0,
-                message: t("agentConfig.autoMemoryIntervalMin"),
-              },
-            ]}
+            rules={
+              autoMemoryEnabled
+                ? [
+                    {
+                      required: true,
+                      message: t("agentConfig.autoMemoryIntervalRequired"),
+                    },
+                    {
+                      type: "integer",
+                      min: 1,
+                      message: t("agentConfig.memoryPositiveIntegerRequired"),
+                    },
+                  ]
+                : []
+            }
             tooltip={t("agentConfig.autoMemoryIntervalTooltip")}
           >
             <InputNumber
               style={{ width: "100%" }}
               min={autoMemoryEnabled ? 1 : 0}
               step={1}
+              precision={0}
               disabled={!autoMemoryEnabled}
               placeholder={t("agentConfig.autoMemoryIntervalPlaceholder")}
             />
           </SettingsField>
+
+          <div className={styles.memoryToggleRow}>
+            <div>
+              <strong>{t("agentConfig.memoryImagesTitle")}</strong>
+              <span>{t("agentConfig.memoryImagesDescription")}</span>
+            </div>
+            <SettingsField
+              name={["reme_light_memory_config", "auto_memory_include_images"]}
+              initialValue={false}
+              valuePropName="checked"
+              noStyle
+            >
+              <Switch aria-label={t("agentConfig.memoryImagesTitle")} />
+            </SettingsField>
+          </div>
 
           <div className={styles.memoryToggleRow}>
             <div>
@@ -386,7 +406,26 @@ export function ReMeLightMemoryCard() {
               valuePropName="checked"
               noStyle
             >
-              <Switch />
+              <Switch
+                aria-label={`${t("agentConfig.memoryJournalTitle")} · ${t(
+                  "agentConfig.memoryNotifyTitle",
+                )}`}
+              />
+            </SettingsField>
+          </div>
+
+          <div className={styles.memoryToggleRow}>
+            <div>
+              <strong>{t("agentConfig.memoryTagsTitle")}</strong>
+              <span>{t("agentConfig.memoryTagsDescription")}</span>
+            </div>
+            <SettingsField
+              name={["reme_light_memory_config", "auto_memory_generate_tags"]}
+              initialValue={false}
+              valuePropName="checked"
+              noStyle
+            >
+              <Switch aria-label={t("agentConfig.memoryTagsTitle")} />
             </SettingsField>
           </div>
 
@@ -440,6 +479,7 @@ export function ReMeLightMemoryCard() {
                   noStyle
                 >
                   <Switch
+                    aria-label={t("agentConfig.memoryDailyPaperTitle")}
                     onChange={(enabled) => {
                       if (enabled) setDailyPaperExpanded(true);
                     }}
@@ -510,7 +550,10 @@ export function ReMeLightMemoryCard() {
                     valuePropName="checked"
                     noStyle
                   >
-                    <Switch disabled={!dailyPaperCronEnabled} />
+                    <Switch
+                      aria-label={t("agentConfig.dailyPaperUseHfMirror")}
+                      disabled={!dailyPaperCronEnabled}
+                    />
                   </SettingsField>
                 </div>
 
@@ -528,7 +571,11 @@ export function ReMeLightMemoryCard() {
                     valuePropName="checked"
                     noStyle
                   >
-                    <Switch />
+                    <Switch
+                      aria-label={`${t(
+                        "agentConfig.memoryDailyPaperTitle",
+                      )} · ${t("agentConfig.memoryNotifyTitle")}`}
+                    />
                   </SettingsField>
                 </div>
               </div>
@@ -572,6 +619,7 @@ export function ReMeLightMemoryCard() {
                   noStyle
                 >
                   <Switch
+                    aria-label={t("agentConfig.memoryAutoFinTitle")}
                     onChange={(enabled) => {
                       if (enabled) setAutoFinExpanded(true);
                     }}
@@ -678,7 +726,11 @@ export function ReMeLightMemoryCard() {
                     valuePropName="checked"
                     noStyle
                   >
-                    <Switch />
+                    <Switch
+                      aria-label={`${t("agentConfig.memoryAutoFinTitle")} · ${t(
+                        "agentConfig.memoryNotifyTitle",
+                      )}`}
+                    />
                   </SettingsField>
                 </div>
 
@@ -749,7 +801,11 @@ export function ReMeLightMemoryCard() {
                 valuePropName="checked"
                 noStyle
               >
-                <Switch />
+                <Switch
+                  aria-label={`${t(
+                    "agentConfig.memoryOrganizeSectionTitle",
+                  )} · ${t("agentConfig.memoryNotifyTitle")}`}
+                />
               </SettingsField>
             </div>
           </section>
@@ -772,7 +828,7 @@ export function ReMeLightMemoryCard() {
                 valuePropName="checked"
                 noStyle
               >
-                <Switch />
+                <Switch aria-label={t("agentConfig.memorySearchToolTitle")} />
               </SettingsField>
             </div>
             <div className={styles.memoryToggleRow}>
@@ -790,7 +846,7 @@ export function ReMeLightMemoryCard() {
                 valuePropName="checked"
                 noStyle
               >
-                <Switch />
+                <Switch aria-label={t("agentConfig.memoryAutoRecallTitle")} />
               </SettingsField>
             </div>
             <div className={styles.memorySettingRow}>
@@ -814,9 +870,9 @@ export function ReMeLightMemoryCard() {
                     message: t("agentConfig.autoMaxResultsRequired"),
                   },
                   {
-                    type: "number",
+                    type: "integer",
                     min: 1,
-                    message: t("agentConfig.autoMaxResultsMin"),
+                    message: t("agentConfig.memoryPositiveIntegerRequired"),
                   },
                 ]}
               >
@@ -824,6 +880,8 @@ export function ReMeLightMemoryCard() {
                   style={{ width: "100%" }}
                   min={1}
                   step={1}
+                  precision={0}
+                  aria-label={t("agentConfig.autoMaxResults")}
                   disabled={!autoSearchEnabled}
                 />
               </SettingsField>

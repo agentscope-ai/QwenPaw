@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import type { ReactNode } from "react";
 import LocalAvatarPicker from "./LocalAvatarPicker";
 import { avatarApi } from "../api/modules/avatars";
 import { useLocalAvatar } from "../stores/localAvatarStore";
+vi.hoisted(() => vi.stubEnv("BASE_URL", "/qwenpaw/"));
+afterAll(() => vi.unstubAllEnvs());
+
 vi.mock("../api/modules/avatars", () => ({
   avatarApi: {
     get: vi.fn(),
@@ -40,6 +43,11 @@ it("keeps uploaded GIF bytes instead of flattening animation through canvas", as
       screen.getByRole("button", { name: "sidebar.uploadAvatar" }),
     ).toBeEnabled(),
   );
+  expect(
+    screen
+      .getByRole("button", { name: "sidebar.defaultAvatar" })
+      .querySelector("img"),
+  ).toHaveAttribute("src", "/qwenpaw/qwenpaw-avatar.gif");
   const file = new File([gif], "mascot.gif", { type: "image/gif" });
   fireEvent.change(view.container.querySelector('input[type="file"]')!, {
     target: { files: [file] },

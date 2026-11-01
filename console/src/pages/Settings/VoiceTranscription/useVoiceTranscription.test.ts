@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
+  selectedAgent: "agent-a",
   t: (key: string) => key,
   message: { success: vi.fn(), error: vi.fn() },
   getAudioMode: vi.fn(),
@@ -11,6 +12,12 @@ const h = vi.hoisted(() => ({
   updateAudioMode: vi.fn(),
   updateTranscriptionProviderType: vi.fn(),
   updateTranscriptionProvider: vi.fn(),
+}));
+
+vi.mock("../../../stores/agentStore", () => ({
+  useAgentStore: Object.assign(() => ({ selectedAgent: h.selectedAgent }), {
+    getState: () => ({ selectedAgent: h.selectedAgent }),
+  }),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -33,7 +40,10 @@ vi.mock("../../../api", () => ({
   },
 }));
 
-import { useVoiceTranscription } from "./useVoiceTranscription";
+import {
+  type TranscriptionProvider,
+  useVoiceTranscription,
+} from "./useVoiceTranscription";
 
 const PROVIDERS = [
   { id: "p1", name: "One", available: true },
@@ -44,6 +54,16 @@ const WHISPER_STATUS = {
   ffmpeg_installed: true,
   whisper_installed: false,
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
 
 function mockFetchOnce(overrides: Record<string, unknown> = {}) {
   h.getAudioMode.mockResolvedValue({ audio_mode: "auto" });
@@ -67,10 +87,164 @@ function mockFetchOnce(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.selectedAgent = "agent-a";
   mockFetchOnce();
   h.updateAudioMode.mockResolvedValue(undefined);
   h.updateTranscriptionProviderType.mockResolvedValue(undefined);
   h.updateTranscriptionProvider.mockResolvedValue(undefined);
+});
+
+describe("useVoiceTranscription agent ownership", () => {
+  it("keeps agent B settings when agent A resolves after B", async () => {
+    const aMode = deferred<{ audio_mode: string }>();
+    const aProviderType = deferred<{ transcription_provider_type: string }>();
+    const aProviders = deferred<{
+      providers: TranscriptionProvider[];
+      configured_provider_id: string;
+    }>();
+    const aWhisper = deferred<typeof WHISPER_STATUS>();
+    h.getAudioMode
+      .mockReset()
+      .mockReturnValueOnce(aMode.promise)
+      .mockResolvedValueOnce({ audio_mode: "native" });
+    h.getTranscriptionProviderType
+      .mockReset()
+      .mockReturnValueOnce(aProviderType.promise)
+      .mockResolvedValueOnce({ transcription_provider_type: "local_whisper" });
+    h.getTranscriptionProviders
+      .mockReset()
+      .mockReturnValueOnce(aProviders.promise)
+      .mockResolvedValueOnce({
+        providers: [{ id: "b-provider", name: "B", available: true }],
+        configured_provider_id: "b-provider",
+      });
+    h.getLocalWhisperStatus
+      .mockReset()
+      .mockReturnValueOnce(aWhisper.promise)
+      .mockResolvedValueOnce({
+        available: false,
+        ffmpeg_installed: false,
+        whisper_installed: false,
+      });
+
+    const { result, rerender } = renderHook(() => useVoiceTranscription());
+    act(() => {
+      h.selectedAgent = "agent-b";
+      rerender();
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.audioMode).toBe("native");
+    expect(result.current.selectedProviderId).toBe("b-provider");
+
+    await act(async () => {
+      aMode.resolve({ audio_mode: "auto" });
+      aProviderType.resolve({ transcription_provider_type: "whisper_api" });
+      aProviders.resolve({
+        providers: [{ id: "a-provider", name: "A", available: true }],
+        configured_provider_id: "a-provider",
+      });
+      aWhisper.resolve(WHISPER_STATUS);
+      await aMode.promise;
+    });
+
+    expect(result.current.audioMode).toBe("native");
+    expect(result.current.providerType).toBe("local_whisper");
+    expect(result.current.selectedProviderId).toBe("b-provider");
+  });
+
+  it("does not turn a late agent A rejection into agent B error state", async () => {
+    const aMode = deferred<{ audio_mode: string }>();
+    h.getAudioMode
+      .mockReset()
+      .mockReturnValueOnce(aMode.promise)
+      .mockResolvedValueOnce({ audio_mode: "native" });
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result, rerender } = renderHook(() => useVoiceTranscription());
+    act(() => {
+      h.selectedAgent = "agent-b";
+      rerender();
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    await act(async () => {
+      aMode.reject(new Error("agent A failed late"));
+      await expect(aMode.promise).rejects.toThrow("agent A failed late");
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.audioMode).toBe("native");
+    expect(h.message.error).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("blocks all stale agent A save mutations and safely reloads agent B", async () => {
+    mockFetchOnce({
+      getTranscriptionProviderType: {
+        transcription_provider_type: "whisper_api",
+      },
+    });
+    const { result, rerender } = renderHook(() => useVoiceTranscription());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const staleAgentASave = result.current.handleSave;
+
+    act(() => {
+      h.selectedAgent = "agent-b";
+      rerender();
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    vi.clearAllMocks();
+
+    await act(async () => {
+      await staleAgentASave();
+    });
+
+    expect(h.updateAudioMode).not.toHaveBeenCalled();
+    expect(h.updateTranscriptionProviderType).not.toHaveBeenCalled();
+    expect(h.updateTranscriptionProvider).not.toHaveBeenCalled();
+    expect(h.getAudioMode).toHaveBeenCalledTimes(1);
+    expect(h.getTranscriptionProviderType).toHaveBeenCalledTimes(1);
+    expect(h.getTranscriptionProviders).toHaveBeenCalledTimes(1);
+    expect(h.getLocalWhisperStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves agent B values with agent B as the request target", async () => {
+    const targets: Array<[string, string]> = [];
+    h.updateAudioMode.mockImplementation(async (value: string) => {
+      targets.push([h.selectedAgent, `audio:${value}`]);
+    });
+    h.updateTranscriptionProviderType.mockImplementation(
+      async (value: string) => {
+        targets.push([h.selectedAgent, `type:${value}`]);
+      },
+    );
+    h.updateTranscriptionProvider.mockImplementation(async (value: string) => {
+      targets.push([h.selectedAgent, `provider:${value}`]);
+    });
+    const { result, rerender } = renderHook(() => useVoiceTranscription());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    act(() => {
+      h.selectedAgent = "agent-b";
+      rerender();
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setAudioMode("auto");
+      result.current.setProviderType("whisper_api");
+      result.current.setSelectedProviderId("b-provider");
+    });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(targets).toEqual([
+      ["agent-b", "audio:auto"],
+      ["agent-b", "type:whisper_api"],
+      ["agent-b", "provider:b-provider"],
+    ]);
+  });
 });
 
 describe("useVoiceTranscription initial load", () => {
@@ -110,6 +284,7 @@ describe("useVoiceTranscription initial load", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { result } = renderHook(() => useVoiceTranscription());
     await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toEqual(new Error("down"));
     expect(h.message.error).toHaveBeenCalledWith(
       "voiceTranscription.loadFailed",
     );
@@ -295,6 +470,7 @@ describe("useVoiceTranscription handleSave", () => {
     expect(Object.keys(result.current).sort()).toEqual([
       "audioMode",
       "availableProviders",
+      "error",
       "fetchSettings",
       "handleSave",
       "isLocalWhisper",
@@ -302,6 +478,7 @@ describe("useVoiceTranscription handleSave", () => {
       "loading",
       "localWhisperStatus",
       "providerType",
+      "ready",
       "saving",
       "selectedProviderId",
       "setAudioMode",

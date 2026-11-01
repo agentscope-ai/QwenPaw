@@ -1,118 +1,40 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Button, Checkbox, Modal, Spin, Typography } from "antd";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { isTauriRuntime } from "./backendRuntime";
+import { CircleAlert, X } from "lucide-react";
 import {
-  getRememberedCloseAction,
   setRememberedCloseAction,
   type CloseAction,
 } from "./closeWindowPreference";
+import styles from "./DesktopClient.module.less";
 
-const CLOSE_REQUESTED_EVENT = "qwenpaw-close-requested";
-const SHUTDOWN_STARTED_EVENT = "qwenpaw-shutdown-started";
-
-async function runCloseAction(action: CloseAction): Promise<void> {
-  const command = action === "quit" ? "quit_app" : "minimize_to_tray";
-  await invoke<void>(command);
-}
-
+/** Native dialog semantics keep close controls independent of console chunks. */
 export default function CloseWindowPrompt() {
   const { t, i18n } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const backgroundAction = useRef<HTMLButtonElement>(null);
   const [remember, setRemember] = useState(false);
+  const pending = useRef(false);
   const [submitting, setSubmitting] = useState<CloseAction | null>(null);
-  const [shuttingDown, setShuttingDown] = useState(false);
-
-  const handleCloseRequested = useCallback(() => {
-    // Tell Rust a listener is alive so its minimize-to-tray fallback stands
-    // down; we now own the prompt / remembered-choice flow.
-    void invoke("ack_close").catch((err) => {
-      console.error("Failed to ack close request:", err);
-    });
-
-    const rememberedAction = getRememberedCloseAction();
-    if (rememberedAction) {
-      void runCloseAction(rememberedAction).catch((err) => {
-        console.error("Failed to run remembered close action:", err);
-      });
-      return;
-    }
-
-    setRemember(false);
-    setOpen(true);
-  }, []);
-
-  const handleAction = useCallback(
-    async (action: CloseAction) => {
-      setSubmitting(action);
-      if (action === "quit") {
-        setShuttingDown(true);
-      }
-      try {
-        if (remember) {
-          setRememberedCloseAction(action);
-        }
-        await runCloseAction(action);
-        if (action === "minimize-to-tray") {
-          setOpen(false);
-        }
-      } catch (err) {
-        setShuttingDown(false);
-        console.error("Failed to run close action:", err);
-      } finally {
-        setSubmitting(null);
-      }
-    },
-    [remember],
-  );
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!isTauriRuntime()) return undefined;
-
     let disposed = false;
     let unlisten: (() => void) | undefined;
-
-    void listen(CLOSE_REQUESTED_EVENT, () => handleCloseRequested())
-      .then((cleanup) => {
-        if (disposed) {
-          cleanup();
-          return;
-        }
-        unlisten = cleanup;
-      })
-      .catch((err) => {
-        console.error("Failed to listen for close requests:", err);
-      });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [handleCloseRequested]);
-
-  useEffect(() => {
-    if (!isTauriRuntime()) return undefined;
-
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-
-    void listen(SHUTDOWN_STARTED_EVENT, () => {
-      setShuttingDown(true);
-      setOpen(true);
+    void listen("qwenpaw-close-requested", () => {
+      void invoke("ack_close").catch(console.error);
+      if (pending.current) return;
+      setRemember(false);
+      setError("");
+      dialog.current?.showModal();
+      backgroundAction.current?.focus({ preventScroll: true });
     })
       .then((cleanup) => {
-        if (disposed) {
-          cleanup();
-          return;
-        }
-        unlisten = cleanup;
+        if (disposed) cleanup();
+        else unlisten = cleanup;
       })
-      .catch((err) => {
-        console.error("Failed to listen for shutdown status:", err);
-      });
-
+      .catch(console.error);
     return () => {
       disposed = true;
       unlisten?.();
@@ -120,87 +42,108 @@ export default function CloseWindowPrompt() {
   }, []);
 
   useEffect(() => {
-    if (!isTauriRuntime()) return undefined;
-
     const syncTrayLabels = (language: string) => {
       const translate = i18n.getFixedT(language);
       void invoke("set_tray_labels", {
-        showWindow: translate("desktop.closeWindow.showWindow", "Show Window"),
-        quit: translate("desktop.closeWindow.quitApp", "Quit App"),
-      }).catch((err) => {
-        console.error("Failed to update tray labels:", err);
-      });
+        showWindow: translate("desktop.closeWindow.showWindow"),
+        quit: translate("desktop.closeWindow.quitApp"),
+        stopBlocked: translate("desktop.closeWindow.stopBlocked"),
+      }).catch(console.error);
     };
-
     syncTrayLabels(i18n.resolvedLanguage || i18n.language || "en");
     i18n.on("languageChanged", syncTrayLabels);
-
     return () => {
       i18n.off("languageChanged", syncTrayLabels);
     };
   }, [i18n]);
 
-  if (!isTauriRuntime()) {
-    return null;
+  async function choose(action: CloseAction) {
+    if (pending.current) return;
+    pending.current = true;
+    setSubmitting(action);
+    setError("");
+    try {
+      if (action === "stop-service") await invoke("stop_service");
+      if (remember) await setRememberedCloseAction(action);
+      await invoke(
+        action === "minimize-to-tray" ? "minimize_to_tray" : "quit_app",
+      );
+      dialog.current?.close();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      pending.current = false;
+      setSubmitting(null);
+    }
   }
 
   return (
-    <Modal
-      open={open}
-      title={
-        shuttingDown
-          ? `${t("desktop.closeWindow.quitApp", "Quit App")}...`
-          : t("desktop.closeWindow.title", "Close Window")
-      }
-      closable={false}
-      maskClosable={false}
-      keyboard={false}
-      footer={
-        shuttingDown
-          ? null
-          : [
-              <Button
-                key="minimize"
-                loading={submitting === "minimize-to-tray"}
-                disabled={submitting === "quit"}
-                onClick={() => void handleAction("minimize-to-tray")}
-              >
-                {t("desktop.closeWindow.minimizeToTray", "Minimize to Tray")}
-              </Button>,
-              <Button
-                key="quit"
-                type="primary"
-                danger
-                loading={submitting === "quit"}
-                disabled={submitting === "minimize-to-tray"}
-                onClick={() => void handleAction("quit")}
-              >
-                {t("desktop.closeWindow.quitApp", "Quit App")}
-              </Button>,
-            ]
-      }
+    <dialog
+      ref={dialog}
+      className={styles.closeDialog}
+      aria-labelledby="desktop-close-title"
+      aria-describedby="desktop-close-description"
+      aria-busy={submitting !== null}
+      onCancel={(event) => {
+        if (submitting) event.preventDefault();
+      }}
     >
-      <Typography.Paragraph type="secondary">
-        {shuttingDown ? (
-          <>
-            <Spin size="small" /> {t("desktop.closeWindow.quitApp", "Quit App")}
-            ...
-          </>
-        ) : (
-          t(
-            "desktop.closeWindow.description",
-            "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
-          )
-        )}
-      </Typography.Paragraph>
-      {!shuttingDown && (
-        <Checkbox
-          checked={remember}
-          onChange={(event) => setRemember(event.target.checked)}
+      <header className={styles.closeHeader}>
+        <h2 id="desktop-close-title">{t("desktop.closeWindow.title")}</h2>
+        <button
+          className={styles.dismissClose}
+          aria-label={t("common.cancel")}
+          disabled={submitting !== null}
+          onClick={() => dialog.current?.close()}
         >
-          {t("desktop.closeWindow.remember", "Remember my choice")}
-        </Checkbox>
+          <X size={18} aria-hidden="true" />
+        </button>
+      </header>
+      <p id="desktop-close-description">
+        {t("desktop.closeWindow.description")}
+      </p>
+      <label>
+        <input
+          type="checkbox"
+          checked={remember}
+          disabled={submitting !== null}
+          onChange={(event) => setRemember(event.target.checked)}
+        />
+        {t("desktop.closeWindow.remember")}
+      </label>
+      {error && (
+        <div className={styles.closeError} role="alert">
+          <CircleAlert size={18} aria-hidden="true" />
+          <span>{error}</span>
+        </div>
       )}
-    </Modal>
+      <footer>
+        <button
+          ref={backgroundAction}
+          data-press
+          className={styles.keepRunning}
+          disabled={submitting !== null}
+          onClick={() => void choose("quit")}
+        >
+          {t(
+            submitting === "quit"
+              ? "desktop.closeWindow.quitting"
+              : "desktop.closeWindow.keepRunning",
+          )}
+        </button>
+        <button
+          data-press
+          className={styles.quitCompletely}
+          disabled={submitting !== null}
+          onClick={() => void choose("stop-service")}
+        >
+          {t(
+            submitting === "stop-service"
+              ? "desktop.closeWindow.quitting"
+              : "desktop.closeWindow.stopService",
+          )}
+        </button>
+      </footer>
+    </dialog>
   );
 }
