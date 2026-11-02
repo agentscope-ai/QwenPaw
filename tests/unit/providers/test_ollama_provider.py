@@ -7,7 +7,6 @@ import pytest
 
 from qwenpaw.providers.ollama_provider import (
     OllamaProvider,
-    parse_ollama_model_context_length,
     parse_ollama_num_ctx,
     resolve_ollama_context_window,
 )
@@ -189,16 +188,6 @@ def test_parse_ollama_num_ctx_from_parameters() -> None:
     assert parse_ollama_num_ctx("num_ctx 512") is None  # below ModelInfo floor
 
 
-def test_parse_ollama_model_context_length() -> None:
-    assert (
-        parse_ollama_model_context_length(
-            {"qwen3.context_length": 131072, "other": 1},
-        )
-        == 131072
-    )
-    assert parse_ollama_model_context_length({}) is None
-
-
 def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
     show = {
         "parameters": "num_ctx 8192\n",
@@ -212,13 +201,44 @@ def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
         == 4096
     )
     assert resolve_ollama_context_window(show_payload=show) == 8192
+    # GGUF *.context_length is the model maximum, not the served window.
     assert (
         resolve_ollama_context_window(
             show_payload={"model_info": {"qwen3.context_length": 65536}},
         )
-        == 65536
+        is None
     )
     assert resolve_ollama_context_window(show_payload={}) is None
+
+
+def test_native_probe_headers_add_bearer_without_overriding() -> None:
+    provider = OllamaProvider(
+        id="ollama",
+        name="Ollama",
+        base_url="http://localhost:11434",
+        api_key="sk-remote",
+        chat_model="OpenAIChatModel",
+        custom_headers={"X-Proxy-Token": "abc"},
+    )
+    headers = provider._native_probe_headers()
+    assert headers["X-Proxy-Token"] == "abc"
+    assert headers["Authorization"] == "Bearer sk-remote"
+
+    provider.custom_headers = {
+        "authorization": "Bearer from-proxy",
+        "X-Proxy-Token": "abc",
+    }
+    headers = provider._native_probe_headers()
+    assert headers["authorization"] == "Bearer from-proxy"
+    assert headers["X-Proxy-Token"] == "abc"
+    assert sum(1 for key in headers if key.lower() == "authorization") == 1
+
+    provider.api_key = ""
+    provider.custom_headers = {"X-Proxy-Token": "abc"}
+    assert provider._native_probe_headers() == {"X-Proxy-Token": "abc"}
+
+    provider.api_key = "   "
+    assert "Authorization" not in provider._native_probe_headers()
 
 
 class _FakeResponse:
@@ -331,3 +351,96 @@ async def test_fetch_models_uses_show_when_not_loaded(monkeypatch) -> None:
 
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected == 8192
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_ignores_gguf_context_length(monkeypatch) -> None:
+    provider = _make_provider()
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            return _FakeResponse(
+                200,
+                {"model_info": {"qwen3.context_length": 131072}},
+            )
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
+        fake_super_fetch,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
+        FakeClient,
+    )
+
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_native_probes_send_configured_headers(
+    monkeypatch,
+) -> None:
+    provider = OllamaProvider(
+        id="ollama",
+        name="Ollama",
+        base_url="http://remote-ollama.example:11434",
+        api_key="sk-remote-secret",
+        chat_model="OpenAIChatModel",
+        custom_headers={"X-Proxy-Token": "abc"},
+    )
+    captured: dict = {}
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            captured["headers"] = kwargs.get("headers")
+            captured["timeout"] = kwargs.get("timeout")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            captured["get_url"] = url
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            captured["post_url"] = url
+            captured["post_json"] = json
+            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
+        fake_super_fetch,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
+        FakeClient,
+    )
+
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 8192
+    assert captured["get_url"].endswith("/api/ps")
+    assert captured["post_url"].endswith("/api/show")
+    assert captured["headers"]["X-Proxy-Token"] == "abc"
+    assert captured["headers"]["Authorization"] == "Bearer sk-remote-secret"
