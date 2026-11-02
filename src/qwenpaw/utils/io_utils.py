@@ -327,6 +327,14 @@ def write_text_atomic(
                 pass
 
 
+def _truncate_utf8_bytes(text: str, max_bytes: int) -> str:
+    """Return text truncated to at most max_bytes when UTF-8 encoded."""
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    return raw[:max_bytes].decode("utf-8", errors="ignore")
+
+
 def _open_atomic_temp(
     target: Path,
     encoding: str,
@@ -336,9 +344,10 @@ def _open_atomic_temp(
     if hasattr(os, "O_BINARY"):
         flags |= os.O_BINARY
 
+    prefix = _truncate_utf8_bytes(target.name, 200)
     for _attempt in range(100):
         temp_path = target.with_name(
-            f".{target.name}.{secrets.token_hex(8)}.tmp",
+            f".{prefix}.{secrets.token_hex(8)}.tmp",
         )
         try:
             fd = os.open(temp_path, flags, 0o600)
