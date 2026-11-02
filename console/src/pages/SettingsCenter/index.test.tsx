@@ -1,19 +1,22 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Grid } from "antd";
-import type { ComponentType } from "react";
+import { useContext, type ComponentType } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/common_setup";
 import { themeApi } from "@/api/modules/theme";
 import { channelApi } from "@/api/modules/channel";
+import * as apiRequest from "@/api/request";
+import type { AgentsRunningConfig } from "@/api/types";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import type { MenuItem } from "@/plugins/registry/types";
 import { DEFAULT_FOCUS_ITEM_IDS, useSidebarStore } from "@/stores/sidebarStore";
 import { useAgentStore } from "@/stores/agentStore";
 import { settingsSearchRegistry } from "@/plugins/settingsSearch";
 import { SettingsSearchNavigation } from "./SettingsSearchNavigation";
+import { SettingsRuntimeConfigContext } from "./SettingsSearchRequest";
 
 // JSDOM cannot run NumberFlow's custom-element animation lifecycle.
 vi.mock("@number-flow/react", () => ({
@@ -129,6 +132,119 @@ describe("SettingsCenter", () => {
     );
     expect(screen.getByText("Model settings")).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent("Choose an item");
+  });
+
+  it("refreshes result availability after config changes without remounting", async () => {
+    vi.spyOn(apiRequest, "request").mockResolvedValue({
+      memory_manager_backend: "none",
+    });
+    function RuntimeSettings() {
+      const updateSearch = useContext(SettingsRuntimeConfigContext);
+      return (
+        <>
+          <button
+            onClick={() =>
+              updateSearch("native", {
+                memory_manager_backend: "remelight",
+              } as AgentsRunningConfig)
+            }
+          >
+            Enable memory
+          </button>
+          <button
+            onClick={() =>
+              updateSearch("native", {
+                memory_manager_backend: "none",
+              } as AgentsRunningConfig)
+            }
+          >
+            Disable memory
+          </button>
+          <button
+            onClick={() =>
+              updateSearch("other-agent", {
+                memory_manager_backend: "remelight",
+              } as AgentsRunningConfig)
+            }
+          >
+            Other agent saved
+          </button>
+        </>
+      );
+    }
+    registry.routes = [
+      {
+        id: "core.agent-config",
+        path: "/agent-config",
+        Component: RuntimeSettings,
+      },
+    ];
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/agent-config"],
+    });
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "Model Name",
+    );
+    const result = screen.getByRole("button", { name: /^Model Name/ });
+    await waitFor(() => expect(result).toBeDisabled());
+    await userEvent.click(
+      screen.getByRole("button", { name: "Enable memory" }),
+    );
+    expect(result).toBeEnabled();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Disable memory" }),
+    );
+    expect(result).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Other agent saved" }),
+    );
+    expect(result).toBeDisabled();
+  });
+
+  it("keeps a saved config newer than an outstanding availability request", async () => {
+    let resolveRequest!: (config: AgentsRunningConfig) => void;
+    vi.spyOn(apiRequest, "request").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    function RuntimeSettings() {
+      const updateSearch = useContext(SettingsRuntimeConfigContext);
+      return (
+        <button
+          onClick={() =>
+            updateSearch("native", {
+              memory_manager_backend: "remelight",
+            } as AgentsRunningConfig)
+          }
+        >
+          Enable memory
+        </button>
+      );
+    }
+    registry.routes = [
+      {
+        id: "core.agent-config",
+        path: "/agent-config",
+        Component: RuntimeSettings,
+      },
+    ];
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/agent-config"],
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Enable memory" }),
+    );
+    await act(async () => {
+      resolveRequest({ memory_manager_backend: "none" } as AgentsRunningConfig);
+    });
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "Model Name",
+    );
+    expect(screen.getByRole("button", { name: /^Model Name/ })).toBeEnabled();
   });
 
   it("opens the plugin section and requested subtab from a search result", async () => {

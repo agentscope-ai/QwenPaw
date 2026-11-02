@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -69,7 +70,10 @@ import {
   type SettingsSearchAvailability,
 } from "./settingsSearch";
 import { useSettingsSearchTarget } from "./useSettingsSearchTarget";
-import { SettingsSearchRequest } from "./SettingsSearchRequest";
+import {
+  SettingsSearchRequest,
+  SettingsRuntimeConfigContext,
+} from "./SettingsSearchRequest";
 
 interface SearchResult {
   id: string;
@@ -347,28 +351,41 @@ export default function SettingsCenter() {
     agentId: string | null;
     context: SettingsSearchAvailability;
   } | null>(null);
+  const runtimeAvailabilityRevision = useRef(0);
+  const updateRuntimeAvailability = useCallback(
+    (agentId: string | null, config: AgentsRunningConfig) => {
+      if (agentId !== useAgentStore.getState().selectedAgent) return;
+      runtimeAvailabilityRevision.current += 1;
+      setRuntimeAvailability({
+        agentId,
+        context: {
+          strategy: config.light_context_config?.strategy ?? "scroll",
+          memoryBackend: config.memory_manager_backend ?? "remelight",
+        },
+      });
+    },
+    [],
+  );
   const hasRuntime = routes.some((route) => route.id === "core.agent-config");
   useEffect(() => {
     if (!hasRuntime || (selectedBackend && selectedBackend !== "qwenpaw"))
       return;
     const controller = new AbortController();
+    const revision = ++runtimeAvailabilityRevision.current;
     void request<AgentsRunningConfig>("/workspace/running-config", {
       headers: { "X-Agent-Id": selectedAgent || "default" },
       signal: controller.signal,
     })
       .then((config) => {
-        if (!controller.signal.aborted)
-          setRuntimeAvailability({
-            agentId: selectedAgent,
-            context: {
-              strategy: config.light_context_config?.strategy ?? "scroll",
-              memoryBackend: config.memory_manager_backend ?? "remelight",
-            },
-          });
+        if (
+          !controller.signal.aborted &&
+          revision === runtimeAvailabilityRevision.current
+        )
+          updateRuntimeAvailability(selectedAgent, config);
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [hasRuntime, selectedAgent, selectedBackend]);
+  }, [hasRuntime, selectedAgent, selectedBackend, updateRuntimeAvailability]);
   const [channelNames, setChannelNames] = useState<{
     agentId: string | null;
     labels: Record<string, string>;
@@ -899,7 +916,11 @@ export default function SettingsCenter() {
                     </div>
                   }
                 >
-                  <ActiveComponent />
+                  <SettingsRuntimeConfigContext.Provider
+                    value={updateRuntimeAvailability}
+                  >
+                    <ActiveComponent />
+                  </SettingsRuntimeConfigContext.Provider>
                 </ChunkRecoverySuspense>
               </ChunkErrorBoundary>
             ) : null}

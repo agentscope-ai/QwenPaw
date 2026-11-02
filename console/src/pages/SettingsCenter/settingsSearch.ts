@@ -519,6 +519,7 @@ export function settingsSearchTarget(
   if (key === "tools.asyncExecution") target.targetId = key;
   if (key === "tools.asyncExecution")
     target.hint = t("settingsCenter.searchToolAvailability");
+  if (page === "mcp" && key === "acp.args") target.targetId = "mcp.args";
   if (key === "settingsCenter.mcpJsonConfig") {
     target.targetId = key;
     target.surface = "mcp-json";

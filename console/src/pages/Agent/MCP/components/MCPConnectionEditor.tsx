@@ -22,7 +22,11 @@ export function MCPConnectionEditor({
   const set = (key: string, next: unknown) =>
     onChange(JSON.stringify({ ...config, [key]: next }, null, 2));
   const field = (key: string, label: string, multiline = false) => (
-    <div className={styles.field} key={key}>
+    <div
+      className={styles.field}
+      key={key}
+      data-settings-target={key === "args" ? "mcp.args" : undefined}
+    >
       <label htmlFor={`${id}-${key}`}>{label}</label>
       {multiline ? (
         <Input.TextArea
