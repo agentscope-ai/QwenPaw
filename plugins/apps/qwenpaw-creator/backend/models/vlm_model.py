@@ -26,12 +26,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import mimetypes
 import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
+from PIL import Image, ImageOps
 
 from models import config as model_config
 from models.concurrency import model_slot
@@ -51,9 +53,112 @@ logger = setup_logger("model.vlm")
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
 
+# Inline images step down this ladder (longest edge in px, JPEG quality)
+# until the encoded bytes fit VLM_MAX_INLINE_BYTES. Providers bill vision
+# tokens rather than request bytes, so a downscaled image still answers the
+# question whereas a hard refusal leaves the understanding record silently
+# empty. Mirrors the video clip ladder in services.media.source_observation.
+IMAGE_INLINE_LADDER = (
+    (2048, 85),
+    (1536, 80),
+    (1024, 75),
+    (768, 70),
+)
 
-def _mime_for_path(path: Path, fallback: str) -> str:
-    return mimetypes.guess_type(path.name)[0] or fallback
+
+# What ``mimetypes`` answers for a meaningless suffix such as ``.bin``.  It
+# carries no information about the media, so it must not win over a type the
+# caller already confirmed.
+_GENERIC_MIME = "application/octet-stream"
+
+
+def _specific_media_type(declared: str) -> str:
+    """Return *declared* unless it is the placeholder that says nothing.
+
+    ``application/octet-stream`` is what an upload form fills in for every
+    byte it cannot name, so honouring it as a confirmed type defeated the
+    family fallback: a suffixless clip left the inline transport labelled
+    ``data:application/octet-stream``, the one header both SDK formatters drop
+    along with the media itself.  A real declared family is kept; the
+    placeholder is read as silence.
+    """
+    value = (declared or "").strip()
+    return "" if value.casefold() == _GENERIC_MIME else value
+
+
+# The image families Creator inlines, keyed by the signature their bytes
+# actually carry.  A label taken from a file name can be wrong in either
+# direction — a converter that writes PNG under a ``.jpg`` suffix, or a real
+# PNG stored as ``reference-4821.bin`` — and only the bytes settle it.
+_IMAGE_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
+)
+
+
+def _sniff_image_mime(head: bytes) -> str:
+    """Return the image type *head* starts with, or ``""`` for anything else.
+
+    Only images are sniffed.  Video containers keep their brand at an offset
+    behind a size field, and the suffix resolves them well enough that
+    guessing here would risk trading a wrong subtype for a worse one.
+    """
+    for signature, mime in _IMAGE_SIGNATURES:
+        if head.startswith(signature):
+            return mime
+    if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
+
+
+def _mime_for_path(path: Path, declared: str) -> str:
+    """Return the media type to label *path* with.
+
+    The bytes decide when they identify an image; otherwise the extension is
+    consulted only when it knows something — a real ``.jpg`` still beats a
+    generic declared family, but ``.bin`` ->
+    ``application/octet-stream`` must not outrank a confirmed ``image/png``,
+    because the data URL header is what survives to the provider —
+    ``native_content._data_block`` reads the media type off the URL, and the
+    AgentScope formatters drop a block whose type they do not recognise.  A
+    wrong subtype costs a re-decode; the placeholder costs the whole image.
+    """
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        head = b""
+    sniffed = _sniff_image_mime(head)
+    if sniffed:
+        return sniffed
+    guessed = mimetypes.guess_type(path.name)[0]
+    declared = _specific_media_type(declared)
+    if not guessed or guessed == _GENERIC_MIME:
+        return declared or _GENERIC_MIME
+    return guessed
+
+
+def _media_declaration(media_obj: dict, part_type: str) -> str:
+    """Return the media type a content part carries, or its family.
+
+    Every entry that inlines local media resolves the type through here — the
+    OpenAI-compatible transport and the direct Anthropic and Gemini inliners —
+    because a declaration honoured on one protocol and hardcoded away on
+    another is the same bug wearing a different hat: the outgoing label stops
+    describing the bytes and the formatter that trusts it drops the block.
+    ``application/octet-stream`` is the placeholder an unnamed upload writes for
+    every file, so it counts as saying nothing, and a part that says nothing
+    falls back to its family.
+    """
+    declared = _specific_media_type(
+        str(media_obj.get("mediaType") or media_obj.get("media_type") or ""),
+    )
+    return declared or (
+        "video/mp4" if part_type == "video_url" else "image/png"
+    )
 
 
 def _local_path_from_url(url: str) -> Path | None:
@@ -64,30 +169,127 @@ def _local_path_from_url(url: str) -> Path | None:
     return None
 
 
-def _data_url(path: Path, fallback_mime: str) -> str:
-    size = path.stat().st_size
+# EXIF Orientation values that need a pixel transform. 1 and a missing tag
+# both mean the stored pixels are already upright.
+_EXIF_ORIENTATION_TAG = 0x0112
+
+
+def _upright(image: Image.Image) -> Image.Image:
+    """Bake EXIF Orientation into the pixels.
+
+    Re-encoding drops the tag, so without this a portrait phone photo reaches
+    the VLM lying on its side: the only hint that viewers should rotate it is
+    gone from the JPEG we hand over.
+    """
+    orientation = image.getexif().get(_EXIF_ORIENTATION_TAG)
+    if isinstance(orientation, int) and 2 <= orientation <= 8:
+        return ImageOps.exif_transpose(image)
+    return image
+
+
+def _flatten_alpha(image: Image.Image) -> Image.Image:
+    """Composite transparent pixels onto white before dropping the alpha.
+
+    ``convert("RGB")`` discards the alpha channel and keeps whatever the
+    encoder stored underneath the transparent pixels — usually black. UI
+    captures and scanned documents are exactly the images that outgrow the
+    inline budget, so without this a transparent-background page reaches the
+    VLM as pale text on black, the one rendering it reads worst.
+
+    A colour key counts as transparency too: ``tRNS`` is legal on RGB and L
+    PNGs, and PIL applies it inside ``convert("RGBA")`` — measured on Pillow
+    10, the declared floor, and on 13: a black key over black pixels yields
+    alpha 0 and flattens to white, while a key that does not match the pixel
+    keeps alpha 255.  The fast path therefore has to test for the key and not
+    for the mode alone.
+    """
+    keyed = "transparency" in image.info
+    if image.mode == "RGB" and not keyed:
+        return image
+    has_alpha = image.mode in {"RGBA", "LA"} or (
+        keyed and image.mode in {"P", "RGB", "L"}
+    )
+    if not has_alpha:
+        return image.convert("RGB")
+    rgba = image.convert("RGBA")
+    flat = Image.new("RGB", rgba.size, (255, 255, 255))
+    flat.paste(rgba, mask=rgba.getchannel("A"))
+    return flat
+
+
+def _downscale_image_to_budget(path: Path, max_bytes: int) -> bytes | None:
+    """Re-encode *path* down the ladder until it fits *max_bytes*.
+
+    Returns ``None`` when the file is not a decodable image, or when even the
+    smallest rung stays over budget, so callers keep their existing refusal.
+
+    The catch below is deliberately broad, and narrowing it would be a
+    regression: PIL raises ``DecompressionBombError`` for a file over its
+    pixel ceiling, and that type derives from ``Exception`` rather than
+    ``OSError``, so an ``(OSError, ValueError)`` clause would let an
+    oversized screenshot escape instead of reaching the refusal.
+    """
+    try:
+        with Image.open(path) as image:
+            image.load()
+            image = _upright(image)
+            image = _flatten_alpha(image)
+            for max_edge, quality in IMAGE_INLINE_LADDER:
+                frame = image.copy()
+                frame.thumbnail((max_edge, max_edge), Image.LANCZOS)
+                buffer = io.BytesIO()
+                frame.save(
+                    buffer,
+                    format="JPEG",
+                    quality=quality,
+                    optimize=True,
+                )
+                payload = buffer.getvalue()
+                if len(payload) <= max_bytes:
+                    return payload
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.info("inline downscale unavailable for %s (%s)", path.name, exc)
+        return None
+    return None
+
+
+def _inline_payload(path: Path, fallback_mime: str) -> tuple[str, bytes]:
+    """Return ``(mime, bytes)`` for *path*, downscaled to fit the budget."""
     max_bytes = model_config.get_vlm_max_inline_bytes()
-    if size > max_bytes:
+    size = path.stat().st_size
+    if size <= max_bytes:
+        return _mime_for_path(path, fallback_mime), path.read_bytes()
+    downscaled = _downscale_image_to_budget(path, max_bytes)
+    if downscaled is None:
         raise ModelError(
-            f"VLM local media inline size limit exceeded: {path.name} is {size} bytes, limit is {max_bytes}",
+            f"VLM local media inline size limit exceeded: {path.name} is "
+            f"{size} bytes, limit is {max_bytes}. A non-DashScope provider "
+            "inlines media as Base64 and cannot fetch a DashScope OSS URL; "
+            "raise VLM_MAX_INLINE_BYTES, shorten or downscale the source, "
+            "or point the VLM at a DashScope endpoint.",
             model_name=model_config.get_vlm_model_name(),
         )
-    encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
-    return f"data:{_mime_for_path(path, fallback_mime)};base64,{encoded}"
+    logger.info(
+        "inlined %s as a downscaled JPEG: %d bytes exceeds the %d-byte VLM "
+        "inline budget, re-encoded to %d bytes",
+        path.name,
+        size,
+        max_bytes,
+        len(downscaled),
+    )
+    return "image/jpeg", downscaled
+
+
+def _data_url(path: Path, fallback_mime: str) -> str:
+    mime, payload = _inline_payload(path, fallback_mime)
+    encoded = base64.b64encode(payload).decode("utf-8")
+    return f"data:{mime};base64,{encoded}"
 
 
 def _inline_base64(path: Path, fallback_mime: str) -> tuple[str, str]:
     """Return ``(mime_type, base64_data)`` for a local file."""
-    size = path.stat().st_size
-    max_bytes = model_config.get_vlm_max_inline_bytes()
-    if size > max_bytes:
-        raise ModelError(
-            f"VLM local media inline size limit exceeded: {path.name} is {size} bytes, limit is {max_bytes}",
-            model_name=model_config.get_vlm_model_name(),
-        )
-    mime = _mime_for_path(path, fallback_mime)
-    data = base64.b64encode(path.read_bytes()).decode("utf-8")
-    return mime, data
+    mime, payload = _inline_payload(path, fallback_mime)
+    return mime, base64.b64encode(payload).decode("utf-8")
 
 
 def multimodal_media_part(
@@ -171,9 +373,22 @@ def _is_media_related_error(text: str) -> bool:
     return any(phrase in text_lower for phrase in _MEDIA_REJECT_PHRASES)
 
 
-def _is_dashscope_provider(base_url: str) -> bool:
+def _is_dashscope_provider(base_url: str, protocol: str = "") -> bool:
     host = urlparse(base_url).hostname or ""
-    return "dashscope" in host
+    if "dashscope" in host:
+        return True
+    # A MaaS deployment serves the same API but never spells ``dashscope`` in
+    # its host; classifying it as a generic gateway would drop local media to
+    # the inline Base64 budget instead of the 1GB temporary OSS upload. The
+    # host, though, only proves the wire format — the upload is a separate
+    # credential: a Token Plan key is refused by the Bailian upload API, see
+    # ``video_model._resolve_reference_media_url``, so a MaaS endpoint earns
+    # the ``oss://`` route only when it is not being reached as Token Plan.
+    if not model_config.is_maas_endpoint(base_url):
+        return False
+    return not model_config.is_token_plan_protocol(
+        protocol or model_config.get_vlm_protocol(),
+    )
 
 
 def uses_dashscope_transport() -> bool:
@@ -183,17 +398,58 @@ def uses_dashscope_transport() -> bool:
     return _is_dashscope_provider(model_config.get_vlm_base_url())
 
 
+async def transport_local_media_url(
+    local_path: Path,
+    *,
+    api_key: str,
+    model_name: str,
+    media_type: str = "",
+) -> str:
+    """Return a URL for *local_path* that the configured VLM can ingest.
+
+    Callers that assemble multimodal parts themselves — the file-native
+    Specialist media pipeline — never reach ``_call_openai_vlm``, so the
+    provider decision has to happen where the part is created. DashScope
+    uploads to the model-bound temporary OSS and yields a public URL; every
+    other OpenAI-compatible gateway receives an inline Base64 data URL,
+    because it cannot fetch DashScope's OSS object and answers the DashScope
+    upload credential with 401.
+    """
+    declared = _specific_media_type(media_type)
+    fallback = declared or (
+        "video/mp4"
+        if local_path.suffix.lower() in VIDEO_SUFFIXES
+        else "image/png"
+    )
+    if uses_dashscope_transport():
+        return await upload_local_file_to_dashscope_temp(
+            local_path,
+            api_key=api_key,
+            model_name=model_name,
+            media_type=declared or _mime_for_path(local_path, fallback),
+        )
+    return await asyncio.to_thread(_data_url, local_path, fallback)
+
+
 async def _transport_local_media_part(
     part: dict,
     api_key: str,
     model_name: str,
     base_url: str,
+    protocol: str = "",
 ) -> tuple[dict, bool]:
     """Replace a local media URL with a provider-transportable URL.
 
     Returns ``(part, uses_temp_oss)``. DashScope-bound requests use the
     official model-bound temporary upload (cached, 48h TTL, <=1GB); other
     OpenAI-compatible providers fall back to an inline Base64 data URL.
+
+    *protocol* names the credential these bytes are uploaded with. Pass it
+    whenever *base_url* comes from a section other than the VLM: the upload
+    identity is a property of the key, so deciding it from the VLM's own
+    protocol sent a borrowed Token Plan credential to the Bailian upload API
+    that refuses it, and only changing the unrelated VLM section could undo
+    that.
     """
     part_type = part.get("type")
     if part_type not in ("image_url", "video_url"):
@@ -205,9 +461,11 @@ async def _transport_local_media_part(
     local_path = _local_path_from_url(url)
     if local_path is None:
         return part, False
-    fallback = "video/mp4" if part_type == "video_url" else "image/png"
+    # Honour a type the part already declares, the way native_content does,
+    # through the same rule the direct Anthropic and Gemini inliners use.
+    fallback = _media_declaration(media_obj, part_type)
     transported = dict(part)
-    if _is_dashscope_provider(base_url):
+    if _is_dashscope_provider(base_url, protocol):
         try:
             resolved = await upload_local_file_to_dashscope_temp(
                 local_path,
@@ -523,12 +781,19 @@ async def chat_completion(
     api_key_override: str | None = None,
     base_url_override: str | None = None,
     model_name_override: str | None = None,
+    protocol_override: str | None = None,
 ) -> str:
-    """Call the configured VLM and return the assistant text."""
+    """Call the configured VLM and return the assistant text.
+
+    A caller that substitutes another section's credential (the grounding
+    verifier reuses the LLM's Token Plan key) has to name that section's
+    protocol too, because the wire format and the media upload identity both
+    belong to the credential being spent, not to the VLM slot.
+    """
     api_key = api_key_override or model_config.get_vlm_api_key()
     base_url = base_url_override or model_config.get_vlm_base_url()
     model_name = model_name_override or model_config.get_vlm_model_name()
-    protocol = model_config.get_vlm_protocol()
+    protocol = protocol_override or model_config.get_vlm_protocol()
     # Anthropic and Gemini gateways always authenticate; OpenAI-compatible
     # gateways may serve free keyless models (e.g. OpenCode Zen), so an
     # empty key is only an error for protocols that require one.
@@ -609,6 +874,7 @@ async def chat_completion(
                 api_key=api_key,
                 base_url=base_url,
                 model_name=model_name,
+                protocol=protocol,
             )
     except httpx.HTTPStatusError as exc:
         if has_media and _is_media_related_error(exc.response.text):
@@ -712,6 +978,7 @@ async def _call_openai_vlm(
     api_key: str,
     base_url: str,
     model_name: str,
+    protocol: str = "",
 ) -> dict:
     """OpenAI-compatible VLM request (DashScope, DeepSeek, etc.)."""
     provider_content: list[dict] = []
@@ -725,6 +992,7 @@ async def _call_openai_vlm(
             api_key,
             model_name,
             base_url,
+            protocol,
         )
         uses_temp_oss = uses_temp_oss or is_temp_oss
         provider_content.append(normalized)
@@ -799,7 +1067,7 @@ async def _call_anthropic_vlm(
             url = str(media_obj.get("url") or "")
             local_path = _local_path_from_url(url)
             if local_path is not None:
-                fallback = "image/png"
+                fallback = _media_declaration(media_obj, part_type)
                 mime, b64_data = await asyncio.to_thread(
                     _inline_base64,
                     local_path,
@@ -867,7 +1135,7 @@ async def _call_gemini_vlm(
         if part_type in ("image_url", "video_url"):
             media_obj = normalized.get(part_type) or {}
             url = str(media_obj.get("url") or "")
-            fallback = "video/mp4" if part_type == "video_url" else "image/png"
+            fallback = _media_declaration(media_obj, part_type)
             local_path = _local_path_from_url(url)
             if local_path is not None:
                 mime, b64_data = await asyncio.to_thread(

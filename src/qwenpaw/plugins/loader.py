@@ -7,6 +7,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -82,6 +83,40 @@ _IMPORT_NAME_OVERRIDES = {
     "protobuf": "google.protobuf",
 }
 _PAWPORT_MARKER = ".qwenpaw-pawport.json"
+
+
+_DEPENDENCY_OUTPUT_SECRET = re.compile(
+    r"(?i)(?:authorization|bearer|basic|password|passwd|token|secret|"
+    r"credential|api[_-]?key|pip_[a-z0-9_]+)",
+)
+_DEPENDENCY_OUTPUT_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]{0,31}://[^\s]+")
+
+
+def _log_dependency_subprocess_failure(plugin_id, returncode, output_lines):
+    """Promote only bounded, sanitized output; preserve the runner's result."""
+    plugin = ascii(str(plugin_id))[1:-1][:160]
+    logger.info(
+        "Dependency pip failed: plugin=%s returncode=%s",
+        plugin,
+        returncode,
+    )
+    prefix = f"Dependency pip output: plugin={plugin} "
+    budget = 16 * 1024
+    messages = []
+    for line in reversed(output_lines):
+        line = _DEPENDENCY_OUTPUT_URL.sub("[redacted-url]", line)
+        if _DEPENDENCY_OUTPUT_SECRET.search(line) or "://" in line:
+            line = "[redacted sensitive output]"
+        line = ascii(line)[1:-1]
+        content = line[-(1024 - len(prefix)) :]
+        message = prefix + content
+        size = len(message) + 1
+        if size > budget:
+            break
+        messages.append(message)
+        budget -= size
+    for message in reversed(messages):
+        logger.info("%s", message)
 
 
 def _is_frozen() -> bool:
@@ -1318,6 +1353,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     dependency_context is not None
                     and dependency_context.runtime_identity is not None
                 ):
+                    logger.info(
+                        "Dependency installer unavailable: plugin=%s "
+                        "code=DEPENDENCY_INSTALLER_UNAVAILABLE",
+                        ascii(str(plugin_id))[1:-1][:160],
+                    )
                     raise RuntimeError(
                         "DEPENDENCY_INSTALLER_UNAVAILABLE: bundled pip is "
                         "missing; update QwenPaw Desktop.",
@@ -1334,6 +1374,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     spec.python_executable,
                     isolated=True,
                 ):
+                    logger.info(
+                        "Dependency installer unavailable: plugin=%s "
+                        "code=DEPENDENCY_INSTALLER_UNAVAILABLE",
+                        ascii(str(plugin_id))[1:-1][:160],
+                    )
                     raise SharedDependencyError(
                         GateDecision(
                             False,
@@ -1383,6 +1428,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     if restart
                     else "DEPENDENCY_PLAN_UNVERIFIED"
                 )
+                logger.info(
+                    "Dependency solver failed: plugin=%s "
+                    "constrained_returncode=%s unconstrained_returncode=%s "
+                    "code=%s",
+                    ascii(str(plugin_id))[1:-1][:160],
+                    result.returncode,
+                    resolved.returncode,
+                    code,
+                )
                 raise SharedDependencyError(
                     GateDecision(
                         False,
@@ -1416,6 +1470,16 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 return wheels
 
             wheels = await run_sync_io(collect_wheels)
+            logger.info(
+                "Dependency pip prepared wheels: plugin=%s returncode=%s "
+                "stage=wheel-validation count=%s artifacts=%s",
+                ascii(str(plugin_id))[1:-1][:160],
+                result.returncode,
+                len(wheels),
+                ", ".join(
+                    ascii(item.path.name)[1:-1][:160] for item in wheels[:8]
+                ),
+            )
             await prepare_shared_dependencies(
                 process,
                 spec,
@@ -2228,9 +2292,20 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 proc.kill()
                 proc.wait()
                 reader.join(timeout=2)
+                _log_dependency_subprocess_failure(
+                    plugin_id,
+                    "timeout",
+                    output_lines,
+                )
                 raise
             reader.join(timeout=2)
 
+        if returncode:
+            _log_dependency_subprocess_failure(
+                plugin_id,
+                returncode,
+                output_lines,
+            )
         combined = "\n".join(output_lines)
         return subprocess.CompletedProcess(
             args=cmd,
