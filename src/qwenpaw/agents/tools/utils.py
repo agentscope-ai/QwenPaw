@@ -751,6 +751,42 @@ def _normalized_to_original_offsets(
     return found
 
 
+def _join_preserving_lf_breaks(left: str, right: str) -> str:
+    """Join *left* and *right* without collapsing a lone CR and a lone LF.
+
+    A real CRLF is never split, so a span ending in ``\\r`` is a lone CR
+    and a span starting with ``\\n`` is a lone LF. Insert one ``\\n``
+    between them so the LF view keeps both breaks.
+    """
+    if left.endswith("\r") and right.startswith("\n"):
+        return left + "\n" + right
+    return left + right
+
+
+def _concat_preserving_lf_breaks(parts: list[str]) -> str:
+    """Join *parts* in order with :func:`_join_preserving_lf_breaks`.
+
+    Empty parts are skipped. Otherwise a deleted match would hide a lone
+    CR from the following LF and ``"".join`` would merge them into one
+    CRLF. The helper decides the boundary from the touching characters,
+    and the original pieces are kept so a long file stays linear.
+    """
+    pieces: list[str] = []
+    tail = ""
+    for part in parts:
+        if not part:
+            continue
+        head = part[:1]
+        # boundary is tail + optional inserted break + head.
+        boundary = _join_preserving_lf_breaks(tail, head)
+        inserted = boundary[len(tail) : len(boundary) - len(head)]
+        if inserted:
+            pieces.append(inserted)
+        pieces.append(part)
+        tail = part[-1]
+    return "".join(pieces)
+
+
 def _replace_empty_pattern(original: str, new_text: str) -> str:
     """Insert *new_text* at every LF-view boundary.
 
@@ -781,7 +817,7 @@ def _replace_empty_pattern(original: str, new_text: str) -> str:
             parts.append(ending)
     if original.endswith(("\n", "\r")):
         parts.append(_restyle_newlines(new_text, last_style))
-    return "".join(parts)
+    return _concat_preserving_lf_breaks(parts)
 
 
 def _replace_mixed_newlines(
@@ -826,7 +862,7 @@ def _replace_mixed_newlines(
         )
         norm_cursor = found_at + old_len
     parts.append(original[mapped[norm_cursor] :])
-    return "".join(parts)
+    return _concat_preserving_lf_breaks(parts)
 
 
 def replace_text_preserving_newlines(

@@ -393,6 +393,20 @@ class TestEditFile:
         assert "Successfully replaced" in result.content[0].text
         assert f.read_bytes() == b"keep\rnew\rline\r"
 
+    @pytest.mark.asyncio
+    async def test_edit_keeps_break_between_lone_cr_and_lf(self, tmp_path):
+        """Deleting text between a lone CR and an LF keeps both breaks."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"\ra\nb")
+
+        result = await edit_file(str(f), "a", "")
+
+        assert "Successfully replaced" in result.content[0].text
+        updated = f.read_bytes()
+        lf_view = updated.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        assert lf_view == b"\n\nb"
+        assert updated == b"\r\n\nb"
+
 
 # ---------------------------------------------------------------------------
 # append_file
