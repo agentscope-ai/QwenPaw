@@ -22,6 +22,7 @@ from .._utils.history_sqlite import (
     history_sidecar_paths,
 )
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
+from .sqlite_snapshot import stage_databases
 
 logger = logging.getLogger(__name__)
 
@@ -89,19 +90,37 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
                         f"{PREFIX_WORKSPACES}{aid}/{history_filename}",
                     )
                     file_count += 1
-                for entry in sorted(ws.rglob("*")):
+                entries = [
+                    entry
+                    for entry in sorted(ws.rglob("*"))
+                    if entry.is_file()
+                    and entry.resolve() not in sidecars
+                    and entry.resolve() != history_db
+                ]
+                staged = stage_databases(
+                    entries,
+                    Path(snapshot_dir),
+                    stop_event,
+                )
+                if staged is None:
+                    return False
+                snapshots, extra_sidecars = staged
+                sidecars.update(
+                    Path(path).resolve() for path in extra_sidecars
+                )
+                for entry in entries:
                     if stop_event and stop_event.is_set():
                         return False
-                    resolved_entry = entry.resolve()
-                    if (
-                        not entry.is_file()
-                        or resolved_entry in sidecars
-                        or resolved_entry == history_db
-                    ):
+                    if entry.resolve() in sidecars:
                         continue
                     relative = entry.relative_to(ws)
                     rel = relative.as_posix()
                     arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                    if str(entry) in snapshots:
+                        # Snapshot failures must not silently omit a database.
+                        zf.write(snapshots[str(entry)], arcname)
+                        file_count += 1
+                        continue
                     try:
                         if rel == "agent.json":
                             zf.writestr(
