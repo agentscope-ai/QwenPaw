@@ -82,6 +82,26 @@ class FallbackChatModel(ChatModelBase):
         self._thinking_omit_ids: set[str] = set()
         self._activate_model(primary)
 
+    def without_models(
+        self,
+        identities: set[tuple[str, str]],
+    ) -> FallbackChatModel | None:
+        """Copy a fallback tree without excluded models, retaining policies."""
+        candidates = []
+        for model in self._models:
+            if isinstance(model, FallbackChatModel):
+                candidate = model.without_models(identities)
+                if candidate is not None:
+                    candidates.append(candidate)
+            elif get_model_identity(model) not in identities:
+                candidates.append(model)
+        if not candidates:
+            return None
+        return FallbackChatModel(
+            candidates,
+            fallback_on_any_error=self._fallback_on_any_error,
+        )
+
     @property
     def _active_model(self) -> ChatModelBase:
         """Return the model active in the current request context."""
@@ -418,9 +438,15 @@ class FallbackChatModel(ChatModelBase):
         if not events and active_model is None:
             return response
         metadata = dict(getattr(response, "metadata", None) or {})
+        nested = isinstance(active_model, FallbackChatModel)
         if events:
-            metadata["qwenpaw_model_fallbacks"] = list(events)
-        if active_model is not None:
+            inner_events = (
+                metadata.get("qwenpaw_model_fallbacks", []) if nested else []
+            )
+            metadata["qwenpaw_model_fallbacks"] = [*events, *inner_events]
+        if active_model is not None and not (
+            nested and "qwenpaw_actual_model" in metadata
+        ):
             metadata[
                 "qwenpaw_actual_model"
             ] = FallbackChatModel._actual_model_dict(active_model)

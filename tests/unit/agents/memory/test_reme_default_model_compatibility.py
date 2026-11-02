@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from agentscope.model._model_response import ChatResponse, StructuredResponse
 
 from qwenpaw.agents import model_factory
 from qwenpaw.agents.memory import reme_light_memory_manager as memory_module
@@ -18,6 +19,113 @@ from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.ollama_provider import OllamaProvider
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
+
+
+@pytest.mark.parametrize("output", ["response", "stream", "structured"])
+@pytest.mark.parametrize("main_status", [200, 401, 503])
+async def test_combined_memory_fallback_preserves_policy_and_metadata(
+    monkeypatch,
+    local_models,
+    make_memory_model_manager,
+    output,
+    main_status,
+):
+    """Use the real factory; replace only SDK calls and ReMe injection."""
+    from qwenpaw.providers.openai_chat_model_compat import (
+        OpenAIChatModelCompat,
+    )
+
+    class HttpError(Exception):
+        def __init__(self, status):
+            super().__init__(f"HTTP {status}")
+            self.status_code = status
+
+    calls = []
+
+    async def call(model, *args, **kwargs):
+        calls.append(model.model)
+        status = 401 if model.model == "global" else main_status
+        if model.model == "vision-fallback":
+            status = 200
+        if status != 200:
+            raise HttpError(status)
+        if output == "structured":
+            return StructuredResponse(content={"answer": "ok"})
+        response = ChatResponse(
+            content=[{"type": "text", "text": "ok"}],
+            is_last=True,
+        )
+        if output == "stream":
+
+            async def stream():
+                yield response
+
+            return stream()
+        return response
+
+    monkeypatch.setattr(OpenAIChatModelCompat, "__call__", call)
+    monkeypatch.setattr(
+        OpenAIChatModelCompat,
+        "generate_structured_output",
+        call,
+    )
+
+    def slot(name):
+        return {"provider_id": "ollama", "model": name}
+
+    profile = AgentProfileConfig.model_validate(
+        {
+            "id": "combined-chain",
+            "name": "Combined chain",
+            "active_model": slot("agent"),
+            "fallback_policy": {"enabled": True, "target_scope": "configured"},
+            "fallback_models": [slot("global"), slot("vision-fallback")],
+            "running": {
+                "llm_retry_enabled": False,
+                "reme_light_memory_config": {"memory_model": slot("global")},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        memory_module,
+        "load_agent_config_async",
+        AsyncMock(return_value=profile),
+    )
+    manager = make_memory_model_manager(profile.id)
+    model = await manager._update_qwenpaw_model()
+    # Keep the inner policy boundary rather than flattening all candidates
+    # into the dedicated memory model's fallback-on-any-error policy.
+    assert model._fallback_on_any_error is True
+    assert model._models[1]._fallback_on_any_error is False
+    assert [m.model for m in model._models[1]._models] == [
+        "agent",
+        "vision-fallback",
+    ]
+    invoke = (
+        model.generate_structured_output if output == "structured" else model
+    )
+    if main_status == 401:
+        with pytest.raises(HttpError):
+            await invoke(messages=[], tools=[])
+        assert calls == ["global", "agent"]
+        return
+    response = await invoke(messages=[], tools=[])
+    if output == "stream":
+        response = [chunk async for chunk in response][0]
+    serving = "vision-fallback" if main_status == 503 else "agent"
+    assert calls == (
+        ["global", "agent", "vision-fallback"]
+        if main_status == 503
+        else ["global", "agent"]
+    )
+    assert response.metadata["qwenpaw_actual_model"]["model_id"] == serving
+    assert response.metadata["qwenpaw_actual_model"]["provider_id"] == "ollama"
+    events = response.metadata["qwenpaw_model_fallbacks"]
+    assert [(e["from_model_id"], e["to_model_id"]) for e in events] == (
+        [("global", "agent"), ("agent", "vision-fallback")]
+        if main_status == 503
+        else [("global", "agent")]
+    )
 
 
 @pytest.fixture(name="local_models")

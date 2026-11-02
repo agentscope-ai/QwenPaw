@@ -30,7 +30,7 @@ def _agent_config(
 
 @pytest.fixture(name="model_setup")
 def fixture_model_setup(monkeypatch, make_memory_model_manager):
-    """Wire mocked dependencies and return the manager and fallback spy."""
+    """Wire mocked dependencies while retaining the real fallback wrapper."""
 
     def setup(
         *,
@@ -60,15 +60,7 @@ def fixture_model_setup(monkeypatch, make_memory_model_manager):
             "ProviderManager",
             SimpleNamespace(get_instance=lambda: provider_manager),
         )
-        fallback_factory = Mock(
-            return_value=SimpleNamespace(name="memory-fallback"),
-        )
-        monkeypatch.setattr(
-            reme_light_memory_manager,
-            "FallbackChatModel",
-            fallback_factory,
-        )
-        return make_memory_model_manager(), fallback_factory
+        return make_memory_model_manager()
 
     return setup
 
@@ -119,7 +111,6 @@ async def test_inherited_hub_catalog_lookup_runs_off_event_loop(
         "create_model_and_formatter_async",
         factory,
     )
-    monkeypatch.setattr(reme_light_memory_manager, "FallbackChatModel", Mock())
 
     await make_memory_model_manager()._update_qwenpaw_model()
 
@@ -142,7 +133,7 @@ async def test_main_construction_failure_allows_dedicated_model(
 ):
     memory_model = SimpleNamespace(model="memory")
     factory = AsyncMock(side_effect=[main_error, (memory_model, None)])
-    manager, fallback = model_setup(
+    manager = model_setup(
         memory_model=ModelSlotConfig(
             provider_id="memory-provider",
             model="memory",
@@ -151,7 +142,6 @@ async def test_main_construction_failure_allows_dedicated_model(
     )
 
     assert await manager._update_qwenpaw_model() is memory_model
-    fallback.assert_not_called()
     assert factory.await_count == 2
 
 
@@ -162,7 +152,7 @@ async def test_both_model_construction_failures_are_not_hidden(model_setup):
             ValueError("Memory key missing"),
         ],
     )
-    manager, _ = model_setup(
+    manager = model_setup(
         memory_model=ModelSlotConfig(
             provider_id="memory-provider",
             model="memory",
@@ -176,7 +166,7 @@ async def test_both_model_construction_failures_are_not_hidden(model_setup):
 
 async def test_main_construction_cancellation_does_not_try_memory(model_setup):
     factory = AsyncMock(side_effect=asyncio.CancelledError())
-    manager, _ = model_setup(
+    manager = model_setup(
         memory_model=ModelSlotConfig(
             provider_id="memory-provider",
             model="memory",
@@ -197,7 +187,7 @@ async def test_identical_memory_and_main_slots_are_not_duplicated(
     slot = ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b")
     main_model = SimpleNamespace(model_key="ollama:qwen2.5:7b")
     factory = AsyncMock(return_value=(main_model, None))
-    manager, fallback_factory = model_setup(
+    manager = model_setup(
         memory_model=(
             ModelSlotConfig(provider_id="", model=slot.model)
             if inherited
@@ -210,7 +200,6 @@ async def test_identical_memory_and_main_slots_are_not_duplicated(
     assert await manager._update_qwenpaw_model() is main_model
 
     factory.assert_awaited_once()
-    fallback_factory.assert_not_called()
     assert (
         manager._reme.update_component.await_args.kwargs["model"] is main_model
     )
@@ -257,7 +246,7 @@ def test_memory_slot_resolution(
             else None
         ),
     )
-    manager, _ = model_setup(
+    manager = model_setup(
         agent_config=config,
         factory=AsyncMock(),
         global_model=(
@@ -282,7 +271,7 @@ async def test_dedicated_model_receives_shared_factory_settings(model_setup):
         name="memory",
     )
     factory = AsyncMock(side_effect=[(main_model, None), (memory_model, None)])
-    manager, fallback = model_setup(agent_config=config, factory=factory)
+    manager = model_setup(agent_config=config, factory=factory)
 
     actual = await manager._update_qwenpaw_model()
 
@@ -295,11 +284,8 @@ async def test_dedicated_model_receives_shared_factory_settings(model_setup):
         call("default", **kwargs),
         call("default", model_slot_override=slot, **kwargs),
     ]
-    fallback.assert_called_once_with(
-        [memory_model, main_model],
-        fallback_on_any_error=True,
-    )
-    assert actual is fallback.return_value
+    assert actual._models == [memory_model, main_model]
+    assert actual._fallback_on_any_error is True
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",
@@ -328,7 +314,7 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
             error,
         ],
     )
-    manager, _ = model_setup(
+    manager = model_setup(
         memory_model=slot,
         factory=factory,
     )
@@ -373,7 +359,7 @@ async def test_gemini_without_api_key_falls_back_and_reme_starts(
         return main_model, None
 
     factory = AsyncMock(side_effect=construct_model)
-    manager, fallback_factory = model_setup(
+    manager = model_setup(
         memory_model=slot,
         factory=factory,
     )
@@ -381,7 +367,6 @@ async def test_gemini_without_api_key_falls_back_and_reme_starts(
     await manager.start()
 
     assert factory.await_count == 2
-    fallback_factory.assert_not_called()
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",
@@ -410,7 +395,7 @@ async def test_image_jobs_exclude_unsafe_main_model_fallback(
     main_model = SimpleNamespace(name="main")
     memory_model = SimpleNamespace(name="memory")
     factory = AsyncMock(side_effect=[(main_model, None), (memory_model, None)])
-    manager, fallback_factory = model_setup(
+    manager = model_setup(
         memory_model=ModelSlotConfig(provider_id="custom", model="vision"),
         factory=factory,
     )
@@ -431,13 +416,9 @@ async def test_image_jobs_exclude_unsafe_main_model_fallback(
         assert factory_call.kwargs["require_image_support"] is True
         assert factory_call.kwargs["resize_images_to_max_bytes"] is True
     if expect_fallback:
-        fallback_factory.assert_called_once_with(
-            [memory_model, main_model],
-            fallback_on_any_error=True,
-        )
-        assert actual_model is fallback_factory.return_value
+        assert actual_model._models == [memory_model, main_model]
+        assert actual_model._fallback_on_any_error is True
     else:
-        fallback_factory.assert_not_called()
         assert actual_model is memory_model
     assert (
         manager._reme.update_component.await_args.kwargs["model"]

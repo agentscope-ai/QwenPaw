@@ -653,9 +653,18 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     # Never send memory images to a text-only main model.
                     model = memory_model
                 else:
-                    model = FallbackChatModel(
-                        [memory_model, main_model],
-                        fallback_on_any_error=True,
+                    fallback = main_model
+                    if isinstance(fallback, FallbackChatModel):
+                        fallback = fallback.without_models(
+                            {get_model_identity(memory_model)},
+                        )
+                    model = (
+                        FallbackChatModel(
+                            [memory_model, fallback],
+                            fallback_on_any_error=True,
+                        )
+                        if fallback is not None
+                        else memory_model
                     )
         await self._reme.update_component(
             "as_llm",

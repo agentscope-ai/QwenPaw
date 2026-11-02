@@ -140,6 +140,24 @@ def _response(text: str) -> ChatResponse:
     )
 
 
+def test_excluding_models_copies_nested_chain_and_preserves_policies():
+    primary = FakeModel("A", lambda: _response("ok"), provider_id="p")
+    memory = FakeModel("M", lambda: _response("ok"), provider_id="p")
+    other = FakeModel("B", lambda: _response("ok"), provider_id="p")
+    nested = FallbackChatModel([memory, other], fallback_on_any_error=True)
+    original = FallbackChatModel([primary, memory, nested])
+
+    filtered = original.without_models({("p", "M")})
+
+    assert filtered._models[0] is primary
+    assert filtered._fallback_on_any_error is False
+    assert filtered._models[1]._models == [other]
+    assert filtered._models[1]._fallback_on_any_error is True
+    assert original._models == [primary, memory, nested]
+    assert nested._models == [memory, other]
+    assert original.without_models({("p", name) for name in "AMB"}) is None
+
+
 async def test_falls_back_on_transient_error_before_output() -> None:
     primary = FakeModel("primary", HttpError(503))
     fallback = FakeModel("fallback", lambda: _stream(_response("ok")))
