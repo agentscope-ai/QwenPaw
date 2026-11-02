@@ -850,7 +850,7 @@ class CommunityConnectionService:
     async def _revoke_token(self, connection: dict) -> bool:
         """Best-effort remote revoke of an already-issued credential."""
         token = connection.get("refresh_token") or connection.get(
-            "access_token"
+            "access_token",
         )
         if not token:
             return False

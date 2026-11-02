@@ -281,7 +281,7 @@ def test_draft_asl_escapes_parens_in_link_destination(href):
     assert link_open.attrGet("href") == href
     # Images use the same escaping and the ASL round trip stays lossless.
     img = _rich_markdown(
-        ["root", ["p", ["img", {"src": href, "alt": "link"}]]]
+        ["root", ["p", ["img", {"src": href, "alt": "link"}]]],
     )
     assert img == "!" + rendered
     assert _rich_markdown(json.loads(draft_asl(rendered))) == rendered
