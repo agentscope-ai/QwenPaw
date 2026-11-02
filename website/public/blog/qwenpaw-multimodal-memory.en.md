@@ -1,29 +1,25 @@
 ---
-title: "QwenPaw Memory Update: Multimodal Memory and Memory Tags"
+title: "QwenPaw Multimodal Memory: Put Images to Work in Your Next Conversation"
 date: 2026-10-27
 author: QwenPaw Team
-tags: [Multimodal Memory, ReMe, Memory Tags, Memory as File]
+tags: [Multimodal Memory, ReMe, Image Memory, Memory as File]
 cover: https://img.alicdn.com/imgextra/i2/O1CN01qVVKgkcRb5D3OTaP_!!6000000005716-2-tps-1672-941.png
-excerpt: "How can facts and decisions from image-and-text conversations support a later task? How can accumulated memories be found by project? Explore QwenPaw's multimodal memory and Memory Tags separately, from recording and source inspection to scoped retrieval."
+excerpt: "From choosing a campaign photo to writing a photographer brief in a new conversation, see how QwenPaw saves images, discussion, and decisions as searchable memories with sources."
 ---
 
-# QwenPaw Memory Update: Multimodal Memory and Memory Tags
+# QwenPaw Multimodal Memory: Put Images to Work in Your Next Conversation
 
-Today, you discuss a design with QwenPaw using images. A few days later, you open a new conversation to draft copy, only to upload the images and explain your choices again. Meanwhile, several projects have been discussing budgets and schedules, and finding a past decision means searching through many records. Building on its [file-based long-term memory](/blog/qwenpaw-long-term-memory), QwenPaw integrates two capabilities from [ReMe](https://github.com/agentscope-ai/ReMe) to remember image-and-text conversations and retrieve memories by project, person, or other entity.
+Today, you compare photos with QwenPaw, choose a campaign image, and agree on the copy direction. A few days later, you open a new conversation to write a photographer brief—then upload the photos and explain the choice all over again.
 
-**Multimodal memory** works with sessions containing image-and-text interactions. When enabled, Auto Memory reads the session's images and text in the background and writes notes about image details, the user's choices, constraints, and reasons. Which photo was selected, why it was chosen, and what an event poster said can all be saved for later use. Notes also reference the original images and conversation for checking. In a new conversation, the Agent can retrieve these notes so you do not have to explain the background again.
+A memory that only says “we chose photo A” leaves out the outfit, the bag, and why that photo suited the event. To help with a later task, memory needs to preserve both the image details and the decisions made around them.
 
-**Memory Tags** addresses the problem of finding relevant records as memory grows. A question such as “What still needs confirming before launch?” could refer to several projects. Entity tags for projects, people, or organizations help establish the candidate files before searching their contents. Tags also work with text-only memories and do not depend on image input.
+Building on its [file-based long-term memory](/blog/qwenpaw-long-term-memory), QwenPaw integrates [ReMe](https://github.com/agentscope-ai/ReMe)'s multimodal memory. When enabled, Auto Memory reads image-and-text sessions in the background, writes visual facts, user constraints, and reasons into Markdown notes, and keeps references to the original images and conversations.
 
-Both capabilities retain memories as Markdown files that you can open and edit.
-
-![QwenPaw organizes memories from image-and-text conversations and tagged notes](https://img.alicdn.com/imgextra/i2/O1CN01qVVKgkcRb5D3OTaP_!!6000000005716-2-tps-1672-941.png)
-
-## 1. Multimodal Memory: Reuse Conversation Context in Later Tasks
+Follow a clothing brand's weekend pop-up from selecting a photo to saving the context and writing a brief in a new conversation.
 
 ![Images and discussion within a session become memories, with links back to their sources](https://img.alicdn.com/imgextra/i4/O1CN01FZjxTO1kcwfMP8mPI_!!6000000004705-55-tps-1200-640.svg)
 
-### Start with a Weekend Pop-up
+## Start with a Weekend Pop-up
 
 Suppose you are planning a weekend pop-up for a clothing brand. You share two model photos with QwenPaw and ask for a campaign that feels like heading out for a weekend walk.
 
@@ -31,7 +27,7 @@ QwenPaw recommends photo A, taken on the street, as the better fit. Photo B has 
 
 ![The first image discussion compares two model photos and selects the campaign image](https://img.alicdn.com/imgextra/i2/O1CN01wkoJ8tirBGL4s7Ss_!!6000000004233-0-tps-2400-1354.jpg)
 
-### Remember the Image and the Discussion Around It
+## Remember the Image and the Discussion Around It
 
 Saving only the text might preserve “we chose A” without recording what the model is wearing or which bag she carries. Describing the image separately could lose the user's reason for choosing it.
 
@@ -48,7 +44,7 @@ These details become searchable text and enter the existing keyword and optional
 
 The model may miss or misread image details, so notes need references to the original images for later checks.
 
-### Reopen the Original Image to Check Details
+## Reopen the Original Image to Check Details
 
 Today, you choose the campaign photo; tomorrow, you may need to check the bag's shape, which the summary may not have recorded.
 
@@ -74,7 +70,7 @@ There is no sale or giveaway. Make this clear in the campaign copy.
 
 When answering, the Agent can retrieve a memory excerpt, then open the full note, source conversation, or image as needed to check details omitted from the summary. Reopening an image requires an accessible source file or link and image-reading support in the current model and tools.
 
-### Write a Photographer Brief in a New Conversation
+## Write a Photographer Brief in a New Conversation
 
 After the background memory job finishes, open a new conversation under the same Agent without reuploading images. Ask QwenPaw for a short message to the photographer, reminding them which look to use, especially the outfit, bag, and lighting.
 
@@ -84,7 +80,7 @@ QwenPaw uses the previously selected photo A. It recalls the green jacket, light
 
 The new conversation also produces a social media announcement with the time, location, and booking details from the poster. The generated Markdown notes record the photo selection and poster discussion, with references to the original images and source conversations.
 
-### Enable Image Memory in QwenPaw
+## Enable Image Memory in QwenPaw
 
 For an Agent using the ReMe long-term memory backend, turn on **Include images in auto-memory** in memory settings. This switch is off by default and requires confirmed image-input and tool-calling support in the Agent's memory model. If image capability is unknown, confirm it in model settings first. A model temporarily selected for a chat does not change the memory model.
 
@@ -92,7 +88,7 @@ For an Agent using the ReMe long-term memory backend, turn on **Include images i
 
 Enable periodic auto-memory and choose an extraction interval. Share images and discuss them in chat, wait for the background task to finish and write its notes, then continue in a new conversation under the same Agent. Inspect the memory files to check the visual facts, reasons, and sources. See [long-term memory](/docs/memory) and [configuration](/docs/config) for the settings.
 
-### How Does It Perform on Long Image Histories?
+## How Does It Perform on Long Image Histories?
 
 Can memory still find the right image details when the conversation history grows long? ReMe compared five methods on MemLens-256K. The charts below show the published LLM-Judge scores.
 
@@ -107,69 +103,13 @@ ReMe Image scores **53.44%** and **72.49%** on the two models, exceeding Full Co
 
 Of the original 195 cases, six triggered model-provider content moderation in at least one method. All methods use the same filtered **189/195 cases**. This compares complete systems: ReMe can retrieve source conversations, and the Image configuration can reopen source images; OpenViking retrieval in this evaluation is restricted to memory. The results apply to that experimental setup. See the [ReMe evaluation notes](https://reme.agentscope.io/en/memlens_256k_evaluation) for settings, exclusions, and reproduction comparisons.
 
-## 2. Memory Tags: Establish the Scope, Then Find the Details
+## Connect the Event's Memory from Start to Finish
 
-Long-term memory also faces a different problem. Several projects have discussed budgets, release dates, and owners. When you ask, “What remains before launch?”, which set of records should the Agent search?
+1. You upload photos and a poster, explaining the theme, choices, and constraints.
+2. Auto Memory processes the images and discussion together into Markdown notes in the background.
+3. The notes retain image and conversation references for checking details omitted from the summary.
+4. A new conversation under the same Agent retrieves those memories to continue writing the photographer brief or campaign copy.
 
-Keywords and semantic similarity can sometimes mix up records from different projects. Memory Tags marks the person, project, organization, or asset a note is mainly about, helping retrieval narrow its scope first. Text-only memories can use tags too.
+What carries forward is more than “we chose A”: it includes the visible details, the decision, and a way to check the sources. You can open the notes to inspect and correct what was saved.
 
-![ReMe Memory Tags: derive an index from Markdown tags and search within candidate files](https://img.alicdn.com/imgextra/i1/O1CN01wDeKKV1Qz7WkSx4fp_!!6000000002046-55-tps-1200-620.svg)
-
-_Chart from [ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920)._
-
-### Let Each Memory Say What It Is Mainly About
-
-Tags are stored in Markdown YAML frontmatter. For example, a project launch note can be tagged like this:
-
-```markdown
----
-name: Project A launch checklist
-description: Launch window, rollback conditions, and customer notifications.
-memory_tags:
-  - Project_A
----
-
-Project A is scheduled to launch on Thursday evening. Complete regression
-checks and have the owner confirm customer notifications before launch.
-Roll back if the error rate exceeds the agreed threshold.
-```
-
-Projects, people, and organizations recur across conversations, making them useful stable cues. Broad topics such as “work,” “important,” or “meeting” often cover too many files to narrow retrieval. Usually, tagging the note's main entity is enough. Use several tags when it covers several entities.
-
-Tags are independent of directory structure. A meeting note can carry tags for both a project and its owner while staying in its original location. You can inspect and edit tags, including making names consistent for the same entity.
-
-### How Tags Participate in Retrieval
-
-![Memory Tags pipeline: write tags, synchronize the index, and search within scope](https://img.alicdn.com/imgextra/i3/O1CN01PewzqI1EcsuQhRnH6_!!6000000000373-55-tps-1440-850.svg)
-
-| Cue                    | Question it answers                               |
-| ---------------------- | ------------------------------------------------- |
-| Natural-language query | Which details am I looking for now?               |
-| Memory Tag             | Which entities or projects should I search first? |
-| Wikilink               | Which other records are related to this memory?   |
-
-ReMe builds a bidirectional Tag Index from frontmatter, recording the files associated with each tag and the tags in each file. It updates the index as memories are created, changed, or deleted. Tags are stored in Markdown, so the index can be rebuilt from files.
-
-With `Project_A` attached to a search, the Tag Index first selects relevant files. BM25 and optional vector retrieval then look for “What remains before launch?” within those files. Multiple tags match any supplied tag: `tags=["Project_A", "Project_B"]` searches records from either project. Searches without tags retain their existing behavior.
-
-Tags constrain direct retrieval hits; Wikilink expansion may still list related notes outside that scope. Tags are retrieval cues rather than access controls.
-
-### Generate and Use Tags in QwenPaw
-
-Turn on **Generate memory tags** in the Agent's memory settings. This switch is off by default. When enabled, QwenPaw adds an entity-tagging step after Auto Memory saves a note, increasing model calls. Disabling generation leaves existing tags intact.
-
-![Tag configuration: enable Generate memory tags separately](https://img.alicdn.com/imgextra/i4/O1CN01ml5EwQd3ZkL6NWXs_!!6000000003416-2-tps-3142-1526.png)
-
-With memory search enabled, the Agent can discover entities and file counts through `memory_list_tags`, then pass `tags` to `memory_search`. You can also enter `/reme list_tags` in chat to inspect existing tags, or view `memory_tags` in a memory file's preview metadata.
-
-Manual imports and edits do not automatically generate tags, but file watching synchronizes tags already present in a file to the Tag Index. See [ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) for tag conventions and index maintenance.
-
-### Browse from a Tag to the Original Note
-
-In **Files → Tags**, you can see indexed tags and their associated file counts. Select a tag to browse its matching memory files.
-
-![The Tags tab in Files lists indexed tags and their associated file counts](https://img.alicdn.com/imgextra/i3/O1CN01aOf17D5AMdG7mt2s_!!6000000006319-2-tps-3836-1858.png)
-
-Opening a matching memory displays the note preview on the right, including its tags, source-conversation reference, and body. You can check the saved facts and context there. Tag browsing relies on the existing index; files that have not been indexed may be absent from the list.
-
-![Select a tag and open a matching memory to inspect its tags, source conversation, and note body](https://img.alicdn.com/imgextra/i2/O1CN01p2M4uxVRrDE7mt2u_!!6000000002688-2-tps-3836-1860.png)
+To narrow retrieval by project or person, continue with [Memory Tags](/blog/qwenpaw-memory-tags). For the full recording, consolidation, and retrieval workflow, see [long-term memory](/blog/qwenpaw-long-term-memory).
