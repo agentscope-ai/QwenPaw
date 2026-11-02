@@ -10,6 +10,12 @@ DEFAULT_WS_URL_BACKUP = "wss://116.63.174.231/openclaw/v1/ws/link"
 # Heartbeat interval (seconds)
 HEARTBEAT_INTERVAL = 30
 
+# Working-frame keepalive interval (seconds, 0 disables it). The protocol
+# heartbeat above only keeps the WebSocket alive and is invisible in the
+# client; a long turn otherwise looks like a dead chat (issue #8394).
+WORKING_FRAME_INTERVAL = 12
+WORKING_FRAME_MAX_WAIT = 1800
+
 # Reconnect delays (seconds)
 RECONNECT_DELAYS = [1, 2, 5, 10, 30, 60]
 MAX_RECONNECT_ATTEMPTS = 50

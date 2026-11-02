@@ -143,8 +143,9 @@ async def test_native_text_keeps_session_task_and_same_server_reply(
     assert (await send(peer, identity, event["response_handle"]))[
         "state"
     ] == "acknowledged"
-    await eventually(lambda: len(results(xiaoyi)) == 1)
-    actual_server, result = results(xiaoyi)[0]
+    artifacts = lambda: [row for row in results(xiaoyi) if "artifact" in row[1]]
+    await eventually(lambda: len(artifacts()) == 1)
+    actual_server, result = artifacts()[0]
     assert actual_server == server and result["taskId"] == "task-A"
     assert result["artifact"]["parts"] == [
         {"kind": "text", "text": "native answer"},
@@ -184,8 +185,9 @@ async def test_one_primary_disconnect_falls_back_to_backup_for_reply(xiaoyi):
     assert (await send(peer, identity, event["response_handle"]))[
         "state"
     ] == "acknowledged"
-    await eventually(lambda: len(results(xiaoyi)) == 1)
-    assert results(xiaoyi)[0][0] == "backup"
+    artifacts = lambda: [row for row in results(xiaoyi) if "artifact" in row[1]]
+    await eventually(lambda: len(artifacts()) == 1)
+    assert artifacts()[0][0] == "backup"
 
 
 async def test_stop_releases_both_socket_readers_and_sessions(xiaoyi):
@@ -244,3 +246,59 @@ def test_local_media_authorizes_workspace_and_rejects_outside(tmp_path):
         assert native.XiaoYiPlatform._media_part(platform, part)["file"][
             "uri"
         ] == next(value for key, value in part.items() if key != "type")
+
+
+async def test_working_frames_tick_between_sends_and_stop_at_cleanup(xiaoyi):
+    driver, peer, identity, _, _, _ = xiaoyi
+    event, handle = await receive(xiaoyi), None
+    handle = event["response_handle"]
+    await send(peer, identity, handle)
+    await eventually(lambda: len(results(xiaoyi)) >= 2)
+    states = [result for _, result in results(xiaoyi)]
+    assert any(
+        row.get("kind") == "status-update"
+        and row.get("status", {}).get("state") == "working"
+        for row in states[1:]
+    )
+    task = driver._working_tasks.get(handle)
+    assert task is not None and not task.done()
+    await finish(peer, identity, handle)
+    await eventually(lambda: task.done())
+
+
+async def test_working_frame_interval_zero_disables_keepalive(tmp_path, monkeypatch):
+    import json as _json
+    from aiohttp import web as _web
+
+    connections = {}
+
+    async def gateway(request):
+        ws = _web.WebSocketResponse()
+        await ws.prepare(request)
+        connections[request.match_info["name"]] = ws
+        async for _ in ws:
+            pass
+
+    app = _web.Application()
+    app.router.add_get("/ws/{name}", gateway)
+    runner = _web.AppRunner(app)
+    await runner.setup()
+    site = _web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    native = module("xiaoyi", "platform")
+    monkeypatch.setattr(native, "DEFAULT_WS_URL", f"ws://127.0.0.1:{port}/ws/primary")
+    monkeypatch.setattr(native, "DEFAULT_WS_URL_BACKUP", f"ws://127.0.0.1:{port}/ws/backup")
+    driver = module("xiaoyi").XiaoYiDriver()
+    peer, identity = bind("xiaoyi", driver, tmp_path)
+    try:
+        await driver.start(dict(enabled=True, ak="ak", sk="sk", agent_id="a",
+                                workspace_dir=str(tmp_path), working_frame_interval=0))
+        await eventually(lambda: len(connections) == 2)
+        assert driver._working_frame_interval() == 0.0
+        assert driver._working_tasks == {} and driver._platform.connected
+    finally:
+        await driver.stop()
+        for ws in connections.values():
+            await ws.close()
+        await runner.cleanup()

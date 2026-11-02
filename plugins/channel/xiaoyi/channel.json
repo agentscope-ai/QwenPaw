@@ -133,6 +133,11 @@
         "title": "Ws Url",
         "type": "string"
       },
+      "working_frame_interval": {
+        "default": 12,
+        "title": "Working Frame Interval",
+        "type": "integer"
+      },
       "task_timeout_ms": {
         "default": 3600000,
         "title": "Task Timeout Ms",
@@ -164,6 +169,7 @@
     "sk",
     "agent_id",
     "ws_url",
+    "working_frame_interval",
     "task_timeout_ms"
   ],
   "capabilities": [
