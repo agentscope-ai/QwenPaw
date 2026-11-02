@@ -216,6 +216,8 @@ class OllamaProvider(OpenAIProvider):
             if not isinstance(row, dict):
                 continue
             raw = row.get("context_length")
+            if raw is None:
+                continue
             try:
                 value = int(raw)
             except (TypeError, ValueError):
