@@ -47,30 +47,37 @@ def _bad_request(message=_URL_ERROR, status_code=400):
     )
 
 
-@pytest.fixture
-def media_agent(tmp_path, monkeypatch):
+@pytest.fixture(
+    params=[
+        ("saved video.mp4", "video/mp4", "view_video"),
+        ("sample.mp3", "audio/mpeg", "send_file_to_user"),
+    ],
+    ids=["video", "audio"],
+)
+def media_agent(request, tmp_path, monkeypatch):
     """Reload a tool result as persisted history, using the real formatter."""
-    video = tmp_path / "saved video.mp4"
-    video.write_bytes(b"video")
+    filename, media_type, tool_name = request.param
+    media_file = tmp_path / filename
+    media_file.write_bytes(b"media")
     message = Msg(
         name="assistant",
         role="assistant",
         content=[
-            ToolCallBlock(id="call_video", name="view_video", input="{}"),
+            ToolCallBlock(id="call_media", name=tool_name, input="{}"),
             ToolResultBlock(
-                id="call_video",
-                name="view_video",
+                id="call_media",
+                name=tool_name,
                 state=ToolResultState.SUCCESS,
                 output=[
-                    TextBlock(text="Saved video"),
+                    TextBlock(text="Saved media"),
                     {
                         "type": "data",
                         "source": {
                             "type": "url",
-                            "url": video.as_uri(),
-                            "media_type": "video/mp4",
+                            "url": media_file.as_uri(),
+                            "media_type": media_type,
                         },
-                        "name": video.name,
+                        "name": media_file.name,
                     },
                 ],
             ),
@@ -140,15 +147,16 @@ async def test_invalid_media_url_retries_without_mutating_history(
         assert result[-1].get_text_content() == "Recovered"
         assert not agent.model.formatter._qwenpaw_force_strip_media
         assert cache.get(_MODEL_KEY, "rejects_media") is None
+        assert cache.get(_MODEL_KEY, "rejects_audio") is None
     assert len(requests) == 4
     assert any(
-        block.get("type") == "video_url"
+        block.get("type") in {"video_url", "input_audio"}
         for message in requests[0]
         for block in message.get("content") or []
         if isinstance(block, dict)
     )
     assert not any(
-        block.get("type") == "video_url"
+        block.get("type") in {"video_url", "input_audio"}
         for message in requests[1]
         for block in message.get("content") or []
         if isinstance(block, dict)
@@ -176,6 +184,7 @@ async def test_invalid_media_url_retries_only_once_and_resets_flags(
     assert len(requests) == 2
     assert not agent.model.formatter._qwenpaw_force_strip_media
     assert cache.get(_MODEL_KEY, "rejects_media") is None
+    assert cache.get(_MODEL_KEY, "rejects_audio") is None
 
 
 @pytest.mark.parametrize(
