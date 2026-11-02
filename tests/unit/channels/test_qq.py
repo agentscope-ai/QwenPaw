@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 from websockets.sync.server import serve
 from qwenpaw.channel_protocol.models import ResponseFinishParams, SendParams
+from qwenpaw.channel_protocol.response_lifecycle import ResponseResourceRef
 from tests.channel_support.driver import bind, module
 
 
@@ -704,3 +705,86 @@ async def test_cleanup_closes_stream_with_placeholder_text(native_driver):
     # reuses it instead of sending an empty ``content_raw``.
     assert [row["content_raw"] for row in rows] == ["...", "..."]
     assert [row["input_state"] for row in rows] == [1, 10]
+
+
+async def test_cleanup_closes_each_unfinished_stream(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(peer, identity, "qq:c2c:user-A")
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="thinking",
+        stream_type="reasoning",
+    )
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="answer",
+    )
+    finish = ResponseFinishParams.from_mapping(
+        {**identity, "response_handle": handle, "outcome": "cancelled"},
+    )
+    await peer.methods["channel.response.finish"](finish, None)
+    rows = [row["body"] for row in server.api_rows()]
+    # Each stream keeps its own message and closes with its own next index.
+    assert [
+        (row["msg_seq"], row["index"], row["input_state"]) for row in rows
+    ] == [
+        (1, 0, 1),
+        (2, 0, 1),
+        (1, 1, 10),
+        (2, 1, 10),
+    ]
+    assert [row["content_raw"] for row in rows[2:]] == ["thinking", "answer"]
+
+
+async def test_slice_without_recorded_stream_type_still_streams(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(peer, identity, "qq:c2c:user-A")
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="first",
+    )
+    # Resources persisted before ``stream_type`` was recorded carry no kind,
+    # so they must keep streaming instead of failing every later slice.
+    ref = driver._delivery_resource(handle, "delivery-A")
+    driver._routes.record_delivery(
+        handle,
+        [
+            ResponseResourceRef.create(
+                "qq.delivery",
+                "delivery-A",
+                {
+                    key: value
+                    for key, value in dict(ref.attributes).items()
+                    if key != "stream_type"
+                },
+            ),
+        ],
+    )
+    delta = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.delta",
+        sequence=1,
+        target_delivery_id="delivery-A",
+        accumulated_text="first more",
+        stream_type="reasoning",
+    )
+    assert delta["state"] == "acknowledged"
+    assert [row["body"]["index"] for row in server.api_rows()] == [0, 1]
