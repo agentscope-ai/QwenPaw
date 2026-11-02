@@ -40,8 +40,11 @@ fi
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 : "${GH_TOKEN:?GH_TOKEN is required}"
 
-artifact_names=""
+artifact_records=""
 selected=()
+selected_ids=()
+archive=$(mktemp)
+trap 'rm -f -- "$archive"' EXIT
 
 cleanup_downloads() {
   local name
@@ -57,19 +60,32 @@ cleanup_downloads() {
 for ((attempt = 1; attempt <= attempts; attempt++)); do
   echo "Desktop artifact download attempt ${attempt}/${attempts}"
   selected=()
+  selected_ids=()
 
-  if artifact_names=$(gh api --paginate --method GET \
+  # Select the newest unexpired artifact per name across all API pages.
+  # Break timestamp ties by ID so selection does not depend on API ordering.
+  if artifact_records=$(gh api --paginate --method GET \
     "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
     -f per_page=100 \
-    --jq '.artifacts[] | select(.expired == false) | .name'); then
-    while IFS= read -r name; do
-      if [[ "$name" =~ ^QwenPaw-Desktop-Tauri-(Windows|macOS)- ]]; then
+    | jq --slurp --raw-output '
+        [.[] | .artifacts[] | select(.expired == false)]
+        | group_by(.name)[]
+        | max_by([.created_at, .id])
+        | [.name, .id, .created_at] | @tsv
+      '); then
+    while IFS=$'\t' read -r name artifact_id created_at; do
+      if [[ "$name" =~ ^QwenPaw-Desktop-Tauri-(Windows|macOS)-[a-zA-Z0-9._+-]+$ ]]; then
         selected+=("$name")
+        selected_ids+=("$artifact_id")
       elif $include_updater_metadata && \
         [[ "$name" =~ ^tauri-updater-meta-(windows|macos)$ ]]; then
         selected+=("$name")
+        selected_ids+=("$artifact_id")
+      else
+        continue
       fi
-    done <<< "$artifact_names"
+      echo "Selected artifact: $name (ID: $artifact_id, created: $created_at)"
+    done <<< "$artifact_records"
   else
     echo "::warning::Could not list artifacts for attempt ${attempt}"
   fi
@@ -81,13 +97,19 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     echo "::warning::No matching desktop artifacts found"
     download_ok=false
   else
-    for name in "${selected[@]}"; do
-      echo "Downloading artifact: $name"
-      if ! gh run download "$GITHUB_RUN_ID" \
-        --repo "$GITHUB_REPOSITORY" \
-        --name "$name" \
-        --dir "$name"; then
+    for index in "${!selected[@]}"; do
+      name=${selected[$index]}
+      artifact_id=${selected_ids[$index]}
+      echo "Downloading artifact: $name (ID: $artifact_id)"
+      if ! gh api --method GET \
+        "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+        > "$archive"; then
         echo "::warning::Download failed for artifact: $name"
+        download_ok=false
+        break
+      fi
+      if ! unzip -q "$archive" -d "$name"; then
+        echo "::warning::Extraction failed for artifact: $name"
         download_ok=false
         break
       fi
