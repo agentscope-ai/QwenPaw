@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, Button, Space, Typography } from "antd";
 import { Package, Trash2 } from "lucide-react";
@@ -9,11 +10,13 @@ const { Text } = Typography;
 
 interface UsePluginColumnsOptions {
   uninstallingId: string | null;
+  renderActivation: (record: PluginInfo) => ReactNode;
   onUninstall: (record: PluginInfo) => void;
 }
 
 export function usePluginColumns({
   uninstallingId,
+  renderActivation,
   onUninstall,
 }: UsePluginColumnsOptions) {
   const { t } = useTranslation();
@@ -80,15 +83,18 @@ export function usePluginColumns({
       key: "actions",
       width: 100,
       render: (_: unknown, record: PluginInfo) => (
-        <Tooltip title={t("pluginManager.uninstall")}>
-          <Button
-            type="text"
-            danger
-            icon={<Trash2 size={14} />}
-            loading={uninstallingId === record.id}
-            onClick={() => onUninstall(record)}
-          />
-        </Tooltip>
+        <Space>
+          {renderActivation(record)}
+          <Tooltip title={t("pluginManager.uninstall")}>
+            <Button
+              type="text"
+              danger
+              icon={<Trash2 size={14} />}
+              loading={uninstallingId === record.id}
+              onClick={() => onUninstall(record)}
+            />
+          </Tooltip>
+        </Space>
       ),
     },
   ];

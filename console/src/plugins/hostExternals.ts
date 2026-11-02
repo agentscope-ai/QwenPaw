@@ -13,6 +13,7 @@ import {
  */
 
 import React from "react";
+import type { harnessNamespace } from "./harnesses";
 import i18n from "../i18n";
 import ReactDOM from "react-dom";
 import * as antd from "antd";
@@ -210,6 +211,8 @@ export interface WindowNamespace {
   paw?: PawSdkFactory;
   /** Memory backend configuration UI contributed by memory plugins. */
   memoryBackends?: MemoryBackendNamespace;
+  /** Backend-owned settings, attached by installHostSdk(). */
+  harnesses?: typeof harnessNamespace;
 }
 
 declare global {

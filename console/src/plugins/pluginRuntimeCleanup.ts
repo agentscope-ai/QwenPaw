@@ -2,6 +2,7 @@ import { pluginSystem } from "./hostExternals";
 import { chatExtensions } from "./registry/chatExtensions";
 import { menuRegistry, routeRegistry, slotRegistry } from "./registry/store";
 import { memoryBackendRegistry } from "./memoryBackends";
+import { harnessRegistry } from "./harnesses";
 
 /** Remove every host-managed registration owned by one frontend plugin. */
 export function removePluginRuntime(pluginId: string): void {
@@ -11,4 +12,5 @@ export function removePluginRuntime(pluginId: string): void {
   pluginSystem.removePlugin(pluginId);
   chatExtensions.disposeAll(pluginId);
   memoryBackendRegistry.removeBySource(pluginId);
+  harnessRegistry.disposeAll(pluginId);
 }

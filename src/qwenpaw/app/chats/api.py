@@ -903,16 +903,19 @@ async def get_chat(
         chat_spec.user_id,
         chat_spec.channel,
     )
-    backend = workspace.config.backend
+    from ...config.config import load_agent_config_async
+
+    config = await load_agent_config_async(workspace.agent_id)
+    backend = config.backend
     context = ((state.get("agent") or {}).get("state") or {}).get("context")
     if not context and backend != "qwenpaw":
         try:
-            await workspace.harness_runtime.hydrate_session(
-                backend=backend,
+            await workspace.backend_runtime.hydrate_session(
+                backend,
                 session_id=chat_spec.session_id,
                 user_id=chat_spec.user_id,
                 channel=chat_spec.channel,
-                settings=dict(workspace.config.backend_settings),
+                settings=dict(config.backend_settings),
             )
             state = await session.get_session_state_dict(
                 chat_spec.session_id,

@@ -106,6 +106,13 @@ export default defineConfig(({ command, mode }) => {
         inline: [/@agentscope-ai\/(?!icons|chat|design)/],
       },
       alias: [
+        {
+          find: /^@qwenpaw\/plugin-sdk$/,
+          replacement: path.resolve(
+            __dirname,
+            "../src/qwenpaw/plugins/frontend/index.js",
+          ),
+        },
         // Resolve the beta's real ESM entry for Vitest, without masking SDK subpaths.
         {
           find: /^@agentscope-ai\/chat$/,

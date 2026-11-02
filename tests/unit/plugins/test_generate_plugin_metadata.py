@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -25,8 +26,11 @@ from generate_plugin_metadata import (  # noqa: E402
     _iter_tree_relpaths,
     _normalize_pack_exclude,
     _zip_plugin,
+    discover_and_pack,
     get_version,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_structured_qwenpaw_version_passthrough() -> None:
@@ -249,6 +253,64 @@ def test_zip_plugin_without_manifest_packs_everything(
         names = set(zf.namelist())
     assert "demo-plugin/backend/tests/test_api.py" in names
     assert "demo-plugin/ui/src/App.tsx" in names
+
+
+def _copy_harness_plugins(root: Path) -> Path:
+    plugins_root = root / "plugins"
+    for vendor in ("codex", "qoder"):
+        shutil.copytree(
+            REPO_ROOT / "plugins" / "harness" / vendor,
+            plugins_root / "harness" / vendor,
+            ignore=shutil.ignore_patterns(
+                "node_modules",
+                "dist",
+                "__pycache__",
+                ".pytest_cache",
+            ),
+        )
+        # Backend unit CI has no frontend build. Supply only the declared
+        # entry; compiled bundles are covered by the Harness packaging job.
+        frontend_entry = (
+            plugins_root / "harness" / vendor / "frontend/dist/index.js"
+        )
+        frontend_entry.parent.mkdir(parents=True)
+        frontend_entry.write_text("export {};\n", encoding="utf-8")
+    return plugins_root
+
+
+def test_real_harness_archives_contain_own_entries_and_frontends(
+    tmp_path: Path,
+) -> None:
+    plugins_root = _copy_harness_plugins(tmp_path)
+    dist = tmp_path / "dist"
+    index, failed = discover_and_pack(plugins_root, dist, "/files/plugins")
+
+    assert not failed
+    expected = {"codex", "qoder"}
+    assert set(index["platforms"]["harness"]["versions"]) == {
+        f"qwenpaw-harness-{vendor}-1.0.0" for vendor in expected
+    }
+    for vendor in expected:
+        plugin_id = f"qwenpaw-harness-{vendor}"
+        archive_path = dist / "harness" / plugin_id / f"{plugin_id}-1.0.0.zip"
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            requirements = archive.read(
+                f"{plugin_id}/requirements.txt",
+            ).decode()
+        assert f"{plugin_id}/plugin.json" in names
+        assert f"{plugin_id}/main.py" in names
+        assert f"{plugin_id}/frontend/dist/index.js" in names
+        assert not any(
+            name.startswith(f"{plugin_id}/frontend/src/") for name in names
+        )
+        assert not any(
+            name.startswith(f"{plugin_id}/tests/") for name in names
+        )
+        other = (expected - {vendor}).pop()
+        assert not any(other in name for name in names)
+        assert other not in requirements
+        assert index["files"][f"{plugin_id}-1.0.0"]["platform"] == "harness"
 
 
 def test_private_channel_zip_preserves_runtime_and_source_manifest(tmp_path):

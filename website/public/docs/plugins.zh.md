@@ -193,6 +193,199 @@ asyncio.run(main())
 `reload(plugin_id, interrupt_tasks=True)`；超时或资源未释放仍拒绝换代。
 故障解除后可通过公开生命周期操作重试。旧上下文不能写入或注册新一代资源。
 
+## Harness 后端（SDK 1.1）
+
+`HarnessSpec` 用于自行执行 turn、管理厂商会话并输出统一事件的 Agent 后端。
+`ProviderSpec` 只向 QwenPaw 原生 Agent 循环提供模型补全；两者职责不同。
+旧 SDK 1.0 插件继续兼容；声明 `harnesses` 能力必须要求 SDK 1.1.0 或更新版本。
+后端 ID 符合 `[a-z][a-z0-9_-]*`，`qwenpaw` 保留；重复 ID 会报告占用插件。
+
+将以下内容分别保存为 `plugin.json` 和 `main.py`，即可使用完整 Echo 示例：
+
+```json
+{
+  "id": "echo-owner",
+  "name": "Echo harness",
+  "version": "1.0.0",
+  "entry": { "backend": "main.py" },
+  "sdk": {
+    "version": "1.1.0",
+    "capabilities": ["harnesses", "resources", "storage"]
+  },
+  "meta": { "harnesses": [{ "id": "echo-backend", "label": "Echo" }] }
+}
+```
+
+```python
+from qwenpaw.plugins import PluginContext
+from qwenpaw.plugins.harnesses import (
+    HarnessCapabilities, HarnessContext, HarnessEvent, HarnessEventKind,
+    HarnessLogin, HarnessOperationNotSupportedError, HarnessSpec, HarnessStatus,
+)
+
+class EchoBackend:
+    def __init__(self, context: HarnessContext, settings: dict):
+        self.context = context
+        self.prefix = settings.get("prefix", "")
+
+    async def status(self, context):
+        return HarnessStatus(installed=True, available=True)
+
+    async def start_login(self, context, *, device_code=False):
+        raise HarnessOperationNotSupportedError("Echo needs no login")
+
+    async def logout(self, context):
+        raise HarnessOperationNotSupportedError("Echo needs no login")
+
+    async def models(self, context):
+        return ()
+
+    async def discover_skills(self, context):
+        return ()
+
+    async def discover_mcp(self, context):
+        return ()
+
+    async def run_turn(self, context, request):
+        yield HarnessEvent(
+            HarnessEventKind.TEXT_DELTA, text=self.prefix + request.prompt
+        )
+        yield HarnessEvent(HarnessEventKind.COMPLETED)
+
+    async def run_command(self, context, command, arguments):
+        raise HarnessOperationNotSupportedError("Echo has no commands")
+
+    async def history(self, context):
+        return ()
+
+    async def reset_session(self, context):
+        pass  # Echo has no provider session state.
+
+    async def close(self):
+        pass  # Await client/process cleanup here when your backend owns any.
+
+class Plugin:
+    def register(self, context: PluginContext):
+        async def create(instance: HarnessContext, settings: dict):
+            return EchoBackend(instance, settings)
+
+        context.register_harness(HarnessSpec(
+            id="echo-backend", label="Echo", create=create,
+            capabilities=HarnessCapabilities(),
+            config_fields=({"name": "prefix", "label": "Prefix", "type": "text"},),
+            instance_settings_keys=("prefix",),
+        ))
+
+plugin = Plugin()
+```
+
+注册只保存工厂。目录枚举不创建客户端、不查账号、不探测 CLI、不生成投影文件。
+实例归属于插件代次、上下文及工作区。`instance_settings_keys` 声明决定实例身份的
+配置字段，默认 `()`；工厂只收到这些字段中实际存在的值的独立深拷贝。声明的值变化时，
+先关闭空闲的旧实例再重建；旧实例有任务时保持原样，冲突请求明确返回 `plugin_busy`
+（管理接口 HTTP 409，Console 流返回失败响应）。`HarnessCallContext.settings` 每次
+保留全部有效调用参数的独立深拷贝。模型、推理和审批参数应从这里读取，不参与实例身份，
+从而允许不同会话和状态查询共享后端。Codex、Qoder 仅声明 `("binary",)`。
+工厂始终在事件循环执行：同步构造函数只做纯声明，准备工作使用异步工厂。
+只在线程中执行有界文件/发现操作，并在真实 worker 完成前保留锁；不要在线程中
+创建 asyncio 客户端、锁或执行完整模块/生命周期。
+
+| 公开方法                                    | 返回值与职责                                                                                                                |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `status`、`start_login`、`logout`           | 显式状态/认证操作，返回 `HarnessStatus`、`HarnessLogin` 或 None。                                                           |
+| `models`、`discover_skills`、`discover_mcp` | 公开模型/发现 DTO 的 tuple；目录枚举不能触发这些操作。                                                                      |
+| `run_turn`                                  | `HarnessEvent` 的 `AsyncIterator`，提供异步 `aclose()` 时会调用它；保留正文、推理、工具开始/进度/完成及完成/取消/错误语义。 |
+| `run_command`、`reset_session`、`history`   | 受管会话操作，历史直接使用公开 `HarnessHistoryItem` / `HarnessHistoryKind`。                                                |
+| `close`                                     | 幂等异步清理，等待真实客户端和进程停止。                                                                                    |
+| `HarnessArchiveBackend`                     | `external_history=True` 时的可选在线读取接口，只返回 JSON 快照或公开历史，不返回裸客户端。                                  |
+
+通过冻结的 `HarnessCapabilities` 声明模型、推理/工具流、续接、附件、Skill/MCP
+投影与发现、命令、审批 preset 及可选在线历史能力。不支持的操作抛出
+`HarnessOperationNotSupportedError`。未提供前端设置组件时，核心按 `config_fields`
+使用已有通用配置字段渲染器。
+
+`HarnessContext` 提供工作区/状态目录、`PluginStorage`、`ResourceScope` 和日志。
+使用异步存储方法，将后台任务/连接交给 `context.resources`，清理失败必须可重试。
+每次操作都收到全新的 `HarnessCallContext`，使用宿主可信的 session/user/channel/request
+身份，不在实例上缓存调用者。运行调用每次解析有效 Skill/MCP 能力，管理调用为 None。
+MCP 环境变量和请求头是只读秘密映射，repr 和通用序列化默认脱敏；仅在客户端/进程
+边界调用 `revealed_env()` / `revealed_headers()`。不要记录揭示后的字典，使用非明文指纹。
+
+审批调用 `await context.request_approval(HarnessApprovalSummary(...), timeout=...)`，
+summary 的 JSON 参数不能覆盖宿主工作区、用户或会话；结果是
+approved/rejected/cancelled/timeout。取消通过异步任务和生成器关闭传播，后端在
+`finally` 中释放资源并等待真实关闭。停用/重载在 producer 和终态历史保存结束前
+保持忙碌；已物化的 QwenPaw 历史读取无需创建后端。
+
+前端 bundle 使用 `window.QwenPaw.harnesses.register(pluginId, extension)`：
+
+```typescript
+import { getHost, type HarnessSettingsProps } from "@qwenpaw/plugin-sdk";
+const { React } = getHost().host;
+const registration = getHost().harnesses.register("echo-owner", {
+  backendId: "echo-backend",
+  SettingsComponent: (props: HarnessSettingsProps) =>
+    props.open
+      ? React.createElement("input", {
+          value: String(props.value.prefix ?? ""),
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+            props.onChange({ ...props.value, prefix: event.target.value }),
+        })
+      : null,
+});
+// registration.dispose() 只撤销这次注册。
+```
+
+组件只在所选后端可用且宿主目录中的 owner 与 pluginId 一致时出现。目录尚未加载时
+注册保持静默，不能靠扩展自己的 owner 声明取得资格。已有前端清理入口会移除插件
+全部 Harness 贡献，旧 disposable 不能移除新注册。
+
+通过已安装 SDK 的 `PluginTestHost` 进行独立作者测试：`list_harnesses()` 只读元数据；
+`harness_status(backend_id, workspace_id=...)` 显式探测；
+`run_harness(backend_id, HarnessRunRequest(...), workspace_id=..., session_id=...,
+user_id=..., channel=...)` 经生产桥接返回公开 `ChatEvent` 异步流。
+停用/重新启用测试使用 `host.install()`，审批使用真实测试宿主审批方法，续接通过
+公开存储断言。作者只导入公开 `qwenpaw.plugins.*`，厂商 SDK 和 adapter 属于插件包。
+
+## 可选 Codex 与 Qoder 后端
+
+SDK 1.1 的 `qwenpaw-harness-codex` 与 `qwenpaw-harness-qoder` 是独立插件，
+通过 **设置 → 插件** 或经过验证的本地 ZIP 安装。原生宿主和 `qwenpaw[full]`
+不包含两家 SDK，也不启用对应后端。过渡期的 `qwenpaw[codex]` / `qwenpaw[qoder]`
+extra 只准备 Python 依赖，不能代替插件安装或启用。账号和可执行文件设置仅在选中
+可用后端时出现；禁用、修复沿用已有插件生命周期操作。
+
+### 升级已有第三方 Agent
+
+本版本要求在新宿主重启前显式完成准备与迁移。先停止旧宿主，为已有 Agent 实际使用
+的后端取得已验证插件包，并在匹配的 Python/runtime 环境中离线准备固定依赖。
+安装新宿主但尚未启动时执行：
+
+```sh
+QWENPAW_WORKING_DIR="$HOME/.qwenpaw" qwenpaw plugin migrate-legacy-harnesses \
+  --plugin-dir /path/to/verified-local-packages --dry-run
+QWENPAW_WORKING_DIR="$HOME/.qwenpaw" qwenpaw plugin migrate-legacy-harnesses \
+  --plugin-dir /path/to/verified-local-packages --apply
+```
+
+PowerShell 先设置 `$env:QWENPAW_WORKING_DIR = "$HOME/.qwenpaw"` 再调用 `qwenpaw`。
+CLI 不会改指向已经初始化的工作目录。从源码发行物也可调用相同实现：
+
+```sh
+python scripts/pack/migrate_legacy_harnesses.py --working-dir /path/to/data \
+  --plugin-dir /path/to/verified-local-packages --dry-run
+# 计划确认包和依赖均已准备后，再将 --dry-run 换成 --apply。
+```
+
+JSON 仅列出所需 plugin ID、现有启停状态、可用包及版本、缺失依赖、动作和执行结果。
+纯原生用户计划为空。apply 经过正式离线安装事务，不启动插件、不下载依赖；显式禁用
+优先，重复执行不重装已有插件。Agent 后端选择、已保存历史、会话映射和原生账号均保留。
+
+缺包或缺依赖时按报告中的安装动作处理，不应把保存的 Agent 悄悄改成原生。
+配置和已物化历史仍可读取，但运行该 Agent 或恢复未物化厂商历史需要对应插件已启用。
+启动后仍可使用正常的插件安装/修复界面。现有桌面/CLI 自动更新流程不会替用户准备这些
+可选包；跳过准备的升级不保证无缝完成。
+
 ## 能力与公开模块
 
 | 能力                         | 公开入口                                                             |

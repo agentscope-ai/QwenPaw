@@ -12,6 +12,7 @@ Layout produced under ``--dist``::
         tool/<plugin_id>/<id>-<version>.zip
         memory/<plugin_id>/<id>-<version>.zip
         apps/<plugin_id>/<id>-<version>.zip
+        harness/<plugin_id>/<id>-<version>.zip
         channel/<plugin_id>/<id>-<version>.zip
         index.json
 
@@ -64,7 +65,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-KIND_DIRS = ("bundle", "tool", "memory", "apps", "channel", "hub")
+KIND_DIRS = ("bundle", "tool", "memory", "apps", "channel", "hub", "harness")
 
 EXCLUDE_PATTERNS = (
     "__pycache__",

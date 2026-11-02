@@ -11,6 +11,7 @@
  */
 import type React from "react";
 import { chatExtensions } from "../registry/chatExtensions";
+import { harnessNamespace } from "../harnesses";
 import { auditStore } from "../registry/audit";
 import { pluginSystem } from "../hostExternals";
 import { combineDisposables } from "../registry/types";
@@ -392,6 +393,7 @@ export function installHostSdk(): void {
   if (typeof window === "undefined") return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ns = (window.QwenPaw as any) ?? ((window as any).QwenPaw = {});
+  ns.harnesses = harnessNamespace;
 
   if (!ns.chat) {
     ns.chat = makeChatNamespace();

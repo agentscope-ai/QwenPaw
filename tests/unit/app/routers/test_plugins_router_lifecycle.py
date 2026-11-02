@@ -71,6 +71,7 @@ def _record(plugin_id: str = "plug", meta: dict | None = None) -> Any:
         description="desc",
         author="auth",
         plugin_type="general",
+        sdk={},
         entry=SimpleNamespace(frontend="ui/index.js"),
         meta=meta if meta is not None else {},
     )
@@ -382,6 +383,7 @@ class TestListPluginsRoute:
                 "loaded": False,
                 "plugin_type": "general",
                 "frontend_entry": None,
+                "sdk_harnesses": False,
             },
         ]
 
@@ -1618,7 +1620,12 @@ class TestPublicPluginAndFileContracts:
             f"/api/{endpoint}/ghost/files/main.js",
         )
         assert response.status_code == 404
-        assert "not found" in response.text.lower()
+        if endpoint == "frontend_plugin":
+            assert (
+                response.json()["detail"] == "Plugin frontend is unavailable"
+            )
+        else:
+            assert "not found" in response.text.lower()
 
     def test_existing_plugin_file_guards(self, tmp_path):
         from qwenpaw.plugins.architecture import PluginManifest

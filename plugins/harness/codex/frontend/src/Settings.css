@@ -1,0 +1,268 @@
+.harness-codex-settings {
+  min-width: 0;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--abf-border);
+}
+.harness-codex-settings .binaryField {
+  margin-bottom: 7px;
+}
+.harness-codex-settings .binaryField .ant-input-affix-wrapper {
+  min-height: 38px;
+  padding-right: 4px;
+}
+.harness-codex-settings .binaryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.harness-codex-settings .helpIcon {
+  display: inline-flex;
+  color: var(--abf-icon-muted);
+  cursor: help;
+  transition: color 150ms ease;
+}
+.harness-codex-settings .helpIcon:hover {
+  color: var(--abf-accent);
+}
+.harness-codex-settings .detectLabel {
+  margin-left: 2px;
+}
+.harness-codex-settings .binaryStatus {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 10px;
+  padding: 6px 8px;
+  border: 1px solid;
+  border-radius: 8px;
+  font-size: 11px;
+}
+.harness-codex-settings .detected {
+  border-color: var(--abf-ok-border);
+  background: var(--abf-ok-bg);
+}
+.harness-codex-settings .notDetected {
+  border-color: var(--abf-border);
+  background: var(--abf-surface-alt);
+}
+.harness-codex-settings .binaryStatusLabel {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.harness-codex-settings .detected .binaryStatusLabel {
+  color: var(--abf-ok-text);
+}
+.harness-codex-settings .notDetected .binaryStatusLabel {
+  color: var(--abf-text-muted);
+}
+.harness-codex-settings .binaryPath {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--abf-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.harness-codex-settings .copyPathButton {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--abf-icon-muted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+}
+.harness-codex-settings .copyPathButton:hover {
+  color: var(--abf-accent);
+  background: var(--abf-accent-bg-hover);
+}
+.harness-codex-settings .authHint {
+  margin: 0 2px 10px;
+  color: var(--abf-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.harness-codex-settings .accountRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--abf-border);
+  border-radius: 10px;
+  background: var(--abf-row-bg);
+}
+.harness-codex-settings .chatSettingsHint {
+  margin: 10px 2px 0;
+  color: var(--abf-text-muted);
+  font-size: 12px;
+}
+.harness-codex-settings .capabilityPanel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--abf-border);
+}
+.harness-codex-settings .capabilityTitle {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--abf-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.harness-codex-settings .capabilityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.harness-codex-settings .capabilityItem {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--abf-border);
+  border-radius: 10px;
+  color: var(--abf-accent);
+  background: var(--abf-accent-bg-faint);
+}
+.harness-codex-settings .capabilityItem > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.harness-codex-settings .capabilityItem strong {
+  overflow: hidden;
+  color: var(--abf-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.harness-codex-settings .capabilityItem small {
+  color: var(--abf-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.harness-codex-settings .accountState {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.harness-codex-settings .accountLabel {
+  color: var(--abf-text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.harness-codex-settings .connectedState,
+.harness-codex-settings .disconnectedState {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.harness-codex-settings .connectedState {
+  color: var(--abf-accent);
+}
+.harness-codex-settings .disconnectedState {
+  color: var(--abf-text-muted);
+}
+.harness-codex-settings .accountAction {
+  flex: 0 0 auto;
+}
+.harness-codex-settings .providerHint {
+  margin: 0 0 12px;
+  color: var(--abf-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.harness-codex-settings .binaryField {
+  position: relative;
+}
+.harness-codex-settings .binaryLabel {
+  color: var(--abf-text);
+  font-size: 14px;
+  margin: 0 5px 4px 0;
+}
+.harness-codex-settings .helpIcon {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 14px;
+}
+.harness-codex-settings .binaryField > .ant-input-affix-wrapper {
+  width: 100%;
+}
+.harness-codex-settings .binaryStatusLabel svg,
+.harness-codex-settings .connectedState svg,
+.harness-codex-settings .disconnectedState svg,
+.harness-codex-settings .capabilityItem > svg {
+  flex: 0 0 auto;
+}
+.harness-codex-settings .connectedState,
+.harness-codex-settings .disconnectedState {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.harness-codex-settings .capabilityItem strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.harness-codex-settings .binaryStatus.notDetected {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.harness-codex-settings button:focus-visible {
+  outline: 2px solid var(--abf-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 680px) {
+  .harness-codex-settings .capabilityGrid {
+    grid-template-columns: 1fr;
+  }
+  .harness-codex-settings .accountRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .harness-codex-settings .accountAction .ant-btn {
+    width: 100%;
+  }
+  .harness-codex-settings .binaryStatus {
+    flex-wrap: wrap;
+  }
+  .harness-codex-settings .binaryPath {
+    order: 3;
+    flex-basis: calc(100% - 32px);
+    margin-left: 19px;
+  }
+  .harness-codex-settings .copyPathButton {
+    margin-left: auto;
+  }
+}
+@media (max-width: 420px) {
+  .harness-codex-settings .detectLabel {
+    display: none;
+  }
+}

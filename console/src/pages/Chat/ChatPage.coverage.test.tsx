@@ -388,6 +388,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => {
 vi.mock("@/utils/agentBackend", () => ({
   requiresQwenPawModel: mockRequiresQwenPawModel,
   supportsAgentAttachments: vi.fn(() => true),
+  useBackendCapabilities: vi.fn(() => undefined),
 }));
 
 vi.mock("@/plugins/registry/useChatExtensions", () => ({
@@ -453,11 +454,11 @@ vi.mock("../../features/project-directory/SessionProjectDirectory", () => ({
   },
 }));
 
-vi.mock("./components/HarnessApprovalToggle", () => ({
+vi.mock("./components/BackendApprovalToggle", () => ({
   default: () => <div data-testid="harness-approval" />,
 }));
 
-vi.mock("./components/HarnessModelSelector", () => ({
+vi.mock("./components/BackendModelSelector", () => ({
   default: () => <div data-testid="harness-model" />,
 }));
 

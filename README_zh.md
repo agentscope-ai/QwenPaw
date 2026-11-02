@@ -106,6 +106,8 @@ qwenpaw app
 
 然后在浏览器中打开控制台 **http://127.0.0.1:8088/** 配置模型。若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://qwenpaw.agentscope.io/docs/channels) 文档。
 
+Codex 和 Qoder 后端需在 **设置 → 插件** 中单独安装。`full` 不包含两家 SDK；过渡期 `codex`/`qoder` extra 只准备依赖。已有用户应在升级后重启宿主前，按[离线准备与迁移说明](https://qwenpaw.agentscope.io/docs/plugins#可选-codex-与-qoder-后端)完成迁移。
+
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 ---

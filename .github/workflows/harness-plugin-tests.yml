@@ -1,0 +1,169 @@
+name: Optional Harness Plugins
+
+on:
+  push:
+    branches: [main, master, dev, develop, "dev/**"]
+    paths:
+      - "plugins/harness/**"
+      - "src/qwenpaw/plugins/**"
+      - "src/qwenpaw/runtime/backends/**"
+      - "tests/**/test_*harness*.py"
+      - "tests/unit/plugins/test_generate_plugin_metadata.py"
+      - "tests/unit/plugins/test_download_catalog.py"
+      - "scripts/pack/**"
+      - "scripts/check_plugin_sdk_artifacts.py"
+      - "scripts/pack-tauri/qwenpaw.spec"
+      - "pyproject.toml"
+      - "setup.py"
+      - ".github/workflows/harness-plugin-tests.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "plugins/harness/**"
+      - "src/qwenpaw/plugins/**"
+      - "src/qwenpaw/runtime/backends/**"
+      - "tests/**/test_*harness*.py"
+      - "tests/unit/plugins/test_generate_plugin_metadata.py"
+      - "tests/unit/plugins/test_download_catalog.py"
+      - "scripts/pack/**"
+      - "scripts/check_plugin_sdk_artifacts.py"
+      - "scripts/pack-tauri/qwenpaw.spec"
+      - "pyproject.toml"
+      - "setup.py"
+      - ".github/workflows/harness-plugin-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  spam-gate:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
+  core-sdk:
+    needs: [spam-gate]
+    if: >-
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      QWENPAW_RUNTIME_ID: harness-tests
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Isolate runtime state
+        run: echo "QWENPAW_WORKING_DIR=$RUNNER_TEMP/harness-core" >> "$GITHUB_ENV"
+      - name: Install core without vendor SDKs
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install -e ".[test]" build mypy wheel
+          python -c "from importlib.util import find_spec; assert all(find_spec(name) is None for name in ('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk'))"
+      - name: Build independent Harness frontends using public SDK
+        run: bash scripts/pack/build_harness_frontends.sh
+      - name: Verify core SDK, runtime and ZIP packaging
+        run: >-
+          python -m pytest -q
+          tests/unit/plugins/test_sdk_harness.py
+          tests/unit/runtime/backends/test_harness_runtime.py
+          tests/unit/plugins/test_generate_plugin_metadata.py
+          tests/unit/plugins/test_download_catalog.py
+      - name: Build installable Harness archives
+        run: >-
+          python scripts/pack/generate_plugin_metadata.py
+          --plugins-root plugins --dist dist/plugins
+          --metadata-out dist/plugins/index.json --cdn-prefix /files/plugins
+          --only qwenpaw-harness-codex --only qwenpaw-harness-qoder
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harness-plugin-archives
+          path: dist/plugins/harness
+          if-no-files-found: error
+      - name: Verify wheel-installed public Harness SDK
+        shell: bash
+        run: |
+          python -m build --no-isolation --outdir "$RUNNER_TEMP/harness-dist"
+          python -m venv --system-site-packages "$RUNNER_TEMP/harness-wheel-venv"
+          WHEEL_PYTHON="$RUNNER_TEMP/harness-wheel-venv/bin/python"
+          "$WHEEL_PYTHON" -m pip install --upgrade "pip>=26.2.2"
+          "$WHEEL_PYTHON" -m pip install --ignore-installed --no-deps "$RUNNER_TEMP"/harness-dist/*.whl "uv>=0.13.4"
+          python scripts/check_plugin_sdk_artifacts.py \
+            --wheel "$RUNNER_TEMP"/harness-dist/*.whl \
+            --sdist "$RUNNER_TEMP"/harness-dist/*.tar.gz \
+            --python "$WHEEL_PYTHON" --source-root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/harness-author-check" \
+            --test-files test_sdk_harness.py
+
+  vendor-plugin:
+    needs: [spam-gate, core-sdk]
+    if: >-
+      always() &&
+      needs.core-sdk.result == 'success' &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        vendor: [codex, qoder]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      HARNESS_VENDOR: ${{ matrix.vendor }}
+      QWENPAW_RUNTIME_ID: harness-tests
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: harness-plugin-archives
+          path: dist/plugins/harness
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Isolate runtime state
+        run: echo "QWENPAW_WORKING_DIR=$RUNNER_TEMP/harness-$HARNESS_VENDOR" >> "$GITHUB_ENV"
+      - name: Install only this plugin's pinned SDK
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install -e ".[test]"
+          python -m pip install -r "plugins/harness/${HARNESS_VENDOR}/requirements-test.txt"
+      - name: Verify isolated platform SDK and safe CLI version
+        run: |
+          python - <<'PY'
+          import importlib
+          import importlib.util
+          import os
+          from pathlib import Path
+          import subprocess
+
+          if os.environ["HARNESS_VENDOR"] == "codex":
+              from codex_cli_bin import bundled_codex_path
+              binary = Path(bundled_codex_path())
+              assert importlib.util.find_spec("qoder_agent_sdk") is None
+              importlib.import_module("openai_codex")
+          else:
+              module = importlib.import_module("qoder_agent_sdk")
+              name = "qodercli.exe" if os.name == "nt" else "qodercli"
+              binary = Path(module.__file__).parent / "_bundled" / name
+              assert importlib.util.find_spec("openai_codex") is None
+          assert binary.is_file() and os.access(binary, os.X_OK), binary
+          result = subprocess.run([str(binary), "--version"], check=True,
+                                  capture_output=True, text=True, timeout=30)
+          print(result.stdout)
+          PY
+      - name: Run public SDK plugin tests without accounts
+        run: python -m pytest "plugins/harness/${HARNESS_VENDOR}/tests/test_${HARNESS_VENDOR}_harness.py" -q

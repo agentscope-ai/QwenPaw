@@ -48,17 +48,6 @@
     "decrease": "Уменьшить",
     "increase": "Увеличить"
   },
-  "harnesses": {
-    "connected": "Подключено",
-    "disconnected": "Отключено",
-    "notConnected": "Не подключено",
-    "comingSoon": "Скоро",
-    "connect": "Подключить через ChatGPT",
-    "disconnect": "Отключить",
-    "apiKeyAuthenticated": "Аутентификация по API-ключу",
-    "chatGptAuthenticated": "Подключено к ChatGPT",
-    "cliAuthenticated": "{{type}} CLI аутентифицирован"
-  },
   "desktop": {
     "update": {
       "title": "Обновить QwenPaw?",
@@ -384,29 +373,12 @@
       "thirdPartyDescription": "Использует авторизованную внешнюю среду агента вместо модели QwenPaw.",
       "providerTitle": "Выберите стороннего агента",
       "providerDescription": "Авторизация общая для этого устройства; проекты и диалоги изолированы для каждого агента.",
-      "codexHint": "ChatGPT OAuth · Рабочая область агента",
-      "qoderHint": "Учётная запись Qoder или PAT · Рабочая область агента",
-      "account": "Учётная запись Codex",
-      "qoderAccount": "Учётная запись Qoder",
-      "binary": "Исполняемый файл Codex",
-      "binaryHelp": "Оставьте поле пустым, чтобы использовать Codex CLI из Python SDK или найти отдельную установку. При ручной настройке укажите полный путь к codex в macOS/Linux или codex.exe в Windows. Встроенные бинарные файлы приложения ChatGPT и расширений редактора не поддерживаются. QwenPaw также читает CODEX_BINARY и PATH бэкенда.",
-      "binaryPlaceholder": "Автоопределение или путь к исполняемому файлу Codex",
-      "qoderBinary": "Исполняемый файл Qoder",
-      "qoderBinaryHelp": "Оставьте поле пустым, чтобы использовать qodercli из Python SDK или найти установленную версию. При ручной настройке укажите полный путь к qodercli в macOS/Linux или qodercli.exe в Windows. QwenPaw также читает QODERCLI_PATH и PATH бэкенда.",
-      "qoderBinaryPlaceholder": "Автоопределение или путь к qodercli",
       "detect": "Проверить",
-      "detectedBinary": "Codex обнаружен",
-      "qoderDetectedBinary": "Qoder обнаружен",
-      "apiKeyLoginHint": "Также можно выполнить аутентификацию в терминале: codex login --with-api-key",
-      "qoderAuthHint": "Подключение откроет вход Qoder в браузере. Также можно выполнить qodercli login или задать QODER_PERSONAL_ACCESS_TOKEN перед запуском бэкенда.",
-      "qoderConnect": "Подключить Qoder",
       "model": "Модель агента",
       "modelDefault": "Использовать модель агента по умолчанию",
       "defaultBadge": "По умолчанию",
       "reasoningEffort": "Уровень рассуждения",
       "reasoningDefault": "Использовать значение модели по умолчанию",
-      "codexNotFound": "Среда выполнения Codex не найдена. Установите qwenpaw[codex] или укажите отдельный Codex CLI.",
-      "qoderNotFound": "Среда выполнения Qoder не найдена. Установите qwenpaw[qoder] или укажите qodercli.",
       "chatSettingsHint": "Выберите модель, уровень рассуждения и разрешения на выполнение на панели Chat.",
       "capabilityTitle": "Возможности QwenPaw",
       "inheritedSkills": "Навыки",
@@ -419,35 +391,11 @@
       "chatModelHint": "Настройки агента · применяются со следующего хода",
       "appliesNextTurn": "Применяется со следующего хода",
       "approvalMode": "Разрешения на выполнение",
-      "approvalPresets": {
-        "ask": {
-          "name": "Спрашивать перед изменениями",
-          "description": "Разрешает изменения рабочей области и запрашивает подтверждение перед действиями с повышенными правами."
-        },
-        "read-only": {
-          "name": "Только чтение",
-          "description": "Проверяет файлы без изменений."
-        },
-        "workspace": {
-          "name": "Доступ к рабочей области",
-          "description": "Разрешает изменения рабочей области без подтверждения."
-        },
-        "accept-edits": {
-          "name": "Разрешать правки",
-          "description": "Разрешает правки файлов, сохраняя остальные проверки."
-        },
-        "plan": {
-          "name": "Только план",
-          "description": "Анализирует и планирует без изменения файлов."
-        },
-        "auto": {
-          "name": "Автоматически",
-          "description": "Qoder сам определяет безопасные действия."
-        },
-        "full-access": {
-          "name": "Полный доступ",
-          "description": "Разрешает неограниченное локальное выполнение без подтверждения."
-        }
+      "installPlugin": "Установить плагин бэкенда",
+      "states": {
+        "missing": "Не установлен",
+        "disabled": "Отключён",
+        "failed": "Ошибка активации"
       }
     },
     "create": "Создать агента",
@@ -4731,7 +4679,16 @@
     "marketSortLabel": "Sort plugins",
     "marketSortDownloads": "Most downloaded",
     "marketSortUpdated": "Recently updated",
-    "marketSortFavorites": "Most favorited"
+    "marketSortFavorites": "Most favorited",
+    "disableSuccess": "Plugin disabled",
+    "disableFailed": "Could not finish disabling the plugin; check its diagnostics",
+    "busy": {
+      "disable": {
+        "warning": "Disabling this plugin will interrupt its active tasks. Continue?",
+        "confirm": "Interrupt and disable",
+        "cancel": "Keep enabled"
+      }
+    }
   },
   "inbox": {
     "title": "Ежедневный AI-сбор",

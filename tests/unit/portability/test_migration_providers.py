@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
-from qwenpaw.harnesses.codex.rollout_reader import CodexRolloutReader
+from qwenpaw.plugins.harnesses import HarnessHistoryItem, HarnessHistoryKind
+from qwenpaw.portability.providers.codex_rollout_reader import (
+    CodexRolloutReader,
+)
 from qwenpaw.portability.providers.codex import (
     CodexMigrationProvider,
     _merge_threads,
@@ -45,16 +48,10 @@ class _CodexAdapter:
             ),
         ]
 
-    async def external_skill_records(self, cwd):
-        assert cwd.is_absolute()
+    async def external_skill_records(self):
         return []
 
-    async def discover_mcp(self, cwd):
-        assert cwd.is_absolute()
-        return [SimpleNamespace(name="filesystem")]
-
-    async def external_mcp_records(self, cwd):
-        assert cwd.is_absolute()
+    async def external_mcp_records(self):
         return [
             {
                 "name": "filesystem",
@@ -70,36 +67,35 @@ class _CodexAdapter:
         ]
 
 
-class _HarnessRuntime:
+class _BackendRuntime:
     def __init__(self, adapter) -> None:
         self._adapter = adapter
+        self.entered = self.closed = False
 
-    async def adapter(self, provider_id, settings):
+    async def call(self, provider_id, operation, settings):
+        assert provider_id == "codex"
+        assert operation == "status"
+        assert settings == {}
+        return await self._adapter.status()
+
+    @asynccontextmanager
+    async def archive(self, provider_id, settings):
         assert provider_id == "codex"
         assert settings == {}
-        return self._adapter
-
-
-class _OfflineCodexAdapter:
-    async def status(self):
-        return SimpleNamespace(
-            installed=False,
-            error="codex executable unavailable",
-            runtime_path="",
-        )
-
-
-class _UnexpectedHarnessRuntime:
-    async def adapter(self, provider_id, settings):
-        raise AssertionError("explicit source-home must not use app-server")
+        self.entered = True
+        try:
+            yield self._adapter
+        finally:
+            self.closed = True
 
 
 def _workspace(tmp_path: Path):
     config = SimpleNamespace(backend="qwenpaw", backend_settings={})
     return SimpleNamespace(
+        agent_id="test-agent",
         workspace_dir=tmp_path,
         config=config,
-        harness_runtime=_HarnessRuntime(_CodexAdapter()),
+        backend_runtime=_BackendRuntime(_CodexAdapter()),
     )
 
 
@@ -108,12 +104,26 @@ def _workspace(tmp_path: Path):
 async def test_codex_provider_reuses_runtime_and_normalizes_inventory(
     tmp_path: Path,
     limit: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace = _workspace(tmp_path)
+
+    async def load(agent_id):
+        assert agent_id == "test-agent"
+        return workspace.config
+
+    monkeypatch.setattr(
+        "qwenpaw.portability.providers.codex.load_agent_config_async",
+        load,
+    )
     inventory = await CodexMigrationProvider(
-        _workspace(tmp_path),
+        workspace,
         rollout_reader=CodexRolloutReader(tmp_path / ".codex"),
     ).inventory(limit=limit)
 
+    assert (
+        workspace.backend_runtime.entered and workspace.backend_runtime.closed
+    )
     assert inventory.detected is True
     assert inventory.locator == "/usr/local/bin/codex"
     assert [
