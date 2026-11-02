@@ -264,7 +264,7 @@ class QualitativeRubricGate(LoopGate):
             state.evaluations,
             self._max_evaluations,
         )
-        if self._use_decision_model:
+        if self._use_decision_model and isinstance(ctx, dict):
             result = await self._check_decision(ctx)
             if result is not None:
                 return result
@@ -274,11 +274,11 @@ class QualitativeRubricGate(LoopGate):
             reset_peers=True,
         )
 
-    async def _check_decision(self, ctx: Any) -> StopHandlerResult | None:
+    async def _check_decision(self, ctx: dict) -> StopHandlerResult | None:
         """Return None when the original self-check should handle completion."""
-        agent = ctx.get("agent") if isinstance(ctx, dict) else None
+        agent = ctx.get("agent")
         config = getattr(agent, "_agent_config", None)
-        candidate = ctx.get("final_msg") if isinstance(ctx, dict) else None
+        candidate = ctx.get("final_msg")
         if config is None or candidate is None:
             return None
         from ...providers.typesafe_provider import (
@@ -307,37 +307,31 @@ class QualitativeRubricGate(LoopGate):
                     model=model,
                     timeout=_DECISION_TIMEOUT_SECONDS,
                 )
-                answer = response.content.get("continue")
-                if not isinstance(answer, BinaryAnswer):
-                    raise ValueError("Missing binary continuation decision")
-                probability = answer.probability
-                if (
-                    isinstance(probability, bool)
-                    or not isinstance(probability, (int, float))
-                    or not 0 <= probability <= 1
-                ):
-                    raise ValueError("Invalid continuation probability")
-                if probability <= 0.5:
-                    return StopHandlerResult(action=StopAction.BYPASS)
-                reason = response.content.get("reason")
-                detail = None
-                if (
-                    isinstance(reason, ChoiceAnswer)
-                    and reason.confidence > 0.5
-                ):
-                    detail = _REASON_QUESTION.criteria.get(reason.choice)
-                    if detail:
-                        detail = (
-                            "Check this possible issue against the conversation "
-                            f"and tool results before acting. {detail}"
-                        )
-                return StopHandlerResult(
-                    action=StopAction.INTERRUPT_AND_CONTINUE,
-                    reason="Decision model found unfinished work",
-                    continuation_message="\n".join(
-                        filter(None, (self.build_continuation(), detail)),
-                    ),
-                )
+            answer = response.content.get("continue")
+            if (
+                not isinstance(answer, BinaryAnswer)
+                or isinstance(answer.probability, bool)
+                or not isinstance(answer.probability, (int, float))
+                or not 0 <= answer.probability <= 1
+            ):
+                raise ValueError("Invalid continuation probability")
+            if answer.probability <= 0.5:
+                return StopHandlerResult(action=StopAction.BYPASS)
+            message = self._rubric
+            reason = response.content.get("reason")
+            if isinstance(reason, ChoiceAnswer) and reason.confidence > 0.5:
+                detail = _REASON_QUESTION.criteria.get(reason.choice)
+                if detail:
+                    hint = (
+                        "Check this possible issue against the conversation "
+                        f"and tool results before acting. {detail}"
+                    )
+                    message = f"{message}\n{hint}" if message else hint
+            return StopHandlerResult(
+                action=StopAction.INTERRUPT_AND_CONTINUE,
+                reason="Decision model found unfinished work",
+                continuation_message=message,
+            )
         except Exception as exc:
             logger.warning(
                 "Completion decision unavailable (%s); using self-check",
@@ -356,28 +350,21 @@ class QualitativeRubricGate(LoopGate):
                 if block.type == "thinking":
                     continue
                 if block.type == "tool_call":
-                    content.append(
-                        block.model_dump(
-                            include={"type", "id", "name", "input", "state"},
-                        ),
+                    evidence = block.model_dump(
+                        include={"type", "id", "name", "input", "state"},
                     )
                 elif block.type == "tool_result":
-                    result = block.model_dump(
+                    evidence = block.model_dump(
                         include={"type", "id", "name", "state"},
                     )
-                    result["output"] = flatten_output(block.output)
-                    content.append(result)
+                    evidence["output"] = flatten_output(block.output)
                 else:
-                    content.append(
-                        {
-                            "type": block.type,
-                            "text": flatten_output(
-                                block.hint
-                                if block.type == "hint"
-                                else [block],
-                            ),
-                        },
-                    )
+                    parts = block.hint if block.type == "hint" else [block]
+                    evidence = {
+                        "type": block.type,
+                        "text": flatten_output(parts),
+                    }
+                content.append(evidence)
             conversation.append(
                 {
                     "role": msg.role,

@@ -295,7 +295,7 @@ function RubricSection() {
       >
         {t(
           "agentConfig.rubricDesc",
-          "Before ending a response without tool calls, check for unfinished work using the criteria below. Choose agent self-checks or Jev decisions.",
+          "When the agent produces a text response without tool calls, apply natural-language completion criteria and ask it to continue when work remains.",
         )}
       </p>
       <SettingsField
@@ -944,7 +944,7 @@ function GateParamsEditor({
           )}
           extra={t(
             "agentConfig.loopMode.qualitativeRubricHelp",
-            "Triggered only for responses without tool calls. Uses agent self-checks unless you enable Jev decisions.",
+            "Triggered only for text responses without tool calls. The agent continues when work remains.",
           )}
         >
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />

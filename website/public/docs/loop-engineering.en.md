@@ -60,18 +60,17 @@ Enabled by default; no manual adjustment needed in most cases.
 
 ### Completion Check
 
-Some large language models may output text without calling any tools, causing the Agent to stop prematurely. When enabled, if the Agent only outputs text (no tool calls), the system automatically injects a reminder asking it to confirm whether the task is truly complete.
+Some large language models may output text without calling any tools, causing the Agent to stop prematurely. By default, enabling this check asks the Agent to confirm whether the task is complete after a text-only response.
 
-| Setting                        | Default                          | Description                       |
-| ------------------------------ | -------------------------------- | --------------------------------- |
-| Enable completion check        | Off                              | Whether to enable                 |
-| Use Jev to decide when to stop | Off                              | Use the configured decision model |
-| Check prompt                   | _"You did not call any tool..."_ | The reminder text injected        |
-| Max interventions              | 1                                | Max reminders per turn            |
+| Setting                 | Default                          | Description                |
+| ----------------------- | -------------------------------- | -------------------------- |
+| Enable completion check | Off                              | Whether to enable          |
+| Check prompt            | _"You did not call any tool..."_ | The reminder text injected |
+| Max interventions       | 1                                | Max reminders per turn     |
 
 > **When should I enable this?** If you notice the Agent often stops after outputting text without actually finishing the task, turn this on.
 
-With completion checks enabled, you can also enable **Use Jev to decide when to stop**. Select a decision model in model settings. Each check sends the conversation, tool results, available tool schemas, and completion criteria to that provider in one request. Jev judges whether work should continue and selects a possible reason. When it requests continuation, the Agent receives the check prompt plus a sufficiently confident reason to verify against the conversation. Missing configuration, timeouts, or failed checks fall back to the Agent's self-check. The maximum intervention count still applies. Jev can misjudge completion, and requesting continuation does not guarantee that the Agent finishes the task.
+With completion checks enabled, turn on **Use Jev to decide when to stop** to send the conversation, tool results, available tool schemas, and criteria to the configured decision model. On a text-only response, one request decides whether to continue and can supply a reason for the agent to verify. If the model is unavailable or the check fails, the agent uses the usual self-check.
 
 ### Corresponding agent.json Configuration
 
