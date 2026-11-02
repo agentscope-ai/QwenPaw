@@ -292,6 +292,11 @@ class DependencyUpgradeManager:
         """Collect all consumers within one stable, ordered observation."""
         from .install_lock import environment_observation
 
+        from .python_backend import PythonBackend
+
+        await PythonBackend.reconcile_host_observations(
+            self.loader.registry.dependency_usage,
+        )
         prepared = await self._prepare_consumer_targets()
         roots = tuple(
             dict.fromkeys(

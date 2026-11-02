@@ -455,6 +455,9 @@ async def admit_shared_dependencies(
     from .install_lock import ObservationRootsChanged
     from ..utils.io_utils import run_sync_io
 
+    from .python_backend import PythonBackend
+
+    await PythonBackend.reconcile_host_observations(usage_registry)
     configured_roots = await run_sync_io(_canonical_dependency_roots, targets)
     evidence_roots = (
         await run_sync_io(
@@ -1023,6 +1026,10 @@ async def prepare_shared_dependencies(
     from .wheel_additions import validate_additions
     from .execution.dependencies import protected_dependency_target
     from ..utils.io_utils import run_sync_io
+
+    from .python_backend import PythonBackend
+
+    await PythonBackend.reconcile_host_observations(usage_registry)
 
     def inspect_target():
         target = (

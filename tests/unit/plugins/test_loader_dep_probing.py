@@ -1423,6 +1423,151 @@ def test_host_dependency_record_retains_loaded_ownership(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("withdrawn", [False, True])
+async def test_host_dependency_observation_recovers_concurrent_imports(
+    tmp_path,
+    monkeypatch,
+    withdrawn,
+):
+    import asyncio
+    import importlib
+    from qwenpaw.plugins import python_backend as backend
+    from qwenpaw.plugins.dependency_gate import admit_shared_dependencies
+    from qwenpaw.plugins.dependency_usage import DependencyUsageRegistry
+    from qwenpaw.plugins.execution_backend import PluginDescription
+    from qwenpaw.plugins.ownership import RuntimeOwners
+
+    site, source = tmp_path / "site", tmp_path / "plugin"
+    site.mkdir()
+    source.mkdir()
+    names = [f"_host_recovery_{number}" for number in range(3)]
+    packages = [f"recovery-sdk-{number}" for number in range(3)]
+    for name, package in zip(names, packages):
+        info = site / f"{package}-1.0.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(f"Name: {package}\nVersion: 1.0\n")
+        (info / "RECORD").write_text(f"{name}.py,,\n")
+        (site / f"{name}.py").write_text("VALUE = 1\n")
+    if withdrawn:
+        (source / f"{names[1]}.py").write_text("VALUE = 1\n")
+    monkeypatch.setattr(sys, "path", [str(source), str(site)])
+    description = PluginDescription(
+        SimpleNamespace(id="host-recovery", sdk=None),
+        source,
+        None,
+        None,
+        source_identity="original",
+        requirements=("recovery-sdk-0>=1",),
+    )
+    usage = DependencyUsageRegistry(RuntimeOwners())
+    token = usage.declare(description.dependency_declaration(), pending=False)
+    python = backend.PythonBackend(SimpleNamespace())
+    observe = backend._observe_host_dependencies
+    delta = backend._observe_host_delta
+    capture = backend._capture_host_progress
+    loop = asyncio.get_running_loop()
+    imported = []
+    observing = False
+
+    def import_during_observation(observer, *args, **kwargs):
+        nonlocal observing
+        if observing:
+            return observer(*args, **kwargs)
+        observing = True
+        try:
+            result = observer(*args, **kwargs)
+            if len(imported) < 2:
+                name = names[len(imported) + 1]
+                imported.append(importlib.import_module(name))
+            return result
+        finally:
+            observing = False
+
+    def withdraw_during_capture(*args, **kwargs):
+        result = capture(*args, **kwargs)
+        # This callback precedes publication of the worker's returned result.
+        loop.call_soon_threadsafe(usage.withdraw, token)
+        return result
+
+    try:
+        importlib.import_module(names[0])
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                backend,
+                "_observe_host_dependencies",
+                partial(import_during_observation, observe),
+            )
+            patch.setattr(
+                backend,
+                "_observe_host_delta",
+                partial(import_during_observation, delta),
+            )
+            if withdrawn:
+                patch.setattr(
+                    backend,
+                    "_capture_host_progress",
+                    withdraw_during_capture,
+                )
+            await asyncio.wait_for(
+                python.observe_host_dependencies(description, usage, token),
+                timeout=5,
+            )
+        assert len(imported) == 2
+        host = next(
+            use for use in usage.snapshot().uses if use.origin == "host"
+        )
+        assert host.snapshot is not None
+        assert host.snapshot.distributions[packages[0]]["version"] == "1.0"
+        assert usage.has_declaration(token) is not withdrawn
+        await asyncio.wait_for(
+            python.reconcile_host_observations(usage),
+            timeout=5,
+        )
+        host = next(
+            use for use in usage.snapshot().uses if use.origin == "host"
+        )
+        assert host.source_revision == "original"
+        assert host.environment is not None
+        expected = {packages[0], packages[2]} if withdrawn else set(packages)
+        assert set(host.snapshot.distributions) == expected
+        assert all(
+            row["version"] == "1.0"
+            for row in host.snapshot.distributions.values()
+        )
+        assert usage.has_declaration(token) is not withdrawn
+
+        requirements = source / "requirements.txt"
+        requirements.write_text("recovery-sdk-0>=1\n")
+        channel_snapshot = await asyncio.wait_for(
+            admit_shared_dependencies(
+                lambda: python.audit_dependencies(description),
+                plugin_id="recovery-channel",
+                requirements_file=requirements,
+                usage_registry=usage,
+                targets=(site,),
+            ),
+            timeout=5,
+        )
+        assert channel_snapshot.distributions[packages[0]]["version"] == "1.0"
+        incoming = usage.declare(description.dependency_declaration())
+        assert (
+            await asyncio.wait_for(
+                python.admit_existing(
+                    description,
+                    usage=usage,
+                    token=incoming,
+                ),
+                timeout=5,
+            )
+            is None
+        )
+    finally:
+        for name in names:
+            sys.modules.pop(name, None)
+        importlib.invalidate_caches()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("layout", ["ordinary", "namespace_alias", "unknown"])
 async def test_host_dependency_boundaries_keep_preexisting_and_removed_imports(
     tmp_path,

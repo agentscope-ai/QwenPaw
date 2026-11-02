@@ -183,6 +183,330 @@ def _host_dependency_state():
     return paths, tuple(loaded)
 
 
+def _same_host_dependency_state(before, after):
+    """Dictionary insertion order does not change a module's identity."""
+    return before[0] == after[0] and {
+        name: (identity, origin) for name, identity, origin in before[1]
+    } == {name: (identity, origin) for name, identity, origin in after[1]}
+
+
+def _host_progress_provenance(sites, providers, sources):
+    """Fingerprint only deferred evidence; never retain live inventory objects."""
+    import hashlib
+
+    from .execution.dependencies import canonical_environment_path
+
+    roots = []
+    for site in sites:
+        path = Path(site)
+        stat = path.stat()
+        roots.append(
+            (
+                str(canonical_environment_path(path)),
+                stat.st_dev,
+                stat.st_ino,
+                tuple(
+                    sorted(
+                        item.name
+                        for item in path.iterdir()
+                        if item.name.endswith((".dist-info", ".egg-info"))
+                    ),
+                ),
+            ),
+        )
+    metadata = []
+    for provider in providers:
+        path = Path(provider)
+        stat = path.stat()
+        files = (
+            (path,)
+            if path.is_file()
+            else tuple(
+                path / name
+                for name in (
+                    "METADATA",
+                    "PKG-INFO",
+                    "RECORD",
+                    "top_level.txt",
+                    "direct_url.json",
+                )
+            )
+        )
+        metadata.append(
+            (
+                str(canonical_environment_path(path)),
+                stat.st_dev,
+                stat.st_ino,
+                tuple(
+                    (
+                        str(item.relative_to(path)) if item != path else "",
+                        hashlib.sha256(item.read_bytes()).hexdigest(),
+                    )
+                    for item in files
+                    if item.is_file()
+                ),
+            ),
+        )
+    origins = []
+    archives = {}
+    for _name, origin, locations in sources:
+        for value in (origin, *locations):
+            path = Path(value)
+            archive_proof = None
+            if not path.exists():
+                # zipimport origins are virtual members, not missing files.
+                # Require a real archive and member; arbitrary parents cannot
+                # establish evidence for an otherwise nonexistent origin.
+                from zipfile import ZipFile
+
+                archive = next(
+                    (parent for parent in path.parents if parent.is_file()),
+                    None,
+                )
+                if archive is None:
+                    raise ValueError("host observation source unavailable")
+                archive_key = str(canonical_environment_path(archive))
+                if archive_key not in archives:
+                    with archive.open("rb") as stream:
+                        with ZipFile(stream) as bundle:
+                            members = frozenset(bundle.namelist())
+                        stream.seek(0)
+                        digest = hashlib.sha256()
+                        for chunk in iter(
+                            lambda: stream.read(1024 * 1024),
+                            b"",
+                        ):
+                            digest.update(chunk)
+                    archives[archive_key] = (digest.hexdigest(), members)
+                archive_digest, members = archives[archive_key]
+                member = path.relative_to(archive).as_posix()
+                if ".." in PurePosixPath(member).parts or (
+                    member not in members
+                    and not any(
+                        name.startswith(member.rstrip("/") + "/")
+                        for name in members
+                    )
+                ):
+                    raise ValueError(
+                        "host observation archive member unavailable",
+                    )
+                archive_proof = (archive_key, archive_digest)
+                path = archive
+            stat = path.stat()
+            origins.append(
+                (
+                    value,
+                    str(Path(archive_key) / member)
+                    if archive_proof is not None
+                    else str(canonical_environment_path(value)),
+                    stat.st_dev,
+                    stat.st_ino,
+                    stat.st_size if path.is_file() else None,
+                    stat.st_mtime_ns if path.is_file() else None,
+                    stat.st_ctime_ns if path.is_file() else None,
+                    archive_proof,
+                ),
+            )
+    return tuple(roots), tuple(metadata), tuple(sorted(set(origins)))
+
+
+def _host_provider_witness(code_root, paths, roots, snapshot, inputs):
+    """Detach historical provider inputs only when a batch has a tail."""
+    from importlib.metadata import PathDistribution
+
+    from .execution.dependencies import read_dependency_inventory, _read_record
+
+    key = ("metadata", snapshot.sites)
+    if key not in inputs:
+        view, _ = read_dependency_inventory(
+            code_root,
+            paths,
+            (),
+            inventory=inputs,
+        )
+        if view.sites != snapshot.sites or not set(
+            view.dependency_sites,
+        ) <= set(
+            roots,
+        ):
+            raise ValueError("host observation roots changed")
+    (rows, invalid, _observed), _embedded, owners = inputs[key]
+    if invalid:
+        raise ValueError("host observation metadata invalid")
+    providers = {
+        *(row["metadata_path"] for row in rows.values()),
+        *owners,
+        *owners.values(),
+    }
+    records = inputs.setdefault("records", {})
+    for provider in providers:
+        _read_record(PathDistribution(Path(provider)), provider, records)
+    return (
+        snapshot.sites,
+        tuple(
+            sorted(
+                (name, tuple(sorted(row.items())))
+                for name, row in rows.items()
+            ),
+        ),
+        tuple(sorted(owners.items())),
+        tuple(
+            sorted(
+                (provider, record)
+                for provider, record in records.items()
+                if isinstance(provider, str)
+            ),
+        ),
+        _host_progress_provenance(snapshot.sites, sorted(providers), ()),
+    )
+
+
+def _check_host_provider_witness(witness, inputs):
+    """Old values constrain current reads; they never supply current inputs."""
+    if witness is None:
+        return
+    current = inputs.get(("metadata", witness[0]))
+    if current is not None:
+        (rows, invalid, _observed), _embedded, owners = current
+        if (
+            invalid
+            or tuple(
+                sorted(
+                    (name, tuple(sorted(row.items())))
+                    for name, row in rows.items()
+                ),
+            )
+            != witness[1]
+            or tuple(sorted(owners.items())) != witness[2]
+        ):
+            raise ValueError("host observation metadata changed")
+    previous_records = dict(witness[3])
+    if any(
+        provider not in previous_records
+        or previous_records[provider] != record
+        for provider, record in inputs.get("records", {}).items()
+        if isinstance(provider, str)
+    ):
+        raise ValueError("host observation RECORD changed")
+
+
+def _capture_host_progress(
+    code_root,
+    paths,
+    roots,
+    sources,
+    snapshot,
+    inputs,
+    witness,
+):
+    """Bind deferred sources to this scope's metadata and raw RECORD inputs."""
+    from importlib.metadata import PathDistribution
+    from packaging.utils import canonicalize_name
+
+    from .dependency_usage import _HostObservationProgress
+
+    # Fresh inventory alone cannot establish the version loaded before this
+    # worker. Preserve and compare the earlier batch's detached raw values.
+    _check_host_provider_witness(witness, inputs)
+    if (
+        _host_provider_witness(code_root, paths, roots, snapshot, inputs)
+        != witness
+    ):
+        raise ValueError("host observation provider proof changed")
+
+    # The cap is for one unfinished tail, not all modules in the process.
+    if len(sources) > 4096:
+        raise ValueError("host observation tail too large")
+    providers = set()
+    for key, value in inputs.items():
+        if not isinstance(key, tuple) or key[0] != "metadata":
+            continue
+        (rows, invalid, _observed), _embedded, owners = value
+        if invalid:
+            raise ValueError("host observation metadata invalid")
+        providers.update(owners)
+        for name, row in rows.items():
+            provider = row["metadata_path"]
+            providers.add(provider)
+            distribution = PathDistribution(Path(provider))
+            metadata = distribution.metadata
+            tops = set((distribution.read_text("top_level.txt") or "").split())
+            if not tops:
+                tops.add(name.replace("-", "_"))
+            if (
+                canonicalize_name(metadata.get("Name", "")) != name
+                or tuple(sorted(tops)) != row["top_level"]
+                or metadata.get("Version") != row["version"]
+                or tuple(metadata.get_all("Requires-Dist", ()))
+                != row["requires_dist"]
+            ):
+                raise ValueError("host observation metadata changed")
+    if not providers and snapshot.distributions:
+        raise ValueError("host observation provenance unavailable")
+    for provider, record in inputs.get("records", {}).items():
+        if isinstance(provider, str) and (
+            PathDistribution(Path(provider)).read_text("RECORD") != record
+        ):
+            raise ValueError("host observation RECORD changed")
+    proof = _host_progress_provenance(
+        snapshot.sites,
+        sorted(providers),
+        sources,
+    )
+    if proof[:2] != witness[4][:2]:
+        raise ValueError("host observation provider identity changed")
+    return _HostObservationProgress(
+        code_root,
+        paths,
+        tuple(roots),
+        sources,
+        snapshot,
+        proof,
+    )
+
+
+def _reconcile_host_progress(progress, inventory):
+    """Fresh incremental ownership is valid only under the original proof."""
+    from .execution.dependencies import _inventory_sites
+
+    providers = tuple(row[0] for row in progress.provenance[1])
+
+    def validate():
+        if (
+            _inventory_sites(progress.code_root, progress.paths)
+            != progress.snapshot.sites
+            or _host_progress_provenance(
+                progress.snapshot.sites,
+                providers,
+                tuple(("", row[0], ()) for row in progress.provenance[2]),
+            )
+            != progress.provenance
+        ):
+            raise ValueError("host observation identity changed")
+
+    if len({name for name, _origin, _locations in progress.sources}) != len(
+        progress.sources,
+    ):
+        raise ValueError("host observation sources ambiguous")
+    validate()
+    snapshot, imported = _observe_host_delta(
+        progress.code_root,
+        progress.paths,
+        tuple((name, origin) for name, origin, _locations in progress.sources),
+        progress.snapshot,
+        inventory=inventory,
+    )
+    validate()
+    if (
+        any(row["metadata_path"] not in providers for row in imported.values())
+        or snapshot.sites != progress.snapshot.sites
+        or snapshot.dependency_sites is None
+        or not set(snapshot.dependency_sites) <= set(progress.roots)
+    ):
+        raise ValueError("host observation roots changed")
+    return replace(snapshot, distributions=imported)
+
+
 def _stdlib_modules(loaded_origins, resolved):
     """Recognize interpreter-owned sources, never merely standard names."""
     from .execution.dependencies import _dependency_protection_roots
@@ -740,6 +1064,7 @@ class PythonBackend:
         del snapshot
         if not usage.has_declaration(token, plugin_id=description.manifest.id):
             raise ValueError("DEPENDENCY_DECLARATION_MISMATCH")
+        await self.reconcile_host_observations(usage)
         prepared = await self.prepare_dependency_targets(description)
         cwd = os.getcwd()
         paths = _host_paths(cwd)
@@ -813,7 +1138,10 @@ class PythonBackend:
                         ),
                     )
                 if (
-                    before == _host_dependency_state()
+                    _same_host_dependency_state(
+                        before,
+                        _host_dependency_state(),
+                    )
                     and usage.snapshot().revision == before_usage.revision
                 ):
                     break
@@ -946,6 +1274,108 @@ class PythonBackend:
         """Python activation has no additional execution gate."""
 
     @staticmethod
+    async def reconcile_host_observations(usage) -> None:
+        """Complete retained work in the task that owns observation locks."""
+        pending = usage.pending_host_observations()
+        if not pending:
+            return
+        import asyncio
+        from ..utils.io_utils import run_sync_io
+        from .install_lock import (
+            environment_observation,
+            observation_inputs,
+            ObservationRootsChanged,
+        )
+
+        for token, progress in pending:
+            try:
+                async with environment_observation(progress.roots):
+                    if not any(
+                        owner is token and value is progress
+                        for owner, value in usage.pending_host_observations()
+                    ):
+                        continue
+                    if (
+                        _host_paths(os.getcwd()) != progress.paths
+                        or os.path.abspath(sys.executable)
+                        != progress.snapshot.executable
+                    ):
+                        raise ValueError("host observation identity changed")
+                    before = _host_dependency_state()
+                    try:
+                        snapshot = await run_sync_io(
+                            _reconcile_host_progress,
+                            progress,
+                            observation_inputs(),
+                        )
+                    except asyncio.CancelledError:
+                        after = _host_dependency_state()
+                        original = {
+                            name: (identity, origin)
+                            for name, identity, origin in before[1]
+                        }
+                        tail = tuple(
+                            (name, origin, tuple(identity[1]))
+                            for name, identity, origin in after[1]
+                            if original.get(name) != (identity, origin)
+                        )
+                        sources = tuple(
+                            dict.fromkeys(
+                                (*progress.sources, *tail),
+                            ),
+                        )
+                        if after[0] != progress.paths or len(sources) > 4096:
+                            usage.finish_host_observation(
+                                token,
+                                progress,
+                                None,
+                            )
+                        else:
+                            usage.replace_host_observation(
+                                token,
+                                progress,
+                                replace(progress, sources=sources),
+                            )
+                        raise
+                    # A cancellation leaves the original pending obligation
+                    # intact; run_sync_io settles its worker before unwinding.
+                    if (
+                        _host_paths(os.getcwd()) != progress.paths
+                        or os.path.abspath(sys.executable)
+                        != progress.snapshot.executable
+                    ):
+                        raise ValueError("host observation identity changed")
+                    after = _host_dependency_state()
+                    before_modules = {
+                        name: (identity, origin)
+                        for name, identity, origin in before[1]
+                    }
+                    tail = tuple(
+                        (name, origin, tuple(identity[1]))
+                        for name, identity, origin in after[1]
+                        if before_modules.get(name) != (identity, origin)
+                    )
+                    if len(tail) > 4096:
+                        raise ValueError("host observation tail too large")
+                    usage.finish_host_observation(
+                        token,
+                        progress,
+                        snapshot,
+                        replacement=(
+                            replace(progress, sources=tail) if tail else None
+                        ),
+                    )
+            except ObservationRootsChanged:
+                raise
+            except Exception:
+                if usage.finish_host_observation(token, progress, None):
+                    logger.info(
+                        "Host dependency observation phase=reconcile "
+                        "reason=identity changed count=%d",
+                        len(progress.sources),
+                    )
+
+    @staticmethod
     async def observe_host_dependencies(description, usage, token):
         """Retain value-only import history; resolve changed sources only."""
         import weakref
@@ -954,13 +1384,18 @@ class PythonBackend:
         from .install_lock import environment_observation, observation_inputs
 
         plugin_id = description.manifest.id
-
-        def valid():
-            return usage.has_declaration(token, plugin_id=plugin_id)
+        publish = usage.host_observer(token, plugin_id=plugin_id)
+        if publish is None:
+            return
+        await PythonBackend.reconcile_host_observations(usage)
+        if any(
+            owner is token
+            for owner, _progress in usage.pending_host_observations()
+        ):
+            return
 
         def unknown():
-            if valid():
-                usage.observe_host(token, None)
+            publish(None)
 
         def detached(loaded):
             return {
@@ -969,11 +1404,11 @@ class PythonBackend:
             }
 
         async def observe():
-            if not valid():
-                return
             try:
+                captured = _host_dependency_state()
+                witness = None
                 for attempt in range(2):
-                    paths, loaded = _host_dependency_state()
+                    paths, loaded = captured
                     code_root = os.path.join(
                         os.getcwd(),
                         description.source_path,
@@ -995,8 +1430,6 @@ class PythonBackend:
                     current = detached(loaded)
                     roots = await run_sync_io(dependency_sites, paths)
                     async with environment_observation(roots):
-                        if not valid():
-                            return
                         sites = await run_sync_io(
                             _inventory_sites,
                             code_root,
@@ -1076,66 +1509,170 @@ class PythonBackend:
                                         _module_owners=owners,
                                     )
                             except Exception:
-                                logger.debug(
-                                    "Host dependency evidence unavailable",
-                                    exc_info=True,
+                                logger.info(
+                                    "Host dependency observation plugin=%s "
+                                    "phase=observe reason=evidence invalid",
+                                    plugin_id,
                                 )
                                 unknown()
                                 return
                         if (
-                            _host_dependency_state() == (paths, loaded)
-                            and snapshot.sites == sites
-                            and snapshot.dependency_sites is not None
-                            and set(snapshot.dependency_sites) <= set(roots)
+                            _host_paths(os.getcwd()) != paths
+                            or os.path.abspath(sys.executable)
+                            != snapshot.executable
+                            or snapshot.sites != sites
+                            or snapshot.dependency_sites is None
+                            or not set(snapshot.dependency_sites) <= set(roots)
                         ):
-                            if not valid():
-                                return
-                            old = previous[1].distributions if previous else {}
-                            for name, _origin in changed:
-                                for package, row in owners.get(
-                                    name,
-                                    {},
-                                ).items():
-                                    existing = imported.get(package)
-                                    if existing is not None:
-                                        modules = set(
-                                            existing.get("loaded_modules", ()),
-                                        )
-                                        modules.update(
-                                            row.get("loaded_modules", ()),
-                                        )
-                                        if modules:
-                                            row = {
-                                                **row,
-                                                "loaded_modules": tuple(
-                                                    sorted(modules),
-                                                ),
-                                            }
-                                    imported[package] = row
-                            # Historical ownership is append-only, including
-                            # imports removed from sys.modules during teardown.
-                            history = replace(
-                                snapshot,
-                                distributions={**imported, **old},
+                            logger.info(
+                                "Host dependency observation plugin=%s "
+                                "phase=observe reason=identity changed",
+                                plugin_id,
                             )
-                            baselines[key] = (current, history)
-                            evidence[evidence_key] = (
-                                replace(snapshot, distributions={}),
-                                {
-                                    name: (current[name], rows)
-                                    for name, rows in owners.items()
-                                    if name in current
-                                },
-                            )
-                            if history.distributions:
-                                usage.observe_host(token, history)
-                            return
-                        if attempt == 1:
                             unknown()
+                            return
+                        _check_host_provider_witness(
+                            witness,
+                            observation_inputs(),
+                        )
+                        from .dependency_usage import _merge_host_distributions
+
+                        old = previous[1].distributions if previous else {}
+                        imported = dict(imported)
+                        for name, _origin in changed:
+                            for package, row in owners.get(name, {}).items():
+                                existing = imported.get(package)
+                                imported.update(
+                                    _merge_host_distributions(
+                                        {package: existing}
+                                        if existing
+                                        else {},
+                                        {package: row},
+                                    ),
+                                )
+                        # Every captured batch is history even if its modules
+                        # were removed or replaced while the worker ran.
+                        history = replace(
+                            snapshot,
+                            distributions=_merge_host_distributions(
+                                old,
+                                imported,
+                            ),
+                        )
+                        baselines[key] = (current, history)
+                        evidence[evidence_key] = (
+                            replace(snapshot, distributions={}),
+                            {
+                                name: (current[name], rows)
+                                for name, rows in owners.items()
+                                if name in current
+                            },
+                        )
+                        if history.distributions:
+                            publish(history)
+                        after_paths, after_loaded = _host_dependency_state()
+                        if after_paths != paths:
+                            unknown()
+                            return
+                        tail = tuple(
+                            (name, origin, tuple(identity[1]))
+                            for name, identity, origin in after_loaded
+                            if name not in current
+                            or current[name][0]() is not identity[0]
+                            or current[name][1:] != (identity[1], origin)
+                        )
+                        if not tail:
+                            return
+                        # Keep the captured objects alive until this batch is
+                        # resolved, including removals between the two passes.
+                        captured = (after_paths, after_loaded)
+                        if attempt == 0:
+                            witness = await run_sync_io(
+                                _host_provider_witness,
+                                code_root,
+                                paths,
+                                roots,
+                                snapshot,
+                                observation_inputs(),
+                            )
+                            (
+                                final_paths,
+                                final_loaded,
+                            ) = _host_dependency_state()
+                            if final_paths != paths:
+                                unknown()
+                                return
+                            retained = {
+                                name: (identity, origin)
+                                for name, identity, origin in after_loaded
+                            }
+                            for name, identity, origin in final_loaded:
+                                if name in retained and retained[name] != (
+                                    identity,
+                                    origin,
+                                ):
+                                    raise ValueError(
+                                        "host observation source replaced",
+                                    )
+                                retained[name] = (identity, origin)
+                            captured = (
+                                paths,
+                                tuple(
+                                    (name, identity, origin)
+                                    for name, (
+                                        identity,
+                                        origin,
+                                    ) in retained.items()
+                                ),
+                            )
+                        if attempt == 1:
+                            progress = await run_sync_io(
+                                _capture_host_progress,
+                                code_root,
+                                paths,
+                                roots,
+                                tuple(dict.fromkeys(tail)),
+                                snapshot,
+                                observation_inputs(),
+                                witness,
+                            )
+                            (
+                                final_paths,
+                                final_loaded,
+                            ) = _host_dependency_state()
+                            if final_paths != paths:
+                                unknown()
+                                return
+                            late = {
+                                (name, origin, tuple(identity[1]))
+                                for name, identity, origin in final_loaded
+                                if name not in current
+                                or current[name][0]() is not identity[0]
+                                or current[name][1:] != (identity[1], origin)
+                            }
+                            sources = tuple(
+                                dict.fromkeys((*tail, *sorted(late))),
+                            )
+                            if len(sources) > 4096:
+                                unknown()
+                                return
+                            progress = replace(progress, sources=sources)
+                            if not history.distributions:
+                                publish(history)
+                            usage.defer_host_observation(token, progress)
+                            logger.info(
+                                "Host dependency observation plugin=%s "
+                                "phase=observe reason=imports pending "
+                                "count=%d",
+                                plugin_id,
+                                len(progress.sources),
+                            )
+                            return
             except Exception:
-                logger.debug(
-                    "Host dependency evidence unavailable",
-                    exc_info=True,
+                logger.info(
+                    "Host dependency observation plugin=%s "
+                    "phase=observe reason=evidence invalid",
+                    plugin_id,
                 )
                 unknown()
 
