@@ -60,6 +60,8 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
+- [2026-11-02] **v2.3.0** | Advisor Mode phối hợp mô hình lớn và nhỏ, Code Mode và tích hợp mô hình ra quyết định; tái cấu trúc hệ thống plugin, SDK plugin và chuyển các kênh thành plugin; bộ nhớ hình ảnh và duyệt theo thẻ; cải tiến Console và trải nghiệm nhiều cửa sổ trên desktop. [Ghi chú phát hành v2.3.0 →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+
 - [2026-10-15] **v2.2.2** | Cập nhật Console, các mẫu QwenPaw-Flash mới gồm 9B/27B/35B-A3B, PawPort để chuyển dữ liệu từ Codex/Qoder, Creator 2.0.1 và Data 0.3.0. [Ghi chú phát hành v2.2.2 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 
 - [2026-09-10] **v2.2.1** | Bàn làm việc Blueprint của Creator 1.2, định tuyến mô hình theo từng Agent và quản lý môi trường hợp nhất. [Ghi chú phát hành v2.2.1 →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
@@ -67,8 +69,6 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 - [2026-09-03] **v2.2.0** | QwenPaw Hub đa người dùng tự lưu trữ, QwenPaw Mail, QwenPaw Data nguyên bản, định tuyến mô hình hợp nhất, Creator 1.1 cùng nhiều cải tiến lớn cho Market, Console, Skills, kênh và độ tin cậy. [Ghi chú phát hành v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, không gian làm việc Files hợp nhất, QwenPaw Creator, tích hợp agent Codex/Qoder, Browser-use, Computer-use, điểm khôi phục workspace và tiếp tục tác vụ hội thoại dài. [Ghi chú phát hành v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
-
-- [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ [ReMe](https://github.com/agentscope-ai/ReMe), cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
 [Tất cả ghi chú phát hành →](https://qwenpaw.agentscope.io/release-notes)
 

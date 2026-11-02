@@ -60,6 +60,8 @@
 
 ## ニュース
 
+- [2026-11-02] **v2.3.0** | 大規模・小規模モデルが連携する Advisor Mode、Code Mode、意思決定モデルの統合。プラグインシステムの再構築、プラグイン SDK、チャネルのプラグイン化。画像の記憶とタグ閲覧、Console とデスクトップの複数ウィンドウ操作の改善。 [v2.3.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+
 - [2026-10-15] **v2.2.2** | Console の更新、9B/27B/35B-A3B をカバーする新しい QwenPaw-Flash モデル、Codex/Qoder のデータを移行できる PawPort、Creator 2.0.1、Data 0.3.0。 [v2.2.2 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 
 - [2026-09-10] **v2.2.1** | Creator 1.2 のブループリントワークベンチ、Agent ごとのモデルルーティング、統合環境管理。[v2.2.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
@@ -67,8 +69,6 @@
 - [2026-09-03] **v2.2.0** | セルフホスト型マルチユーザー QwenPaw Hub、QwenPaw Mail、ネイティブ QwenPaw Data、統合モデルルーティング、Creator 1.1 に加え、マーケット、Console、Skills、チャネル、信頼性を大幅に改善。[v2.2.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell、統合 Files ワークスペース、QwenPaw Creator、Codex/Qoder エージェント連携、Browser-use、Computer-use、ワークスペースチェックポイント、長時間の対話タスク継続など。[v2.1.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
-
-- [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
 [すべてのリリースノート →](https://qwenpaw.agentscope.io/release-notes)
 
