@@ -7,7 +7,7 @@ import threading
 import pytest
 import pytest_asyncio
 from websockets.sync.server import serve
-from qwenpaw.channel_protocol.models import SendParams
+from qwenpaw.channel_protocol.models import ResponseFinishParams, SendParams
 from tests.channel_support.driver import bind, module
 
 
@@ -20,6 +20,7 @@ async def eventually(predicate):
 class Gateway:
     def __init__(self):
         self.calls, self.frames, self.connections = [], [], []
+        self.drop_next = 0
 
     def rows(self, path):
         return [r for r in self.calls if r["path"] == path]
@@ -50,6 +51,12 @@ class Gateway:
                         "content_type": self.headers.get("Content-Type", ""),
                     },
                 )
+                if owner.drop_next:
+                    # Accept the request, then lose the response: the native
+                    # side has already applied it while the worker cannot know.
+                    owner.drop_next -= 1
+                    self.close_connection = True
+                    return
                 value = (
                     {"access_token": "native-token", "expires_in": 7200}
                     if self.path == "/token"
@@ -345,13 +352,14 @@ async def send_stream(
     accumulated_text,
     delivery="delivery-A",
     target_delivery_id=None,
+    stream_type="message",
 ):
     fields = {
         **identity,
         "to_handle": handle,
         "delivery_id": delivery,
         "operation": operation,
-        "stream_type": "message",
+        "stream_type": stream_type,
         "sequence": sequence,
         "accumulated_text": accumulated_text,
     }
@@ -460,3 +468,180 @@ async def test_stream_start_rejects_non_c2c_route(native_driver):
         "STREAM_ROUTE_UNSUPPORTED"
     )
     assert server.api_rows() == []
+
+
+async def test_lost_slice_response_keeps_index_monotonic(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(
+        peer,
+        identity,
+        "qq:c2c:user-A",
+        message_id="original-msg",
+    )
+    assert (
+        await send_stream(
+            peer,
+            identity,
+            handle,
+            operation="stream.start",
+            sequence=0,
+            accumulated_text="first",
+        )
+    )["state"] == "acknowledged"
+    server.drop_next = 1
+    lost = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.delta",
+        sequence=1,
+        target_delivery_id="delivery-A",
+        accumulated_text="first more",
+    )
+    assert lost["state"] == "unknown"
+    recovered = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-C",
+        operation="stream.delta",
+        sequence=2,
+        target_delivery_id="delivery-A",
+        accumulated_text="first more still",
+    )
+    assert recovered["state"] == "acknowledged"
+    # QQ accepted index 1 even though its response was lost, so the next
+    # slice continues at 2 instead of resending an index QQ already saw.
+    assert [row["body"]["index"] for row in server.api_rows()] == [0, 1, 2]
+    assert server.api_rows()[-1]["body"]["content_raw"] == "first more still"
+
+
+async def test_stream_type_is_preserved_and_validated(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(peer, identity, "qq:c2c:user-A")
+    start = await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="thinking",
+        stream_type="reasoning",
+    )
+    assert start["state"] == "acknowledged"
+    reasoning = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.delta",
+        sequence=1,
+        target_delivery_id="delivery-A",
+        accumulated_text="thinking more",
+        stream_type="reasoning",
+    )
+    assert reasoning["state"] == "acknowledged"
+    mismatch = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-C",
+        operation="stream.delta",
+        sequence=2,
+        target_delivery_id="delivery-A",
+        accumulated_text="answer",
+    )
+    assert mismatch["state"] == "failed"
+    assert mismatch["reason_code"] == "STREAM_TYPE_MISMATCH"
+    assert [row["body"]["content_raw"] for row in server.api_rows()] == [
+        "thinking",
+        "thinking more",
+    ]
+
+
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(
+        peer,
+        identity,
+        "qq:c2c:user-A",
+        message_id="original-msg",
+    )
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="first",
+    )
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.delta",
+        sequence=1,
+        target_delivery_id="delivery-A",
+        accumulated_text="first more",
+    )
+    finish = ResponseFinishParams.from_mapping(
+        {**identity, "response_handle": handle, "outcome": outcome},
+    )
+    await peer.methods["channel.response.finish"](finish, None)
+    rows = server.api_rows()
+    assert len(rows) == 3
+    closing = rows[-1]["body"]
+    assert closing == {
+        "input_mode": "replace",
+        "input_state": 10,
+        "index": 2,
+        "content_type": "markdown",
+        "content_raw": "first more",
+        "msg_id": "original-msg",
+        "msg_seq": 1,
+        "stream_msg_id": "sent",
+    }
+    snapshot = driver._routes.snapshot(handle)
+    assert snapshot is None or all(
+        dict(ref.attributes).get("final") == "true"
+        for ref in snapshot.resource_refs
+        if ref.kind == "qq.delivery"
+    )
+
+
+async def test_cleanup_skips_already_ended_stream(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(peer, identity, "qq:c2c:user-A")
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="first",
+    )
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.end",
+        sequence=1,
+        target_delivery_id="delivery-A",
+        accumulated_text="final answer",
+    )
+    finish = ResponseFinishParams.from_mapping(
+        {**identity, "response_handle": handle, "outcome": "completed"},
+    )
+    await peer.methods["channel.response.finish"](finish, None)
+    assert [row["body"]["input_state"] for row in server.api_rows()] == [
+        1,
+        10,
+    ]

@@ -544,8 +544,9 @@ class QQPlatform:
             )
         msg_id = str(route.get("message_id") or "")
         msg_seq = self._next_seq(route, msg_id, path)
+        body_text = text or "..."
         body = self._stream_body(
-            text or "...",
+            body_text,
             1,
             0,
             markdown,
@@ -565,6 +566,9 @@ class QQPlatform:
             "msg_id": msg_id,
             "msg_seq": str(msg_seq),
             "index": "0",
+            # Effective native content, so cleanup closes the stream with the
+            # text QQ is actually showing.
+            "text": body_text,
         }
 
     async def update_stream(
