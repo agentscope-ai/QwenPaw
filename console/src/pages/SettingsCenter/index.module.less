@@ -84,7 +84,7 @@
 
 .backButton {
   align-self: flex-start;
-  height: 36px;
+  height: var(--app-control-md);
   margin: 0 2px 16px;
   padding-inline: 8px 12px;
   color: var(--app-text-secondary);
@@ -125,7 +125,7 @@
   min-width: 0;
 
   :global(.ant-select-selector) {
-    height: 36px !important;
+    height: var(--app-control-md) !important;
     padding: 0 10px !important;
     border: 1px solid var(--app-border) !important;
     border-radius: 8px !important;
@@ -171,8 +171,8 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  height: 36px;
-  min-height: 36px;
+  height: var(--app-control-md);
+  min-height: var(--app-control-md);
   padding: 0 12px;
   border: 0;
   border-radius: 8px;
@@ -571,11 +571,6 @@
 }
 
 @media (min-width: 769px) and (max-width: 900px) {
-  .settingRow {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
   .settingCopy {
     min-width: calc(100% - 52px);
   }
@@ -603,11 +598,6 @@
 
   .content {
     padding: 18px 20px;
-  }
-
-  .settingRow {
-    align-items: flex-start;
-    flex-wrap: wrap;
   }
 
   .settingCopy {
@@ -665,10 +655,18 @@
     background 140ms ease,
     color 140ms ease;
   &:focus-visible {
-    outline: 2px solid var(--app-accent);
-    outline-offset: -2px;
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: calc(-1 * var(--app-focus-ring-width));
   }
 }
+
+@media (any-pointer: coarse) {
+  .backButton,
+  .navItem {
+    min-height: var(--app-hit-touch);
+  }
+}
+
 .navItemActive {
   box-shadow: inset 0 0 0 1px var(--app-accent-soft);
 }
@@ -720,6 +718,13 @@
   .body {
     grid-template-rows: auto minmax(0, 1fr);
   }
+  .backButton,
+  .navItem {
+    min-height: var(--app-hit-touch);
+  }
+  .backButton {
+    min-width: var(--app-hit-touch);
+  }
   .sidebar {
     display: none;
   }
@@ -730,7 +735,13 @@
     padding: 12px 16px;
     gap: 8px;
     border-bottom: 1px solid var(--app-border-subtle);
-    > :global(.ant-select) {
+    > button {
+      width: var(--app-hit-touch);
+      min-width: var(--app-hit-touch);
+      height: var(--app-hit-touch);
+    }
+    > :global(.ant-select),
+    > :global(.qwenpaw-select) {
       flex: 1;
       min-width: 160px;
     }
@@ -901,7 +912,7 @@
 .navItemActive {
   background: transparent;
   box-shadow: none;
-  color: var(--app-accent-text);
+  color: var(--app-nav-selected-text);
   font-weight: 500;
   &:hover {
     background: transparent;

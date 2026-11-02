@@ -195,6 +195,7 @@ function ImportWorkflow() {
     selectedAgent,
     loading,
     error,
+    detectError,
     detect,
     scan,
     start,
@@ -243,14 +244,28 @@ function ImportWorkflow() {
     void detect().catch(() => undefined);
   }, [detect]);
   useEffect(() => {
-    if (!job && sources.length && !sourceSelections[selectedAgent]) {
+    if (
+      !job &&
+      !loading &&
+      !detectError &&
+      sources.length &&
+      !sourceSelections[selectedAgent]
+    ) {
       updateSources(() =>
         sources
           .filter((source) => source.detected)
           .map((source) => source.source),
       );
     }
-  }, [job, selectedAgent, sourceSelections, sources, updateSources]);
+  }, [
+    detectError,
+    job,
+    loading,
+    selectedAgent,
+    sourceSelections,
+    sources,
+    updateSources,
+  ]);
   useEffect(() => {
     if (
       job?.state !== "awaiting_selection" ||
@@ -274,7 +289,11 @@ function ImportWorkflow() {
     setPluginConfirmed(false);
   }, [selectionKey]);
 
-  const current = !job ? 0 : job.state === "awaiting_selection" ? 1 : 2;
+  const current = !job
+    ? 0
+    : ["scanning", "awaiting_selection"].includes(job.state)
+    ? 1
+    : 2;
   const isDone = Boolean(
     job &&
       ["completed", "completed_with_issues", "failed", "interrupted"].includes(
@@ -282,6 +301,7 @@ function ImportWorkflow() {
       ),
   );
   const isCancelling = job?.state === "cancelling";
+  const sourceDetectionFailed = !job && Boolean(detectError);
   const percent = useMemo(() => completion(job?.providers ?? []), [job]);
 
   const updateSelection = (
@@ -511,7 +531,20 @@ function ImportWorkflow() {
             </span>
           </div>
         </section>
-        {error && <Alert type="error" showIcon message={error} />}
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            message={sourceDetectionFailed ? detectError : error}
+            action={
+              sourceDetectionFailed ? (
+                <Button onClick={() => void detect().catch(() => undefined)}>
+                  {t("common.retry")}
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
         {job && !isDone && (
           <div className={styles.actions}>
             <Button
@@ -527,7 +560,7 @@ function ImportWorkflow() {
           </div>
         )}
 
-        {!job && (
+        {!job && !sourceDetectionFailed && (
           <section className={styles.section}>
             <div className={styles.sectionHeading}>
               <h3>

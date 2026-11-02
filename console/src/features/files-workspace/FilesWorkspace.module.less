@@ -220,6 +220,132 @@
   background: var(--files-bg);
 }
 
+.navigatorPane {
+  display: contents;
+}
+
+.tagsNavigator {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.tagsHeader {
+  flex-shrink: 0;
+  padding: 12px;
+}
+
+.tagsHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.tagBack {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--files-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tagsCount {
+  margin: 6px 0 0;
+  color: var(--files-muted);
+}
+.tagsList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tagRow,
+.tagFileRow {
+  width: 100%;
+  display: flex;
+  padding: 10px 8px;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--files-ink);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+
+  &:hover,
+  &[aria-current="true"] {
+    background: var(--files-accent-soft);
+  }
+}
+
+.tagRow {
+  align-items: center;
+  svg {
+    flex-shrink: 0;
+  }
+  span:first-of-type {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.tagFileCount {
+  color: var(--files-muted);
+  font-variant-numeric: tabular-nums;
+}
+.tagFileRow {
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 4px;
+  time {
+    color: var(--files-muted);
+    font-size: var(--app-font-caption);
+  }
+}
+.tagDescription {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tagFilePath,
+.tagFileTags {
+  color: var(--files-muted);
+  font-size: var(--app-font-caption);
+}
+.tagsPagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+}
+
+@media (pointer: coarse) {
+  .tagBack,
+  .tagRow,
+  .tagFileRow {
+    min-height: 44px;
+  }
+}
+
+.mobilePaneSwitch {
+  display: none;
+}
+
 .activityRail {
   width: 46px;
   padding: 8px 6px;
@@ -253,6 +379,7 @@
 .navigator {
   width: clamp(210px, 22%, 290px);
   min-width: 190px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--files-line);
@@ -728,19 +855,22 @@
 .sourceTabs {
   padding: 0 8px 9px;
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   gap: 3px;
-  overflow-x: auto;
 
   button {
     height: auto;
     min-height: max(28px, calc(28px * var(--app-font-scale)));
-    padding: 0 9px;
+    max-width: 100%;
+    padding: 5px 9px;
     border: 0;
     border-radius: 7px;
     color: var(--files-muted);
     background: transparent;
     font-size: var(--app-font-caption);
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
     cursor: pointer;
   }
 
@@ -892,6 +1022,13 @@
   flex: 1;
   min-width: 360px;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  > :last-child {
+    min-height: 0;
+    flex: 1;
+  }
 }
 
 .sourcePanel {
@@ -904,7 +1041,7 @@
 
   > header {
     height: auto;
-    min-height: max(42px, calc(42px * var(--app-font-scale)));
+    min-height: max(44px, calc(44px * var(--app-font-scale)));
     padding: 0 12px;
     display: flex;
     align-items: center;
@@ -958,7 +1095,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .drawer,
   .drawerPreview,
   .drawerWorkspace,
@@ -976,32 +1113,102 @@
   }
 
   .drawerTitle + .secondaryButton {
-    width: 34px;
+    width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
     padding: 0;
     font-size: 0;
   }
 
-  .navigator {
-    width: 42%;
-    min-width: 156px;
+  .navigatorPane {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
   }
 
-  .workspaceEmpty {
+  .navigatorPane {
     .navigator {
       width: 100%;
       min-width: 0;
+      flex: 1;
     }
+  }
 
+  .workspace[data-mobile-pane="document"] {
+    .navigatorPane,
+    .sourcePanel {
+      display: none;
+    }
+  }
+
+  .workspace[data-mobile-pane="navigator"],
+  .workspace[data-mobile-pane="source"] {
     .documentSurface {
       display: none;
     }
   }
 
+  .sourcePanel {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .mobilePaneSwitch {
+    width: 100%;
+    min-height: max(44px, calc(44px * var(--app-font-scale)));
+    padding: 0 12px;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    color: var(--files-muted);
+    border: 0;
+    border-bottom: 1px solid var(--files-line);
+    background: var(--files-bg);
+    font-size: var(--app-font-caption);
+    font-weight: 650;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--files-accent);
+      background: var(--files-accent-soft);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--files-accent);
+      outline-offset: -3px;
+    }
+  }
+
   .activityRail {
-    width: 42px;
+    box-sizing: border-box;
+    width: 57px;
+
+    button {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  .iconButton,
+  .sourceTabs button,
+  .treeRow {
+    min-height: var(--app-hit-touch);
+  }
+
+  .sourceTabs button {
+    min-width: var(--app-hit-touch);
+  }
+
+  .iconButton {
+    width: var(--app-hit-touch);
   }
 
   .documentSurface {
+    width: 100%;
     min-width: 0;
   }
 

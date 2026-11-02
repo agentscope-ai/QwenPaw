@@ -6,17 +6,16 @@ import type {
   BuiltinUpdateNotice,
   HubInstallTaskResponse,
   HubSkillSpec,
+  PoolDownloadJob,
   PoolSkillSpec,
   PoolSkillDetail,
   SkillAutomationResponse,
   SkillAutomationUpdate,
   SkillDetail,
+  SkillPoolDownloadRequest,
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
-
-// Declare VITE_API_BASE_URL as global (injected by Vite)
-declare const VITE_API_BASE_URL: string;
 
 // Simple in-memory cache with TTL
 const CACHE_TTL_MS = 30000; // 30 seconds
@@ -74,8 +73,7 @@ export function invalidateSkillCache(options?: {
 }
 
 function getStreamApiUrl(): string {
-  const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";
-  return `${base}/api`;
+  return getApiUrl("").replace(/\/$/, "");
 }
 
 async function _uploadZip(
@@ -86,6 +84,7 @@ async function _uploadZip(
     target_name?: string;
     rename_map?: Record<string, string>;
   },
+  agentId?: string,
 ): Promise<Record<string, unknown>> {
   const formData = new FormData();
   formData.append("file", file);
@@ -103,7 +102,8 @@ async function _uploadZip(
   const qs = params.toString();
   const url = getApiUrl(`${endpoint}${qs ? `?${qs}` : ""}`);
 
-  const headers = buildAuthHeaders();
+  const headers = new Headers(buildAuthHeaders());
+  if (agentId) headers.set("X-Agent-Id", agentId);
 
   const response = await fetch(url, {
     method: "POST",
@@ -214,8 +214,10 @@ export const skillApi = {
     content: string,
     config?: Record<string, unknown>,
     enable?: boolean,
+    agentId?: string,
   ) =>
     request<{ created: boolean; name: string }>("/skills", {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "POST",
       body: JSON.stringify({
         name: skillName,
@@ -271,13 +273,15 @@ export const skillApi = {
       body: JSON.stringify(payload),
     }),
 
-  enableSkill: (skillName: string) =>
+  enableSkill: (skillName: string, agentId?: string) =>
     request<void>(`/skills/${encodeURIComponent(skillName)}/enable`, {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "POST",
     }),
 
-  disableSkill: (skillName: string) =>
+  disableSkill: (skillName: string, agentId?: string) =>
     request<void>(`/skills/${encodeURIComponent(skillName)}/disable`, {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "POST",
     }),
 
@@ -304,10 +308,11 @@ export const skillApi = {
       body: JSON.stringify(skillNames),
     }),
 
-  batchDeleteSkills: (skillNames: string[]) =>
+  batchDeleteSkills: (skillNames: string[], agentId?: string) =>
     request<{
       results: Record<string, { success: boolean; reason?: string }>;
     }>("/skills/batch-delete", {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "POST",
       body: JSON.stringify(skillNames),
     }),
@@ -320,8 +325,9 @@ export const skillApi = {
       body: JSON.stringify(skillNames),
     }),
 
-  deleteSkill: (skillName: string) =>
+  deleteSkill: (skillName: string, agentId?: string) =>
     request<{ deleted: boolean }>(`/skills/${encodeURIComponent(skillName)}`, {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "DELETE",
     }),
 
@@ -474,6 +480,27 @@ export const skillApi = {
       body: JSON.stringify(payload),
     }),
 
+  // Pool downloads as a cancellable job: the endpoint above keeps its
+  // blocking behaviour, this one returns a job the console can follow and
+  // stop without holding a request open for the whole copy.
+  startSkillPoolDownload: (payload: SkillPoolDownloadRequest) =>
+    request<PoolDownloadJob>("/skills/pool/downloads", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getSkillPoolDownload: (jobId: string, options?: RequestOptions) =>
+    request<PoolDownloadJob>(
+      `/skills/pool/downloads/${encodeURIComponent(jobId)}`,
+      options,
+    ),
+
+  cancelSkillPoolDownload: (jobId: string) =>
+    request<PoolDownloadJob>(
+      `/skills/pool/downloads/${encodeURIComponent(jobId)}`,
+      { method: "DELETE" },
+    ),
+
   updateSkillChannels: (
     skillName: string,
     channels: string[],
@@ -612,8 +639,9 @@ export const skillApi = {
       target_name?: string;
       rename_map?: Record<string, string>;
     },
+    agentId?: string,
   ) =>
-    _uploadZip("/skills/upload", file, options) as Promise<{
+    _uploadZip("/skills/upload", file, options, agentId) as Promise<{
       imported: string[];
       count: number;
       enabled: boolean;

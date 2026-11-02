@@ -29,7 +29,13 @@ vi.mock("@/components/interaction/SettingsDrawer", () => ({
  * renders and action handlers execute under test.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor, render } from "@testing-library/react";
+import {
+  act,
+  screen,
+  fireEvent,
+  waitFor,
+  render,
+} from "@testing-library/react";
 import React from "react";
 
 const mocks = vi.hoisted(() => ({
@@ -196,6 +202,7 @@ vi.mock("antd", () => {
     onOk,
     onCancel,
     title,
+    confirmLoading,
     okButtonProps,
   }: {
     open?: boolean;
@@ -203,6 +210,7 @@ vi.mock("antd", () => {
     onOk?: () => void;
     onCancel?: () => void;
     title?: React.ReactNode;
+    confirmLoading?: boolean;
     okButtonProps?: { disabled?: boolean };
   }) =>
     open
@@ -215,8 +223,9 @@ vi.mock("antd", () => {
             "button",
             {
               "data-testid": "acl-modal-ok",
+              "data-loading": confirmLoading ? "true" : "false",
               onClick: onOk,
-              disabled: okButtonProps?.disabled,
+              disabled: okButtonProps?.disabled || confirmLoading,
             },
             "ok",
           ),
@@ -370,10 +379,25 @@ function makeAclAll() {
   };
 }
 
-function renderDrawer(open = true) {
+function renderDrawer(
+  open = true,
+  options: {
+    canMutate?: (ownerAgentId: string) => boolean;
+    onStale?: () => void;
+  } = {},
+) {
   const onClose = vi.fn();
-  render(<AccessControlDrawer open={open} onClose={onClose} />);
-  return { onClose };
+  const onStale = options.onStale ?? vi.fn();
+  render(
+    <AccessControlDrawer
+      open={open}
+      ownerAgentId="agent-a"
+      canMutate={options.canMutate ?? (() => true)}
+      onStale={onStale}
+      onClose={onClose}
+    />,
+  );
+  return { onClose, onStale };
 }
 
 describe("AccessControlDrawer", () => {
@@ -505,6 +529,187 @@ describe("AccessControlDrawer", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("acl-modal")).not.toBeInTheDocument(),
     );
+  });
+
+  it("submits one add request when OK is clicked twice", async () => {
+    let resolveAdd!: () => void;
+    const addRequest = new Promise<void>((resolve) => {
+      resolveAdd = resolve;
+    });
+    mocks.addAclWhitelist.mockReturnValue(addRequest);
+    renderDrawer();
+    await waitFor(() => expect(mocks.getAclAll).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("channels.addUser"));
+    fireEvent.change(
+      screen.getByPlaceholderText("channels.addUserPlaceholder"),
+      { target: { value: "u-once" } },
+    );
+    const ok = screen.getByTestId("acl-modal-ok");
+    fireEvent.click(ok);
+    fireEvent.click(ok);
+
+    expect(mocks.addAclWhitelist).toHaveBeenCalledOnce();
+    expect(ok).toBeDisabled();
+    expect(ok).toHaveAttribute("data-loading", "true");
+
+    await act(async () => {
+      resolveAdd();
+      await addRequest;
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("acl-modal")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("does not let agent A add completion clear agent B loading", async () => {
+    let resolveAgentA!: () => void;
+    let resolveAgentB!: () => void;
+    const agentAAdd = new Promise<void>((resolve) => {
+      resolveAgentA = resolve;
+    });
+    const agentBAdd = new Promise<void>((resolve) => {
+      resolveAgentB = resolve;
+    });
+    mocks.addAclWhitelist
+      .mockReturnValueOnce(agentAAdd)
+      .mockReturnValueOnce(agentBAdd);
+
+    let currentAgent = "agent-a";
+    const drawer = (ownerAgentId: string) => (
+      <AccessControlDrawer
+        open
+        ownerAgentId={ownerAgentId}
+        canMutate={(owner) => owner === currentAgent}
+        onStale={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+    const view = render(drawer("agent-a"));
+    await screen.findByText("alice");
+    fireEvent.click(screen.getByText("channels.addUser"));
+    fireEvent.change(
+      screen.getByPlaceholderText("channels.addUserPlaceholder"),
+      { target: { value: "u-a" } },
+    );
+    fireEvent.click(screen.getByTestId("acl-modal-ok"));
+
+    currentAgent = "agent-b";
+    view.rerender(drawer("agent-b"));
+    await screen.findByText("alice");
+    fireEvent.click(screen.getByText("channels.addUser"));
+    fireEvent.change(
+      screen.getByPlaceholderText("channels.addUserPlaceholder"),
+      { target: { value: "u-b" } },
+    );
+    const agentBOk = screen.getByTestId("acl-modal-ok");
+    fireEvent.click(agentBOk);
+    expect(mocks.addAclWhitelist).toHaveBeenCalledTimes(2);
+    expect(agentBOk).toHaveAttribute("data-loading", "true");
+
+    await act(async () => {
+      resolveAgentA();
+      await agentAAdd;
+    });
+    expect(agentBOk).toBeDisabled();
+    expect(agentBOk).toHaveAttribute("data-loading", "true");
+
+    await act(async () => {
+      resolveAgentB();
+      await agentBAdd;
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("acl-modal")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("rejects captured add, remove, and edit callbacks after ownership changes", async () => {
+    let currentAgent = "agent-a";
+    const onStale = vi.fn();
+    renderDrawer(true, {
+      canMutate: (ownerAgentId) => currentAgent === ownerAgentId,
+      onStale,
+    });
+    await waitFor(() => expect(mocks.getAclAll).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("channels.addUser"));
+    fireEvent.change(
+      screen.getByPlaceholderText("channels.addUserPlaceholder"),
+      { target: { value: "u-stale" } },
+    );
+    const add = screen.getByTestId("acl-modal-ok");
+    const row = screen.getByText("alice").closest("[data-row-key]")!;
+    const remove = row.querySelector("[data-testid='popconfirm-wrap'] button")!;
+    const edit = row.querySelector(
+      "[data-col='remark'] [data-testid='editable-trigger']",
+    )!;
+
+    currentAgent = "agent-b";
+    fireEvent.click(add);
+    fireEvent.click(remove);
+    fireEvent.click(edit);
+
+    expect(mocks.addAclWhitelist).not.toHaveBeenCalled();
+    expect(mocks.removeAclWhitelist).not.toHaveBeenCalled();
+    expect(mocks.updateAclRemark).not.toHaveBeenCalled();
+    expect(onStale).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not let agent A removal clear agent B removal loading", async () => {
+    let resolveAgentA!: () => void;
+    let resolveAgentB!: () => void;
+    const agentARemoval = new Promise<void>((resolve) => {
+      resolveAgentA = resolve;
+    });
+    const agentBRemoval = new Promise<void>((resolve) => {
+      resolveAgentB = resolve;
+    });
+    mocks.removeAclWhitelist
+      .mockReturnValueOnce(agentARemoval)
+      .mockReturnValueOnce(agentBRemoval);
+
+    let currentAgent = "agent-a";
+    const drawer = (ownerAgentId: string) => (
+      <AccessControlDrawer
+        open
+        ownerAgentId={ownerAgentId}
+        canMutate={(owner) => owner === currentAgent}
+        onStale={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+    const view = render(drawer("agent-a"));
+    await screen.findByText("alice");
+    const agentARow = screen.getByText("alice").closest("[data-row-key]")!;
+    fireEvent.click(
+      agentARow.querySelector("[data-testid='popconfirm-wrap'] button")!,
+    );
+    expect(mocks.removeAclWhitelist).toHaveBeenCalledTimes(1);
+
+    currentAgent = "agent-b";
+    view.rerender(drawer("agent-b"));
+    await screen.findByText("alice");
+    const agentBRow = screen.getByText("alice").closest("[data-row-key]")!;
+    const agentBRemove = agentBRow.querySelector(
+      "[data-testid='popconfirm-wrap'] button",
+    )!;
+    fireEvent.click(agentBRemove);
+    expect(mocks.removeAclWhitelist).toHaveBeenCalledTimes(2);
+    expect(agentBRemove).toBeDisabled();
+    fireEvent.click(agentBRemove);
+    expect(mocks.removeAclWhitelist).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveAgentA();
+      await agentARemoval;
+    });
+    expect(agentBRemove).toBeDisabled();
+
+    await act(async () => {
+      resolveAgentB();
+      await agentBRemoval;
+    });
+    await waitFor(() => expect(agentBRemove).toBeEnabled());
   });
 
   it("keeps the OK button disabled until a user id is typed", async () => {
@@ -674,6 +879,32 @@ describe("AccessControlDrawer", () => {
       ),
     );
     expect(screen.getByText("edited-value")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["remark", "updateAclRemark"],
+    ["username", "updateUsername"],
+  ] as const)("deduplicates overlapping %s edits", async (column, apiName) => {
+    let resolveEdit!: () => void;
+    const editRequest = new Promise<void>((resolve) => {
+      resolveEdit = resolve;
+    });
+    mocks[apiName].mockReturnValue(editRequest);
+    renderDrawer();
+    await screen.findByText("alice");
+    const row = screen.getByText("alice").closest("[data-row-key]")!;
+    const trigger = row.querySelector(
+      `[data-col='${column}'] [data-testid='editable-trigger']`,
+    )!;
+
+    fireEvent.click(trigger);
+    fireEvent.click(trigger);
+    expect(mocks[apiName]).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveEdit();
+      await editRequest;
+    });
   });
 
   it("reports remark and username save failures", async () => {

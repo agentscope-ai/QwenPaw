@@ -92,12 +92,12 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 
 **LLM 流式超时：**
 
-| 变量                                       | 默认值 | 说明                                                                               |
-| ------------------------------------------ | ------ | ---------------------------------------------------------------------------------- |
-| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`   | 等待首个携带内容的 chunk 时，累计等待上游流的最长秒数；设为 `0` 时禁用首段超时     |
-| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`   | 首个内容到达后，连续携带内容的 chunk 之间累计等待上游流的最长秒数；设为 `0` 时禁用 |
+| 变量                                       | 默认值 | 说明                                                                                       |
+| ------------------------------------------ | ------ | ------------------------------------------------------------------------------------------ |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`   | 每次尝试中，建立上游请求与等待首个携带内容的 chunk 共用的最长秒数；设为 `0` 时禁用首段超时 |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`   | 首个内容到达后，连续携带内容的 chunk 之间累计等待上游流的最长秒数；设为 `0` 时禁用         |
 
-这两个超时只累计等待上游流的时间，不包含下游消费者背压造成的暂停。空控制 chunk 不会切换阶段或刷新预算。环境变量在进程启动时读取，修改后需要重启 QwenPaw。
+两个流式超时只累计等待上游的时间，不包含限流排队或下游消费者背压造成的暂停。限流排队约 10 秒仍未结束时，会记录一次包含模型、等待时长和限流状态的告警。空控制 chunk 不会切换阶段或刷新预算。环境变量在进程启动时读取，修改后需要重启 QwenPaw。
 
 **安全与认证：**
 
@@ -442,6 +442,25 @@ ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 | `compact_threshold_ratio` | float | `0.8`  | 触发压缩的阈值比例（相对于 `max_input_length`） |
 | `reserve_threshold_ratio` | float | `0.1`  | 压缩时保留的最近上下文比例                      |
 
+**决策模型压缩（`light_context_config.decision_compact_config` 对象）：**
+
+同时增强 Scroll 和原生压缩。使用智能体决策模型，未选择时回退到全局默认决策模型。
+独立于长期记忆和聊天决策开关，需要开启自动上下文压缩。
+
+| 字段                       | 类型  | 默认值  | 说明                                   |
+| -------------------------- | ----- | ------- | -------------------------------------- |
+| `enabled`                  | bool  | `false` | 启用按相关性生成工具结果预览           |
+| `drop_threshold`           | float | `0.1`   | 允许缩短结果的相关性概率上限，范围 0–1 |
+| `preserve_recent_messages` | int   | `6`     | 保留最近消息数；当前完整轮次始终受保护 |
+| `preview_chars`            | int   | `300`   | 预览字符数，不含恢复指令               |
+| `total_timeout_seconds`    | float | `30`    | 整次增强超时，大于 0 且不超过 300 秒   |
+| `max_state_tokens`         | int   | `25000` | 决策状态的 ReMe token 估算正数上限     |
+| `max_request_tokens`       | int   | `30000` | 每次完整请求的 ReMe token 估算正数上限 |
+| `evidence_chars`           | int   | `2000`  | 每条工具结果的正数证据字符上限         |
+| `max_concurrency`          | int   | `4`     | 决策请求并发数，范围 1–32              |
+
+恢复及兜底行为见[可选的决策模型压缩](./context#可选的决策模型压缩)。
+
 **Light 工具结果修剪配置（`light_context_config.tool_result_pruning_config` 对象）：**
 
 | 字段                           | 类型 | 默认值  | 说明                                                                |
@@ -467,6 +486,8 @@ ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 | `daily_paper_inbox_push_enabled` | bool        | `true`                           | 是否将 Daily Paper 结果推送到收件箱                                                               |
 | `auto_fin_inbox_push_enabled`    | bool        | `true`                           | 是否将实际生成的 Auto Fin 报告或失败结果推送到收件箱；成功跳过时不推送                            |
 | `auto_memory_interval`           | int \| null | `5`                              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
+| `auto_memory_include_images`     | bool        | `false`                          | 记忆模型已确认支持图片输入时，在 Auto-Memory 中包含对话图片                                       |
+| `auto_memory_generate_tags`      | bool        | `false`                          | Auto-Memory 保存笔记后生成实体标签，会增加模型调用；无需重启，对后续记忆任务生效                  |
 | `dream_cron_enabled`             | bool        | `true`                           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
 | `dream_cron`                     | string      | `"0 23 * * *"`                   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
 | `daily_paper_cron_enabled`       | bool        | `false`                          | 是否启用按 Cron 定时执行的每日论文任务                                                            |
@@ -481,6 +502,13 @@ ADBPG 和 PowerContext 插件配置见[长期记忆](./memory)。
 | `auto_memory_search_config`      | object      | _（见下方）_                     | 自动记忆搜索配置                                                                                  |
 | `embedding_model_config`         | object      | _（见下方）_                     | Embedding 模型配置                                                                                |
 | `needs_reindex`                  | bool        | `false`                          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                  |
+
+在智能体的记忆设置中开启**在自动记忆中包含图片**，即可记住图片中的视觉信息，默认关闭。ReMe 使用智能体配置的模型，
+继承时使用全局模型；聊天会话中临时选择的模型不会改变记忆模型。模型必须已识别为支持图片输入
+（`supports_image: true`），能力未知时不启用图片；处理图片时也只保留已确认支持图片的回退模型。
+ReMe wrapper 默认限制为**单次 Auto-Memory 最多 5 张图**，
+包含该次一并提交的所有对话轮次。
+需要模型的记忆任务按顺序运行，因此较长的 Dream 或 Daily Paper 任务可能延后 Auto-Memory；记忆检索仍可独立执行。
 
 > `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见
 > [重建记忆搜索索引](./memory#状态与重建索引)。

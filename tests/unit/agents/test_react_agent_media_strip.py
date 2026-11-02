@@ -9,22 +9,34 @@ request-only recovery from provider media-payload rejections.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
+import base64
+from io import BytesIO
+import json
 from types import SimpleNamespace
 
+import httpx
+from openai import APIStatusError, AsyncOpenAI
+from PIL import Image
 import pytest
 from agentscope.agent import Agent
+from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
     Base64Source,
     DataBlock,
     Msg,
     TextBlock,
+    ToolCallBlock,
     ToolResultBlock,
     ToolResultState,
+    URLSource,
 )
 
+from qwenpaw.agents import model_factory
 from qwenpaw.agents.react_agent import QwenPawAgent
+from qwenpaw.agents.tools.send_file import send_file_to_user
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
+from qwenpaw.providers import model_capability_cache
 from qwenpaw.providers.model_capability_cache import get_capability_cache
 
 
@@ -38,6 +50,17 @@ _DEEPSEEK_UNSUPPORTED_IMAGE_ERROR = (
 _MODEL_CAPABILITY_ERROR = (
     "Error code: 400 - {'error': {'message': 'This model does not support "
     "image input.'}}"
+)
+
+
+# Sanitized provider messages reported in #8298 and #8290.
+_VIDEO_SCHEMA_ERROR = (
+    "Failed to deserialize the JSON body into the target type: "
+    "messages[443]: unknown variant `video_url`, "
+    "expected one of `text`, `image_url`, `file`"
+)
+_VIDEO_ZERO_LIMIT = (
+    "At most 0 video(s) may be provided in one prompt. (parameter=video)"
 )
 
 
@@ -482,3 +505,342 @@ async def test_payload_rejection_without_safe_retry_raises(
 
     assert calls == 1
     assert _dump_context(agent.state.context) == original_dump
+
+
+def _error(status: int, message: str) -> httpx.Response:
+    return httpx.Response(
+        status,
+        json={"error": {"message": message, "type": "invalid_request_error"}},
+    )
+
+
+def _parts(messages: list[dict]) -> list[dict]:
+    return [
+        part
+        for message in messages
+        if isinstance(message.get("content"), list)
+        for part in message["content"]
+    ]
+
+
+@pytest.fixture
+async def video_session(monkeypatch, tmp_path):
+    """Use real file-tool output and wire formatting with a mocked server."""
+    cache = get_capability_cache()
+    cache.clear()
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"video")
+    sent = await send_file_to_user(str(path))
+    pixels = BytesIO()
+    Image.new("RGB", (2, 2)).save(pixels, format="PNG")
+    image_data = base64.b64encode(pixels.getvalue()).decode("ascii")
+    image = DataBlock(
+        source=Base64Source(media_type="image/png", data=image_data),
+    )
+    audio = DataBlock(
+        source=Base64Source(media_type="audio/mp3", data="YXVkaW8="),
+    )
+    video = DataBlock(
+        source=URLSource(url=path.as_uri(), media_type="video/mp4"),
+    )
+    agent = _reasoning_agent()
+    agent.model = SimpleNamespace(
+        model="test-video",
+        model_key="test:video",
+        formatter=OpenAIChatFormatter(),
+    )
+    agent.formatter = model_factory._install_model_formatter(agent.model)
+    agent.state.context = [
+        Msg(name="user", role="user", content=[image, audio, video]),
+        Msg(
+            name="agent",
+            role="assistant",
+            content=[
+                ToolCallBlock(
+                    id="send-1",
+                    name="send_file_to_user",
+                    input=json.dumps({"file_path": str(path)}),
+                ),
+                ToolResultBlock(
+                    id="send-1",
+                    name="send_file_to_user",
+                    output=sent.content,
+                ),
+            ],
+        ),
+        Msg(name="user", role="user", content=[TextBlock(text="continue")]),
+    ]
+    session = SimpleNamespace(
+        agent=agent,
+        cache=cache,
+        errors=[],
+        requests=[],
+        other_media=[
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{image_data}"},
+            },
+            {
+                "type": "input_audio",
+                "input_audio": {"data": "YXVkaW8=", "format": "mp3"},
+            },
+        ],
+    )
+
+    def respond(request):
+        session.requests.append(json.loads(request.content)["messages"])
+        if session.errors:
+            return session.errors.pop(0)
+        return httpx.Response(
+            200,
+            json={
+                "id": "reply",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test-video",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "done"},
+                        "finish_reason": "stop",
+                    },
+                ],
+            },
+        )
+
+    async with AsyncOpenAI(
+        api_key="test-key",
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)),
+    ) as client:
+
+        async def provider_reasoning(self, tool_choice=None):
+            del tool_choice
+            messages = await self.formatter.format(self.state.context)
+            response = await client.chat.completions.create(
+                model="test-video",
+                messages=messages,
+            )
+            yield Msg(
+                name="agent",
+                role="assistant",
+                content=[TextBlock(text=response.choices[0].message.content)],
+            )
+
+        monkeypatch.setattr(Agent, "_reasoning", provider_reasoning)
+        try:
+            yield session
+        finally:
+            cache.clear()
+
+
+def _assert_recovery(session, video_counts, learned):
+    snapshots = [
+        {
+            "videos": model_factory._count_wire_video_blocks(request),
+            "other_media": [
+                part
+                for part in _parts(request)
+                if part.get("type") in ("image_url", "input_audio")
+            ],
+        }
+        for request in session.requests
+    ]
+    assert snapshots == [
+        {"videos": count, "other_media": session.other_media}
+        for count in video_counts
+    ]
+    assert {
+        key: session.cache.get("test:video", key, False)
+        for key in ("rejects_video", "rejects_audio", "rejects_media")
+    } == {
+        "rejects_video": learned,
+        "rejects_audio": False,
+        "rejects_media": False,
+    }
+    assert {
+        kind: getattr(
+            session.agent.formatter,
+            f"_qwenpaw_force_strip_{kind}",
+            False,
+        )
+        for kind in ("video", "audio", "media")
+    } == {"video": False, "audio": False, "media": False}
+
+
+@pytest.mark.parametrize(
+    ("status", "message"),
+    [(422, _VIDEO_SCHEMA_ERROR), (400, _VIDEO_ZERO_LIMIT)],
+    ids=["deepseek-schema", "zero-video-budget"],
+)
+async def test_video_rejection_recovers_and_next_turn_skips_video(
+    video_session,
+    status,
+    message,
+):
+    session = video_session
+    agent = session.agent
+    before = [msg.model_dump() for msg in agent.state.context]
+    session.errors.append(_error(status, message))
+    first = [event async for event in agent._reasoning()]
+    second = [event async for event in agent._reasoning()]
+
+    assert [events[-1].content[0].text for events in (first, second)] == [
+        "done",
+        "done",
+    ]
+    _assert_recovery(session, [2, 0, 0], learned=True)
+    assert [msg.model_dump() for msg in agent.state.context] == before
+
+
+@pytest.mark.parametrize("other_type", ["image", "audio"])
+async def test_mixed_media_rejection_uses_media_free_retry(
+    video_session,
+    other_type,
+):
+    session = video_session
+    before = _dump_context(session.agent.state.context)
+    session.errors.append(
+        _error(
+            400,
+            f"This model does not support video or {other_type} input",
+        ),
+    )
+    events = [event async for event in session.agent._reasoning()]
+
+    assert events[-1].content[0].text == "done"
+    assert [
+        [part["type"] for part in _parts(request) if part["type"] != "text"]
+        for request in session.requests
+    ] == [["image_url", "input_audio", "video_url", "video_url"], []]
+    assert _dump_context(session.agent.state.context) == before
+    assert {
+        key: session.cache.get("test:video", key, False)
+        for key in ("rejects_video", "rejects_audio", "rejects_media")
+    } == {
+        "rejects_video": False,
+        "rejects_audio": False,
+        "rejects_media": False,
+    }
+    assert {
+        kind: getattr(
+            session.agent.formatter,
+            f"_qwenpaw_force_strip_{kind}",
+            False,
+        )
+        for kind in ("video", "audio", "media")
+    } == {"video": False, "audio": False, "media": False}
+
+
+async def test_positive_video_limit_does_not_disable_next_valid_input(
+    video_session,
+):
+    session = video_session
+    session.errors.append(
+        _error(400, "At most 1 video(s) may be provided in one prompt."),
+    )
+    _ = [event async for event in session.agent._reasoning()]
+    # Keep one video, removing the redundant file-delivery exchange.
+    session.agent.state.context = session.agent.state.context[:1]
+    _ = [event async for event in session.agent._reasoning()]
+    _assert_recovery(session, [2, 0, 1], learned=False)
+
+
+async def test_failed_video_retry_does_not_learn_or_mutate_history(
+    video_session,
+):
+    session = video_session
+    before = [msg.model_dump() for msg in session.agent.state.context]
+    session.errors.extend(
+        [_error(422, _VIDEO_SCHEMA_ERROR), _error(400, "invalid request")],
+    )
+    with pytest.raises(APIStatusError, match="invalid request"):
+        _ = [event async for event in session.agent._reasoning()]
+    _assert_recovery(session, [2, 0], learned=False)
+    assert [msg.model_dump() for msg in session.agent.state.context] == before
+
+
+async def test_schema_error_without_wire_video_does_not_retry(video_session):
+    session = video_session
+    session.agent.state.context = [
+        Msg(name="user", role="user", content=[TextBlock(text="hello")]),
+    ]
+    session.errors.append(_error(422, _VIDEO_SCHEMA_ERROR))
+    with pytest.raises(APIStatusError, match="unknown variant"):
+        _ = [event async for event in session.agent._reasoning()]
+    assert len(session.requests) == 1
+    assert session.cache.get("test:video", "rejects_video", False) is False
+
+
+async def test_cached_audio_and_video_flags_clear_after_unrelated_failure(
+    video_session,
+):
+    session = video_session
+    session.cache.learn("test:video", "rejects_video", True)
+    session.cache.learn("test:video", "rejects_audio", True)
+    session.errors.append(_error(401, "invalid API key"))
+    with pytest.raises(APIStatusError, match="invalid API key"):
+        _ = [event async for event in session.agent._reasoning()]
+    assert len(session.requests) == 1
+    assert [
+        part
+        for part in _parts(session.requests[0])
+        if part.get("type") in ("image_url", "input_audio", "video_url")
+    ] == session.other_media[:1]
+    assert {
+        kind: getattr(session.agent.formatter, f"_qwenpaw_force_strip_{kind}")
+        for kind in ("video", "audio")
+    } == {"video": False, "audio": False}
+
+
+async def test_video_cache_expires_and_is_scoped_to_model(
+    video_session,
+    monkeypatch,
+):
+    session = video_session
+    now = [100.0]
+    monkeypatch.setattr(
+        model_capability_cache.time,
+        "monotonic",
+        lambda: now[0],
+    )
+    monkeypatch.setattr(
+        model_capability_cache,
+        "CAPABILITY_CACHE_TTL_SECONDS",
+        1800,
+    )
+    session.errors.append(_error(422, _VIDEO_SCHEMA_ERROR))
+    _ = [event async for event in session.agent._reasoning()]
+    session.agent.model.model_key = "test:other-video-model"
+    _ = [event async for event in session.agent._reasoning()]
+    session.agent.model.model_key = "test:video"
+    now[0] += 1801
+    _ = [event async for event in session.agent._reasoning()]
+    _assert_recovery(session, [2, 0, 2, 2], learned=False)
+
+
+@pytest.mark.parametrize(
+    ("message", "retry", "learn"),
+    [
+        (_VIDEO_SCHEMA_ERROR, True, True),
+        (_VIDEO_ZERO_LIMIT, True, True),
+        ("unknown variant `input_video`", True, True),
+        ("This model does not support video input", True, True),
+        ("video input is not supported", True, True),
+        ("At most 2 videos may be provided in one prompt", True, False),
+        ("unknown variant `input_audio`, expected `video_url`", False, False),
+        ("unknown variant `image_url`", False, False),
+        ("invalid video URL", False, False),
+        ("video content_safety rejection", False, False),
+    ],
+)
+def test_video_classifier_distinguishes_capability_from_request_limits(
+    message,
+    retry,
+    learn,
+):
+    error = RuntimeError(message)
+    assert {
+        "retry": QwenPawAgent._is_video_fallback_error(error),
+        "learn": QwenPawAgent._is_video_capability_error(error),
+    } == {"retry": retry, "learn": learn}

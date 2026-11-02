@@ -110,6 +110,7 @@ function CronJobsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [saving, setSaving] = useState(false);
+  const drawerSession = useRef(0);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<CronViewMode>("list");
   const [isMobile, setIsMobile] = useState(false);
@@ -178,6 +179,8 @@ function CronJobsPage() {
   }, [loadDispatchTargets]);
 
   const handleCreate = () => {
+    drawerSession.current += 1;
+    setSaving(false);
     setEditingJob(null);
     form.resetFields();
     form.setFieldsValue({
@@ -195,6 +198,8 @@ function CronJobsPage() {
   };
 
   const handleUseTemplate = (templateValues: Record<string, unknown>) => {
+    drawerSession.current += 1;
+    setSaving(false);
     setTemplateModalOpen(false);
     setEditingJob(null);
     form.resetFields();
@@ -256,6 +261,8 @@ function CronJobsPage() {
   };
 
   const handleEdit = (job: CronJob) => {
+    drawerSession.current += 1;
+    setSaving(false);
     setEditingJob(job);
 
     const formValues: JobFormValues = {
@@ -360,6 +367,8 @@ function CronJobsPage() {
   };
 
   const handleDrawerClose = () => {
+    drawerSession.current += 1;
+    setSaving(false);
     setDrawerOpen(false);
     setEditingJob(null);
   };
@@ -381,6 +390,7 @@ function CronJobsPage() {
   };
 
   const handleSubmit = async (values: JobFormValues) => {
+    const sessionId = drawerSession.current;
     let schedule: CronJob["schedule"] = values.schedule;
     if ((values.scheduleType || "cron") === "once") {
       const onceRepeatEnabled = Boolean(values.onceRepeatEnabled);
@@ -457,10 +467,10 @@ function CronJobsPage() {
       // Remove request object entirely for text tasks
       delete processedValues.request;
     } else if (processedValues.task_type === "agent") {
-      //Ensure request object exists
-      if (!processedValues.request) {
-        processedValues.request = { input: [] };
-      }
+      // Normalize the API payload without changing the form's request draft.
+      processedValues.request = processedValues.request
+        ? { ...processedValues.request }
+        : { input: [] };
 
       if (processedValues.request.model_slot_override === null) {
         delete processedValues.request.model_slot_override;
@@ -482,7 +492,7 @@ function CronJobsPage() {
             processedValues.request.input,
           );
         } catch (error) {
-          console.error("❌ Failed to parse request.input JSON:", error);
+          console.error("Failed to parse request.input JSON:", error);
         }
       }
     }
@@ -491,15 +501,17 @@ function CronJobsPage() {
     setSaving(true);
     try {
       if (editingJob) {
-        success = await updateJob(editingJob.id, processedValues, true);
+        success = await updateJob(editingJob.id, processedValues);
       } else {
         success = await createJob(processedValues);
       }
     } finally {
-      setSaving(false);
+      if (drawerSession.current === sessionId) {
+        setSaving(false);
+      }
     }
-    if (success && !editingJob) {
-      setDrawerOpen(false);
+    if (success && drawerSession.current === sessionId) {
+      handleDrawerClose();
     }
     return success;
   };
@@ -742,7 +754,7 @@ function CronJobsPage() {
                   key={job.id}
                   className={styles.mobileJobCard}
                   size="small"
-                  bodyStyle={{ padding: 16 }}
+                  styles={{ body: { padding: 16 } }}
                 >
                   <div className={styles.mobileJobHeader}>
                     <button
@@ -842,7 +854,7 @@ function CronJobsPage() {
             </div>
           </Spin>
         ) : (
-          <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
+          <Card className={styles.tableCard} styles={{ body: { padding: 0 } }}>
             <Table
               columns={columns}
               dataSource={filteredListJobs}
@@ -859,7 +871,7 @@ function CronJobsPage() {
           </Card>
         )
       ) : (
-        <Card className={styles.calendarCard} bodyStyle={{ padding: 0 }}>
+        <Card className={styles.calendarCard} styles={{ body: { padding: 0 } }}>
           <div className={styles.calendarHeader}>
             <Button
               type="text"
@@ -981,7 +993,7 @@ function CronJobsPage() {
                         onOpenChange={(open) =>
                           setActivePopoverDate(open ? dateKey : null)
                         }
-                        overlayClassName={styles.dayJobPopoverOverlay}
+                        classNames={{ root: styles.dayJobPopoverOverlay }}
                         content={popoverContent}
                       >
                         <button className={styles.calendarMoreBtn}>

@@ -13,18 +13,230 @@ from qwenpaw.app.chats.api import (
     set_chat_model,
     set_chat_thinking,
 )
-from qwenpaw.app.routers.console import _persist_pending_project_dirs
+from qwenpaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.app.routers.console import (
+    _extract_session_and_payload,
+    _persist_pending_project_dirs,
+)
 
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 from qwenpaw.providers.thinking import ThinkingControl, ThinkingPreference
+from qwenpaw.schemas import AgentRequest
 from qwenpaw.services.session_thinking import (
     apply_session_thinking,
     session_preference,
     thinking_view,
 )
+
+
+@pytest.mark.parametrize("request_form", ["direct", "context", "mapping"])
+@pytest.mark.parametrize("slot_form", ["object", "dict", "string"])
+async def test_request_model_selects_its_own_thinking(
+    request_form,
+    slot_form,
+):
+    """An explicit override must not inherit another model's preference."""
+    default = ModelSlotConfig(provider_id="p", model="default")
+    selected = ModelSlotConfig(provider_id="p", model="session")
+    override = ModelSlotConfig(provider_id="other", model="request:tag")
+    config = AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        active_model=default,
+        thinking_level="budget",
+        thinking_budget=4096,
+    )
+    chat = SimpleNamespace(
+        meta={
+            "runtime_context": {
+                "model": selected.model_dump(),
+                "thinking": {
+                    "p:session": {"level": "high"},
+                    "other:request:tag": {"level": "low"},
+                },
+            },
+        },
+    )
+    manager = SimpleNamespace(
+        get_chat_id_by_session=AsyncMock(return_value="chat"),
+        get_chat=AsyncMock(return_value=chat),
+    )
+    slot = {
+        "object": override,
+        "dict": override.model_dump(),
+        "string": "other:request:tag",
+    }[slot_form]
+    values = {
+        "channel": "feishu",
+        "user_id": "u",
+        "request_context": {"model_slot_override": slot},
+    }
+    if request_form == "direct":
+        values["model_slot_override"] = slot
+        values["request_context"]["model_slot_override"] = "ignored:model"
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(chat_manager=manager),
+        session_id="s",
+    )
+    if request_form == "mapping":
+        ctx.payload = values
+    else:
+        ctx.request = SimpleNamespace(**values)
+    snapshot = await apply_session_thinking(ctx, config)
+    assert snapshot.active_model == override
+    assert snapshot.thinking_level == "low"
+    assert snapshot.thinking_budget is None
+    assert config.active_model == default
+    assert config.thinking_budget == 4096
+    manager.get_chat_id_by_session.assert_awaited_once_with("s", "feishu", "u")
+
+
+async def test_request_override_works_without_a_registered_chat():
+    config = AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        thinking_level="high",
+    )
+    selected = ModelSlotConfig(provider_id="p", model="m")
+    ctx = SimpleNamespace(
+        request=SimpleNamespace(model_slot_override=selected),
+    )
+    with patch(
+        "qwenpaw.services.session_thinking.ProviderManager.get_instance",
+    ) as factory:
+        factory.return_value.active_model = None
+        snapshot = await apply_session_thinking(ctx, config)
+    assert snapshot.active_model == selected
+    assert snapshot.thinking_level == "inherit"
+    assert config.active_model is None
+
+
+async def test_subagent_resolves_parent_conversation_thinking():
+    config = AgentProfileConfig(id="agent", name="Agent")
+    manager = SimpleNamespace(
+        get_chat_id_by_session=AsyncMock(return_value=None),
+    )
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(chat_manager=manager),
+        session_id="child",
+        request=SimpleNamespace(
+            channel="console",
+            user_id="u",
+            request_context={
+                "_spawn_subagent": True,
+                "parent_session_id": "parent",
+            },
+        ),
+    )
+    assert await apply_session_thinking(ctx, config) is config
+    manager.get_chat_id_by_session.assert_awaited_once_with(
+        "parent",
+        "console",
+        "u",
+    )
+
+
+async def test_normal_request_keeps_its_own_conversation_identity():
+    config = AgentProfileConfig(id="agent", name="Agent")
+    manager = SimpleNamespace(
+        get_chat_id_by_session=AsyncMock(return_value=None),
+    )
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(chat_manager=manager),
+        session_id="current",
+        request=AgentRequest(
+            channel="console",
+            user_id="u",
+            request_context={
+                "parent_session_id": "other",
+                "channel": "feishu",
+                "user_id": "other-user",
+            },
+        ),
+    )
+    assert await apply_session_thinking(ctx, config) is config
+    manager.get_chat_id_by_session.assert_awaited_once_with(
+        "current",
+        "console",
+        "u",
+    )
+
+
+@pytest.mark.parametrize("parent_channel", ["console", "feishu"])
+@pytest.mark.parametrize("model_override", [None, "p:subagent"])
+async def test_console_subagent_inherits_parent_model_and_thinking(
+    tmp_path,
+    parent_channel,
+    model_override,
+):
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / "chats.json"))
+    parent = await manager.create_chat(
+        ChatSpec(
+            session_id="parent",
+            user_id="alice",
+            channel=parent_channel,
+        ),
+    )
+    selected = ModelSlotConfig(provider_id="p", model="selected")
+    await manager.set_session_model(parent.id, selected.model_dump())
+    expected = (
+        ModelSlotConfig(provider_id="p", model="subagent")
+        if model_override
+        else selected
+    )
+    await manager.set_session_thinking(
+        parent.id,
+        ThinkingPreference(level="low"),
+        f"{expected.provider_id}:{expected.model}",
+    )
+    # A more recent chat with the same session must not cross user boundaries.
+    other = await manager.create_chat(
+        ChatSpec(
+            session_id="parent",
+            user_id="default",
+            channel=parent_channel,
+        ),
+    )
+    await manager.set_session_model(
+        other.id,
+        {"provider_id": "p", "model": "other-user"},
+    )
+    request_context = {
+        "_spawn_subagent": True,
+        "parent_session_id": "parent",
+        "channel": parent_channel,
+        "user_id": "alice",
+    }
+    if model_override:
+        request_context["model_slot_override"] = model_override
+    native = _extract_session_and_payload(
+        AgentRequest(session_id="child", request_context=request_context),
+    )
+    channel = ConsoleChannel(process=AsyncMock(), enabled=True, bot_prefix="")
+    request = channel.build_agent_request_from_native(native)
+    assert request.channel == "console"
+    assert request.user_id == "default"
+    config = AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        active_model=ModelSlotConfig(provider_id="p", model="default"),
+        thinking_level="high",
+    )
+    snapshot = await apply_session_thinking(
+        SimpleNamespace(
+            workspace=SimpleNamespace(chat_manager=manager),
+            session_id=request.session_id,
+            request=request,
+        ),
+        config,
+    )
+    assert snapshot.active_model == expected
+    assert snapshot.thinking_level == "low"
+    assert config.active_model.model == "default"
+    assert config.thinking_level == "high"
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Unit tests for app-process signal setup."""
 
+import os
 import signal
 import subprocess
 import sys
@@ -14,6 +15,40 @@ from qwenpaw.cli.windows_shutdown import (
     _sigbreak_to_sigint,
     install_shutdown_handlers,
 )
+
+
+@pytest.mark.parametrize(
+    ("runtime_id", "expected_mode"),
+    [(None, "standalone"), ("managed-runtime", "hub")],
+)
+def test_server_setup_keeps_runtime_mode_and_channel_host_port(
+    monkeypatch,
+    runtime_id,
+    expected_mode,
+) -> None:
+    from qwenpaw.cli import app_cmd
+    from qwenpaw.app.server_context import HOST_PORT_ENV
+
+    monkeypatch.setenv("QWENPAW_RUNTIME_MODE", "shared")
+    monkeypatch.setenv(HOST_PORT_ENV, "1111")
+    if runtime_id is None:
+        monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
+    else:
+        monkeypatch.setenv("QWENPAW_RUNTIME_ID", runtime_id)
+    addresses = []
+    monkeypatch.setattr(
+        app_cmd,
+        "write_last_api",
+        lambda *address: addresses.append(address),
+    )
+    monkeypatch.setattr(app_cmd, "setup_logger", lambda *_: None)
+    monkeypatch.setattr(app_cmd, "warn_unelevated_sandbox", lambda: None)
+
+    app_cmd.configure_server_process("0.0.0.0", 8765, "info", ())
+
+    assert os.environ["QWENPAW_RUNTIME_MODE"] == expected_mode
+    assert os.environ[HOST_PORT_ENV] == "8765"
+    assert addresses == [("127.0.0.1", 8765)]
 
 
 def test_install_windows_sigbreak_handler(monkeypatch) -> None:

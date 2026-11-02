@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: console/package-lock.json
 
@@ -53,6 +53,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Cache pip
         uses: actions/cache@v4

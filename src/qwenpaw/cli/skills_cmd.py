@@ -1,14 +1,19 @@
 # -*- coding: utf-8 -*-
 """CLI skill: list, inspect, and interactively configure workspace skills."""
+
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext, redirect_stdout
+import io
+import json
 import os
 from pathlib import Path
 
 import click
 import frontmatter
 import httpx
+import yaml
 
 from ..agents.skill_system import (
     SkillConflictError,
@@ -48,6 +53,19 @@ from .http import client, resolve_base_url
 from .utils import prompt_checkbox, prompt_confirm
 
 
+class _SkillTestError(click.ClickException):
+    def __init__(self, code: str, path: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.path = path
+
+
+def _emit_skill_result(result: dict) -> None:
+    click.echo(json.dumps(result, ensure_ascii=False))
+    if not result["ok"]:
+        raise click.exceptions.Exit(1)
+
+
 def _get_agent_workspace(agent_id: str) -> Path:
     """Resolve an agent workspace without falling back to another scope."""
     normalized_agent_id = str(agent_id or "").strip()
@@ -76,6 +94,26 @@ def _get_agent_workspace(agent_id: str) -> Path:
     raise click.ClickException(
         f"Agent '{normalized_agent_id}' not found.",
     )
+
+
+def _resolve_explicit_workspace(
+    workspace: Path | None,
+    agent_id: str | None,
+    pool: bool,
+) -> Path | None:
+    """Resolve the shared --workspace option for test and local install."""
+    if workspace is None:
+        return None
+    workspace = workspace.expanduser()
+    if not workspace.is_dir():
+        raise click.ClickException(
+            f"Workspace directory not found: {workspace}",
+        )
+    if agent_id or pool:
+        raise click.ClickException(
+            "--workspace cannot be combined with --agent-id or --pool.",
+        )
+    return workspace
 
 
 def _raise_conflict(exc: SkillConflictError) -> None:
@@ -117,30 +155,48 @@ def _print_skill_changes(
         )
 
 
-def _validate_skill_frontmatter(skill_dir: Path) -> SkillRequirements:
+def _read_skill_frontmatter(
+    skill_dir: Path,
+) -> tuple[dict[str, str], SkillRequirements]:
     """Validate skill metadata and the supported dependency declarations."""
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.is_file():
-        raise click.ClickException(f"Missing SKILL.md: {skill_md}")
+        raise _SkillTestError(
+            "missing-skill-md",
+            "SKILL.md",
+            f"Missing SKILL.md: {skill_md}",
+        )
 
     content = read_text_file_with_encoding_fallback(skill_md)
     try:
-        validate_skill_content(content)
+        name, description = validate_skill_content(content)
         requirements, errors = parse_skill_requirements(
             dict(frontmatter.loads(content).metadata),
         )
     except SkillsError as exc:
-        raise click.ClickException(str(exc))
+        raise _SkillTestError(
+            "invalid-frontmatter",
+            "SKILL.md",
+            str(exc),
+        ) from exc
     except Exception as exc:
-        raise click.ClickException(
+        raise _SkillTestError(
+            "invalid-frontmatter",
+            "SKILL.md",
             f"SKILL.md frontmatter is invalid: {exc}",
         ) from exc
 
     if errors:
-        raise click.ClickException(
+        raise _SkillTestError(
+            "invalid-frontmatter",
+            "SKILL.md",
             "SKILL.md frontmatter is invalid:\n  - " + "\n  - ".join(errors),
         )
-    return requirements
+    return {"name": name, "description": description}, requirements
+
+
+def _validate_skill_frontmatter(skill_dir: Path) -> SkillRequirements:
+    return _read_skill_frontmatter(skill_dir)[1]
 
 
 def _resolve_scope(
@@ -235,7 +291,9 @@ def _validate_skill_dependencies(
         )
 
     if missing:
-        raise click.ClickException(
+        raise _SkillTestError(
+            "missing-dependencies",
+            "",
             "Declared dependencies are not satisfied:\n  - "
             + "\n  - ".join(missing),
         )
@@ -284,33 +342,70 @@ def _warn_skill_command_conflict(
         )
 
 
-def _run_skill_test(
+def _inspect_skill_directory(
     skill_dir: Path,
     *,
     workspace_dir: Path | None = None,
-) -> str:
+    report: dict | None = None,
+) -> dict:
     """Run local skill validation and security scanning."""
     if not skill_dir.is_dir():
         raise click.ClickException(f"Skill directory not found: {skill_dir}")
 
     skill_name = skill_dir.name
-    requirements = _validate_skill_frontmatter(skill_dir)
+    report = report if report is not None else {}
+    report.update(
+        name=skill_name,
+        path=str(skill_dir.resolve()),
+        security_scan="skipped",
+    )
+    metadata, requirements = _read_skill_frontmatter(skill_dir)
+    report["metadata"] = metadata
+    agent_metadata = skill_dir / "agents" / "openai.yaml"
+    if agent_metadata.is_file():
+        try:
+            value = yaml.safe_load(agent_metadata.read_text(encoding="utf-8"))
+            if not isinstance(value, dict):
+                raise ValueError("Top-level YAML value must be an object.")
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
+            raise _SkillTestError(
+                "invalid-openai-yaml",
+                "agents/openai.yaml",
+                f"agents/openai.yaml is invalid: {exc}",
+            ) from exc
+    report["security_scan"] = "failed"
     try:
         result = scan_skill_directory(
             skill_dir,
             skill_name=skill_name,
-            block=True,
         )
     except SkillScanError as exc:
-        raise click.ClickException(str(exc)) from exc
+        raise _SkillTestError("security-scan-failed", "", str(exc)) from exc
 
     if result is not None and not result.is_safe:
-        raise click.ClickException(
+        # The scanner already applied the configured policy. Reaching here
+        # with findings means warn mode, not a second reason to reject.
+        click.echo(
             "Security scan found "
-            f"{len(result.findings)} issue(s) in skill '{skill_name}'.",
+            f"{len(result.findings)} issue(s) in skill '{skill_name}'; "
+            "the configured policy allows continuing.",
         )
+        report["security_findings"] = [
+            finding.to_dict() for finding in result.findings
+        ]
+    report["security_scan"] = "completed" if result is not None else "skipped"
     _validate_skill_dependencies(skill_dir, requirements, workspace_dir)
-    return skill_name
+    return report
+
+
+def _run_skill_test(
+    skill_dir: Path,
+    *,
+    workspace_dir: Path | None = None,
+) -> str:
+    return _inspect_skill_directory(skill_dir, workspace_dir=workspace_dir)[
+        "name"
+    ]
 
 
 def _install_selected_skills(
@@ -796,8 +891,72 @@ def info_cmd(
     )
 
 
+def _install_skill_url(
+    location: str,
+    agent_id: str,
+    pool: bool,
+    enable: bool,
+    *,
+    json_output: bool,
+) -> dict:
+    """Install a URL using the existing hub scope and output behavior."""
+    scope = _resolve_scope(agent_id, pool, default_pool=True)
+    if scope is None and not enable:
+        raise click.ClickException(
+            "--no-enable is only supported with --agent-id; "
+            "pool skills have no enabled state.",
+        )
+    workspace = _get_agent_workspace(scope) if scope else None
+
+    async def _run_install() -> object:
+        try:
+            if workspace is not None:
+                return await install_skill_from_hub(
+                    workspace_dir=workspace,
+                    bundle_url=location,
+                    enable=enable,
+                )
+            return await import_pool_skill_from_hub(bundle_url=location)
+        finally:
+            await aclose_hub_client()
+
+    installed = asyncio.run(_run_install())
+    if not json_output:
+        target = (
+            f"agent '{scope}'" if workspace is not None else "the skill pool"
+        )
+        click.echo(f"✓ Installed skill '{installed.name}' to {target}.")
+        if workspace is not None and installed.enabled:
+            click.echo("✓ Skill enabled.")
+        click.echo(f"Source: {installed.source_url}")
+        if workspace is not None:
+            click.echo(f"Workspace: {workspace}")
+    return {
+        "ok": True,
+        "name": installed.name,
+        "source_url": installed.source_url,
+        "enabled": bool(workspace is not None and installed.enabled),
+    }
+
+
 @skills_group.command("install")
-@click.argument("bundle_url", required=True)
+@click.argument("location", required=True)
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    help="Install a local directory into this workspace.",
+)
+@click.option(
+    "--source",
+    default=None,
+    help="Manifest source label (local directories only).",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Output one JSON result.",
+)
 @click.option(
     "--agent-id",
     "agent_id",
@@ -815,65 +974,88 @@ def info_cmd(
     help="Enable after import when installing into an agent workspace.",
 )
 def install_cmd(
-    bundle_url: str,
+    location: str,
     agent_id: str,
     pool: bool,
     enable: bool,
+    workspace: Path | None,
+    source: str | None,
+    json_output: bool,
 ) -> None:
-    """Install a skill from a URL.
+    """Download a skill from a URL or import a local Skill directory.
 
-    Without ``--agent-id``, the skill is imported into the local skill pool.
-    With ``--agent-id``, the skill is imported directly into that workspace.
+    URLs default to the local skill pool. Local directories require
+    --agent-id or --workspace; installation copies the package and registers
+    it in the workspace manifest without overwriting existing skills.
     """
-    normalized_agent_id = _resolve_scope(
-        agent_id,
-        pool,
-        default_pool=True,
-    )
-    if normalized_agent_id is None and not enable:
-        raise click.ClickException(
-            "--no-enable is only supported with --agent-id; "
-            "pool skills have no enabled state.",
-        )
-    workspace_dir = (
-        _get_agent_workspace(normalized_agent_id)
-        if normalized_agent_id
-        else None
-    )
-
-    async def _run_install() -> object:
-        try:
-            if workspace_dir is not None:
-                return await install_skill_from_hub(
-                    workspace_dir=workspace_dir,
-                    bundle_url=bundle_url,
-                    enable=enable,
-                )
-            return await import_pool_skill_from_hub(bundle_url=bundle_url)
-        finally:
-            await aclose_hub_client()
-
+    diagnostics = io.StringIO()
     try:
-        result = asyncio.run(_run_install())
-        if workspace_dir is not None:
-            click.echo(
-                f"✓ Installed skill '{result.name}' to agent "
-                f"'{normalized_agent_id}'.",
+        with redirect_stdout(diagnostics) if json_output else nullcontext():
+            is_url = (
+                location.strip().lower().startswith(("http://", "https://"))
             )
-            if result.enabled:
-                click.echo("✓ Skill enabled.")
-            click.echo(f"Source: {result.source_url}")
-            click.echo(f"Workspace: {workspace_dir}")
-            return
-
-        click.echo(f"✓ Installed skill '{result.name}' to the skill pool.")
-        click.echo(f"Source: {result.source_url}")
-    except SkillConflictError as exc:
-        _raise_conflict(exc)
-    except SkillScanError as exc:
-        raise click.ClickException(str(exc)) from exc
+            workspace = _resolve_explicit_workspace(workspace, agent_id, pool)
+            if not is_url:
+                local_dir = Path(location).expanduser()
+                if not local_dir.is_dir():
+                    raise click.ClickException(
+                        f"Skill directory not found: {local_dir}",
+                    )
+                if pool or (workspace is None and not agent_id):
+                    raise click.ClickException(
+                        "Local directory install requires "
+                        "--workspace or --agent-id.",
+                    )
+                target = workspace or _get_agent_workspace(agent_id)
+                installed = SkillService(target).install_skill_directory(
+                    local_dir,
+                    enable=enable,
+                    source=source or "customized",
+                )
+                result = {"ok": installed["success"], **installed}
+                if not json_output:
+                    if not result["ok"]:
+                        raise click.ClickException(
+                            f"Skill '{result['name']}' already exists. "
+                            f"Suggested name: {result['suggested_name']}",
+                        )
+                    click.echo(
+                        f"✓ Installed skill '{result['name']}' "
+                        f"to {result['path']}.",
+                    )
+            else:
+                if workspace is not None or source is not None:
+                    raise click.ClickException(
+                        "--workspace and --source require a local directory.",
+                    )
+                result = _install_skill_url(
+                    location,
+                    agent_id,
+                    pool,
+                    enable,
+                    json_output=json_output,
+                )
     except Exception as exc:
+        if json_output:
+            detail = exc.detail if isinstance(exc, SkillConflictError) else {}
+            _emit_skill_result(
+                {
+                    **(detail or {}),
+                    "ok": False,
+                    "message": str(exc),
+                    "errors": [
+                        {"code": "install-failed", "message": str(exc)},
+                    ],
+                    "warnings": diagnostics.getvalue().splitlines(),
+                },
+            )
+        if isinstance(exc, SkillConflictError):
+            _raise_conflict(exc)
         raise click.ClickException(str(exc)) from exc
+    if json_output:
+        _emit_skill_result(
+            {**result, "warnings": diagnostics.getvalue().splitlines()},
+        )
 
 
 @skills_group.command("uninstall")
@@ -966,6 +1148,17 @@ def uninstall_cmd(
 @skills_group.command("test")
 @click.argument("skill", required=True)
 @click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    help="Output one JSON result.",
+)
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    help="Use this workspace for local dependency checks.",
+)
+@click.option(
     "--agent-id",
     default=None,
     help="Target agent for dependency and command checks "
@@ -988,39 +1181,88 @@ def test_cmd(
     agent_id: str | None,
     pool: bool,
     base_url: str | None,
+    json_output: bool,
+    workspace: Path | None,
 ) -> None:
     """Validate a workspace skill, pool skill, or local skill directory."""
-    scope = _resolve_scope(agent_id, pool)
-    skill_dir = _resolve_skill_test_dir(
-        skill,
-        scope,
-        pool=scope is None,
-    )
-    # Local paths are not implicitly associated with the default agent.
-    target_agent = (
-        scope
-        if scope is not None
-        and (agent_id or not Path(skill).expanduser().exists())
-        else None
-    )
-    workspace_dir = (
-        _get_agent_workspace(target_agent) if target_agent else None
-    )
-    click.echo(
-        "Binary and environment checks use this CLI host "
-        "and local configuration.",
-    )
-    skill_name = _run_skill_test(skill_dir, workspace_dir=workspace_dir)
-    if target_agent:
-        _warn_skill_command_conflict(
-            skill_name,
-            target_agent,
-            resolve_base_url(ctx, base_url),
+    diagnostics = io.StringIO()
+    report = {}
+    try:
+        with redirect_stdout(diagnostics) if json_output else nullcontext():
+            workspace = _resolve_explicit_workspace(workspace, agent_id, pool)
+            scope = _resolve_scope(agent_id, pool)
+            if workspace is not None:
+                candidate = Path(skill).expanduser()
+                skill_dir = (
+                    candidate.resolve()
+                    if candidate.exists()
+                    else (get_workspace_skills_dir(workspace) / skill)
+                )
+            else:
+                skill_dir = _resolve_skill_test_dir(
+                    skill,
+                    scope,
+                    pool=scope is None,
+                )
+            # Local directories never implicitly select the default agent.
+            target_agent = (
+                scope
+                if workspace is None
+                and scope is not None
+                and (agent_id or not Path(skill).expanduser().exists())
+                else None
+            )
+            workspace_dir = workspace or (
+                _get_agent_workspace(target_agent) if target_agent else None
+            )
+            if not json_output:
+                click.echo(
+                    "Binary and environment checks use this CLI host "
+                    "and local configuration.",
+                )
+            _inspect_skill_directory(
+                skill_dir,
+                workspace_dir=workspace_dir,
+                report=report,
+            )
+            if target_agent:
+                _warn_skill_command_conflict(
+                    report["name"],
+                    target_agent,
+                    resolve_base_url(ctx, base_url),
+                )
+            elif workspace is None:
+                click.echo(
+                    "MCP configuration and command conflict checks skipped: "
+                    "no target agent selected. Use --agent-id "
+                    "to check a workspace.",
+                )
+    except Exception as exc:
+        if not json_output:
+            raise
+        _emit_skill_result(
+            {
+                "ok": False,
+                **report,
+                "errors": [
+                    {
+                        "code": getattr(exc, "code", "skill-test-failed"),
+                        "path": getattr(exc, "path", ""),
+                        "message": str(exc),
+                    },
+                ],
+                "warnings": diagnostics.getvalue().splitlines(),
+            },
+        )
+    if json_output:
+        _emit_skill_result(
+            {
+                "ok": True,
+                **report,
+                "errors": [],
+                "warnings": diagnostics.getvalue().splitlines(),
+            },
         )
     else:
-        click.echo(
-            "MCP configuration and command conflict checks skipped: "
-            "no target agent selected. Use --agent-id to check a workspace.",
-        )
-    click.echo(f"Skill test passed: {skill_name}")
-    click.echo(f"Path: {skill_dir}")
+        click.echo(f"Skill test passed: {report['name']}")
+        click.echo(f"Path: {skill_dir}")

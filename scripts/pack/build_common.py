@@ -138,6 +138,12 @@ def main() -> int:
                 "-y",
             ],
         )
+        _run(
+            [
+                conda, "run", "-n", env_name, "python",
+                "-m", "pip", "install", "--upgrade", "pip>=26.2.2",
+            ],
+        )
         # Install qwenpaw with all dependencies
         # Scope CMAKE_ARGS to this specific command to avoid affecting other
         # CMake-based packages. Only set if we need to compile from source.
@@ -154,20 +160,9 @@ def main() -> int:
                 "pip",
                 "install",
                 f"qwenpaw[full] @ {wheel_uri}",
+                "certifi>=2026.10.19",
             ],
             env=install_env,
-        )
-        print("Verifying certifi is installed (required for SSL)...")
-        _run(
-            [
-                conda,
-                "run",
-                "-n",
-                env_name,
-                "python",
-                "-c",
-                "import certifi; print(f'certifi OK: {certifi.where()}')",
-            ],
         )
         if args.cache_wheels:
             # Store outside dist/ to avoid being deleted by wheel_build cleanup
@@ -204,7 +199,7 @@ def main() -> int:
                 "install",
                 "-y",
                 "--force-reinstall",
-                "pip",
+                "pip>=26.2.2",
                 "setuptools",
                 "wheel",
             ],

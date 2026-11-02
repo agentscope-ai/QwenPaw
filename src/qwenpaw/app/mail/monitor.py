@@ -60,6 +60,7 @@ from ...utils.io_utils import run_sync_io, write_json_atomic
 from ..channels.schema import DEFAULT_CHANNEL
 from ..inbox_store import append_event as append_inbox_event
 from ..inbox_trace_store import read_session_messages
+from .driver_config import mail_login_address
 from .mail_access_control import (
     get_mail_access_control_store,
     validate_acl_address,
@@ -1093,7 +1094,10 @@ class MailMonitorService:
             mail_config.push or AgentMailPushConfig()
         )
         credential = mail_config.credential
-        self.email_address = f"{credential.name}@{credential.domain}"
+        self.email_address = mail_login_address(
+            credential.name,
+            credential.domain,
+        )
         self.auth_code = credential.auth_code
         self.domain = (credential.domain or "").strip().lower()
         self.provider = (credential.provider or "").strip().lower()

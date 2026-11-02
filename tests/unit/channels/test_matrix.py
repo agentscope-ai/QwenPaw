@@ -1,1627 +1,504 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for Matrix channel implementation."""
-
-# pylint: disable=redefined-outer-name,unused-import
-# pylint: disable=protected-access,unused-argument
+"""Local Matrix API transport; actual nio/client/platform remain unmocked."""
 import asyncio
-import base64
-import inspect
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
-
+import json
+from nio import AsyncClient
+from pathlib import Path
 import pytest
-from nio import (
-    LoginResponse,
-    MatrixRoom,
-    RoomMessageAudio,
-    RoomMessageFile,
-    RoomMessageImage,
-    RoomMessageText,
-    RoomMessageVideo,
-    RoomSendError,
-    UploadError,
-    UploadResponse,
-)
-from nio.responses import (
-    LoginError,
-    WhoamiError,
-    WhoamiResponse,
-)
-
-from qwenpaw import schemas
-from qwenpaw.schemas import (
-    AgentRequest,
-    ContentType,
-    ImageContent,
-    TextContent,
-)
-from qwenpaw.app.channels.matrix.channel import MatrixChannel
-from qwenpaw.app.channels.renderer import ChannelDisplayConfig
-from qwenpaw.config.config import MatrixConfig
-
-
-@pytest.fixture
-def mock_process():
-    """Create mock process handler."""
-
-    async def mock_handler(*_args, **_kwargs):
-        mock_event = MagicMock()
-        mock_event.object = "message"
-        mock_event.status = "completed"
-        yield mock_event
-
-    return AsyncMock(side_effect=mock_handler)
-
-
-@pytest.fixture
-def matrix_config():
-    """Create MatrixConfig instance."""
-    return MatrixConfig(
-        enabled=True,
-        homeserver="https://matrix.example.com",
-        user_id="@bot:example.com",
-        access_token="test_token_123",
-        bot_prefix="!bot",
-        dm_disabled=False,
-        group_disabled=False,
-        deny_message="Access denied",
-        require_mention=False,
-    )
-
-
-@pytest.fixture
-def matrix_channel(mock_process):
-    """Create MatrixChannel instance."""
-    return MatrixChannel(
-        process=mock_process,
-        homeserver="https://matrix.example.com",
-        matrix_user_id="@bot:example.com",
-        access_token="test_token_123",
-    )
-
-
-def test_preflight_keeps_encryption_when_nio_has_backend(matrix_channel):
-    """E2EE stays enabled when matrix-nio reports a crypto backend.
-
-    Guards #6476: the preflight checks ``nio.crypto.ENCRYPTION_ENABLED``
-    (the flag ``AsyncClientConfig`` validates against) rather than
-    probing module names, so it tracks matrix-nio's version-dependent
-    backend detection.
-    """
-    matrix_channel.encryption = True
-    with patch(
-        "qwenpaw.app.channels.matrix.channel.ENCRYPTION_ENABLED",
-        True,
-    ):
-        matrix_channel._preflight_e2ee_dependencies()
-    assert matrix_channel.encryption is True
-
-
-def test_preflight_disables_encryption_when_no_nio_backend(
-    matrix_channel,
-):
-    """No matrix-nio crypto backend -> E2EE disabled with a clear error."""
-    matrix_channel.encryption = True
-    with patch(
-        "qwenpaw.app.channels.matrix.channel.ENCRYPTION_ENABLED",
-        False,
-    ):
-        matrix_channel._preflight_e2ee_dependencies()
-    assert matrix_channel.encryption is False
-
-
-@pytest.fixture
-def mock_async_client():
-    """Create mock AsyncClient for nio."""
-    client = MagicMock()
-    client.access_token = None
-    client.add_event_callback = Mock()
-    client.close = AsyncMock()
-    client.room_send = AsyncMock()
-    client.sync_forever = AsyncMock()
-    client.upload = AsyncMock()
-    whoami_resp = WhoamiResponse(
-        user_id="@bot:example.com",
-        device_id=None,
-        is_guest=False,
-    )
-    client.whoami = AsyncMock(return_value=whoami_resp)
-    client.sync = AsyncMock(return_value=MagicMock())
-    # Give login a real signature so inspect.signature() works
-    # (MatrixChannel._password_login_kwargs_for_nio uses it to detect
-    # whether the nio version uses 'user' or 'user_id').
-    _fake_login = AsyncMock()
-    _fake_login.__signature__ = inspect.Signature(
-        parameters=[
-            inspect.Parameter(
-                "user",
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            ),
-            inspect.Parameter(
-                "password",
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            ),
-            inspect.Parameter(
-                "device_name",
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                default="",
-            ),
-            inspect.Parameter(
-                "device_id",
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                default="",
-            ),
-        ],
-    )
-    client.login = _fake_login
-    return client
-
-
-@pytest.fixture
-def mock_matrix_room():
-    """Create mock MatrixRoom."""
-    room = MagicMock(spec=MatrixRoom)
-    room.room_id = "!test_room:example.com"
-    room.users = {"@user1:example.com": None, "@user2:example.com": None}
-    return room
-
-
-class TestMatrixChannelInit:
-    """Test MatrixChannel initialization."""
-
-    def test_init_with_required_params(self, mock_process):
-        """Test initialization with required parameters."""
-        channel = MatrixChannel(
-            process=mock_process,
-            homeserver="https://matrix.example.com",
-            matrix_user_id="@bot:example.com",
-            access_token="test_token",
-        )
-
-        assert channel.homeserver == "https://matrix.example.com"
-        assert channel.matrix_user_id == "@bot:example.com"
-        assert channel.access_token == "test_token"
-        assert channel.channel == "matrix"
-        assert channel.uses_manager_queue is True
-        assert channel._client is None
-        assert channel._sync_task is None
-
-    def test_init_homeserver_trailing_slash(self, mock_process):
-        """Test that trailing slash is stripped from homeserver."""
-        channel = MatrixChannel(
-            process=mock_process,
-            homeserver="https://matrix.example.com/",
-            matrix_user_id="@bot:example.com",
-            access_token="test_token",
-        )
-
-        assert channel.homeserver == "https://matrix.example.com"
-
-    def test_init_with_all_params(self, mock_process):
-        """Test initialization with all optional parameters."""
-        channel = MatrixChannel(
-            process=mock_process,
-            homeserver="https://matrix.example.com",
-            matrix_user_id="@bot:example.com",
-            access_token="test_token",
-            dm_disabled=True,
-            group_disabled=False,
-            access_control_dm=True,
-            share_session_in_group=True,
-            on_reply_sent=Mock(),
-            display_config=ChannelDisplayConfig(
-                show_tool_details=False,
-                show_thinking=False,
-                show_tool_calls=False,
-                show_tool_results=False,
-            ),
-        )
-
-        assert channel.dm_disabled is True
-        assert channel.group_disabled is False
-        assert channel.share_session_in_group is True
-        assert channel._display_config.show_tool_details is False
-        assert channel._display_config.show_tool_calls is False
-        assert channel._display_config.show_tool_results is False
-        assert not channel._display_config.show_thinking
-
-
-class TestMatrixChannelBoundedState:
-    """Bounded local state must not alter normal recent-room behavior."""
-
-    def test_room_history_evicts_least_recent_room(
-        self,
-        matrix_channel,
-        monkeypatch,
-    ):
-        from qwenpaw.app.channels.matrix import channel as matrix_module
-        from qwenpaw.app.channels.matrix.channel import HistoryEntry
-
-        monkeypatch.setattr(matrix_module, "ROOM_HISTORY_MAX_ROOMS", 2)
-        for room_id in ("!one", "!two", "!three"):
-            matrix_channel._record_history(
-                room_id,
-                HistoryEntry(sender="user", body=room_id),
-            )
-
-        assert list(matrix_channel._room_histories) == ["!two", "!three"]
-
-    def test_dm_cache_prunes_expired_and_oldest_entries(
-        self,
-        matrix_channel,
-        monkeypatch,
-    ):
-        from qwenpaw.app.channels.matrix import channel as matrix_module
-
-        monkeypatch.setattr(matrix_module, "DM_ROOM_CACHE_MAX_ENTRIES", 2)
-        matrix_channel._dm_room_cache.update(
-            {
-                "!old": {"members": [], "ts": 0},
-                "!two": {"members": [], "ts": 30_001},
-                "!three": {"members": [], "ts": 30_001},
-            },
-        )
-
-        matrix_channel._prune_dm_room_cache(
-            30_001,
-        )
-
-        assert list(matrix_channel._dm_room_cache) == ["!two", "!three"]
-
-    def test_verification_state_expires_and_cancel_clears_peer(
-        self,
-        matrix_channel,
-        monkeypatch,
-    ):
-        from qwenpaw.app.channels.matrix import channel as matrix_module
-
-        monkeypatch.setattr(matrix_module, "VERIFICATION_STATE_MAX_ENTRIES", 1)
-        matrix_channel._remember_verification_peer("old", "@old", "D1")
-        matrix_channel._remember_verification_peer("new", "@new", "D2")
-        matrix_channel._clear_verification_transaction("new")
-
-        assert "old" not in matrix_channel._verification_tx_peers
-        assert "new" not in matrix_channel._verification_tx_peers
-
-    async def test_failed_done_keeps_peer_for_retry(self, matrix_channel):
-        matrix_channel._remember_verification_peer("tx", "@user:hs", "D1")
-        client = MagicMock()
-        client.to_device = AsyncMock(side_effect=RuntimeError("network down"))
-        matrix_channel._client = client
-
-        event = MagicMock()
-        event.sender = "@user:hs"
-        event.source = {"content": {"transaction_id": "tx"}}
-
-        await matrix_channel._handle_unknown_key_verification_done(event)
-
-        assert "tx" in matrix_channel._verification_tx_peers
-        assert "tx" not in matrix_channel._sent_verification_done
-
-
-class TestMatrixChannelFromConfig:
-    """Test MatrixChannel factory methods."""
-
-    def test_from_config(self, mock_process, matrix_config):
-        """Test creating channel from config."""
-        channel = MatrixChannel.from_config(
-            process=mock_process,
-            config=matrix_config,
-        )
-
-        assert channel.enabled is True
-        assert channel.homeserver == "https://matrix.example.com"
-        assert channel.matrix_user_id == "@bot:example.com"
-        assert channel.access_token == "test_token_123"
-
-    def test_from_config_with_optional_params(
-        self,
-        mock_process,
-        matrix_config,
-    ):
-        """Test from_config with optional display parameters."""
-        channel = MatrixChannel.from_config(
-            process=mock_process,
-            config=matrix_config,
-            display_config=ChannelDisplayConfig(
-                show_tool_details=False,
-                show_thinking=False,
-                show_tool_calls=False,
-                show_tool_results=False,
-            ),
-        )
-
-        assert channel._display_config.show_tool_details is False
-        assert channel._display_config.show_tool_calls is False
-        assert channel._display_config.show_tool_results is False
-        assert not channel._display_config.show_thinking
-
-    def test_from_env_raises_not_implemented(self, mock_process):
-        """Test that from_env creates a channel (uses env vars)."""
-        channel = MatrixChannel.from_env(process=mock_process)
-        assert isinstance(channel, MatrixChannel)
-
-    def test_from_config_share_session_in_group_default(
-        self,
-        mock_process,
-        matrix_config,
-    ):
-        """Group sessions are shared by default for compatibility."""
-        channel = MatrixChannel.from_config(
-            process=mock_process,
-            config=matrix_config,
-        )
-
-        assert channel.share_session_in_group is True
-
-    def test_from_config_share_session_in_group_false(
-        self,
-        mock_process,
-        matrix_config,
-    ):
-        """Group session isolation can be enabled through config."""
-        matrix_config.share_session_in_group = False
-        channel = MatrixChannel.from_config(
-            process=mock_process,
-            config=matrix_config,
-        )
-
-        assert channel.share_session_in_group is False
-
-
-class TestMatrixChannelMXC:
-    """Test MXC to HTTP URL conversion."""
-
-    def test_mxc_to_http_with_valid_mxc(self, matrix_channel):
-        """Test converting valid MXC URL to HTTP."""
-        mxc_url = "mxc://matrix.org/media_123"
-        http_url = matrix_channel._mxc_to_http(mxc_url)
-
-        expected = (
-            "https://matrix.example.com/_matrix/media/v3/download/"
-            "matrix.org/media_123"
-        )
-        assert http_url == expected
-
-    def test_mxc_to_http_with_http_url(self, matrix_channel):
-        """Test that HTTP URLs are returned as-is."""
-        http_url = "https://example.com/image.png"
-        result = matrix_channel._mxc_to_http(http_url)
-
-        assert result == http_url
-
-    def test_mxc_to_http_with_invalid_mxc_format(self, matrix_channel):
-        """Test handling of invalid MXC URL format."""
-        invalid_mxc = "mxc://noseparator"
-        result = matrix_channel._mxc_to_http(invalid_mxc)
-
-        assert result == invalid_mxc
-
-    def test_mxc_to_http_with_empty_string(self, matrix_channel):
-        """Test handling of empty string."""
-        result = matrix_channel._mxc_to_http("")
-
-        assert result == ""
-
-
-class TestMatrixChannelDisabled:
-    """Test channel-level mute (dm_disabled / group_disabled)."""
-
-    def test_dm_not_disabled(self, matrix_channel):
-        """Test that DMs pass when not disabled."""
-        matrix_channel.dm_disabled = False
-
-        result = matrix_channel._is_channel_disabled(
-            "@any_user:example.com",
-            "!room:example.com",
-            is_dm=True,
-        )
-        assert result is False
-
-    def test_dm_disabled(self, matrix_channel):
-        """Test that DMs are blocked when dm_disabled=True."""
-        matrix_channel.dm_disabled = True
-
-        result = matrix_channel._is_channel_disabled(
-            "@any_user:example.com",
-            "!room:example.com",
-            is_dm=True,
-        )
-        assert result is True
-
-    def test_group_not_disabled(self, matrix_channel):
-        """Test that group messages pass when not disabled."""
-        matrix_channel.group_disabled = False
-
-        result = matrix_channel._is_channel_disabled(
-            "@any_user:example.com",
-            "!room:example.com",
-            is_dm=False,
-        )
-        assert result is False
-
-    def test_group_disabled(self, matrix_channel):
-        """Test that group messages are blocked when group_disabled=True."""
-        matrix_channel.group_disabled = True
-
-        result = matrix_channel._is_channel_disabled(
-            "@any_user:example.com",
-            "!room:example.com",
-            is_dm=False,
-        )
-        assert result is True
-
-    def test_dm_disabled_does_not_affect_group(self, matrix_channel):
-        """Test dm_disabled doesn't block group messages."""
-        matrix_channel.dm_disabled = True
-        matrix_channel.group_disabled = False
-
-        result = matrix_channel._is_channel_disabled(
-            "@any_user:example.com",
-            "!room:example.com",
-            is_dm=False,
-        )
-        assert result is False
-
-
-@pytest.mark.asyncio
-class TestMatrixChannelBuildRequest:
-    """Test request building methods."""
-
-    def test_build_agent_request_from_native(self, matrix_channel):
-        """Test building AgentRequest from native payload."""
-        payload = {
-            "sender_id": "@user:example.com",
-            "content_parts": [
-                TextContent(type=ContentType.TEXT, text="Hello bot"),
-            ],
-            "meta": {"room_id": "!room:example.com"},
-        }
-
-        request = matrix_channel.build_agent_request_from_native(payload)
-
-        assert isinstance(request, AgentRequest)
-        assert request.channel == "matrix"
-        assert request.user_id == "!room:example.com"
-        assert request.session_id == "matrix:!room:example.com"
-
-    def test_build_agent_request_group_shared_by_default(
-        self,
-        matrix_channel,
-    ):
-        """Group members share the legacy room-wide session by default."""
-        payload = {
-            "sender_id": "@user:example.com",
-            "content_parts": [
-                TextContent(type=ContentType.TEXT, text="Hello bot"),
-            ],
-            "meta": {
-                "room_id": "!room:example.com",
-                "is_group": True,
-            },
-        }
-
-        request = matrix_channel.build_agent_request_from_native(payload)
-
-        assert request.user_id == "!room:example.com"
-        assert request.session_id == "matrix:!room:example.com"
-
-    def test_build_agent_request_group_isolated_when_disabled(
-        self,
-        matrix_channel,
-    ):
-        """Disabling sharing isolates group members by sender."""
-        matrix_channel.share_session_in_group = False
-        payload = {
-            "sender_id": "@user:example.com",
-            "content_parts": [
-                TextContent(type=ContentType.TEXT, text="Hello bot"),
-            ],
-            "meta": {
-                "room_id": "!room:example.com",
-                "is_group": True,
-            },
-        }
-
-        request = matrix_channel.build_agent_request_from_native(payload)
-
-        assert request.user_id == "@user:example.com"
-        assert request.session_id == "matrix:!room:example.com"
-
-    def test_build_agent_request_dm_keeps_legacy_identity(
-        self,
-        matrix_channel,
-    ):
-        """The group sharing option does not change direct messages."""
-        matrix_channel.share_session_in_group = False
-        payload = {
-            "sender_id": "@user:example.com",
-            "content_parts": [
-                TextContent(type=ContentType.TEXT, text="Hello bot"),
-            ],
-            "meta": {
-                "room_id": "!dm_room:example.com",
-                "is_dm": True,
-                "is_group": False,
-            },
-        }
-
-        request = matrix_channel.build_agent_request_from_native(payload)
-
-        assert request.user_id == "!dm_room:example.com"
-        assert request.session_id == "matrix:!dm_room:example.com"
-
-    def test_build_agent_request_with_content_parts(self, matrix_channel):
-        """Test building request with existing content_parts."""
-        content_parts = [
-            TextContent(type=ContentType.TEXT, text="Test message"),
-        ]
-        payload = {
-            "sender_id": "@user:example.com",
-            "content_parts": content_parts,
-            "meta": {"room_id": "!room:example.com"},
-        }
-
-        request = matrix_channel.build_agent_request_from_native(payload)
-
-        assert request.input[0].content == content_parts
-
-    def test_get_to_handle_from_request_with_session_id(self, matrix_channel):
-        """Test getting room_id from channel_meta."""
-        request = MagicMock(spec=AgentRequest)
-        request.session_id = "matrix:!room:example.com"
-        request.channel_meta = {"room_id": "!room:example.com"}
-
-        result = matrix_channel.get_to_handle_from_request(request)
-
-        assert result == "!room:example.com"
-
-    def test_get_to_handle_from_request_with_channel_meta(
-        self,
-        matrix_channel,
-    ):
-        """Test getting room_id from channel_meta."""
-        request = MagicMock(spec=AgentRequest)
-        request.session_id = "other_session"
-        request.channel_meta = {"room_id": "!room:example.com"}
-
-        result = matrix_channel.get_to_handle_from_request(request)
-
-        assert result == "!room:example.com"
-
-    def test_get_to_handle_from_request_fallback_to_user_id(
-        self,
-        matrix_channel,
-    ):
-        """Test fallback to user_id when no room_id."""
-        request = MagicMock(spec=AgentRequest)
-        request.session_id = "other_session"
-        request.channel_meta = {}
-        request.user_id = "@user:example.com"
-
-        result = matrix_channel.get_to_handle_from_request(request)
-
-        assert result == "@user:example.com"
-
-    def test_get_to_handle_from_request_fallback_to_session_id(
-        self,
-        matrix_channel,
-    ):
-        """Prefer the room encoded in a Matrix session ID."""
-        request = MagicMock(spec=AgentRequest)
-        request.session_id = "matrix:!room:example.com"
-        request.channel_meta = {}
-        request.user_id = "@user:example.com"
-
-        result = matrix_channel.get_to_handle_from_request(request)
-
-        assert result == "!room:example.com"
-
-
-@pytest.mark.asyncio
-class TestMatrixChannelHandleEvent:
-    """Test event handling."""
-
-    async def test_on_room_event_dm_not_disabled(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-    ):
-        """Test handling event with DM not disabled enqueues the request."""
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._enqueue = Mock()
-        matrix_channel._is_dm_room = AsyncMock(return_value=True)
-        matrix_channel._send_read_receipt = AsyncMock()
-        matrix_channel._send_typing = AsyncMock()
-        matrix_channel.dm_disabled = False
-        matrix_channel._get_display_name = Mock(return_value="user")
-
-        event = MagicMock(spec=RoomMessageText)
-        event.sender = "@user:example.com"
-        event.body = "Hello"
-        event.event_id = "$evt1"
-        event.source = {}
-        mock_matrix_room.room_id = "!test_room:example.com"
-
-        await matrix_channel._on_room_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_called_once()
-        payload = matrix_channel._enqueue.call_args[0][0]
-        assert payload["sender_id"] == "@user:example.com"
-
-    async def test_on_room_event_dm_disabled(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-    ):
-        """Test that DM messages are dropped when dm_disabled=True."""
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel.dm_disabled = True
-        matrix_channel._is_dm_room = AsyncMock(return_value=True)
-        matrix_channel._enqueue = Mock()
-
-        event = MagicMock(spec=RoomMessageText)
-        event.sender = "@unauthorized:example.com"
-        event.body = "Hello"
-        event.event_id = "$evt1"
-        event.source = {}
-        mock_matrix_room.room_id = "!test_room:example.com"
-
-        await matrix_channel._on_room_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_not_called()
-
-    async def test_on_room_event_require_mention_not_met(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-    ):
-        """Test event ignored in group when mention required but absent."""
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._enqueue = Mock()
-        matrix_channel._is_dm_room = AsyncMock(return_value=False)
-        matrix_channel._send_read_receipt = AsyncMock()
-        matrix_channel._send_typing = AsyncMock()
-        matrix_channel.group_disabled = False
-        matrix_channel.require_mention = True
-
-        event = MagicMock(spec=RoomMessageText)
-        event.sender = "@user:example.com"
-        event.body = "Just a message with no bot mention"
-        event.event_id = "$evt1"
-        event.source = {}
-        mock_matrix_room.room_id = "!test_room:example.com"
-
-        await matrix_channel._on_room_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_not_called()
-
-
-@pytest.mark.asyncio
-class TestMatrixChannelMessageCallback:
-    """Test message callbacks."""
-
-    async def test_message_callback_ignores_own_message(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-    ):
-        """Test that bot ignores its own messages (no enqueue called)."""
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._enqueue = Mock()
-
-        event = MagicMock(spec=RoomMessageText)
-        event.sender = "@bot:example.com"
-        event.body = "Hello"
-        mock_matrix_room.room_id = "!room:example.com"
-
-        await matrix_channel._on_room_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_not_called()
-
-    async def test_message_callback_detects_mention(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-    ):
-        """Test bot mention detection: _was_mentioned returns True."""
-        matrix_channel._user_id = "@bot:example.com"
-
-        event = MagicMock(spec=RoomMessageText)
-        event.sender = "@user:example.com"
-        event.body = "Hello @bot:example.com!"
-        event.source = {}
-
-        assert matrix_channel._was_mentioned(event, event.body) is True
-
-    async def test_message_callback_detects_localpart_mention(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-    ):
-        """Test mention detection by full MXID in text."""
-        matrix_channel._user_id = "@mybot:example.com"
-
-        event = MagicMock(spec=RoomMessageText)
-        event.sender = "@user:example.com"
-        event.body = "hello @mybot:example.com please help"
-        event.source = {}
-
-        assert matrix_channel._was_mentioned(event, event.body) is True
-
-    async def test_message_callback_no_mention(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-    ):
-        """Test when bot is not mentioned."""
-        matrix_channel._user_id = "@bot:example.com"
-
-        event = MagicMock(spec=RoomMessageText)
-        event.sender = "@user:example.com"
-        event.body = "Just a regular message"
-        event.source = {}
-
-        assert matrix_channel._was_mentioned(event, event.body) is False
-
-
-@pytest.mark.asyncio
-class TestMatrixChannelMediaCallback:
-    """Test media message callbacks."""
-
-    async def test_media_callback_image(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-        tmp_path,
-    ):
-        """Test handling image message enqueues image content."""
-        fake_file = tmp_path / "image_123_image.png"
-        fake_file.write_bytes(b"fake image")
-
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel.vision_enabled = True
-        matrix_channel._enqueue = Mock()
-        matrix_channel._download_mxc = AsyncMock(return_value=str(fake_file))
-        matrix_channel._is_dm_room = AsyncMock(return_value=True)
-        matrix_channel._send_read_receipt = AsyncMock()
-        matrix_channel._send_typing = AsyncMock()
-
-        event = MagicMock(spec=RoomMessageImage)
-        event.sender = "@user:example.com"
-        event.url = "mxc://example.org/image_123"
-        event.body = "image.png"
-        event.event_id = "$abc123"
-        mock_matrix_room.room_id = "!room:example.com"
-
-        await matrix_channel._on_room_media_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_called_once()
-        payload = matrix_channel._enqueue.call_args[0][0]
-        parts = payload["content_parts"]
-        assert any(
-            getattr(p, "type", None) == ContentType.IMAGE for p in parts
-        )
-
-    async def test_media_callback_video(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-        tmp_path,
-    ):
-        """Test handling video message enqueues video content."""
-        fake_file = tmp_path / "video_123_video.mp4"
-        fake_file.write_bytes(b"fake video")
-
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._enqueue = Mock()
-        matrix_channel._download_mxc = AsyncMock(return_value=str(fake_file))
-        matrix_channel._is_dm_room = AsyncMock(return_value=True)
-        matrix_channel._send_read_receipt = AsyncMock()
-        matrix_channel._send_typing = AsyncMock()
-
-        event = MagicMock(spec=RoomMessageVideo)
-        event.sender = "@user:example.com"
-        event.url = "mxc://example.org/video_123"
-        event.body = "video.mp4"
-        event.event_id = "$abc123"
-        mock_matrix_room.room_id = "!room:example.com"
-
-        await matrix_channel._on_room_media_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_called_once()
-        payload = matrix_channel._enqueue.call_args[0][0]
-        parts = payload["content_parts"]
-        assert any(
-            getattr(p, "type", None) == ContentType.VIDEO for p in parts
-        )
-
-    async def test_media_callback_audio(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-        tmp_path,
-    ):
-        """Test handling audio message enqueues audio content."""
-        fake_file = tmp_path / "audio_123_audio.mp3"
-        fake_file.write_bytes(b"fake audio")
-
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._enqueue = Mock()
-        matrix_channel._download_mxc = AsyncMock(return_value=str(fake_file))
-        matrix_channel._is_dm_room = AsyncMock(return_value=True)
-        matrix_channel._send_read_receipt = AsyncMock()
-        matrix_channel._send_typing = AsyncMock()
-
-        event = MagicMock(spec=RoomMessageAudio)
-        event.sender = "@user:example.com"
-        event.url = "mxc://example.org/audio_123"
-        event.body = "audio.mp3"
-        event.event_id = "$abc123"
-        mock_matrix_room.room_id = "!room:example.com"
-
-        await matrix_channel._on_room_media_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_called_once()
-        payload = matrix_channel._enqueue.call_args[0][0]
-        parts = payload["content_parts"]
-        assert any(
-            getattr(p, "type", None) == ContentType.AUDIO for p in parts
-        )
-
-    async def test_media_callback_file(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-        tmp_path,
-    ):
-        """Test handling file message enqueues file content."""
-        fake_file = tmp_path / "file_123_document.pdf"
-        fake_file.write_bytes(b"fake pdf")
-
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._enqueue = Mock()
-        matrix_channel._download_mxc = AsyncMock(return_value=str(fake_file))
-        matrix_channel._is_dm_room = AsyncMock(return_value=True)
-        matrix_channel._send_read_receipt = AsyncMock()
-        matrix_channel._send_typing = AsyncMock()
-
-        event = MagicMock(spec=RoomMessageFile)
-        event.sender = "@user:example.com"
-        event.url = "mxc://example.org/file_123"
-        event.body = "document.pdf"
-        event.event_id = "$abc123"
-        mock_matrix_room.room_id = "!room:example.com"
-
-        await matrix_channel._on_room_media_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_called_once()
-        payload = matrix_channel._enqueue.call_args[0][0]
-        parts = payload["content_parts"]
-        assert any(getattr(p, "type", None) == ContentType.FILE for p in parts)
-
-    async def test_media_callback_ignores_own_message(
-        self,
-        matrix_channel,
-        mock_matrix_room,
-    ):
-        """Test that bot ignores its own media messages."""
-        matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._enqueue = Mock()
-
-        event = MagicMock(spec=RoomMessageImage)
-        event.sender = "@bot:example.com"
-        event.url = "mxc://example.org/image_123"
-        mock_matrix_room.room_id = "!room:example.com"
-
-        await matrix_channel._on_room_media_event(mock_matrix_room, event)
-
-        matrix_channel._enqueue.assert_not_called()
-
-
-@pytest.mark.asyncio
-class TestMatrixChannelStartStop:
-    """Test start and stop lifecycle."""
-
-    async def test_start_when_not_configured(self, matrix_channel):
-        """Test start when channel is not properly configured."""
-        matrix_channel.homeserver = ""
-
-        await matrix_channel.start()
-
-        assert matrix_channel._client is None
-
-    async def test_start_creates_client(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Test that start creates and configures AsyncClient."""
-        with patch(
-            "qwenpaw.app.channels.matrix.channel.AsyncClient",
-            return_value=mock_async_client,
-        ):
-            await matrix_channel.start()
-
-            assert matrix_channel._client is mock_async_client
-            assert mock_async_client.access_token == "test_token_123"
-            assert mock_async_client.add_event_callback.call_count >= 2
-
-    async def test_start_starts_sync_task(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Test that start creates sync task."""
-        with patch(
-            "qwenpaw.app.channels.matrix.channel.AsyncClient",
-            return_value=mock_async_client,
-        ):
-            await matrix_channel.start()
-
-            assert matrix_channel._sync_task is not None
-            assert not matrix_channel._sync_task.done()
-
-    async def test_stop_cancels_sync_task(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Test that stop cancels sync task."""
-        with patch(
-            "qwenpaw.app.channels.matrix.channel.AsyncClient",
-            return_value=mock_async_client,
-        ):
-            await matrix_channel.start()
-
-            await matrix_channel.stop()
-
-            # Verify stop was called on the client
-            assert mock_async_client.close.called
-
-    async def test_stop_closes_client(self, matrix_channel, mock_async_client):
-        """Test that stop closes the client."""
-        with patch(
-            "qwenpaw.app.channels.matrix.channel.AsyncClient",
-            return_value=mock_async_client,
-        ):
-            await matrix_channel.start()
-
-            await matrix_channel.stop()
-
-            mock_async_client.close.assert_called_once()
-
-    async def test_stop_when_not_started(self, matrix_channel):
-        """Test stop when channel was never started."""
-        # Should not raise
-        await matrix_channel.stop()
-
-
-class TestMatrixChannelLoginRetry:
-    """Test login retry behavior for transient homeserver failures.
-
-    nio retries transport-level errors (connection refused, timeouts)
-    inside _send(), but does not retry when the homeserver returns an
-    unparseable response (e.g. 502 from a reverse proxy before Synapse
-    is ready).  MatrixChannel wraps login()/whoami() with its own
-    retry loop to cover that gap (#6684).
-    """
-
-    async def test_password_login_retries_then_succeeds(
-        self,
-        matrix_channel,
-        mock_async_client,
-        monkeypatch,
-    ):
-        """Unparseable login response is retried until ready."""
-        monkeypatch.setattr(
-            "qwenpaw.app.channels.matrix.channel"
-            "._LOGIN_RETRY_INITIAL_DELAY",
-            0.0,
-        )
-        matrix_channel.access_token = ""
-        matrix_channel.password = "test_password"
-        matrix_channel._client = mock_async_client
-        matrix_channel._save_auth_state = Mock()
-        _login_mock = AsyncMock(
-            side_effect=[
-                LoginError(message="unknown error"),
-                LoginResponse(
-                    user_id="@bot:example.com",
-                    device_id="DEV",
-                    access_token="tok",
-                ),
-            ],
-        )
-        _login_mock.__signature__ = mock_async_client.login.__signature__
-        mock_async_client.login = _login_mock
-
-        ok = await matrix_channel._login_with_password(
-            "@bot:example.com",
-            "DEV",
-        )
-
-        assert ok is True
-        assert mock_async_client.login.call_count == 2
-
-    async def test_password_login_no_retry_on_forbidden(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Credential errors (M_FORBIDDEN) are not retried."""
-        matrix_channel.access_token = ""
-        matrix_channel.password = "test_password"
-        matrix_channel._client = mock_async_client
-        matrix_channel._save_auth_state = Mock()
-        _login_mock = AsyncMock(
-            return_value=LoginError(
-                message="Forbidden",
-                status_code="M_FORBIDDEN",
-            ),
-        )
-        _login_mock.__signature__ = mock_async_client.login.__signature__
-        mock_async_client.login = _login_mock
-
-        ok = await matrix_channel._login_with_password(
-            "@bot:example.com",
-            "DEV",
-        )
-
-        assert ok is False
-        assert mock_async_client.login.call_count == 1
-
-    async def test_password_login_no_retry_on_404(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Non-JSON 404 (wrong URL) is not retried."""
-        matrix_channel.access_token = ""
-        matrix_channel.password = "test_password"
-        matrix_channel._client = mock_async_client
-        matrix_channel._save_auth_state = Mock()
-        mock_transport = MagicMock(status=404)
-        err = LoginError(message="unknown error")
-        err.transport_response = mock_transport
-        _login_mock = AsyncMock(return_value=err)
-        _login_mock.__signature__ = mock_async_client.login.__signature__
-        mock_async_client.login = _login_mock
-
-        ok = await matrix_channel._login_with_password(
-            "@bot:example.com",
-            "DEV",
-        )
-
-        assert ok is False
-        assert mock_async_client.login.call_count == 1
-
-    async def test_token_login_retries_then_succeeds(
-        self,
-        matrix_channel,
-        mock_async_client,
-        monkeypatch,
-    ):
-        """Unparseable whoami response is retried until ready."""
-        monkeypatch.setattr(
-            "qwenpaw.app.channels.matrix.channel"
-            "._LOGIN_RETRY_INITIAL_DELAY",
-            0.0,
-        )
-        matrix_channel._client = mock_async_client
-        matrix_channel._save_auth_state = Mock()
-        good = WhoamiResponse(
-            user_id="@bot:example.com",
-            device_id=None,
-            is_guest=False,
-        )
-        mock_async_client.whoami = AsyncMock(
-            side_effect=[
-                WhoamiError(message="unknown error"),
-                good,
-            ],
-        )
-
-        ok = await matrix_channel._login_with_access_token()
-
-        assert ok is True
-        assert mock_async_client.whoami.call_count == 2
-
-    async def test_token_login_no_retry_on_unknown_token(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Invalid token (M_UNKNOWN_TOKEN) is not retried."""
-        matrix_channel._client = mock_async_client
-        matrix_channel._save_auth_state = Mock()
-        mock_async_client.whoami = AsyncMock(
-            return_value=WhoamiError(
-                message="Unknown token",
-                status_code="M_UNKNOWN_TOKEN",
-            ),
-        )
-
-        ok = await matrix_channel._login_with_access_token()
-
-        assert ok is False
-        assert mock_async_client.whoami.call_count == 1
-
-    async def test_token_login_stops_during_backoff(
-        self,
-        matrix_channel,
-        mock_async_client,
-        monkeypatch,
-    ):
-        """stop() during login retry terminates the loop."""
-        monkeypatch.setattr(
-            "qwenpaw.app.channels.matrix.channel"
-            "._LOGIN_RETRY_INITIAL_DELAY",
-            100.0,
-        )
-        matrix_channel._client = mock_async_client
-        matrix_channel._save_auth_state = Mock()
-        matrix_channel._stop_event = asyncio.Event()
-        call_count = 0
-
-        def whoami_and_set_stop(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                matrix_channel._stop_event.set()
-            return WhoamiError(message="unknown error")
-
-        mock_async_client.whoami = AsyncMock(
-            side_effect=whoami_and_set_stop,
-        )
-
-        ok = await matrix_channel._login_with_access_token()
-
-        assert ok is False
-        assert call_count == 1
-
-    async def test_login_retry_cancelled_during_sleep(
-        self,
-        matrix_channel,
-        mock_async_client,
-        monkeypatch,
-    ):
-        """CancelledError propagates through the retry loop."""
-        monkeypatch.setattr(
-            "qwenpaw.app.channels.matrix.channel"
-            "._LOGIN_RETRY_INITIAL_DELAY",
-            0.0,
-        )
-        matrix_channel._client = mock_async_client
-        matrix_channel._save_auth_state = Mock()
-        mock_async_client.whoami = AsyncMock(
-            return_value=WhoamiError(message="unknown error"),
-        )
-
-        async def raise_cancelled(_delay: float) -> None:
-            raise asyncio.CancelledError()
-
-        monkeypatch.setattr(
-            "qwenpaw.app.channels.matrix.channel.asyncio.sleep",
-            raise_cancelled,
-        )
-
-        with pytest.raises(asyncio.CancelledError):
-            await matrix_channel._login_with_access_token()
-
-
-@pytest.mark.asyncio
-class TestMatrixChannelSend:
-    """Test send method."""
-
-    async def test_send_success(self, matrix_channel, mock_async_client):
-        """Test successful message send."""
-        mock_async_client.room_send = AsyncMock(return_value=MagicMock())
-        matrix_channel._client = mock_async_client
-
-        await matrix_channel.send("!room:example.com", "Hello world")
-
-        mock_async_client.room_send.assert_called_once()
-        call_args = mock_async_client.room_send.call_args
-        assert call_args[0][0] == "!room:example.com"
-        assert call_args[0][1] == "m.room.message"
-        content = call_args[0][2]
-        assert content["msgtype"] == "m.text"
-        assert content["body"] == "Hello world"
-
-    async def test_send_when_client_not_initialized(self, matrix_channel):
-        """Test send when client is not initialized."""
-        matrix_channel._client = None
-
-        # Should not raise
-        await matrix_channel.send("!room:example.com", "Hello")
-
-    async def test_send_empty_message(self, matrix_channel, mock_async_client):
-        """Test sending empty message does not raise."""
-        mock_async_client.room_send = AsyncMock(return_value=MagicMock())
-        matrix_channel._client = mock_async_client
-
-        # Should not raise regardless of whether implementation sends or skips
-        await matrix_channel.send("!room:example.com", "")
-
-    async def test_send_handles_room_send_error(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Test handling RoomSendError."""
-        error_response = RoomSendError(
-            message="Send failed",
-            status_code="M_UNKNOWN",
-        )
-        mock_async_client.room_send = AsyncMock(return_value=error_response)
-        matrix_channel._client = mock_async_client
-
-        # Should not raise, just log error
-        await matrix_channel.send("!room:example.com", "Hello")
-
-
-@pytest.mark.asyncio
-class TestMatrixChannelSendContentParts:
-    """Test send_content_parts method."""
-
-    async def test_send_content_parts_text_only(self, matrix_channel):
-        """Test sending text content parts."""
-        matrix_channel.send = AsyncMock()
-
-        parts = [TextContent(type=ContentType.TEXT, text="Hello")]
-        await matrix_channel.send_content_parts("!room:example.com", parts)
-
-        matrix_channel.send.assert_called_once_with(
-            "!room:example.com",
-            "Hello",
-            None,
-        )
-
-    async def test_send_content_parts_image(self, matrix_channel):
-        """Test sending image content parts."""
-        matrix_channel.send_media = AsyncMock()
-
-        parts = [
-            ImageContent(
-                type=ContentType.IMAGE,
-                image_url="https://example.com/img.png",
-            ),
-        ]
-        await matrix_channel.send_content_parts("!room:example.com", parts)
-
-        matrix_channel.send_media.assert_called_once()
-
-    async def test_send_content_parts_mixed(self, matrix_channel):
-        """Test sending mixed text and media content parts."""
-        matrix_channel.send = AsyncMock()
-        matrix_channel.send_media = AsyncMock()
-
-        parts = [
-            TextContent(type=ContentType.TEXT, text="Hello"),
-            ImageContent(
-                type=ContentType.IMAGE,
-                image_url="https://example.com/img.png",
-            ),
-        ]
-        await matrix_channel.send_content_parts("!room:example.com", parts)
-
-        matrix_channel.send.assert_called_once()
-        matrix_channel.send_media.assert_called_once()
-
-
-@pytest.mark.asyncio
-class TestMatrixChannelSendMedia:
-    """Test send_media method."""
-
-    @pytest.mark.parametrize(
-        ("byte_count", "filename"),
-        [(8, "report.pdf"), (64 * 1024, None)],
-    )
-    async def test_data_url_event_reuses_upload_metadata(
-        self,
-        matrix_channel,
-        mock_async_client,
-        byte_count,
-        filename,
-    ):
-        """The room event contains metadata, never the encoded payload."""
-        data = b"a" * byte_count
-        encoded = base64.b64encode(data).decode("ascii")
-        matrix_channel._client = mock_async_client
-        matrix_channel._prepare_room_send = AsyncMock()
-        mock_async_client.upload.return_value = (
-            UploadResponse(content_uri="mxc://example.org/media"),
-            None,
-        )
-        part = schemas.FileContent(
-            file_url=f"data:application/pdf;base64,{encoded}",
-            filename=filename,
-        )
-
-        await matrix_channel.send_media("!room:example.com", part)
-
-        upload = mock_async_client.upload.call_args
-        assert upload.args[0].getvalue() == data
-        expected_name = filename or "file.pdf"
-        assert upload.kwargs == {
-            "content_type": "application/pdf",
-            "filename": expected_name,
-            "filesize": byte_count,
-        }
-        content = mock_async_client.room_send.call_args.args[2]
-        assert content == {
-            "msgtype": "m.file",
-            "body": expected_name,
-            "url": "mxc://example.org/media",
-            "info": {"mimetype": "application/pdf", "size": byte_count},
-        }
-
-    async def test_send_media_when_client_not_initialized(
-        self,
-        matrix_channel,
-    ):
-        """Test send_media when client is not initialized."""
-        matrix_channel._client = None
-
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url="https://example.com/img.png",
-        )
-        # Should not raise
-        await matrix_channel.send_media("!room:example.com", part)
-
-    async def test_send_media_missing_url(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Test send_media when part has no URL."""
-        matrix_channel._client = mock_async_client
-
-        part = ImageContent(type=ContentType.IMAGE, image_url=None)
-        await matrix_channel.send_media("!room:example.com", part)
-
-        mock_async_client.upload.assert_not_called()
-
-    async def test_send_media_file_url(
-        self,
-        matrix_channel,
-        mock_async_client,
-        tmp_path,
-    ):
-        """Test sending media from file:// URL."""
-        # Create temp file
-        test_file = tmp_path / "test_image.png"
-        test_file.write_bytes(b"fake image data")
-
-        matrix_channel._client = mock_async_client
-        upload_response = UploadResponse(
-            content_uri="mxc://example.org/uploaded_123",
-        )
-        mock_async_client.upload = AsyncMock(
-            return_value=(upload_response, None),
-        )
-        mock_async_client.room_send = AsyncMock(return_value=MagicMock())
-
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url=f"file://{test_file}",
-        )
-        await matrix_channel.send_media("!room:example.com", part)
-
-        mock_async_client.upload.assert_called_once()
-        mock_async_client.room_send.assert_called_once()
-        content = mock_async_client.room_send.call_args.args[2]
-        assert content["body"] == test_file.name
-        assert content["info"] == {
-            "mimetype": "image/png",
-            "size": len(b"fake image data"),
-        }
-        assert test_file.read_bytes() == b"fake image data"
-
-    async def test_send_media_http_url(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Test sending media from HTTP URL."""
-        # Just verify no exception is raised when channel is properly set up
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url="https://example.com/img.png",
-        )
-        # Actual HTTP mocking is too complex, just verify the method runs
-        matrix_channel._client = mock_async_client
+from qwenpaw.channel_protocol.models import SendParams
+from qwenpaw.utils.media_paths import file_url_to_path
+from tests.channel_support.driver import bind, module
+
+from aiohttp import web
+import pytest_asyncio
+
+MatrixPlatform = module("matrix", "platform").MatrixPlatform
+
+BOT = "@bot:example.com"
+ROOM = "!test_room:example.com"
+SENDER = "@user:example.com"
+
+
+def text_event(body, event_id, sender=SENDER):
+    return {
+        "type": "m.room.message",
+        "sender": sender,
+        "event_id": event_id,
+        "origin_server_ts": 1,
+        "content": {"msgtype": "m.text", "body": body},
+    }
+
+
+def sync_payload(batch, events=()):
+    room = {
+        "timeline": {
+            "events": list(events),
+            "limited": False,
+            "prev_batch": "previous",
+        },
+        "state": {"events": []},
+        "ephemeral": {"events": []},
+        "account_data": {"events": []},
+        "summary": {},
+        "unread_notifications": {},
+    }
+    return {
+        "next_batch": batch,
+        "rooms": {"join": {ROOM: room}, "leave": {}, "invite": {}},
+        "presence": {"events": []},
+        "account_data": {"events": []},
+        "to_device": {"events": []},
+        "device_lists": {"changed": [], "left": []},
+        "device_one_time_keys_count": {},
+    }
+
+
+class LocalMatrixAPI:
+    def __init__(self):
+        self.requests = []
+        self.sync = asyncio.Queue()
+        self.user = BOT
+        self.device = "SERVER-DEVICE"
+        self.closed = asyncio.Event()
+        self.download = b"native-media-bytes"
+
+    async def handle(self, request):
+        raw = await request.read()
         try:
-            await matrix_channel.send_media("!room:example.com", part)
-        except (TypeError, AttributeError):
-            # Expected due to aiohttp mocking complexity
-            pass
+            import json
 
-    async def test_send_media_http_download_fails(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Test handling HTTP download failure."""
-        matrix_channel._client = mock_async_client
-
-        # Mock failed aiohttp response
-        mock_response = AsyncMock()
-        mock_response.status = 404
-
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=False)
-        mock_session.get = AsyncMock(return_value=mock_response)
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("aiohttp.ClientSession", return_value=mock_session):
-            part = ImageContent(
-                type=ContentType.IMAGE,
-                image_url="https://example.com/img.png",
+            body = json.loads(raw) if raw else {}
+        except ValueError:
+            body = raw
+        row = {
+            "method": request.method,
+            "path": request.path,
+            "query": dict(request.query),
+            "body": body,
+            "headers": dict(request.headers),
+        }
+        self.requests.append(row)
+        path = request.path
+        if path.endswith("/whoami"):
+            value, status = (
+                {
+                    "user_id": self.user,
+                    "device_id": self.device,
+                    "is_guest": False,
+                },
+                200,
             )
-            await matrix_channel.send_media("!room:example.com", part)
+        elif path.endswith("/login"):
+            value, status = (
+                {
+                    "user_id": self.user,
+                    "device_id": self.device,
+                    "access_token": "password-result-token",
+                },
+                200,
+            )
+        elif path.endswith("/sync"):
+            item = asyncio.create_task(self.sync.get())
+            closed = asyncio.create_task(self.closed.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    (item, closed),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if item not in done:
+                    return web.json_response({}, status=503)
+                value, status = item.result()
+            finally:
+                item.cancel()
+                closed.cancel()
+                await asyncio.gather(item, closed, return_exceptions=True)
+        elif "/joined_members" in path:
+            value, status = {
+                "joined": {
+                    BOT: {"display_name": "Bot"},
+                    SENDER: {"display_name": "User"},
+                },
+            }, 200
+        elif "/send/" in path:
+            value, status = ({"event_id": "$sent-" + str(len(self.sent))}, 200)
+        elif "/download/" in path:
+            return web.Response(
+                body=self.download,
+                content_type="application/octet-stream",
+            )
+        else:
+            value, status = {}, 200
+        return web.json_response(value, status=status)
 
-        mock_async_client.upload.assert_not_called()
+    @property
+    def sent(self):
+        return [r for r in self.requests if "/send/" in r["path"]]
 
-    async def test_send_media_upload_error(
-        self,
-        matrix_channel,
-        mock_async_client,
-        tmp_path,
-    ):
-        """Test handling upload error."""
-        test_file = tmp_path / "test_image.png"
-        test_file.write_bytes(b"fake image data")
+    def calls(self, suffix):
+        return [r for r in self.requests if r["path"].endswith(suffix)]
 
-        matrix_channel._client = mock_async_client
-        upload_error = UploadError(message="Upload failed")
-        mock_async_client.upload = AsyncMock(return_value=(upload_error, None))
 
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url=f"file://{test_file}",
+@pytest_asyncio.fixture
+async def hs():
+    server = LocalMatrixAPI()
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", server.handle)
+    runner = web.AppRunner(app, shutdown_timeout=0.1)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    server.url = "http://127.0.0.1:" + str(
+        site._server.sockets[0].getsockname()[1],
+    )
+    try:
+        yield server
+    finally:
+        server.closed.set()
+        await runner.cleanup()
+
+
+@pytest_asyncio.fixture
+async def platform_factory(tmp_path, hs):
+    made = []
+
+    def make(**extra):
+        events, states = [], []
+
+        async def admitted(payload):
+            events.append(payload)
+            return True
+
+        async def state(value):
+            states.append(value)
+
+        config = {
+            "enabled": True,
+            "homeserver": hs.url,
+            "user_id": BOT,
+            "access_token": "explicit-token",
+            "workspace_dir": str(tmp_path / "A"),
+            # Trusted fixture path; host projection is tested separately.
+            "legacy_state_dir": str(tmp_path / "legacy"),
+            **extra,
+        }
+        platform = MatrixPlatform(config, admitted, state)
+        platform.observed_events, platform.observed_states = events, states
+        made.append(platform)
+        return platform
+
+    try:
+        yield make
+    finally:
+        for platform in reversed(made):
+            await platform.stop()
+
+
+async def until(predicate):
+    # Bound local transport waits without arbitrary sleeps.
+    async with asyncio.timeout(2):
+        while not predicate():
+            await asyncio.sleep(0.001)
+
+
+@pytest.mark.asyncio
+async def test_password_precedes_token_and_server_identity_is_persisted(
+    hs,
+    platform_factory,
+):
+    platform = platform_factory(
+        password="explicit-password",
+        device_name="  named-device  ",
+    )
+    await platform.start()
+    assert isinstance(platform._client, AsyncClient)
+    assert len(hs.calls("/login")) == 1 and not hs.calls("/whoami")
+    request = hs.calls("/login")[0]["body"]
+    assert request["password"] == "explicit-password"
+    assert request["identifier"]["user"] == BOT
+    assert request["device_id"] == "named-device"
+    assert request["initial_device_display_name"] == "  named-device  "
+    assert platform._client.access_token == "password-result-token"
+    assert platform.device_id == "SERVER-DEVICE"
+    assert platform.observed_states == ["connected"]
+    assert json.loads(
+        (platform._state.directory / "auth.json").read_text(),
+    ) == {
+        "access_token": "password-result-token",
+        "user_id": BOT,
+        "device_id": "SERVER-DEVICE",
+    }
+
+
+@pytest.mark.asyncio
+async def test_token_whoami_and_catchup_suppress_only_old_events_then_resume(
+    hs,
+    platform_factory,
+):
+    hs.sync.put_nowait(
+        (sync_payload("batch-old", [text_event("old", "$old")]), 200),
+    )
+    platform = platform_factory()
+    await platform.start()
+    await until(lambda: len(hs.calls("/sync")) == 2)
+    assert len(hs.calls("/whoami")) == 1 and not hs.calls("/login")
+    assert platform.observed_events == []
+    assert platform._client.event_callbacks
+    assert hs.calls("/sync")[0]["query"]["full_state"] == "true"
+    assert "since" not in hs.calls("/sync")[0]["query"]
+    assert hs.calls("/sync")[1]["query"]["since"] == "batch-old"
+    hs.sync.put_nowait(
+        (sync_payload("batch-new", [text_event("Hello", "$new")]), 200),
+    )
+    await until(lambda: len(platform.observed_events) == 1)
+    event = platform.observed_events[0]
+    assert event["sender_id"] == "@user:example.com"
+    assert event["meta"]["event_id"] == "$new"
+    assert event["content_parts"][0].text == "Hello"
+    receipt = hs.calls("/read_markers")[0]
+    assert receipt["body"] == {"m.fully_read": "$new", "m.read": "$new"}
+    await until(lambda: platform._state.load_sync() == "batch-new")
+    client, http, sync_task = (
+        platform._client,
+        platform._http_client,
+        platform._sync_task,
+    )
+    await platform.stop()
+    assert (
+        sync_task.done() and client.client_session is None and http.is_closed
+    )
+    assert platform._client is None and not platform._state._begun
+    assert platform.observed_states[-1] == "disconnected"
+
+
+@pytest.mark.asyncio
+async def test_saved_sync_token_resumes_and_stop_closes_typing(
+    hs,
+    platform_factory,
+):
+    first = platform_factory()
+    await first.start()
+    first._state.save_sync("saved-batch")
+    await first.stop()
+    hs.sync.put_nowait(
+        (
+            sync_payload("offline-batch", [text_event("offline", "$offline")]),
+            200,
+        ),
+    )
+    second = platform_factory()
+    before = len(hs.calls("/sync"))
+    await second.start()
+    await until(lambda: len(second.observed_events) == 1)
+    assert second.observed_events[0]["content_parts"][0].text == "offline"
+    assert hs.calls("/sync")[before]["query"]["since"] == "saved-batch"
+    assert hs.calls("/sync")[before]["query"]["full_state"] == "true"
+    await second.start_typing("reply-A", {"room_id": ROOM})
+    await second.start_typing("reply-B", {"room_id": ROOM})
+    typing = [r for r in hs.requests if "/typing/" in r["path"]]
+    assert [r["body"] for r in typing] == [{"typing": True, "timeout": 30000}]
+    task = second._typing_tasks[ROOM]
+    await second.stop_typing("reply-A")
+    assert not task.done() and second._typing_owners == {"reply-B": ROOM}
+    assert len([r for r in hs.requests if "/typing/" in r["path"]]) == 1
+    await second.stop()
+    assert (
+        task.done() and not second._typing_owners and not second._typing_tasks
+    )
+    assert [
+        r["body"]["typing"] for r in hs.requests if "/typing/" in r["path"]
+    ] == [True, False]
+
+
+async def ready(server, platform):
+    server.sync.put_nowait((sync_payload("catchup"), 200))
+    await platform.start()
+    await until(lambda: len(server.calls("/sync")) == 2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "filename"),
+    [("image", "image.png"), ("file", "document.pdf")],
+)
+async def test_native_media_event_is_downloaded_and_admitted_once(
+    hs,
+    platform_factory,
+    kind,
+    filename,
+):
+    platform = platform_factory(vision_enabled=True)
+    await ready(hs, platform)
+    event = text_event(filename, "$abc123")
+    event["content"] = {
+        "msgtype": "m." + kind,
+        "body": filename,
+        "url": "mxc://example.org/media",
+        "info": {
+            "mimetype": "application/octet-stream",
+            "size": len(hs.download),
+        },
+    }
+    hs.sync.put_nowait((sync_payload("media", [event]), 200))
+    await until(lambda: len(platform.observed_events) == 1)
+    payload = platform.observed_events[0]
+    parts = payload["content_parts"]
+    assert any(getattr(p, "type", None) == kind for p in parts)
+    assert len(parts) == 1 and payload["sender_id"] == "@user:example.com"
+    part = parts[0]
+    uri = getattr(part, "data" if kind == "audio" else kind + "_url")
+    path = Path(file_url_to_path(uri))
+    assert uri.startswith("file://") and path.is_relative_to(
+        Path(platform.config["workspace_dir"]),
+    )
+    assert path.read_bytes() == hs.download
+    assert len([r for r in hs.requests if "/download/" in r["path"]]) == 1
+    assert hs.calls("/read_markers")[0]["body"] == {
+        "m.fully_read": "$abc123",
+        "m.read": "$abc123",
+    }
+
+
+@pytest.mark.asyncio
+async def test_driver_native_text_roundtrip_reaches_original_room(
+    hs,
+    tmp_path,
+):
+    driver = module("matrix").MatrixDriver()
+    peer, identity = bind("matrix", driver, tmp_path)
+    hs.sync.put_nowait((sync_payload("catchup"), 200))
+    try:
+        await driver.start(
+            {
+                "enabled": True,
+                "homeserver": hs.url,
+                "user_id": BOT,
+                "access_token": "explicit-token",
+                "workspace_dir": str(tmp_path / "driver"),
+                "legacy_state_dir": str(tmp_path / "legacy"),
+            },
         )
-        await matrix_channel.send_media("!room:example.com", part)
-
-        mock_async_client.room_send.assert_not_called()
-
-    async def test_send_media_room_send_error(
-        self,
-        matrix_channel,
-        mock_async_client,
-        tmp_path,
-    ):
-        """Test handling room_send error."""
-        test_file = tmp_path / "test_image.png"
-        test_file.write_bytes(b"fake image data")
-
-        matrix_channel._client = mock_async_client
-        upload_response = UploadResponse(
-            content_uri="mxc://example.org/uploaded_123",
+        await until(lambda: len(hs.calls("/sync")) == 2)
+        hs.sync.put_nowait(
+            (
+                sync_payload(
+                    "question",
+                    [text_event("question", "$question")],
+                ),
+                200,
+            ),
         )
-        mock_async_client.upload = AsyncMock(
-            return_value=(upload_response, None),
+        await until(lambda: len(peer.batches) == 1)
+        event = peer.batches[0]["events"][0]
+        assert event["event_id"] == "$question"
+        assert event["sender_id"] == event["acl_sender_id"] == SENDER
+        assert event["conversation"] == {
+            "id": ROOM,
+            "type": "dm",
+            "thread_id": None,
+        }
+        assert event["metadata"]["session_id"] == "matrix:" + ROOM
+        assert event["content_parts"] == [{"type": "text", "text": "question"}]
+        assert event["response_handle"].startswith("matrix:reply:")
+        result = await peer.methods["channel.send"](
+            SendParams.from_mapping(
+                {
+                    **identity.to_mapping(),
+                    "to_handle": event["response_handle"],
+                    "delivery_id": "answer",
+                    "operation": "message.create",
+                    "content_parts": [{"type": "text", "text": "answer"}],
+                },
+            ),
+            None,
         )
-        send_error = RoomSendError(
-            message="Send failed",
-            status_code="M_UNKNOWN",
+        assert result["state"] == "acknowledged"
+        assert len(hs.sent) == 1
+        assert "/rooms/" + ROOM + "/send/m.room.message/" in hs.sent[0]["path"]
+        assert hs.sent[0]["body"]["body"] == "answer"
+        assert hs.sent[0]["body"]["msgtype"] == "m.text"
+        platform = driver._platform
+        sync_task = platform._sync_task
+    finally:
+        await driver.stop()
+    assert driver._platform is None and not driver._connected
+    assert sync_task.done() and platform._client is None
+
+
+@pytest.mark.asyncio
+async def test_unknown_typing_stop_retires_only_its_local_owner(
+    hs,
+    platform_factory,
+    tmp_path,
+    monkeypatch,
+):
+    import hashlib
+    from tests.channel_support.protocol import finish, open_route
+
+    platform = platform_factory()
+    await ready(hs, platform)
+    driver = module("matrix").MatrixDriver()
+    peer, identity = bind("matrix", driver, tmp_path)
+    driver._platform, driver._connected = platform, True
+    native = platform._client.room_typing
+    stops = []
+
+    async def typing(room_id, **kwargs):
+        if not kwargs["typing_state"]:
+            stops.append(room_id)
+            if len(stops) == 1:
+                raise OSError("native stop outcome unknown")
+        return await native(room_id, **kwargs)
+
+    monkeypatch.setattr(platform._client, "room_typing", typing)
+
+    async def prepare(room):
+        handle = await open_route(peer, identity, room)
+        await peer.methods["channel.response.prepare"](
+            {
+                **identity.to_mapping(),
+                "response_handle": handle,
+                "delivery_id": hashlib.sha256(
+                    (handle + ":prepare").encode(),
+                ).hexdigest(),
+            },
+            None,
         )
-        mock_async_client.room_send = AsyncMock(return_value=send_error)
+        return handle
 
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url=f"file://{test_file}",
-        )
-        await matrix_channel.send_media("!room:example.com", part)
-
-        # Should not raise, error is logged
-
-    async def test_send_media_video_type(
-        self,
-        matrix_channel,
-        mock_async_client,
-        tmp_path,
-    ):
-        """Test sending video media type."""
-        from qwenpaw.schemas import (
-            VideoContent,
-        )
-
-        test_file = tmp_path / "test_video.mp4"
-        test_file.write_bytes(b"fake video data")
-
-        matrix_channel._client = mock_async_client
-        upload_response = UploadResponse(
-            content_uri="mxc://example.org/uploaded_123",
-        )
-        mock_async_client.upload = AsyncMock(
-            return_value=(upload_response, None),
-        )
-        mock_async_client.room_send = AsyncMock(return_value=MagicMock())
-
-        part = VideoContent(
-            type=ContentType.VIDEO,
-            video_url=f"file://{test_file}",
-        )
-        await matrix_channel.send_media("!room:example.com", part)
-
-        call_args = mock_async_client.room_send.call_args[0][2]
-        assert call_args["msgtype"] == "m.video"
-
-    async def test_send_media_audio_type(
-        self,
-        matrix_channel,
-        mock_async_client,
-        tmp_path,
-    ):
-        """Test sending audio media type."""
-        from qwenpaw.schemas import (
-            AudioContent,
-        )
-
-        test_file = tmp_path / "test_audio.mp3"
-        test_file.write_bytes(b"fake audio data")
-
-        matrix_channel._client = mock_async_client
-        upload_response = UploadResponse(
-            content_uri="mxc://example.org/uploaded_123",
-        )
-        mock_async_client.upload = AsyncMock(
-            return_value=(upload_response, None),
-        )
-        mock_async_client.room_send = AsyncMock(return_value=MagicMock())
-
-        part = AudioContent(type=ContentType.AUDIO, data=f"file://{test_file}")
-        await matrix_channel.send_media("!room:example.com", part)
-
-        call_args = mock_async_client.room_send.call_args[0][2]
-        assert call_args["msgtype"] == "m.audio"
-
-    async def test_send_media_unknown_url_scheme(
-        self,
-        matrix_channel,
-        mock_async_client,
-    ):
-        """Test handling unknown URL scheme."""
-        matrix_channel._client = mock_async_client
-
-        part = ImageContent(
-            type=ContentType.IMAGE,
-            image_url="ftp://example.com/img.png",
-        )
-        await matrix_channel.send_media("!room:example.com", part)
-
-        mock_async_client.upload.assert_not_called()
-
-    async def test_send_media_generic_file_type(
-        self,
-        matrix_channel,
-        mock_async_client,
-        tmp_path,
-    ):
-        """Test sending generic file media type."""
-        test_file = tmp_path / "test_document.pdf"
-        test_file.write_bytes(b"fake pdf data")
-
-        matrix_channel._client = mock_async_client
-        upload_response = UploadResponse(
-            content_uri="mxc://example.org/uploaded_123",
-        )
-        mock_async_client.upload = AsyncMock(
-            return_value=(upload_response, None),
-        )
-        mock_async_client.room_send = AsyncMock(return_value=MagicMock())
-
-        from qwenpaw.schemas import FileContent
-
-        part = FileContent(
-            type=ContentType.FILE,
-            file_url=f"file://{test_file}",
-        )
-        await matrix_channel.send_media("!room:example.com", part)
-
-        call_args = mock_async_client.room_send.call_args[0][2]
-        assert call_args["msgtype"] == "m.file"
+    other_room = "!other:example.com"
+    other = await prepare(other_room)
+    other_task = platform._typing_tasks[other_room]
+    handle = await prepare(ROOM)
+    old_task = platform._typing_tasks[ROOM]
+    await finish(peer, identity, handle)
+    assert peer.receipts.list() and not driver._routes.snapshot(handle)
+    assert handle not in platform._typing_owners
+    assert old_task.done() and ROOM not in platform._typing_tasks
+    assert platform._typing_owners == {other: other_room}
+    assert platform._typing_tasks[other_room] is other_task
+    assert not other_task.done()
+    await finish(peer, identity, handle)
+    assert stops == [ROOM]
+    subsequent = await prepare(ROOM)
+    subsequent_task = platform._typing_tasks[ROOM]
+    # Re-retiring the archived owner must preserve a new owner in its room.
+    await finish(peer, identity, handle)
+    assert platform._typing_owners == {other: other_room, subsequent: ROOM}
+    assert platform._typing_tasks[ROOM] is subsequent_task
+    assert not subsequent_task.done() and stops == [ROOM]
+    await finish(peer, identity, subsequent)
+    assert stops == [ROOM, ROOM]
+    assert subsequent_task.done() and ROOM not in platform._typing_tasks
+    assert platform._typing_owners == {other: other_room}
+    await finish(peer, identity, other)
+    assert other_task.done() and not platform._typing_owners
+    first, second = await prepare(ROOM), await prepare(ROOM)
+    shared_task = platform._typing_tasks[ROOM]
+    before = stops.copy()
+    await driver._release_local_response(first)
+    assert platform._typing_owners == {second: ROOM}
+    assert platform._typing_tasks[ROOM] is shared_task
+    assert not shared_task.done() and stops == before
+    await finish(peer, identity, second)
+    assert shared_task.done() and not platform._typing_owners
+    assert not platform._typing_tasks and stops == [*before, ROOM]

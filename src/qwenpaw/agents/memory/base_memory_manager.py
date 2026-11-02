@@ -1129,6 +1129,25 @@ class MemoryBackendRegistry:  # pylint: disable=protected-access
             if item.plugin_id not in unloading
         ]
 
+    def unregister(self, backend_id: str, *, expected_factory: type) -> bool:
+        """Revoke one SDK contribution, preserving owner-use reservations."""
+        normalized = self._normalize(backend_id)
+        with self._lock:
+            registration = self._registrations.get(normalized)
+            if (
+                registration is None
+                or registration.factory is not expected_factory
+            ):
+                return False
+            owner = registration.plugin_id
+            agents = self.active_agent_ids(owner)
+            if agents:
+                raise RuntimeError(
+                    f"Memory backend is in use by agents: {', '.join(agents)}",
+                )
+            del self._registrations[normalized]
+            return True
+
     def unregister_owner(self, plugin_id: str) -> list[str]:
         with self._lock:
             removed = [

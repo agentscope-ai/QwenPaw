@@ -52,11 +52,12 @@ export function useModelSelectorData({
           setProviders(value);
           setLoading(false);
         },
+        (value) => {
+          if (activeRequestId !== activeRequestRef.current) return;
+          applyActiveModels(value);
+        },
       );
       if (providersRequestId !== providersRequestRef.current) return;
-      if (result.activeModels && activeRequestId === activeRequestRef.current) {
-        applyActiveModels(result.activeModels);
-      }
       setLoadError(result.loadError);
       return result;
     } finally {

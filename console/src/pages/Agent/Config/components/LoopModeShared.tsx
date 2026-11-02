@@ -27,13 +27,10 @@ export function LockedGateCard({
   const summary = (
     <button
       type="button"
-      className={loopStyles.gateSummary}
+      className={`${loopStyles.gateSummary} ${loopStyles.builtInGateSummary}`}
       aria-expanded={expanded}
       onClick={() => setExpanded((value) => !value)}
     >
-      <span className={loopStyles.lockSlot}>
-        <Lock size={14} />
-      </span>
       <span className={loopStyles.gateIcon}>{icon}</span>
       <span className={loopStyles.gateCopy}>
         <strong>{title}</strong>
@@ -66,7 +63,6 @@ export function BuiltInIntro({ description }: { description: string }) {
     <div className={loopStyles.builtInIntro}>
       <div className={loopStyles.builtInIntroMain}>
         <Tag className={loopStyles.builtInTag}>
-          <Lock size={11} />
           {t("agentConfig.loopMode.builtIn", "Built-in")}
         </Tag>
         <p>{description}</p>

@@ -15,6 +15,14 @@ vi.mock("@/api/modules/provider", () => ({
   },
 }));
 
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: "en" },
+  }),
+}));
+
 beforeEach(() => {
   configureProviderMock.mockReset();
   configureProviderMock.mockResolvedValue({});

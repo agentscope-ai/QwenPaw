@@ -8,7 +8,7 @@
 #
 # uv is obtained automatically (no action required from the user):
 #   1. Already on PATH or in common locations
-#   2. Downloaded via https://astral.sh/uv/install.ps1
+#   2. Downloaded via https://astral.sh/uv/0.13.4/install.ps1
 #   3. Downloaded via GitHub Releases if astral.sh is unreachable (e.g. in China)
 #
 # The entire script is wrapped in & { ... } @args so that `irm | iex` works
@@ -90,7 +90,7 @@ function Invoke-UvFromGitHub {
     # Downloads uv from GitHub Releases and prepends its directory to PATH.
     # Used automatically when astral.sh is unreachable (e.g. in China).
     $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x86_64" }
-    $url  = "https://github.com/astral-sh/uv/releases/latest/download/uv-$arch-pc-windows-msvc.zip"
+    $url  = "https://github.com/astral-sh/uv/releases/download/0.13.4/uv-$arch-pc-windows-msvc.zip"
     $dest = Join-Path $env:LOCALAPPDATA "uv"
     $zip  = Join-Path $env:TEMP "uv-gh-$([System.IO.Path]::GetRandomFileName()).zip"
 
@@ -155,7 +155,7 @@ function Ensure-Uv {
     Write-Info "Installing uv via astral.sh..."
     $astralOk = $false
     try {
-        $installScript = Invoke-RestMethod https://astral.sh/uv/install.ps1 -TimeoutSec 15
+        $installScript = Invoke-RestMethod https://astral.sh/uv/0.13.4/install.ps1 -TimeoutSec 15
         Invoke-Expression $installScript
         $astralOk = $true
     } catch {
@@ -193,6 +193,13 @@ function Ensure-Uv {
 }
 
 Ensure-Uv
+$uvVersion = (& uv --version | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $uvVersion -notmatch '^uv (\d+\.\d+\.\d+)(?: |$)') {
+    Stop-WithError "Cannot verify uv version: $uvVersion"
+}
+if ([version]$Matches[1] -lt [version]"0.13.4") {
+    Stop-WithError "uv >= 0.13.4 is required; update uv from the official release and retry"
+}
 
 # ── Step 2: Create / update virtual environment ──────────────────────────────
 if (Test-Path $QwenpawVenv) {
@@ -201,7 +208,7 @@ if (Test-Path $QwenpawVenv) {
     Write-Info "Creating Python $PythonVersion environment..."
 }
 
-uv venv $QwenpawVenv --python $PythonVersion --quiet --clear
+uv venv $QwenpawVenv --python $PythonVersion --quiet --clear --seed
 if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to create virtual environment" }
 
 $VenvPython = Join-Path $QwenpawVenv "Scripts\python.exe"
@@ -290,7 +297,7 @@ if ($FromSource) {
         Write-Info "Installing QwenPaw from local source: $SourceDir"
         Prepare-Console $SourceDir
         Write-Info "Installing package from source..."
-        uv pip install "${SourceDir}${ExtrasSuffix}" --python $VenvPython
+        uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "${SourceDir}${ExtrasSuffix}" --python $VenvPython
         if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation from source failed" }
         Cleanup-Console $SourceDir
     } else {
@@ -304,7 +311,7 @@ if ($FromSource) {
             if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to clone repository" }
             Prepare-Console $cloneDir
             Write-Info "Installing package from source..."
-            uv pip install "${cloneDir}${ExtrasSuffix}" --python $VenvPython
+            uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "${cloneDir}${ExtrasSuffix}" --python $VenvPython
             if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation from source failed" }
         } finally {
             if (Test-Path $cloneDir) {
@@ -320,12 +327,27 @@ if ($FromSource) {
     if ($Prerelease) { $prereleaseArgs = @("--prerelease=allow") }
 
     Write-Info "Installing ${package}${ExtrasSuffix} from PyPI..."
-    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --quiet --refresh-package qwenpaw @prereleaseArgs
+    uv pip install "pip>=26.2.2" "certifi>=2026.10.19" "${package}${ExtrasSuffix}" --python $VenvPython --quiet --refresh-package qwenpaw @prereleaseArgs
     if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation failed" }
 }
 
 # Verify the CLI entry point exists
 if (-not (Test-Path $VenvQwenpaw)) { Stop-WithError "Installation failed: qwenpaw CLI not found in venv" }
+$SelectedExtras = @($Extras -split ',' | ForEach-Object { $_.Trim().ToLowerInvariant() })
+if ($SelectedExtras -contains 'channels' -or $SelectedExtras -contains 'full') {
+    & $VenvQwenpaw plugins preset apply channels-full --offline
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "Channel preset setup failed" }
+}
+$CliHelp = & $VenvQwenpaw --help
+if ($LASTEXITCODE -ne 0) { Stop-WithError "Command discovery failed" }
+if ($CliHelp -match '^\s+plugins(\s|$)') {
+    $PluginHelp = & $VenvQwenpaw plugins --help
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "Plugin command discovery failed" }
+    if ($PluginHelp -match 'prepare-upgrade') {
+        & $VenvQwenpaw plugins prepare-upgrade
+        if ($LASTEXITCODE -ne 0) { Stop-WithError "Enabled channel preparation failed" }
+    }
+}
 
 Write-Info "QwenPaw installed successfully"
 

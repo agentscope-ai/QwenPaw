@@ -31,7 +31,11 @@ export const toolsApi = {
   /**
    * List all built-in tools
    */
-  listTools: () => request<ToolInfo[]>("/tools"),
+  listTools: (agentId?: string) =>
+    request<ToolInfo[]>(
+      "/tools",
+      agentId ? { headers: { "X-Agent-Id": agentId } } : undefined,
+    ),
 
   /**
    * Toggle tool enabled status

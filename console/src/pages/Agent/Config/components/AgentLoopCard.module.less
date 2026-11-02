@@ -8,6 +8,7 @@
   --loop-surface-subtle: var(--app-surface-subtle);
   --loop-border: var(--app-border);
   --loop-border-hover: var(--app-accent-border);
+  --loop-control-radius: 8px;
   --loop-text: var(--app-text);
   --loop-text-secondary: var(--app-text-secondary);
   --loop-text-tertiary: var(--app-text-tertiary);
@@ -17,60 +18,54 @@
 .loopCard {
   overflow: hidden;
 
-  :global(.ant-card-body) {
+  :global(.ant-card-body),
+  :global(.qwenpaw-card-body) {
     padding: 14px 18px 20px;
   }
 
-  :global(.ant-tabs-nav) {
+  :global(.ant-tabs-nav),
+  :global(.qwenpaw-tabs-nav) {
     margin: 0 -2px;
   }
 
-  :global(.ant-tabs-nav::before) {
-    border-bottom-color: var(--loop-border);
+  :global(.ant-tabs-nav::before),
+  :global(.qwenpaw-tabs-nav::before) {
+    border-bottom: 1px solid var(--loop-border) !important;
   }
 
-  :global(.ant-tabs-nav-wrap) {
+  :global(.ant-tabs-nav-wrap),
+  :global(.qwenpaw-tabs-nav-wrap) {
     overflow-x: auto;
     scrollbar-width: none;
   }
 
-  :global(.ant-tabs-nav-list) {
+  :global(.ant-tabs-nav-list),
+  :global(.qwenpaw-tabs-nav-list) {
     align-items: flex-end;
     gap: 3px;
   }
 
-  :global(.ant-tabs-tab) {
+  :global(.ant-tabs-tab),
+  :global(.qwenpaw-tabs-tab) {
     margin: 0;
-    padding: 10px 20px 11px;
-    border: 1px solid transparent;
-    border-bottom: 0;
-    border-radius: 9px 9px 0 0;
+    padding: 10px 16px 11px;
+    border: 0;
+    border-radius: 0;
     transition:
-      border-color 160ms ease,
+      color 160ms ease,
       background-color 160ms ease;
   }
 
-  :global(.ant-tabs-tab:hover) {
+  :global(.ant-tabs-tab:hover),
+  :global(.qwenpaw-tabs-tab:hover) {
     background: var(--loop-accent-soft);
   }
 
-  :global(.ant-tabs-tab-active) {
-    border-color: var(--loop-border);
-    background: var(--loop-surface);
-  }
-
-  :global(.ant-tabs-tab-active::after) {
-    position: absolute;
-    right: 0;
-    bottom: -1px;
-    left: 0;
+  :global(.ant-tabs-ink-bar),
+  :global(.qwenpaw-tabs-ink-bar) {
     height: 2px;
-    background: var(--loop-surface);
-    content: "";
-  }
-
-  :global(.ant-tabs-ink-bar) {
-    display: none;
+    border-radius: 2px;
+    background: var(--loop-accent);
   }
 }
 
@@ -127,7 +122,8 @@
   }
 }
 
-:global(.ant-tabs-tab-active) .customTab {
+:global(.ant-tabs-tab-active) .customTab,
+:global(.qwenpaw-tabs-tab-active) .customTab {
   color: var(--loop-accent-strong);
   font-weight: 650;
 }
@@ -191,7 +187,7 @@
   align-items: center;
   gap: 6px;
   color: var(--loop-text-secondary);
-  font-size: calc(10px * var(--app-font-scale));
+  font-size: var(--app-font-caption);
   white-space: nowrap;
 }
 
@@ -236,6 +232,10 @@
   gap: 8px;
 }
 
+.modeEditor > .gateCard + .gateCard {
+  margin-top: var(--app-space-2);
+}
+
 .gateCard {
   overflow: hidden;
   margin-bottom: 0;
@@ -268,7 +268,12 @@
   text-align: left;
 }
 
-.lockSlot,
+.builtInGateSummary {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  padding-right: var(--app-space-4);
+  padding-left: var(--app-space-4);
+}
+
 .dragHandle {
   display: grid;
   width: 28px;
@@ -330,13 +335,25 @@
 }
 
 .gateDetails {
-  padding: 18px 22px 5px 76px;
+  padding: var(--app-space-6);
   border-top: 1px solid var(--loop-border);
   background: var(--loop-surface-subtle);
+
+  :global(.ant-input),
+  :global(.qwenpaw-input),
+  :global(.ant-input-affix-wrapper),
+  :global(.qwenpaw-input-affix-wrapper),
+  :global(.ant-select-selector),
+  :global(.qwenpaw-select-selector),
+  :global(.ant-btn),
+  :global(.qwenpaw-btn) {
+    border-radius: var(--loop-control-radius);
+  }
 }
 
 .gateForm {
-  max-width: 760px;
+  max-width: 880px;
+  margin: 0 auto;
 }
 
 .subsectionTitle {
@@ -357,13 +374,30 @@
 
 .ruleRow {
   display: grid;
-  grid-template-columns: 180px 170px minmax(220px, 1fr) 32px;
+  grid-template-columns: 140px 180px minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px;
+  gap: var(--app-space-3);
 }
 
-.ruleRow > :global(.ant-btn) {
+.ruleRow > .removeRule {
+  width: var(--app-control-md);
+  height: var(--app-control-md);
+  padding: 0;
+}
+
+.ruleRow:first-child > .removeRule {
   margin-top: 30px;
+}
+
+.ruleRow :global(.ant-select),
+.ruleRow :global(.qwenpaw-select) {
+  height: var(--app-control-md);
+}
+
+.ruleRow :global(textarea.ant-input),
+.ruleRow :global(textarea.qwenpaw-input) {
+  min-height: var(--app-control-md);
+  padding: 6px 10px;
 }
 
 @container (max-width: 640px) {
@@ -371,13 +405,15 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .ruleRow > :global(.ant-btn) {
+  .ruleRow > .removeRule,
+  .ruleRow:first-child > .removeRule {
     justify-self: end;
     margin-top: 0;
   }
 }
 
-.gateDetails :global(.ant-form-item:last-child) {
+.gateDetails :global(.ant-form-item:last-child),
+.gateDetails :global(.qwenpaw-form-item:last-child) {
   margin-bottom: 14px;
 }
 
@@ -544,9 +580,14 @@
     padding-left: 7px;
   }
 
+  .builtInGateSummary {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
   .gateDetails {
-    padding-right: 13px;
-    padding-left: 13px;
+    padding: var(--app-space-4);
   }
 
   .gateActions > :nth-child(-n + 2) {
@@ -555,6 +596,13 @@
 
   .toolLimitRow {
     grid-template-columns: minmax(0, 1fr) 88px 32px;
+  }
+}
+
+@media (any-pointer: coarse) {
+  .ruleRow > .removeRule {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
   }
 }
 

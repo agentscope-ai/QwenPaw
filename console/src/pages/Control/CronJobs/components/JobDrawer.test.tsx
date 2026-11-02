@@ -23,6 +23,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import React from "react";
+import dayjs from "dayjs";
 import { Form } from "antd";
 import type { FormInstance } from "antd";
 import type {
@@ -179,14 +180,17 @@ vi.mock("@/components/interaction/SettingsDrawer", () => ({
     title,
     children,
     footer,
+    onClose,
   }: {
     open: boolean;
     title: React.ReactNode;
     children: React.ReactNode;
     footer: React.ReactNode;
+    onClose: () => void;
   }) =>
     open ? (
-      <div>
+      <div role="dialog">
+        <button aria-label="common.close" onClick={onClose} />
         {title}
         {children}
         {footer}
@@ -194,7 +198,20 @@ vi.mock("@/components/interaction/SettingsDrawer", () => ({
     ) : null,
 }));
 vi.mock("@/components/interaction/DurationWheel", () => ({
-  DurationWheel: () => <input data-testid="time-picker" />,
+  DurationWheel: ({
+    value,
+    onChange,
+  }: {
+    value: number;
+    onChange: (value: number) => void;
+  }) => (
+    <input
+      data-testid="time-picker"
+      type="number"
+      value={value}
+      onChange={(event) => onChange(Number(event.target.value))}
+    />
+  ),
 }));
 
 import { JobDrawer } from "./JobDrawer";
@@ -703,42 +720,105 @@ describe("JobDrawer footer actions", () => {
   });
 });
 
-describe("JobDrawer automatic edits", () => {
-  it("saves an existing task without dismissing its editor", async () => {
-    const { getForm, onSubmit, onClose } = renderDrawer({
+describe("JobDrawer explicit edits", () => {
+  it("keeps time and content edits as drafts until Save is clicked", async () => {
+    const onSubmit = vi.fn();
+    const { getForm, onClose } = renderDrawer({
+      onSubmit,
       editingJob: { id: "existing", name: "Before" } as CronJobSpecOutput,
     });
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Original report" }],
+      },
+    ];
+    const input = JSON.stringify(messages, null, 2);
     act(() =>
       getForm().setFieldsValue({
         id: "existing",
         name: "Before",
-        task_type: "text",
-        text: "Reminder",
+        task_type: "agent",
+        request: { input, request_context: { project_dir: "/workspace" } },
+        meta: { custom: "preserved" },
+        cronTime: dayjs().hour(8).minute(30),
         dispatch: {
           channel: "console",
           target: { user_id: "admin", session_id: "default" },
         },
       }),
     );
-    fireEvent.change(
-      screen.getByPlaceholderText("cronJobs.jobNamePlaceholder"),
-      {
-        target: { value: "After" },
-      },
-    );
-    await waitFor(
-      () =>
-        expect(onSubmit).toHaveBeenCalledWith(
-          expect.objectContaining({
-            id: "existing",
-            name: "After",
-            text: "Reminder",
-          }),
-        ),
-      { timeout: 2500 },
-    );
+    fireEvent.change(screen.getByTestId("time-picker"), {
+      target: { value: "585" },
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "cronJobs.taskType" }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(
+      screen.getByPlaceholderText("cronJobs.requestTextPlaceholder"),
+    ).toHaveValue("Original report");
+    fireEvent.click(screen.getByText("cronJobs.jsonMode"));
+    expect(
+      screen.getByPlaceholderText("cronJobs.requestTextPlaceholder"),
+    ).toHaveValue(input);
+    fireEvent.click(screen.getByText("cronJobs.textMode"));
+    const draft = getForm().getFieldValue(["request", "input"]);
+    expect(typeof draft).toBe("string");
+    expect(JSON.parse(draft)).toEqual(messages);
+
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0].request.input).toBe(draft);
+    expect(onSubmit.mock.calls[0][0].request.request_context).toEqual({
+      project_dir: "/workspace",
+    });
+    expect(onSubmit.mock.calls[0][0].meta).toEqual({ custom: "preserved" });
+    expect(onSubmit.mock.calls[0][0].cronTime.format("HH:mm")).toBe("09:45");
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByText("common.create")).not.toBeInTheDocument();
+  });
+
+  it.each(["common.cancel", "common.close"])(
+    "%s discards an invalid edit without submitting it",
+    async (action) => {
+      const { getForm, onSubmit, onClose } = renderDrawer({
+        editingJob: { id: "existing", name: "Before" } as CronJobSpecOutput,
+      });
+      act(() =>
+        getForm().setFieldsValue({ name: "Before", request: { input: "" } }),
+      );
+      fireEvent.click(screen.getByRole("tab", { name: "cronJobs.taskType" }));
+      fireEvent.click(screen.getByText("cronJobs.jsonMode"));
+      fireEvent.change(
+        screen.getByPlaceholderText("cronJobs.requestTextPlaceholder"),
+        { target: { value: "{invalid" } },
+      );
+      await screen.findByText("cronJobs.invalidJsonFormat");
+      fireEvent.click(screen.getByRole("button", { name: action }));
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reveals an invalid content tab when Save is clicked", async () => {
+    const { getForm, onSubmit } = renderDrawer({
+      editingJob: { id: "existing", name: "Before" } as CronJobSpecOutput,
+    });
+    act(() =>
+      getForm().setFieldsValue({ name: "Before", request: { input: "" } }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("tab", { name: "cronJobs.taskType" }),
+      ).toHaveAttribute("aria-selected", "true"),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("cronJobs.pleaseInputRequest")).toBeVisible(),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });
 
