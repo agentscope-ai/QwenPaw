@@ -234,7 +234,6 @@ class QQDriver(SharedResponseDriver):
             resource = await platform.start_stream(route, text, markdown)
             resource.update(
                 sequence="0",
-                index="0",
                 final="false",
                 markdown="true" if markdown else "false",
                 stream_type=stream_type,
@@ -254,7 +253,10 @@ class QQDriver(SharedResponseDriver):
                 side_effect_possible=False,
             )
         resource = dict(ref.attributes)
-        if resource.get("stream_type") != stream_type:
+        recorded_type = resource.get("stream_type")
+        # Resources written before ``stream_type`` was recorded carry no kind
+        # to compare, so only an explicit disagreement is rejected.
+        if recorded_type is not None and recorded_type != stream_type:
             raise QQDeliveryError(
                 "STREAM_TYPE_MISMATCH",
                 side_effect_possible=False,
@@ -286,8 +288,8 @@ class QQDriver(SharedResponseDriver):
             markdown=markdown,
             final=final,
         )
-        # Only an acknowledged slice advances these: a lost ``stream.end``
-        # must stay visible to cleanup so the stream is closed later.
+        # Only an acknowledged slice advances these, so a lost ``stream.end``
+        # is archived as unknown evidence instead of a confirmed close.
         resource.update(
             sequence=str(sequence),
             final="true" if final else "false",
@@ -326,13 +328,19 @@ class QQDriver(SharedResponseDriver):
 
     async def _perform_stream_cleanup(self, ref, resource, sequence):
         attributes = dict(resource)
-        # The stream path is recorded on the resource at ``stream.start``.
+        # The host sequence is not the QQ slice index; the closing slice must
+        # continue the native index, not the response-level sequence.
         await self._require_connected().update_stream(
             {},
             attributes,
-            attributes.get("text") or "",
+            attributes.get("text") or "...",
             index=int(attributes.get("index", "0")) + 1,
-            markdown=_as_bool(attributes.get("markdown", "true")),
+            markdown=_as_bool(
+                attributes.get(
+                    "markdown",
+                    self._config.get("markdown_enabled", True),
+                ),
+            ),
             final=True,
         )
 

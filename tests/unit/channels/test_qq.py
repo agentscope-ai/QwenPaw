@@ -615,6 +615,42 @@ async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
     )
 
 
+async def test_lost_end_slice_is_not_closed_twice(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(peer, identity, "qq:c2c:user-A")
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="first",
+    )
+    server.drop_next = 1
+    lost = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.end",
+        sequence=1,
+        target_delivery_id="delivery-A",
+        accumulated_text="final answer",
+    )
+    assert lost["state"] == "unknown"
+    finish = ResponseFinishParams.from_mapping(
+        {**identity, "response_handle": handle, "outcome": "completed"},
+    )
+    await peer.methods["channel.response.finish"](finish, None)
+    # The end slice may already be applied on QQ, so cleanup records unknown
+    # evidence instead of appending a second closing slice.
+    assert [row["body"]["input_state"] for row in server.api_rows()] == [
+        1,
+        10,
+    ]
+
+
 async def test_cleanup_skips_already_ended_stream(native_driver):
     driver, peer, identity, server = native_driver
     driver._config["streaming_enabled"] = True
@@ -645,3 +681,26 @@ async def test_cleanup_skips_already_ended_stream(native_driver):
         1,
         10,
     ]
+
+
+async def test_cleanup_closes_stream_with_placeholder_text(native_driver):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    handle = await open_route(peer, identity, "qq:c2c:user-A")
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="",
+    )
+    finish = ResponseFinishParams.from_mapping(
+        {**identity, "response_handle": handle, "outcome": "cancelled"},
+    )
+    await peer.methods["channel.response.finish"](finish, None)
+    rows = [row["body"] for row in server.api_rows()]
+    # An empty first slice uses the native placeholder, and the closing slice
+    # reuses it instead of sending an empty ``content_raw``.
+    assert [row["content_raw"] for row in rows] == ["...", "..."]
+    assert [row["input_state"] for row in rows] == [1, 10]
