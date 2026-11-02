@@ -327,6 +327,72 @@ class TestEditFile:
         assert "Successfully replaced" in result.content[0].text
         assert f.read_bytes() == b'def hi():\n    return "new"\n'
 
+    @pytest.mark.asyncio
+    async def test_edit_preserves_mixed_line_endings(self, tmp_path):
+        """One CRLF must not rewrite the other lines of an LF file."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\n")
+
+        result = await edit_file(str(f), "beta", "BETA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\ngamma\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_maps_match_across_mixed_newline(self, tmp_path):
+        """A match that covers CRLF keeps the surrounding endings."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\n")
+
+        result = await edit_file(str(f), "beta\ngamma", "BETA\nGAMMA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\nGAMMA\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_each_distinct_line_ending(self, tmp_path):
+        """LF, CRLF, and lone CR on different lines all stay put."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\rdelta\n")
+
+        result = await edit_file(str(f), "beta", "BETA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\ngamma\rdelta\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_new_breaks_on_pure_crlf(self, tmp_path):
+        """Breaks introduced in new_text follow a pure CRLF file."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b"keep\r\nold\r\n")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\r\nnew\r\nline\r\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_new_breaks_on_pure_lf(self, tmp_path):
+        """Breaks introduced in new_text stay LF in a pure LF file."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b"keep\nold\n")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\nnew\nline\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_cr_line_endings(self, tmp_path):
+        """Lone CR files stay CR, including breaks new_text introduces."""
+        f = tmp_path / "legacy.txt"
+        f.write_bytes(b"keep\rold\r")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\rnew\rline\r"
+
 
 # ---------------------------------------------------------------------------
 # append_file
