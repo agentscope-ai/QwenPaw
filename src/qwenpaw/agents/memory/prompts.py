@@ -61,6 +61,7 @@ def build_memory_guidance_prompt(
     language: str = "zh",
     *,
     memory_search_enabled: bool = True,
+    memory_tags_enabled: bool = False,
     daily_dir: str = "memory",
     digest_dir: str = "digest",
 ) -> str:
@@ -80,6 +81,15 @@ def build_memory_guidance_prompt(
         if memory_search_enabled
         else ""
     )
+    if memory_search_enabled and memory_tags_enabled:
+        search_guidance += (
+            "\n- 用 `memory_list_tags` 查看已有实体标签及文件数，再按需给 "
+            "`memory_search` 传入 `tags` 数组缩小范围；不填 `tags` 时搜索全部记忆。\n"
+            if language == "zh"
+            else "\n- Use `memory_list_tags` to discover entity tags and file "
+            "counts, then optionally pass a `tags` array to `memory_search`. "
+            "Omit `tags` to search all memories.\n"
+        )
     return template.format(
         daily_dir=normalized_daily_dir,
         digest_dir=normalized_digest_dir,

@@ -39,6 +39,14 @@ class SessionsPage(BasePage):
     # Page-loaded indicator (the page has no h1; use the table as the load-complete marker)
     PAGE_LOAD_INDICATOR = '.ant-table, .qwenpaw-table, table'
 
+    # Table loading state. antd/design Table renders
+    # ``<prefix>-spin-nested-loading`` permanently while ``loading`` is
+    # true and adds ``<prefix>-spin-spinning`` only while actually
+    # spinning, so the spinning variant is the load-complete signal.
+    # (BasePage.LOADING_SPINNER is deliberately NOT used here: its
+    # ``[class*=loading]`` arm matches the permanent wrapper.)
+    TABLE_SPINNING = '[class*="spin-spinning"]'
+
     # Filter bar
     FILTER_USER_ID_INPUT = 'input[placeholder*="User ID" i], input[placeholder*="用户" i]'
     FILTER_CHANNEL_SELECT = '.ant-select[data-placeholder*="Channel" i], .qwenpaw-select'
@@ -204,14 +212,105 @@ class SessionsPage(BasePage):
         return self
 
     def wait_for_page_loaded(self, timeout: Optional[int] = None) -> "SessionsPage":
-        """Wait for the page to finish loading."""
+        """Wait for the page to finish loading: container, then settled body.
+
+        Two terminal conditions, in order:
+
+        1. the table CONTAINER is visible -- the page has no h1 to key off,
+           so the table is the load-complete marker;
+        2. the table BODY has settled -- a data row, or the empty-state
+           placeholder row (see :meth:`wait_for_data_rows`).
+
+        Condition 2 is not optional. antd/rc-table renders the container and
+        an aria-hidden measure-row while ``loading`` is still true, so
+        condition 1 returns before the async ``GET /api/chats`` response has
+        been committed, and every caller that counts rows right after
+        ``open()`` races that fetch. The timing is what decides the outcome,
+        and it is not stable: across seven CI runs of the same code with the
+        same fixture-created sessions (upstream nightly plus fork runs), the
+        container wait returned 626-702 ms after the goto in the three runs
+        that then read 0 rows and skipped with "No operable sessions", and
+        1018-1096 ms in the four runs that read the rows and passed. The same
+        race skipped the batch-delete case with "Insufficient sessions; need
+        at least 2, have 0" (counted 0.70 s after the goto). Settling the
+        body closes that window once for all five ``open()`` call sites
+        instead of only at the one call site that already knew about the race.
+        Two adjacent fork runs of one branch show both outcomes with no
+        change to this file in between, so it is flakiness, not a version
+        difference.
+
+        A genuinely empty session list is NOT an error here: the placeholder
+        settles condition 2 and callers still see the real zero, leaving
+        their own skip branches in charge of reporting it. A fetch that never
+        settles renders neither terminal state and fails fast with the
+        on-page state, rather than silently degrading into a skip that reads
+        like "no data".
+        """
         timeout = timeout or self.timeout
         logger.info("Waiting for Sessions page to load")
 
         # Wait for the table to appear (the page has no h1)
         expect(self.page.locator(self.PAGE_LOAD_INDICATOR).first).to_be_visible(timeout=timeout)
 
+        # The container alone does not prove the rows arrived; settle the body.
+        self.wait_for_data_rows(timeout=timeout)
+
         return self
+
+    def wait_for_data_rows(self, timeout: Optional[int] = None) -> int:
+        """Wait until the session table has rendered its data rows.
+
+        ``wait_for_page_loaded`` only proves the table CONTAINER exists;
+        the rows arrive later with the async ``GET /api/chats`` response.
+        Counting rows immediately after ``open()`` therefore races the
+        fetch: on nightly 2026-10-13 the count ran 0.70 s after the goto
+        and read 0 while the server already held the three sessions the
+        fixture had just created (the teardown resolved their uuids), and
+        the case then skipped with "Insufficient sessions; need at least
+        2, have 0" -- a zero-wait race, not missing data.
+
+        The settle signal is the table BODY rendering one of its two
+        terminal states: a data row, or the empty-state placeholder row
+        (antd renders ``<tr class="<prefix>-table-placeholder">`` once
+        ``loading`` is false and ``dataSource`` is empty). Both prove the
+        async ``GET /api/chats`` response has been committed, so the row
+        count taken right after is authoritative. Waiting for the spinner
+        to disappear instead would be weaker: a Table implementation that
+        renders no spinner at all would make such a wait pass instantly
+        and leave the original race in place.
+
+        A genuinely empty session list is NOT an error here: the
+        placeholder settles the wait and this returns 0, letting the
+        caller's existing skip branch report the real zero. A fetch that
+        never settles renders neither terminal state and fails fast with
+        the on-page state instead of silently degrading into a skip.
+        """
+        timeout = timeout or self.timeout
+        logger.info(
+            "Waiting for Sessions table body to settle (data rows or "
+            "empty placeholder)"
+        )
+        settled = self.page.locator(
+            f"{self.SESSION_DATA_ROW}, "
+            ".qwenpaw-table-placeholder, .ant-table-placeholder"
+        )
+        try:
+            expect(settled.first).to_be_visible(timeout=timeout)
+        except AssertionError:
+            spinning = self.page.locator(self.TABLE_SPINNING).count()
+            tab_text = [
+                t.inner_text().strip()
+                for t in self.page.locator(self.SESSION_TAB).all()
+            ]
+            raise AssertionError(
+                f"Sessions table body never settled within {timeout}ms: "
+                f"neither a data row nor the empty-state placeholder "
+                f"rendered. spinner_nodes={spinning}; tab labels: "
+                f"{tab_text}."
+            )
+        count = len(self.get_session_data_rows())
+        logger.info(f"Sessions table rendered {count} data row(s)")
+        return count
 
     # ========== Table operations ==========
 

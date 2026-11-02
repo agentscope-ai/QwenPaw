@@ -500,7 +500,10 @@ async def test_plan_request_carries_task_tools_and_system_prompt():
 
 async def test_plan_uses_workspace_listing_as_env_context(tmp_path):
     (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "input.csv").write_text("a,b\n1,2\n")
+    # write_bytes, not write_text: write_text passes newline=None, which
+    # translates every "\n" to os.linesep -- CRLF on Windows -- so the same
+    # call yields 8 bytes here and 10 bytes on a Windows runner.
+    (tmp_path / "data" / "input.csv").write_bytes(b"a,b\n1,2\n")
     mw = _plan_mw(["THE PLAN"], env_context_root=tmp_path)
     agent = _agent_with_task()
     await mw._inject_plan(agent, tools=[])
@@ -672,7 +675,10 @@ def test_workspace_listing_skips_vendor_dirs_and_caps(tmp_path):
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "x.js").write_text("x")
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "main.py").write_text("print(1)\n")
+    # write_bytes keeps the size platform-independent (see the note in
+    # test_plan_uses_workspace_listing_as_env_context): this file is 9 bytes
+    # with LF and 10 bytes once write_text translates "\n" to CRLF.
+    (tmp_path / "src" / "main.py").write_bytes(b"print(1)\n")
     (tmp_path / "README.md").write_text("hi")
     out = _workspace_listing(tmp_path)
     assert "node_modules" not in out

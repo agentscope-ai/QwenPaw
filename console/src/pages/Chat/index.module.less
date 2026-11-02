@@ -458,9 +458,10 @@
 
     [class$="-sender-content-bottom"] {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
       align-items: center;
       column-gap: 8px;
+      row-gap: 4px;
       margin-top: 8px;
     }
 
@@ -506,7 +507,7 @@
       flex: 0 0 auto;
     }
 
-    [class$="-sender-actions-btn"] {
+    [data-qwenpaw-composer-submit="true"] {
       width: 44px !important;
       min-width: 44px !important;
       height: 44px !important;

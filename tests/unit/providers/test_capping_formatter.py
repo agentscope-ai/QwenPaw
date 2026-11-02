@@ -88,6 +88,18 @@ def test_unknown_source_returns_none() -> None:
     assert inline_media_size(object()) is None
 
 
+@pytest.mark.parametrize("data", [b"a", b"ab", b"abc"])
+def test_base64_size_excludes_padding(data):
+    import base64
+    from agentscope.message import Base64Source
+
+    source = Base64Source(
+        data=base64.b64encode(data).decode("ascii"),
+        media_type="image/png",
+    )
+    assert inline_media_size(source) == len(data)
+
+
 # ---------------------------------------------------------------------------
 # CappingFormatterMixin._maybe_cap
 # ---------------------------------------------------------------------------

@@ -22,7 +22,10 @@ runs:
       shell: pwsh
       run: |
         $ErrorActionPreference = "Stop"
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade "pip>=26.2.2"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        python -m pip install --upgrade "certifi>=2026.10.19"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         python -m pip install -r scripts/verify/requirements-verify.txt
         python -m playwright install chromium --with-deps
 

@@ -34,6 +34,14 @@ _OutgoingPart = Union[
 ]
 
 
+@dataclass(frozen=True)
+class SemanticContentPart:
+    """A rendered part and its neutral completed-message provenance."""
+
+    part: _OutgoingPart
+    role: str
+
+
 @dataclass
 class ChannelDisplayConfig:
     """Display settings shared by channel rendering and streaming."""
@@ -162,6 +170,27 @@ class MessageRenderer:
 
     def message_to_parts(self, message: Any) -> List[_OutgoingPart]:
         """Convert Message to list of sendable parts (runtime Content)."""
+        return [
+            item.part
+            for item in self._message_to_presented_parts(
+                message,
+                semantic=False,
+            )
+        ]
+
+    def message_to_semantic_parts(
+        self,
+        message: Any,
+    ) -> List[SemanticContentPart]:
+        """Preserve semantic roles without adding a platform's native layout."""
+        return self._message_to_presented_parts(message, semantic=True)
+
+    def _message_to_presented_parts(
+        self,
+        message: Any,
+        *,
+        semantic: bool,
+    ) -> List[SemanticContentPart]:
         from qwenpaw.agents.context.scroll.serialize import strip_headline
         from qwenpaw.schemas import MessageType
 
@@ -174,6 +203,13 @@ class MessageRenderer:
             and msg_type == MessageType.REASONING
         ):
             return []
+
+        if semantic and msg_type == MessageType.REASONING:
+            return [
+                SemanticContentPart(TextContent(text=text), "reasoning")
+                for item in content
+                if (text := strip_headline(getattr(item, "text", None)))
+            ]
 
         logger.debug(
             "renderer message_to_parts: msg_type=%s content_len=%s",
@@ -380,7 +416,7 @@ class MessageRenderer:
             parts = _parts_for_tool_call(content)
             if not parts and s.display_config.show_tool_calls:
                 parts = [TextContent(text=f"[{msg_type}]")]
-            return parts
+            return [SemanticContentPart(part, "rendered") for part in parts]
 
         if msg_type in (
             MessageType.FUNCTION_CALL_OUTPUT,
@@ -390,9 +426,13 @@ class MessageRenderer:
             parts = _parts_for_tool_output(content)
             if not parts and s.display_config.show_tool_results:
                 parts = [TextContent(text=f"[{msg_type}]")]
-            return parts
+            return [SemanticContentPart(part, "rendered") for part in parts]
 
-        result: List[_OutgoingPart] = []
+        result: List[SemanticContentPart] = []
+
+        def append(part: _OutgoingPart, role: str = "message") -> None:
+            result.append(SemanticContentPart(part, role))
+
         suppressed_tool_data = False
         for c in content:
             ctype = getattr(c, "type", None)
@@ -401,20 +441,20 @@ class MessageRenderer:
                 # context and the durable index. No-op when absent.
                 text = strip_headline(c.text)
                 if text:
-                    result.append(TextContent(text=text))
+                    append(TextContent(text=text))
             elif ctype == ContentType.REFUSAL and getattr(c, "refusal", None):
-                result.append(RefusalContent(refusal=c.refusal))
+                append(RefusalContent(refusal=c.refusal), "refusal")
             elif ctype == ContentType.IMAGE and getattr(c, "image_url", None):
-                result.append(ImageContent(image_url=c.image_url))
+                append(ImageContent(image_url=c.image_url))
             elif ctype == ContentType.VIDEO and getattr(c, "video_url", None):
-                result.append(VideoContent(video_url=c.video_url))
+                append(VideoContent(video_url=c.video_url))
             elif ctype == ContentType.AUDIO:
                 data = getattr(c, "data", None)
                 fmt = getattr(c, "format", None)
                 if data:
-                    result.append(AudioContent(data=data, format=fmt))
+                    append(AudioContent(data=data, format=fmt))
             elif ctype == ContentType.FILE:
-                result.append(
+                append(
                     FileContent(
                         file_url=getattr(c, "file_url", None),
                         file_id=getattr(c, "file_id", None),
@@ -425,6 +465,21 @@ class MessageRenderer:
             elif ctype == ContentType.DATA and getattr(c, "data", None):
                 data = c.data
                 if isinstance(data, dict):
+                    if semantic and s.display_config.show_thinking:
+                        blocks = data.get("blocks", [])
+                        for block in (
+                            blocks if isinstance(blocks, list) else []
+                        ):
+                            if (
+                                isinstance(block, dict)
+                                and block.get("type") == "thinking"
+                                and (
+                                    text := strip_headline(
+                                        block.get("thinking", ""),
+                                    )
+                                )
+                            ):
+                                append(TextContent(text=text), "reasoning")
                     name = data.get("name")
                     output = data.get("output")
                     args = data.get("arguments")
@@ -453,14 +508,15 @@ class MessageRenderer:
                                 preview_limit,
                             )
                         )
-                        result.append(
+                        append(
                             TextContent(
                                 text=_fmt_tool_output_label(name, s)
                                 + _fmt_code_block(preview, s),
                             ),
+                            "rendered",
                         )
         if not result and msg_type and not suppressed_tool_data:
-            result = [TextContent(text=f"[Message type: {msg_type}]")]
+            append(TextContent(text=f"[Message type: {msg_type}]"), "rendered")
         return result
 
     def parts_to_text(

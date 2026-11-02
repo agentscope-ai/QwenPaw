@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { sessionThinkingApi } from "@/features/thinking/sessionThinkingApi";
+import { isSessionModelChangedFor } from "@/features/session-settings/sessionModelEvents";
 
 /** Keep the session decision setting available while the Advisor model pill
  * replaces SessionThinking in the composer. */
@@ -36,11 +37,16 @@ export function useAdvisorDecisionAvailability({
         });
     };
 
+    const refresh = (event: Event) => {
+      if (isSessionModelChangedFor(event, { agentId, sessionId, chatId }))
+        load();
+    };
+
     load();
-    window.addEventListener("session-model-changed", load);
+    window.addEventListener("session-model-changed", refresh);
     return () => {
       disposed = true;
-      window.removeEventListener("session-model-changed", load);
+      window.removeEventListener("session-model-changed", refresh);
     };
   }, [active, agentId, sessionId, chatId, onChange]);
 }

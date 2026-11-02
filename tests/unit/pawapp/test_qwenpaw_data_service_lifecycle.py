@@ -37,27 +37,43 @@ async def test_sidecar_retains_supervised_pid_and_stops_on_restart(
             """\
             import json
             import os
+            import socket
             import sys
-            from http.server import BaseHTTPRequestHandler, HTTPServer
 
-            class Handler(BaseHTTPRequestHandler):
-                def do_GET(self):
-                    body = json.dumps({
-                        "pid": os.getpid(),
-                        "secret": os.environ.get("MODEL_SECRET"),
-                        "host_secret": os.environ.get("UNGRANTED_SECRET"),
-                        "paths": sys.path,
-                        "args": sys.argv[1:],
-                    }).encode()
-                    self.send_response(200)
-                    self.end_headers()
-                    self.wfile.write(body)
+            # Raw-socket responder, for the same reason the loopback probe in
+            # test_app_contract.py is raw: stdlib HTTPServer.server_bind()
+            # calls socket.getfqdn(), a reverse DNS lookup, between bind()
+            # and listen(). On GitHub macOS runners that lookup blocks for
+            # tens of seconds (actions/runner-images#6383), which on its own
+            # outlasts the startup_timeout below, so the supervisor reports
+            # a service that is bound and healthy as never having started.
+            def _response():
+                payload = json.dumps({
+                    "pid": os.getpid(),
+                    "secret": os.environ.get("MODEL_SECRET"),
+                    "host_secret": os.environ.get("UNGRANTED_SECRET"),
+                    "paths": list(sys.path),
+                    "args": sys.argv[1:],
+                }).encode()
+                header = (
+                    b"HTTP/1.1 200 OK\\r\\n"
+                    b"Content-Type: application/json\\r\\n"
+                    b"Content-Length: " + str(len(payload)).encode()
+                    + b"\\r\\nConnection: close\\r\\n\\r\\n"
+                )
+                return header + payload
 
-                def log_message(self, *args):
-                    pass
-
-            address = (sys.argv[1], int(sys.argv[2]))
-            HTTPServer(address, Handler).serve_forever()
+            listener = socket.socket()
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind((sys.argv[1], int(sys.argv[2])))
+            listener.listen()
+            while True:
+                connection, _ = listener.accept()
+                try:
+                    connection.recv(65536)
+                    connection.sendall(_response())
+                finally:
+                    connection.close()
             """,
         ),
         encoding="utf-8",

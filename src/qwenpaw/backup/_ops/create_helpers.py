@@ -9,7 +9,6 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from ...agents.context.scroll.history import backup_history_database
 from .._utils.constants import (
     PREFIX_CONFIG,
     PREFIX_SECRETS,
@@ -76,6 +75,10 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
             ) as snapshot_dir:
                 history_snapshot = Path(snapshot_dir) / "history.db"
                 if history_db.is_file():
+                    from ...agents.context.scroll.history import (
+                        backup_history_database,
+                    )
+
                     backup_history_database(
                         history_db,
                         history_snapshot,
@@ -100,7 +103,7 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
                     rel = relative.as_posix()
                     arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
                     try:
-                        if rel == f"agent.json":
+                        if rel == "agent.json":
                             zf.writestr(
                                 arcname,
                                 history_agent_config_bytes(
@@ -165,7 +168,7 @@ def add_secrets(zf: zipfile.ZipFile, stop_event=None) -> bool:
     (cancelled), ``True`` otherwise.
     """
     if not SECRET_DIR.is_dir():
-        logger.warning("Secrets directory not found: %s", SECRET_DIR)
+        logger.warning("Secrets directory not found")
         return True
     file_count = 0
     for entry in sorted(SECRET_DIR.rglob("*")):
@@ -177,11 +180,7 @@ def add_secrets(zf: zipfile.ZipFile, stop_event=None) -> bool:
             )
             zf.write(entry, arcname)
             file_count += 1
-    logger.info(
-        "Secrets backed up: %d file(s) from %s",
-        file_count,
-        SECRET_DIR,
-    )
+    logger.info("Secrets backed up: %d file(s)", file_count)
     return True
 
 

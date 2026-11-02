@@ -12,6 +12,16 @@
   padding-bottom: 24px;
 }
 
+.loadError {
+  padding: 32px 16px;
+
+  :global(.ant-alert),
+  :global(.qwenpaw-alert) {
+    max-width: 640px;
+    margin-inline: auto;
+  }
+}
+
 .toolbar,
 .summary {
   display: flex;
@@ -301,4 +311,17 @@
 
 .rowActions > .toggleButton {
   border-radius: 20px;
+}
+
+@media (max-width: 768px) {
+  .batchActions > button,
+  .helpButton,
+  .toggleButton {
+    min-height: var(--app-hit-touch);
+  }
+
+  .helpButton {
+    width: var(--app-hit-touch);
+    min-width: var(--app-hit-touch);
+  }
 }

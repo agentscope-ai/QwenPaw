@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { chatApi } from "./chat";
+import { chatApi, sessionApi } from "./chat";
 
 // chat.ts uses both fetch (uploadFile) and the request wrapper (others) — mock both
 vi.mock("../request", () => ({ request: vi.fn() }));
@@ -291,6 +291,24 @@ describe("chatApi CRUD", () => {
         body: JSON.stringify(["id1", "id2"]),
       }),
     );
+  });
+
+  it("forwards captured agent identity for session mutations", async () => {
+    vi.mocked(request).mockClear();
+    await chatApi.archiveChat("chat-1", "agent-a");
+    await chatApi.unarchiveChat("chat-1", "agent-a");
+    await chatApi.batchArchiveChats(["chat-1"], "agent-a");
+    await chatApi.batchUnarchiveChats(["chat-1"], "agent-a");
+    await sessionApi.updateSession("chat-1", { name: "Renamed" }, "agent-a");
+    await sessionApi.deleteSession("chat-1", "agent-a");
+    await sessionApi.batchDeleteSessions(["chat-1"], "agent-a");
+
+    expect(request).toHaveBeenCalledTimes(7);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(options).toEqual(
+        expect.objectContaining({ headers: { "X-Agent-Id": "agent-a" } }),
+      );
+    }
   });
 
   it("creates and renames chat groups", async () => {

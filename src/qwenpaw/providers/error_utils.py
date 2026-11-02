@@ -99,3 +99,24 @@ def extract_status_code(exc: Exception) -> int | None:
             return status
 
     return None
+
+
+def is_request_body_too_large(exc: Exception) -> bool:
+    """Identify body-size rejections without confusing token limits."""
+    status = extract_status_code(exc)
+    if status == 413:
+        return True
+    if status is not None and status < 400:
+        return False
+    message = " ".join(str(exc).lower().split())
+    return any(
+        marker in message
+        for marker in (
+            "error code: 413",
+            "request entity too large",
+            "request body too large",
+            "request body is too large",
+            "payload too large",
+            "failed to buffer the request body: length limit exceeded",
+        )
+    )

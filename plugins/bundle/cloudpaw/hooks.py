@@ -408,8 +408,8 @@ def _patch_build_toolkit() -> None:
     ``AgentBuilder.build_toolkit``
     (the agent no longer constructs it internally), so the v1 patch on
     ``QwenPawAgent._create_toolkit`` is dead. This wraps the new method and,
-    when ``agent_id`` is the orchestrator, appends the four plugin tool
-    functions to the toolkit's base group.
+    when ``agent_id`` is the orchestrator, registers the four plugin tool
+    functions through the toolkit's public interface.
 
     The plugin tools are wrapped in plain :class:`FunctionTool` (not
     :class:`PolicyGuardedTool`) so they bypass the host governance layer —
@@ -459,13 +459,11 @@ def _patch_build_toolkit() -> None:
         try:
             from agentscope.tool import FunctionTool
 
-            basic_group = toolkit.tool_groups[0]
-            existing = {getattr(t, "name", "") for t in basic_group.tools}
             injected = 0
             for fn in _ORCHESTRATOR_PLUGIN_TOOLS:
-                if fn.__name__ in existing:
+                if await toolkit.get_tool(fn.__name__) is not None:
                     continue
-                basic_group.tools.append(FunctionTool(fn))
+                await toolkit.add_tool(FunctionTool(fn))
                 injected += 1
             if injected:
                 logger.info(

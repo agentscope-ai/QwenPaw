@@ -178,6 +178,51 @@ describe("chat route ownership resolution", () => {
     expect(result.current.error).toMatchObject({ status: 404 });
   });
 
+  it("skips resolution when the current route was just deleted", async () => {
+    const list = vi.spyOn(api, "listChats").mockResolvedValue([chat()]);
+    const resolve = vi.spyOn(api, "resolveChat");
+    await sessionApi.getSessionList();
+    const { result } = mount(TARGET);
+
+    expect(result.current.blocked).toBe(false);
+    sessionApi.markRouteRemoved(TARGET);
+    list.mockResolvedValue([]);
+    await act(async () => {
+      syncSessionsGlobal(await sessionApi.getSessionList());
+    });
+
+    expect(resolve).not.toHaveBeenCalled();
+    expect(result.current.blocked).toBe(true);
+  });
+
+  it.each([
+    [TARGET, TARGET],
+    [`runtime-${TARGET}`, TARGET],
+  ])(
+    "ignores pending %s resolution that completes after route deletion",
+    async (referenceId, removedId) => {
+      let finish!: (value: { agent_id: string; chat: ChatSpec }) => void;
+      vi.spyOn(api, "resolveChat").mockImplementation(
+        () =>
+          new Promise((done) => {
+            finish = done;
+          }),
+      );
+      const register = vi.spyOn(sessionApi, "registerResolvedChat");
+      const { result } = mount(referenceId);
+
+      expect(result.current.blocked).toBe(true);
+      sessionApi.markRouteRemoved(removedId);
+      await act(async () => {
+        finish({ agent_id: "a", chat: chat() });
+        await Promise.resolve();
+      });
+
+      expect(register).not.toHaveBeenCalled();
+      expect(result.current.blocked).toBe(true);
+    },
+  );
+
   it("ignores pending resolution after the list supplies the canonical Chat", async () => {
     let finish!: (value: { agent_id: string; chat: ChatSpec }) => void;
     const resolve = vi.spyOn(api, "resolveChat").mockImplementation(

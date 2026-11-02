@@ -58,13 +58,27 @@ export function useChatRouteResolution(
   const resolved = known || (currentResolution !== null && error === null);
 
   useEffect(() => {
-    if (!referenceId || referenceId === "new" || known) return;
+    if (!referenceId) return;
+    // A new visit must not inherit another route's deletion suppression.
+    sessionApi.clearRouteRemoval(referenceId);
+    return () => sessionApi.clearRouteRemoval(referenceId);
+  }, [referenceId]);
+
+  useEffect(() => {
+    if (
+      !referenceId ||
+      referenceId === "new" ||
+      known ||
+      sessionApi.isRouteRemoved(referenceId)
+    )
+      return;
     const controller = new AbortController();
     const owner = sessionApi.getActiveOwner();
     const isCurrent = () =>
       !controller.signal.aborted &&
       visitRef.current === visit &&
-      sessionApi.isActiveOwner(owner);
+      sessionApi.isActiveOwner(owner) &&
+      !sessionApi.isRouteRemoved(referenceId);
 
     void api
       .resolveChat(referenceId, {
@@ -72,7 +86,7 @@ export function useChatRouteResolution(
         signal: controller.signal,
       })
       .then(({ agent_id: agentId, chat }) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || sessionApi.isRouteRemoved(chat.id)) return;
         if (agentId !== selectedAgent) {
           agentSwitchTarget.current = {
             agentId,
