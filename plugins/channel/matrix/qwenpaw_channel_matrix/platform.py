@@ -98,6 +98,9 @@ _NON_RETRYABLE_AUTH_CODES = frozenset(
     },
 )
 _E2EE_HEALTH_TIMEOUT = 10
+_E2EE_HEALTH_INTERVAL = 60
+_E2EE_STARTUP_ATTEMPTS = 3
+_E2EE_STARTUP_RETRY_DELAY = 1
 
 _LOGIN_RETRY_INITIAL_DELAY = 5.0
 _LOGIN_RETRY_MAX_DELAY = 60.0
@@ -247,6 +250,7 @@ class MatrixPlatform:
         }
         self._cached_auth_identity = None
         self._e2ee_error = None
+        self._e2ee_query_retryable = False
         self._ready = False
         self._logged_megolm_failure = False
         self._state = MatrixStateStore(config)
@@ -333,6 +337,8 @@ class MatrixPlatform:
             self._ready = True
             await self.on_state("connected")
             self._sync_task = self._spawn(self._sync_loop())
+            if self.encryption:
+                self._spawn(self._e2ee_health_loop())
         except BaseException:
             # Retain the SDK and claims for explicit, retryable stop cleanup.
             await self.on_state("failed")
@@ -953,6 +959,7 @@ class MatrixPlatform:
 
     async def _check_e2ee_device_keys(self, *, repair: bool) -> bool:
         """Reconcile our persisted identity with the homeserver's device."""
+        self._e2ee_query_retryable = False
         if not self._client or not self._client.olm:
             return self._record_e2ee_error("Matrix E2EE store is not loaded.")
         client = self._client
@@ -960,14 +967,28 @@ class MatrixPlatform:
             # nio ignores its own device when updating its device store, so
             # inspect the server response, not client.device_store.
             client.olm.add_changed_users({client.user_id})
-            response = await client.keys_query()
+            try:
+                response = await asyncio.wait_for(
+                    client.keys_query(),
+                    timeout=_E2EE_HEALTH_TIMEOUT,
+                )
+            except Exception as exc:
+                self._e2ee_query_retryable = True
+                logger.warning("Matrix E2EE device keys query failed: %s", exc)
+                return self._record_e2ee_error(
+                    "Matrix E2EE device keys query could not complete.",
+                )
             if not isinstance(response, KeysQueryResponse):
+                self._e2ee_query_retryable = self._is_retryable_auth_failure(
+                    response,
+                )
                 return self._record_e2ee_error(
                     "Matrix E2EE device keys query failed.",
                 )
             server_name = client.user_id.split(":", 1)[-1]
             devices = response.device_keys.get(client.user_id)
             if server_name in response.failures or devices is None:
+                self._e2ee_query_retryable = True
                 return self._record_e2ee_error(
                     "Matrix E2EE device keys could not be verified.",
                 )
@@ -1016,8 +1037,18 @@ class MatrixPlatform:
     async def _setup_e2ee_after_login(self) -> bool:
         if not self.encryption:
             return True
-        if not await self._check_e2ee_device_keys(repair=True):
-            return False
+        for attempt in range(_E2EE_STARTUP_ATTEMPTS):
+            if self._is_stopping():
+                raise asyncio.CancelledError
+            if await self._check_e2ee_device_keys(repair=True):
+                break
+            if (
+                not self._e2ee_query_retryable
+                or attempt + 1 == _E2EE_STARTUP_ATTEMPTS
+            ):
+                return False
+            if await self._wait_backoff_or_stop(_E2EE_STARTUP_RETRY_DELAY):
+                raise asyncio.CancelledError
         self._client.add_event_callback(
             self._on_room_encrypted_media_event,
             (
@@ -1048,16 +1079,21 @@ class MatrixPlatform:
         )
         return True
 
+    async def _e2ee_health_loop(self) -> None:
+        # Probe independently of sync/send, so message traffic cannot multiply
+        # key queries or wait for a slow homeserver health response.
+        while not await self._wait_backoff_or_stop(_E2EE_HEALTH_INTERVAL):
+            health = await self.health_check()
+            if self._is_stopping():
+                return
+            await self.on_state(
+                "connected" if health["status"] == "healthy" else "failed",
+            )
+
     async def _e2ee_maintenance(self) -> None:
         if not self.encryption or not self._client or (not self._client.olm):
             return
         try:
-            health = await self.health_check()
-            await self.on_state(
-                "connected" if health["status"] == "healthy" else "failed",
-            )
-            if health["status"] != "healthy":
-                return
             if self._client.should_upload_keys:
                 await self._client.keys_upload()
             if self._client.should_query_keys:

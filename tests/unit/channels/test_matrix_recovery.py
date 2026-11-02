@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp import web
+from nio import ToDeviceMessage
 from nio.crypto import ENCRYPTION_ENABLED
 
 from tests.channel_support.driver import module
@@ -28,6 +29,12 @@ async def homeserver():
         "device_id": "BOT",
         "whoami_errors": [],
         "query_failures": {},
+        "query_failures_once": [],
+        "query_errors": [],
+        "query_delays": [],
+        "queries": 0,
+        "query_started": asyncio.Event(),
+        "to_device": [],
         "upload_error": False,
     }
 
@@ -60,13 +67,31 @@ async def homeserver():
                     "device_id": state["device_id"],
                 },
             )
+        if "/sendToDevice/" in request.path:
+            state["to_device"].append(await request.json())
+            return web.json_response({})
         if endpoint == "query":
+            state["queries"] += 1
+            state["query_started"].set()
+            if state["query_delays"]:
+                await asyncio.sleep(state["query_delays"].pop(0))
+            if state["query_errors"]:
+                code, status = state["query_errors"].pop(0)
+                return web.json_response(
+                    {"errcode": code, "error": code},
+                    status=status,
+                )
+            failures = (
+                state["query_failures_once"].pop(0)
+                if state["query_failures_once"]
+                else state["query_failures"]
+            )
             return web.json_response(
                 {
                     "device_keys": {
                         state["user_id"]: state["device_keys"],
                     },
-                    "failures": state["query_failures"],
+                    "failures": failures,
                 },
             )
         if endpoint == "upload":
@@ -110,6 +135,7 @@ def channel_factory(homeserver, tmp_path):
             "password": "password",
             "device_id": "BOT",
             "workspace_dir": str(tmp_path),
+            "legacy_state_dir": str(tmp_path / "legacy"),
         }
         if "matrix_user_id" in overrides:
             overrides["user_id"] = overrides.pop("matrix_user_id")
@@ -398,18 +424,22 @@ async def test_matching_keys_are_not_uploaded_again(
 async def test_query_failure_does_not_reset_crypto_account(
     homeserver,
     channel_factory,
+    monkeypatch,
 ):
+    monkeypatch.setattr(matrix_module, "_E2EE_STARTUP_RETRY_DELAY", 0.01)
     first = channel_factory(encryption=True)
     await first.start()
     await first.stop()
     homeserver["device_keys"].clear()
     homeserver["uploads"].clear()
     homeserver["query_failures"] = {"example.org": {"errcode": "M_UNKNOWN"}}
+    queries_before = homeserver["queries"]
     restarted = channel_factory(encryption=True)
     try:
         with pytest.raises(RuntimeError):
             await restarted.start()
         assert restarted._client.olm.account.shared
+        assert homeserver["queries"] - queries_before == 3
         assert homeserver["uploads"] == []
         assert (await restarted.health_check())["status"] == "unhealthy"
     finally:
@@ -493,18 +523,36 @@ async def test_health_check_times_out_when_homeserver_is_unreachable(
         await channel.stop()
 
 
+@pytest.mark.skipif(not ENCRYPTION_ENABLED, reason="nio E2EE backend required")
 async def test_native_key_health_updates_host_state(
     homeserver,
     channel_factory,
+    monkeypatch,
 ):
+    monkeypatch.setattr(matrix_module, "_E2EE_HEALTH_INTERVAL", 0.05)
     channel = channel_factory(encryption=True)
+    failed = asyncio.Event()
+    recovered = asyncio.Event()
+
+    async def on_state(state):
+        if state == "failed":
+            failed.set()
+        elif state == "connected" and failed.is_set():
+            recovered.set()
+
+    channel.on_state.side_effect = on_state
     try:
         await channel.start()
+        saved_keys = dict(homeserver["device_keys"])
         homeserver["device_keys"].clear()
-        await channel._e2ee_maintenance()
+        await asyncio.wait_for(failed.wait(), timeout=2)
         channel.on_state.assert_awaited_with("failed")
+        homeserver["device_keys"].update(saved_keys)
+        await asyncio.wait_for(recovered.wait(), timeout=2)
+        channel.on_state.assert_awaited_with("connected")
     finally:
         await channel.stop()
+    assert not channel._tasks
 
 
 async def test_unversioned_fingerprint_requires_fresh_login(
@@ -527,3 +575,135 @@ async def test_unversioned_fingerprint_requires_fresh_login(
         assert "password" not in json.loads(path.read_text()).values()
     finally:
         await restarted.stop()
+
+
+@pytest.mark.skipif(not ENCRYPTION_ENABLED, reason="nio E2EE backend required")
+@pytest.mark.parametrize("failure", ["http", "partial", "timeout"])
+async def test_startup_retries_transient_key_queries(
+    homeserver,
+    channel_factory,
+    monkeypatch,
+    failure,
+):
+    monkeypatch.setattr(matrix_module, "_E2EE_STARTUP_RETRY_DELAY", 0.01)
+    first = channel_factory(encryption=True)
+    await first.start()
+    original_keys = dict(first._client.olm.account.identity_keys)
+    await first.stop()
+    homeserver["uploads"].clear()
+    queries_before = homeserver["queries"]
+    if failure == "http":
+        homeserver["query_errors"] = [("M_UNKNOWN", 503)]
+    elif failure == "partial":
+        homeserver["query_failures_once"] = [
+            {"example.org": {"errcode": "M_UNKNOWN"}},
+        ]
+    else:
+        monkeypatch.setattr(matrix_module, "_E2EE_HEALTH_TIMEOUT", 0.1)
+        homeserver["query_delays"] = [0.3]
+    restarted = channel_factory(encryption=True)
+    try:
+        await restarted.start()
+        assert restarted._ready
+        assert len(homeserver["logins"]) == 1
+        assert homeserver["queries"] - queries_before == 2
+        assert restarted._client.olm.account.identity_keys == original_keys
+        assert restarted._client.olm.account.shared
+        assert homeserver["uploads"] == []
+    finally:
+        await restarted.stop()
+
+
+@pytest.mark.skipif(not ENCRYPTION_ENABLED, reason="nio E2EE backend required")
+async def test_startup_does_not_retry_forbidden_key_query(
+    homeserver,
+    channel_factory,
+):
+    channel = channel_factory(encryption=True)
+    homeserver["query_errors"] = [("M_FORBIDDEN", 403)]
+    try:
+        with pytest.raises(RuntimeError):
+            await channel.start()
+        assert homeserver["queries"] == 1
+        assert homeserver["uploads"] == []
+    finally:
+        await channel.stop()
+
+
+@pytest.mark.skipif(not ENCRYPTION_ENABLED, reason="nio E2EE backend required")
+async def test_routine_maintenance_does_not_probe_own_keys(
+    homeserver,
+    channel_factory,
+):
+    channel = channel_factory(encryption=True)
+    try:
+        await channel.start()
+        queries_before = homeserver["queries"]
+        for _ in range(5):
+            await channel._e2ee_maintenance()
+        assert homeserver["queries"] == queries_before
+        assert homeserver["uploads"]
+    finally:
+        await channel.stop()
+
+
+@pytest.mark.skipif(not ENCRYPTION_ENABLED, reason="nio E2EE backend required")
+async def test_failed_health_query_does_not_block_pending_device_messages(
+    homeserver,
+    channel_factory,
+):
+    channel = channel_factory(encryption=True)
+    try:
+        await channel.start()
+        homeserver["query_failures"] = {
+            "example.org": {"errcode": "M_UNKNOWN"},
+        }
+        assert (await channel.health_check())["status"] == "unhealthy"
+        channel._client.outgoing_to_device_messages.append(
+            ToDeviceMessage(
+                "m.test",
+                "@peer:example.org",
+                "PEER",
+                {"body": "pending maintenance message"},
+            ),
+        )
+        await channel._e2ee_maintenance()
+        assert homeserver["to_device"] == [
+            {
+                "messages": {
+                    "@peer:example.org": {
+                        "PEER": {"body": "pending maintenance message"},
+                    },
+                },
+            },
+        ]
+        assert channel._client.outgoing_to_device_messages == []
+    finally:
+        await channel.stop()
+
+
+@pytest.mark.skipif(not ENCRYPTION_ENABLED, reason="nio E2EE backend required")
+async def test_stopping_channel_cancels_startup_key_retry(
+    homeserver,
+    channel_factory,
+    monkeypatch,
+):
+    monkeypatch.setattr(matrix_module, "_E2EE_STARTUP_RETRY_DELAY", 60)
+    homeserver["query_failures"] = {
+        "example.org": {"errcode": "M_UNKNOWN"},
+    }
+    channel = channel_factory(encryption=True)
+    pending = asyncio.create_task(channel.start())
+    try:
+        await asyncio.wait_for(homeserver["query_started"].wait(), timeout=2)
+        await asyncio.wait_for(channel.stop(), timeout=2)
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        assert homeserver["queries"] == 1
+        assert channel._client is None
+        assert channel._start_task is None
+    finally:
+        if not pending.done():
+            pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        await channel.stop()
