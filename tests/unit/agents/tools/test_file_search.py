@@ -2,6 +2,7 @@
 """Tests for file_search module — _is_text_file and _walk_and_grep."""
 
 # pylint: disable=protected-access,redefined-outer-name,reimported
+import io
 import os
 import re
 import tempfile
@@ -906,3 +907,162 @@ def test_walk_and_grep_matches_gbk_file(temp_dir):
     )
     assert status == "ok"
     assert any("张三" in m for m in matches)
+
+
+def test_walk_and_grep_vertical_tab_does_not_split_lines(temp_dir):
+    """Vertical tab stays inside the line, matching text-mode iteration."""
+    target = temp_dir / "vt.txt"
+    target.write_bytes(b"alpha\vbeta needle\n")
+    matches, status = _walk_and_grep(
+        target,
+        re.compile(r"needle"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches == ["vt.txt:1:> alpha\vbeta needle"]
+
+
+def test_walk_and_grep_single_file_over_max_size_is_not_read(
+    temp_dir,
+    monkeypatch,
+):
+    """Oversize single-file grep is skipped and the file is never opened."""
+    target = temp_dir / "big.txt"
+    target.write_bytes(b"needle-in-large-file\n" + b"x" * 128)
+    import qwenpaw.agents.tools.file_search as fs
+
+    monkeypatch.setattr(fs, "_MAX_FILE_SIZE", 32)
+    opened: list[Path] = []
+    real_open = open
+
+    def tracking_open(file, mode="r", *args, **kwargs):
+        opened.append(Path(file))
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+    matches, status = _walk_and_grep(
+        target,
+        re.compile(r"needle"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches == []
+    assert opened == []
+
+
+def test_walk_and_grep_streams_bounded_reads_and_keeps_gbk(
+    temp_dir,
+    monkeypatch,
+):
+    """In-limit files are read in chunks, including GBK, not via one read()."""
+    target = temp_dir / "note.txt"
+    payload = ("姓名: 张三\n".encode("gbk")) * 40
+    target.write_bytes(payload)
+    import qwenpaw.agents.tools.file_search as fs
+
+    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 16)
+    read_sizes: list[int] = []
+    real_open = open
+
+    def tracking_open(file, mode="r", *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        if Path(file) == target:
+            original = handle.read
+
+            def tracked(size=-1, /):
+                read_sizes.append(size)
+                if not isinstance(size, int) or size < 0 or size > 16:
+                    raise AssertionError(f"unbounded read size {size}")
+                return original(size)
+
+            handle.read = tracked
+        return handle
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("张三"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert all("张三" in line for line in matches)
+    assert read_sizes
+    assert all(0 < size <= 16 for size in read_sizes)
+    assert sum(read_sizes) >= len(payload)
+    assert max(read_sizes) <= 16
+
+
+def test_walk_and_grep_cancel_during_single_file_read(temp_dir, monkeypatch):
+    """Cancel stops a single-file read before the rest is loaded."""
+    target = temp_dir / "wide.txt"
+    payload = b"needle\n" * 80
+    target.write_bytes(payload)
+    import qwenpaw.agents.tools.file_search as fs
+
+    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 8)
+    cancel = threading.Event()
+    read_sizes: list[int] = []
+    real_open = open
+
+    def tracking_open(file, mode="r", *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        if Path(file) == target:
+            original = handle.read
+
+            def tracked(size=-1, /):
+                read_sizes.append(size)
+                data = original(size)
+                cancel.set()
+                return data
+
+            handle.read = tracked
+        return handle
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+    _matches, status = _walk_and_grep(
+        target,
+        re.compile(r"needle"),
+        0,
+        cancel,
+        None,
+    )
+    assert status == "timeout"
+    assert read_sizes
+    assert sum(read_sizes) < len(payload)
+
+
+def test_iter_grep_lines_matches_normalized_newlines(temp_dir, monkeypatch):
+    """Chunked decoding matches a full decode split only on ``\\n``."""
+    import qwenpaw.agents.tools.file_search as fs
+    from qwenpaw.agents.utils.file_handling import (
+        decode_text_bytes_with_encoding_fallback,
+    )
+
+    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 3)
+    samples = [
+        b"a\r\nb\nc",
+        b"a\rb\r\nc\n",
+        b"foo\vbar\f baz\n",
+        "a\u2028b needle\n".encode("utf-8"),
+        "姓名: 张三\r\n下一行\n".encode("gbk"),
+        b"\xef\xbb\xbfhello\r\nworld",
+        b"only",
+        b"\n",
+        b"\r\n",
+        b"",
+    ]
+    for index, data in enumerate(samples):
+        path = temp_dir / f"sample-{index}.txt"
+        path.write_bytes(data)
+        got = list(fs._iter_grep_lines(path, FakeCancel()))
+        expected = list(
+            io.StringIO(decode_text_bytes_with_encoding_fallback(data)),
+        )
+        assert got == expected, data

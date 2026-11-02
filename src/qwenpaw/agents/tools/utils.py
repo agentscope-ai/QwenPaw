@@ -3,6 +3,8 @@
 # pylint: disable=line-too-long
 """Shared utilities for file and shell tools."""
 
+import codecs
+import io
 import logging
 import os
 import re
@@ -12,6 +14,7 @@ from typing import Any
 
 from ...constant import TRUNCATION_NOTICE_MARKER
 from ...utils.io_utils import run_sync_io
+from ..utils.file_handling import decode_text_bytes_with_encoding_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -542,28 +545,84 @@ def truncate_text_output(
         return text, {}
 
 
+def _decode_capped_text_snapshot(
+    content: bytes,
+    *,
+    file_name: object,
+    truncated: bool,
+) -> str:
+    """Decode one read snapshot.
+
+    A full read keeps the shared utf-8 → gbk/cp936 ladder. A capped read can
+    end inside a multibyte UTF-8 character; that ``UnicodeDecodeError`` must
+    not send an otherwise valid UTF-8 prefix down the ladder (GBK/CP1252
+    would mojibake it). Only a hard UTF-8 error falls through. Newlines are
+    normalized the same way as ``decode_text_bytes_with_encoding_fallback``
+    (``\\r\\n`` / ``\\r`` → ``\\n``).
+    """
+    if not truncated:
+        return decode_text_bytes_with_encoding_fallback(
+            content,
+            file_name=file_name,
+        )
+
+    decoder = io.IncrementalNewlineDecoder(
+        codecs.getincrementaldecoder("utf-8-sig")(),
+        translate=True,
+    )
+    try:
+        text = decoder.decode(content, final=False)
+    except UnicodeDecodeError:
+        return decode_text_bytes_with_encoding_fallback(
+            content,
+            file_name=file_name,
+        )
+
+    buffered, flag = decoder.getstate()
+    # Bit 0 is the decoder's pending-CR flag (a ``\\r`` waiting to see if
+    # the next byte is ``\\n``). The missing byte is outside this snapshot.
+    pending_cr = bool(flag & 1)
+    if buffered and text == "" and not pending_cr:
+        # Nothing complete was emitted. Finish a short BOM/ASCII prefix, or
+        # fall through when the snapshot is genuinely not UTF-8.
+        try:
+            text = decoder.decode(b"", final=True)
+        except UnicodeDecodeError:
+            return decode_text_bytes_with_encoding_fallback(
+                content,
+                file_name=file_name,
+            )
+        return text
+    if pending_cr:
+        text += "\n"
+    return text
+
+
 def _read_file_safe_sync(
     file_path: str,
     max_bytes: int,
 ) -> str:
     """Read one byte snapshot from a single opened file handle."""
-    from ..utils.file_handling import decode_text_bytes_with_encoding_fallback
-
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(file_path)
     if not path.is_file():
         raise IsADirectoryError(file_path)
     with path.open("rb") as file:
-        read_size = min(os.fstat(file.fileno()).st_size, max_bytes)
+        file_size = os.fstat(file.fileno()).st_size
+        read_size = min(file_size, max_bytes)
         content = file.read(read_size)
     # Prefer the shared encoder ladder (utf-8 → gbk/cp936 → …) used by
     # markdown/skill loaders. UTF-8 with errors="ignore" silently deleted
     # every non-UTF-8 byte, which turns Chinese Windows GBK notes into ASCII
-    # leftovers and lets edit_file persist that damage.
-    return decode_text_bytes_with_encoding_fallback(
+    # leftovers and lets edit_file persist that damage. When the snapshot is
+    # shorter than the file, keep a valid UTF-8 prefix instead of treating
+    # a cut character as a different encoding.
+    truncated = read_size >= 0 and file_size > read_size
+    return _decode_capped_text_snapshot(
         content,
         file_name=file_path,
+        truncated=truncated,
     )
 
 

@@ -142,13 +142,40 @@ class TestReadFile:
         assert await read_file_safe(str(path)) == "姓名: 张三" + chr(10)
 
     @pytest.mark.asyncio
-    @pytest.mark.asyncio
     async def test_safe_read_normalizes_platform_newlines(self, tmp_path):
         """Binary snapshots retain text-mode universal newline behavior."""
         path = tmp_path / "newlines.txt"
         path.write_bytes(b"first\r\nsecond\rthird\n")
 
         assert await read_file_safe(str(path)) == "first\nsecond\nthird\n"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_truncated_utf8_keeps_valid_prefix(self, tmp_path):
+        """Cutting a multibyte UTF-8 character must not fall through to GBK."""
+        text = "行\r\n姓名: 张三"
+        raw = text.encode("utf-8")
+        snapshot = raw[:-1]
+        path = tmp_path / "utf8.txt"
+        # Extra bytes make this a capped read, not a short corrupt file.
+        path.write_bytes(raw + b"TAIL")
+
+        result = await read_file_safe(str(path), max_bytes=len(snapshot))
+
+        assert result == "行\n姓名: 张"
+        assert "三" not in result
+        assert not result.startswith("å")
+
+    @pytest.mark.asyncio
+    async def test_safe_read_truncated_gbk_still_decodes(self, tmp_path):
+        """A capped non-UTF-8 snapshot still uses the encoding ladder."""
+        text = "姓名: 张三\n"
+        raw = text.encode("gbk")
+        with pytest.raises(UnicodeDecodeError):
+            raw.decode("utf-8")
+        path = tmp_path / "gbk.txt"
+        path.write_bytes(raw + b"xxxx")
+
+        assert await read_file_safe(str(path), max_bytes=len(raw)) == text
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):
