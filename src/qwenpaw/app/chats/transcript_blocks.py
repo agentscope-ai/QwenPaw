@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Canonical block writes and message envelope serialization."""
+"""Shared message projection writes and envelope serialization."""
 
 from __future__ import annotations
 
@@ -18,6 +18,51 @@ def message_envelope(message: Message) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
+    )
+
+
+def write_message_envelope(
+    connection: sqlite3.Connection,
+    *,
+    session_id: str,
+    turn_id: str,
+    message_id: str,
+    ordinal: int,
+    role: str,
+    envelope_json: str,
+    client_message_id: str | None,
+    created_at: str,
+    finished_at: str | None,
+) -> None:
+    """Materialize resolved message fields without appending any facts."""
+    connection.execute(
+        "INSERT INTO transcript_messages("
+        "session_id, turn_id, message_id, ordinal, role, envelope_json, "
+        "client_message_id, created_at, finished_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(session_id, message_id) DO UPDATE SET "
+        "turn_id=excluded.turn_id, ordinal=excluded.ordinal, "
+        "role=excluded.role, envelope_json=excluded.envelope_json, "
+        "client_message_id=excluded.client_message_id, "
+        "created_at=excluded.created_at, finished_at=excluded.finished_at "
+        "WHERE transcript_messages.envelope_json "
+        "IS NOT excluded.envelope_json "
+        "OR transcript_messages.ordinal != excluded.ordinal "
+        "OR transcript_messages.created_at IS NOT excluded.created_at "
+        "OR transcript_messages.finished_at IS NOT excluded.finished_at "
+        "OR transcript_messages.client_message_id "
+        "IS NOT excluded.client_message_id",
+        (
+            session_id,
+            turn_id,
+            message_id,
+            ordinal,
+            role,
+            envelope_json,
+            client_message_id,
+            created_at,
+            finished_at,
+        ),
     )
 
 

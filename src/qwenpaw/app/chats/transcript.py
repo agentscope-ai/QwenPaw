@@ -25,9 +25,9 @@ from .context_revisions import (
 from .event_schema import advance_projection_watermark
 from .event_store import ConversationEventStore, EventDraft
 from .transcript_blocks import (
-    block_identity,
     message_envelope,
     write_message_blocks,
+    write_message_envelope,
 )
 from .transcript_schema import initialize_database, validate_database
 from .transcript_models import (
@@ -566,6 +566,7 @@ class TranscriptStore:
         state: dict[str, Any],
         current_usage: dict[str, Any] | None = None,
         reset_context: bool = False,
+        reset_provider: str | None = None,
         only_if_missing: bool = False,
         turn_id: str | None = None,
         migration_anchor: bool = False,
@@ -716,6 +717,17 @@ class TranscriptStore:
                 recorded_at=timestamp,
                 turn_id=turn_id,
             )
+            if reset_provider is not None:
+                self._append_fact(
+                    event_type="provider.session_bound",
+                    payload={
+                        "provider": reset_provider,
+                        "external_session_id": None,
+                    },
+                    idempotency_key=uuid4().hex,
+                    recorded_at=timestamp,
+                    turn_id=turn_id,
+                )
             return generation, True
 
     def replace_runtime_state(
@@ -1725,34 +1737,12 @@ class TranscriptStore:
                         value=json.loads(message_envelope(message)),
                     )
                     block_refs = []
-                    for block_ordinal, block in enumerate(blocks):
-                        block_id = block_identity(
-                            session_id,
-                            message.id,
-                            block_ordinal,
-                        )
+                    for block in blocks:
                         content_ref = self._write_fact_object(
                             codec="message-block-v1",
                             value=block,
                         )
                         block_refs.append(content_ref)
-                        self._append_fact(
-                            event_type="block.committed",
-                            payload={
-                                "content_ref": content_ref,
-                                "kind": str(
-                                    block.get("type") or "unknown",
-                                ),
-                                "ordinal": block_ordinal,
-                            },
-                            idempotency_key=(
-                                f"block:{block_id}:{content_ref}"
-                            ),
-                            recorded_at=created_at,
-                            turn_id=turn_id,
-                            message_id=message.id,
-                            block_id=block_id,
-                        )
                     snapshot_hash = hashlib.sha256(
                         _canonical_json(
                             {
@@ -1949,36 +1939,17 @@ class TranscriptStore:
             if existing is not None:
                 timestamp = str(existing["created_at"])
 
-            self._conn.execute(
-                "INSERT INTO transcript_messages("
-                "session_id, turn_id, message_id, ordinal, role, "
-                "envelope_json, created_at, "
-                "client_message_id, finished_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(session_id, message_id) DO UPDATE SET "
-                "turn_id = excluded.turn_id, ordinal = excluded.ordinal, "
-                "role = excluded.role, "
-                "envelope_json = excluded.envelope_json, "
-                "client_message_id = excluded.client_message_id, "
-                "finished_at = excluded.finished_at "
-                "WHERE transcript_messages.envelope_json "
-                "IS NOT excluded.envelope_json "
-                "OR transcript_messages.ordinal != excluded.ordinal "
-                "OR transcript_messages.finished_at "
-                "IS NOT excluded.finished_at "
-                "OR transcript_messages.client_message_id "
-                "IS NOT excluded.client_message_id",
-                (
-                    session_id,
-                    turn_id,
-                    message.id,
-                    ordinal,
-                    role,
-                    payload,
-                    timestamp,
-                    client_message_id,
-                    finished_at,
-                ),
+            write_message_envelope(
+                self._conn,
+                session_id=session_id,
+                turn_id=turn_id,
+                message_id=message.id,
+                ordinal=ordinal,
+                role=role,
+                envelope_json=payload,
+                client_message_id=client_message_id,
+                created_at=timestamp,
+                finished_at=finished_at,
             )
 
             write_message_blocks(
@@ -1992,30 +1963,12 @@ class TranscriptStore:
                 value=json.loads(payload),
             )
             block_refs = []
-            for block_ordinal, block in enumerate(blocks):
-                block_id = block_identity(
-                    session_id,
-                    message.id,
-                    block_ordinal,
-                )
+            for block in blocks:
                 content_ref = self._write_fact_object(
                     codec="message-block-v1",
                     value=block,
                 )
                 block_refs.append(content_ref)
-                self._append_fact(
-                    event_type="block.committed",
-                    payload={
-                        "content_ref": content_ref,
-                        "kind": str(block.get("type") or "unknown"),
-                        "ordinal": block_ordinal,
-                    },
-                    idempotency_key=(f"block:{block_id}:{content_ref}"),
-                    recorded_at=timestamp,
-                    turn_id=turn_id,
-                    message_id=message.id,
-                    block_id=block_id,
-                )
             snapshot_hash = hashlib.sha256(
                 _canonical_json(
                     {

@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agentscope.state import AgentState
+
 from .._session_signals import (
     TRANSCRIPT_RECORDING_READY_KEY,
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
@@ -126,9 +128,9 @@ class HarnessRuntime:
         """Run a harness turn and emit the established QwenPaw protocol."""
         settings = dict(settings or {})
         request_context = dict(settings.get("_request_context") or {})
-        settings["_runtime_capabilities"] = (
-            await self._capability_resolver.resolve(request_context)
-        )
+        settings[
+            "_runtime_capabilities"
+        ] = await self._capability_resolver.resolve(request_context)
         adapter = await self.adapter(backend, settings)
         session_id = str(getattr(request, "session_id", "") or "default")
         identity = {
@@ -203,14 +205,21 @@ class HarnessRuntime:
                 await adapter.reset_session(session_id)
                 if self._store is not None:
                     await asyncio.to_thread(
-                        self._store.record_provider_fact,
+                        self._store.write_runtime_state,
                         **identity,
-                        kind="session_bound",
                         turn_id=turn_id,
-                        data={
-                            "provider": backend,
-                            "external_session_id": None,
+                        state={
+                            "agent": {
+                                "state": AgentState().model_dump(mode="json"),
+                            },
                         },
+                        reset_context=True,
+                        reset_provider=backend,
+                    )
+                elif self._session_bridge is not None:
+                    await self._session_bridge.clear(
+                        **identity,
+                        turn_id=turn_id,
                     )
                 events = [
                     HarnessEvent(
@@ -254,7 +263,7 @@ class HarnessRuntime:
                     if self._store is not None:
                         if not turn_id:
                             raise ValueError(
-                                "QwenPaw Turn identity is missing"
+                                "QwenPaw Turn identity is missing",
                             )
                         await asyncio.to_thread(
                             self._store.record_provider_fact,
@@ -300,7 +309,12 @@ class HarnessRuntime:
             yield tagged(item)
 
         reset_context = command in {"new", "clear"}
-        if reset_context and response.output:
+        if (
+            reset_context
+            and not error_text
+            and not cancelled
+            and response.output
+        ):
             response.output[-1].metadata = {
                 **dict(response.output[-1].metadata or {}),
                 "context_reset": True,
@@ -316,40 +330,23 @@ class HarnessRuntime:
         response.completed_at = datetime.now(timezone.utc).isoformat(
             timespec="seconds",
         )
-        if self._session_bridge is not None and reset_context:
-            try:
-                context = getattr(request, "request_context", None) or {}
-                await self._session_bridge.clear(
-                    session_id=session_id,
-                    user_id=str(
-                        getattr(request, "user_id", "") or session_id,
-                    ),
-                    channel=str(getattr(request, "channel", "") or ""),
-                    turn_id=(
-                        context.get(TRANSCRIPT_TURN_ID_CONTEXT_KEY)
-                        if context.get(TRANSCRIPT_RECORDING_READY_KEY)
-                        else None
-                    ),
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to clear third-party session %s",
-                    session_id,
-                    exc_info=True,
-                )
-        elif self._session_bridge is not None:
+        if self._session_bridge is not None and not reset_context:
             try:
                 await self._session_bridge.append_turn(
                     request=request,
                     response=response,
                     backend=backend,
                 )
-            except Exception:
-                logger.warning(
+            except Exception as exc:
+                logger.exception(
                     "Failed to persist third-party session %s",
                     session_id,
-                    exc_info=True,
                 )
+                response.status = RunStatus.Failed
+                response.error = {
+                    "code": "session_persistence_failed",
+                    "message": str(exc),
+                }
         if task_cancelled:
             raise asyncio.CancelledError
         yield tagged(response)

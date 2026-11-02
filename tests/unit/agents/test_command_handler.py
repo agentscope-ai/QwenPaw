@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
+import asyncio
 import json
 import logging
 import threading
@@ -8,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from agentscope.message import HintBlock, Msg, TextBlock
+from agentscope.state import AgentState
 
 from qwenpaw.agents.command_handler import (
     _MAX_REME_METADATA_CHARS,
@@ -15,6 +17,10 @@ from qwenpaw.agents.command_handler import (
     _REME_CHAT_SAFE_ACTIONS,
     CommandHandler,
 )
+from qwenpaw.agents.context.scroll.continuation_summary import (
+    ContinuationSummary,
+)
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.agents.middlewares import auto_memory_turn_state
 from qwenpaw.runtime.envelope import Envelope
@@ -993,8 +999,8 @@ async def test_compact_uses_manual_force_context_config() -> None:
         agent.state.summary = "summary"
 
     agent = _make_agent()
-    agent.state = SimpleNamespace(
-        context=[object()],
+    agent.state = AgentState(
+        context=[_msg("user", "hello")],
         summary="",
     )
     agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
@@ -1033,8 +1039,11 @@ async def test_scroll_compact_reply_hides_internal_state() -> None:
         describe_summary=lambda: "## Active Task\ninternal task state",
     )
     agent = _make_agent()
-    agent.state = SimpleNamespace(
-        context=[object(), object()],
+    agent.state = AgentState(
+        context=[
+            _msg("user", "hello"),
+            _msg("assistant", "reply"),
+        ],
         summary="",
     )
     agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
@@ -1100,8 +1109,8 @@ async def test_compact_under_native_keeps_configured_reserve() -> None:
         agent.state.summary = "summary"
 
     agent = _make_agent()
-    agent.state = SimpleNamespace(
-        context=[object()],
+    agent.state = AgentState(
+        context=[_msg("user", "hello")],
         summary="",
     )
     agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
@@ -1135,8 +1144,8 @@ async def test_compact_forwards_one_shot_redacted_instruction(
         agent.state.summary = "summary"
 
     agent = _make_agent()
-    agent.state = SimpleNamespace(
-        context=[object()],
+    agent.state = AgentState(
+        context=[_msg("user", "hello")],
         summary="",
     )
     agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
@@ -1166,3 +1175,81 @@ async def test_compact_forwards_one_shot_redacted_instruction(
     assert "Processing command: compact" in caplog.text
     assert "prioritize failures" not in caplog.text
     assert "sk-ctx15fake9876543210ab" not in caplog.text
+
+
+@pytest.mark.parametrize("strategy", ["scroll", "native"])
+async def test_debug_history_summary_round_trip(tmp_path, strategy):
+    """Import exported summaries without retaining unrelated Scroll state."""
+    state = AgentState()
+    state.context = [_msg("user", "tail")]
+    summary = ContinuationSummary(
+        covered_seq=(1, 2),
+        active_task="summary task",
+        status="in_progress",
+    )
+    if strategy == "native":
+        state.summary = "native summary"
+    config = AgentProfileConfig(
+        id="test",
+        name="Test",
+        workspace_dir=str(tmp_path),
+    )
+    config.running.light_context_config.strategy = strategy
+    handler = CommandHandler(
+        agent_name="Test",
+        state=state,
+        scroll_state={
+            "continuation_summary": summary.to_dict(),
+            "persisted_ids": ["old"],
+        },
+    )
+    handler._get_agent_config_async = AsyncMock(return_value=config)
+    dumped = await handler.handle_command("/dump_history")
+    assert "Has summary: True" in dumped.get_text_content()
+    state.context = [_msg("user", "unrelated")]
+    loaded = await handler.handle_command("/load_history")
+    assert loaded.metadata["context_reset"] is True
+    assert handler._scroll_state is None
+    text = " ".join(msg.get_text_content() for msg in state.context)
+    assert "tail" in text and "unrelated" not in text
+    if strategy == "scroll":
+        assert "summary task" in text
+        result = await handler.handle_command("/compact_str")
+        assert "summary task" in result.get_text_content()
+        await handler.handle_command("/dump_history")
+        await handler.handle_command("/load_history")
+        assert len(state.context) == 2
+    else:
+        assert state.summary == "native summary"
+        assert len(state.context) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_compact_failure_restores_context_and_summary(cancelled):
+    """A failed compaction must not persist a partially replaced window."""
+    agent = _make_agent()
+    agent.state = AgentState(
+        context=[_msg("user", "original")],
+        summary="original summary",
+    )
+    before = agent.state.model_dump(mode="json")
+
+    async def fail_compaction(*args, **kwargs):
+        agent.state.context.clear()
+        agent.state.summary = "partial"
+        if cancelled:
+            raise asyncio.CancelledError()
+        raise RuntimeError("compression failed")
+
+    agent.compress_context = fail_compaction
+    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    handler._get_agent_config = lambda: _make_config(strategy="native")
+    if cancelled:
+        with pytest.raises(asyncio.CancelledError):
+            await handler.handle_command("/compact")
+    else:
+        result = await handler.handle_command("/compact")
+        assert "Compact Failed" in result.get_text_content()
+    assert agent.state.model_dump(mode="json") == before

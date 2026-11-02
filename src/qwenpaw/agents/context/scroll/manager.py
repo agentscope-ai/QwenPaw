@@ -2285,13 +2285,20 @@ class ScrollContextManager:
             k: Leaf(seq=seq, headline=headline)
             for k, (seq, headline) in data.get("leaf_by_id", {}).items()
         }
-        if "index" in data:
-            self._index = EvictionIndex.from_dict(data["index"])
-        raw_summary = data.get("continuation_summary")
-        if isinstance(raw_summary, dict):
-            self._continuation_summary = ContinuationSummary.from_dict(
-                raw_summary,
+        self._index = (
+            EvictionIndex.from_dict(data["index"])
+            if "index" in data
+            else EvictionIndex(
+                session_id=self._session_id,
+                agent_id=self._agent_id,
             )
+        )
+        raw_summary = data.get("continuation_summary")
+        self._continuation_summary = (
+            ContinuationSummary.from_dict(raw_summary)
+            if isinstance(raw_summary, dict)
+            else None
+        )
         self._summary_update_failed = bool(
             data.get("summary_update_failed", False),
         )

@@ -227,7 +227,8 @@ async def test_restore_failure_does_not_overwrite_session(tmp_path, cancelled):
         runtime = Runtime(workspace=ctx.workspace, app_services=None)
         await runtime._try_save_on_cancel(ctx)
     else:
-        await SessionSaveHook().run(ctx)
+        with pytest.raises(RuntimeError, match="restoration failed"):
+            await SessionSaveHook().run(ctx)
     saved = await session.get_session_state_dict(
         "cron:test",
         "user",

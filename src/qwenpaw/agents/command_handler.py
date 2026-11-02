@@ -4,6 +4,7 @@
 This module handles system commands like /compact, /new, /clear, etc.
 """
 
+import asyncio
 import json
 import logging
 import shlex
@@ -434,6 +435,13 @@ class CommandHandler(ConversationCommandHandlerMixin):
         index_text = ""
         continuation_text = ""
         compress_stats: dict = {}
+        previous_state = self._state.model_copy(deep=True)
+        manager = getattr(self._agent, "_context_manager", None)
+        previous_scroll = (
+            manager.to_dict()
+            if manager is not None and hasattr(manager, "to_dict")
+            else None
+        )
         try:
             # Agent-backed mode: ``QwenPawAgent.compress_context`` already
             # routes to scroll or native by itself. Standalone mode builds a
@@ -473,7 +481,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 compress_stats = dict(
                     getattr(cm, "last_compress", None) or {},
                 )
-        except Exception as e:
+        except (Exception, asyncio.CancelledError) as e:
+            for field in type(previous_state).model_fields:
+                setattr(self._state, field, getattr(previous_state, field))
+            self._updated_scroll_state = None
+            if previous_scroll is not None:
+                manager.load_state(previous_scroll)
+            if isinstance(e, asyncio.CancelledError):
+                raise
             logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
                 f"❌ **Compact Failed!**\n\n- Reason: {e}\n"
@@ -563,12 +578,19 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _stored_scroll_summary_text(self) -> str:
         """Render the persisted Scroll continuation state, if available."""
         if self._agent is not None:
-            return self._scroll_summary_text(self._agent)
+            summary = self._scroll_summary_text(self._agent)
+            if summary:
+                return summary
         state = self._scroll_state
-        if not isinstance(state, dict):
-            return ""
-        raw_summary = state.get("continuation_summary")
+        raw_summary = (
+            state.get("continuation_summary")
+            if isinstance(state, dict)
+            else None
+        )
         if not isinstance(raw_summary, dict):
+            for message in self._state.context:
+                if (message.metadata or {}).get("has_compressed_summary"):
+                    return message.get_text_content() or ""
             return ""
         summary = ContinuationSummary.from_dict(raw_summary)
         return summary.render() if summary is not None else ""
@@ -699,6 +721,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         await self._reset_modes()
         if not messages:
             self._set_summary("")
+            self._reset_scroll_state()
             reset_auto_memory_turn_state(self._state)
             return await self._make_system_msg(
                 "**No messages for auto-memory.**\n\n"
@@ -706,7 +729,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Compressed summary is clear\n"
                 "- Plan state cleared\n"
                 "- No action taken",
-                metadata={"clear_plan": True},
+                metadata={"context_reset": True, "clear_plan": True},
             )
         if not self._has_memory_manager():
             return await self._make_system_msg(
@@ -750,6 +773,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
             metadata={"context_reset": True, "clear_plan": True},
         )
 
+    def _reset_scroll_state(self) -> None:
+        """Discard bookkeeping when the command replaces the context."""
+        self._scroll_state = None
+        self._updated_scroll_state = None
+        manager = getattr(self._agent, "_context_manager", None)
+        if manager is not None and hasattr(manager, "load_state"):
+            manager.load_state({})
+
     async def _persist_and_clear(self) -> None:
         """Persist current context to disk via offloader, then clear."""
         state = self._state
@@ -763,6 +794,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             except Exception as e:
                 logger.warning("offloader.offload_context failed: %s", e)
         state.context.clear()
+        self._reset_scroll_state()
 
     async def _process_compact_str(
         self,
@@ -1433,7 +1465,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         try:
             # Check if there's a compressed summary
-            compressed_summary = self._get_summary()
+            compressed_summary = (
+                self._stored_scroll_summary_text()
+                if await self._uses_scroll_context()
+                else self._get_summary()
+            )
             has_summary = bool(compressed_summary)
 
             # Build dump messages: summary first (if exists), then messages
@@ -1447,6 +1483,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 )
                 dump_messages.append(summary_msg)
 
+            if (
+                has_summary
+                and messages
+                and (messages[0].metadata or {}).get("has_compressed_summary")
+            ):
+                messages = messages[1:]
             dump_messages.extend(messages)
 
             await run_sync_io(
@@ -1500,21 +1542,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 history_file,
             )
 
-            # Clear existing context without persisting (this IS the
-            # "replay history into state" path; new context is what we
-            # just loaded from disk).
-            self._state.context.clear()
-            self._set_summary("")
-
-            # If first message has summary marker, extract and restore summary
-            if has_summary_marker and loaded_messages:
+            uses_scroll = await self._uses_scroll_context()
+            summary_content = ""
+            if has_summary_marker and loaded_messages and not uses_scroll:
                 summary_msg = loaded_messages.pop(0)
                 summary_content = summary_msg.get_text_content() or ""
-                self._set_summary(summary_content)
-                logger.info("Restored compressed summary from history file")
 
-            for msg in loaded_messages:
-                self._state.context.append(msg)
+            # Imported Scroll summaries stay in context as ordinary messages.
+            # They carry text, never another conversation's Recall pointers.
+            self._state.context.clear()
+            self._state.context.extend(loaded_messages)
+            self._set_summary(summary_content)
+            self._reset_scroll_state()
 
             # Auto-memory lifecycle data belongs to the context that was
             # replaced above.  Do not let pending turns, saved snapshots, or
@@ -1531,6 +1570,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"- Has summary: {has_summary_marker}\n"
                 f"- File: `{history_file}`\n"
                 f"- Memory cleared before loading",
+                metadata={"context_reset": True},
             )
         except Exception as e:
             logger.exception(f"Failed to load history: {e}")

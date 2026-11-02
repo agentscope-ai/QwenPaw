@@ -10,6 +10,7 @@ import pytest
 from agentscope.state import AgentState
 
 from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.context_revisions import read_revision_state
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.transcript_recorder import TranscriptRecorder
 from qwenpaw.app.chats.session import DatabaseSession
@@ -163,6 +164,16 @@ def test_runtime_revision_kinds_describe_the_actual_change(tmp_path):
             usage={"total_tokens": 1},
             context_usage={"estimated_tokens": 1},
         )
+        with sqlite3.connect(path) as connection:
+            usage_revision = connection.execute(
+                "SELECT revision_id FROM context_revisions "
+                "WHERE kind = 'usage_update'",
+            ).fetchone()[0]
+            assert read_revision_state(
+                connection,
+                session_id="session",
+                revision_id=usage_revision,
+            ) == {"agent": {"mode": "coding"}}
         store.write_runtime_state(
             **IDENTITY,
             state={"agent": {}},
@@ -185,6 +196,17 @@ def test_runtime_revision_kinds_describe_the_actual_change(tmp_path):
             "clear",
             "restore",
         ]
+        # Later resets and restores must not change the usage-only snapshot.
+        store.rebuild_projections()
+        with sqlite3.connect(path) as connection:
+            assert read_revision_state(
+                connection,
+                session_id="session",
+                revision_id=usage_revision,
+            ) == {"agent": {"mode": "coding"}}
+        assert store.read_runtime_state(**IDENTITY).state == {
+            "agent": {"restored": True},
+        }
     finally:
         store.close()
 

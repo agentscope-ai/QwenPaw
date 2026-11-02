@@ -566,7 +566,7 @@ async def _save_agent_state(
 def _resolve_scroll_block(
     *,
     updated: dict | None,
-    context_empty: bool,
+    reset_context: bool,
     existing: dict | None,
 ) -> dict | None:
     """Decide which scroll checkpoint a conversation command should persist.
@@ -575,14 +575,14 @@ def _resolve_scroll_block(
     command's effect on ``state.context``:
 
     * ``updated`` set    — a scroll ``/compact`` refreshed it → save it.
-    * ``context_empty``  — ``/clear`` / ``/new`` wiped the window → drop it
+    * ``reset_context`` — a successful reset replaced the window → drop it
       (reset), so a stale eviction index doesn't resurface old turns.
     * otherwise          — preserve the existing block (read-only commands must
       not nuke it, which was the prior bug).
     """
     if updated is not None:
         return updated
-    if context_empty:
+    if reset_context:
         return None
     return existing
 
@@ -679,16 +679,18 @@ def _make_conversation_adapter(
                 request.request_context = {}
             request.request_context[f"conversation_command"] = name
 
+        metadata = getattr(result, "metadata", None) or {}
+        reset_context = metadata.get("context_reset") is True
         scroll_block = _resolve_scroll_block(
             updated=cmd_handler.updated_scroll_state,
-            context_empty=not state.context,
+            reset_context=reset_context,
             existing=existing_scroll,
         )
         await _save_agent_state(
             ctx,
             state,
             scroll_block=scroll_block,
-            reset_context=name in {"clear", "new"},
+            reset_context=reset_context,
         )
         return result
 

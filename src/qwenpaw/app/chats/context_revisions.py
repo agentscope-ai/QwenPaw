@@ -184,12 +184,23 @@ def record_revision(
         ),
     )
 
-    _write_components(
-        connection,
-        session_id=session_id,
-        revision_id=revision_id,
-        state=state,
-    )
+    if kind == "usage_update" and parent is not None:
+        # Usage writes leave state_json unchanged. All state writers update
+        # the current revision in the same transaction as session_runtime.
+        connection.execute(
+            "INSERT INTO revision_components "
+            "SELECT session_id, ?, component_key, content_hash "
+            "FROM revision_components "
+            "WHERE session_id = ? AND revision_id = ?",
+            (revision_id, session_id, parent[0]),
+        )
+    else:
+        _write_components(
+            connection,
+            session_id=session_id,
+            revision_id=revision_id,
+            state=state,
+        )
     connection.execute(
         "INSERT INTO current_context_revision VALUES (?, ?) "
         "ON CONFLICT(session_id) DO UPDATE SET "

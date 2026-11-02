@@ -93,7 +93,6 @@ def test_ui_and_runtime_projections_rebuild_from_events(
         assert [event.event_type for event in _events(store)] == [
             "session.created",
             "turn.started",
-            "block.committed",
             "message.committed",
             "runtime.committed",
             "turn.completed",

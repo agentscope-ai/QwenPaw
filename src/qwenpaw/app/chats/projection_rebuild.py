@@ -11,7 +11,11 @@ from typing import Any
 from ...schemas import Message
 from ...token_usage.turn_usage import TURN_USAGE_META_KEY
 from .context_revisions import read_revision_state
-from .transcript_blocks import message_envelope, write_message_blocks
+from .transcript_blocks import (
+    message_envelope,
+    write_message_blocks,
+    write_message_envelope,
+)
 
 
 def _canonical_json(value: Any) -> str:
@@ -71,27 +75,17 @@ def _project_message(
         separators=(",", ":"),
         sort_keys=True,
     )
-    connection.execute(
-        "INSERT INTO transcript_messages("
-        "session_id, turn_id, message_id, ordinal, role, envelope_json, "
-        "client_message_id, created_at, finished_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(session_id, message_id) DO UPDATE SET "
-        "turn_id=excluded.turn_id, ordinal=excluded.ordinal, "
-        "role=excluded.role, envelope_json=excluded.envelope_json, "
-        "client_message_id=excluded.client_message_id, "
-        "created_at=excluded.created_at, finished_at=excluded.finished_at",
-        (
-            session_id,
-            turn_id,
-            message_id,
-            int(payload["ordinal"]),
-            str(payload["role"]),
-            envelope_json,
-            payload.get("client_message_id"),
-            str(payload["created_at"]),
-            payload.get("finished_at"),
-        ),
+    write_message_envelope(
+        connection,
+        session_id=session_id,
+        turn_id=turn_id,
+        message_id=message_id,
+        ordinal=int(payload["ordinal"]),
+        role=str(payload["role"]),
+        envelope_json=envelope_json,
+        client_message_id=payload.get("client_message_id"),
+        created_at=str(payload["created_at"]),
+        finished_at=payload.get("finished_at"),
     )
     write_message_blocks(
         connection,

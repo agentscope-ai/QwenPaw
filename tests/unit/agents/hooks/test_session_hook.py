@@ -94,19 +94,26 @@ async def test_failed_session_save_does_not_mark_turn_as_persisted():
     session = _FakeSession(save_error=RuntimeError("save failed"))
     ctx = _ctx(session, ephemeral=False)
 
-    await SessionSaveHook().run(ctx)
+    with pytest.raises(RuntimeError, match="save failed"):
+        await SessionSaveHook().run(ctx)
 
     assert session.saved is False
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
 
 
-async def test_legacy_migration_failure_stops_agent_lifecycle():
-    session = _FakeSession(
-        load_error=LegacyMigrationError("legacy-session"),
-    )
+@pytest.mark.parametrize(
+    "error",
+    [
+        LegacyMigrationError("legacy-session"),
+        OSError("database unavailable"),
+        KeyError("invalid state"),
+    ],
+)
+async def test_session_load_failure_stops_agent_lifecycle(error):
+    session = _FakeSession(load_error=error)
     ctx = _ctx(session, ephemeral=False)
 
-    with pytest.raises(LegacyMigrationError):
+    with pytest.raises(type(error)):
         await SessionLoadHook().run(ctx)
 
 
