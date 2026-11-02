@@ -176,6 +176,24 @@ describe("WebSearchConfigModal", () => {
     });
   });
 
+  it("lists deepseek and loads its credential slot when selected", async () => {
+    hoisted.getToolConfig.mockResolvedValueOnce({});
+    renderModal();
+
+    await waitFor(() => {
+      expect(selectedProvider()).toBe("tavily");
+    });
+
+    await switchProvider("deepseek");
+
+    expect(passwordInput()).not.toBeNull();
+    await waitFor(() => {
+      expect(hoisted.getToolConfig).toHaveBeenLastCalledWith("web_search", {
+        provider: "deepseek",
+      });
+    });
+  });
+
   it("re-fetches with the selected provider when switching inside the modal", async () => {
     hoisted.getToolConfig.mockResolvedValueOnce({});
     renderModal();
