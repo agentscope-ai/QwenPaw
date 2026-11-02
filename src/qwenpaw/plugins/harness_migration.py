@@ -150,6 +150,7 @@ async def migrate_legacy_harnesses(
 ) -> dict:
     """Prepare using initialized working-dir constants; never activate code."""
     loader = PluginLoader([PLUGINS_DIR])
+    await loader._publish_dependency_site(None)
     cleanup = ExitStack()
     try:
         staging = Path(

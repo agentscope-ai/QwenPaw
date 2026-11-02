@@ -15,6 +15,10 @@ from agentscope.state import AgentState
 from .._state_utils import StateProxy
 from ...schemas import AgentResponse, Message, MessageType
 from ...plugins.harnesses import HarnessHistoryItem, HarnessHistoryKind
+from ...utils.io_utils import run_sync_io
+
+
+_HISTORY_BATCH_SIZE = 16
 
 
 class HarnessSessionBridge:
@@ -92,7 +96,7 @@ class HarnessSessionBridge:
         ):
             return
         state = AgentState().model_dump(mode="json")
-        state["context"] = self._history_messages(history, backend)
+        state["context"] = await self._materialize_history(history, backend)
         proxy = StateProxy()
         proxy.data = {"state": state}
         await self._session.save_session_state(
@@ -175,6 +179,24 @@ class HarnessSessionBridge:
                     role=role,
                     content=blocks,
                     backend=backend,
+                ),
+            )
+        return messages
+
+    async def _materialize_history(
+        self,
+        history: list[HarnessHistoryItem],
+        backend: str,
+    ) -> list[dict[str, Any]]:
+        """Convert a stable history order in bounded worker batches."""
+        snapshot = list(history)
+        messages: list[dict[str, Any]] = []
+        for start in range(0, len(snapshot), _HISTORY_BATCH_SIZE):
+            messages.extend(
+                await run_sync_io(
+                    self._history_messages,
+                    snapshot[start : start + _HISTORY_BATCH_SIZE],
+                    backend,
                 ),
             )
         return messages
