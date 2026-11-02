@@ -395,18 +395,13 @@ class FallbackChatModel(ChatModelBase):
         return event
 
     @staticmethod
-    def _model_identity(model: ChatModelBase) -> tuple[str, str]:
-        return get_model_identity(model)
-
-    @classmethod
     def _fallback_event(
-        cls,
         current: ChatModelBase,
         following: ChatModelBase,
         exc: Exception,
     ) -> dict[str, str]:
-        from_provider_id, from_model_id = cls._model_identity(current)
-        to_provider_id, to_model_id = cls._model_identity(following)
+        from_provider_id, from_model_id = get_model_identity(current)
+        to_provider_id, to_model_id = get_model_identity(following)
         return {
             "type": "model_fallback",
             "from_provider_id": from_provider_id,
@@ -416,9 +411,9 @@ class FallbackChatModel(ChatModelBase):
             "reason_kind": classify_model_error(exc).kind,
         }
 
-    @classmethod
-    def _actual_model_dict(cls, active_model: ChatModelBase) -> dict[str, Any]:
-        provider_id, model_id = cls._model_identity(active_model)
+    @staticmethod
+    def _actual_model_dict(active_model: ChatModelBase) -> dict[str, Any]:
+        provider_id, model_id = get_model_identity(active_model)
         return {
             "provider_id": provider_id,
             "model_id": model_id,
