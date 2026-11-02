@@ -2191,7 +2191,10 @@ def test_specialist_cancel_emits_terminal_event(
             driver.specialist_tools.invoke = blocking_invoke  # type: ignore[method-assign]
         await driver.start()
         driver.notify(PROJECT_ID)
-        await asyncio.wait_for(blocked.wait(), timeout=2.0)
+        # Poll via the shared helper instead of a raw 2s budget: the full
+        # suite needs ~7min on the Windows CI runner, and that load has been
+        # enough to lose this race there.
+        await _wait_for(blocked.is_set)
         interrupted = await driver.interrupt(PROJECT_ID, reason="test-stop")
         await driver.wait_until_idle(PROJECT_ID)
         specialist_runs = driver.executions.list_specialist_runs(PROJECT_ID)

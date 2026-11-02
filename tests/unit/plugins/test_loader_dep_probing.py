@@ -12,7 +12,9 @@ from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+import logging
 import subprocess
+import sys
 
 import pytest
 
@@ -208,6 +210,93 @@ async def test_old_installer_cannot_acquire_dependency_wheels(
     guard.assert_called_once_with("chosen-python", isolated=True)
     resolver.assert_not_called()
     assert requirements.read_text(encoding="utf-8") == "sample-sdk==1\n"
+
+
+@pytest.mark.asyncio
+async def test_dependency_failure_logs_bounded_redacted_pip_tail(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    from qwenpaw.plugins.dependency_gate import SharedDependencyError
+
+    loader = PluginLoader([tmp_path])
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("sample-sdk==1\n", encoding="utf-8")
+    output = (
+        "discarded-prefix\n"
+        + ("x" * 2000 + "\n") * 20
+        + "https://private-user:private-password@example.test/simple"
+        "?token=private-query\nAuthorization: Bearer private-auth\n"
+        "PIP_INDEX_URL=https://private-user:private-password@example.test/"
+        "?token=private-config\nresolver-tail-marker\n"
+    )
+    fake_pip_script = tmp_path / "fake_pip.py"
+    fake_pip_script.write_text(
+        f"print({output!r}); raise SystemExit(23)",
+        encoding="utf-8",
+    )
+    popen = subprocess.Popen
+    runner = loader._run_subprocess_with_streaming_log
+    results = []
+
+    def fake_pip(_command, **kwargs):
+        return popen(
+            [sys.executable, str(fake_pip_script)],
+            **kwargs,
+        )
+
+    def run(command, **kwargs):
+        result = runner(command, **kwargs)
+        results.append(result)
+        return result
+
+    monkeypatch.setattr(subprocess, "Popen", fake_pip)
+    monkeypatch.setattr(
+        "qwenpaw.plugins.loader.require_pip",
+        lambda *a, **k: True,
+    )
+    monkeypatch.setattr(loader, "_run_subprocess_with_streaming_log", run)
+    caplog.set_level(logging.INFO)
+    with pytest.raises(SharedDependencyError) as caught:
+        await loader._acquire_dependency_wheels(
+            SimpleNamespace(),
+            SimpleNamespace(
+                python_executable=sys.executable,
+                code_root=tmp_path,
+            ),
+            SimpleNamespace(distributions={}, marker_environment={}),
+            tmp_path / "site",
+            "diagnostic-plugin",
+            requirements,
+        )
+    assert caught.value.decision.reason_code == "DEPENDENCY_PLAN_UNVERIFIED"
+    assert str(caught.value) == (
+        "DEPENDENCY_PLAN_UNVERIFIED: complete wheels compatible with "
+        "installed versions required"
+    )
+    assert len(results) == 2
+    assert all(
+        isinstance(result, subprocess.CompletedProcess) for result in results
+    )
+    assert all(
+        result.returncode == 23 and result.stderr == "" for result in results
+    )
+    assert "diagnostic-plugin" in caplog.text
+    assert "pip" in caplog.text.lower() and "23" in caplog.text
+    assert "solver" in caplog.text.lower()
+    assert "resolver-tail-marker" in caplog.text
+    assert "discarded-prefix" not in caplog.text
+    assert max(len(line) for line in caplog.text.splitlines()) <= 1200
+    assert len(caplog.text.encode()) < 2 * 16 * 1024 + 4096
+    for secret in (
+        "private-user",
+        "private-password",
+        "private-query",
+        "private-auth",
+        "private-config",
+    ):
+        assert secret not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -1331,6 +1420,170 @@ def test_host_dependency_record_retains_loaded_ownership(tmp_path):
         stream.write("unrelated.py,,not-a-size\n")
     with pytest.raises(ValueError):
         _files_for_loaded_origins(distribution, origins)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("withdrawn", [False, True])
+async def test_host_dependency_observation_recovers_concurrent_imports(
+    tmp_path,
+    monkeypatch,
+    withdrawn,
+):
+    import asyncio
+    import importlib
+    from qwenpaw.plugins import python_backend as backend
+    from qwenpaw.plugins.dependency_gate import admit_shared_dependencies
+    from qwenpaw.plugins.dependency_usage import DependencyUsageRegistry
+    from qwenpaw.plugins.execution.dependencies import (
+        read_dependency_inventory,
+    )
+    from qwenpaw.plugins.execution_backend import PluginDescription
+    from qwenpaw.plugins.ownership import RuntimeOwners
+
+    site, source = tmp_path / "site", tmp_path / "plugin"
+    site.mkdir()
+    source.mkdir()
+    names = [f"_host_recovery_{number}" for number in range(3)]
+    packages = [f"recovery-sdk-{number}" for number in range(3)]
+    for name, package in zip(names, packages):
+        info = site / f"{package}-1.0.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(f"Name: {package}\nVersion: 1.0\n")
+        (info / "RECORD").write_text(f"{name}.py,,\n")
+        (site / f"{name}.py").write_text("VALUE = 1\n")
+    for suffix, metadata in (
+        ("1.0.egg-info", "PKG-INFO"),
+        ("1.0.dist-info", "METADATA"),
+    ):
+        info = site / f"unrelated-sdk-{suffix}"
+        info.mkdir()
+        (info / metadata).write_text("Name: unrelated-sdk\nVersion: 1.0\n")
+    if withdrawn:
+        (source / f"{names[1]}.py").write_text("VALUE = 1\n")
+    monkeypatch.setattr(sys, "path", [str(source), str(site)])
+    view, relevant = read_dependency_inventory(source, (site,), (packages[0],))
+    assert relevant == {packages[0]}
+    assert "unrelated-sdk" not in view.distributions
+    assert view.invalid == {
+        "unrelated-sdk": "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+    }
+    with pytest.raises(ValueError, match="DEPENDENCY_ENVIRONMENT_AMBIGUOUS"):
+        read_dependency_inventory(source, (site,), ("unrelated-sdk",))
+    description = PluginDescription(
+        SimpleNamespace(id="host-recovery", sdk=None),
+        source,
+        None,
+        None,
+        source_identity="original",
+        requirements=("recovery-sdk-0>=1",),
+    )
+    usage = DependencyUsageRegistry(RuntimeOwners())
+    token = usage.declare(description.dependency_declaration(), pending=False)
+    python = backend.PythonBackend(SimpleNamespace())
+    observe = backend._observe_host_dependencies
+    delta = backend._observe_host_delta
+    capture = backend._capture_host_progress
+    loop = asyncio.get_running_loop()
+    imported = []
+    observing = False
+
+    def import_during_observation(observer, *args, **kwargs):
+        nonlocal observing
+        if observing:
+            return observer(*args, **kwargs)
+        observing = True
+        try:
+            result = observer(*args, **kwargs)
+            if len(imported) < 2:
+                name = names[len(imported) + 1]
+                imported.append(importlib.import_module(name))
+            return result
+        finally:
+            observing = False
+
+    def withdraw_during_capture(*args, **kwargs):
+        result = capture(*args, **kwargs)
+        # This callback precedes publication of the worker's returned result.
+        loop.call_soon_threadsafe(usage.withdraw, token)
+        return result
+
+    try:
+        importlib.import_module(names[0])
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                backend,
+                "_observe_host_dependencies",
+                partial(import_during_observation, observe),
+            )
+            patch.setattr(
+                backend,
+                "_observe_host_delta",
+                partial(import_during_observation, delta),
+            )
+            if withdrawn:
+                patch.setattr(
+                    backend,
+                    "_capture_host_progress",
+                    withdraw_during_capture,
+                )
+            await asyncio.wait_for(
+                python.observe_host_dependencies(description, usage, token),
+                timeout=5,
+            )
+        assert len(imported) == 2
+        assert len(usage.pending_host_observations()) == 1
+        host = next(
+            use for use in usage.snapshot().uses if use.origin == "host"
+        )
+        assert host.snapshot is not None
+        assert host.snapshot.distributions[packages[0]]["version"] == "1.0"
+        assert usage.has_declaration(token) is not withdrawn
+        await asyncio.wait_for(
+            python.reconcile_host_observations(usage),
+            timeout=5,
+        )
+        host = next(
+            use for use in usage.snapshot().uses if use.origin == "host"
+        )
+        assert host.source_revision == "original"
+        assert host.environment is not None
+        expected = {packages[0], packages[2]} if withdrawn else set(packages)
+        assert set(host.snapshot.distributions) == expected
+        assert all(
+            row["version"] == "1.0"
+            for row in host.snapshot.distributions.values()
+        )
+        assert usage.has_declaration(token) is not withdrawn
+
+        requirements = source / "requirements.txt"
+        requirements.write_text("recovery-sdk-0>=1\n")
+        channel_snapshot = await asyncio.wait_for(
+            admit_shared_dependencies(
+                lambda: python.audit_dependencies(description),
+                plugin_id="recovery-channel",
+                requirements_file=requirements,
+                usage_registry=usage,
+                targets=(site,),
+            ),
+            timeout=5,
+        )
+        assert channel_snapshot.distributions[packages[0]]["version"] == "1.0"
+        incoming = usage.declare(description.dependency_declaration())
+        assert (
+            await asyncio.wait_for(
+                python.admit_existing(
+                    description,
+                    usage=usage,
+                    token=incoming,
+                ),
+                timeout=5,
+            )
+            is None
+        )
+    finally:
+        for name in names:
+            sys.modules.pop(name, None)
+        importlib.invalidate_caches()
 
 
 @pytest.mark.asyncio
