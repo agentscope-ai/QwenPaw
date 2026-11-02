@@ -63,6 +63,8 @@ pub fn run() {
             notifications::configure_approval_notifications,
             notifications::get_notification_permission,
             notifications::request_notification_permission,
+            notifications::configure_system_notifications,
+            notifications::open_notification_settings,
             backend_download::download_backend_file,
             backend::agent_host_state,
             backend::restart_backend,

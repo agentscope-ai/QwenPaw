@@ -1,7 +1,7 @@
 //! Native console polling continues while the WebView is hidden in the tray.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::ErrorKind,
     path::{Path, PathBuf},
@@ -58,6 +58,72 @@ impl Approval {
 struct Snapshot {
     messages: Vec<Value>,
     pending_approvals: Vec<Approval>,
+    #[serde(default)]
+    notification_events: Vec<NotificationEvent>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct NotificationEvent {
+    id: String,
+    category: String,
+    agent_id: String,
+    title: String,
+    body: String,
+    created_at: f64,
+    session_id: Option<String>,
+    inbox_event_id: Option<String>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct SystemPreferences {
+    enabled: bool,
+    conversation: String,
+    cron: bool,
+    heartbeat: bool,
+    mail: bool,
+    #[serde(skip)]
+    conversation_title: String,
+}
+
+impl SystemPreferences {
+    fn allows(&self, category: &str, background: bool) -> bool {
+        self.enabled
+            && match category {
+                "conversation" => {
+                    self.conversation == "always"
+                        || (self.conversation == "background" && background)
+                }
+                "cron" => self.cron && background,
+                "heartbeat" => self.heartbeat && background,
+                "mail" => self.mail && background,
+                _ => false,
+            }
+    }
+}
+
+#[derive(Default)]
+struct EventTracker {
+    seeded: bool,
+    known: HashSet<String>,
+    displayed: HashMap<String, String>,
+}
+
+impl EventTracker {
+    fn fresh<'a>(&mut self, events: &'a [NotificationEvent]) -> Vec<&'a NotificationEvent> {
+        let fresh = if self.seeded {
+            events
+                .iter()
+                .filter(|event| !self.known.contains(&event.id))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.seeded = true;
+        self.known = events.iter().map(|event| event.id.clone()).collect();
+        self.displayed.retain(|id, _| self.known.contains(id));
+        fresh
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -69,8 +135,15 @@ struct PushEvent<'a> {
 #[derive(Clone, Default)]
 struct Preferences {
     enabled: bool,
+    always: bool,
     title: String,
     body: String,
+}
+
+impl Preferences {
+    fn allows(&self, background: bool) -> bool {
+        self.enabled && (self.always || background)
+    }
 }
 
 #[derive(Default)]
@@ -110,6 +183,8 @@ pub(crate) struct NotificationState {
     polling: Mutex<Polling>,
     preferences: Mutex<Preferences>,
     approvals: tokio::sync::Mutex<ApprovalTracker>,
+    system_preferences: Mutex<SystemPreferences>,
+    events: tokio::sync::Mutex<EventTracker>,
 }
 
 #[derive(Default)]
@@ -234,6 +309,7 @@ pub(crate) async fn configure_approval_notifications(
     enabled: bool,
     title: String,
     body: String,
+    always: Option<bool>,
 ) {
     let state = app.state::<NotificationState>();
     *state
@@ -241,6 +317,7 @@ pub(crate) async fn configure_approval_notifications(
         .lock()
         .expect("notification preferences poisoned") = Preferences {
         enabled,
+        always: always.unwrap_or(false),
         title,
         body,
     };
@@ -260,6 +337,88 @@ pub(crate) async fn get_notification_permission(
 pub(crate) async fn request_notification_permission(
 ) -> Result<notification_delivery::Permission, String> {
     notification_delivery::request_permission().await
+}
+
+#[tauri::command]
+pub(crate) async fn configure_system_notifications(
+    app: tauri::AppHandle,
+    mut preferences: SystemPreferences,
+    conversation_title: String,
+) {
+    preferences.conversation_title = conversation_title;
+    let state = app.state::<NotificationState>();
+    *state
+        .system_preferences
+        .lock()
+        .expect("notification preferences poisoned") = preferences.clone();
+    let mut tracker = state.events.lock().await;
+    let closed: Vec<_> = tracker
+        .displayed
+        .iter()
+        .filter(|(_, category)| !preferences.allows(category, true))
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in closed {
+        notification_delivery::close(&format!("qwenpaw-event:{id}")).await;
+        tracker.displayed.remove(&id);
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn open_notification_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let app_id = app.config().identifier.clone();
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        {
+            let uri = format!(
+                "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id={app_id}"
+            );
+            let status = std::process::Command::new("open")
+                .arg(uri)
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() {
+                return Ok(());
+            }
+            let status = std::process::Command::new("open")
+                .arg("x-apple.systempreferences:com.apple.preference.notifications")
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() {
+                return Ok(());
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use tauri_plugin_shell::ShellExt;
+            #[allow(deprecated)]
+            return app
+                .shell()
+                .open("ms-settings:notifications", None)
+                .map_err(|e| e.to_string());
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        for (program, argument) in [
+            ("gnome-control-center", "notifications"),
+            ("systemsettings", "kcm_notifications"),
+            ("xfce4-notifyd-config", ""),
+        ] {
+            let mut command = std::process::Command::new(program);
+            if !argument.is_empty() {
+                command.arg(argument);
+            }
+            if command.spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        #[allow(unreachable_code)]
+        Err("Could not open system notification settings".into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -352,7 +511,7 @@ async fn poll_console(
                                 .lock()
                                 .expect("notification preferences poisoned")
                                 .clone();
-                            if !preferences.enabled || !is_background(&app) {
+                            if !preferences.allows(is_background(&app)) {
                                 continue;
                             }
                             let claim_directory = directory.clone();
@@ -371,7 +530,7 @@ async fn poll_console(
                                     .preferences
                                     .lock()
                                     .expect("notification preferences poisoned")
-                                    .enabled
+                                    .allows(is_background(&app))
                             {
                                 let directory = directory.clone();
                                 let id = approval.request_id.clone();
@@ -395,7 +554,9 @@ async fn poll_console(
                                 &preferences.title,
                                 &preferences.body.replace("{tool}", tool),
                                 lifetime,
-                                Some(approval.notification_target()),
+                                Some(notification_delivery::NotificationTarget::Approval(
+                                    approval.notification_target(),
+                                )),
                             )
                             .await
                             {
@@ -410,6 +571,9 @@ async fn poll_console(
                                 tracker.mark_notified(&approval.request_id);
                             }
                         }
+                        drop(tracker);
+                        notify_events(&app, &snapshot.notification_events, &directory, generation)
+                            .await;
                     }
                 }
             }
@@ -418,9 +582,136 @@ async fn poll_console(
     }
 }
 
+async fn notify_events(
+    app: &tauri::AppHandle,
+    events: &[NotificationEvent],
+    directory: &Path,
+    generation: u64,
+) {
+    let state = app.state::<NotificationState>();
+    let mut tracker = state.events.lock().await;
+    let fresh = tracker.fresh(events);
+    for event in fresh {
+        if !is_current(app, generation) {
+            break;
+        }
+        let preferences = state
+            .system_preferences
+            .lock()
+            .expect("notification preferences poisoned")
+            .clone();
+        if !preferences.allows(&event.category, is_background(app)) {
+            continue;
+        }
+        let claim_directory = directory.to_path_buf();
+        let claim_id = format!("event:{}", event.id);
+        let id = claim_id.clone();
+        let claimed =
+            tauri::async_runtime::spawn_blocking(move || claim(&claim_directory, &id)).await;
+        if !matches!(claimed, Ok(Ok(true))) {
+            continue;
+        }
+        let still_enabled = state
+            .system_preferences
+            .lock()
+            .expect("notification preferences poisoned")
+            .allows(&event.category, is_background(app));
+        let title = if event.category == "conversation" {
+            &preferences.conversation_title
+        } else {
+            &event.title
+        };
+        let result = if is_current(app, generation) && still_enabled {
+            notification_delivery::send(
+                app,
+                &format!("qwenpaw-event:{}", event.id),
+                title,
+                &event.body,
+                Duration::from_secs(300),
+                Some(notification_delivery::NotificationTarget::Event(
+                    event.clone(),
+                )),
+            )
+            .await
+        } else {
+            Err("Notification delivery was superseded".into())
+        };
+        if let Err(error) = result {
+            log::warn!("Could not deliver system notification: {error}");
+            tracker.known.remove(&event.id);
+            let directory = directory.to_path_buf();
+            let _ =
+                tauri::async_runtime::spawn_blocking(move || release_claim(&directory, &claim_id))
+                    .await;
+        } else {
+            tracker
+                .displayed
+                .insert(event.id.clone(), event.category.clone());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn event(id: &str) -> NotificationEvent {
+        NotificationEvent {
+            id: id.into(),
+            category: "cron".into(),
+            agent_id: "default".into(),
+            title: "Done".into(),
+            body: "Result".into(),
+            created_at: 100.0,
+            session_id: None,
+            inbox_event_id: Some(id.into()),
+        }
+    }
+
+    #[test]
+    fn event_snapshots_seed_history_and_deduplicate_after_restart() {
+        let mut tracker = EventTracker::default();
+        assert!(tracker.fresh(&[event("old")]).is_empty());
+        assert_eq!(tracker.fresh(&[event("old"), event("new")]).len(), 1);
+        assert!(tracker.fresh(&[event("old"), event("new")]).is_empty());
+        assert!(tracker.fresh(&[]).is_empty());
+    }
+
+    #[test]
+    fn category_preferences_respect_master_switch_and_focus() {
+        let mut preferences = SystemPreferences {
+            enabled: true,
+            conversation: "background".into(),
+            cron: true,
+            ..Default::default()
+        };
+        assert!(!preferences.allows("conversation", false));
+        assert!(preferences.allows("conversation", true));
+        preferences.conversation = "always".into();
+        assert!(preferences.allows("conversation", false));
+        assert!(!preferences.allows("cron", false));
+        assert!(preferences.allows("cron", true));
+        assert!(!preferences.allows("mail", true));
+        preferences.enabled = false;
+        assert!(!preferences.allows("conversation", true));
+        assert!(!preferences.allows("cron", true));
+    }
+
+    #[test]
+    fn approval_timing_preserves_background_policy_and_supports_foreground() {
+        let mut preferences = Preferences {
+            enabled: true,
+            ..Default::default()
+        };
+        assert!(preferences.allows(true));
+        assert!(!preferences.allows(false));
+        preferences.always = true;
+        assert!(preferences.allows(true));
+        assert!(preferences.allows(false));
+        preferences.enabled = false;
+        assert!(!preferences.allows(true));
+        assert!(!preferences.allows(false));
+    }
 
     fn approval(id: &str, created_at: f64) -> Approval {
         Approval {

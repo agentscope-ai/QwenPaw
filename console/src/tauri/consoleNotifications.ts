@@ -2,10 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { buildAuthHeaders } from "../api/authHeaders";
 import type { PendingApproval, PushMessage } from "../api/modules/console";
+import type { SystemNotificationEvent } from "../notifications/notificationEvents";
+import type { NotificationPreferences } from "../notifications/preferences";
 
 export interface ConsolePushSnapshot {
   messages: PushMessage[];
   pending_approvals: PendingApproval[];
+  notification_events?: SystemNotificationEvent[];
 }
 
 export type DesktopNotificationPermission =
@@ -20,6 +23,20 @@ export function getDesktopNotificationPermission(): Promise<DesktopNotificationP
 
 export function requestDesktopNotificationPermission(): Promise<DesktopNotificationPermission> {
   return invoke("request_notification_permission");
+}
+
+export function openSystemNotificationSettings(): Promise<void> {
+  return invoke("open_notification_settings");
+}
+
+export function configureDesktopSystemNotifications(
+  preferences: NotificationPreferences,
+  conversationTitle: string,
+): Promise<void> {
+  return invoke("configure_system_notifications", {
+    preferences,
+    conversationTitle,
+  });
 }
 
 interface PushEvent {
@@ -74,6 +91,12 @@ export function configureDesktopApprovalNotifications(
   enabled: boolean,
   title: string,
   body: string,
+  always = false,
 ): Promise<void> {
-  return invoke("configure_approval_notifications", { enabled, title, body });
+  return invoke("configure_approval_notifications", {
+    enabled,
+    title,
+    body,
+    always,
+  });
 }

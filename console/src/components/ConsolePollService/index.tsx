@@ -11,6 +11,7 @@ import {
 import { useApprovalNotifications } from "../../notifications/useApprovalNotifications";
 import type { ApprovalNotificationTarget } from "../../notifications/approvalNavigation";
 import { useAgentStore } from "../../stores/agentStore";
+import { useSystemNotifications } from "../../notifications/useSystemNotifications";
 
 const POLL_INTERVAL_MS = 2500;
 const BACKGROUND_POLL_INTERVAL_MS = 30000;
@@ -28,8 +29,10 @@ const ignoreNavigation = () => undefined;
 
 export default function ConsolePollService({
   onOpenApprovals = ignoreNavigation,
+  onOpenNotification = ignoreNavigation,
 }: {
   onOpenApprovals?: (target?: ApprovalNotificationTarget) => void;
+  onOpenNotification?: (path: string) => void;
 }) {
   const [items, setItems] = useState<BubbleItem[]>([]);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -39,6 +42,7 @@ export default function ConsolePollService({
   const { setApprovals } = useApprovalContext();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const observeApprovals = useApprovalNotifications(onOpenApprovals);
+  const observeEvents = useSystemNotifications(onOpenNotification);
 
   const dismiss = (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id));
@@ -68,6 +72,7 @@ export default function ConsolePollService({
     const prevApprovalsRef = { current: "" };
     const accept = (res: ConsolePushSnapshot) => {
       if (cancelled) return;
+      if (res.notification_events) observeEvents(res.notification_events);
       if (res?.pending_approvals) {
         observeApprovals(res.pending_approvals);
         const serialized = JSON.stringify(res.pending_approvals);
@@ -184,7 +189,7 @@ export default function ConsolePollService({
       clearScheduledPoll();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [setApprovals, observeApprovals, selectedAgent]);
+  }, [setApprovals, observeApprovals, observeEvents, selectedAgent]);
 
   useEffect(() => {
     if (items.length === 0) return;

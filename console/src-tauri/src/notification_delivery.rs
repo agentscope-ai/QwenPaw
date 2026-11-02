@@ -38,6 +38,12 @@ pub(crate) struct ApprovalNotificationTarget {
     pub(crate) agent_id: Option<String>,
 }
 
+#[derive(Clone)]
+pub(crate) enum NotificationTarget {
+    Approval(ApprovalNotificationTarget),
+    Event(crate::notifications::NotificationEvent),
+}
+
 #[cfg(target_os = "windows")]
 const WINDOWS_POWERSHELL_APP_ID: &str = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\
      \\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -72,16 +78,22 @@ fn active_windows_notifications() -> &'static Mutex<HashMap<String, WindowsNotif
     ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn open_target(app: &tauri::AppHandle, target: Option<&ApprovalNotificationTarget>) {
+fn open_target(app: &tauri::AppHandle, target: Option<&NotificationTarget>) {
     let app = app.clone();
     let target = target.cloned();
     let main_app = app.clone();
     let _ = app.run_on_main_thread(move || {
         crate::tray::show_main_window(&main_app);
-        if let Some(target) = target {
-            let _ = main_app.emit("qwenpaw:open-approval", target);
-        } else {
-            let _ = main_app.emit("qwenpaw:open-approvals", ());
+        match target {
+            Some(NotificationTarget::Approval(target)) => {
+                let _ = main_app.emit("qwenpaw:open-approval", target);
+            }
+            Some(NotificationTarget::Event(event)) => {
+                let _ = main_app.emit("qwenpaw:open-notification", event);
+            }
+            None => {
+                let _ = main_app.emit("qwenpaw:open-approvals", ());
+            }
         }
     });
 }
@@ -99,7 +111,7 @@ async fn show_linux(
     title: &str,
     body: &str,
     lifetime: Duration,
-    click_target: Option<ApprovalNotificationTarget>,
+    click_target: Option<NotificationTarget>,
 ) -> Result<(), String> {
     let timeout_ms = lifetime.as_millis().min(i32::MAX as u128) as u32;
     let title = title.to_owned();
@@ -211,7 +223,7 @@ fn show_windows(
     identifier: &str,
     title: &str,
     body: &str,
-    click_target: Option<ApprovalNotificationTarget>,
+    click_target: Option<NotificationTarget>,
 ) -> Result<(), String> {
     let document = XmlDocument::new().map_err(|error| error.to_string())?;
     document
@@ -340,7 +352,7 @@ pub(crate) async fn send(
     title: &str,
     body: &str,
     lifetime: Duration,
-    click_target: Option<ApprovalNotificationTarget>,
+    click_target: Option<NotificationTarget>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {

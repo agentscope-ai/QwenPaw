@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import {
   Tabs,
@@ -37,13 +37,13 @@ import { TraceMarkdown } from "./components/TraceMarkdown";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { useInboxWobble } from "../../hooks/useInboxWobble";
-import ApprovalNotificationSettings from "../../notifications/ApprovalNotificationSettings";
 import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
 import { ViewCronSessionButton } from "./components/ViewCronSessionButton";
-import { useInboxData } from "./hooks/useInboxData";
+import { useInboxData, mapEventToPushMessage } from "./hooks/useInboxData";
+import { consoleApi } from "../../api/modules/console";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import type { PushMessage } from "./types";
 import { useAgentStore } from "../../stores/agentStore";
@@ -312,6 +312,35 @@ export default function InboxPage() {
     copyTraceBlock,
     handleTraceScroll,
   } = useTraceViewer(markMessageAsRead);
+
+  const openedNotification = useRef<string>();
+  const requestedEvent = searchParams.get("event");
+  useEffect(() => {
+    if (!requestedEvent) return;
+    const key = `${location.key}:${requestedEvent}`;
+    if (openedNotification.current === key) return;
+    let cancelled = false;
+    void consoleApi
+      .getInboxEvents({ event_id: requestedEvent, limit: 1 })
+      .then(({ events }) => {
+        if (cancelled) return;
+        openedNotification.current = key;
+        if (!events[0]) {
+          message.warning(t("inbox.messageNotFound"));
+          return;
+        }
+        setActiveTab("messages");
+        openMessageDetail(
+          mapEventToPushMessage(events[0], (agentId) => agentId, t),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) message.error(t("inbox.messageNotFound"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedEvent, location.key, openMessageDetail, t]);
 
   const mailDetail = useMemo(
     () => getMailDetail(selectedMessage),
@@ -653,7 +682,6 @@ export default function InboxPage() {
       />
 
       <div className={styles.pageContent}>
-        <ApprovalNotificationSettings />
         <MailProcessingPauses />
         <Tabs
           activeKey={activeTab}

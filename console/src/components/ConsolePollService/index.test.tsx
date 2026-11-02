@@ -21,6 +21,7 @@ vi.mock("../../tauri/backendRuntime", () => ({
 vi.mock("../../tauri/consoleNotifications", () => ({
   subscribeDesktopConsolePush: mocks.subscribeDesktop,
   configureDesktopApprovalNotifications: vi.fn(async () => undefined),
+  configureDesktopSystemNotifications: vi.fn(async () => undefined),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({

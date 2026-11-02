@@ -16,9 +16,20 @@ function openApprovals(target?: ApprovalNotificationTarget) {
   useOsRoute.getState().openApp("core.inbox", "/inbox?tab=approvals");
 }
 
+function openNotification(path: string) {
+  useOsRoute
+    .getState()
+    .openApp(path.startsWith("/chat/") ? "core.chat" : "core.inbox", path);
+}
+
 /** Desktop polling boundary: one push owner plus the inbox notification feed. */
 export default function DesktopPollingServices() {
   useOsNotifyPoller();
 
-  return <ConsolePollService onOpenApprovals={openApprovals} />;
+  return (
+    <ConsolePollService
+      onOpenApprovals={openApprovals}
+      onOpenNotification={openNotification}
+    />
+  );
 }

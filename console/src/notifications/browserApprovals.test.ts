@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingApproval } from "../api/modules/console";
 import { BrowserApprovalNotifier } from "./browserApprovals";
-import { setNotificationsEnabled } from "./preferences";
+import {
+  setNotificationsEnabled,
+  updateNotificationPreferences,
+} from "./preferences";
 
 const shown: TestNotification[] = [];
 
@@ -134,6 +137,58 @@ describe("browser approval notifications", () => {
     notifier.update([approval()]);
     await flush();
     expect(shown).toHaveLength(1);
+  });
+
+  it("notifies while focused when approvals are set to always", async () => {
+    setHidden(false);
+    vi.mocked(document.hasFocus).mockReturnValue(true);
+    updateNotificationPreferences({ approvalTiming: "always" });
+    const notifier = create();
+    notifier.update([]);
+    notifier.update([approval()]);
+    await flush();
+    expect(shown).toHaveLength(1);
+    notifier.update([approval()]);
+    await flush();
+    expect(shown).toHaveLength(1);
+  });
+
+  it("reconsiders a waiting approval when foreground reminders are enabled", async () => {
+    setHidden(false);
+    vi.mocked(document.hasFocus).mockReturnValue(true);
+    const notifier = create();
+    notifier.update([]);
+    notifier.update([approval()]);
+    await flush();
+    expect(shown).toHaveLength(0);
+    updateNotificationPreferences({ approvalTiming: "always" });
+    notifier.reconsider();
+    await flush();
+    expect(shown).toHaveLength(1);
+  });
+
+  it("rechecks timing before a queued foreground notification is sent", async () => {
+    setHidden(false);
+    vi.mocked(document.hasFocus).mockReturnValue(true);
+    updateNotificationPreferences({ approvalTiming: "always" });
+    const notifier = create();
+    notifier.update([]);
+    notifier.update([approval()]);
+    updateNotificationPreferences({ approvalTiming: "background" });
+    await flush();
+    expect(shown).toHaveLength(0);
+  });
+
+  it("keeps disabled approvals silent even with foreground reminders enabled", async () => {
+    updateNotificationPreferences({
+      approvalTiming: "always",
+      approval: false,
+    });
+    const notifier = create();
+    notifier.update([]);
+    notifier.update([approval()]);
+    await flush();
+    expect(shown).toHaveLength(0);
   });
 
   it("notifies an approval that arrived while focused once focus is lost", async () => {

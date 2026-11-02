@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router-dom";
 
 import { LANGUAGE_LIST } from "@/constants/languageList";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
@@ -78,6 +79,7 @@ import { RunningGlow } from "@/components/interaction/RunningGlow";
 import { Cascade } from "@/components/interaction/Cascade";
 import { SharedModal } from "@/components/interaction/SharedModal";
 import BottomSheet from "@/components/interaction/BottomSheet";
+import NotificationSettings from "@/notifications/NotificationSettings";
 
 const styles = { ...baseStyles, ...polish };
 
@@ -115,6 +117,13 @@ function ThemePresetLabel({ preset }: { preset: ThemePreset }) {
 
 export default function GeneralSettings() {
   const { t, i18n } = useTranslation();
+  const location = useLocation();
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get("section") === "notifications")
+      document
+        .getElementById("notifications")
+        ?.scrollIntoView?.({ block: "start" });
+  }, [location.search]);
   const {
     themeMode,
     setThemeMode,
@@ -547,6 +556,8 @@ export default function GeneralSettings() {
             </div>
           </Cascade>
         </section>
+
+        <NotificationSettings />
 
         <section className={styles.settingsSection} data-setting-block>
           <NavigationSettings />

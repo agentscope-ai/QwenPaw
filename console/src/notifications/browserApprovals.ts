@@ -1,5 +1,5 @@
 import type { PendingApproval } from "../api/modules/console";
-import { notificationsEnabled } from "./preferences";
+import { getNotificationPreferences } from "./preferences";
 
 const SENT_KEY = "qwenpaw.approvalNotifications.sent";
 const LOCK_NAME = "qwenpaw:approval-notifications";
@@ -106,12 +106,16 @@ export class BrowserApprovalNotifier {
   }
 
   private canNotify(): boolean {
+    const preferences = getNotificationPreferences();
     return (
       !this.disposed &&
-      notificationsEnabled() &&
+      preferences.enabled &&
+      preferences.approval &&
       typeof window.Notification === "function" &&
       Notification.permission === "granted" &&
-      (document.hidden || !document.hasFocus())
+      (preferences.approvalTiming === "always" ||
+        document.hidden ||
+        !document.hasFocus())
     );
   }
 

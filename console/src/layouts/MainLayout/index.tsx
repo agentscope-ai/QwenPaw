@@ -88,7 +88,10 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
             tabIndex={-1}
             className="page-container"
           >
-            <ConsolePollService onOpenApprovals={openApprovals} />
+            <ConsolePollService
+              onOpenApprovals={openApprovals}
+              onOpenNotification={navigate}
+            />
             <AgentStatusPollingController />
             <Slot name="content.statusBar" kind="fill" />
             <div className="page-content">

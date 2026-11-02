@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   stopChat: vi.fn(),
   getRealIdForSession: vi.fn((id: string) => id),
   getInboxTrace: vi.fn(),
+  getInboxEvents: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -34,6 +35,13 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("./hooks/useInboxData", () => ({
   useInboxData: () => mocks.inboxData,
+  mapEventToPushMessage: (event: { id: string; read: boolean }) => event,
+}));
+
+vi.mock("../../api/modules/console", () => ({
+  consoleApi: {
+    getInboxEvents: (...args: unknown[]) => mocks.getInboxEvents(...args),
+  },
 }));
 
 vi.mock("./hooks/useMailPendingCount", () => ({
@@ -309,6 +317,23 @@ beforeEach(() => {
 // ---- Tests -----------------------------------------------------------------
 
 describe("InboxPage", () => {
+  it("opens a notification event even when it is outside the loaded list", async () => {
+    const data = makeInboxData([]);
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [{ id: "older-event", read: false }],
+    });
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?tab=messages&event=older-event"],
+    });
+    await waitFor(() =>
+      expect(data.markMessageAsRead).toHaveBeenCalledWith("older-event"),
+    );
+    expect(mocks.getInboxEvents).toHaveBeenCalledWith({
+      event_id: "older-event",
+      limit: 1,
+    });
+  });
+
   it("renders the messages tab with push cards", async () => {
     makeInboxData([pushMsg("m1"), pushMsg("m2")]);
     renderWithProviders(<InboxPage />);

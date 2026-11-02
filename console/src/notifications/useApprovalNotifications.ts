@@ -5,13 +5,15 @@ import type { PendingApproval } from "../api/modules/console";
 import { isDesktopApp } from "../tauri/backendRuntime";
 import { configureDesktopApprovalNotifications } from "../tauri/consoleNotifications";
 import { BrowserApprovalNotifier } from "./browserApprovals";
-import { useApprovalNotificationsEnabled } from "./preferences";
+import { useNotificationPreferences } from "./preferences";
 import type { ApprovalNotificationTarget } from "./approvalNavigation";
 
 export function useApprovalNotifications(
   openApproval: (target?: ApprovalNotificationTarget) => void,
 ) {
-  const enabled = useApprovalNotificationsEnabled();
+  const preferences = useNotificationPreferences();
+  const enabled = preferences.enabled && preferences.approval;
+  const always = preferences.approvalTiming === "always";
   const { t } = useTranslation();
   const latest = useRef({ t, openApproval });
   latest.current = { t, openApproval };
@@ -37,11 +39,13 @@ export function useApprovalNotifications(
 
   useEffect(() => {
     if (!enabled) notifier.current?.closeAll();
+    else notifier.current?.reconsider();
     if (!isDesktopApp()) return;
     void configureDesktopApprovalNotifications(
       enabled,
       t("approvalNotifications.title"),
       t("approvalNotifications.body", { tool: "{tool}" }),
+      always,
     ).catch((error: unknown) => {
       console.warn("Could not configure desktop approval notifications", error);
     });
@@ -50,7 +54,7 @@ export function useApprovalNotifications(
         console.warn,
       );
     };
-  }, [enabled, t]);
+  }, [enabled, always, t]);
 
   useEffect(() => {
     if (!isDesktopApp()) return;
