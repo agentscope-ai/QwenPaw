@@ -5,7 +5,6 @@ commands.allow = [
   "start_console_polling",
   "stop_console_polling",
   "configure_approval_notifications",
-  "send_test_notification",
   "get_notification_permission",
   "request_notification_permission",
 ]

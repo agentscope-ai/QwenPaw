@@ -3114,10 +3114,6 @@
     "description": "Terima notifikasi sistem saat persetujuan masuk selagi QwenPaw berjalan di latar belakang.",
     "title": "QwenPaw · Persetujuan diperlukan",
     "body": "{{tool}} menunggu persetujuan Anda. Buka QwenPaw untuk meninjaunya.",
-    "sendTest": "Kirim notifikasi uji",
-    "testTitle": "QwenPaw · Notifikasi uji",
-    "testBody": "Notifikasi persetujuan akan muncul di sini selagi QwenPaw berjalan di latar belakang.",
-    "testSent": "Notifikasi uji telah dikirim. Periksa notifikasi sistem Anda.",
     "failed": "Tidak dapat mengirim notifikasi. Periksa pengaturan notifikasi Anda.",
     "permission": {
       "default": "Izin diperlukan saat diaktifkan",

@@ -4770,10 +4770,6 @@
     "description": "Receba uma notificação do sistema quando chegar uma aprovação enquanto o QwenPaw estiver em segundo plano.",
     "title": "QwenPaw · Aprovação necessária",
     "body": "{{tool}} está aguardando sua aprovação. Abra o QwenPaw para revisar.",
-    "sendTest": "Enviar notificação de teste",
-    "testTitle": "QwenPaw · Notificação de teste",
-    "testBody": "As notificações de aprovação aparecerão aqui enquanto o QwenPaw estiver em segundo plano.",
-    "testSent": "Notificação de teste enviada. Verifique as notificações do sistema.",
     "failed": "Não foi possível enviar uma notificação. Verifique as configurações de notificação.",
     "permission": {
       "default": "Permissão necessária ao ativar",

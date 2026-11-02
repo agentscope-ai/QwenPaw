@@ -251,24 +251,6 @@ pub(crate) async fn configure_approval_notifications(
 }
 
 #[tauri::command]
-pub(crate) async fn send_test_notification(
-    app: tauri::AppHandle,
-    title: String,
-    body: String,
-) -> Result<(), String> {
-    let identifier = format!("qwenpaw-test:{}", uuid::Uuid::new_v4());
-    notification_delivery::send(
-        &app,
-        &identifier,
-        &title,
-        &body,
-        Duration::from_secs(15),
-        None,
-    )
-    .await
-}
-
-#[tauri::command]
 pub(crate) async fn get_notification_permission(
 ) -> Result<notification_delivery::Permission, String> {
     notification_delivery::permission().await

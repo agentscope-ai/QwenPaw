@@ -571,10 +571,6 @@
     "description": "QwenPaw 在后台运行时，通过系统通知提醒你处理新审批。",
     "title": "QwenPaw · 需要审批",
     "body": "{{tool}} 正在等待你的审批，请打开 QwenPaw 及时处理。",
-    "sendTest": "发送测试通知",
-    "testTitle": "QwenPaw · 测试通知",
-    "testBody": "后台收到待审批请求时，提醒将显示在这里。",
-    "testSent": "测试通知已发送，请查看系统通知。",
     "failed": "通知发送失败，请检查通知设置。",
     "permission": {
       "default": "开启时申请通知权限",

@@ -61,7 +61,6 @@ pub fn run() {
             notifications::start_console_polling,
             notifications::stop_console_polling,
             notifications::configure_approval_notifications,
-            notifications::send_test_notification,
             notifications::get_notification_permission,
             notifications::request_notification_permission,
             backend_download::download_backend_file,

@@ -77,10 +77,3 @@ export function configureDesktopApprovalNotifications(
 ): Promise<void> {
   return invoke("configure_approval_notifications", { enabled, title, body });
 }
-
-export function sendDesktopTestNotification(
-  title: string,
-  body: string,
-): Promise<void> {
-  return invoke("send_test_notification", { title, body });
-}

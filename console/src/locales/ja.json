@@ -4718,10 +4718,6 @@
     "description": "QwenPaw がバックグラウンドにある間に承認が届いたとき、システム通知で知らせます。",
     "title": "QwenPaw · 承認が必要です",
     "body": "{{tool}} が承認を待っています。QwenPaw を開いて確認してください。",
-    "sendTest": "テスト通知を送信",
-    "testTitle": "QwenPaw · テスト通知",
-    "testBody": "QwenPaw がバックグラウンドにある間に、承認通知がここに表示されます。",
-    "testSent": "テスト通知を送信しました。システム通知を確認してください。",
     "failed": "通知を送信できませんでした。通知設定を確認してください。",
     "permission": {
       "default": "有効にすると権限が必要です",

@@ -12,7 +12,6 @@ import { notificationsEnabled, setNotificationsEnabled } from "./preferences";
 
 const mocks = vi.hoisted(() => ({
   desktop: false,
-  sendTest: vi.fn(),
   getPermission: vi.fn(),
   requestNativePermission: vi.fn(),
 }));
@@ -21,7 +20,6 @@ vi.mock("../tauri/backendRuntime", () => ({
   isDesktopApp: () => mocks.desktop,
 }));
 vi.mock("../tauri/consoleNotifications", () => ({
-  sendDesktopTestNotification: mocks.sendTest,
   getDesktopNotificationPermission: mocks.getPermission,
   requestDesktopNotificationPermission: mocks.requestNativePermission,
 }));
@@ -29,16 +27,10 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-const created = vi.fn();
 const requestPermission = vi.fn();
 class TestNotification {
   static permission: NotificationPermission = "default";
   static requestPermission = requestPermission;
-  close = vi.fn();
-  onclick: (() => void) | null = null;
-  constructor(title: string, options: NotificationOptions) {
-    created(title, options);
-  }
 }
 
 const toggle = () =>
@@ -48,10 +40,8 @@ describe("approval notification settings", () => {
   beforeEach(() => {
     localStorage.clear();
     mocks.desktop = false;
-    mocks.sendTest.mockReset().mockResolvedValue(undefined);
     mocks.getPermission.mockReset().mockResolvedValue("native");
     mocks.requestNativePermission.mockReset().mockResolvedValue("native");
-    created.mockClear();
     requestPermission.mockReset().mockResolvedValue("granted");
     TestNotification.permission = "default";
     vi.stubGlobal("Notification", TestNotification);
@@ -67,9 +57,6 @@ describe("approval notification settings", () => {
     render(<ApprovalNotificationSettings />);
     expect(toggle()).not.toBeChecked();
     expect(requestPermission).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("button", { name: "approvalNotifications.sendTest" }),
-    ).toBeDisabled();
   });
 
   it("requests permission from the enable interaction and persists consent", async () => {
@@ -127,38 +114,15 @@ describe("approval notification settings", () => {
     expect(requestPermission).not.toHaveBeenCalled();
   });
 
-  it("sends a clearly labeled browser test notification", async () => {
-    TestNotification.permission = "granted";
-    setNotificationsEnabled(true);
-    render(<ApprovalNotificationSettings />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "approvalNotifications.sendTest" }),
-    );
-    await waitFor(() =>
-      expect(created).toHaveBeenCalledWith(
-        "approvalNotifications.testTitle",
-        expect.objectContaining({ tag: "qwenpaw-approval-notification-test" }),
-      ),
-    );
-  });
-
-  it("uses the native driver inside Tauri without asking browser permission", async () => {
+  it("enables native notifications without asking browser permission", async () => {
     mocks.desktop = true;
     render(<ApprovalNotificationSettings />);
     await screen.findByText("approvalNotifications.permission.native");
     fireEvent.click(toggle());
     await waitFor(() => expect(toggle()).toBeChecked());
-    fireEvent.click(
-      screen.getByRole("button", { name: "approvalNotifications.sendTest" }),
-    );
-    await waitFor(() =>
-      expect(mocks.sendTest).toHaveBeenCalledWith(
-        "approvalNotifications.testTitle",
-        "approvalNotifications.testBody",
-      ),
-    );
+    expect(mocks.requestNativePermission).toHaveBeenCalledOnce();
+    expect(notificationsEnabled()).toBe(true);
     expect(requestPermission).not.toHaveBeenCalled();
-    expect(created).not.toHaveBeenCalled();
   });
 
   it("requests real native authorization from the enable click", async () => {
@@ -173,11 +137,6 @@ describe("approval notification settings", () => {
     expect(toggle()).toBeChecked();
     expect(mocks.requestNativePermission).toHaveBeenCalledOnce();
     expect(requestPermission).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole("button", { name: "approvalNotifications.sendTest" }),
-    );
-    await waitFor(() => expect(mocks.sendTest).toHaveBeenCalledOnce());
-    expect(created).not.toHaveBeenCalled();
   });
 
   it("keeps native notifications off when system permission is denied", async () => {
@@ -190,7 +149,6 @@ describe("approval notification settings", () => {
     await screen.findByText("approvalNotifications.permission.nativeDenied");
     expect(toggle()).not.toBeChecked();
     expect(notificationsEnabled()).toBe(false);
-    expect(mocks.sendTest).not.toHaveBeenCalled();
   });
 
   it("does not treat a failed native permission query as consent", async () => {
@@ -199,9 +157,6 @@ describe("approval notification settings", () => {
     render(<ApprovalNotificationSettings />);
     await screen.findByText("approvalNotifications.permission.unavailable");
     expect(toggle()).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "approvalNotifications.sendTest" }),
-    ).toBeDisabled();
   });
 
   it("keeps focus refreshes from replacing an active native consent request", async () => {
@@ -223,22 +178,21 @@ describe("approval notification settings", () => {
     expect(toggle()).toBeChecked();
   });
 
-  it("does not report success when the native system rejects delivery", async () => {
+  it("reports a rejected native permission request", async () => {
     mocks.desktop = true;
-    mocks.getPermission.mockResolvedValue("granted");
-    mocks.sendTest.mockRejectedValue(new Error("System rejected notification"));
-    const success = vi.spyOn(message, "success");
-    const failure = vi.spyOn(message, "error");
-    setNotificationsEnabled(true);
-    render(<ApprovalNotificationSettings />);
-    await screen.findByText("approvalNotifications.permission.nativeGranted");
-    fireEvent.click(
-      screen.getByRole("button", { name: "approvalNotifications.sendTest" }),
+    mocks.getPermission.mockResolvedValue("default");
+    mocks.requestNativePermission.mockRejectedValue(
+      new Error("System rejected permission request"),
     );
+    const failure = vi.spyOn(message, "error");
+    render(<ApprovalNotificationSettings />);
+    await screen.findByText("approvalNotifications.permission.nativeDefault");
+    fireEvent.click(toggle());
     await waitFor(() =>
       expect(failure).toHaveBeenCalledWith("approvalNotifications.failed"),
     );
-    expect(success).not.toHaveBeenCalled();
+    expect(toggle()).not.toBeChecked();
+    expect(notificationsEnabled()).toBe(false);
   });
 
   it("refreshes the permission indicator after site settings change", async () => {
