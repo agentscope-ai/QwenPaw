@@ -34,6 +34,9 @@ from qwenpaw.agents.tools.utils import (
     TRUNCATION_METADATA_KEY,
     read_file_safe,
 )
+from qwenpaw.agents.utils.file_handling import (
+    decode_text_bytes_with_encoding_fallback,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +179,42 @@ class TestReadFile:
         path.write_bytes(raw + b"xxxx")
 
         assert await read_file_safe(str(path), max_bytes=len(raw)) == text
+
+    @pytest.mark.asyncio
+    async def test_safe_read_truncated_gbk_keeps_character_prefix(
+        self,
+        tmp_path,
+    ):
+        """A cap inside a GBK character keeps the valid prefix."""
+        text = "姓名: 张三"
+        raw = text.encode("gbk")
+        path = tmp_path / "gbk-cut.txt"
+        path.write_bytes(raw + b"TAIL")
+
+        result = await read_file_safe(str(path), max_bytes=len(raw) - 1)
+
+        assert result == "姓名: 张"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("prefix", [b"\xef", b"\xef\xbb"])
+    async def test_safe_read_incomplete_bom_matches_shared_helper(
+        self,
+        tmp_path,
+        prefix,
+    ):
+        """Incomplete UTF-8 BOM bytes follow the strict encoding ladder."""
+        expected = decode_text_bytes_with_encoding_fallback(prefix)
+
+        whole = tmp_path / "whole.txt"
+        whole.write_bytes(prefix)
+        assert await read_file_safe(str(whole)) == expected
+
+        capped = tmp_path / "capped.txt"
+        capped.write_bytes(prefix + b"TAIL")
+        assert (
+            await read_file_safe(str(capped), max_bytes=len(prefix))
+            == expected
+        )
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):

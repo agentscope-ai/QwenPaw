@@ -1066,3 +1066,43 @@ def test_iter_grep_lines_matches_normalized_newlines(temp_dir, monkeypatch):
             io.StringIO(decode_text_bytes_with_encoding_fallback(data)),
         )
         assert got == expected, data
+
+
+@pytest.mark.parametrize("data", [b"\xef", b"\xef\xbb"])
+def test_iter_grep_lines_incomplete_bom_matches_shared_helper(
+    temp_dir,
+    monkeypatch,
+    data,
+):
+    """Incomplete UTF-8 BOM bytes must not disappear under utf-8-sig."""
+    import qwenpaw.agents.tools.file_search as fs
+    from qwenpaw.agents.utils.file_handling import (
+        decode_text_bytes_with_encoding_fallback,
+    )
+
+    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 1)
+    path = temp_dir / "bom.txt"
+    path.write_bytes(data)
+    got = list(fs._iter_grep_lines(path, FakeCancel()))
+    expected = list(
+        io.StringIO(decode_text_bytes_with_encoding_fallback(data)),
+    )
+    assert expected
+    assert got == expected
+
+
+def test_iter_grep_lines_capped_gbk_keeps_character_prefix(
+    temp_dir,
+    monkeypatch,
+):
+    """A size cap inside a GBK character drops the cut byte and still yields."""
+    import qwenpaw.agents.tools.file_search as fs
+
+    raw = "姓名: 张三".encode("gbk")
+    path = temp_dir / "gbk-cut.txt"
+    path.write_bytes(raw + b"TAIL")
+    monkeypatch.setattr(fs, "_MAX_FILE_SIZE", len(raw) - 1)
+
+    got = list(fs._iter_grep_lines(path, FakeCancel()))
+
+    assert got == ["姓名: 张"]

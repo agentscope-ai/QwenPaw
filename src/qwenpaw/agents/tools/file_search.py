@@ -443,7 +443,9 @@ def _iter_decoded_grep_lines(
     Reads at most ``_MAX_FILE_SIZE`` bytes, in ``_GREP_READ_CHUNK`` pieces,
     and checks *cancel* between pieces. A short read is EOF for a regular
     file. When the cap is hit with bytes still left, the trailing incomplete
-    character is dropped instead of failing the encoding.
+    character is dropped instead of failing the encoding. At real EOF, bytes
+    still buffered (an incomplete UTF-8 BOM does not raise on its own)
+    reject this encoding.
     """
     decoder = io.IncrementalNewlineDecoder(
         codecs.getincrementaldecoder(encoding)(),
@@ -482,13 +484,26 @@ def _iter_decoded_grep_lines(
         decoder.decode(b"", final=hit_eof),
     )
     yield from lines
-    if not hit_eof:
+    buffered, flag = decoder.getstate()
+    if hit_eof:
+        # utf-8-sig keeps an incomplete BOM and does not raise on final.
+        # A non-empty byte buffer is not the pending-CR flag (bit 0, which
+        # does not occupy the buffer). Reject the encoding so the ladder
+        # matches the strict shared helper. Capped reads stay final=False
+        # and keep the dropped trailing character.
+        if buffered:
+            raise UnicodeDecodeError(
+                encoding,
+                buffered,
+                0,
+                len(buffered),
+                "incomplete multibyte sequence",
+            )
+    elif flag & 1:
         # Bit 0 is IncrementalNewlineDecoder's pending-CR flag. The capped
         # snapshot ends on that CR, so normalize it the same way a full
         # decode would (``\\r`` → ``\\n``).
-        _buffered, flag = decoder.getstate()
-        if flag & 1:
-            pending += "\n"
+        pending += "\n"
     if pending:
         yield pending
 
