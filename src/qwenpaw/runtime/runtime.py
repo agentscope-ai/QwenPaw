@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
 from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
@@ -145,8 +146,20 @@ class Runtime:
                     or "(empty)",
                 )
                 await record_agent_activity()
-                async for ev in executor.run(ctx.input_msgs):
-                    yield ev
+                from ..providers.model_selection import runtime_model_context
+
+                exhausted = object()
+                async with aclosing(executor.run(ctx.input_msgs)) as events:
+                    while True:
+                        # Reset before yielding: consumers and finalizers may
+                        # resume/close this generator in a different task.
+                        with runtime_model_context(
+                            getattr(ctx.agent, "model", None),
+                        ):
+                            ev = await anext(events, exhausted)
+                        if ev is exhausted:
+                            break
+                        yield ev
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)

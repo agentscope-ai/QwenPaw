@@ -505,36 +505,22 @@ async def _probe_multimodal_if_needed(
     For ``video``: runs the full probe and waits for the video result,
     since video support cannot be inferred from the image probe alone.
 
-    Uses the same agent-specific model resolution as
-    ``_get_active_model_info`` so that per-agent model overrides are
-    respected.
+    Uses the same executing-model resolution as ``_get_active_model_info``
+    so capability checks and probes target the same provider/model.
 
     Returns the probe result (True/False) for the requested media type,
     or None if no probe was needed or the probe failed.
     """
     try:
-        from ..prompt import _get_active_model_info
+        from ..prompt import _get_active_model_info, _get_active_model_slot
         from ...providers.provider_manager import ProviderManager
 
         model_info, _ = await run_sync_io(_get_active_model_info)
         if model_info is None or model_info.supports_multimodal is not None:
             return None
 
-        # Resolve agent-specific active model (mirrors _get_active_model_info)
         manager = ProviderManager.get_instance()
-        active = None
-        try:
-            from ...app.agent_context import get_current_agent_id
-            from ...config.config import load_agent_config
-
-            agent_id = get_current_agent_id()
-            agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
-                active = agent_config.active_model
-        except Exception:
-            pass
-        if not active:
-            active = await run_sync_io(manager.get_active_model)
+        active = await run_sync_io(_get_active_model_slot)
         if not active:
             return None
 

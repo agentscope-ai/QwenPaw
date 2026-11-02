@@ -54,6 +54,7 @@ from ..providers.hub_managed import (
     managed_provider,
     managed_slot,
 )
+from ..providers.model_selection import resolve_model_slot_override
 from ..providers.capping_formatter import (
     CappingFormatterMixin,
     MAX_INLINE_MEDIA_BYTES,
@@ -2074,20 +2075,6 @@ def _strip_top_level_message_name(
     return messages
 
 
-def _resolve_model_slot_override(model_slot_override: Any):
-    """Parse an optional per-request model override into a model slot."""
-    from ..config.config import normalize_model_slot_config
-
-    try:
-        return normalize_model_slot_config(model_slot_override)
-    except (TypeError, ValueError):
-        logger.warning(
-            "Ignoring invalid model_slot_override: %r",
-            model_slot_override,
-        )
-        return None
-
-
 def _bind_provider_id_to_model(
     model: ChatModelBase,
     provider_id: str,
@@ -2389,7 +2376,7 @@ def create_model_and_formatter(
 
     settings = _load_agent_model_settings(agent_id, agent_config)
     model_slot = settings.model_slot
-    slot = _resolve_model_slot_override(model_slot_override)
+    slot = resolve_model_slot_override(model_slot_override)
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
 

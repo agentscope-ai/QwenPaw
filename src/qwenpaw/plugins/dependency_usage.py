@@ -13,7 +13,6 @@ from typing import Mapping
 from .execution.dependencies import DependencySnapshot
 from .ownership import RuntimeLease, RuntimeOwners
 
-
 admission_context: ContextVar[tuple | None] = ContextVar(
     "dependency_admission",
     default=None,
@@ -78,6 +77,8 @@ class DependencyUse(DependencyDeclaration):
     origin: str = "declaration"
     # Protect pending/admitted declarations; False is catalogue metadata only.
     pending: bool = True
+    read_admitted: bool = False
+    read_context: object | None = None
 
 
 @dataclass(frozen=True)
@@ -124,8 +125,52 @@ class DependencyUsageRegistry:
         self._revision += 1
         return token
 
+    def admit_read(self, token, environment, *, description, context):
+        """Record one exact, checked admission without inventing an audit."""
+        declaration = self._declarations.get(token)
+        expected = description.dependency_declaration()
+        if (
+            declaration is None
+            or any(
+                getattr(declaration, key) != getattr(expected, key)
+                for key in ("plugin_id", "source_revision", "requirements")
+            )
+            or environment is None
+        ):
+            raise ValueError("DEPENDENCY_DECLARATION_MISMATCH")
+        self._declarations[token] = replace(
+            declaration,
+            environment=deepcopy(environment),
+            snapshot=None,
+            read_admitted=True,
+            read_context=deepcopy(context),
+        )
+        for lease, (bound_token, use) in tuple(self._bindings.items()):
+            if bound_token is token:
+                self._bindings[lease] = (
+                    token,
+                    replace(
+                        use,
+                        environment=deepcopy(environment),
+                        snapshot=None,
+                        read_admitted=True,
+                        read_context=deepcopy(context),
+                    ),
+                )
+        self._revision += 1
+
     def withdraw(self, token) -> None:
         if self._declarations.pop(token, None) is not None:
+            for lease, (bound_token, use) in tuple(self._bindings.items()):
+                if bound_token is token:
+                    self._bindings[lease] = (
+                        token,
+                        replace(
+                            use,
+                            read_admitted=False,
+                            read_context=None,
+                        ),
+                    )
             self._revision += 1
 
     def has_declaration(self, token, *, plugin_id=None) -> bool:
@@ -178,6 +223,8 @@ class DependencyUsageRegistry:
                     self._declarations[token],
                     environment=DependencyEnvironment.from_snapshot(snapshot),
                     snapshot=snapshot,
+                    read_admitted=False,
+                    read_context=None,
                     pending=self._declarations[token].pending or pending,
                 ),
             )
@@ -195,6 +242,8 @@ class DependencyUsageRegistry:
                 replace(
                     use,
                     snapshot=snapshot,
+                    read_admitted=False,
+                    read_context=None,
                     environment=DependencyEnvironment.from_snapshot(snapshot),
                 ),
             ),
@@ -239,9 +288,12 @@ class DependencyUsageRegistry:
                 active=True,
                 origin="host",
                 snapshot=snapshot,
+                read_admitted=False,
+                read_context=None,
                 environment=(
                     DependencyEnvironment.from_snapshot(snapshot)
                     if observed
+                    and (previous is None or previous.environment is not None)
                     else None
                 ),
             ),
@@ -271,6 +323,8 @@ class DependencyUsageRegistry:
                 self._declarations[token] = replace(
                     self._declarations[token],
                     snapshot=snapshot,
+                    read_admitted=False,
+                    read_context=None,
                     environment=DependencyEnvironment.from_snapshot(snapshot),
                 )
         self._revision += 1
@@ -307,17 +361,19 @@ class DependencyUsageRegistry:
         for lease in leases:
             bound = self._bindings.get(lease)
             uses.append(
-                bound[1]
-                if bound
-                else DependencyUse(
-                    lease.plugin_id,
-                    None,
-                    None,
-                    None,
-                    lease.instance_id,
-                    lease.generation,
-                    True,
-                    origin="runtime",
+                (
+                    bound[1]
+                    if bound
+                    else DependencyUse(
+                        lease.plugin_id,
+                        None,
+                        None,
+                        None,
+                        lease.instance_id,
+                        lease.generation,
+                        True,
+                        origin="runtime",
+                    )
                 ),
             )
         sites = (

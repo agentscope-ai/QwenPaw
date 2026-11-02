@@ -31,6 +31,8 @@ from ...utils.io_utils import run_async_to_completion
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
+    create_history_service,
+    history_service_reuse_compatible,
     create_driver_service,
     create_driver_config_watcher,
     create_chat_service,
@@ -48,6 +50,7 @@ from ...utils.logging import sanitize_log_value
 from ...plugins._events import observe_stream as _sdk_observe_stream
 
 if TYPE_CHECKING:
+    from ...agents.context.scroll.history import HistoryStore
     from ...memory import MemoryBackendContext
 
 logger = logging.getLogger(__name__)
@@ -135,7 +138,7 @@ def _memory_manager_reuse_compatible(
     )
 
 
-class Workspace:
+class Workspace:  # pylint: disable=too-many-public-methods
     """Single agent workspace with complete runtime components.
 
     Each Workspace is an independent agent instance with its own:
@@ -204,6 +207,11 @@ class Workspace:
         )
 
     # Service access via properties (delegates to ServiceManager)
+    @property
+    def history_store(self) -> Optional["HistoryStore"]:
+        """Shared Scroll store; request context managers only borrow it."""
+        return self._service_manager.services.get("history_store")
+
     @property
     def session(self) -> Optional[SafeJSONSession]:
         """Get session instance from ServiceManager."""
@@ -559,6 +567,21 @@ class Workspace:
             ),
         )
 
+        # Close after request-producing services. Reload transfers this store
+        # only when its configured path and file identity still match.
+        sm.register(
+            ServiceDescriptor(
+                name="history_store",
+                create_service=create_history_service,
+                stop_method="shutdown",
+                reusable=True,
+                reuse_compatibility=history_service_reuse_compatible,
+                require_clean_stop=True,
+                priority=15,
+                optional=True,
+            ),
+        )
+
         # Priority 20: Core services (concurrent)
         sm.register(
             ServiceDescriptor(
@@ -853,6 +876,27 @@ class Workspace:
                 sanitize_log_value(exc),
             )
 
+    async def cancel_active_requests(self) -> None:
+        """Cancel this workspace's requests and finish their cleanup."""
+        tasks = list(
+            (
+                await self.task_tracker.snapshot_active_tasks(owner=self)
+            ).values(),
+        )
+        if asyncio.current_task() in tasks:
+            raise RuntimeError("A workspace request cannot await its own stop")
+
+        async def cancel_and_drain() -> None:
+            for task in tasks:
+                if not task.done() and (
+                    not isinstance(task, asyncio.Task) or not task.cancelling()
+                ):
+                    task.cancel("workspace shutdown")
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Repeated cancellation of the caller must not interrupt final writes.
+        await run_async_to_completion(cancel_and_drain())
+
     async def stop(
         self,
         final: bool = True,
@@ -879,6 +923,11 @@ class Workspace:
             "Stopping agent instance: "
             f"{sanitize_log_value(self.agent_id)} (final={final})",
         )
+
+        if final:
+            # Keep services available until request persistence and cleanup
+            # complete. Reloads drain naturally and must not cancel requests.
+            await self.cancel_active_requests()
 
         # Revoke this instance's plugin bindings while its managers are alive.
         # Reload candidates and draining old instances may share an agent id.

@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import stat
 import time
 import threading
 from uuid import uuid4
@@ -23,6 +24,8 @@ _READERS = {}
 _READERS_LOCK = threading.Lock()
 _STATE_ENV = "QWENPAW_DEPENDENCY_STATE_DIR"
 _STATE_ROOT = None
+_READER_SCOPE = None
+_READER_SCOPE_ENV = "QWENPAW_DEPENDENCY_READER_SCOPE"
 _CAPABILITY_ENV = "QWENPAW_DEPENDENCY_MAINTENANCE"
 capability_context = ContextVar(
     "dependency_maintenance_capability",
@@ -90,7 +93,11 @@ def _enumerated_path(path):
 
 
 def _existing_path(path):
-    """Query kernel spelling without requiring directory enumeration."""
+    """Recover spelling for an existing, strictly resolved path."""
+    if sys.platform == "win32":
+        # Windows realpath already uses GetFinalPathNameByHandleW. Preserve
+        # its spelling (including case-sensitive names), not an ancestor scan.
+        return Path(os.path.normcase(path.anchor)).joinpath(*path.parts[1:])
     if sys.platform == "darwin":
         import fcntl
 
@@ -176,7 +183,7 @@ def canonical(path):
 
 
 def contains_environment_path(root, path):
-    """Containment using actual spelling, even on case-sensitive Windows dirs."""
+    """Containment using actual spelling, including case-sensitive Windows."""
     parent = canonical(root).parts
     return canonical(path).parts[: len(parent)] == parent
 
@@ -253,11 +260,13 @@ def _check_admission(maintenance_path, repair_path, check_repair):
     permitted = _authorized(maintenance_path)
     if maintenance_path.exists() and not permitted:
         raise RuntimeError(
-            "DEPENDENCY_MAINTENANCE_REQUIRED: shared environment is under maintenance.",
+            "DEPENDENCY_MAINTENANCE_REQUIRED: "
+            "shared environment is under maintenance.",
         )
     if check_repair and repair_path.exists() and not permitted:
         raise RuntimeError(
-            "DEPENDENCY_REPAIR_REQUIRED: recover with the retained absolute dependency worker script.",
+            "DEPENDENCY_REPAIR_REQUIRED: recover with the retained "
+            "absolute dependency worker script.",
         )
 
 
@@ -302,9 +311,16 @@ def _open_lock(path):
     return os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
 
 
+def open_coordination_lock(path):
+    """Constrained POSIX readers lock host-prepared gates without mutation."""
+    if reader_scope() and os.name != "nt":
+        return os.open(path, os.O_RDONLY)
+    return _open_lock(Path(path))
+
+
 @contextmanager
 def file_lock(path, timeout=0, *, reader_site=None):
-    descriptor = _open_lock(Path(path))
+    descriptor = open_coordination_lock(path)
     deadline = time.monotonic() + timeout
     try:
         while not _try_lock(descriptor):
@@ -312,7 +328,8 @@ def file_lock(path, timeout=0, *, reader_site=None):
                 check_admission(reader_site, check_repair=False)
             if time.monotonic() >= deadline:
                 raise RuntimeError(
-                    "DEPENDENCY_ENVIRONMENT_BUSY: another operation owns the environment.",
+                    "DEPENDENCY_ENVIRONMENT_BUSY: "
+                    "another operation owns the environment.",
                 )
             time.sleep(min(0.1, max(0, deadline - time.monotonic())))
         yield
@@ -332,6 +349,35 @@ def _admission_gate(site):
 
 def _readers_dir(site):
     return _sidecar(site, "-readers")
+
+
+def reader_scope():
+    """Trusted launch scope; filesystem permissions enforce its authority."""
+    global _READER_SCOPE
+    if _READER_SCOPE is not None:
+        return _READER_SCOPE
+    scope = os.environ.get(_READER_SCOPE_ENV, "")
+    if scope and (
+        len(scope) != 64 or any(c not in "0123456789abcdef" for c in scope)
+    ):
+        raise RuntimeError("DEPENDENCY_READER_SCOPE_INVALID")
+    _READER_SCOPE = scope
+    return scope
+
+
+def prepare_reader_scope(sites, scope):
+    """Host-only provisioning before entering a constrained reader process."""
+    if len(scope) != 64 or any(c not in "0123456789abcdef" for c in scope):
+        raise RuntimeError("DEPENDENCY_READER_SCOPE_INVALID")
+    directories = []
+    for site in sites:
+        for gate in (_gate(site), _admission_gate(site)):
+            descriptor = _open_lock(gate)
+            os.close(descriptor)
+        directory = _readers_dir(site) / scope
+        directory.mkdir(parents=True, exist_ok=True)
+        directories.append(directory)
+    return directories
 
 
 def lease_environment(sites, parent_pid=None, timeout=5):
@@ -381,9 +427,10 @@ def _lease_environment(sites, parent_pid=None, timeout=5):
 
 def _publish_reader(root):
     """Publish one OS-owned reader; caller holds gate or parent custody."""
-    path = _readers_dir(root) / (
-        str(os.getpid()) + "-" + uuid4().hex + ".lease"
-    )
+    directory = _readers_dir(root)
+    if scope := reader_scope():
+        directory /= scope
+    path = directory / (str(os.getpid()) + "-" + uuid4().hex + ".lease")
     descriptor = _open_lock(path)
     try:
         if not _try_lock(descriptor):
@@ -445,12 +492,30 @@ def live_readers(sites, ignore_pid=None):
     readers = []
     for root in sites:
         directory = _readers_dir(root)
-        for path in directory.glob("*.lease") if directory.is_dir() else ():
+        if not directory.is_dir():
+            continue
+        paths = list(directory.glob("*.lease"))
+        for namespace in directory.iterdir():
+            if namespace.name.endswith(".lease"):
+                continue
+            if namespace.is_symlink():
+                raise RuntimeError("DEPENDENCY_LEASE_INVALID")
+            if namespace.is_dir():
+                paths.extend(namespace.glob("*.lease"))
+        scope = reader_scope()
+        for path in paths:
             try:
-                descriptor = os.open(path, os.O_RDWR)
+                descriptor = os.open(
+                    path,
+                    (os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                    if os.name != "nt"
+                    else os.O_RDWR,
+                )
             except FileNotFoundError:
                 continue
             try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise RuntimeError("DEPENDENCY_LEASE_INVALID")
                 stale = _try_lock(descriptor)
                 if not stale:
                     try:
@@ -466,7 +531,7 @@ def live_readers(sites, ignore_pid=None):
                         readers.append(value)
             finally:
                 os.close(descriptor)
-            if stale:
+            if stale and (not scope or path.parent == directory / scope):
                 try:
                     path.unlink(missing_ok=True)
                 except OSError as exc:
@@ -523,7 +588,8 @@ def maintenance_barrier(sites, operation_id, capability, *, ignore_pid=None):
                     os.fsync(stream.fileno())
             if live_readers(sites, ignore_pid):
                 raise RuntimeError(
-                    "DEPENDENCY_ENVIRONMENT_BUSY: another backend or child still uses the environment.",
+                    "DEPENDENCY_ENVIRONMENT_BUSY: another backend or child "
+                    "still uses the environment.",
                 )
         except BaseException:
             # No mutation has started; all gates still exclude other writers.
