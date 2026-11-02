@@ -24,6 +24,7 @@ async def test_agent_migration_cancellation_drains_worker(
     stopped = threading.Event()
     config = SimpleNamespace(history_retention_days=0)
     workspace = SimpleNamespace(
+        _manager=None,
         workspace_dir=tmp_path,
         agent_id="test",
         config=SimpleNamespace(

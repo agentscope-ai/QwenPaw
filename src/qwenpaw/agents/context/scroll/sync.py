@@ -31,10 +31,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import sqlite3
 import threading
 import time
 from concurrent.futures import CancelledError
+from contextlib import ExitStack
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -45,7 +45,7 @@ from agentscope.message import Msg
 from filelock import FileLock, Timeout
 
 from .serialize import msg_to_entries
-from ....config.history_path import resolve_history_db_path
+from ....utils.io_utils import write_json_atomic
 
 if TYPE_CHECKING:
     from .history import HistoryStore
@@ -56,6 +56,7 @@ MANIFEST_NAME = ".synced.json"
 _MANIFEST_VERSION = 2
 _SESSION_PREFIX = "sync:"
 MIGRATION_KEY = "registered-sessions-v1"
+_PENDING_MIGRATION = ".scroll-migration-pending"
 
 
 @dataclass
@@ -224,17 +225,7 @@ def _load_manifest(manifest_path: Path) -> dict:
 
 
 def _save_manifest(manifest_path: Path, manifest: dict) -> None:
-    try:
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        logger.warning(
-            "session-sync: could not write manifest %s: %s",
-            manifest_path,
-            exc,
-        )
+    write_json_atomic(manifest_path, manifest)
 
 
 def _extract_session(
@@ -396,7 +387,7 @@ def _sync_file(
                 raise CancelledError()
             batch = pending_entries[offset : offset + 500]
             dedup_keys = {str(key) for _entry, key in batch if key}
-            moved, removed, claimed = history.reconcile_session_rows(
+            moved, removed = history.reconcile_session_rows(
                 source_ids,
                 session_id,
                 dedup_keys,
@@ -404,7 +395,6 @@ def _sync_file(
             )
             res.rows_rekeyed += moved
             res.rows_deduplicated += removed
-            res.agent_rows_claimed += claimed
             res.rows_inserted += history.append_many(
                 session_id=session_id,
                 agent_id=agent_id,
@@ -640,6 +630,13 @@ def sync_sessions_to_history(
     canonical_ids = resolved.registry.mapping
     stem_counts = Counter(path.stem for path, _rel_name in session_files)
     dirty = False
+    cached_files = dict(files_meta)
+    if use_manifest and not dry_run and files_meta:
+        # Retire old completion proofs once, before any partial batch writes.
+        # Keep provenance, and restore hashes only for completed files below.
+        for name, meta in cached_files.items():
+            files_meta[name] = {**meta, "sha256": None}
+        _save_manifest(manifest_path, manifest)
 
     try:
         for index, (path, rel_name) in enumerate(session_files, start=1):
@@ -659,7 +656,7 @@ def sync_sessions_to_history(
                 logger.warning("session-sync: cannot read %s: %s", path, exc)
                 continue
 
-            prior = files_meta.get(rel_name)
+            prior = cached_files.get(rel_name)
             manifest_matches = bool(
                 use_manifest and prior and prior.get("sha256") == digest,
             )
@@ -667,18 +664,22 @@ def sync_sessions_to_history(
                 prior and prior.get("session_id") == canonical_id,
             )
             if not dry_run:
-                history.claim_session(canonical_id, agent_id)
+                claimed = history.claim_session(canonical_id, agent_id)
             should_skip = False
             if manifest_matches and canonical_matches:
                 assert prior is not None
                 should_skip = _skip_is_safe(history, prior)
             if should_skip:
                 assert prior is not None
+                if not dry_run:
+                    files_meta[rel_name] = prior
+                    dirty = True
                 report.files.append(
                     FileResult(
                         filename=rel_name,
                         session_id=prior.get("session_id", ""),
                         rows_inserted=int(prior.get("rows_inserted", 0)),
+                        agent_rows_claimed=claimed if not dry_run else 0,
                         skipped=True,
                     ),
                 )
@@ -714,6 +715,7 @@ def sync_sessions_to_history(
                 stop=stop,
             )
             report.files.append(res)
+            res.agent_rows_claimed = claimed if not dry_run else 0
             if res.errored or res.unparseable:
                 continue
             logger.debug(
@@ -770,22 +772,35 @@ def migrate_agent_history(
     stop: threading.Event,
 ) -> None:
     """Complete legacy migration once, before this agent accepts work."""
-    if history.migration_complete(agent_id, MIGRATION_KEY):
+    pending = workspace_dir / _PENDING_MIGRATION
+    if not pending.exists() and history.migration_complete(
+        agent_id,
+        MIGRATION_KEY,
+    ):
         logger.debug("session-sync[%s]: already complete", agent_id)
         return
 
-    # Lock only unfinished migrations, including separate daemon processes.
-    lock = FileLock(str(history.path) + ".migration.lock")
-    while True:
-        if stop.is_set():
-            raise CancelledError()
-        try:
-            lock.acquire(timeout=0.1)
-            break
-        except Timeout:
-            continue
-    try:
-        if history.migration_complete(agent_id, MIGRATION_KEY):
+    # Native invalidation uses only the workspace lock, even for broken or
+    # inaccessible external databases. Shared DB migrations also serialize.
+    with ExitStack() as locks:
+        for lock_path in (
+            str(workspace_dir / ".scroll-migration.lock"),
+            str(history.path) + ".migration.lock",
+        ):
+            lock = FileLock(lock_path)
+            while True:
+                if stop.is_set():
+                    raise CancelledError()
+                try:
+                    lock.acquire(timeout=0.1)
+                    locks.callback(lock.release)
+                    break
+                except Timeout:
+                    continue
+        if not pending.exists() and history.migration_complete(
+            agent_id,
+            MIGRATION_KEY,
+        ):
             return
         started = time.monotonic()
         logger.info("session-sync[%s]: migrating legacy history", agent_id)
@@ -805,38 +820,20 @@ def migrate_agent_history(
                 f"{report.summary()}",
             )
         history.complete_migration(agent_id, MIGRATION_KEY)
+        pending.unlink(missing_ok=True)
         logger.info(
             "session-sync[%s]: complete in %.3fs; %s",
             agent_id,
             time.monotonic() - started,
             report.summary(),
         )
-    finally:
-        lock.release()
 
 
-def invalidate_agent_migration(
-    workspace_dir: Path,
-    agent_id: str,
-    db_filename: str,
-) -> None:
-    """Retire completion when a configuration change needs backfill."""
-    path = resolve_history_db_path(workspace_dir, db_filename)
-    if not path.is_file():
-        return
-    conn = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True)
-    try:
-        if conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = 'history_migrations'",
-        ).fetchone():
-            with conn:
-                conn.execute(
-                    "DELETE FROM history_migrations "
-                    "WHERE agent_id = ? AND migration_key = ?",
-                    (agent_id, MIGRATION_KEY),
-                )
-    finally:
-        conn.close()
+def invalidate_agent_migration(workspace_dir: Path) -> None:
+    """Request backfill without opening a possibly broken Scroll database."""
+    workspace_dir = Path(workspace_dir)
+    with FileLock(str(workspace_dir / ".scroll-migration.lock")):
+        (workspace_dir / _PENDING_MIGRATION).touch(exist_ok=True)
 
 
 def import_session_history(

@@ -165,14 +165,14 @@ def test_reconcile_rows_uses_exact_file_keys_and_claims_agent(
         entry=_entry("unrelated row"),
     )
 
-    moved, deduplicated, claimed = store.reconcile_session_rows(
+    moved, deduplicated = store.reconcile_session_rows(
         {"sync:shared-stem"},
         "canonical",
         {"selected"},
         agent_id="agent-1",
     )
 
-    assert (moved, deduplicated, claimed) == (1, 0, 0)
+    assert (moved, deduplicated) == (1, 0)
     selected = store._conn.execute(
         "SELECT session_id, agent_id FROM conversation_history WHERE seq = ?",
         (selected_seq,),
@@ -199,13 +199,13 @@ def test_reconcile_rows_deduplicates_source_and_fts(store: HistoryStore):
         entry=_entry("legacy duplicate token"),
     )
 
-    moved, deduplicated, claimed = store.reconcile_session_rows(
+    moved, deduplicated = store.reconcile_session_rows(
         {"sync:file"},
         "canonical",
         {"shared"},
     )
 
-    assert (moved, deduplicated, claimed) == (0, 1, 0)
+    assert (moved, deduplicated) == (0, 1)
     assert store.count("sync:file") == 0
     assert store.count("canonical") == 1
     assert duplicate != kept
@@ -586,7 +586,7 @@ def test_reconcile_unindexed_recall_duplicate(store):
         {"source"},
         "canonical",
         {"same"},
-    ) == (0, 1, 0)
+    ) == (0, 1)
     assert store.count("canonical") == 1
     assert store.count("source") == 0
 

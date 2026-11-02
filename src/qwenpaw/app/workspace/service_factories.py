@@ -43,11 +43,7 @@ def create_history_service(ws: "Workspace") -> "HistoryStore | None":
 
     path = _history_path(ws)
     if path is None:
-        invalidate_agent_migration(
-            ws.workspace_dir,
-            ws.agent_id,
-            ws.config.running.light_context_config.scroll_config.db_filename,
-        )
+        invalidate_agent_migration(ws.workspace_dir)
         return None
     return create_scroll_history(path)
 
@@ -56,6 +52,8 @@ async def prepare_history_service(ws, history, _publish) -> None:
     """Migrate before channels start, then maintain history independently."""
     if history is None:
         return
+    if ws._manager is not None:
+        await ws._manager.drain_native_history_writers(ws)
     scroll_config = ws.config.running.light_context_config.scroll_config
     stop = threading.Event()
     task = asyncio.create_task(

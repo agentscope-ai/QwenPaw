@@ -1041,7 +1041,7 @@ def test_explicit_reset_allows_new_backfill(tmp_path, reset):
     if reset == "database":
         path.unlink()
     else:
-        sync_mod.invalidate_agent_migration(tmp_path, "a1", "history.db")
+        sync_mod.invalidate_agent_migration(tmp_path)
     history = HistoryStore(path)
     try:
         migrate_agent_history(history, tmp_path, "a1", 0, threading.Event())

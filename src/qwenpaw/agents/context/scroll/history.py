@@ -927,7 +927,7 @@ class HistoryStore:
         dedup_keys: set[str],
         *,
         agent_id: str | None = None,
-    ) -> tuple[int, int, int]:
+    ) -> tuple[int, int]:
         """Move rows proven to come from one file into its canonical session.
 
         ``source_ids`` alone is not sufficient provenance because synthetic
@@ -935,7 +935,7 @@ class HistoryStore:
         to dedup keys recomputed from the source file prevents unrelated rows
         from being swept into ``target_id``.
 
-        Returns ``(moved, deduplicated, claimed)``. Non-conflicting rows retain
+        Returns ``(moved, deduplicated)``. Non-conflicting rows retain
         their original ``seq``; source duplicates are removed in favor of the
         existing canonical row so the unique dedup contract remains valid.
         """
@@ -946,11 +946,10 @@ class HistoryStore:
         )
         keys = sorted(str(key) for key in dedup_keys if key)
         if not sources or not target_id or not keys:
-            return (0, 0, self.claim_session(target_id, agent_id))
+            return (0, 0)
 
         moved = 0
         deduplicated = 0
-        claimed = 0
         with self._lock, _immediate_transaction(
             self._conn,
         ):
@@ -1018,14 +1017,7 @@ class HistoryStore:
                         )
                         moved += int(cur.rowcount)
 
-            if agent_id:
-                cur = self._conn.execute(
-                    "UPDATE conversation_history SET agent_id = ? "
-                    "WHERE session_id = ? AND agent_id IS NULL",
-                    (agent_id, target_id),
-                )
-                claimed = int(cur.rowcount)
-        return (moved, deduplicated, claimed)
+        return (moved, deduplicated)
 
     def existing_seqs(self, seqs: set[int]) -> set[int]:
         """Return the subset of globally addressed history rows that exist."""
