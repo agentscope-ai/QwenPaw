@@ -973,7 +973,7 @@ def test_locked_database_is_not_quarantined(tmp_path: Path, monkeypatch):
     def locked(_self, **_kwargs):
         raise sqlite3.OperationalError("database is locked")
 
-    monkeypatch.setattr(HistoryStore, "_open_and_init", locked)
+    monkeypatch.setattr(HistoryStore, "_open", locked)
     with pytest.raises(sqlite3.OperationalError, match="locked"):
         HistoryStore(db)
 

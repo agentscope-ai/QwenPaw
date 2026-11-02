@@ -25,7 +25,7 @@ def check_history(database: Path, repair_fts: bool) -> None:
     """Check DATABASE; stop its agent before repairing the index."""
     history = None
     try:
-        history = HistoryStore(database)
+        history = HistoryStore(database, initialize=False)
         history.check_integrity(repair=repair_fts)
     except (sqlite3.Error, RuntimeError) as exc:
         raise click.ClickException(str(exc)) from exc

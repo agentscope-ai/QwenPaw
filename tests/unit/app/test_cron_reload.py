@@ -18,6 +18,7 @@ from qwenpaw.app.crons.models import CronJobSpec
 from qwenpaw.app.crons.repo.json_repo import JsonJobRepository
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.workspace import Workspace
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.app.workspace.service_manager import (
     ServiceDescriptor,
     ServiceManager,
@@ -47,6 +48,8 @@ def cron_workspace(tmp_path, monkeypatch):
             agent_id="agent-1",
             workspace_dir=str(tmp_path / name),
         )
+        workspace._config = AgentProfileConfig(id="agent-1", name="Agent")
+        workspace._config.running.light_context_config.strategy = "native"
         workspace._service_manager = ServiceManager(workspace)
         repo = JsonJobRepository(tmp_path / name / "jobs.json")
         real_channels = channels is not None

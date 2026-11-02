@@ -25,11 +25,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _history_path(ws: "Workspace") -> Path | None:
+def history_service_path(ws: "Workspace") -> Path | None:
+    """Resolve the sink only for runtimes that write Scroll history."""
     from ...config.history_path import resolve_history_db_path
 
     lcc = ws.config.running.light_context_config
-    if lcc.strategy != "scroll":
+    if not ws.config.uses_scroll_history:
         return None
     return resolve_history_db_path(
         ws.workspace_dir,
@@ -41,7 +42,7 @@ def create_history_service(ws: "Workspace") -> "HistoryStore | None":
     """Open one workspace-owned connection, offloaded by ServiceManager."""
     from ...agents.context import create_scroll_history
 
-    path = _history_path(ws)
+    path = history_service_path(ws)
     if path is None:
         invalidate_agent_migration(ws.workspace_dir)
         return None
@@ -52,8 +53,6 @@ async def prepare_history_service(ws, history, _publish) -> None:
     """Migrate before channels start, then maintain history independently."""
     if history is None:
         return
-    if ws._manager is not None:
-        await ws._manager.drain_native_history_writers(ws)
     scroll_config = ws.config.running.light_context_config.scroll_config
     stop = threading.Event()
     task = asyncio.create_task(
@@ -82,7 +81,7 @@ def history_service_reuse_compatible(
     history: "HistoryStore",
 ) -> bool:
     """Keep the old store only for the same enabled, unchanged database."""
-    path = _history_path(ws)
+    path = history_service_path(ws)
     return path is not None and history.matches_path(path)
 
 

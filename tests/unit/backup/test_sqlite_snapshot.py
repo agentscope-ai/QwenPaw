@@ -85,7 +85,8 @@ def test_cancel_during_locked_database_snapshot(tmp_path):
     timer.start()
     try:
         assert (
-            sqlite_snapshot.stage_databases([source], staging, event) is None
+            sqlite_snapshot.stage_workspace_files([source], staging, event)
+            is None
         )
     finally:
         timer.cancel()

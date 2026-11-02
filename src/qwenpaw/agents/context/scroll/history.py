@@ -182,6 +182,11 @@ def _validate_history_connection(conn: sqlite3.Connection) -> int:
     if result != "ok":
         raise HistoryCorruptionError(f"quick_check failed: {result}")
 
+    return _validate_history_schema(conn)
+
+
+def _validate_history_schema(conn: sqlite3.Connection) -> int:
+    """Identify a supported history schema without changing it."""
     version_row = conn.execute("PRAGMA user_version").fetchone()
     version = int(version_row[0] if version_row else 0)
     if version > _SCHEMA_VERSION:
@@ -194,11 +199,16 @@ def _validate_history_connection(conn: sqlite3.Connection) -> int:
     return version
 
 
-def validate_history_database(db_path: str | Path) -> int:
+def validate_history_database(
+    db_path: str | Path,
+    *,
+    check_integrity: bool = True,
+) -> int:
     """Read-only integrity and compatibility check for an existing store.
 
     Returns the on-disk ``PRAGMA user_version``. Version ``0`` remains valid
     for pre-versioned stores and is migrated on the next runtime open.
+    Skip integrity only for a snapshot already verified by the backup worker.
     """
     path = Path(db_path).expanduser().resolve()
     if not path.is_file():
@@ -210,7 +220,9 @@ def validate_history_database(db_path: str | Path) -> int:
     )
     try:
         conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
-        return _validate_history_connection(conn)
+        if check_integrity:
+            return _validate_history_connection(conn)
+        return _validate_history_schema(conn)
     finally:
         conn.close()
 
@@ -281,9 +293,15 @@ class HistoryStore:
     # per process when it's missing, so a long-lived server doesn't log-spam.
     _fts_unavailable_warned = False
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        initialize: bool = True,
+    ) -> None:
         self._path = Path(db_path).expanduser()
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        if initialize:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
         # Serializes the single connection across threads: ``compress`` writes
         # from a worker thread (``asyncio.to_thread``, to spare the event loop)
         # while ``on_save`` writes on the loop thread. Both share this
@@ -302,7 +320,7 @@ class HistoryStore:
         self._retention_task: asyncio.Task | None = None
         self._retention_days = 0
         try:
-            self._open_and_init()
+            self._open(initialize=initialize)
         except BaseException:
             try:
                 self._conn.close()
@@ -337,23 +355,33 @@ class HistoryStore:
             if results != ["ok"]:
                 raise sqlite3.DatabaseError(f"quick_check failed: {results}")
 
-    def _open_and_init(self) -> None:
-        # A workspace owns the connection; worker access is serialized by lock.
+    def _open(self, *, initialize: bool) -> None:
+        # Maintenance opens an existing schema without creating or upgrading it.
         self._conn = sqlite3.connect(
-            str(self._path),
+            self._path.resolve().as_uri()
+            + ("?mode=rwc" if initialize else "?mode=rw"),
+            uri=True,
             check_same_thread=False,
             timeout=_BUSY_TIMEOUT_MS / 1000,
         )
         self._opened_identity = self._file_identity(self._path)
         self._conn.row_factory = sqlite3.Row
-        # Set the wait policy before journal_mode: switching/confirming WAL can
-        # itself need a lock when several processes start at once.
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
-        _retry_contention(
-            self._conn,
-            lambda: self._conn.execute("PRAGMA journal_mode=WAL"),
-        )
-        self._init_schema()
+        if initialize:
+            _retry_contention(
+                self._conn,
+                lambda: self._conn.execute("PRAGMA journal_mode=WAL"),
+            )
+            self._init_schema()
+        else:
+            _validate_history_schema(self._conn)
+            self._fts = (
+                self._conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='conversation_history_fts'",
+                ).fetchone()
+                is not None
+            )
         # Only a real database error schedules a recovery probe.
         self._fts_check_pending = False
 

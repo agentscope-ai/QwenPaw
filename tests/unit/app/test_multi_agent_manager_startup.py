@@ -23,6 +23,7 @@ from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
 )
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
 from qwenpaw.memory import MemoryBackendContext, memory_registry
 
@@ -79,6 +80,9 @@ class _ReloadWorkspace:
         accepted: set[str] | None = None,
     ) -> None:
         self.agent_id = agent_id
+        self.config = AgentProfileConfig(id=agent_id, name=agent_id)
+        self.config.running.light_context_config.strategy = "native"
+        self.start_history_retention = AsyncMock()
         self.task_tracker = TaskTracker()
         self._service_manager = _ReloadServiceManager(reusable, accepted)
         self.started = False

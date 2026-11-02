@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sqlite3
+import shutil
 import subprocess
 import sys
 import time
@@ -22,12 +23,12 @@ _WORKER_TIMEOUT_SECONDS = 1800
 _SIDECARS = ("-wal", "-shm", "-journal")
 
 
-def stage_databases(
+def stage_workspace_files(
     entries: Sequence[Path],
     staging: Path,
     stop_event: Event | None = None,
 ) -> tuple[dict[str, str], set[str]] | None:
-    """Return (snapshot mapping, excluded sidecars), or None on cancellation.
+    """Return staged files and excluded sidecars, or None on cancellation.
 
     Fail closed: callers must never fall back to raw copies after a worker
     failure. The caller owns the staging directory's lifetime.
@@ -85,6 +86,11 @@ def _snapshot(source: Path, destination: Path) -> None:
         dst = sqlite3.connect(destination)
         try:
             src.backup(dst, pages=256, progress=progress, sleep=0.05)
+            results = [row[0] for row in dst.execute("PRAGMA quick_check")]
+            if results != ["ok"]:
+                raise sqlite3.DatabaseError(
+                    f"Invalid SQLite snapshot for {source}: {results}",
+                )
             # A restored database must be self-contained, with no sidecars.
             dst.execute("PRAGMA journal_mode=DELETE")
         finally:
@@ -97,31 +103,46 @@ def _stage(manifest: Path) -> None:
     entries = [
         Path(p) for p in json.loads(manifest.read_text(encoding="utf-8"))
     ]
+    snapshots = {}
     databases = []
-    for entry in entries:
+    sidecars: list[str] = []
+    for index, entry in enumerate(entries):
+        destination = manifest.parent / str(index)
+        if str(entry) in sidecars:
+            continue
+        database_suffix = entry.suffix.lower() in (
+            ".db",
+            ".sqlite",
+            ".sqlite3",
+        )
+        candidate = any(
+            Path(str(entry) + suffix).exists() for suffix in _SIDECARS
+        )
         try:
             with entry.open("rb") as handle:
                 header = handle.read(16)
+                candidate = (
+                    candidate
+                    or header == b"SQLite format 3\0"
+                    or (not header and database_suffix)
+                )
+                if not candidate:
+                    with destination.open("wb") as copy:
+                        copy.write(header)
+                        shutil.copyfileobj(handle, copy)
         except OSError:
-            # Preserve best-effort handling of unrelated inaccessible files,
-            # but never silently omit a likely database.
-            if entry.suffix.lower() in (".db", ".sqlite", ".sqlite3"):
+            if candidate or database_suffix:
                 raise
+            # Unrelated inaccessible files remain best-effort.
             continue
-        # Sidecars also identify a database whose header is damaged or not
-        # initialized yet. Let SQLite validate it; never copy it raw.
-        has_sidecars = any(
-            Path(str(entry) + suffix).exists() for suffix in _SIDECARS
-        )
-        if header == b"SQLite format 3\0" or has_sidecars:
-            databases.append(entry)
-    snapshots = {}
-    sidecars: list[str] = []
-    for index, source in enumerate(databases):
-        destination = manifest.parent / str(index)
+        if candidate:
+            databases.append((entry, destination))
+            sidecars.extend(str(entry) + suffix for suffix in _SIDECARS)
+        snapshots[str(entry)] = str(destination)
+    for source, destination in databases:
         _snapshot(source, destination)
-        snapshots[str(source)] = str(destination)
-        sidecars.extend(str(source) + suffix for suffix in _SIDECARS)
+    for sidecar in sidecars:
+        snapshots.pop(sidecar, None)
     manifest.write_text(
         json.dumps({"snapshots": snapshots, "sidecars": sidecars}),
         encoding="utf-8",

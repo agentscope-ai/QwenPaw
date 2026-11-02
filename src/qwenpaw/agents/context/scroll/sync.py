@@ -56,7 +56,7 @@ MANIFEST_NAME = ".synced.json"
 _MANIFEST_VERSION = 2
 _SESSION_PREFIX = "sync:"
 MIGRATION_KEY = "registered-sessions-v1"
-_PENDING_MIGRATION = ".scroll-migration-pending"
+PENDING_MIGRATION = ".scroll-migration-pending"
 
 
 @dataclass
@@ -582,6 +582,7 @@ def sync_sessions_to_history(
     agent_id: str | None = None,
     dry_run: bool = False,
     use_manifest: bool = True,
+    force: bool = False,
     retention_days: int = 0,
     preflight: SyncPreflight | None = None,
     stop: threading.Event | None = None,
@@ -591,6 +592,7 @@ def sync_sessions_to_history(
     Returns a :class:`SyncReport`. Safe to call repeatedly: unchanged files are
     skipped via the manifest and the DB's UNIQUE index makes re-appends no-ops.
     Never deletes or rewrites the source session files.
+    ``force`` retains manifest provenance but ignores its completion proofs.
 
     ``retention_days`` (0 = keep forever) skips messages older than the window,
     so we don't import rows the same-boot purge would delete. A fully aged-out
@@ -648,7 +650,9 @@ def sync_sessions_to_history(
                 continue
 
             try:
-                digest = _sha256(path, stop) if use_manifest else ""
+                digest = (
+                    _sha256(path, stop) if use_manifest and not force else ""
+                )
             except OSError as exc:
                 report.files.append(
                     FileResult(filename=rel_name, errored=True),
@@ -658,7 +662,10 @@ def sync_sessions_to_history(
 
             prior = cached_files.get(rel_name)
             manifest_matches = bool(
-                use_manifest and prior and prior.get("sha256") == digest,
+                use_manifest
+                and not force
+                and prior
+                and prior.get("sha256") == digest,
             )
             canonical_matches = bool(
                 prior and prior.get("session_id") == canonical_id,
@@ -772,7 +779,7 @@ def migrate_agent_history(
     stop: threading.Event,
 ) -> None:
     """Complete legacy migration once, before this agent accepts work."""
-    pending = workspace_dir / _PENDING_MIGRATION
+    pending = workspace_dir / PENDING_MIGRATION
     if not pending.exists() and history.migration_complete(
         agent_id,
         MIGRATION_KEY,
@@ -810,6 +817,7 @@ def migrate_agent_history(
             chats_path=workspace_dir / "chats.json",
             agent_id=agent_id,
             retention_days=retention_days,
+            force=pending.exists(),
             stop=stop,
         )
         if stop.is_set():
@@ -833,7 +841,7 @@ def invalidate_agent_migration(workspace_dir: Path) -> None:
     """Request backfill without opening a possibly broken Scroll database."""
     workspace_dir = Path(workspace_dir)
     with FileLock(str(workspace_dir / ".scroll-migration.lock")):
-        (workspace_dir / _PENDING_MIGRATION).touch(exist_ok=True)
+        (workspace_dir / PENDING_MIGRATION).touch(exist_ok=True)
 
 
 def import_session_history(

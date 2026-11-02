@@ -2475,6 +2475,14 @@ class AgentProfileConfig(BaseModel):
         """Record the content version represented by this model."""
         self._source_digest = digest
 
+    @property
+    def uses_scroll_history(self) -> bool:
+        """Whether this runtime writes through to durable Scroll history."""
+        return (
+            self.backend == "qwenpaw"
+            and self.running.light_context_config.strategy == "scroll"
+        )
+
     id: str = Field(..., description="Unique agent ID")
     name: str = Field(..., description="Human-readable agent name")
     description: str = Field(default="", description="Agent description")
@@ -4030,8 +4038,7 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 
             payload = candidate.model_dump(exclude_none=True)
             saved_digest = _json_payload_digest(payload)
-            lcc = candidate.running.light_context_config
-            if lcc.strategy == "native":
+            if not candidate.uses_scroll_history:
                 from ..agents.context.scroll.sync import (
                     invalidate_agent_migration,
                 )
