@@ -622,8 +622,10 @@ def test_clone_session_copies_completed_history_and_agent_runtime(
     catalog.close()
 
 
+@pytest.mark.parametrize("final_usage", [False, True])
 def test_fork_at_completed_turn_rebuilds_boundary_state(
     tmp_path: Path,
+    final_usage: bool,
 ) -> None:
     catalog = TranscriptCatalog(tmp_path)
     source_storage_id = ""
@@ -647,7 +649,11 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
         catalog.upsert_message(
             session_id="parent",
             turn_id=turn_id,
-            message=_message(f"message-{turn_seq}", f"text-{turn_seq}"),
+            message=Message(
+                id=f"message-{turn_seq}",
+                role="assistant",
+                content=[TextContent(text=f"text-{turn_seq}")],
+            ).completed(),
             ordinal=0,
         )
         history = HistoryStore(source_path)
@@ -684,6 +690,14 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
             turn_id=turn_id,
             status="completed",
         )
+        if final_usage:
+            # Final usage arrives after the runtime revision was saved.
+            assert catalog.attach_turn_usage(
+                session_id="parent",
+                turn_id=turn_id,
+                usage={"total_tokens": turn_seq * 100},
+                context_usage={"estimated_tokens": turn_seq * 10},
+            )
 
     boundary_runtime = catalog.read_turn_context(
         session_id="parent",
@@ -692,6 +706,11 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
         turn_id="turn-2",
     )
     assert boundary_runtime is not None
+    if final_usage:
+        assert boundary_runtime.current_usage == {
+            "usage": {"total_tokens": 200},
+            "context_usage": {"estimated_tokens": 20},
+        }
     child_storage_id = "22222222-2222-4222-8222-222222222222"
     fork_seq = catalog.fork_at_turn(
         source_session_id="parent",

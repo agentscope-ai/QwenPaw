@@ -1247,7 +1247,8 @@ class TranscriptStore:
 
         revision = source.execute(
             "SELECT r.revision_id, r.context_generation, "
-            "r.current_usage_json, u.usage_json "
+            "COALESCE(u.usage_json, r.current_usage_json) "
+            "AS current_usage_json "
             "FROM turn_context_revision t "
             "JOIN context_revisions r ON r.session_id = t.session_id "
             "AND r.revision_id = t.revision_id "
