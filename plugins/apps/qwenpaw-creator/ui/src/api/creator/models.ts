@@ -117,11 +117,16 @@ export function getTtsCapabilities(): Promise<TtsCapabilities> {
 
 export function saveModelConfig(
   config: ModelConfigData,
+  options: { setupRequestId?: string } = {},
 ): Promise<{ ok: boolean }> {
   const id = newClientId("model-config");
+  const headers: Record<string, string> = { "Idempotency-Key": id };
+  if (options.setupRequestId) {
+    headers["X-PawApp-Setup-Request"] = options.setupRequestId;
+  }
   return creatorRequest("/models/config", {
     method: "POST",
-    headers: { "Idempotency-Key": id },
+    headers,
     body: jsonBody(config),
   });
 }
@@ -214,14 +219,4 @@ export function patchSelfReview(
     headers: { "Idempotency-Key": id },
     body: jsonBody(tiers),
   });
-}
-
-export function getRealApiKey(section: string): Promise<{ api_key: string }> {
-  return creatorRequest(`/models/real-api-key/${section}`);
-}
-
-export function getHostProviderApiKey(
-  providerId: string,
-): Promise<{ api_key: string | null }> {
-  return creatorRequest(`/models/host-provider/${providerId}/api-key`);
 }

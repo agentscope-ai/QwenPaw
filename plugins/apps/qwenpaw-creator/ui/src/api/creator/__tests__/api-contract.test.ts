@@ -190,23 +190,26 @@ describe("new Creator API contract", () => {
         response: { json: { ok: true } },
       },
     ]);
-    await saveModelConfig({
-      ...configuredModelConfig,
-      llm: {
-        ...configuredModelConfig.llm,
-        model_name: "configured-model",
-        api_key: "new-secret",
+    await saveModelConfig(
+      {
+        ...configuredModelConfig,
+        llm: {
+          ...configuredModelConfig.llm,
+          model_name: "configured-model",
+          api_key: "new-secret",
+        },
+        oss: {
+          enabled: false,
+          access_key_id: "LTAI-x",
+          access_key_secret: "oss-secret",
+          endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
+          bucket: "creator-store",
+          public_base_url: "",
+          policy_api_key: "",
+        },
       },
-      oss: {
-        enabled: false,
-        access_key_id: "LTAI-x",
-        access_key_secret: "oss-secret",
-        endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
-        bucket: "creator-store",
-        public_base_url: "",
-        policy_api_key: "",
-      },
-    });
+      { setupRequestId: "setup_123" },
+    );
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       method: "POST",
@@ -216,6 +219,7 @@ describe("new Creator API contract", () => {
       },
     });
     expect(calls[0].headers["idempotency-key"]).toMatch(/^model-config-/);
+    expect(calls[0].headers["x-pawapp-setup-request"]).toBe("setup_123");
     expect(
       (calls[0].body as { oss: Record<string, unknown> }).oss,
     ).toMatchObject({

@@ -20,6 +20,7 @@ import {
   Globe,
   HeartPulse,
   Mic,
+  PackageCheck,
   Plug,
   Radio,
   ScanLine,
@@ -46,6 +47,7 @@ import {
 import { useAgentStore } from "@/stores/agentStore";
 import { supportsPortabilityImport } from "@/utils/agentBackend";
 import GeneralSettings from "./GeneralSettings";
+import PawAppAccessSettings from "./PawAppAccessSettings";
 import SettingsAgentSelector from "./SettingsAgentSelector";
 import styles from "./index.module.less";
 import {
@@ -143,6 +145,15 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
         descriptionFallback: "Configure available tools",
         routeId: "core.tools",
         Icon: Wrench,
+      },
+      {
+        key: "app-access",
+        labelKey: "settingsCenter.pages.appAccess",
+        fallback: "App access",
+        descriptionKey: "settingsCenter.descriptions.appAccess",
+        descriptionFallback: "Control which App actions this agent may run",
+        Component: PawAppAccessSettings,
+        Icon: PackageCheck,
       },
       {
         key: "mcp",

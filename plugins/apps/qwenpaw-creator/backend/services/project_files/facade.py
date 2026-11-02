@@ -26,6 +26,7 @@ from services.runtime_files import (
 from services.runtime_files.session_store import ProjectRuntimeSessionStore
 
 from .commit import ProjectCommitBoundary, ProjectCommitResult
+from .creation import ProjectCreationService
 from .jq_transform import JqProjectTransformer
 from .poller import ProjectPoller, ProjectSnapshotCacheEntry
 from .recovery import (
@@ -229,6 +230,7 @@ class CreatorFileServices:
     poller: ProjectPoller
     reviews: ProjectReviewService
     sessions: ProjectRuntimeSessionStore
+    project_creation: ProjectCreationService
     jq: JqProjectTransformer
     recovery: ProjectCommitRecoveryCoordinator
     startup_recovery: CreatorRecoveryReport
@@ -254,13 +256,20 @@ class CreatorFileServices:
         # Review decisions may depend on a compensating Project transaction.
         # Project journals therefore converge first, followed by Review facts.
         startup_review_recovery = reviews.recover_all()
+        poller = ProjectPoller(projects)
+        sessions = ProjectRuntimeSessionStore(root)
         services = cls(
             root=root,
             projects=projects,
             commits=ProjectCommitBoundary(projects),
-            poller=ProjectPoller(projects),
+            poller=poller,
             reviews=reviews,
-            sessions=ProjectRuntimeSessionStore(root),
+            sessions=sessions,
+            project_creation=ProjectCreationService(
+                projects=projects,
+                sessions=sessions,
+                poller=poller,
+            ),
             jq=JqProjectTransformer(),
             recovery=recovery,
             startup_recovery=startup_recovery,

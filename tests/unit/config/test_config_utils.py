@@ -62,6 +62,19 @@ class TestNormalizeWorkingDirBoundPaths:
         data = {"media_dir": None, "count": 5}
         assert cu._normalize_working_dir_bound_paths(data) == data
 
+    def test_nested_working_directory_normalizes_only_once(self, monkeypatch):
+        root = Path("~/.copaw/acceptance").expanduser().resolve()
+        monkeypatch.setattr(cu, "WORKING_DIR", root)
+        once = cu._normalize_working_dir_bound_paths(
+            {"workspace_dir": "~/.copaw/workspaces/default"},
+        )
+        assert once == {"workspace_dir": str(root / "workspaces/default")}
+        assert cu._normalize_working_dir_bound_paths(once) == once
+
+    def test_legacy_prefix_requires_directory_boundary(self, working_dir):
+        data = {"workspace_dir": "~/.copaw-backup/workspaces/default"}
+        assert cu._normalize_working_dir_bound_paths(data) == data
+
 
 # ---------------------------------------------------------------------------
 # _exec_executable_token

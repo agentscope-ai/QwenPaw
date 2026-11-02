@@ -98,8 +98,26 @@ def runtime_layout(directory, monkeypatch):
         support / "qwenpaw",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
+    index = support / "qwenpaw/official_channels/index.json"
+    if not index.exists():
+        import runpy
+
+        packer = runpy.run_path(
+            str(ROOT / "scripts/pack/generate_plugin_metadata.py"),
+        )
+        packer["build_official_channel_bundle"](
+            ROOT,
+            index.parent,
+            host_version=__version__,
+        )
     runtime = root / "runtime"
     venv.EnvBuilder(with_pip=False, symlinks=False).create(runtime)
+    if sys.platform == "darwin":
+        library = Path(sysconfig.get_config_var("LIBDIR")) / str(
+            sysconfig.get_config_var("LDLIBRARY"),
+        )
+        if library.is_file():
+            shutil.copy2(library, runtime / "lib" / library.name)
     executable = runtime / (
         "Scripts/python.exe" if os.name == "nt" else "bin/python"
     )
@@ -115,7 +133,6 @@ def runtime_layout(directory, monkeypatch):
         sysconfig.get_path("purelib") + "\n",
     )
     site = dependency_site(root / "dependencies")
-    index = support / "qwenpaw/official_channels/index.json"
     identity = {
         "version": list(sys.version_info[:2]),
         "implementation": sys.implementation.name,

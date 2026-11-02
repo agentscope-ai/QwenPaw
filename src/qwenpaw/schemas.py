@@ -263,6 +263,13 @@ class AgentRequest(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    # Set only by Console ingress; never serialized into history or payloads.
+    _pawapp_task_context: Any = PrivateAttr(default=None)
+    # Set only by the Host continuation worker. The object carries the
+    # leased queue claim used to atomically persist an automatic Main Chat
+    # turn; JSON callers cannot construct it.
+    _pawapp_continuation_context: Any = PrivateAttr(default=None)
+
     input: List[Message] = Field(default_factory=list)
     session_id: Optional[str] = None
     user_id: Optional[str] = None

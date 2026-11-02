@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
 from agentscope.message import (
     TextBlock,
     ThinkingBlock,
@@ -265,6 +266,70 @@ def test_default_client_constructs_real_agentscope_dashscope_model(
     configured = AgentScopeAgentChatClient()._configured_model()
 
     assert isinstance(configured, DashScopeChatModel)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("protocol", ["DashScope（百炼）", "OpenAI 兼容"])
+@pytest.mark.parametrize(
+    ("client_type", "prefix"),
+    [(AgentScopeAgentChatClient, "text"), (AgentScopeVlmChatClient, "vlm")],
+)
+async def test_creator_sends_thinking_disabled_on_provider_requests(
+    monkeypatch,
+    protocol,
+    client_type,
+    prefix,
+):
+    for field, value in {
+        "api_key": "test-api-key",
+        "base_url": "https://model.example/v1",
+        "model_name": "qwen3.8-max",
+        "protocol": protocol,
+    }.items():
+        monkeypatch.setattr(
+            model_client.model_config,
+            f"get_{prefix}_{field}",
+            lambda value=value: value,
+        )
+    client = client_type()
+    configured = client._configured_model()
+    captured = []
+
+    def respond(request):
+        captured.append(json.loads(request.content))
+        chunk = {
+            "id": "response-no-thinking",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "qwen3.8-max",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "pong"},
+                    "finish_reason": "stop",
+                },
+            ],
+        }
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n",
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(respond),
+    ) as transport:
+        monkeypatch.setattr(configured.client, "_client", transport)
+        turn = await client.complete(
+            messages=[{"role": "user", "content": "ping"}],
+            tools=_tools(),
+        )
+
+    assert turn.content == "pong"
+    assert len(captured) == 1
+    assert captured[0]["enable_thinking"] is False
+    assert "thinking_budget" not in captured[0]
+    assert captured[0]["tools"][0]["function"]["name"] == "read_project"
 
 
 @pytest.mark.parametrize(

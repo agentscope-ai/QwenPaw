@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Pylint all-files aliases isolated plugin/local modules to third-party names.
+# pylint: disable=no-name-in-module
 """MCP stateful clients with proper cross-task lifecycle management.
 
 This module provides drop-in replacements for AgentScope's MCP clients

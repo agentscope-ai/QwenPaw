@@ -11,7 +11,6 @@ from services.project_files.facade import CreatorFileServices
 from .driver import FileCreatorAgentRuntime
 from .model_client import AgentChatClient
 
-
 _registry_lock = threading.RLock()
 _runtime: FileCreatorAgentRuntime | None = None
 
@@ -87,6 +86,22 @@ async def interrupt_creator_agent_runtime(
     )
 
 
+async def cancel_correlated_creator_agent_runtime(
+    project_id: str,
+    *,
+    agent_run_ids: tuple[str, ...],
+    specialist_run_ids: tuple[str, ...],
+) -> bool:
+    current = get_creator_agent_runtime()
+    if current is None:
+        return False
+    return await current.cancel_correlated(
+        project_id,
+        agent_run_ids=agent_run_ids,
+        specialist_run_ids=specialist_run_ids,
+    )
+
+
 def reset_creator_agent_runtime_registry_for_tests() -> None:
     """Synchronous guard for tests that already stopped the async driver."""
 
@@ -101,6 +116,7 @@ def reset_creator_agent_runtime_registry_for_tests() -> None:
 
 
 __all__ = [
+    "cancel_correlated_creator_agent_runtime",
     "get_creator_agent_runtime",
     "interrupt_creator_agent_runtime",
     "notify_creator_agent_runtime",

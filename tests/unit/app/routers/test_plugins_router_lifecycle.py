@@ -116,10 +116,11 @@ def _loader_stub(
     *,
     record: Any = None,
     registry: Any = None,
-    load_result: Any = "LOADED",
+    load_result: Any = None,
 ) -> MagicMock:
     """A PluginLoader stand-in recording lifecycle and load calls."""
     loader = MagicMock(name="PluginLoader")
+    loader.requires_explicit_activation.return_value = False
     loader.get_loaded_plugin.return_value = record
     loader.get_all_loaded_plugins.return_value = (
         {record.manifest.id: record} if record is not None else {}
@@ -140,7 +141,7 @@ def _loader_stub(
             f"before={kwargs.get('before_force_unload') is not None}:"
             f"after={kwargs.get('after_force_unload') is not None}",
         )
-        return load_result
+        return load_result if load_result is not None else _record("plug")
 
     loader.load_plugin_from_path = AsyncMock(side_effect=_load)
     loader.retains_preparation_source.return_value = False
@@ -380,6 +381,8 @@ class TestListPluginsRoute:
                 "author": "",
                 "enabled": True,
                 "loaded": False,
+                "requires_activation": False,
+                "activation_status": "active",
                 "plugin_type": "general",
                 "frontend_entry": None,
             },
@@ -388,6 +391,7 @@ class TestListPluginsRoute:
     def test_with_loader_reports_loaded_records(self):
         record = _record("plug", meta={"tool_name": "alpha"})
         loader = MagicMock()
+        loader.requires_explicit_activation.return_value = False
         loader.get_all_loaded_plugins.return_value = {"plug": record}
         response = _client(loader).get("/api/plugins")
         assert response.status_code == 200
@@ -400,6 +404,8 @@ class TestListPluginsRoute:
                 "author": "auth",
                 "enabled": True,
                 "loaded": True,
+                "requires_activation": False,
+                "activation_status": "active",
                 "status": "active",
                 "diagnostics": [],
                 "plugin_type": "general",
@@ -451,6 +457,7 @@ class TestListPluginsRoute:
 class TestGetPluginStatusRoute:
     def test_loaded_plugin_reports_runtime_state(self):
         loader = MagicMock()
+        loader.requires_explicit_activation.return_value = False
         loader.get_loaded_plugin.return_value = _record("plug")
         response = _client(loader).get("/api/plugins/plug/status")
         assert response.status_code == 200
@@ -461,6 +468,8 @@ class TestGetPluginStatusRoute:
             "status": "active",
             "diagnostics": [],
             "version": "1.2.3",
+            "requires_activation": False,
+            "activation_status": "active",
         }
 
     def test_on_disk_but_not_loaded(self, tmp_path):
@@ -610,7 +619,8 @@ class TestInstallPluginSource:
                 force=True,
                 reload_agents=False,
             )
-        assert result == "LOADED"
+        assert result.manifest.id == "plug"
+        assert result.enabled is True
         kwargs = loader.load_plugin_from_path.call_args.kwargs
         assert kwargs["source_path"] == tmp_path
         assert kwargs["force"] is True
@@ -649,7 +659,7 @@ class TestInstallPluginSource:
             seen_at_load["manifest"] = (source / "plugin.json").read_text(
                 encoding="utf-8",
             )
-            return "LOADED"
+            return _record("plug")
 
         loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
         with (
@@ -931,6 +941,7 @@ class TestInstallPluginRoute:
             "enabled": True,
             "diagnostics": diagnostics,
             "message": "Plugin 'plug display name' installation: active.",
+            "activation_required": False,
         }
 
     @pytest.mark.parametrize(
@@ -1601,7 +1612,12 @@ class TestResidualBranches:
 
 class TestPublicPluginAndFileContracts:
     @pytest.mark.parametrize("records", [False, True])
-    def test_frontend_list_contract(self, records):
+    def test_frontend_list_contract(self, records, monkeypatch):
+        monkeypatch.setattr(
+            plugins_module,
+            "_list_plugins_from_disk",
+            lambda: [],
+        )
         loader = _loader_stub([], record=_record() if records else None)
         response = _client(loader).get("/api/frontend_plugin")
         assert response.status_code == 200

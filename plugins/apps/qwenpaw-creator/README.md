@@ -21,6 +21,28 @@ Creator natively supports [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Pl
 
 ## Start your first project in three minutes
 
+### Start with a story in Main Chat
+
+In an existing workspace, import the built-in **story-writing** skill and
+enable it for the agent in Skills.
+
+With Creator's Main Chat actions granted, the bundled **story-writing** skill
+helps develop the story, characters and complete script before production.
+Ask “Move this agreed story into Creator” to import the exact script together
+with its character bible, reference notes, decisions and constraints. The
+completed task publishes the full story package and script, and opens the
+populated project. Importing requires no Creator model call or media generation.
+
+Ask to revise the story to keep a new version in the same project, or ask to
+produce it to confirm the imported revision and start Creator's production
+workflow. Model setup and media spending approvals still apply. Changes made
+in Creator cause a conflict rather than being overwritten from chat; review
+them in the project before continuing. Same-user, same-workspace projects can
+be reused from another chat.
+
+This handoff currently covers one film. Reference URLs and notes are preserved;
+reference files still need to be imported in Creator before use as media.
+
 ### 1. Open Creator
 
 Creator is installed and opened from **Apps** in QwenPaw. Start QwenPaw and open the console (default `http://127.0.0.1:8088/`), select **Apps** in the left navigation, find **QwenPaw Creator**, and choose Install. After installation, open it from the same Apps page.

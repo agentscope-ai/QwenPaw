@@ -1,0 +1,2566 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:qwenpaw:pawapp:contracts:1",
+  "$defs": {
+    "ApprovalChoice": {
+      "additionalProperties": false,
+      "description": "Stable machine decision, independent of the translated button label.",
+      "properties": {
+        "decision_id": {
+          "enum": [
+            "approve_once",
+            "reject",
+            "request_changes"
+          ],
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Description",
+          "type": "string"
+        },
+        "requires_comment": {
+          "default": false,
+          "title": "Requires Comment",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "decision_id",
+        "label"
+      ],
+      "title": "ApprovalChoice",
+      "type": "object"
+    },
+    "ApprovalCost": {
+      "additionalProperties": false,
+      "description": "An estimate is informational, never an implicit budget grant.",
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Amount"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "title": "ApprovalCost",
+      "type": "object"
+    },
+    "ApprovalInspection": {
+      "additionalProperties": false,
+      "description": "Opaque App-owned destination, resolved through a scoped handoff.",
+      "properties": {
+        "target_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_id",
+        "label"
+      ],
+      "title": "ApprovalInspection",
+      "type": "object"
+    },
+    "ApprovalSubject": {
+      "additionalProperties": false,
+      "description": "Bounded, user-facing scope of one immutable decision.",
+      "properties": {
+        "label": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "operation": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_count": {
+          "minimum": 1,
+          "title": "Operation Count",
+          "type": "integer"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "targets": {
+          "default": [],
+          "items": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "operation",
+        "operation_count"
+      ],
+      "title": "ApprovalSubject",
+      "type": "object"
+    },
+    "ApprovalRequest": {
+      "additionalProperties": false,
+      "description": "App-owned immutable proposal. The Host never infers an approval.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "request_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "execution",
+            "review"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Subject Digest",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "effects": {
+          "default": [],
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Effects",
+          "type": "array"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/ApprovalChoice"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Choices",
+          "type": "array"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalCost"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalSubject"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "inspection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalInspection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "decision_surface": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "app"
+          ],
+          "title": "Decision Surface",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "kind",
+        "subject_digest",
+        "title",
+        "summary",
+        "choices"
+      ],
+      "title": "ApprovalRequest",
+      "type": "object"
+    },
+    "ApprovalProgress": {
+      "additionalProperties": false,
+      "description": "Mutable task-wide counts of decisions, not underlying operations.",
+      "properties": {
+        "completed": {
+          "minimum": 0,
+          "title": "Completed",
+          "type": "integer"
+        },
+        "pending": {
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        },
+        "future": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Future"
+        },
+        "forecast": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "estimated",
+            "exact"
+          ],
+          "title": "Forecast",
+          "type": "string"
+        }
+      },
+      "required": [
+        "completed",
+        "pending"
+      ],
+      "title": "ApprovalProgress",
+      "type": "object"
+    },
+    "ApprovalActor": {
+      "additionalProperties": false,
+      "description": "Host-derived identity; never accepted in a decision HTTP payload.",
+      "properties": {
+        "principal_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "source": {
+          "const": "user_interface",
+          "default": "user_interface",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal_id"
+      ],
+      "title": "ApprovalActor",
+      "type": "object"
+    },
+    "ApprovalDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "subject_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Subject Digest",
+          "type": "string"
+        },
+        "decision_id": {
+          "enum": [
+            "approve_once",
+            "reject",
+            "request_changes"
+          ],
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        }
+      },
+      "required": [
+        "request_id",
+        "subject_digest",
+        "decision_id"
+      ],
+      "title": "ApprovalDecision",
+      "type": "object"
+    },
+    "ApprovalReceipt": {
+      "additionalProperties": false,
+      "description": "Decision delivery state shared across authenticated surfaces.",
+      "properties": {
+        "command_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Command Id",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/ApprovalDecision"
+        },
+        "actor": {
+          "$ref": "#/$defs/ApprovalActor"
+        },
+        "state": {
+          "enum": [
+            "prepared",
+            "in_flight",
+            "accepted",
+            "rejected",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "command_id",
+        "decision",
+        "actor",
+        "state"
+      ],
+      "title": "ApprovalReceipt",
+      "type": "object"
+    },
+    "ActionDescriptor": {
+      "additionalProperties": false,
+      "description": "Registered server-owned action; callers never supply an adapter ref.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "app_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "App Id",
+          "type": "string"
+        },
+        "action_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "engagements": {
+          "items": {
+            "enum": [
+              "delegated",
+              "direct"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Engagements",
+          "type": "array"
+        },
+        "input_schema": {
+          "additionalProperties": true,
+          "title": "Input Schema",
+          "type": "object"
+        },
+        "output_types": {
+          "default": [],
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Output Types",
+          "type": "array"
+        },
+        "permissions": {
+          "default": [],
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Permissions",
+          "type": "array"
+        },
+        "effects": {
+          "default": [],
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Effects",
+          "type": "array"
+        },
+        "adapter_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Adapter Ref",
+          "type": "string"
+        },
+        "result_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Schema"
+        },
+        "guidance": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guidance"
+        }
+      },
+      "required": [
+        "app_id",
+        "action_id",
+        "summary",
+        "engagements",
+        "input_schema",
+        "adapter_ref"
+      ],
+      "title": "ActionDescriptor",
+      "type": "object"
+    },
+    "ArtifactPresentation": {
+      "additionalProperties": false,
+      "description": "App hint for presenting a published artifact outside its workspace.\n\nPublication and presentation are deliberately separate: every published\nartifact remains available in the explicit artifact library and handoff,\nwhile the Host may show only the business-relevant subset in Main Chat.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "role": {
+          "enum": [
+            "primary",
+            "supporting",
+            "diagnostic",
+            "source"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
+          "title": "Kind",
+          "type": "string"
+        },
+        "visibility": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "app_only"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "preview": {
+          "default": "link",
+          "enum": [
+            "inline",
+            "link",
+            "none"
+          ],
+          "title": "Preview",
+          "type": "string"
+        },
+        "rank": {
+          "default": 100,
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Rank",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "role",
+        "kind"
+      ],
+      "title": "ArtifactPresentation",
+      "type": "object"
+    },
+    "ArtifactProducer": {
+      "additionalProperties": false,
+      "description": "Stable provenance for one App-published artifact version.",
+      "properties": {
+        "app_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "App Id",
+          "type": "string"
+        },
+        "action_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "executor_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Executor Id",
+          "type": "string"
+        },
+        "session_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "app_id",
+        "action_id",
+        "task_id",
+        "executor_id",
+        "session_id",
+        "run_id",
+        "source_id"
+      ],
+      "title": "ArtifactProducer",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Reference to an immutable version in the Host artifact store.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "artifact_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "type": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/ArtifactProducer"
+        },
+        "presentation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactPresentation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "type",
+        "version",
+        "name",
+        "media_type",
+        "size_bytes",
+        "digest",
+        "producer",
+        "created_at"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ArtifactCollection": {
+      "additionalProperties": false,
+      "description": "A bounded, scoped view of Host-published artifact versions.\n\nApps may project this generic collection into a richer library later, but\nthe Host owns the stable paging and authorization envelope.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "const": "host_artifacts",
+          "default": "host_artifacts",
+          "title": "Source",
+          "type": "string"
+        },
+        "app_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "App Id",
+          "type": "string"
+        },
+        "items": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "total_count": {
+          "minimum": 0,
+          "title": "Total Count",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "app_id",
+        "total_count"
+      ],
+      "title": "ArtifactCollection",
+      "type": "object"
+    },
+    "ExecutorRunRef": {
+      "additionalProperties": false,
+      "properties": {
+        "executor_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Executor Id",
+          "type": "string"
+        },
+        "session_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "executor_id",
+        "session_id",
+        "run_id"
+      ],
+      "title": "ExecutorRunRef",
+      "type": "object"
+    },
+    "LocalizedText": {
+      "additionalProperties": false,
+      "description": "Bounded app-owned display copy with a deterministic fallback.",
+      "properties": {
+        "default": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "title": "Default"
+        },
+        "translations": {
+          "additionalProperties": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxProperties": 16,
+          "propertyNames": {
+            "maxLength": 35,
+            "minLength": 2
+          },
+          "title": "Translations",
+          "type": "object"
+        }
+      },
+      "required": [
+        "default"
+      ],
+      "title": "LocalizedText",
+      "type": "object"
+    },
+    "ProjectRef": {
+      "additionalProperties": false,
+      "description": "Reference to an App-owned mutable project at a known revision.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "app_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "App Id",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Project Id",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "app_id",
+        "project_id",
+        "kind",
+        "revision"
+      ],
+      "title": "ProjectRef",
+      "type": "object"
+    },
+    "TaskExperienceContextItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "value": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "value"
+      ],
+      "title": "TaskExperienceContextItem",
+      "type": "object"
+    },
+    "TaskExperienceStepState": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "waiting",
+            "complete",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Progress"
+        }
+      },
+      "required": [
+        "step_id",
+        "status"
+      ],
+      "title": "TaskExperienceStepState",
+      "type": "object"
+    },
+    "TaskExperienceUpdate": {
+      "additionalProperties": false,
+      "description": "Mutable app projection. Stable IDs, rather than copy, drive behavior.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "step_states": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TaskExperienceStepState"
+          },
+          "maxItems": 12,
+          "title": "Step States",
+          "type": "array"
+        },
+        "active_step_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active Step Id"
+        },
+        "context_items": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TaskExperienceContextItem"
+              },
+              "maxItems": 12,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Items"
+        },
+        "view_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View Id"
+        }
+      },
+      "title": "TaskExperienceUpdate",
+      "type": "object"
+    },
+    "TaskInputOption": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "TaskInputOption",
+      "type": "object"
+    },
+    "TaskInputQuestion": {
+      "additionalProperties": false,
+      "properties": {
+        "question": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Description",
+          "type": "string"
+        },
+        "multi_select": {
+          "default": false,
+          "title": "Multi Select",
+          "type": "boolean"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/TaskInputOption"
+          },
+          "maxItems": 4,
+          "minItems": 2,
+          "title": "Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "question",
+        "options"
+      ],
+      "title": "TaskInputQuestion",
+      "type": "object"
+    },
+    "TaskInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Title",
+          "type": "string"
+        },
+        "questions": {
+          "items": {
+            "$ref": "#/$defs/TaskInputQuestion"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Questions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "request_id",
+        "questions"
+      ],
+      "title": "TaskInputRequest",
+      "type": "object"
+    },
+    "TaskSetupNeed": {
+      "additionalProperties": false,
+      "properties": {
+        "requirement_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "reason_code": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "reason_code",
+        "reason"
+      ],
+      "title": "TaskSetupNeed",
+      "type": "object"
+    },
+    "ExecutorEvent": {
+      "additionalProperties": false,
+      "description": "Ordered executor event; cursor and effects are committed together.",
+      "properties": {
+        "run_ref": {
+          "$ref": "#/$defs/ExecutorRunRef"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "cursor": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Cursor",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "pending",
+                "running",
+                "waiting_for_input",
+                "waiting_for_setup",
+                "waiting_for_approval",
+                "paused",
+                "succeeded",
+                "failed",
+                "cancelled",
+                "interrupted"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "text_result": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Result"
+        },
+        "setup_need": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskSetupNeed"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detail": {
+          "additionalProperties": true,
+          "title": "Detail",
+          "type": "object"
+        },
+        "project_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "artifact_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "input_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskInputRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_progress": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalProgress"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "experience_update": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskExperienceUpdate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "result_data": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Data"
+        }
+      },
+      "required": [
+        "run_ref",
+        "sequence",
+        "cursor"
+      ],
+      "title": "ExecutorEvent",
+      "type": "object"
+    },
+    "TaskAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "question": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "selected_options": {
+          "default": [],
+          "items": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Selected Options",
+          "type": "array"
+        },
+        "custom_text": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Custom Text"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "title": "TaskAnswer",
+      "type": "object"
+    },
+    "TaskCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "task_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "command_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Command Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "answer",
+            "cancel",
+            "decide"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "state": {
+          "default": "prepared",
+          "enum": [
+            "prepared",
+            "in_flight",
+            "accepted",
+            "rejected",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "number"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "number"
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "kind",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "TaskCommand",
+      "type": "object"
+    },
+    "TaskExperienceDefinition": {
+      "additionalProperties": false,
+      "description": "Static display language registered separately from authorization.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "action_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        },
+        "title": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/TaskExperienceStepDefinition"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "views": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TaskExperienceViewDefinition"
+          },
+          "maxItems": 8,
+          "title": "Views",
+          "type": "array"
+        },
+        "default_view_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default View Id"
+        }
+      },
+      "required": [
+        "action_id",
+        "title",
+        "steps"
+      ],
+      "title": "TaskExperienceDefinition",
+      "type": "object"
+    },
+    "TaskExperienceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "definition": {
+          "$ref": "#/$defs/TaskExperienceDefinition"
+        },
+        "definition_digest": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Definition Digest",
+          "type": "string"
+        },
+        "step_states": {
+          "items": {
+            "$ref": "#/$defs/TaskExperienceStepState"
+          },
+          "title": "Step States",
+          "type": "array"
+        },
+        "active_step_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active Step Id"
+        },
+        "context_items": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TaskExperienceContextItem"
+          },
+          "maxItems": 12,
+          "title": "Context Items",
+          "type": "array"
+        },
+        "view_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View Id"
+        }
+      },
+      "required": [
+        "definition",
+        "definition_digest",
+        "step_states"
+      ],
+      "title": "TaskExperienceSnapshot",
+      "type": "object"
+    },
+    "TaskExperienceStepDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalizedText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "TaskExperienceStepDefinition",
+      "type": "object"
+    },
+    "TaskExperienceViewDefinition": {
+      "additionalProperties": false,
+      "description": "App-owned destination resolved from the authenticated handoff.",
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "open_label": {
+          "$ref": "#/$defs/LocalizedText"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "open_label"
+      ],
+      "title": "TaskExperienceViewDefinition",
+      "type": "object"
+    },
+    "TaskOrigin": {
+      "additionalProperties": false,
+      "properties": {
+        "engagement": {
+          "enum": [
+            "delegated",
+            "direct"
+          ],
+          "title": "Engagement",
+          "type": "string"
+        },
+        "origin_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Origin Ref",
+          "type": "string"
+        },
+        "app_session_ref": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "App Session Ref"
+        },
+        "return_session_ref": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Return Session Ref"
+        }
+      },
+      "required": [
+        "engagement",
+        "origin_ref"
+      ],
+      "title": "TaskOrigin",
+      "type": "object"
+    },
+    "TaskScope": {
+      "additionalProperties": false,
+      "description": "Identity resolved by the Host, never trusted from an HTTP payload.",
+      "properties": {
+        "principal_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "workspace_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Workspace Id",
+          "type": "string"
+        },
+        "app_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "App Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal_id",
+        "workspace_id",
+        "app_id"
+      ],
+      "title": "TaskScope",
+      "type": "object"
+    },
+    "TaskHandle": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "task_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "submission_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Submission Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/TaskScope"
+        },
+        "action_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        },
+        "descriptor_digest": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Descriptor Digest",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/TaskOrigin"
+        },
+        "status": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "running",
+            "waiting_for_input",
+            "waiting_for_setup",
+            "waiting_for_approval",
+            "paused",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "submission_state": {
+          "default": "prepared",
+          "enum": [
+            "prepared",
+            "in_flight",
+            "accepted"
+          ],
+          "title": "Submission State",
+          "type": "string"
+        },
+        "recovery_state": {
+          "default": "none",
+          "enum": [
+            "none",
+            "reconciling",
+            "unresolved"
+          ],
+          "title": "Recovery State",
+          "type": "string"
+        },
+        "recovery_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recovery Reason"
+        },
+        "executor_run_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutorRunRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "replay_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replay Cursor"
+        },
+        "executor_sequence": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executor Sequence"
+        },
+        "event_sequence": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Event Sequence",
+          "type": "integer"
+        },
+        "text_result": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Result"
+        },
+        "result_data": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Data"
+        },
+        "output_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Output Refs",
+          "type": "array"
+        },
+        "project_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "experience": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskExperienceSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "input_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskInputRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approval_progress": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalProgress"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "setup_request_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Setup Request Id"
+        },
+        "setup_attempt": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Setup Attempt",
+          "type": "integer"
+        },
+        "cancel_requested": {
+          "default": false,
+          "title": "Cancel Requested",
+          "type": "boolean"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "number"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "number"
+        }
+      },
+      "required": [
+        "task_id",
+        "submission_id",
+        "scope",
+        "action_id",
+        "descriptor_digest",
+        "origin",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "TaskHandle",
+      "type": "object"
+    },
+    "TaskSubmission": {
+      "additionalProperties": false,
+      "description": "Durable envelope; reuse its identity after uncertain sends.",
+      "properties": {
+        "handle": {
+          "$ref": "#/$defs/TaskHandle"
+        },
+        "action": {
+          "$ref": "#/$defs/ActionDescriptor"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "handle",
+        "action",
+        "inputs"
+      ],
+      "title": "TaskSubmission",
+      "type": "object"
+    },
+    "TaskEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "created",
+            "submission",
+            "executor",
+            "recovery",
+            "command",
+            "setup"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "waiting_for_input",
+            "waiting_for_setup",
+            "waiting_for_approval",
+            "paused",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "number"
+        }
+      },
+      "required": [
+        "task_id",
+        "sequence",
+        "kind",
+        "status",
+        "payload",
+        "created_at"
+      ],
+      "title": "TaskEvent",
+      "type": "object"
+    },
+    "SuggestedValue": {
+      "additionalProperties": false,
+      "description": "A non-secret suggestion whose source remains visible to the App.",
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value"
+        },
+        "provenance": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "provenance"
+      ],
+      "title": "SuggestedValue",
+      "type": "object"
+    },
+    "SetupRequest": {
+      "additionalProperties": false,
+      "description": "Host-owned durable request. Scope is derived, not caller supplied.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "request_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/TaskScope"
+        },
+        "descriptor_digest": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Descriptor Digest",
+          "type": "string"
+        },
+        "input_digest": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Digest"
+        },
+        "entry_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "origin_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Origin Ref",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "action_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action Id"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attempt"
+        },
+        "project_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "plan_digest": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Digest"
+        },
+        "expected_revisions": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "propertyNames": {
+            "maxLength": 256,
+            "minLength": 1
+          },
+          "title": "Expected Revisions",
+          "type": "object"
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "suggested_values": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SuggestedValue"
+          },
+          "title": "Suggested Values",
+          "type": "array"
+        },
+        "presentation": {
+          "enum": [
+            "chat_card",
+            "secure_form",
+            "app_entry"
+          ],
+          "title": "Presentation",
+          "type": "string"
+        },
+        "expires_at": {
+          "title": "Expires At",
+          "type": "number"
+        },
+        "return_target": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Return Target",
+          "type": "string"
+        },
+        "state": {
+          "default": "requested",
+          "enum": [
+            "requested",
+            "opened",
+            "waiting_external",
+            "saved",
+            "cancelled",
+            "failed",
+            "expired"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "number"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "number"
+        }
+      },
+      "required": [
+        "request_id",
+        "scope",
+        "descriptor_digest",
+        "entry_id",
+        "requirement_ids",
+        "origin_ref",
+        "presentation",
+        "expires_at",
+        "return_target",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "SetupRequest",
+      "type": "object"
+    },
+    "SetupResult": {
+      "additionalProperties": false,
+      "description": "Terminal App-backend receipt; saved does not imply readiness.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "request_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "result_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Result Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "saved",
+            "cancelled",
+            "failed"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "changed_requirement_ids": {
+          "default": [],
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Changed Requirement Ids",
+          "type": "array"
+        },
+        "config_revisions": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "propertyNames": {
+            "maxLength": 256,
+            "minLength": 1
+          },
+          "title": "Config Revisions",
+          "type": "object"
+        },
+        "public_refs": {
+          "default": [],
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Public Refs",
+          "type": "array"
+        },
+        "pending_effects": {
+          "default": [],
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Pending Effects",
+          "type": "array"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        }
+      },
+      "required": [
+        "request_id",
+        "result_id",
+        "outcome"
+      ],
+      "title": "SetupResult",
+      "type": "object"
+    },
+    "SetupOpenAction": {
+      "additionalProperties": false,
+      "description": "Safe navigation returned by a registered App entry handler.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "app_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "App Id",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "entry_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "presentation": {
+          "enum": [
+            "chat_card",
+            "secure_form",
+            "app_entry"
+          ],
+          "title": "Presentation",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "app_id",
+        "request_id",
+        "entry_id",
+        "presentation",
+        "path"
+      ],
+      "title": "SetupOpenAction",
+      "type": "object"
+    },
+    "OpenAppAction": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "app_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "title": "App Id",
+          "type": "string"
+        },
+        "handoff_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Handoff Id",
+          "type": "string"
+        },
+        "path": {
+          "pattern": "^/apps/[a-z0-9][a-z0-9-]*\\?handoff=",
+          "title": "Path",
+          "type": "string"
+        },
+        "project_ref": {
+          "$ref": "#/$defs/ProjectRef"
+        },
+        "view_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View Id"
+        }
+      },
+      "required": [
+        "app_id",
+        "handoff_id",
+        "path",
+        "project_ref"
+      ],
+      "title": "OpenAppAction",
+      "type": "object"
+    }
+  }
+}

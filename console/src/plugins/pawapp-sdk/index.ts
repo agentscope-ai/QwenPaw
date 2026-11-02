@@ -26,6 +26,8 @@ import {
 } from "./host";
 import { createUiNamespace } from "./ui";
 import { createDependenciesNamespace } from "./dependencies";
+import { createDurableNamespaces } from "./durable";
+import { createAppsNamespace } from "./apps";
 import type { PawSdk, PawSdkFactory } from "./types";
 import { getActivePawAppId } from "./context";
 import { normalizeAppId } from "./scope";
@@ -46,6 +48,8 @@ export const paw: PawSdk = {
   host: hostNamespace,
   ui: createUiNamespace(getActivePawAppId),
   dependencies: createDependenciesNamespace(apiNamespace),
+  apps: createAppsNamespace(getActivePawAppId, hostNamespace),
+  ...createDurableNamespaces(getActivePawAppId, hostNamespace),
 
   // Convenience re-exports at top level
   chat,
@@ -73,6 +77,8 @@ export function forApp(appId: string): PawSdk {
     dependencies: createDependenciesNamespace(
       createApiNamespace(appIdProvider),
     ),
+    apps: createAppsNamespace(appIdProvider, host),
+    ...createDurableNamespaces(appIdProvider, host),
     chat: host.chat,
     chatStream: host.chatStream,
     getChatHistory: host.getChatHistory,
@@ -90,9 +96,14 @@ export const pawSdkFactory: PawSdkFactory = { forApp };
 // Re-export types and sub-modules for advanced usage
 export type {
   PawApiNamespace,
+  PawAppsNamespace,
+  PawArtifactRef,
+  PawArtifactPresentation,
   PawApiResponse,
   PawHostNamespace,
+  PawHandoffRequest,
   PawPageRegistration,
+  PawProjectRef,
   PawDisposable,
   PawDependenciesNamespace,
   PawDependencyAction,
@@ -119,10 +130,27 @@ export type {
   PawTaskEventHandler,
   PawTaskEvents,
   PawTaskHandle,
+  PawTaskContext,
 } from "./types";
+
+export { createAppsNamespace } from "./apps";
 
 export { createPawTask } from "./task";
 export { createDependenciesNamespace } from "./dependencies";
 export { PawApiError } from "./api";
 export { PawChatStreamError } from "./host";
 export { apiNamespace, hostNamespace, createApiNamespace, createHostNamespace };
+
+export { createDurableNamespaces } from "./durable";
+export type {
+  PawTasksNamespace,
+  PawArtifactsNamespace,
+  PawSetupNamespace,
+} from "./durable";
+export type * from "./contracts";
+export { assertContract } from "./contracts";
+export type {
+  DurableOptions,
+  DispatchOptions,
+  DispatchResult,
+} from "./durable";

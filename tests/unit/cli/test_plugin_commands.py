@@ -965,10 +965,10 @@ def test_offline_force_dependency_failure_preserves_old(
         )
         raise RuntimeError("deps failed")
 
-    from qwenpaw.plugins.loader import PluginLoader
+    from qwenpaw.plugins import loader
 
     monkeypatch.setattr(
-        PluginLoader,
+        loader.PluginLoader,
         "_acquire_dependency_wheels",
         fail_install,
     )

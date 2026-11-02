@@ -89,9 +89,14 @@ def _normalize_working_dir_bound_paths(data: object) -> object:
     def _rewrite_path_value(v: object) -> object:
         if not isinstance(v, str) or not v:
             return v
-        if v.startswith(legacy_root_tilde):
+        # A custom working directory may itself live under ~/.copaw. Once
+        # normalized, preserve it across config saves and process restarts.
+        expanded = str(Path(v).expanduser())
+        if expanded == new_root_abs or expanded.startswith(new_root_abs + "/"):
+            return v
+        if v == legacy_root_tilde or v.startswith(legacy_root_tilde + "/"):
             return new_root_abs + v[len(legacy_root_tilde) :]
-        if v.startswith(legacy_root_abs):
+        if v == legacy_root_abs or v.startswith(legacy_root_abs + "/"):
             return new_root_abs + v[len(legacy_root_abs) :]
         return v
 

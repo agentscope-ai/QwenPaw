@@ -1,0 +1,46 @@
+name: PawApp Contract Conformance
+on:
+  push:
+    branches: [dev/pawapp-vnext]
+  pull_request:
+    paths:
+      - 'src/qwenpaw/pawapp/**'
+      - 'src/qwenpaw/plugins/validation.py'
+      - 'src/qwenpaw/config/utils.py'
+      - 'plugins/apps/**'
+      - 'console/src/plugins/pawapp-sdk/**'
+      - 'console/src/plugins/usePluginLoader*'
+      - 'console/src/api/modules/pawappTasks*'
+      - 'console/src/components/Chat/ToolCards/cards/PawAppTaskCard*'
+      - 'tests/**'
+      - 'scripts/*pawapp*'
+      - 'docs/design/pawapp-contract*'
+      - '.github/workflows/pawapp-contracts.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - name: Install Host test environment
+        run: python -m pip install -e '.[test]'
+      - name: Check generated contract drift and Host conformance
+        run: |
+          python scripts/generate-pawapp-contracts.py --check
+          python -m pytest -q tests/unit/pawapp tests/unit/plugins/test_plugin_api_extensions.py tests/unit/cli/test_plugin_commands.py tests/unit/config/test_config_utils.py
+      - name: Check frontend contract clients and task cards
+        working-directory: console
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc -b --noEmit
+          npm run test:run -- src/plugins/pawapp-sdk src/plugins/usePluginLoader.test.ts src/api/modules/pawappTasks.test.ts src/components/Chat/ToolCards/cards/PawAppTaskCard.test.tsx

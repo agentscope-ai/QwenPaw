@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -24,7 +25,16 @@ def _load_plugin_entrypoint(monkeypatch):
     # Discard a partially loaded or foreign qwenpaw module before loading
     # the checked-out host source so this contract test is deterministic.
     for module_name in tuple(sys.modules):
-        if module_name == "qwenpaw" or module_name.startswith("qwenpaw."):
+        if (
+            module_name == "qwenpaw"
+            or module_name.startswith("qwenpaw.")
+            or module_name
+            in {
+                "services.pawapp_tasks",
+                "services.pawapp_video_workflow",
+                "services.setup_coordination",
+            }
+        ):
             monkeypatch.delitem(sys.modules, module_name, raising=False)
     monkeypatch.syspath_prepend(str(QWENPAW_SOURCE))
     spec = importlib.util.spec_from_file_location(
@@ -87,6 +97,59 @@ def test_plugin_rejects_unsafe_runtime_path_configuration(
         module.configure_creator_runtime_environment(working_dir=tmp_path)
 
 
+def test_plugin_registers_durable_actions(monkeypatch) -> None:
+    module = _load_plugin_entrypoint(monkeypatch)
+
+    registrations = {
+        item.action.action_id: item for item in module.app._task_actions
+    }
+
+    assert len(module.app._task_actions) == len(registrations) == 7
+    assert {
+        action_id: (
+            item.requirement_ids,
+            item.deferred_requirement_ids,
+            item.exposure,
+        )
+        for action_id, item in registrations.items()
+    } == {
+        "prepare-production": ((), (), "host_public"),
+        "revise-story": ((), (), "host_public"),
+        "produce-video": (
+            ("creator-llm",),
+            ("storyboard-image", "shot-video"),
+            "host_public",
+        ),
+        "create-project": ((), (), "host_public"),
+        "create-video": (
+            ("creator-llm",),
+            ("storyboard-image", "shot-video"),
+            "host_public",
+        ),
+        "generate-storyboard": (("storyboard-image",), (), "app_private"),
+        "generate-video": (("shot-video",), (), "app_private"),
+    }
+    assert all(
+        item.settings_entry == "/apps/qwenpaw-creator"
+        for item in registrations.values()
+    )
+    for action_id in ("prepare-production", "revise-story"):
+        registration = registrations[action_id]
+        assert callable(registration.handler)
+        assert registration.factory is None
+        assert registration.recovery == "replay_safe"
+    for action_id, adapter_type in {
+        "produce-video": module.CreatorStoryProductionTaskAdapter,
+        "create-project": module.CreatorCreateProjectTaskAdapter,
+        "create-video": module.CreatorVideoWorkflowTaskAdapter,
+        "generate-storyboard": module.CreatorStoryboardTaskAdapter,
+        "generate-video": module.CreatorVideoTaskAdapter,
+    }.items():
+        registration = registrations[action_id]
+        assert registration.handler is None
+        assert isinstance(registration.factory(), adapter_type)
+
+
 def test_real_qwenpaw_host_mount_keeps_creator_errors_local_and_structured(
     api_runtime_root,
     monkeypatch,
@@ -104,7 +167,11 @@ def test_real_qwenpaw_host_mount_keeps_creator_errors_local_and_structured(
         plugin_api = PluginApi(
             "qwenpaw-creator",
             config={},
-            manifest={"id": "qwenpaw-creator"},
+            manifest=json.loads(
+                (WORKSPACE_ROOT / "qwenpaw-creator" / "plugin.json").read_text(
+                    encoding="utf-8",
+                ),
+            ),
         )
         plugin_api.set_registry(registry)
         module.app.register(plugin_api)

@@ -20,10 +20,10 @@ from models import config as model_config
 from models import s2v_model, video_model
 from models.image import dashscope_provider
 from models.image.dashscope_provider import DashScopeImageModel
+from services.execution_authorization import execution_provider_model
 from services.file_agent_runtime.driver import (
     FileCreatorAgentRuntime,
     _BILLING_SENSITIVE_ARGUMENTS,
-    _execution_provider_model,
 )
 from services.media_files import r2v_execution
 from services.project_files.models import (
@@ -373,11 +373,11 @@ def test_authorized_model_matches_the_submitted_model(monkeypatch) -> None:
     ):
         _patch_video_config(monkeypatch, model=configured, backend=backend)
         monkeypatch.setattr(
-            "services.file_agent_runtime.driver.get_video_backend",
+            "services.execution_authorization.get_video_backend",
             lambda value=backend: value,
         )
         monkeypatch.setattr(
-            "services.file_agent_runtime.driver.get_video_model_name",
+            "services.execution_authorization.get_video_model_name",
             lambda value=configured: value,
         )
 
@@ -395,7 +395,7 @@ def test_authorized_model_matches_the_submitted_model(monkeypatch) -> None:
             _fake_async_client("task-identity", captured),
         )
         arguments = {} if mode is None else {"mode": mode}
-        _, authorized = _execution_provider_model(video_spec, arguments)
+        _, authorized = execution_provider_model(video_spec, arguments)
         kwargs: dict = {"duration": 5, "resolution": "720P"}
         if mode == "i2v":
             kwargs["first_frame_url"] = "/generated/frame.png"

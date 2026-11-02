@@ -33,11 +33,14 @@ def script_inputs(document):
     """
     document = _document(document)
     scripts = {}
+    stories = {}
     for slot in (
         document.get("assets", {}).get("artifact_slots_by_id", {}).values()
     ):
         if slot.get("kind") == "timeline_script":
             scripts[slot.get("owner_ref")] = slot.get("selected_version_id")
+        if slot.get("kind") == "story_package":
+            stories[slot.get("owner_ref")] = slot.get("selected_version_id")
     return [
         {
             "id": timeline_id,
@@ -45,6 +48,11 @@ def script_inputs(document):
             "synopsis": timeline.get("synopsis"),
             "description": timeline.get("description"),
             "script": scripts.get(f"timeline:{timeline_id}"),
+            **(
+                {"story": stories[f"timeline:{timeline_id}"]}
+                if f"timeline:{timeline_id}" in stories
+                else {}
+            ),
         }
         for timeline_id, timeline in _live_timelines(document)
     ]

@@ -847,6 +847,130 @@ class ProjectRuntimeSessionStore:
             self._read_session_snapshot_unlocked(project_id, session_id)
             return self._list_conversations_unlocked(project_id, session_id)
 
+    def start_imported_story_goal(
+        self,
+        project_id: str,
+        *,
+        submission_id: str,
+        intent: str,
+        admission_guard: Callable[[], bool],
+    ) -> tuple[CreatorMessageRecord, CreatorGoalRecord]:
+        """Admit one production goal on an existing imported project.
+
+        Keep the message, goal and active-session pointer under the same
+        Runtime lock. Stable identities recover a partial admission after
+        process loss; replay never reactivates a completed goal.
+        """
+        project_id = _safe_segment(project_id, "project_id")
+        identity = _safe_segment(submission_id, "submission_id")
+        goal_id = f"story-goal-{identity}"
+        client_id = f"story-production-{identity}"
+        metadata = {"source": "story_production", "submission_id": identity}
+        with self._project_lock(project_id, exclusive=True):
+            bootstrap = self._existing_bootstrap_unlocked(project_id)
+            if bootstrap is None:
+                raise RuntimeSessionNotFound(project_id)
+            session_id = bootstrap.session.session_id
+            conversation_id = bootstrap.default_conversation.conversation_id
+            session = self._recover_session_unlocked(project_id, session_id)
+            existing = self._goal_store(project_id, goal_id).read_or_none()
+            message = self._message_by_client_id_unlocked(
+                project_id,
+                session_id,
+                client_id,
+            )
+            if existing is not None and message is not None:
+                if existing.intent != intent or existing.metadata != metadata:
+                    raise SessionStateConflict("story production conflict")
+                if (
+                    existing.status == CreatorGoalStatus.ACTIVE
+                    and session.active_goal_id != goal_id
+                ):
+                    active = (
+                        self._read_goal_unlocked(
+                            project_id,
+                            session.active_goal_id,
+                        )
+                        if session.active_goal_id
+                        else None
+                    )
+                    if session.active_run_id or (
+                        active
+                        and active.status
+                        not in {
+                            CreatorGoalStatus.COMPLETED,
+                            CreatorGoalStatus.CANCELLED,
+                            CreatorGoalStatus.FAILED,
+                        }
+                    ):
+                        raise SessionStateConflict("project has another goal")
+                    if not admission_guard():
+                        raise RequestAdmissionConflict(
+                            "story revision changed",
+                        )
+                    self._write_session_unlocked(
+                        session.model_copy(
+                            update={
+                                "active_goal_id": goal_id,
+                                "updated_at": utc_now(),
+                            },
+                        ),
+                    )
+                return message, existing
+            if session.active_run_id:
+                raise SessionStateConflict("project is running")
+            if session.active_goal_id:
+                active = self._read_goal_unlocked(
+                    project_id,
+                    session.active_goal_id,
+                )
+                if active.status not in {
+                    CreatorGoalStatus.COMPLETED,
+                    CreatorGoalStatus.CANCELLED,
+                    CreatorGoalStatus.FAILED,
+                }:
+                    raise SessionStateConflict("project has an active goal")
+            # The guard may confirm the script under this exclusive lifecycle
+            # lock, after checking that no other Runtime goal is active.
+            if not admission_guard():
+                raise RequestAdmissionConflict("story revision changed")
+            appended = self._append_message_unlocked(
+                project_id=project_id,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                role="user",
+                content_parts=[MessageContentPart(type="text", text=intent)],
+                message_id=f"story-message-{identity}",
+                client_message_id=client_id,
+                request_hash=_request_hash({"intent": intent, **metadata}),
+                source="story_production",
+                channel=MessageChannel.COMPOSER,
+                classification=MessageClassification.MUTATION_INSTRUCTION,
+                review_boundary=None,
+                metadata=metadata,
+                completed_at=None,
+            )
+            goal = CreatorGoalRecord(
+                goal_id=goal_id,
+                project_id=project_id,
+                creator_session_id=session_id,
+                conversation_id=conversation_id,
+                root_message_seq=appended.message.message_seq,
+                intent=intent,
+                metadata=metadata,
+            )
+            self._goal_store(project_id, goal_id).create(goal)
+            session = self._recover_session_unlocked(project_id, session_id)
+            self._write_session_unlocked(
+                session.model_copy(
+                    update={
+                        "active_goal_id": goal_id,
+                        "updated_at": utc_now(),
+                    },
+                ),
+            )
+            return appended.message, goal
+
     def create_goal(
         self,
         project_id: str,
@@ -2315,8 +2439,8 @@ class ProjectRuntimeSessionStore:
         return self._runtime_root(project_id) / "sessions" / session_id
 
     @contextmanager
-    def _project_lock(self, project_id: str):
-        with self._project_lifecycle_lock(project_id):
+    def _project_lock(self, project_id: str, *, exclusive: bool = False):
+        with self._project_lifecycle_lock(project_id, shared=not exclusive):
             self._require_project(project_id)
             with self._runtime_lock(project_id):
                 yield
@@ -2336,14 +2460,19 @@ class ProjectRuntimeSessionStore:
         self._require_project(project_id)
         yield
 
-    def _project_lifecycle_lock(self, project_id: str) -> CrossProcessFileLock:
+    def _project_lifecycle_lock(
+        self,
+        project_id: str,
+        *,
+        shared: bool = True,
+    ) -> CrossProcessFileLock:
         # Runtime transitions only need a shared lifecycle guard: Project
         # delete/commit take the exclusive side, while independent Session,
         # Execution and Agent Run domains may update concurrently.
         return CrossProcessFileLock(
             self.data_root / ".locks" / f"project-{project_id}.lock",
             timeout_seconds=self.lock_timeout_seconds,
-            shared=True,
+            shared=shared,
         )
 
     def _runtime_lock(self, project_id: str) -> CrossProcessFileLock:

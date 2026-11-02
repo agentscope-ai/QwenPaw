@@ -84,11 +84,16 @@ def _build_ctx(
     workspace_registry = getattr(app_state, "multi_agent_manager", None)
     app_services = getattr(app_state, "app_services", None)
     plugin_registry = getattr(app_state, "plugin_registry", None)
+    capability_broker = getattr(app_state, "pawapp_capabilities", None)
 
     # Get or create session for storage
     session = _get_session(request)
 
-    agent_id = request.query_params.get("agent_id", "default")
+    agent_id = (
+        request.query_params.get("agent_id")
+        or request.headers.get("X-Agent-Id")
+        or "default"
+    )
 
     return PawAppContext(
         app_id=app_id,
@@ -99,7 +104,8 @@ def _build_ctx(
         _app_services=app_services,
         _plugin_registry=plugin_registry,
         _session=session,
-        _sse_channel=None,  # Set by TaskManager for long-running tasks
+        _sse_channel=None,  # App-owned streams may attach a channel
+        _capability_broker=capability_broker,
     )
 
 
@@ -161,4 +167,20 @@ async def get_scoped_ctx(request: Request) -> PawAppContext:
             detail="channel is not available on app routes",
         )
 
-    return _build_ctx(request, user_id=user_id, channel=_SCOPED_CHANNEL)
+    ctx = _build_ctx(request, user_id=user_id, channel=_SCOPED_CHANNEL)
+    workspace = (
+        request.query_params.get("agent_id")
+        or request.headers.get("X-Agent-Id")
+        or "default"
+    )
+    claims = request.query_params.getlist(
+        "agent_id",
+    ) + request.headers.getlist("X-Agent-Id")
+    if any(value != workspace for value in claims):
+        raise HTTPException(403, "workspace scope mismatch")
+    ctx.agent_id = workspace
+    # Scoped dependency injection owns these private Host services.
+    # pylint: disable=protected-access
+    ctx._task_runtime = getattr(request.app.state, "pawapp_tasks", None)
+    ctx._task_origins = getattr(request.app.state, "pawapp_task_origins", None)
+    return ctx
