@@ -197,9 +197,10 @@ class SubAgentRubric(RubricStrategy):
 
 @dataclass
 class _QualitativeRubricState:
-    """Per-session qualitative evaluation count."""
+    """Evaluation count and current revision reason for one session."""
 
     evaluations: int = 0
+    revision_reason: str | None = None
 
 
 class QualitativeRubricGate(LoopGate):
@@ -265,38 +266,35 @@ class QualitativeRubricGate(LoopGate):
             self._max_evaluations,
         )
         if self._use_decision_model and isinstance(ctx, dict):
-            result = await self._check_decision(ctx)
+            result = await self._check_decision(ctx, state)
             if result is not None:
                 return result
+        state.revision_reason = None
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             reason="qualitative rubric requested revision",
             reset_peers=True,
         )
 
-    async def _check_decision(self, ctx: dict) -> StopHandlerResult | None:
+    async def _check_decision(
+        self,
+        ctx: dict,
+        state: _QualitativeRubricState,
+    ) -> StopHandlerResult | None:
         """Return None when the original self-check should handle completion."""
         agent = ctx.get("agent")
         config = getattr(agent, "_agent_config", None)
         candidate = ctx.get("final_msg")
         if config is None or candidate is None:
             return None
-        from ...providers.typesafe_provider import (
-            TypeSafeEvaluationError,
-            resolve_decision_model,
-        )
+        from ...providers.typesafe_provider import resolve_decision_model
 
         try:
             async with asyncio.timeout(_DECISION_TIMEOUT_SECONDS):
-                try:
-                    provider, model = await run_sync_io(
-                        resolve_decision_model,
-                        config.decision_model,
-                    )
-                except TypeSafeEvaluationError:
-                    return None
-                if not provider.api_key.strip():
-                    return None
+                provider, model = await run_sync_io(
+                    resolve_decision_model,
+                    config.decision_model,
+                )
                 provider.validate_model_selection(model, "decision")
                 response = await provider.evaluate(
                     state=await self._decision_state(agent, candidate),
@@ -317,20 +315,15 @@ class QualitativeRubricGate(LoopGate):
                 raise ValueError("Invalid continuation probability")
             if answer.probability <= 0.5:
                 return StopHandlerResult(action=StopAction.BYPASS)
-            message = self._rubric
             reason = response.content.get("reason")
-            if isinstance(reason, ChoiceAnswer) and reason.confidence > 0.5:
-                detail = _REASON_QUESTION.criteria.get(reason.choice)
-                if detail:
-                    hint = (
-                        "Check this possible issue against the conversation "
-                        f"and tool results before acting. {detail}"
-                    )
-                    message = f"{message}\n{hint}" if message else hint
+            state.revision_reason = (
+                _REASON_QUESTION.criteria.get(reason.choice)
+                if isinstance(reason, ChoiceAnswer) and reason.confidence > 0.5
+                else None
+            )
             return StopHandlerResult(
                 action=StopAction.INTERRUPT_AND_CONTINUE,
                 reason="Decision model found unfinished work",
-                continuation_message=message,
             )
         except Exception as exc:
             logger.warning(
@@ -384,13 +377,21 @@ class QualitativeRubricGate(LoopGate):
 
     def build_continuation(self) -> str:
         """Return the re-prompt text."""
-        return self._rubric
+        state = self._state()
+        if not state or not state.revision_reason:
+            return self._rubric
+        hint = (
+            "Check this possible issue against the conversation and tool "
+            f"results before acting. {state.revision_reason}"
+        )
+        return f"{self._rubric}\n{hint}" if self._rubric else hint
 
     def reset_turn(self) -> None:
         """Reset evaluation counter for a new turn."""
         state = self._state()
         if state is not None:
             state.evaluations = 0
+            state.revision_reason = None
 
 
 __all__ = [

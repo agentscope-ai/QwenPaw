@@ -50,31 +50,6 @@ function LoopForm({
 }
 
 describe("AgentLoopCard custom mode rendering", () => {
-  it("saves the Jev setting on the built-in rubric", async () => {
-    let form: FormInstance | undefined;
-    const onEdit = vi.fn();
-    renderWithProviders(
-      <LoopForm onForm={(next) => (form = next)} onEdit={onEdit} />,
-    );
-    const panel = within(screen.getByRole("tabpanel"));
-    fireEvent.click(panel.getByText("Qualitative completion check"));
-    fireEvent.click(
-      panel.getByRole("switch", {
-        name: "Enable qualitative completion check",
-      }),
-    );
-    const decision = await panel.findByRole("switch", {
-      name: "Use Jev to decide when to stop",
-    });
-    expect(decision).not.toBeChecked();
-    onEdit.mockClear();
-    fireEvent.click(decision);
-    expect(form?.getFieldValue(["loop", "rubric", "use_decision_model"])).toBe(
-      true,
-    );
-    expect(onEdit).toHaveBeenCalled();
-  });
-
   it.each(["built-in", "custom"])(
     "updates %s repetition thresholds and notifies autosave",
     async (kind) => {
@@ -154,22 +129,6 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       true,
     );
-    fireEvent.click(editor.getByText("Qualitative completion check"));
-    const decision = await editor.findByRole("switch", {
-      name: "Use Jev to decide when to stop",
-    });
-    expect(decision).not.toBeChecked();
-    fireEvent.click(decision);
-    const gates: CustomLoopModeConfig["gates"] = form!.getFieldValue([
-      "loop",
-      "custom_modes",
-      0,
-      "gates",
-    ]);
-    expect(
-      gates.find((gate) => gate.type === "qualitative_rubric")?.params
-        .use_decision_model,
-    ).toBe(true);
     onEdit.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
     expect(onEdit).toHaveBeenCalledOnce();

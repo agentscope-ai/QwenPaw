@@ -252,8 +252,8 @@ def _entries() -> list[GateCatalogEntry]:
             type="qualitative_rubric",
             title="Qualitative completion check",
             description=(
-                "Check completion with agent self-checks or opt in "
-                "to the decision model."
+                "Check text responses without tool calls using "
+                "natural-language criteria."
             ),
             category="quality",
             params_model=QualitativeRubricParams,
