@@ -250,6 +250,19 @@ class ModelInfo(BaseModel):
         description="Override provider-level thinking_budget_range [min, max] "
         "for this model.",
     )
+
+    @model_validator(mode="after")
+    def validate_thinking_budget_range(self):
+        """Require a complete, ordered [min, max] thinking budget range."""
+        budget_range = self.thinking_budget_range
+        if budget_range is not None and (
+            len(budget_range) != 2 or budget_range[0] > budget_range[1]
+        ):
+            raise ValueError(
+                "thinking_budget_range must be [min, max] with min <= max",
+            )
+        return self
+
     supports_agent_thinking: bool | None = Field(
         default=None,
         description=(

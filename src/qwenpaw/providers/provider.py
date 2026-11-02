@@ -1225,6 +1225,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     and config["max_input_length"] is not None
                 ):
                     max_input_length = int(config["max_input_length"])
+                    if max_input_length < 1000:
+                        raise ValueError(
+                            "max_input_length must be at least 1000",
+                        )
                     if (
                         model.max_input_length != max_input_length
                         or not model.max_input_length_configured
@@ -1260,6 +1264,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                         if config["thinking_budget"] is not None
                         else None
                     )
+                    if thinking_budget is not None and thinking_budget < 1:
+                        raise ValueError(
+                            "thinking_budget must be at least 1",
+                        )
                     if model.thinking_budget != thinking_budget:
                         model.thinking_budget = thinking_budget
                         changed_fields.append("thinking_budget")
