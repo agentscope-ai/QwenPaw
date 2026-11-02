@@ -1884,6 +1884,9 @@
     "retry": "Повторить"
   },
   "modelSelector": {
+    "subagentModel": "Модель субагента",
+    "chooseFallback": "Резервная модель",
+    "enableFallback": "Использовать резервную модель при сбое",
     "noFallback": "Не использовать",
     "selectModel": "Выбрать модель",
     "noConfiguredModels": "Нет настроенных моделей",
@@ -1919,6 +1922,7 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "primaryModel": "Основная модель",
     "disableBtn": "Отключить",
     "modelType": "Тип модели",
     "modelTypeChat": "Чат",

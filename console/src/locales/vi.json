@@ -2218,6 +2218,9 @@
     "currentAgentLlmCallsTooltip": "Số lượt trợ lý có metadata sử dụng đã ghi nhận của agent hiện tại (không phải số lời gọi API thô; phiên cũ có thể hiển thị 0)"
   },
   "modelSelector": {
+    "subagentModel": "Mô hình tác tử phụ",
+    "chooseFallback": "Mô hình dự phòng",
+    "enableFallback": "Dùng mô hình dự phòng khi thất bại",
     "noFallback": "Không sử dụng",
     "placeholder": "Chọn mô hình",
     "searchPlaceholder": "Tìm kiếm mô hình...",
@@ -3025,6 +3028,7 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "primaryModel": "Mô hình chính",
     "connect": "Xác thực OAuth",
     "settings": "Cài đặt",
     "disableBtn": "Vô hiệu hóa",

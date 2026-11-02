@@ -2052,6 +2052,9 @@
     "emptyValue": "String vazia"
   },
   "modelSelector": {
+    "subagentModel": "Modelo do subagente",
+    "chooseFallback": "Modelo de reserva",
+    "enableFallback": "Usar modelo de reserva em caso de falha",
     "noFallback": "Não usar",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
@@ -2149,6 +2152,7 @@
     "retry": "Tentar novamente"
   },
   "models": {
+    "primaryModel": "Modelo principal",
     "disableBtn": "Desativar",
     "discoveryOriginApi": "Detectado via API",
     "discoveryOriginCatalog": "Catálogo oficial",

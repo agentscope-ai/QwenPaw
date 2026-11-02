@@ -1316,6 +1316,9 @@
     "turnCanceled": "Dihentikan"
   },
   "modelSelector": {
+    "subagentModel": "Model subagen",
+    "chooseFallback": "Model cadangan",
+    "enableFallback": "Gunakan model cadangan saat gagal",
     "noFallback": "Tidak digunakan",
     "selectModel": "Pilih model",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
@@ -3700,6 +3703,7 @@
     "executeDefault": "Jalankan alat"
   },
   "models": {
+    "primaryModel": "Model utama",
     "discoveryOriginApi": "Terdeteksi via API",
     "discoveryOriginCatalog": "Katalog resmi",
     "discoveryOriginBoth": "API + katalog",

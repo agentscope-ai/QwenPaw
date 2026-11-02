@@ -54,6 +54,7 @@ export function MCPConnectionEditor({
       <div className={styles.toolbar}>
         <span>{String(config?.key ?? "")}</span>
         <Button
+          data-settings-open={!advanced ? "mcp-json" : undefined}
           type="text"
           icon={
             advanced ? <SlidersHorizontal size={16} /> : <Code2 size={16} />
@@ -70,6 +71,7 @@ export function MCPConnectionEditor({
       {advanced || !config ? (
         <Input.TextArea
           aria-label="JSON"
+          data-settings-target="settingsCenter.mcpJsonConfig"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           autoSize={{ minRows: 10, maxRows: 20 }}

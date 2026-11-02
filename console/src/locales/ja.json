@@ -1882,6 +1882,9 @@
     "retry": "再試行"
   },
   "modelSelector": {
+    "subagentModel": "サブエージェントモデル",
+    "chooseFallback": "フォールバックモデル",
+    "enableFallback": "失敗時にフォールバックモデルを使用",
     "noFallback": "使用しない",
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
@@ -1917,6 +1920,7 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "primaryModel": "メインモデル",
     "disableBtn": "無効化",
     "modelType": "モデルタイプ",
     "modelTypeChat": "チャット",
