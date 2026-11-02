@@ -44,6 +44,7 @@ def _running_config(
     )
     rubric = SimpleNamespace(
         enabled=rubric_enabled,
+        use_decision_model=False,
         prompt="continue working",
         max_interventions=1,
     )

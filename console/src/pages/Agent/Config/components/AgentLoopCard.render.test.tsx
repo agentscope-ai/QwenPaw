@@ -23,12 +23,14 @@ vi.mock("react-i18next", () => ({
 function LoopForm({
   modes = [],
   doomLoop,
+  rubric,
   onForm,
   onEdit = () => {},
 }: {
   onEdit?: () => void;
   modes?: CustomLoopModeConfig[];
   doomLoop?: AgentsRunningConfig["loop"]["doom_loop"];
+  rubric?: AgentsRunningConfig["loop"]["rubric"];
   onForm?: (form: FormInstance) => void;
 }) {
   const [form] = Form.useForm();
@@ -39,7 +41,9 @@ function LoopForm({
   return (
     <Form
       form={form}
-      initialValues={{ loop: { custom_modes: modes, doom_loop: doomLoop } }}
+      initialValues={{
+        loop: { custom_modes: modes, doom_loop: doomLoop, rubric },
+      }}
       onValuesChange={onEdit}
     >
       <ConfigAutoSaveContext.Provider value={onEdit}>
@@ -50,6 +54,69 @@ function LoopForm({
 }
 
 describe("AgentLoopCard custom mode rendering", () => {
+  it.each(["built-in", "custom"])(
+    "preserves the %s Jev opt-in across form reloads",
+    async (kind) => {
+      let form: FormInstance | undefined;
+      const onEdit = vi.fn();
+      const mode = buildCustomLoopMode([], "Safe", "safe", "safe", 1);
+      const gateIndex = mode.gates.findIndex(
+        (gate) => gate.type === "qualitative_rubric",
+      );
+      const rubric = {
+        enabled: true,
+        prompt: "Check remaining work.",
+        max_interventions: 3,
+        in_loop_modes: true,
+      };
+      const base =
+        kind === "built-in"
+          ? ["loop", "rubric"]
+          : ["loop", "custom_modes", 0, "gates", gateIndex, "params"];
+      const view = renderWithProviders(
+        <LoopForm
+          modes={[mode]}
+          rubric={rubric}
+          onEdit={onEdit}
+          onForm={(next) => (form = next)}
+        />,
+      );
+      if (kind === "custom") {
+        fireEvent.click(screen.getByRole("tab", { name: "Safe" }));
+      }
+      fireEvent.click(
+        within(screen.getByRole("tabpanel")).getByText(
+          "Qualitative completion check",
+        ),
+      );
+      const toggle = await screen.findByRole("switch", {
+        name: "Use Jev to decide when to stop",
+      });
+      expect(toggle).not.toBeChecked();
+      fireEvent.click(toggle);
+      expect(form?.getFieldValue([...base, "use_decision_model"])).toBe(true);
+      expect(onEdit).toHaveBeenCalled();
+      const saved = JSON.parse(JSON.stringify(form?.getFieldsValue(true))).loop;
+      view.unmount();
+      renderWithProviders(
+        <LoopForm modes={saved.custom_modes} rubric={saved.rubric} />,
+      );
+      if (kind === "custom") {
+        fireEvent.click(screen.getByRole("tab", { name: "Safe" }));
+      }
+      fireEvent.click(
+        within(screen.getByRole("tabpanel")).getByText(
+          "Qualitative completion check",
+        ),
+      );
+      expect(
+        await screen.findByRole("switch", {
+          name: "Use Jev to decide when to stop",
+        }),
+      ).toBeChecked();
+    },
+  );
+
   it.each(["built-in", "custom"])(
     "updates %s repetition thresholds and notifies autosave",
     async (kind) => {

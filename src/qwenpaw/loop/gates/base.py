@@ -71,9 +71,8 @@ class StopGate(ABC):
     Lifecycle per evaluation (driven by StopHandler):
     1. check(ctx) returns action + reason + reset_peers
     2. TERMINATE -> stop immediately
-    3. INTERRUPT_AND_CONTINUE -> handler calls
-       build_continuation() to get the message,
-       then injects it as a new user turn
+    3. INTERRUPT_AND_CONTINUE -> handler injects the result's
+       continuation_message or falls back to build_continuation()
     4. BYPASS / None -> gate idle, no action
 
     Subclasses MUST implement:
@@ -105,17 +104,14 @@ class StopGate(ABC):
 
         Returns:
             TERMINATE -> agent stops.
-            INTERRUPT_AND_CONTINUE -> handler calls
-                build_continuation() for the message.
+            INTERRUPT_AND_CONTINUE -> inject the continuation message.
             BYPASS or None -> gate idle / no opinion.
         """
 
     def build_continuation(self) -> str:
         """Return the text to inject as a user turn.
 
-        Called by StopHandler when check() returns
-        INTERRUPT_AND_CONTINUE. Subclasses override
-        to provide gate-specific continuation prompts.
+        Called when a continuing result does not carry its own message.
         """
         return ""
 

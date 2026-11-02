@@ -1561,6 +1561,13 @@ class RubricGateConfig(BaseModel):
             "early stop on text-only responses"
         ),
     )
+    use_decision_model: bool = Field(
+        default=False,
+        description=(
+            "Use the selected decision model for completion checks; "
+            "fall back to agent self-checks when unavailable"
+        ),
+    )
     prompt: str = Field(
         default=(
             "You did not call any tool in the "

@@ -5,8 +5,8 @@ Architecture:
     StopHandler holds an ordered list of StopGate.
     Gates are checked in priority order (lower first).
     TERMINATE -> agent stops immediately.
-    INTERRUPT_AND_CONTINUE -> call gate.build_continuation()
-        to get the message, then inject it.
+    INTERRUPT_AND_CONTINUE -> inject the result's message, falling back
+        to gate.build_continuation().
     BYPASS / None -> skip.
     No gates or all BYPASS -> TERMINATE.
 """
@@ -29,8 +29,7 @@ class StopHandler:
     """Universal stop handler with composable gates.
 
     TERMINATE -> agent stops immediately.
-    INTERRUPT_AND_CONTINUE -> inject prompt via
-        gate.build_continuation(), keep going.
+    INTERRUPT_AND_CONTINUE -> inject the continuation prompt, keep going.
     BYPASS / None -> skip.
     No gates or all BYPASS -> TERMINATE.
     """
@@ -135,7 +134,9 @@ class StopHandler:
             continue_gate,
         )
 
-        msg = continue_gate.build_continuation() if continue_gate else ""
+        msg = continue_result.continuation_message if continue_result else ""
+        if not msg and continue_gate:
+            msg = continue_gate.build_continuation()
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             continuation_message=msg,

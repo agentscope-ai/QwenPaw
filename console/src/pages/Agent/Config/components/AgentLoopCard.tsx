@@ -258,6 +258,26 @@ function DoomLoopSection() {
   );
 }
 
+function RubricDecisionField({ name }: { name: (string | number)[] }) {
+  const { t } = useTranslation();
+  return (
+    <SettingsField
+      name={name}
+      valuePropName="checked"
+      label={t(
+        "agentConfig.rubricUseDecisionModel",
+        "Use Jev to decide when to stop",
+      )}
+      extra={t(
+        "agentConfig.rubricUseDecisionModelHelp",
+        "Off by default. When enabled, sends the conversation and tool results to the decision model selected in model settings. If it is not configured or the check fails, falls back to agent self-checks.",
+      )}
+    >
+      <Switch />
+    </SettingsField>
+  );
+}
+
 function RubricSection() {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
@@ -275,7 +295,7 @@ function RubricSection() {
       >
         {t(
           "agentConfig.rubricDesc",
-          "When the agent produces a text response without tool calls, apply natural-language completion criteria and ask it to continue when work remains.",
+          "Before ending a response without tool calls, check for unfinished work using the criteria below. Choose agent self-checks or Jev decisions.",
         )}
       </p>
       <SettingsField
@@ -294,6 +314,9 @@ function RubricSection() {
       </SettingsField>
       {enabled && (
         <>
+          <RubricDecisionField
+            name={["loop", "rubric", "use_decision_model"]}
+          />
           <SettingsField
             name={["loop", "rubric", "prompt"]}
             label={t(
@@ -903,6 +926,7 @@ function GateParamsEditor({
   if (type === "qualitative_rubric") {
     return (
       <>
+        <RubricDecisionField name={[...base, "use_decision_model"]} />
         <SettingsField
           name={[...base, "max_evaluations"]}
           label={t(
@@ -920,7 +944,7 @@ function GateParamsEditor({
           )}
           extra={t(
             "agentConfig.loopMode.qualitativeRubricHelp",
-            "Triggered only for text responses without tool calls. The agent continues when work remains.",
+            "Triggered only for responses without tool calls. Uses agent self-checks unless you enable Jev decisions.",
           )}
         >
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />

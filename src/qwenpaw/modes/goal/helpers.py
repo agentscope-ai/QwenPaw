@@ -147,6 +147,7 @@ def create_completion_gate(
         return QualitativeRubricGate(
             rubric=rubric_cfg.prompt,
             max_evaluations=(rubric_cfg.max_interventions),
+            use_decision_model=rubric_cfg.use_decision_model,
         )
     except Exception:  # noqa: BLE001
         logger.debug(

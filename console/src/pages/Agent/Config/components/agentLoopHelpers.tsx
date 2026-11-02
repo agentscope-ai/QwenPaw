@@ -90,11 +90,13 @@ export const GATE_DEFINITIONS: GateDefinition[] = [
     type: "qualitative_rubric",
     title: "Qualitative completion check",
     titleKey: "agentConfig.loopMode.qualitativeRubricTitle",
-    description: "Check text responses without tool calls before ending.",
+    description:
+      "Check completion with agent self-checks or opt in to the decision model.",
     descriptionKey: "agentConfig.loopMode.qualitativeRubricDescription",
     icon: <CheckCircle size={15} />,
     defaults: {
       rubric: "Every explicit user requirement must be addressed.",
+      use_decision_model: false,
       max_evaluations: 1,
     },
     exclusiveGroup: "completion_rubric",
