@@ -1110,7 +1110,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
                 async def host_audit(_spec):
                     observed = await self._python_backend.audit_dependencies(
-                        SimpleNamespace(source_path=root),
+                        SimpleNamespace(source_path=root, requirements=()),
                         context=context,
                         validate=validate_runtime_selection,
                     )
@@ -1646,32 +1646,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """Commit exact evidence before host definitions or business start."""
         if token is None:
             return None
-        from .dependency_gate import admit_shared_dependencies
-
-        audit = getattr(binding.backend, "audit_dependencies", None)
-        if audit is None:
-            raise RuntimeError(
-                "DEPENDENCY_PLAN_UNVERIFIED: fresh audit unavailable",
-            )
-
-        prepared = None
-        if snapshot is None:
-            prepare = getattr(
-                binding.backend,
-                "prepare_dependency_targets",
-                None,
-            )
-            if prepare is not None:
-                prepared = await prepare(binding.description)
-        return await admit_shared_dependencies(
-            lambda: audit(binding.description),
-            plugin_id=binding.description.manifest.id,
-            requirements_file=None,
-            usage_registry=self.registry.dependency_usage,
-            admission_token=token,
+        return await binding.admit_existing(
+            usage=self.registry.dependency_usage,
+            token=token,
             snapshot=snapshot,
-            targets=prepared.targets if prepared is not None else (),
-            validate=prepared.validate if prepared is not None else None,
         )
 
     async def _dispose_then_undo_txn_disk(

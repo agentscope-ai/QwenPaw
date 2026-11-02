@@ -72,10 +72,10 @@ class Worker:
         return params
 
     async def logs(self, params, _request):
-        text = params["text"]
-        sys.stderr.write(text)
-        sys.stderr.flush()
-        return len(text.encode("utf-8"))
+        data = params["text"].encode("utf-8")
+        sys.stderr.buffer.write(data)
+        sys.stderr.buffer.flush()
+        return len(data)
 
     async def reverse(self, params, _request):
         await self.context.peer.notify("sample.notice", params)

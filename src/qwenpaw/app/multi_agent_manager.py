@@ -1112,6 +1112,17 @@ class MultiAgentManager:
         for task in tasks:
             self._cleanup_tasks.pop(task, None)
 
+        # Final agent/app shutdown also drains outgoing workspace requests.
+        # Do this before awaiting cleanup tasks: a cleanup may already be
+        # waiting for its history borrowers and shielded from cancellation.
+        await asyncio.gather(
+            *(
+                instance.cancel_active_requests()
+                for instance in list(self._retired_instances.values())
+                if agent_id is None or instance.agent_id == agent_id
+            ),
+        )
+
         for task in tasks:
             if not task.done():
                 task.cancel()

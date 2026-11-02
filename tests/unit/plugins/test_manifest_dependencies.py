@@ -53,19 +53,30 @@ def observe_installer(monkeypatch):
     return calls
 
 
-def write_wheel(wheels, name, body="ANSWER = 'installed from manifest'\n"):
+def write_wheel(
+    wheels,
+    name,
+    body="ANSWER = 'installed from manifest'\n",
+    *,
+    info=None,
+    metadata_headers="",
+    wheel_headers="",
+):
     import base64
     import hashlib
     import zipfile
 
     module = name.replace("-", "_")
-    info = f"{module}-1.0.dist-info"
+    info = info or f"{module}-1.0.dist-info"
     files = {
         f"{module}/__init__.py": body,
-        f"{info}/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n",
+        f"{info}/METADATA": (
+            f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n"
+            + metadata_headers
+        ),
         f"{info}/WHEEL": (
             "Wheel-Version: 1.0\nGenerator: b01-test\n"
-            "Root-Is-Purelib: true\nTag: py3-none-any\n"
+            "Root-Is-Purelib: true\nTag: py3-none-any\n" + wheel_headers
         ),
     }
     records = []
@@ -83,6 +94,89 @@ def write_wheel(wheels, name, body="ANSWER = 'installed from manifest'\n"):
     return wheel
 
 
+@pytest.mark.parametrize(
+    ("info", "metadata_headers", "wheel_headers", "accepted"),
+    [
+        ("b01_probe-1.0", "", "Generator: delocate\n", True),
+        ("b01.probe-1.0", "", "", True),
+        ("B01_Probe-1.0", "", "", True),
+        ("b01_probe-1.0.0", "", "", True),
+        ("other-1.0", "", "", False),
+        ("b01_probe-2.0", "", "", False),
+        ("b01_probe-invalid", "", "", False),
+        ("b01_probe", "", "", False),
+        ("b01_probe-1.0", "Name: b01-probe\n", "", False),
+        ("b01_probe-1.0", "Version: 1.0\n", "", False),
+        (
+            "b01_probe-1.0",
+            "Requires-Python: >=3\nRequires-Python: >=3\n",
+            "",
+            False,
+        ),
+        ("b01_probe-1.0", "", "Wheel-Version: 1.0\n", False),
+        ("b01_probe-1.0", "", "Root-Is-Purelib: true\n", False),
+        ("b01_probe-1.0", "", "Build: 1\nBuild: 1\n", False),
+    ],
+)
+def test_wheel_identity_and_header_validation(
+    tmp_path,
+    info,
+    metadata_headers,
+    wheel_headers,
+    accepted,
+):
+    import hashlib
+    import sys
+    import zipfile
+
+    from packaging.markers import default_environment
+
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
+    from qwenpaw.plugins.execution.errors import ProtocolValidationError
+    from qwenpaw.plugins.wheel_additions import (
+        WheelAddition,
+        validate_additions,
+    )
+
+    info += ".dist-info"
+    wheel = write_wheel(
+        tmp_path,
+        "b01-probe",
+        info=info,
+        metadata_headers=metadata_headers,
+        wheel_headers=wheel_headers,
+    )
+    additions = (
+        WheelAddition(wheel, hashlib.sha256(wheel.read_bytes()).hexdigest()),
+    )
+    target = tmp_path / "site"
+    snapshot = DependencySnapshot(
+        sys.executable,
+        sys.prefix,
+        (str(target),),
+        default_environment(),
+        ("py3-none-any",),
+        {},
+    )
+    if accepted:
+        files, proposed = validate_additions(additions, snapshot, target)
+        with zipfile.ZipFile(wheel) as archive:
+            assert files == {
+                name: archive.read(name) for name in archive.namelist()
+            }
+        assert proposed.distributions["b01-probe"]["version"] == "1.0"
+        assert proposed.distributions["b01-probe"]["metadata_path"] == str(
+            target / info,
+        )
+    else:
+        with pytest.raises(
+            ProtocolValidationError,
+            match="^DEPENDENCY_PLAN_UNVERIFIED$",
+        ):
+            validate_additions(additions, snapshot, target)
+    assert not target.exists()
+
+
 def install_case(tmp_path, source, expected, *, repair=False, tool=False):
     """Run resolver, publication and admission in one disposable interpreter."""
     import os
@@ -96,7 +190,15 @@ def install_case(tmp_path, source, expected, *, repair=False, tool=False):
     wheels.mkdir()
     local_certifi_wheel(wheels)
     for name in expected:
-        write_wheel(wheels, name)
+        spelling = name.replace("-", "." if repair else "_")
+        if tool:
+            spelling = spelling.upper()
+        write_wheel(
+            wheels,
+            name,
+            info=f"{spelling}-1.0.dist-info",
+            wheel_headers="Generator: delocate\n" if repair or tool else "",
+        )
     python, _ = dependency_python(tmp_path / "python")
     host_source = tmp_path / "host-source"
     host_source.mkdir()
@@ -187,6 +289,7 @@ asyncio.run(main())
         )
     }
     env.update(
+        QWENPAW_DEPENDENCY_STATE_DIR=str(tmp_path / "dependency-state"),
         QWENPAW_WORKING_DIR=str(tmp_path / "bootstrap"),
         QWENPAW_SECRET_DIR=str(tmp_path / "secrets"),
         PIP_NO_INDEX="1",

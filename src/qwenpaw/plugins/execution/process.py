@@ -599,9 +599,15 @@ class PluginProcess:
             environment["SSL_CERT_FILE"] = str(Path(ca_file).absolute())
         if os.name == "nt":
             environment["USERPROFILE"] = str(Path.home().resolve())
-        from ..dependency_maintenance import current_capability, state_root
+        from ..dependency_maintenance import (
+            current_capability,
+            reader_scope,
+            state_root,
+        )
 
         environment["QWENPAW_DEPENDENCY_STATE_DIR"] = str(state_root())
+        if scope := reader_scope():
+            environment["QWENPAW_DEPENDENCY_READER_SCOPE"] = scope
         capability = current_capability()
         if capability:
             environment["QWENPAW_DEPENDENCY_MAINTENANCE"] = capability

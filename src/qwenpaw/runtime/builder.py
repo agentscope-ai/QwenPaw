@@ -10,6 +10,7 @@ injects all dependencies into the agent constructor.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from functools import partial
@@ -499,6 +500,7 @@ class AgentBuilder:
                 "allow_unsandboxed is off) — falling back to native context "
                 "management so evicted history stays accessible",
             )
+            await run_sync_io(scroll.context_manager.close)
             scroll = None
         if scroll is not None:
             self._append_scroll_recall_tools(
@@ -1119,18 +1121,30 @@ class AgentBuilder:
 
         # Recall is projected inside the exact conversation database. The
         # full identity prevents group-channel session collisions.
-        return await run_sync_io(
-            build_scroll_components,
-            agent_config=agent_config,
-            workspace_dir=workspace_dir,
-            model=model,
-            session_id=session_id,
-            user_id=user_id,
-            channel=channel,
-            context_generation=context_generation,
-            agent_id=agent_id,
-            offloader=offloader,
-        )
+        components = None
+
+        def build():
+            nonlocal components
+            components = build_scroll_components(
+                agent_config=agent_config,
+                workspace_dir=workspace_dir,
+                model=model,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                context_generation=context_generation,
+                agent_id=agent_id,
+                offloader=offloader,
+            )
+            return components
+
+        try:
+            return await run_sync_io(build)
+        except asyncio.CancelledError:
+            # run_sync_io waits for construction before raising cancellation.
+            if components is not None:
+                await run_sync_io(components.context_manager.close)
+            raise
 
     @staticmethod
     def _scroll_recall_runnable(agent_config: Any, governor: Any) -> bool:

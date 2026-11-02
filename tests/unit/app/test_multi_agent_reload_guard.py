@@ -27,6 +27,7 @@ def _fake_workspace() -> MagicMock:
     ws = MagicMock()
     ws.start = AsyncMock()
     ws.stop = AsyncMock()
+    ws.cancel_active_requests = AsyncMock()
     ws.set_manager = MagicMock()
     ws.set_task_tracker = MagicMock()
     ws.set_reusable_components = AsyncMock()
@@ -252,6 +253,7 @@ async def test_shutdown_retries_retired_workspace_preserving_reused_services(
         call.kwargs == {"final": False} for call in old.stop.await_args_list
     )
     new.stop.assert_awaited_once_with()
+    old.cancel_active_requests.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -295,6 +297,7 @@ class _ControlledStopWorkspace:
         self.release = asyncio.Event()
         self.stopped = asyncio.Event()
         self.fail = fail
+        self.cancel_active_requests = AsyncMock()
         self.final_modes = []
         if not blocked:
             self.release.set()

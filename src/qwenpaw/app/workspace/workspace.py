@@ -735,8 +735,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     "catalog": ws.transcript_store,
                     "legacy_save_dir": str(ws.workspace_dir / "sessions"),
                     "history_db_filename": (
-                        ws.config.running.light_context_config
-                        .scroll_config.db_filename
+                        ws.config.running.light_context_config.scroll_config.db_filename
                     ),
                 },
                 dependencies=["transcript_store"],
@@ -1039,6 +1038,27 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 sanitize_log_value(exc),
             )
 
+    async def cancel_active_requests(self) -> None:
+        """Cancel this workspace's requests and finish their cleanup."""
+        tasks = list(
+            (
+                await self.task_tracker.snapshot_active_tasks(owner=self)
+            ).values(),
+        )
+        if asyncio.current_task() in tasks:
+            raise RuntimeError("A workspace request cannot await its own stop")
+
+        async def cancel_and_drain() -> None:
+            for task in tasks:
+                if not task.done() and (
+                    not isinstance(task, asyncio.Task) or not task.cancelling()
+                ):
+                    task.cancel("workspace shutdown")
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Repeated cancellation of the caller must not interrupt final writes.
+        await run_async_to_completion(cancel_and_drain())
+
     async def stop(
         self,
         final: bool = True,
@@ -1065,6 +1085,11 @@ class Workspace:  # pylint: disable=too-many-public-methods
             "Stopping agent instance: "
             f"{sanitize_log_value(self.agent_id)} (final={final})",
         )
+
+        if final:
+            # Keep services available until request persistence and cleanup
+            # complete. Reloads drain naturally and must not cancel requests.
+            await self.cancel_active_requests()
 
         # Revoke this instance's plugin bindings while its managers are alive.
         # Reload candidates and draining old instances may share an agent id.

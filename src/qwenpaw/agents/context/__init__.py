@@ -17,9 +17,12 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .base import ContextManager
+
+if TYPE_CHECKING:
+    from .scroll.history import HistoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +103,14 @@ def _warn_db_size(db_path: Path) -> None:
     )
 
 
+def create_scroll_history(db_path: Path) -> HistoryStore:
+    """Open a conversation history store, preserving size notices."""
+    from .scroll.history import HistoryStore
+
+    _warn_db_size(db_path)
+    return HistoryStore(db_path)
+
+
 def build_scroll_components(
     *,
     agent_config: Any,
@@ -111,11 +122,14 @@ def build_scroll_components(
     context_generation: int = 0,
     agent_id: str | None = None,
     offloader: Any = None,
+    history_store: HistoryStore | None = None,
 ) -> ScrollComponents | None:
     """Construct the scroll strategy's components, or ``None`` if not selected.
 
     Returns ``None`` when ``strategy != "scroll"`` or no workspace is
     available, leaving the agent on its native context management.
+    An injected ``history_store`` remains owned by its caller, including
+    when component construction fails. Standalone callers get an owned store.
     """
     try:
         lcc = agent_config.running.light_context_config
@@ -143,11 +157,12 @@ def build_scroll_components(
     # silently falls back to native context management instead of failing to
     # build. Native keeps full history in-context, so degrading is always safe.
     history = None
+    manager = None
+    owns_history = True
     try:
         # Imported lazily so the native path never pays for the scroll
         # machinery — and so a missing scroll dependency degrades to native
         # here rather than breaking import of this module.
-        from .scroll.history import HistoryStore
         from .scroll.manager import ScrollContextManager
         from .scroll.recall_tool import RecallLoopGuard, make_recall_history
         from .scroll.repl import make_recall_history_python
@@ -168,8 +183,16 @@ def build_scroll_components(
             raise FileNotFoundError(
                 "conversation database is not ready for recall",
             )
-        _warn_db_size(db_path)
-        history = HistoryStore(db_path)
+        if (
+            history_store is not None
+            and history_store.path.resolve() == db_path.resolve()
+        ):
+            if not history_store.matches_path(db_path):
+                raise RuntimeError("Session history store no longer matches")
+            history = history_store
+            owns_history = False
+        else:
+            history = create_scroll_history(db_path)
         recall_loop_guard = RecallLoopGuard()
         scratch_root = str(Path(workspace_dir) / ".scroll")
 
@@ -180,6 +203,7 @@ def build_scroll_components(
         )
         manager = ScrollContextManager(
             history=history,
+            owns_history=owns_history,
             session_id=history_session_id,
             archive_session_id=session_id,
             agent_id=agent_id,
@@ -198,6 +222,7 @@ def build_scroll_components(
             scratch_root=scratch_root,
             timeout_s=sc.repl_timeout_s,
             allow_unsandboxed=scroll_unsandboxed_allowed(sc),
+            on_database_error=history.note_database_error,
         )
         # Structured front door for the common recall ops (expand / search /
         # recall_tool): in-process bound queries, no sandbox, no approval —
@@ -209,6 +234,7 @@ def build_scroll_components(
             agent_id=agent_id,
             loop_guard=recall_loop_guard,
             page_max_bytes=trc.pruning_recent_msg_max_bytes,
+            on_database_error=history.note_database_error,
         )
         return ScrollComponents(
             context_manager=manager,
@@ -216,9 +242,12 @@ def build_scroll_components(
             recall_tool=recall,
         )
     except Exception:  # noqa: BLE001 - any scroll failure degrades to native
-        if history is not None:
+        if manager is not None or (history is not None and owns_history):
             try:
-                history.close()
+                if manager is not None:
+                    manager.close()
+                elif history is not None:
+                    history.close()
             except Exception:  # noqa: BLE001 - preserve fallback behavior
                 logger.debug(
                     "scroll: failed to close history after wiring failure",
