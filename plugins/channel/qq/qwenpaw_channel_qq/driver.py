@@ -228,10 +228,17 @@ class QQDriver(SharedResponseDriver):
                 self._config.get("markdown_enabled", True),
             ),
         )
+        stream_type = params.stream_type.value
         text = self._text(params)
         if params.operation.value == "stream.start":
             resource = await platform.start_stream(route, text, markdown)
-            resource.update(sequence="0", text=text, final="false")
+            resource.update(
+                sequence="0",
+                index="0",
+                final="false",
+                markdown="true" if markdown else "false",
+                stream_type=stream_type,
+            )
             return ResponseResourceRef.create(
                 "qq.delivery",
                 params.delivery_id,
@@ -247,6 +254,11 @@ class QQDriver(SharedResponseDriver):
                 side_effect_possible=False,
             )
         resource = dict(ref.attributes)
+        if resource.get("stream_type") != stream_type:
+            raise QQDeliveryError(
+                "STREAM_TYPE_MISMATCH",
+                side_effect_possible=False,
+            )
         sequence = params.sequence or 0
         if sequence <= int(resource.get("sequence", "0")):
             raise QQDeliveryError(
@@ -254,7 +266,18 @@ class QQDriver(SharedResponseDriver):
                 side_effect_possible=False,
             )
         final = params.operation.value == "stream.end"
+        # QQ rejects a repeated slice index for one stream. The index is
+        # therefore reserved durably before the native call, so a slice whose
+        # result is lost locally still consumes it. Replace mode resends the
+        # whole text, so continuing from a higher index loses no content,
+        # while reusing an index that QQ already accepted would be rejected.
         index = int(resource.get("index", "0")) + 1
+        resource.update(index=str(index), text=text)
+        await self._reserve_slice(
+            params.to_handle,
+            params.target_delivery_id,
+            resource,
+        )
         await platform.update_stream(
             route,
             resource,
@@ -263,16 +286,54 @@ class QQDriver(SharedResponseDriver):
             markdown=markdown,
             final=final,
         )
+        # Only an acknowledged slice advances these: a lost ``stream.end``
+        # must stay visible to cleanup so the stream is closed later.
         resource.update(
             sequence=str(sequence),
-            text=text,
-            index=str(index),
             final="true" if final else "false",
         )
         return ResponseResourceRef.create(
             "qq.delivery",
             params.target_delivery_id,
             resource,
+        )
+
+    async def _reserve_slice(self, handle, delivery_id, resource):
+        """Persist the next slice index before the native call.
+
+        The reservation deliberately leaves ``sequence`` and ``final`` alone:
+        only an acknowledged slice advances them. Marking the delivery
+        ``unsettled`` is also avoided here, because an unsettled delivery makes
+        the shared cleanup skip the stream instead of closing it.
+        """
+        self._routes.record_delivery(
+            handle,
+            [
+                ResponseResourceRef.create(
+                    "qq.delivery",
+                    delivery_id,
+                    dict(resource),
+                ),
+            ],
+        )
+        await self._checkpoint()
+
+    def _needs_stream_cleanup(self, ref):
+        # QQ keeps a started stream generating until it sees a slice with
+        # ``input_state=10``, so any stream without an acknowledged end slice
+        # must be closed by cleanup.
+        return bool(dict(ref.attributes).get("stream_msg_id"))
+
+    async def _perform_stream_cleanup(self, ref, resource, sequence):
+        attributes = dict(resource)
+        # The stream path is recorded on the resource at ``stream.start``.
+        await self._require_connected().update_stream(
+            {},
+            attributes,
+            attributes.get("text") or "",
+            index=int(attributes.get("index", "0")) + 1,
+            markdown=_as_bool(attributes.get("markdown", "true")),
+            final=True,
         )
 
     async def _perform_send(self, params):

@@ -13,6 +13,16 @@ through the official `stream_messages` API (`input_mode=replace`, `input_state`
 guild-DM targets keep the completed-message path because QQ documents streaming
 for single chat only. The plugin never types, edits or recalls messages.
 
+Streaming covers both `message` and `reasoning` response streams; each response
+stream owns its own stream message and the `stream_type` recorded at
+`stream.start` is validated on later slices. Because QQ rejects a repeated slice
+`index`, the index is reserved durably before the native call, so a slice whose
+result is lost still consumes it and the next slice continues from a higher
+index; replace mode resends the whole text, so a reserved-but-lost index loses
+no content. A response that finishes or is cancelled after `stream.start`
+closes the stream with a final `input_state=10` slice through the shared stream
+cleanup hooks instead of leaving the QQ message generating.
+
 Text supports the original bounded chunks and explicit QQ validation fallback.
 C2C/group upload rich media; group cannot send type4 files (including ordinary
 audio). Guild/DM send images and video by URL or multipart, and cannot send
