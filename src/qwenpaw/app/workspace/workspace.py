@@ -444,6 +444,11 @@ class Workspace:  # pylint: disable=too-many-public-methods
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
+        from ...schemas import AgentRequest
+
+        if isinstance(request, dict):
+            request = AgentRequest(**request)
+
         config = load_agent_config(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
