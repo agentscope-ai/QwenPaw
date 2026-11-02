@@ -4030,6 +4030,17 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 
             payload = candidate.model_dump(exclude_none=True)
             saved_digest = _json_payload_digest(payload)
+            lcc = candidate.running.light_context_config
+            if lcc.strategy == "native":
+                from ..agents.context.scroll.sync import (
+                    invalidate_agent_migration,
+                )
+
+                invalidate_agent_migration(
+                    workspace_dir,
+                    agent_id,
+                    lcc.scroll_config.db_filename,
+                )
             write_json_atomic(agent_config_path, payload)
             _record_agent_config_publication()
             candidate.record_source_digest(saved_digest)

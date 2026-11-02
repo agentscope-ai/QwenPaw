@@ -32,6 +32,7 @@ from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
     create_history_service,
+    prepare_history_service,
     history_service_reuse_compatible,
     create_driver_service,
     create_driver_config_watcher,
@@ -573,12 +574,12 @@ class Workspace:  # pylint: disable=too-many-public-methods
             ServiceDescriptor(
                 name="history_store",
                 create_service=create_history_service,
+                post_init=prepare_history_service,
                 stop_method="shutdown",
                 reusable=True,
                 reuse_compatibility=history_service_reuse_compatible,
                 require_clean_stop=True,
                 priority=15,
-                optional=True,
             ),
         )
 
@@ -787,6 +788,11 @@ class Workspace:  # pylint: disable=too-many-public-methods
             await self._service_manager.start_all()
 
             self._started = True
+            if self.history_store is not None:
+                lcc = self.config.running.light_context_config
+                await self.history_store.start_retention(
+                    lcc.scroll_config.history_retention_days,
+                )
             logger.info(
                 "Workspace started successfully: "
                 f"{sanitize_log_value(self.agent_id)}",

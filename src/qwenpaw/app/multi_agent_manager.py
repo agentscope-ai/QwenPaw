@@ -1346,8 +1346,8 @@ class MultiAgentManager:
         Only agents with enabled=True will be started.
         Disabled agents are skipped to save resources.
 
-        The default and built-in QA agents form the concurrent core phase.
-        Remaining custom agents start only after that phase and are bounded
+        Default alone gates core readiness. QA and remaining agents start
+        after default and are bounded
         by ``QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY``.
 
         Returns:
@@ -1407,15 +1407,15 @@ class MultiAgentManager:
                 return (agent_id, False)
 
         core_agent_ids = [
-            agent_id
-            for agent_id in ("default", BUILTIN_QA_AGENT_ID)
-            if agent_id in enabled_agents
+            agent_id for agent_id in ("default",) if agent_id in enabled_agents
         ]
         custom_agent_ids = [
             agent_id
             for agent_id in agent_ids
             if agent_id not in core_agent_ids
         ]
+
+        custom_agent_ids.sort(key=lambda aid: aid != BUILTIN_QA_AGENT_ID)
 
         core_results = await asyncio.gather(
             *(start_single_agent(agent_id) for agent_id in core_agent_ids),

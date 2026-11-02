@@ -6,16 +6,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import random
 import re
 import sqlite3
-import sys
 import threading
 import time
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -283,15 +281,6 @@ class HistoryStore:
     # per process when it's missing, so a long-lived server doesn't log-spam.
     _fts_unavailable_warned = False
 
-    # ``quick_check`` scans the whole database. Agents are built per request,
-    # so running it in every constructor makes request cost grow with the
-    # entire history file. Keep independent connections, but coordinate the
-    # probe process-wide: the first opener checks, concurrent openers wait,
-    # and later openers skip it while the same file remains at this path.
-    _integrity_probe_condition = threading.Condition()
-    _integrity_probe_inflight: set[tuple[int, Path]] = set()
-    _integrity_probe_checked: dict[tuple[int, Path], tuple[int, int]] = {}
-
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -300,7 +289,6 @@ class HistoryStore:
         # while ``on_save`` writes on the loop thread. Both share this
         # connection, so every access takes ``self._lock``.
         self._lock = threading.Lock()
-        self.quarantined_to: Path | None = None
         # Durability health: flipped True the first time a write-through fails
         # (disk/SQLite error). The durability promise no longer holds while
         # degraded; callers/monitoring can read this.
@@ -311,47 +299,16 @@ class HistoryStore:
         self._closed = False
         self._borrowers = 0
         self._close_requested = False
-        self._checked_identity: tuple[int, int] | None = None
-        probe_key, cached_identity = self._claim_integrity_probe(
-            self._path,
-        )
+        self._retention_task: asyncio.Task | None = None
+        self._retention_days = 0
         try:
-            try:
-                self._open_and_init(
-                    cached_identity=cached_identity,
-                )
-            except sqlite3.DatabaseError as exc:
-                if not (
-                    self._is_corruption(exc)
-                    or getattr(exc, "sqlite_errorcode", None)
-                    == sqlite3.SQLITE_NOTADB
-                    or str(exc).startswith("quick_check failed:")
-                ):
-                    raise
-                # A corrupt / unreadable DB (truncated file, stale WAL trio,
-                # bad page) would crash every task at startup. Quarantine the
-                # bad file and recreate fresh, degrading "broken memory" to
-                # "lost history". The probe claim stays held across recovery
-                # so a concurrent opener cannot race the quarantine.
-                # Cache hits own the same claim as first opens. Invalidate
-                # the old result before recovery and always check the new DB.
-                with self._integrity_probe_condition:
-                    self._integrity_probe_checked.pop(probe_key, None)
-                self._quarantine(exc)
-                self._open_and_init()
+            self._open_and_init()
         except BaseException:
-            # Release SQLite resources before waking another constructor.
             try:
                 self._conn.close()
             except (AttributeError, sqlite3.Error):
                 pass
-            self._finish_integrity_probe(probe_key, succeeded=False)
             raise
-        self._finish_integrity_probe(
-            probe_key,
-            succeeded=True,
-            checked_identity=self._checked_identity,
-        )
 
     @staticmethod
     def _file_identity(path: Path) -> tuple[int, int] | None:
@@ -362,94 +319,32 @@ class HistoryStore:
             return None
         return stat.st_dev, stat.st_ino
 
-    @classmethod
-    def _claim_integrity_probe(
-        cls,
-        path: Path,
-    ) -> tuple[tuple[int, Path], tuple[int, int] | None]:
-        """Serialize construction/recovery and decide whether to probe.
-
-        The path is the coordination key so a corrupt first open can
-        quarantine and recreate the file without another constructor racing
-        that recovery. The cached file identity makes replacing the DB at the
-        same path trigger a new probe.
-        """
-        key = os.getpid(), path.resolve(strict=False)
-        condition = cls._integrity_probe_condition
-        with condition:
-            while key in cls._integrity_probe_inflight:
-                condition.wait()
-
-            # Even a cache hit can encounter corruption during schema init.
-            # Hold ownership until construction (including recovery) finishes.
-            cls._integrity_probe_inflight.add(key)
-            identity = cls._file_identity(key[1])
-            if (
-                identity is not None
-                and cls._integrity_probe_checked.get(key) == identity
-            ):
-                return key, identity
-
-            return key, None
-
-    @classmethod
-    def _finish_integrity_probe(
-        cls,
-        key: tuple[int, Path],
-        *,
-        succeeded: bool,
-        checked_identity: tuple[int, int] | None = None,
-    ) -> None:
-        """Publish a probe result and wake constructors waiting on it."""
-        condition = cls._integrity_probe_condition
-        with condition:
-            if not succeeded:
-                cls._integrity_probe_checked.pop(key, None)
-            elif checked_identity is not None:
-                # Never associate a result with a replacement we did not scan.
-                if cls._file_identity(key[1]) == checked_identity:
-                    cls._integrity_probe_checked[key] = checked_identity
-                else:
-                    cls._integrity_probe_checked.pop(key, None)
-            cls._integrity_probe_inflight.discard(key)
-            condition.notify_all()
-
-    def _run_integrity_check(self) -> None:
+    def _run_integrity_check(self, *, repair: bool = False) -> None:
         """Raise when SQLite reports corruption in the history database."""
         results = [r[0] for r in self._conn.execute("PRAGMA quick_check")]
         if results != ["ok"]:
-            # Some SQLite builds also report FTS damage here. Repair that
-            # derived index before considering whole-database quarantine.
-            if self._is_fts_only_corruption(results):
+            # Some SQLite builds also report damage to the derived FTS index.
+            if repair and self._is_fts_only_corruption(results):
                 self._repair_fts()
                 results = [
                     r[0] for r in self._conn.execute("PRAGMA quick_check")
                 ]
             if self._is_fts_only_corruption(results):
                 raise RuntimeError(
-                    "History FTS corruption remains after repair; "
+                    "History FTS corruption detected; "
                     f"history preserved: {self._path}: {results}",
                 )
             if results != ["ok"]:
                 raise sqlite3.DatabaseError(f"quick_check failed: {results}")
 
-    def _open_and_init(
-        self,
-        *,
-        cached_identity: tuple[int, int] | None = None,
-    ) -> None:
-        # check_same_thread=False: used from both loop and worker threads;
-        # ``self._lock`` provides the serialization SQLite would get from
-        # same-thread affinity.
-        self._checked_identity = None
-        identity_before_open = self._file_identity(self._path)
+    def _open_and_init(self) -> None:
+        # A workspace owns the connection; worker access is serialized by lock.
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,
             timeout=_BUSY_TIMEOUT_MS / 1000,
         )
-        identity_after_open = self._file_identity(self._path)
-        self._opened_identity = identity_after_open
+        self._opened_identity = self._file_identity(self._path)
         self._conn.row_factory = sqlite3.Row
         # Set the wait policy before journal_mode: switching/confirming WAL can
         # itself need a lock when several processes start at once.
@@ -458,22 +353,22 @@ class HistoryStore:
             self._conn,
             lambda: self._conn.execute("PRAGMA journal_mode=WAL"),
         )
-        # A cache hit is valid only if the file still matches across open.
-        # Replacement after the claim must not bypass the integrity check.
-        can_skip_check = (
-            cached_identity is not None
-            and identity_before_open == cached_identity
-            and identity_after_open == cached_identity
-        )
-        if not can_skip_check:
-            self._run_integrity_check()
-            # A missing file may have just been created by sqlite3.connect.
-            # Otherwise require the same identity across connection opening.
-            if identity_before_open in (None, identity_after_open):
-                self._checked_identity = identity_after_open
         self._init_schema()
-        self._fts_check_pending = self._fts
-        self._retry_pending_fts_check()
+        # Only a real database error schedules a recovery probe.
+        self._fts_check_pending = False
+
+    def check_integrity(self, *, repair: bool = False) -> None:
+        """Verify history and optionally repair its derived index."""
+        with self._lock:
+            self._run_integrity_check(repair=repair)
+            if self._fts:
+                try:
+                    with self._conn:
+                        self._check_fts()
+                except sqlite3.DatabaseError as exc:
+                    if not repair or not self._is_corruption(exc):
+                        raise
+                    self._repair_fts()
 
     def _retry_pending_fts_check(self) -> None:
         """Retry a deferred probe under the lock, or during construction."""
@@ -590,33 +485,6 @@ class HistoryStore:
             (row["seq"], row["content"] or ""),
         )
 
-    def _quarantine(self, exc: Exception) -> None:
-        """Move the unreadable DB + its -wal/-shm aside with a timestamp."""
-        try:
-            self._conn.close()
-        except (AttributeError, sqlite3.Error):
-            pass
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        for suffix in ("", "-wal", "-shm"):
-            src = Path(str(self._path) + suffix)
-            if not src.exists():
-                continue
-            dest = Path(f"{self._path}.corrupt-{ts}{suffix}")
-            try:
-                src.rename(dest)
-                if suffix == "":
-                    self.quarantined_to = dest
-            except OSError:
-                try:
-                    src.unlink()  # last resort so a fresh DB can be created
-                except OSError:
-                    pass
-        print(
-            f"[HistoryStore] {self._path} was unreadable ({exc}); quarantined "
-            f"to {self.quarantined_to} and recreated a fresh store.",
-            file=sys.stderr,
-        )
-
     @staticmethod
     def _schema_columns(conn: sqlite3.Connection) -> set[str]:
         return {
@@ -722,6 +590,12 @@ class HistoryStore:
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_dedup "
                 "ON conversation_history(session_id, dedup_key)",
             )
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS history_migrations ("
+                "agent_id TEXT NOT NULL, migration_key TEXT NOT NULL, "
+                "completed_at TEXT NOT NULL, "
+                "PRIMARY KEY (agent_id, migration_key))",
+            )
             self._init_fts()
             # Publish the version only after every table/index/FTS migration in
             # this transaction has succeeded.
@@ -769,6 +643,61 @@ class HistoryStore:
                     "FTS5 to restore ranked full-text recall.",
                     exc,
                 )
+
+    def migration_complete(self, agent_id: str, key: str) -> bool:
+        """Read one durable completion record without inspecting sessions."""
+        with self._lock:
+            return (
+                self._conn.execute(
+                    "SELECT 1 FROM history_migrations "
+                    "WHERE agent_id = ? AND migration_key = ?",
+                    (agent_id, key),
+                ).fetchone()
+                is not None
+            )
+
+    def complete_migration(self, agent_id: str, key: str) -> None:
+        """Publish completion after the caller's imports have committed."""
+        with self._lock, _immediate_transaction(self._conn):
+            self._conn.execute(
+                "INSERT OR REPLACE INTO history_migrations VALUES (?, ?, ?)",
+                (agent_id, key, datetime.now(timezone.utc).isoformat()),
+            )
+
+    async def start_retention(self, days: int) -> None:
+        """Maintain an idle workspace and apply retention changes on reload."""
+        if days == self._retention_days:
+            return
+        if self._retention_task is not None:
+            self._retention_task.cancel()
+            try:
+                await self._retention_task
+            except asyncio.CancelledError:
+                pass
+            self._retention_task = None
+        self._retention_days = days
+        if days <= 0:
+            return
+
+        async def maintain() -> None:
+            # Let workspace startup publish readiness before maintenance.
+            await asyncio.sleep(1)
+            while True:
+                cutoff = (
+                    datetime.now(timezone.utc) - timedelta(days=days)
+                ).isoformat()
+                try:
+                    while await run_sync_io(
+                        self.purge,
+                        before=cutoff,
+                        limit=1000,
+                    ):
+                        await asyncio.sleep(0)
+                except (sqlite3.Error, RuntimeError):
+                    logger.exception("History retention failed: %s", self.path)
+                await asyncio.sleep(24 * 60 * 60)
+
+        self._retention_task = asyncio.create_task(maintain())
 
     # --- write path ----------------------------------------------------
 
@@ -1194,6 +1123,7 @@ class HistoryStore:
         *,
         before: str,
         dry_run: bool = False,
+        limit: int = -1,
         kinds: tuple[str, ...] | None = None,
     ) -> int:
         """Delete history rows with ``created_at < before`` (ISO-8601).
@@ -1207,8 +1137,8 @@ class HistoryStore:
         turns. The FTS index is kept in sync (each purged row is removed from
         it first). Rows with a NULL/empty ``created_at`` are never matched, so
         they are retained. This is the retention/clear path — driven on
-        startup and teardown by ``history_retention_days`` (default 30; set 0
-        to keep history forever, which calls nothing here).
+        background maintenance and teardown by ``history_retention_days``
+        (default 30; set 0 to keep history forever, which calls nothing here).
 
         Note: this DELETEs but does not ``VACUUM``, so freed pages are reused
         but the file does not shrink on disk until a separate vacuum.
@@ -1232,17 +1162,19 @@ class HistoryStore:
                     ):
                         doomed = self._conn.execute(
                             "SELECT seq, content, name "
-                            "FROM conversation_history WHERE " + where,
-                            params,
+                            "FROM conversation_history WHERE "
+                            + where
+                            + " LIMIT ?",
+                            (*params, limit),
                         ).fetchall()
                         if not doomed:
                             return len(doomed)
                         if self._fts:
                             for row in doomed:
                                 self._delete_fts_row(row)
-                        self._conn.execute(
-                            "DELETE FROM conversation_history WHERE " + where,
-                            params,
+                        self._conn.executemany(
+                            "DELETE FROM conversation_history WHERE seq = ?",
+                            [(row["seq"],) for row in doomed],
                         )
                     return len(doomed)
                 except sqlite3.DatabaseError as exc:
@@ -1337,6 +1269,13 @@ class HistoryStore:
         """Finish shutdown after the last request releases history."""
 
         async def drain() -> None:
+            if self._retention_task is not None:
+                self._retention_task.cancel()
+                try:
+                    await self._retention_task
+                except asyncio.CancelledError:
+                    pass
+                self._retention_task = None
             # Do not occupy an executor thread while awaiting borrowers: their
             # final persistence and release also need the executor. Each close
             # attempt is offloaded because a current write can hold the lock.
