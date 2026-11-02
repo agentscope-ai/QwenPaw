@@ -104,6 +104,27 @@ def _visual_asset_design_skill() -> str:
     )
 
 
+def test_medium_rule_keeps_the_storyboard_medium_exception() -> None:
+    """A project-wide medium must not overwrite a stage-specific one.
+
+    The rule used to ask ``storyboard_prompt`` to declare the project medium
+    too, which the same file's storyboard rules contradict: a user-specified
+    rough-pencil or charcoal stage sheet stays that medium and must not pick up
+    photo-real wording, while the finished cut stays photographic.
+    """
+    prompt = load_file_agent_prompt("creator_agent.system")
+    rule = next(
+        line
+        for line in prompt.splitlines()
+        if line.startswith("- **渲染媒介必须写进 prompt")
+    )
+
+    assert "`storyboard_prompt` 是中间分镜" in rule
+    assert "粗铅笔" in rule and "炭笔" in rule
+    assert "只补足用户没有指明的目标" in rule
+    assert "storyboard_prompt 与 video_prompt 都要显式声明本项目的渲染媒介" not in rule
+
+
 def test_creator_duration_is_injected_from_the_active_video_model(
     monkeypatch,
 ) -> None:

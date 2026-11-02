@@ -1745,7 +1745,16 @@ export default function ModelConfigModal({ open, onClose }: Props) {
           require_api_key: !isFree,
         });
         if (data.ok) {
-          message.success(t("modelConfig.connectionTestSuccess"));
+          if (data.capability_verified === false) {
+            // The backend only managed a free read-only call for this
+            // section, which proves the credential and nothing about the
+            // modality: a gateway listing every transcription route as dead
+            // still answers it with 200. Say which level was proven rather
+            // than claim a capability this test never exercised.
+            message.warning(t("modelConfig.connectionTestCredentialOnly"));
+          } else {
+            message.success(t("modelConfig.connectionTestSuccess"));
+          }
           setTested((prev) => ({ ...prev, [type]: true }));
           updateItem(type, "enabled", true);
           return true;
