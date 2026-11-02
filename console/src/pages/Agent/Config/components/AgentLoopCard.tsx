@@ -11,7 +11,7 @@ import {
 } from "./agentLoopHelpers";
 import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
 import { SettingsField } from "@/components/interaction/SettingsField";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   Card,
   Form,
@@ -260,21 +260,23 @@ function DoomLoopSection() {
 
 function RubricDecisionField({ name }: { name: (string | number)[] }) {
   const { t } = useTranslation();
+  const helpId = useId();
   return (
-    <SettingsField
-      name={name}
-      valuePropName="checked"
-      label={t(
-        "agentConfig.rubricUseDecisionModel",
-        "Use Jev to decide when to stop",
-      )}
-      extra={t(
-        "agentConfig.rubricUseDecisionModelHelp",
-        "Off by default. When enabled, sends the conversation and tool results to the decision model selected in model settings. If it is not configured or the check fails, falls back to agent self-checks.",
-      )}
-    >
-      <Switch />
-    </SettingsField>
+    <>
+      <SettingsField
+        name={name}
+        valuePropName="checked"
+        label={t(
+          "agentConfig.rubricUseDecisionModel",
+          "Use Jev to decide when to stop",
+        )}
+      >
+        <Switch aria-describedby={helpId} />
+      </SettingsField>
+      <p id={helpId} className={loopStyles.editorHint}>
+        {t("agentConfig.rubricUseDecisionModelHelp")}
+      </p>
+    </>
   );
 }
 
