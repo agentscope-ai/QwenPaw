@@ -766,7 +766,6 @@ class PluginLifecycle:
     ) -> ConfigUpdateReport:
         from .settings import persist_plugin_settings, runtime_config
         from .execution_backend import probes_before_activation
-        from .loader import _DependencyAdmission
 
         if not isinstance(new_config, dict):
             return ConfigUpdateReport(
@@ -844,49 +843,16 @@ class PluginLifecycle:
                 if record.global_enabled is not None
                 else record.enabled
             ):
-                candidate_admission = _DependencyAdmission(binding)
-                candidate_token = await admissions.enter_async_context(
-                    self._loader._dependency_registration(
-                        binding,
-                        admission=candidate_admission,
-                        attach=False,
-                    ),
-                )
-                await self._loader._observe_host_dependencies(
+                (
+                    candidate_admission,
+                    old_admission,
+                ) = await self._loader._prepare_dependency_admissions(
                     binding,
-                    candidate_token,
-                )
-                snapshot = await self.prepare_backend(
                     binding,
+                    admissions=admissions,
                     allow_install=False,
                     probe=probes_before_activation(binding),
-                )
-                candidate_admission.snapshot = (
-                    await self._loader._admit_dependencies(
-                        binding,
-                        candidate_token,
-                        snapshot,
-                    )
-                )
-                # Candidate cleanup must not withdraw recovery's evidence.
-                old_admission = _DependencyAdmission(binding)
-                old_token = await admissions.enter_async_context(
-                    self._loader._dependency_registration(
-                        binding,
-                        admission=old_admission,
-                        attach=False,
-                    ),
-                )
-                await self._loader._observe_host_dependencies(
-                    binding,
-                    old_token,
-                )
-                old_admission.snapshot = (
-                    await self._loader._admit_dependencies(
-                        binding,
-                        old_token,
-                        candidate_admission.snapshot,
-                    )
+                    observe_recovery=True,
                 )
         except Exception as exc:
             return ConfigUpdateReport(

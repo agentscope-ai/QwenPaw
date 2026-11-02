@@ -12,7 +12,12 @@ import subprocess
 import sys
 import threading
 import tempfile
-from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
+from contextlib import (
+    AsyncExitStack,
+    ExitStack,
+    asynccontextmanager,
+    nullcontext,
+)
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -1652,6 +1657,84 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             snapshot=snapshot,
         )
 
+    async def _prepare_dependency_admissions(
+        self,
+        candidate_binding,
+        recovery_binding,
+        *,
+        admissions,
+        allow_install,
+        probe,
+        wheels=(),
+        owns_dependency_env=True,
+        observe_recovery=False,
+    ):
+        """Prepare independently owned evidence before any runtime switch."""
+        candidate = _DependencyAdmission(candidate_binding)
+        candidate_token = await admissions.enter_async_context(
+            self._dependency_registration(
+                candidate_binding,
+                admission=candidate,
+                attach=False,
+            ),
+        )
+        await self._observe_host_dependencies(
+            candidate_binding,
+            candidate_token,
+        )
+        # Preparation must retain the candidate's current admission context.
+        snapshot = await self.lifecycle.prepare_backend(
+            candidate_binding,
+            allow_install=allow_install,
+            probe=probe,
+            wheels=wheels,
+            owns_dependency_env=owns_dependency_env,
+        )
+        scope = (
+            getattr(candidate_binding.backend, "read_admission_scope", None)
+            if candidate_binding.backend is recovery_binding.backend
+            else None
+        )
+        if scope is None:
+            candidate.snapshot = await self._admit_dependencies(
+                candidate_binding,
+                candidate_token,
+                snapshot,
+            )
+        # Candidate cleanup must not withdraw recovery's exact declaration.
+        recovery = _DependencyAdmission(recovery_binding)
+        recovery_token = await admissions.enter_async_context(
+            self._dependency_registration(
+                recovery_binding,
+                admission=recovery,
+                attach=False,
+            ),
+        )
+        if observe_recovery:
+            await self._observe_host_dependencies(
+                recovery_binding,
+                recovery_token,
+            )
+        async with (
+            scope(
+                (candidate_binding.description, recovery_binding.description),
+            )
+            if scope is not None
+            else nullcontext()
+        ):
+            if scope is not None:
+                candidate.snapshot = await self._admit_dependencies(
+                    candidate_binding,
+                    candidate_token,
+                    snapshot,
+                )
+            recovery.snapshot = await self._admit_dependencies(
+                recovery_binding,
+                recovery_token,
+                candidate.snapshot,
+            )
+        return candidate, recovery
+
     async def _dispose_then_undo_txn_disk(
         self,
         plugin_id: str,
@@ -2421,44 +2504,17 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
             old_binding.validate_update(candidate_binding, in_place=in_place)
             if is_plugin_enabled(config):
-                candidate_admission = _DependencyAdmission(candidate_binding)
-                candidate_token = await admissions.enter_async_context(
-                    self._dependency_registration(
-                        candidate_binding,
-                        admission=candidate_admission,
-                        attach=False,
-                    ),
-                )
-                await self._observe_host_dependencies(
+                (
+                    candidate_admission,
+                    old_admission,
+                ) = await self._prepare_dependency_admissions(
                     candidate_binding,
-                    candidate_token,
-                )
-                snapshot = await self.lifecycle.prepare_backend(
-                    candidate_binding,
+                    old_binding,
+                    admissions=admissions,
                     allow_install=allow_install,
                     probe=True,
                     wheels=wheels,
                     owns_dependency_env=owns_dependency_env,
-                )
-                candidate_admission.snapshot = await self._admit_dependencies(
-                    candidate_binding,
-                    candidate_token,
-                    snapshot,
-                )
-                # Recovery owns separate evidence even if replacement cleanup
-                # withdraws the candidate's exact declaration.
-                old_admission = _DependencyAdmission(old_binding)
-                old_token = await admissions.enter_async_context(
-                    self._dependency_registration(
-                        old_binding,
-                        admission=old_admission,
-                        attach=False,
-                    ),
-                )
-                old_admission.snapshot = await self._admit_dependencies(
-                    old_binding,
-                    old_token,
-                    candidate_admission.snapshot,
                 )
         except Exception as exc:
             return ReloadReport(

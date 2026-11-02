@@ -26,6 +26,64 @@ _POSIX_FLOCK = pytest.mark.skipif(
 )
 
 
+@pytest.mark.asyncio
+async def test_environment_coordinator_resolves_batch_once(
+    tmp_path,
+    monkeypatch,
+):
+    from collections import Counter
+
+    site = tmp_path / "site"
+    site.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(site, target_is_directory=True)
+    canonical, calls = lock_mod.canonical_environment_path, Counter()
+
+    def counted(path):
+        calls[str(path)] += 1
+        return canonical(path)
+
+    monkeypatch.setattr(lock_mod, "canonical_environment_path", counted)
+    async with lock_mod.environment_coordinator((site, alias, site, alias)):
+        assert calls == {str(site): 1, str(alias): 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed", ["alias", "root"])
+async def test_observation_rechecks_identity_after_lock(
+    tmp_path,
+    monkeypatch,
+    changed,
+):
+    from contextlib import contextmanager
+    from qwenpaw.plugins import dependency_maintenance as maintenance
+
+    site, other = tmp_path / "site", tmp_path / "other"
+    site.mkdir()
+    other.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(site, target_is_directory=True)
+    install_lock = lock_mod.plugin_install_lock
+
+    @contextmanager
+    def change_after_lock(path, **kwargs):
+        with install_lock(path, **kwargs) as acquired:
+            if changed == "alias":
+                alias.unlink()
+                alias.symlink_to(other, target_is_directory=True)
+            else:
+                site.rename(tmp_path / "original-site")
+                site.symlink_to(other, target_is_directory=True)
+            yield acquired
+
+    monkeypatch.setattr(lock_mod, "plugin_install_lock", change_after_lock)
+    with pytest.raises(RuntimeError, match="ENVIRONMENT_IDENTITY_CHANGED"):
+        async with lock_mod.environment_observation((alias,)):
+            pytest.fail("changed identity entered observation")
+    assert lock_mod.observation_inputs() is None
+    assert not maintenance.live_readers((site, other))
+
+
 @pytest.fixture()
 def lock_path(tmp_path):
     return tmp_path / "locks" / "plugin-install.lock"
@@ -232,6 +290,44 @@ class TestDegradedPaths:
 
 
 class TestEnvironmentIdentity:
+    def test_admission_resolves_identity_once(self, tmp_path, monkeypatch):
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        bundle = tmp_path / "Signed.app"
+        site = bundle / "Contents" / "site"
+        site.mkdir(parents=True)
+        alias = tmp_path / "alias"
+        alias.symlink_to(site, target_is_directory=True)
+        monkeypatch.setattr(maintenance, "_STATE_ROOT", tmp_path / "state")
+        canonical, calls = maintenance.canonical, []
+
+        def counted(path):
+            calls.append(Path(path))
+            return canonical(path)
+
+        monkeypatch.setattr(maintenance, "canonical", counted)
+        maintenance.check_admission(alias)
+        assert calls == [alias]
+        lock = lock_mod.environment_install_lock_path(site)
+        stem = str(lock)[: -len(".lock")]
+        for locate, suffix in (
+            (maintenance.marker, "-maintenance"),
+            (maintenance.repair_marker, "-repair-required"),
+            (maintenance._readers_dir, "-readers"),
+            (maintenance._admission_gate, ".admission.lock"),
+        ):
+            path = locate(alias)
+            assert path == locate(site) == Path(stem + suffix)
+            assert path.is_relative_to(tmp_path / "state")
+            assert not path.is_relative_to(bundle)
+        repair = maintenance.repair_marker(alias)
+        repair.parent.mkdir(parents=True)
+        repair.write_text("repair required")
+        with pytest.raises(RuntimeError, match="DEPENDENCY_REPAIR_REQUIRED"):
+            maintenance.check_admission(site)
+        repair.unlink()
+        maintenance.check_admission(alias)
+
     @pytest.mark.skipif(_WINDOWS, reason="requires POSIX search permissions")
     def test_search_only_ancestor_preserves_admission(self, tmp_path):
         from qwenpaw.plugins import dependency_maintenance as maintenance

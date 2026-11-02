@@ -114,6 +114,7 @@ async def _load(
     config: dict | None = None,
     activate: bool = True,
     workspace=None,
+    requirements=None,
 ):
     workspace = workspace or _slash_workspace()
     fresh_registry.projector = WorkspaceProjector(
@@ -126,6 +127,7 @@ async def _load(
         tmp_path / "plugins" / plugin_id,
         plugin_id,
         body=body,
+        requirements=requirements,
     )
     loader = PluginLoader(plugin_dirs=[tmp_path / "plugins"])
     loader.registry = fresh_registry
@@ -806,3 +808,227 @@ async def test_startup_stop_failure_keeps_channel(
         assert report.needs_restart
         assert setups["n"] == 0
         assert workspace.channel_manager.channels
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("bounded_dependency_environment")
+@pytest.mark.parametrize(
+    "operation",
+    ["config", "reload", "recovery", "fallback", "cancel", "views", "source"],
+)
+async def test_adjacent_preflights_keep_independent_custody(
+    tmp_path,
+    fresh_registry,
+    monkeypatch,
+    bounded_dependency_environment,
+    operation,
+):
+    """Pair only preflight inputs; final/restore admission must read afresh."""
+    from qwenpaw.plugins import python_backend
+    from qwenpaw.plugins.execution import dependencies
+    from qwenpaw.plugins.install_lock import observation_inputs
+    from qwenpaw.plugins.dependency_usage import current_admission_token
+
+    _isolate_working_dir(tmp_path, monkeypatch)
+    if operation == "views":
+        info = bounded_dependency_environment / "pip-1.0.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text("Name: pip\nVersion: 1.0\n")
+        (info / "RECORD").write_text(f"{info.name}/METADATA,,\n")
+    loader, _, installed = await _load(
+        tmp_path,
+        fresh_registry,
+        "paired-preflight",
+        "if api.config.get('reject'):\n"
+        "            raise RuntimeError('candidate registration rejected')",
+        requirements="pip>=1\n" if operation == "views" else None,
+    )
+    binding = await loader._binding_for_record(
+        loader.get_loaded_plugin("paired-preflight"),
+    )
+    backend, usage = binding.backend, fresh_registry.dependency_usage
+    admit, read = (
+        backend.admit_existing,
+        dependencies.read_dependency_inventory,
+    )
+    prepare, observe = backend.prepare, backend.observe_host_dependencies
+    calls, outside, prepared_tokens, current = [], [], [], None
+    initial = set(usage._declarations)
+    original_record = loader.get_loaded_plugin("paired-preflight")
+    started, release = threading.Event(), threading.Event()
+    if operation == "fallback":
+        monkeypatch.setattr(
+            backend,
+            "read_admission_scope",
+            None,
+            raising=False,
+        )
+
+    async def admission(description, **kwargs):
+        nonlocal current
+        entry = {
+            "token": kwargs["token"],
+            "owner_inputs": observation_inputs(),
+            "prior_phases": tuple(phase for phase, _ in outside),
+            "declared": tuple(usage._declarations),
+            "inventories": [],
+        }
+        calls.append(entry)
+        current = entry
+        try:
+            return await admit(description, **kwargs)
+        finally:
+            current = None
+
+    def inventory(*args, **kwargs):
+        if current is not None:
+            current["inventories"].append(kwargs["inventory"])
+        result = read(*args, **kwargs)
+        if operation == "cancel" and current is not None and len(calls) == 1:
+            started.set()
+            assert release.wait(WAIT_TIMEOUT)
+        return result
+
+    async def preparation(*args, **kwargs):
+        outside.append(("prepare", observation_inputs()))
+        description = args[0]
+        prepared_tokens.append(
+            current_admission_token(
+                usage,
+                description.manifest.id,
+                description.source_path,
+            ),
+        )
+        return await prepare(*args, **kwargs)
+
+    async def observation(*args, **kwargs):
+        outside.append(("observe", observation_inputs()))
+        return await observe(*args, **kwargs)
+
+    if operation == "source":
+        teardown = loader.teardown_config_runtime
+
+        async def changed_source(*args, **kwargs):
+            result = await teardown(*args, **kwargs)
+            manifest = installed / "plugin.json"
+            stamp = manifest.stat()
+            manifest.write_text(
+                manifest.read_text().replace('"1.0.0"', '"9.0.0"'),
+            )
+            import os
+
+            os.utime(manifest, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            return result
+
+        monkeypatch.setattr(loader, "teardown_config_runtime", changed_source)
+    monkeypatch.setattr(backend, "admit_existing", admission)
+    monkeypatch.setattr(backend, "prepare", preparation)
+    monkeypatch.setattr(backend, "observe_host_dependencies", observation)
+    monkeypatch.setattr(dependencies, "read_dependency_inventory", inventory)
+    try:
+        if operation == "cancel":
+            task = asyncio.create_task(
+                loader.lifecycle.update_config("paired-preflight", {}),
+            )
+            try:
+                assert await asyncio.to_thread(started.wait, WAIT_TIMEOUT)
+                task.cancel()
+                assert not task.done()
+            finally:
+                release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, WAIT_TIMEOUT)
+            assert (
+                loader.get_loaded_plugin("paired-preflight") is original_record
+            )
+            assert set(usage._declarations) == initial
+            assert observation_inputs() is None
+            assert calls[0]["owner_inputs"] is not None
+            assert len(set(calls[0]["declared"]) - initial) == 2
+            return
+        if operation in {"reload", "views"}:
+            incoming = _write_plugin(
+                tmp_path / "incoming",
+                "paired-preflight",
+                requirements=("pip>=1\n" if operation == "views" else None),
+            )
+            if operation == "views":
+                info = incoming / "pip-2.0.dist-info"
+                info.mkdir()
+                (info / "METADATA").write_text(
+                    "Name: pip\nVersion: 2.0\n",
+                )
+                (info / "RECORD").write_text(f"{info.name}/METADATA,,\n")
+                monkeypatch.setattr(
+                    python_backend,
+                    "_host_paths",
+                    lambda cwd: (
+                        str(bounded_dependency_environment),
+                        str(incoming),
+                    ),
+                )
+            result = await loader.lifecycle.reload(
+                "paired-preflight",
+                new_source=incoming,
+            )
+        else:
+            result = await loader.lifecycle.update_config(
+                "paired-preflight",
+                {"reject": operation == "recovery"},
+            )
+        if operation == "views":
+            assert not result.ok and result.unchanged
+            assert any("AMBIGUOUS" in error for error in result.errors)
+            assert (
+                loader.get_loaded_plugin("paired-preflight") is original_record
+            )
+            assert len(calls) == 2
+            assert calls[0]["owner_inputs"] is not None
+            assert calls[1]["owner_inputs"] is calls[0]["owner_inputs"]
+            assert not (set(usage._declarations) - initial)
+            return
+        assert result.ok is (operation not in {"recovery", "source"})
+        assert len(calls) >= 3
+        first, second, *final = calls
+        assert first["token"] is not second["token"]
+        assert prepared_tokens[0] is first["token"]
+        if operation == "fallback":
+            assert second["token"] not in first["declared"]
+            assert first["token"] in second["declared"]
+            assert all(call["owner_inputs"] is None for call in calls)
+            assert first["inventories"][0] is not second["inventories"][0]
+            return
+        assert all(
+            first["token"] in call["declared"]
+            and second["token"] in call["declared"]
+            for call in (first, second)
+        ), "both independent declarations must precede paired decisions"
+        assert first["prior_phases"] == (
+            ("observe", "prepare")
+            if operation == "reload"
+            else ("observe", "prepare", "observe")
+        )
+        shared = first["owner_inputs"]
+        assert shared is not None and second["owner_inputs"] is shared
+        assert all(
+            call["inventories"] and call["inventories"][0] is shared
+            for call in (first, second)
+        )
+        if operation == "source":
+            assert any(
+                "DEPENDENCY_ORIGIN_INVALID" in error for error in result.errors
+            )
+        assert all(inputs is None for _, inputs in outside)
+        assert all(call["owner_inputs"] is None for call in final)
+        assert all(
+            inputs is not shared
+            for call in final
+            for inputs in call["inventories"]
+        )
+        if operation == "recovery":
+            assert final[-1]["token"] is second["token"]
+            assert first["token"] not in final[-1]["declared"]
+        assert observation_inputs() is None
+    finally:
+        await loader.lifecycle.unload("paired-preflight", UnloadMode.UNLOAD)
+        assert not usage._declarations

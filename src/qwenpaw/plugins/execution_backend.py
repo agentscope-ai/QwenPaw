@@ -95,6 +95,9 @@ class ExecutionBackend(Protocol):
     returning PreparedDependencyTargets. admit_existing owns read eligibility;
     audit_dependencies remains complete write evidence. Static discovery
     needs neither hook.
+    Optional read_admission_scope(descriptions) shares only raw inputs for
+    adjacent admissions on the same backend and task. Preparation, host
+    observation and execution must finish outside that read-only scope.
     Optional dependency_environment(description, snapshot) selects host-owned
     installer policy independently of actual consumer audit evidence.
     Optional validate_config_update(description, config) checks eligibility

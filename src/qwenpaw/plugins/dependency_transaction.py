@@ -16,7 +16,7 @@ import shutil
 import stat
 import sys
 
-from .dependency_maintenance import canonical, contains_environment_path
+from .dependency_maintenance import canonical
 
 _PLAN_FIELDS = (
     "id",
@@ -171,8 +171,27 @@ def verify_providers(observed, proposed, changes, *, full_metadata=True):
         )
 
 
-def _owned(row, prefix):
-    site = canonical(Path(row["metadata_path"]).parent)
+def _publication_roots():
+    """Resolve policy roots once in one synchronous publication check."""
+    resolved = {}
+
+    def root(path):
+        # Path equality folds case on Windows; retain each exact spelling.
+        key = str(path)
+        if key not in resolved:
+            resolved[key] = canonical(path)
+        return resolved[key]
+
+    return root
+
+
+def _contains_resolved(root, path):
+    return path.parts[: len(root.parts)] == root.parts
+
+
+def _owned(row, prefix, *, _roots=None):
+    roots = _roots or _publication_roots()
+    site = roots(Path(row["metadata_path"]).parent)
     record = Path(row["metadata_path"]) / "RECORD"
     if record.is_symlink() or not record.is_file():
         raise RuntimeError(
@@ -194,7 +213,12 @@ def _owned(row, prefix):
         resolved = canonical(path)
         if (
             relative.is_absolute()
-            or not _distribution_file_in_scope(resolved, site, prefix)
+            or not _distribution_file_in_scope(
+                resolved,
+                site,
+                prefix,
+                _roots=roots,
+            )
             or any(parent.is_symlink() for parent in (path, *path.parents))
         ):
             raise RuntimeError(
@@ -249,7 +273,7 @@ def _owned(row, prefix):
                     if (
                         cache.parent.is_symlink()
                         or cache_path.parent.parts
-                        != canonical(resolved.parent / "__pycache__").parts
+                        != roots(resolved.parent / "__pycache__").parts
                     ):
                         raise RuntimeError(
                             "DEPENDENCY_PLAN_UNVERIFIED: unsafe installed cache.",
@@ -267,40 +291,60 @@ def _owned(row, prefix):
 
 def dependency_site_is_mutable(site, prefix, managed_root, context=None):
     """Keep bundled/system packages immutable; allow owned runtime targets."""
-    site, prefix = canonical(site), canonical(prefix)
-    if _immutable_path(site, context):
+    return _site_is_mutable(
+        site,
+        prefix,
+        managed_root,
+        context,
+        _publication_roots(),
+    )
+
+
+def _site_is_mutable(site, prefix, managed_root, context, roots):
+    site, prefix = roots(site), roots(prefix)
+    if _immutable_path(site, context, _roots=roots, _resolved=True):
         return False
-    if contains_environment_path(prefix, site):
+    if _contains_resolved(prefix, site):
         return (
             not (prefix / "conda-meta").exists()
             and (prefix / "pyvenv.cfg").is_file()
         )
     target = (context or {}).get("install_target")
-    return contains_environment_path(managed_root, site) or (
-        target is not None and site.parts == canonical(target).parts
+    return _contains_resolved(roots(managed_root), site) or (
+        target is not None and site.parts == roots(target).parts
     )
 
 
-def _immutable_path(path, context):
-    return any(
-        contains_environment_path(root, path)
-        for root in (context or {}).get("immutable_roots", ())
-    )
-
-
-def _distribution_file_in_scope(path, site, prefix, context=None):
-    """RECORD describes ownership, never permission to escape an overlay."""
-    path, site, prefix = map(canonical, (path, site, prefix))
-    if _immutable_path(path, context):
+def _immutable_path(path, context, *, _roots=None, _resolved=False):
+    immutable = (context or {}).get("immutable_roots", ())
+    if not immutable:
         return False
-    return contains_environment_path(site, path) or (
-        contains_environment_path(prefix, site)
+    roots = _roots or _publication_roots()
+    path = path if _resolved else canonical(path)
+    return any(_contains_resolved(roots(root), path) for root in immutable)
+
+
+def _distribution_file_in_scope(
+    path,
+    site,
+    prefix,
+    context=None,
+    *,
+    _roots=None,
+):
+    """RECORD describes ownership, never permission to escape an overlay."""
+    roots = _roots or _publication_roots()
+    path, site, prefix = canonical(path), roots(site), roots(prefix)
+    if _immutable_path(path, context, _roots=roots, _resolved=True):
+        return False
+    return _contains_resolved(site, path) or (
+        _contains_resolved(prefix, site)
         and (prefix / "pyvenv.cfg").is_file()
         and not (prefix / "conda-meta").exists()
         and path.parent.parts
         in {
-            canonical(prefix / "bin").parts,
-            canonical(prefix / "Scripts").parts,
+            roots(prefix / "bin").parts,
+            roots(prefix / "Scripts").parts,
         }
     )
 
@@ -317,22 +361,24 @@ def prepare_payload(
     """Authorize individual files only; never delete a package directory."""
     from email.parser import BytesParser
 
+    roots = _publication_roots()
     old_files, ownership = {}, {}
     for name, row in snapshot["distributions"].items():
         if name in changed:
-            site = canonical(Path(row["metadata_path"]).parent)
-            if not dependency_site_is_mutable(
+            site = roots(Path(row["metadata_path"]).parent)
+            if not _site_is_mutable(
                 site,
                 snapshot["prefix"],
                 directory.parent.parent / "plugin_runtime",
                 context,
+                roots,
             ):
                 raise RuntimeError(
                     "DEPENDENCY_ENVIRONMENT_PROTECTED: installed site is protected.",
                 )
-            owned = _owned(row, snapshot["prefix"])
+            owned = _owned(row, snapshot["prefix"], _roots=roots)
             for path, evidence in owned.items():
-                if _immutable_path(path, context):
+                if _immutable_path(path, context, _roots=roots):
                     raise RuntimeError(
                         "DEPENDENCY_ENVIRONMENT_PROTECTED: installed file is protected.",
                     )
@@ -383,12 +429,13 @@ def prepare_payload(
                 "Name"
             ]
             name = re.sub(r"[-_.]+", "-", name).lower()
-        site = canonical(destinations[name])
-        if not dependency_site_is_mutable(
+        site = roots(destinations[name])
+        if not _site_is_mutable(
             site,
             snapshot["prefix"],
             directory.parent.parent / "plugin_runtime",
             context,
+            roots,
         ):
             raise RuntimeError(
                 "DEPENDENCY_ENVIRONMENT_PROTECTED: use the environment owner's package manager.",
@@ -398,17 +445,17 @@ def prepare_payload(
                 "DEPENDENCY_ENVIRONMENT_PROTECTED: dependency site is not writable.",
             )
         info = metadata_path.split("/", 1)[0]
-        prefix = canonical(snapshot["prefix"])
+        prefix = roots(snapshot["prefix"])
         # Inferred launcher caches stay in old custody, not the new RECORD.
         external_scripts = {
             path: evidence
             for path, evidence in old_files.items()
             if ownership[path] == {name}
-            and not contains_environment_path(site, path)
+            and not _contains_resolved(site, canonical(path))
             and Path(path).parent.parts
             in {
-                canonical(prefix / "bin").parts,
-                canonical(prefix / "Scripts").parts,
+                roots(prefix / "bin").parts,
+                roots(prefix / "Scripts").parts,
             }
         }
         relocated = set()
@@ -433,7 +480,7 @@ def prepare_payload(
                     (
                         "Scripts"
                         if script.parent.parts
-                        == canonical(prefix / "Scripts").parts
+                        == roots(prefix / "Scripts").parts
                         else "bin"
                     )
                     + "/"
@@ -498,6 +545,7 @@ def prepare_payload(
                     site,
                     snapshot["prefix"],
                     context,
+                    _roots=roots,
                 )
                 or str(resolved) in new_files
                 or any(
@@ -535,7 +583,7 @@ def prepare_payload(
         "new": new_files,
         "wheels": wheels,
         "sites": sorted(
-            {str(canonical(site)) for site in destinations.values()},
+            {str(roots(site)) for site in destinations.values()},
         ),
     }
 
@@ -692,6 +740,7 @@ def verify_payload(directory, operation):
 
 def _verify_publication_scope(directory, operation, old_files):
     """Recheck current ownership before either online or offline mutation."""
+    roots = _publication_roots()
     snapshot, payload = operation["environment"], operation["payload"]
     prefix = snapshot["prefix"]
     context = operation.get("dependency_context")
@@ -701,20 +750,21 @@ def _verify_publication_scope(directory, operation, old_files):
         name = change["name"]
         old = snapshot["distributions"].get(name)
         proposed = operation["proposed"][name]
-        site = canonical(Path((old or proposed)["metadata_path"]).parent)
-        if not dependency_site_is_mutable(
+        site = roots(Path((old or proposed)["metadata_path"]).parent)
+        if not _site_is_mutable(
             site,
             prefix,
             directory.parent.parent / "plugin_runtime",
             context,
+            roots,
         ):
             raise RuntimeError(
                 "DEPENDENCY_ENVIRONMENT_PROTECTED: dependency site is protected.",
             )
         sites.add(str(site))
-        owned = _owned(old, prefix) if old else {}
+        owned = _owned(old, prefix, _roots=roots) if old else {}
         for path in set(old_files).intersection(map(str, owned)):
-            if _immutable_path(path, context):
+            if _immutable_path(path, context, _roots=roots):
                 raise RuntimeError(
                     "DEPENDENCY_ENVIRONMENT_PROTECTED: installed file is protected.",
                 )
@@ -733,10 +783,14 @@ def _verify_publication_scope(directory, operation, old_files):
                 )
             path = canonical(site / entry[0])
             if str(path) not in payload["new"] or not (
-                _distribution_file_in_scope(path, site, prefix, context)
-                and (
-                    contains_environment_path(site, path) or str(path) in owned
+                _distribution_file_in_scope(
+                    path,
+                    site,
+                    prefix,
+                    context,
+                    _roots=roots,
                 )
+                and (_contains_resolved(site, path) or str(path) in owned)
             ):
                 raise RuntimeError(
                     "DEPENDENCY_PLAN_UNVERIFIED: unsafe publication ownership.",
