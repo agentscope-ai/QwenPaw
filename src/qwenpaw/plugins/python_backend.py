@@ -197,25 +197,28 @@ def _host_progress_provenance(sites, providers, sources):
     from .execution.dependencies import canonical_environment_path
 
     roots = []
+    metadata_paths = set(providers)
     for site in sites:
         path = Path(site)
         stat = path.stat()
+        entries = tuple(
+            sorted(
+                item.name
+                for item in path.iterdir()
+                if item.name.endswith((".dist-info", ".egg-info"))
+            ),
+        )
+        metadata_paths.update(str(path / name) for name in entries)
         roots.append(
             (
                 str(canonical_environment_path(path)),
                 stat.st_dev,
                 stat.st_ino,
-                tuple(
-                    sorted(
-                        item.name
-                        for item in path.iterdir()
-                        if item.name.endswith((".dist-info", ".egg-info"))
-                    ),
-                ),
+                entries,
             ),
         )
     metadata = []
-    for provider in providers:
+    for provider in sorted(metadata_paths):
         path = Path(provider)
         stat = path.stat()
         files = (
@@ -331,10 +334,12 @@ def _host_provider_witness(code_root, paths, roots, snapshot, inputs):
         ):
             raise ValueError("host observation roots changed")
     (rows, invalid, _observed), _embedded, owners = inputs[key]
-    if invalid:
-        raise ValueError("host observation metadata invalid")
     providers = {
-        *(row["metadata_path"] for row in rows.values()),
+        *(
+            row["metadata_path"]
+            for name, row in rows.items()
+            if name not in invalid
+        ),
         *owners,
         *owners.values(),
     }
@@ -347,6 +352,7 @@ def _host_provider_witness(code_root, paths, roots, snapshot, inputs):
             sorted(
                 (name, tuple(sorted(row.items())))
                 for name, row in rows.items()
+                if name not in invalid
             ),
         ),
         tuple(sorted(owners.items())),
@@ -358,6 +364,7 @@ def _host_provider_witness(code_root, paths, roots, snapshot, inputs):
             ),
         ),
         _host_progress_provenance(snapshot.sites, sorted(providers), ()),
+        tuple(sorted(invalid.items())),
     )
 
 
@@ -369,11 +376,12 @@ def _check_host_provider_witness(witness, inputs):
     if current is not None:
         (rows, invalid, _observed), _embedded, owners = current
         if (
-            invalid
+            tuple(sorted(invalid.items())) != witness[5]
             or tuple(
                 sorted(
                     (name, tuple(sorted(row.items())))
                     for name, row in rows.items()
+                    if name not in invalid
                 ),
             )
             != witness[1]
@@ -388,6 +396,22 @@ def _check_host_provider_witness(witness, inputs):
         if isinstance(provider, str)
     ):
         raise ValueError("host observation RECORD changed")
+
+
+def _host_observation_reason(error):
+    """Expose only fixed classifications, never exception contents."""
+    reasons = {
+        "host observation metadata changed": "metadata changed",
+        "host observation RECORD changed": "record changed",
+        "host observation roots changed": "roots changed",
+        "host observation identity changed": "identity changed",
+        "host observation source replaced": "source changed",
+        "host observation source unavailable": "source changed",
+        "host observation archive member unavailable": "source changed",
+        "host observation provider proof changed": "provider changed",
+        "host observation provider identity changed": "provider changed",
+    }
+    return reasons.get(str(error), "evidence invalid")
 
 
 def _capture_host_progress(
@@ -422,10 +446,10 @@ def _capture_host_progress(
         if not isinstance(key, tuple) or key[0] != "metadata":
             continue
         (rows, invalid, _observed), _embedded, owners = value
-        if invalid:
-            raise ValueError("host observation metadata invalid")
         providers.update(owners)
         for name, row in rows.items():
+            if name in invalid:
+                continue
             provider = row["metadata_path"]
             providers.add(provider)
             distribution = PathDistribution(Path(provider))
@@ -461,7 +485,7 @@ def _capture_host_progress(
         tuple(roots),
         sources,
         snapshot,
-        proof,
+        (*proof, witness),
     )
 
 
@@ -469,7 +493,9 @@ def _reconcile_host_progress(progress, inventory):
     """Fresh incremental ownership is valid only under the original proof."""
     from .execution.dependencies import _inventory_sites
 
-    providers = tuple(row[0] for row in progress.provenance[1])
+    witness = progress.provenance[3]
+    providers = {dict(row)["metadata_path"] for _name, row in witness[1]}
+    proof_paths = tuple(row[0] for row in progress.provenance[1])
 
     def validate():
         if (
@@ -477,10 +503,10 @@ def _reconcile_host_progress(progress, inventory):
             != progress.snapshot.sites
             or _host_progress_provenance(
                 progress.snapshot.sites,
-                providers,
+                proof_paths,
                 tuple(("", row[0], ()) for row in progress.provenance[2]),
             )
-            != progress.provenance
+            != progress.provenance[:3]
         ):
             raise ValueError("host observation identity changed")
 
@@ -496,6 +522,7 @@ def _reconcile_host_progress(progress, inventory):
         progress.snapshot,
         inventory=inventory,
     )
+    _check_host_provider_witness(witness, inventory)
     validate()
     if (
         any(row["metadata_path"] not in providers for row in imported.values())
@@ -1367,11 +1394,12 @@ class PythonBackend:
                     )
             except ObservationRootsChanged:
                 raise
-            except Exception:
+            except Exception as error:
                 if usage.finish_host_observation(token, progress, None):
                     logger.info(
                         "Host dependency observation phase=reconcile "
-                        "reason=identity changed count=%d",
+                        "reason=%s count=%d",
+                        _host_observation_reason(error),
                         len(progress.sources),
                     )
 
@@ -1508,11 +1536,12 @@ class PythonBackend:
                                         inventory=observation_inputs(),
                                         _module_owners=owners,
                                     )
-                            except Exception:
+                            except Exception as error:
                                 logger.info(
                                     "Host dependency observation plugin=%s "
-                                    "phase=observe reason=evidence invalid",
+                                    "phase=observe reason=%s",
                                     plugin_id,
+                                    _host_observation_reason(error),
                                 )
                                 unknown()
                                 return
@@ -1668,11 +1697,12 @@ class PythonBackend:
                                 len(progress.sources),
                             )
                             return
-            except Exception:
+            except Exception as error:
                 logger.info(
                     "Host dependency observation plugin=%s "
-                    "phase=observe reason=evidence invalid",
+                    "phase=observe reason=%s",
                     plugin_id,
+                    _host_observation_reason(error),
                 )
                 unknown()
 

@@ -1434,6 +1434,9 @@ async def test_host_dependency_observation_recovers_concurrent_imports(
     from qwenpaw.plugins import python_backend as backend
     from qwenpaw.plugins.dependency_gate import admit_shared_dependencies
     from qwenpaw.plugins.dependency_usage import DependencyUsageRegistry
+    from qwenpaw.plugins.execution.dependencies import (
+        read_dependency_inventory,
+    )
     from qwenpaw.plugins.execution_backend import PluginDescription
     from qwenpaw.plugins.ownership import RuntimeOwners
 
@@ -1448,9 +1451,24 @@ async def test_host_dependency_observation_recovers_concurrent_imports(
         (info / "METADATA").write_text(f"Name: {package}\nVersion: 1.0\n")
         (info / "RECORD").write_text(f"{name}.py,,\n")
         (site / f"{name}.py").write_text("VALUE = 1\n")
+    for suffix, metadata in (
+        ("1.0.egg-info", "PKG-INFO"),
+        ("1.0.dist-info", "METADATA"),
+    ):
+        info = site / f"unrelated-sdk-{suffix}"
+        info.mkdir()
+        (info / metadata).write_text("Name: unrelated-sdk\nVersion: 1.0\n")
     if withdrawn:
         (source / f"{names[1]}.py").write_text("VALUE = 1\n")
     monkeypatch.setattr(sys, "path", [str(source), str(site)])
+    view, relevant = read_dependency_inventory(source, (site,), (packages[0],))
+    assert relevant == {packages[0]}
+    assert "unrelated-sdk" not in view.distributions
+    assert view.invalid == {
+        "unrelated-sdk": "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+    }
+    with pytest.raises(ValueError, match="DEPENDENCY_ENVIRONMENT_AMBIGUOUS"):
+        read_dependency_inventory(source, (site,), ("unrelated-sdk",))
     description = PluginDescription(
         SimpleNamespace(id="host-recovery", sdk=None),
         source,
@@ -1513,6 +1531,7 @@ async def test_host_dependency_observation_recovers_concurrent_imports(
                 timeout=5,
             )
         assert len(imported) == 2
+        assert len(usage.pending_host_observations()) == 1
         host = next(
             use for use in usage.snapshot().uses if use.origin == "host"
         )
