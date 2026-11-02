@@ -73,10 +73,10 @@ def _validate_execution_model(req: dict[str, Any]) -> None:
         context.pop("model_slot_override", None)
     if override is None:
         return
-    from ...agents.model_factory import _resolve_model_slot_override
+    from ...providers.model_selection import resolve_model_slot_override
     from ...providers import ProviderManager
 
-    slot = _resolve_model_slot_override(override)
+    slot = resolve_model_slot_override(override)
     if slot is None or not slot.provider_id or not slot.model:
         raise ValueError("Invalid execution model selected for cron task")
     provider = ProviderManager.get_instance().get_provider(slot.provider_id)
@@ -103,6 +103,15 @@ class CronExecutor:
     def __init__(self, *, workspace: Any, channel_manager: Any):
         self._workspace = workspace
         self._channel_manager = channel_manager
+
+    async def _send_channel(self, method: str, **kwargs: Any) -> None:
+        manager = getattr(self._workspace, "_manager", None)
+        delivery = getattr(manager, "channel_delivery", None)
+        if delivery is None:
+            await getattr(self._channel_manager, method)(**kwargs)
+            return
+        async with delivery(self._workspace.agent_id) as channels:
+            await getattr(channels, method)(**kwargs)
 
     # pylint: disable=too-many-statements,too-many-branches
     async def execute(self, job: CronJobSpec) -> dict[str, Any]:
@@ -145,7 +154,8 @@ class CronExecutor:
             )
             text_delivery_error: str | None = None
             try:
-                await self._channel_manager.send_text(
+                await self._send_channel(
+                    "send_text",
                     channel=target_channel,
                     user_id=target_user_id,
                     session_id=target_session_id,
@@ -261,7 +271,8 @@ class CronExecutor:
             async def _deliver(event: Any) -> None:
                 nonlocal delivery_error
                 try:
-                    await self._channel_manager.send_event(
+                    await self._send_channel(
+                        "send_event",
                         channel=target_channel,
                         user_id=target_user_id,
                         session_id=target_session_id,

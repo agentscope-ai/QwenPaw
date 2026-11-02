@@ -55,7 +55,7 @@ def test_loop_command_metadata_exposes_i18n_maps():
 
 
 def test_as_str_dict_and_catalog_fields():
-    from qwenpaw.app.routers.loops import LoopModeInfo, _as_str_dict
+    from qwenpaw.modes.catalog import LoopModeInfo, _as_str_dict
 
     assert _as_str_dict({"en": "Hi", "zh-CN": "你好"}) == {
         "en": "Hi",

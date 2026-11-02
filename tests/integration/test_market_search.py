@@ -4,6 +4,8 @@
  Supplements test_market.py (providers list + unknown provider rejection)
 and test_market_categories.py (category listing). Covers search flow,
 pagination, limit boundaries, category filtering, and lang parameter.
+
+The deterministic aggregation/error tests live in test_market_aggregation.py.
 """
 
 from __future__ import annotations
@@ -290,56 +292,6 @@ def test_market_search_empty_provider_pages_returns_empty(app_server) -> None:
     payload = resp.json()
     assert payload.get("results", []) == []
     assert payload.get("by_provider", {}) == {}
-
-
-# ------------------------------------------------------------------ #
-# Search: multiple providers
-# ------------------------------------------------------------------ #
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_market_search_multiple_providers_aggregates(app_server) -> None:
-    """Test purpose:
-    - Verify search with multiple providers aggregates results from all
-      of them. Console shows combined results from selected sources.
-
-    Test flow:
-    1. GET providers, take up to 3 keys.
-    2. POST search with all selected providers.
-    3. Assert by_provider has entries for each requested provider.
-
-    API endpoints:
-    - GET /api/market/providers
-    - POST /api/market/search
-    """
-    providers_resp = app_server.api_request(
-        "GET",
-        "/api/market/providers",
-        timeout=_MARKET_HTTP_TIMEOUT,
-    )
-    providers = providers_resp.json()
-    selected = {p["key"]: 1 for p in providers[:3]}
-
-    resp = app_server.api_request(
-        "POST",
-        "/api/market/search",
-        json={
-            "query": "",
-            "provider_pages": selected,
-            "limit": 5,
-        },
-        timeout=_MARKET_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 200, app_server.logs_tail()
-    payload = resp.json()
-    by_provider = payload.get("by_provider", {})
-    # Each requested provider should appear in by_provider
-    # (either with results or errors)
-    for key in selected:
-        assert key in by_provider or any(
-            e.get("provider") == key for e in payload.get("errors", [])
-        )
 
 
 # ------------------------------------------------------------------ #

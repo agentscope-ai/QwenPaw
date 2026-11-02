@@ -1,10 +1,4 @@
-import {
-  act,
-  fireEvent,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Grid } from "antd";
 import type { ComponentType } from "react";
@@ -147,10 +141,9 @@ describe("SettingsCenter", () => {
       expect(screen.getByTestId("theme-preview")).toHaveTextContent("8px"),
     );
     await userEvent.click(screen.getByRole("button", { name: "Custom theme" }));
-    fireEvent.keyDown(screen.getByRole("slider"), {
-      key: "ArrowRight",
-      keyCode: 39,
-    });
+    const radius = screen.getByRole("spinbutton", { name: "Corner radius" });
+    await userEvent.clear(radius);
+    await userEvent.type(radius, "9");
     expect(screen.getByTestId("theme-preview")).toHaveTextContent("9px");
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() =>

@@ -22,6 +22,7 @@ import json
 import logging
 import sqlite3
 import time
+import weakref
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -34,7 +35,7 @@ from ....constant import (
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
 from ....utils.io_utils import run_sync_io
-from . import _as_internals as as_internals
+from .. import _as_internals as as_internals
 from .continuation_summary import (
     ContinuationSummary,
     SummaryMode,
@@ -46,7 +47,7 @@ from .continuation_summary import (
 from .eviction_index import EvictionIndex, Leaf, render_live_turn_banner
 from .history import HistoryStore
 from .serialize import msg_to_entries
-from ..types import ContextWindowUnfitError
+from ..types import DECISION_COMPACTED, ContextWindowUnfitError
 from ...utils.tool_message_utils import _remove_unpaired_tool_messages
 
 logger = logging.getLogger(__name__)
@@ -96,8 +97,17 @@ class ScrollContextManager:
         compact_tool_result_max_bytes: int | None = None,
         tool_results_dir: str | None = None,
         recall_loop_guard: Any = None,
+        owns_history: bool = True,
     ) -> None:
         self._history = history
+        self._owns_history = owns_history
+        self._closed = False
+        self._history_release = None
+        if not owns_history:
+            history.acquire()
+            # Explicit close is the normal path. Also release when a cancelled
+            # or failed agent build discards a manager before attaching it.
+            self._history_release = weakref.finalize(self, history.release)
         self._session_id = session_id
         self._agent_id = agent_id
         # Kept for constructor compatibility with older integrations. Scroll
@@ -336,7 +346,7 @@ class ScrollContextManager:
         # Teardown race: a stop/cancel can close the store while a final
         # ``on_save`` is still in flight. The connection was retired on
         # purpose, so skip the write quietly instead of degrading durability.
-        if self._history.closed:
+        if self._closed or self._history.closed:
             return True
         try:
             self._persist_new(agent)
@@ -515,7 +525,7 @@ class ScrollContextManager:
             mark("persist")
             kwargs = await as_internals.prepare_model_input(agent)
             mark("prepare_input")
-            tokens = await self._count_model_input_tokens(agent, kwargs)
+            tokens = await as_internals.count_model_input_tokens(agent, kwargs)
             mark("count_tokens")
             if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
@@ -533,7 +543,7 @@ class ScrollContextManager:
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
-        tokens = await self._count_model_input_tokens(agent, kwargs)
+        tokens = await as_internals.count_model_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
@@ -556,6 +566,52 @@ class ScrollContextManager:
         )
         is_forced_compaction = float(cfg.trigger_ratio) < base_trigger_ratio
         if not is_forced_compaction:
+            if getattr(agent, "decision_compaction_enabled", False):
+                # Results are already durable; only expose references whose
+                # rows still exist after retention or session recovery.
+                results = [
+                    entry
+                    for msg in agent.state.context
+                    for entry in msg_to_entries(msg)
+                    if entry.kind == "tool_result"
+                    and entry.tool_call_id in self._seq_by_tcid
+                    and not entry.metadata.get(DECISION_COMPACTED)
+                    and not str(entry.content or "").startswith(
+                        (_FOLD_MARK, _RECALL_FOLD_MARK),
+                    )
+                ]
+                contents = await run_sync_io(
+                    self._history.contents_by_seqs,
+                    {
+                        self._seq_by_tcid[entry.tool_call_id]
+                        for entry in results
+                        if entry.tool_call_id is not None
+                    },
+                )
+                refs = {}
+                for entry in results:
+                    tcid = entry.tool_call_id
+                    if tcid is None:
+                        continue
+                    seq = self._seq_by_tcid[tcid]
+                    if seq in contents and contents[seq] == entry.content:
+                        refs[tcid] = (
+                            "recall_history(op='recall_tool', "
+                            f"tool_call_id={tcid!r})"
+                        )
+                result = await agent.try_decision_compact(
+                    tokens=tokens,
+                    source_refs=refs,
+                )
+                if result.changed and result.tokens_after <= trigger:
+                    self._overflow_warned = False
+                    log_timings("decision_compaction_below_trigger")
+                    return
+                tokens = (
+                    result.tokens_after
+                    if result.changed
+                    else await self._live_tokens(agent)
+                )
             pre_folded, tokens = await self._batch_fold_completed_tool_results(
                 agent,
                 tokens=tokens,
@@ -839,7 +895,9 @@ class ScrollContextManager:
                 if not durable_key:
                     durable_key = f"{mid}#anon{anonymous_position}"
                     anonymous_position += 1
-                if str(entry.content or "").startswith(
+                if entry.metadata.get(DECISION_COMPACTED) or str(
+                    entry.content or "",
+                ).startswith(
                     (_FOLD_MARK, _RECALL_FOLD_MARK),
                 ):
                     seq = self._seq_by_tcid.get(str(durable_key))
@@ -1481,23 +1539,9 @@ class ScrollContextManager:
         self._continuation_summary = updated
         self._summary_update_failed = False
 
-    @staticmethod
-    async def _count_model_input_tokens(agent: Any, kwargs: dict) -> int:
-        """Count the formatter's omission view without altering model input."""
-        get_formatter = getattr(agent, "_get_active_formatter", None)
-        formatter = get_formatter() if callable(get_formatter) else None
-        project = getattr(
-            formatter,
-            "_prepare_messages_for_token_counting",
-            None,
-        )
-        if callable(project):
-            kwargs = {**kwargs, "messages": project(kwargs["messages"])}
-        return await agent.model.count_tokens(**kwargs)
-
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
-        return await self._count_model_input_tokens(
+        return await as_internals.count_model_input_tokens(
             agent,
             await as_internals.prepare_model_input(agent),
         )
@@ -2010,6 +2054,8 @@ class ScrollContextManager:
     @staticmethod
     def _is_folded_stub(block: Any) -> bool:
         """True if this result's output is already a fold stub."""
+        if ScrollContextManager._block_metadata(block).get(DECISION_COMPACTED):
+            return True
         out = getattr(block, "output", None)
         if isinstance(out, str):
             return out.startswith((_FOLD_MARK, _RECALL_FOLD_MARK))
@@ -2274,4 +2320,9 @@ class ScrollContextManager:
         ).isoformat()
 
     def close(self) -> None:
-        self._history.close()
+        """Retire this request; only standalone managers close the database."""
+        self._closed = True
+        if self._history_release is not None:
+            self._history_release()
+        elif self._owns_history:
+            self._history.close()

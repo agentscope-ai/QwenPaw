@@ -4,6 +4,8 @@ import { useTheme } from "../../../../contexts/ThemeContext";
 import { useChannelQrcode, type ChannelQrcodeConfig } from "./useChannelQrcode";
 
 interface QrcodeAuthBlockProps extends ChannelQrcodeConfig {
+  available?: boolean;
+  unavailableText?: string;
   /** Form.Item label text */
   label: string;
   /** Button text */
@@ -15,12 +17,23 @@ interface QrcodeAuthBlockProps extends ChannelQrcodeConfig {
 }
 
 export function QrcodeAuthBlock({
+  available = true,
+  unavailableText,
+  ...props
+}: QrcodeAuthBlockProps) {
+  if (unavailableText)
+    return <Form.Item label={props.label}>{unavailableText}</Form.Item>;
+  if (!available) return null;
+  return <AvailableQrcodeAuthBlock {...props} />;
+}
+
+function AvailableQrcodeAuthBlock({
   label,
   buttonText,
   imageAlt,
   hintText,
   ...qrcodeConfig
-}: QrcodeAuthBlockProps) {
+}: Omit<QrcodeAuthBlockProps, "available" | "unavailableText">) {
   const { isDark } = useTheme();
   const qrcode = useChannelQrcode(qrcodeConfig);
 

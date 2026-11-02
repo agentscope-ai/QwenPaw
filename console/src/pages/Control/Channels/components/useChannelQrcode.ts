@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../../../api";
+import type { ChannelAuthProvenance } from "../../../../api/modules/channel";
+import { useAgentStore } from "../../../../stores/agentStore";
+
+export interface ChannelQrcodeCustody {
+  /** Atomically transfer cancellation ownership to a validated save job. */
+  take: () => boolean;
+  /** Discard an authorization that has not been taken by a save job. */
+  cancel: () => void;
+}
 
 export interface ChannelQrcodeConfig {
   /** Channel name used in the API path, e.g. "wechat" or "wecom" */
   channel: string;
+  agentId: string;
   /** Status value that indicates successful authorization */
   successStatus: string;
   /** Key in `credentials` to check for a truthy value on success */
@@ -17,7 +27,11 @@ export interface ChannelQrcodeConfig {
   /** Extra query parameters to pass to the QR code API (e.g. domain) */
   params?: Record<string, string>;
   /** Called when authorization succeeds with the credentials map */
-  onSuccess: (credentials: Record<string, string>) => void;
+  onSuccess: (
+    credentials: Record<string, string>,
+    provenance: ChannelAuthProvenance,
+    custody: ChannelQrcodeCustody,
+  ) => void;
   /** Called when QR code fetch fails, polling detects expiry, or backend reports failure */
   onError: (type: "fetch" | "expired" | "fail") => void;
 }
@@ -41,6 +55,7 @@ export function useChannelQrcode(
 ): ChannelQrcodeState {
   const {
     channel,
+    agentId,
     successStatus,
     successCredentialKey,
     pollInterval = 2000,
@@ -50,98 +65,153 @@ export function useChannelQrcode(
     onSuccess,
     onError,
   } = config;
-
   const [qrcodeImg, setQrcodeImg] = useState("");
   const [loading, setLoading] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const confirmedRef = useRef(false);
-  const pollCountRef = useRef(0);
-  const startTimeRef = useRef(0);
+  const generation = useRef(0);
+  const pollRef = useRef<ReturnType<typeof setTimeout>>();
+  const flight = useRef<{
+    controller: AbortController;
+    agentId: string;
+    channel: string;
+    token?: string;
+    custodyTaken: boolean;
+  }>();
+
+  const revoke = (channel: string, token: string, agentId: string) => {
+    // Cancellation has its own request signal; the poll signal is already aborted.
+    void api.cancelChannelQrcode(channel, token, { agentId }).catch(() => {
+      console.warn("Unable to cancel QR authorization");
+    });
+  };
 
   const stopPoll = useCallback(() => {
-    if (pollRef.current) {
-      clearTimeout(pollRef.current);
-      pollRef.current = null;
+    generation.current += 1;
+    clearTimeout(pollRef.current);
+    const previous = flight.current;
+    flight.current = undefined;
+    previous?.controller.abort();
+    if (previous?.token && !previous.custodyTaken) {
+      revoke(previous.channel, previous.token, previous.agentId);
     }
   }, []);
 
   const reset = useCallback(() => {
     stopPoll();
     setQrcodeImg("");
-    confirmedRef.current = false;
-    pollCountRef.current = 0;
-    startTimeRef.current = 0;
+    setLoading(false);
   }, [stopPoll]);
+
+  // A layout cleanup fences promises before a changed scope can paint, including ABA.
+  const paramsKey = JSON.stringify(params ?? {});
+  useLayoutEffect(() => {
+    reset();
+    return stopPoll;
+  }, [agentId, channel, paramsKey, reset, stopPoll]);
+  useLayoutEffect(
+    () =>
+      useAgentStore.subscribe((next, previous) => {
+        if (next.selectedAgent !== previous.selectedAgent) reset();
+      }),
+    [reset],
+  );
 
   const fetchQrcode = useCallback(async () => {
     reset();
+    const currentGeneration = generation.current;
+    const current = {
+      controller: new AbortController(),
+      agentId,
+      channel,
+      token: undefined as string | undefined,
+      custodyTaken: false,
+    };
+    flight.current = current;
+    const active = () =>
+      generation.current === currentGeneration && flight.current === current;
+    const scope = { agentId, signal: current.controller.signal };
+    const capturedParams = params ? { ...params } : undefined;
+    const fail = (reason: "fetch" | "expired" | "fail") => {
+      if (!active()) return;
+      reset();
+      onError(reason);
+    };
     setLoading(true);
     try {
-      const data = await api.getChannelQrcode(channel, params);
-      if (!data.qrcode_img) {
-        onError("fetch");
+      const data = await api.getChannelQrcode(channel, capturedParams, scope);
+      if (!active()) {
+        if (data.poll_token) revoke(channel, data.poll_token, agentId);
+        return;
+      }
+      current.token = data.poll_token;
+      if (!data.qrcode_img || !data.poll_token) {
+        fail("fetch");
         return;
       }
       setQrcodeImg(data.qrcode_img);
-
-      pollCountRef.current = 0;
-      startTimeRef.current = Date.now();
-
-      // Use recursive setTimeout to avoid overlapping requests
+      let pollCount = 0;
+      const started = Date.now();
       const schedulePoll = () => {
+        if (!active()) return;
         pollRef.current = setTimeout(async () => {
-          // Check wall-clock timeout first
-          if (pollTimeout && Date.now() - startTimeRef.current >= pollTimeout) {
-            setQrcodeImg("");
-            onError("expired");
+          if (!active()) return;
+          if (
+            (pollTimeout && Date.now() - started >= pollTimeout) ||
+            (maxPollCount && pollCount >= maxPollCount)
+          ) {
+            fail("expired");
             return;
           }
-          // Check max poll count (failsafe)
-          if (maxPollCount && pollCountRef.current >= maxPollCount) {
-            setQrcodeImg("");
-            onError("expired");
-            return;
-          }
-          pollCountRef.current++;
-
+          pollCount += 1;
           try {
             const result = await api.getChannelQrcodeStatus(
               channel,
               data.poll_token,
-              params,
+              capturedParams,
+              scope,
             );
+            if (!active()) return;
             if (
               result.status === successStatus &&
               result.credentials[successCredentialKey]
             ) {
-              if (confirmedRef.current) return;
-              confirmedRef.current = true;
+              // Confirmation alone does not transfer cancellation ownership.
+              // The consumer must synchronously take it when a valid job exists.
               setQrcodeImg("");
-              onSuccess(result.credentials);
+              onSuccess(
+                { ...result.credentials },
+                { agentId, channel, token: data.poll_token },
+                {
+                  take: () => {
+                    if (current.custodyTaken) return true;
+                    if (!active()) return false;
+                    current.custodyTaken = true;
+                    return true;
+                  },
+                  cancel: () => {
+                    if (active() && !current.custodyTaken) reset();
+                  },
+                },
+              );
               return;
-            } else if (result.status === "expired") {
-              setQrcodeImg("");
-              onError("expired");
-              return;
-            } else if (result.status === "fail") {
-              setQrcodeImg("");
-              onError("fail");
+            }
+            if (result.status === "expired" || result.status === "fail") {
+              fail(result.status);
               return;
             }
           } catch {
-            // ignore individual poll errors
+            if (!active()) return;
           }
-          // Schedule next poll only after current one completes
           schedulePoll();
         }, pollInterval);
       };
       schedulePoll();
     } catch {
-      onError("fetch");
+      fail("fetch");
     } finally {
-      setLoading(false);
+      if (active()) setLoading(false);
     }
   }, [
+    agentId,
     channel,
     successStatus,
     successCredentialKey,
@@ -153,9 +223,6 @@ export function useChannelQrcode(
     onError,
     reset,
   ]);
-
-  // Cleanup on unmount
-  useEffect(() => stopPoll, [stopPoll]);
 
   return { qrcodeImg, loading, fetchQrcode, stopPoll, reset };
 }

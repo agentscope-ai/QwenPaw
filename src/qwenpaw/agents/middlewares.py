@@ -25,6 +25,7 @@ from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk, ToolResponse
 
+from ..config.context import current_script_tool_call
 from .tools.utils import (
     DEFAULT_MAX_BYTES,
     ToolResultPruner,
@@ -232,7 +233,7 @@ class MemoryMiddleware(MiddlewareBase):
 
         source_context: list[Msg] = []
         pending_markers: list[str] = []
-        compression_state: tuple[Any, tuple[str, ...]] | None = None
+        compression_state: tuple[Any, tuple[str, ...], int] | None = None
         try:
             pending_markers = list(
                 self._auto_memory_turn_state(agent)["pending"],
@@ -540,18 +541,23 @@ class MemoryMiddleware(MiddlewareBase):
     @staticmethod
     def _compression_state(
         agent: "Agent",
-    ) -> tuple[Any, tuple[str, ...]]:
+    ) -> tuple[Any, tuple[str, ...], int]:
         return (
             agent.state.summary,
             tuple(msg.id for msg in agent.state.context),
+            getattr(agent, "_decision_compaction_revision", 0),
         )
 
     @classmethod
     def _did_compress_context(
         cls,
         agent: "Agent",
-        before: tuple[Any, tuple[str, ...]],
+        before: tuple[Any, tuple[str, ...], int],
     ) -> bool:
+        # Decision compaction preserves message IDs and summary.
+        # Preserve the original memory snapshots for this lighter pass too.
+        if getattr(agent, "_decision_compaction_revision", 0) != before[2]:
+            return True
         context_manager = getattr(agent, "_context_manager", None)
         stats = getattr(context_manager, "last_compress", None)
         if isinstance(stats, dict):
@@ -562,7 +568,7 @@ class MemoryMiddleware(MiddlewareBase):
     def _compression_changed(
         cls,
         agent: "Agent",
-        before: tuple[Any, tuple[str, ...]] | None,
+        before: tuple[Any, tuple[str, ...], int] | None,
     ) -> bool:
         """Best-effort compression inspection for exception cleanup paths."""
         if before is None:
@@ -765,6 +771,11 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],  # pylint: disable=unused-argument
         next_handler: Callable[..., AsyncGenerator[Any, None]],
     ) -> AsyncGenerator[Any, None]:
+        if current_script_tool_call.get():
+            # Python selects evidence before the model-context budget applies.
+            async for event in next_handler():
+                yield event
+            return
         events: list[Any] = []
         async for event in next_handler():
             if isinstance(event, ToolResponse):

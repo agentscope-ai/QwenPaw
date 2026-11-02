@@ -9,7 +9,6 @@ with ``meta.pawapp`` when the PluginRegistry is not yet ready.
 
 import json
 import logging
-import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from ...plugins.browser_access import browser_prefixes
+from ...plugins.registry import MemoryBackendInUseError
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,11 @@ async def get_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
 
 
 @router.delete("/{app_id}")
-async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
+async def uninstall_pawapp(
+    app_id: str,
+    request: Request,
+    interrupt_tasks: bool = False,
+) -> Dict[str, Any]:
     """Uninstall a PawApp by deleting its directory under ~/.copaw/apps.
 
     Falls back to unloading a plugin-based PawApp via the plugin loader
@@ -197,32 +201,59 @@ async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
             detail="Invalid app path",
         ) from exc
 
-    # If the plugin is loaded, unload it first (which also deletes files).
     loader = getattr(request.app.state, "plugin_loader", None)
-    if loader is not None and loader.get_loaded_plugin(app_id) is not None:
-        try:
-            await loader.unload_plugin(app_id, delete_files=True)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=500,
-                detail=f"Uninstall failed: {exc}",
-            ) from exc
-        return {"id": app_id, "message": f"PawApp '{app_id}' uninstalled."}
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    try:
+        from ...plugins.lifecycle import UnloadMode
+        from ...plugins.activity import PluginBusyError
+        from .plugins import memory_in_use_detail, unload_http_detail
 
-    # If not loaded but directory exists, delete it directly.
-    if app_dir.exists() and app_dir.is_dir():
-        try:
-            # Run blocking directory deletion in thread pool
-            await asyncio.to_thread(shutil.rmtree, app_dir)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to remove PawApp '%s': %s", app_id, exc)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Uninstall failed: {exc}",
-            ) from exc
-        return {"id": app_id, "message": f"PawApp '{app_id}' uninstalled."}
-
-    raise HTTPException(status_code=404, detail=f"PawApp '{app_id}' not found")
+        report = await loader.lifecycle.unload(
+            app_id,
+            UnloadMode.UNINSTALL,
+            delete_files=True,
+            **({"interrupt_tasks": True} if interrupt_tasks else {}),
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"PawApp '{app_id}' not found",
+        ) from exc
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except MemoryBackendInUseError as exc:
+        still_loaded = loader.get_loaded_plugin(app_id) is not None
+        raise HTTPException(
+            status_code=409,
+            detail=memory_in_use_detail(
+                app_id,
+                exc,
+                loaded=still_loaded,
+                kind="PawApp",
+            ),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.error("PawApp uninstall failed for '%s': %s", app_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Uninstall failed: {exc}",
+        ) from exc
+    still_loaded = loader.get_loaded_plugin(app_id) is not None
+    if not report.clean or not report.quiescent or still_loaded:
+        raise HTTPException(
+            status_code=409,
+            detail=unload_http_detail(
+                app_id,
+                report,
+                loaded=still_loaded,
+                kind="PawApp",
+            ),
+        )
+    return {"id": app_id, "message": f"PawApp '{app_id}' uninstalled."}
 
 
 @router.get("/{app_id}/settings")

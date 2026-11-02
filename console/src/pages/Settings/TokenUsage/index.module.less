@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/contentStates.less";
+
 .content {
   flex: 1;
   overflow-y: auto;
@@ -15,8 +17,7 @@
 }
 
 .loading {
-  text-align: center;
-  padding: 60px;
+  .loading-state();
   color: var(--app-text-tertiary);
 }
 
@@ -204,6 +205,32 @@
   }
   .cardValue {
     font-size: 22px;
+  }
+}
+
+@media (max-width: 600px) {
+  .mobileRangePopup {
+    :global(
+        .qwenpaw-picker-panel-container
+          .qwenpaw-picker-panel-layout
+          > .qwenpaw-picker-presets
+      ),
+    :global(
+        .ant-picker-panel-container
+          .ant-picker-panel-layout
+          > .ant-picker-presets
+      ),
+    :global(.qwenpaw-picker-panel:first-child),
+    :global(.ant-picker-panel:first-child) {
+      display: none;
+    }
+
+    :global(.qwenpaw-picker-header-super-prev-btn),
+    :global(.ant-picker-header-super-prev-btn),
+    :global(.qwenpaw-picker-header-prev-btn),
+    :global(.ant-picker-header-prev-btn) {
+      visibility: visible !important;
+    }
   }
 }
 

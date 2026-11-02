@@ -3,7 +3,7 @@ import { useAutoSave } from "@/hooks/useAutoSave";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Spin, Popover, Segmented } from "antd";
+import { Alert, Spin, Popover, Segmented } from "antd";
 import {
   Switch,
   Button,
@@ -242,6 +242,8 @@ export default function ToolsPage() {
   const {
     tools,
     loading,
+    error,
+    ready,
     batchLoading,
     toggleEnabled,
     toggleAsyncExecution,
@@ -328,6 +330,38 @@ export default function ToolsPage() {
     tools: visibleTools.filter((tool) => toolGroup(tool) === key),
   }));
 
+  if (error) {
+    return (
+      <div className={styles.toolsPage}>
+        <PageHeader items={[{ title: t("tools.title") }]} />
+        <div className={styles.loadError}>
+          <Alert
+            type="error"
+            showIcon
+            message={t("tools.loadError")}
+            action={
+              <Button type="primary" onClick={() => void loadTools()}>
+                {t("common.retry")}
+              </Button>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (loading || !ready) {
+    return (
+      <div className={styles.toolsPage}>
+        <PageHeader items={[{ title: t("tools.title") }]} />
+        <div className={styles.empty} role="status">
+          <Spin />
+          <span>{t("common.loading")}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.toolsPage}>
       <PageHeader items={[{ title: t("tools.title") }]} />
@@ -376,12 +410,7 @@ export default function ToolsPage() {
             </Button>
           </div>
         </div>
-        {loading ? (
-          <div className={styles.empty} role="status">
-            <Spin />
-            <span>{t("common.loading")}</span>
-          </div>
-        ) : tools.length === 0 || visibleTools.length === 0 ? (
+        {tools.length === 0 || visibleTools.length === 0 ? (
           <div className={styles.empty} role="status">
             <Search size={24} aria-hidden />
             <span>

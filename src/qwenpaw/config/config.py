@@ -38,6 +38,7 @@ from qwenpaw.exceptions import (
 
 from .history_path import normalize_history_db_filename
 from .timezone import detect_system_timezone
+from .channel_normalizers import NORMALIZER_MARKER, strip_trailing_slash
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
@@ -399,6 +400,8 @@ class DiscordConfig(BaseChannelConfig):
 
 
 class DingTalkConfig(BaseChannelConfig):
+    model_config = ConfigDict(extra="allow")
+
     client_id: str = ""
     client_secret: str = ""
     message_type: str = "markdown"
@@ -426,13 +429,18 @@ class FeishuConfig(BaseChannelConfig):
     if False (default), each member gets an independent session.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     app_id: str = ""
     app_secret: str = ""
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
     # "feishu" / "lark", or a full http(s) base URL for custom gateways.
-    domain: str = "feishu"
+    domain: str = Field(
+        default="feishu",
+        json_schema_extra={"pattern": "^(feishu$|lark$|https?://)"},
+    )
 
     @field_validator("domain")
     @classmethod
@@ -544,12 +552,13 @@ class WecomConfig(BaseChannelConfig):
 class MatrixConfig(BaseChannelConfig):
     """Matrix channel configuration."""
 
-    homeserver: str = ""
-
-    @field_validator("homeserver")
-    @classmethod
-    def strip_trailing_slash(cls, v: str) -> str:
-        return v.rstrip("/")
+    homeserver: str = Field(
+        default="",
+        json_schema_extra={NORMALIZER_MARKER: "strip_trailing_slash"},
+    )
+    strip_trailing_slash = field_validator("homeserver", mode="after")(
+        strip_trailing_slash,
+    )
 
     user_id: str = ""
     access_token: str = ""
@@ -967,6 +976,19 @@ class ReMeLightMemoryConfig(BaseModel):
         "background task burden.",
     )
 
+    auto_memory_include_images: bool = Field(
+        default=False,
+        description=(
+            "Include conversation images in auto-memory when the memory "
+            "model has confirmed image-input support"
+        ),
+    )
+
+    auto_memory_generate_tags: bool = Field(
+        default=False,
+        description="Generate entity tags after auto-memory writes a note",
+    )
+
     dream_cron_enabled: bool = Field(
         default=True,
         description=(
@@ -1187,7 +1209,8 @@ class ToolResultPruningConfig(BaseModel):
         ge=1,
         le=365,
         description=(
-            "Number of days to retain complete archived tool result files. "
+            "Number of days to retain complete archived tool result files "
+            "after their latest publication or reuse. "
             "This lifetime is independent of Scroll history retention; after "
             "expiry, history may still contain the bounded preview but not "
             "the complete artifact."
@@ -1316,6 +1339,22 @@ class VisualCompactConfig(BaseModel):
     )
 
 
+class DecisionCompactConfig(BaseModel):
+    """Optional recoverable tool-result compaction with a decision model."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+    enabled: bool = False
+    drop_threshold: float = Field(default=0.1, ge=0, le=1)
+    preserve_recent_messages: int = Field(default=6, ge=0)
+    preview_chars: int = Field(default=300, ge=0)
+    total_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    max_state_tokens: int = Field(default=25000, gt=0)
+    max_request_tokens: int = Field(default=30000, gt=0)
+    evidence_chars: int = Field(default=2000, gt=0)
+    max_concurrency: int = Field(default=4, ge=1, le=32)
+
+
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
@@ -1353,6 +1392,9 @@ class LightContextConfig(BaseModel):
     )
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
+    )
+    decision_compact_config: DecisionCompactConfig = Field(
+        default_factory=DecisionCompactConfig,
     )
     visual_compact_config: VisualCompactConfig = Field(
         default_factory=VisualCompactConfig,
@@ -1610,7 +1652,7 @@ class GoalLoopModeConfig(BaseModel):
     """Editable values for the fixed built-in Goal pipeline."""
 
     max_iterations: int = Field(default=20, ge=1, le=500)
-    max_tokens: int = Field(default=300_000, ge=1)
+    max_tokens: int = Field(default=0, ge=-1)
 
 
 class MissionLoopModeConfig(BaseModel):
@@ -2095,7 +2137,9 @@ class CodingModeConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        description="Enable Coding Mode IDE layout and tools",
+        description=(
+            "Route enabled tools through sandboxed Python orchestration"
+        ),
     )
 
 
@@ -2992,6 +3036,9 @@ class ToolsConfig(BaseModel):
         icon value.
         """
         defaults = _default_builtin_tools()
+        # Retired built-ins must not remain as nonfunctional settings.
+        for name in (f"lsp", f"ast_search"):
+            self.builtin_tools.pop(name, None)
         # Keep persisted configurations from the former stable-track name
         # compatible with the unified browser identity.
         legacy = self.builtin_tools.pop("browser_use", None)
@@ -3381,10 +3428,25 @@ class ThemeConfig(BaseModel):
         return value
 
 
+class ChannelPluginState(BaseModel):
+    """Host distribution intent, never runtime ownership or credentials."""
+
+    version: int = 0
+    preset: Literal["light", "channels-full"] = "light"
+    legacy_pending: list[str] = Field(default_factory=list)
+    legacy_captured: list[str] = Field(default_factory=list)
+    uninstalled: list[str] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
     channels: ChannelConfig = ChannelConfig()
+    channel_plugin_state: ChannelPluginState = Field(
+        default_factory=ChannelPluginState,
+    )
+    channel_send_timeouts: Dict[str, float] = Field(default_factory=dict)
+
     mcp: MCPConfig = MCPConfig()
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
@@ -3412,6 +3474,13 @@ class Config(BaseModel):
         "Skills found here are read-only (no edit/create); they can be "
         "listed, downloaded to a workspace, and deleted.",
     )
+
+    @field_validator("channel_send_timeouts", mode="before")
+    @classmethod
+    def _validate_channel_send_timeouts(cls, value):
+        from ..channel_protocol.outbound_budget import validate_send_timeouts
+
+        return validate_send_timeouts(value)
 
 
 ChannelConfigUnion = Union[
@@ -3705,15 +3774,14 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         save_agent_config(agent_id, fallback_config)
         return fallback_config
 
-    try:
-        current_fingerprint = _agent_config_fingerprint(agent_config_path)
-    except OSError as exc:
-        raise ConfigurationException(
-            config_key="agent",
-            message=f"Agent '{agent_id}' config is temporarily unavailable",
-        ) from exc
-
     with _agent_config_lock:
+        try:
+            current_fingerprint = _agent_config_fingerprint(agent_config_path)
+        except OSError as exc:
+            raise ConfigurationException(
+                config_key="agent",
+                message=f"Agent '{agent_id}' config is temporarily unavailable",
+            ) from exc
         cached_entry = _agent_config_cache.get(agent_id)
         if (
             isinstance(cached_entry, _AgentConfigCacheEntry)
@@ -3899,6 +3967,7 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         load_config,
         _agent_config_cache,
         _agent_config_lock,
+        _record_agent_config_publication,
     )
 
     config = load_config()
@@ -3962,6 +4031,7 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             payload = candidate.model_dump(exclude_none=True)
             saved_digest = _json_payload_digest(payload)
             write_json_atomic(agent_config_path, payload)
+            _record_agent_config_publication()
             candidate.record_source_digest(saved_digest)
             agent_config.record_source_digest(saved_digest)
             try:

@@ -1,4 +1,5 @@
 import { Cascade } from "@/components/interaction/Cascade";
+import { IconButton } from "@/components/interaction/IconButton";
 import { motion, useReducedMotion } from "motion/react";
 import { GlobalModelDefaults } from "./GlobalModelDefaults";
 import {
@@ -281,7 +282,7 @@ function ModelsPage() {
       cloudAvailableGroups: cloudAvailGroups.filter(
         (g) =>
           g.name.toLowerCase().includes(query) ||
-          g.firstProvider.name.toLowerCase().includes(query),
+          g.providers.some(matchProvider),
       ),
     };
   }, [providers, deferredSearchQuery]);
@@ -380,11 +381,11 @@ function ModelsPage() {
                       name="models-provider-search-nofill"
                       data-form-type="other"
                     />
-                    <Button
-                      icon={<RefreshCw size={16} strokeWidth={1.5} />}
+                    <IconButton
+                      icon={RefreshCw}
+                      label={t("common.refresh")}
                       onClick={() => fetchAll()}
                       className={styles.searchBtn}
-                      title={t("common.refresh")}
                     />
                   </div>
                   <Button
@@ -399,8 +400,11 @@ function ModelsPage() {
               </div>
 
               {/* ---- Tab Navigation ---- */}
-              <div className={styles.tabsNav}>
-                <div
+              <div className={styles.tabsNav} role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === "cloud"}
                   className={[
                     styles.tabItem,
                     activeTab === "cloud" ? styles.tabItemActive : "",
@@ -418,8 +422,11 @@ function ModelsPage() {
                       0,
                     )}
                   )
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === "local"}
                   className={[
                     styles.tabItem,
                     activeTab === "local" ? styles.tabItemActive : "",
@@ -428,7 +435,7 @@ function ModelsPage() {
                 >
                   {t("models.localCustomGroup")} (
                   {localConfigured.length + localAvailable.length})
-                </div>
+                </button>
               </div>
 
               {/* ---- Tab Content ---- */}
@@ -614,7 +621,10 @@ function ModelsPage() {
             {/* Shared Modal instances — one each for the entire page */}
             {configModalProvider && (
               <ProviderConfigModal
-                provider={configModalProvider}
+                provider={
+                  providers.find((p) => p.id === configModalProvider.id) ??
+                  configModalProvider
+                }
                 activeModels={activeModels}
                 open={configOpen}
                 onClose={() => setConfigOpen(false)}
@@ -652,7 +662,11 @@ function ModelsPage() {
                     }}
                   >
                     <ProviderIcon providerId={p.id} size={24} decorative />
-                    <span className={styles.variantItemName}>{p.name}</span>
+                    <span className={styles.variantItemName}>
+                      {p.id === "openai-chatgpt"
+                        ? t("models.providerVariants.chatgpt")
+                        : p.name}
+                    </span>
                     {p.is_free_tier && (
                       <span className={styles.freeTag}>FREE</span>
                     )}

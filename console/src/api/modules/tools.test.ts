@@ -39,6 +39,14 @@ describe("toolsApi", () => {
     expect(result).toEqual(tools);
   });
 
+  it("lists tools for the captured agent", async () => {
+    vi.mocked(request).mockResolvedValue([]);
+    await toolsApi.listTools("agent-a");
+    expect(request).toHaveBeenCalledWith("/tools", {
+      headers: { "X-Agent-Id": "agent-a" },
+    });
+  });
+
   it("toggleTool returns the updated ToolInfo with the new enabled state", async () => {
     const updated = {
       name: "calc",

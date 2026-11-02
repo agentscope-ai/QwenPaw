@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from agentscope.message import Msg, TextBlock
 
+from ..catalog import LoopModeInfo
 from ..base import AgentMode, find_active_explicit_mode
 from ...app.agent_context import get_current_session_id
 from ...runtime.hooks import HookBase, HookContext
@@ -100,6 +101,18 @@ class AdvisorMode(AgentMode):
     """
 
     name = "advisor"
+
+    def describe_loop(self, workspace: Any) -> LoopModeInfo | None:
+        """Expose this mode through the shared loop catalog."""
+        if not is_enabled(workspace.config):
+            return None
+        return LoopModeInfo(
+            id=self.name,
+            name=self.name,
+            slash_command=self.name,
+            description=_LOOP_DESCRIPTION,
+            source=f"builtin",
+        )
 
     def __init__(self) -> None:
         self._sessions: dict[str, AdvisorSessionState] = {}

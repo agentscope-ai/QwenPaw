@@ -60,7 +60,7 @@ export function ChatSessionTransition(props: Props) {
         >
           <span>{t(failed ? errorKey : "common.loading")}</span>
           {failed && props.onRetry && (
-            <Button size="small" onClick={props.onRetry}>
+            <Button size="small" type="default" onClick={props.onRetry}>
               {t("common.retry")}
             </Button>
           )}

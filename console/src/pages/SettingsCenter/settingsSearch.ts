@@ -54,7 +54,7 @@ export const SETTINGS_SEARCH_KEYS: Record<string, string[]> = {
     "tools.asyncExecution",
     "tools.webSearchProviderLabel",
   ],
-  mcp: ["mcp.qwenpawManaged", "mcp.providerManaged", "mcp.create", "mcp.tools"],
+  mcp: ["mcp.qwenpawManaged", "mcp.create", "mcp.tools"],
   acp: ["acp.nodeSettings", "acp.command", "acp.trusted"],
   import: [
     "portabilityImport.conversations",
@@ -103,7 +103,6 @@ export const SETTINGS_SEARCH_KEYS: Record<string, string[]> = {
     "models.apiKey",
     "models.baseURL",
     "models.manageModels",
-    "models.localModelsTitle",
     "models.localRuntimeSectionTitle",
   ],
   "skill-pool": [

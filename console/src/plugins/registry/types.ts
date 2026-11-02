@@ -153,6 +153,8 @@ export interface Route {
   id: string;
   /** URL path. Supports react-router patterns, including "/chat/*". */
   path: string;
+  /** Match path casing exactly. Defaults to case-insensitive matching. */
+  caseSensitive?: boolean;
   /** Lazy or eager component. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   component: React.ComponentType<any>;
