@@ -318,13 +318,13 @@ class TestEnvironmentIdentity:
             ):
                 fresh.state_root()
             return
-        expected = (
-            override
-            if selection == "explicit"
-            else (passwd_home if selection == "passwd" else home)
-            / ".qwenpaw"
-            / "dependency-environments"
-        )
+        # The ``.qwenpaw`` suffix belongs to the home branches only: an
+        # explicit ``QWENPAW_DEPENDENCY_STATE_DIR`` names the coordination
+        # root itself and is used verbatim, without a suffix appended.
+        expected = override
+        if selection != "explicit":
+            selected_home = passwd_home if selection == "passwd" else home
+            expected = selected_home / ".qwenpaw" / "dependency-environments"
         try:
             assert fresh.state_root() == expected.resolve()
             monkeypatch.setenv("HOME", str(tmp_path / "changed-home"))
@@ -344,6 +344,71 @@ class TestEnvironmentIdentity:
             assert fresh._readers_dir(site).is_relative_to(expected.resolve())
         finally:
             fresh._close_readers()
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    def test_state_root_is_shared_by_processes_with_different_homes(
+        self,
+        tmp_path,
+    ):
+        """Processes sharing an environment must not split on ``HOME``.
+
+        ``LocalProvisioner.runtime_environment()`` points ``HOME`` at each
+        runtime's working directory, so a host process and a hub runtime
+        process on one account see different ``HOME`` values. If selection
+        ever preferred ``HOME``, they would coordinate under two roots and
+        the gates, markers and leases below them would stop excluding each
+        other. The property is asserted across two real interpreters, not
+        inside one patched module.
+        """
+        import subprocess
+        import sys
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        passwd_home = tmp_path / "passwd-home"
+        passwd_home.mkdir()
+        script = (
+            "import importlib.util, pwd, sys\n"
+            "from types import SimpleNamespace\n"
+            "spec = importlib.util.spec_from_file_location("
+            "'child_dependency_maintenance', sys.argv[1])\n"
+            "fresh = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(fresh)\n"
+            "pwd.getpwuid = lambda _uid: SimpleNamespace(pw_dir=sys.argv[2])\n"
+            "sys.stdout.write(str(fresh.state_root()) + '\\n')\n"
+        )
+
+        def selected(home):
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if key != maintenance._STATE_ENV
+            }
+            environment["HOME"] = str(home)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-c",
+                    script,
+                    maintenance.__file__,
+                    str(passwd_home),
+                ],
+                capture_output=True,
+                check=True,
+                env=environment,
+                text=True,
+                timeout=120,
+            )
+            return completed.stdout.strip()
+
+        expected = (
+            passwd_home / ".qwenpaw" / "dependency-environments"
+        ).resolve()
+        first = selected(tmp_path / "host-home")
+        second = selected(tmp_path / "runtime-home")
+        assert Path(first) == expected
+        assert Path(second) == expected
 
     @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
     def test_state_root_reports_an_unusable_passwd_home(
