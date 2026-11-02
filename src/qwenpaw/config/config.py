@@ -208,38 +208,6 @@ class ModelSlotConfig(BaseModel):
     model: str = Field(default="")
 
 
-def normalize_model_slot_config(
-    value: Any,
-    *,
-    string_is_bare_model: bool = False,
-) -> ModelSlotConfig | None:
-    """Normalize supported model-slot forms in one place.
-
-    Configuration fields that allow bare model names set
-    ``string_is_bare_model`` so colons in version-tagged names remain part of
-    the model ID. Generic per-request overrides retain the legacy
-    ``provider_id:model`` string form.
-    """
-    if value is None:
-        return None
-    if isinstance(value, ModelSlotConfig):
-        return value
-    if isinstance(value, dict):
-        return ModelSlotConfig.model_validate(value)
-    if isinstance(value, str):
-        stripped = value.strip()
-        if string_is_bare_model:
-            return ModelSlotConfig(provider_id="", model=stripped)
-        provider_id, sep, model = stripped.partition(":")
-        if sep and provider_id.strip() and model.strip():
-            return ModelSlotConfig(
-                provider_id=provider_id.strip(),
-                model=model.strip(),
-            )
-        raise ValueError("model slot strings must use 'provider_id:model'")
-    raise ValueError(f"Unsupported model slot type: {type(value).__name__}")
-
-
 class ActiveModelsInfo(BaseModel):
     """Active models information for provider manager."""
 
@@ -1137,7 +1105,9 @@ class ReMeLightMemoryConfig(BaseModel):
     @classmethod
     def parse_memory_model_slot(cls, value: Any) -> Any:
         """Accept object slots or bare model-name strings."""
-        return normalize_model_slot_config(value, string_is_bare_model=True)
+        if isinstance(value, str):
+            return ModelSlotConfig(model=value.strip())
+        return value
 
     @field_validator("dream_cron", "daily_paper_cron", "auto_fin_cron")
     @classmethod
