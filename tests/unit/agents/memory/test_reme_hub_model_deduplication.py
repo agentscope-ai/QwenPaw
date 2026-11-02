@@ -62,7 +62,7 @@ async def test_real_hub_wrapper_deduplicates_memory_slot(
 
     assert isinstance(actual, TokenRecordingModelWrapper)
     assert not isinstance(actual, FallbackChatModel)
-    assert not hasattr(actual, "model_key")
+    assert actual.model_key == f"hub-managed:{model_id}"
     assert get_model_identity(actual) == ("hub-managed", model_id)
     assert actual.formatter.resize_images_to_max_bytes is True
     directory.assert_called_once_with()
