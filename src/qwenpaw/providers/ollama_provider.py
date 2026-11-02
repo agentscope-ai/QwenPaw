@@ -36,40 +36,23 @@ def parse_ollama_num_ctx(parameters: str | None) -> int | None:
     return value if value >= _MIN_CONTEXT_TOKENS else None
 
 
-def parse_ollama_model_context_length(
-    model_info: dict[str, Any] | None,
-) -> int | None:
-    """Return the GGUF ``*.context_length`` from an ``/api/show`` payload."""
-    if not model_info:
-        return None
-    for key, raw in model_info.items():
-        if not str(key).endswith(".context_length"):
-            continue
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if value >= _MIN_CONTEXT_TOKENS:
-            return value
-    return None
-
-
 def resolve_ollama_context_window(
     *,
     show_payload: dict[str, Any] | None = None,
     served_context: int | None = None,
 ) -> int | None:
-    """Pick the best Ollama context signal for compaction.
+    """Pick the active Ollama context window for compaction.
 
-    Precedence (most specific first):
+    Precedence:
 
     1. ``/api/ps`` ``context_length`` when the model is currently loaded —
        this reflects ``OLLAMA_CONTEXT_LENGTH`` and the load-time window;
-    2. Modelfile ``num_ctx`` from ``/api/show`` ``parameters``;
-    3. GGUF ``*.context_length`` from ``/api/show`` ``model_info``.
+    2. explicit Modelfile ``num_ctx`` from ``/api/show`` ``parameters``.
 
-    Returns ``None`` when nothing usable is present so the caller keeps the
-    128k default rather than inventing a window.
+    GGUF ``*.context_length`` is the model's maximum supported context, not
+    the window Ollama is serving (often a much smaller default). It is not
+    used. Returns ``None`` when neither signal is present so the caller
+    keeps the 128k default rather than inventing a window.
     """
     if (
         isinstance(served_context, int)
@@ -77,10 +60,7 @@ def resolve_ollama_context_window(
     ):
         return served_context
     payload = show_payload or {}
-    baked = parse_ollama_num_ctx(payload.get("parameters"))
-    if baked is not None:
-        return baked
-    return parse_ollama_model_context_length(payload.get("model_info"))
+    return parse_ollama_num_ctx(payload.get("parameters"))
 
 
 def _ollama_model_aliases(model_id: str) -> set[str]:
@@ -161,6 +141,29 @@ class OllamaProvider(OpenAIProvider):
             verification="provider_only",
         )
 
+    def _native_probe_headers(self) -> dict[str, str]:
+        """Headers for native ``/api/ps`` and ``/api/show`` probes.
+
+        The OpenAI-compatible client already sends ``api_key`` and
+        ``_build_default_headers()``. Secured Ollama can accept
+        ``/v1/models`` and reject bare native calls, so these probes carry
+        the same material. An Authorization value already configured in
+        the headers is left unchanged.
+        """
+        headers = {
+            str(key): str(value)
+            for key, value in (self._build_default_headers() or {}).items()
+        }
+        if any(
+            str(key).lower() == "authorization" and str(value).strip()
+            for key, value in headers.items()
+        ):
+            return headers
+        api_key = (self.api_key or "").strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
     def _context_catalog_enabled(self) -> bool:
         """Ollama serves models locally: the family's cloud window does not
         apply (a local ``qwen3-coder:30b`` truncates at ``num_ctx``, not at
@@ -181,7 +184,10 @@ class OllamaProvider(OpenAIProvider):
         if not models:
             return models
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout,
+                headers=self._native_probe_headers(),
+            ) as client:
                 served = await self._fetch_served_contexts(client)
                 enriched = await asyncio.gather(
                     *[
