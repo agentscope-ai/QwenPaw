@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Button, Form, Input, Modal, Select } from "@agentscope-ai/design";
-import type { ProviderInfo } from "../../../api/types";
-import api from "../../../api";
+import type { ProviderInfo } from "../../../../api/types/provider";
+import api from "../../../../api";
 import { useTranslation } from "react-i18next";
-import { useAppMessage } from "../../../hooks/useAppMessage";
+import { useAppMessage } from "../../../../../hooks/useAppMessage";
 
 interface QuickAddModelModalProps {
   open: boolean;
