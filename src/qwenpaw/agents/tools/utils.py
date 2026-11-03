@@ -15,7 +15,9 @@ from typing import Any
 from ...constant import TRUNCATION_NOTICE_MARKER
 from ...utils.io_utils import run_sync_io
 from ..utils.file_handling import (
-    _decode_mostly_utf8_lossy,
+    _choose_fallback_decoding,
+    _lossy_utf8_text,
+    _signals_for_bytes,
     decode_text_bytes_with_encoding_fallback,
     single_line_log_value,
 )
@@ -600,37 +602,58 @@ def _decode_capped_text_snapshot(
         )
 
     # Prefer UTF-8 prefixes (including empty when the cap lands inside the
-    # first character). Only then try lossy UTF-8 so a single dirty byte
-    # does not send an otherwise UTF-8 snapshot through GBK.
+    # first character). Legacy probes stay incremental so a character cut
+    # by the cap still counts. The same choice as a full read then prefers
+    # strict GBK/CP1252 over lossy UTF-8 when that lossy decode would only
+    # introduce U+FFFD.
     for encoding in ("utf-8-sig", "utf-8"):
         text = _incremental_decode_capped_prefix(content, encoding)
         if text is not None:
             return text
 
-    lossy = _decode_mostly_utf8_lossy(content)
-    if lossy is not None:
+    gbk_text = _incremental_decode_capped_prefix(content, "gbk")
+    cp_text = _incremental_decode_capped_prefix(content, "cp1252")
+    choice = _choose_fallback_decoding(
+        _signals_for_bytes(
+            content,
+            gbk_ok=gbk_text is not None,
+            cp1252_ok=cp_text is not None,
+        ),
+    )
+    if choice is None:
+        text = _incremental_decode_capped_prefix(content, "latin-1")
+        if text is not None:
+            logger.debug(
+                "File %s read with encoding: %s",
+                single_line_log_value(file_name),
+                "latin-1",
+            )
+            return text
+        return decode_text_bytes_with_encoding_fallback(
+            content,
+            file_name=file_name,
+        )
+
+    encoding, lossy = choice
+    if lossy:
         logger.debug(
             "File %s read with lossy UTF-8 (mostly valid)",
             single_line_log_value(file_name),
         )
-        return lossy
+        return _lossy_utf8_text(content)
 
-    for encoding in ("gbk", "cp936", "cp1252", "latin-1"):
-        text = _incremental_decode_capped_prefix(content, encoding)
-        if text is None:
-            continue
-        logger.debug(
-            "File %s read with encoding: %s",
-            single_line_log_value(file_name),
-            encoding,
+    chosen = gbk_text if encoding == "gbk" else cp_text
+    if chosen is None:
+        return decode_text_bytes_with_encoding_fallback(
+            content,
+            file_name=file_name,
         )
-        return text
-
-    # latin-1 accepts every byte, so this is defensive only.
-    return decode_text_bytes_with_encoding_fallback(
-        content,
-        file_name=file_name,
+    logger.debug(
+        "File %s read with encoding: %s",
+        single_line_log_value(file_name),
+        encoding,
     )
+    return chosen
 
 
 def _read_file_safe_sync(

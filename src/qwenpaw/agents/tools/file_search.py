@@ -23,7 +23,11 @@ from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
 from ..utils.file_handling import (
-    _mostly_utf8_replacement_ok,
+    _FallbackSignals,
+    _UTF8_BOM,
+    _choose_fallback_decoding,
+    _feed_gbk_pair_trails,
+    _lossy_text_stats,
     single_line_log_value,
 )
 
@@ -108,15 +112,8 @@ _MAX_MATCHES = 200
 _MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
 # Bounded reads so a single file is never pulled into memory in one shot.
 _GREP_READ_CHUNK = 64 * 1024
-# Keep in step with decode_text_bytes_with_encoding_fallback.
-_GREP_TEXT_ENCODINGS = (
-    "utf-8-sig",
-    "utf-8",
-    "gbk",
-    "cp936",
-    "cp1252",
-    "latin-1",
-)
+# Strict UTF-8 is probed before the shared fallback choice.
+_GREP_UTF8_ENCODINGS = ("utf-8-sig", "utf-8")
 _MAX_CONTEXT_LINES = 5
 _MAX_OUTPUT_CHARS = 50_000  # ~50 KB
 _MAX_FILES_SCANNED = 10_000
@@ -512,11 +509,41 @@ def _iter_decoded_grep_lines(
         yield pending
 
 
-def _mostly_utf8_lossy_ok(path: Path, cancel: threading.Event) -> bool:
-    """True when a strict UTF-8 failure is still mostly valid UTF-8."""
+def _grep_strict_encoding_ok(
+    path: Path,
+    encoding: str,
+    cancel: threading.Event,
+) -> bool:
+    """True when *encoding* accepts the capped byte stream."""
+    with open(path, "rb") as raw:
+        try:
+            for _line in _iter_decoded_grep_lines(raw, encoding, cancel):
+                pass
+        except UnicodeDecodeError:
+            return False
+    return True
+
+
+def _scan_grep_fallback_stats(
+    path: Path,
+    cancel: threading.Event,
+) -> tuple[bool, int, int, bool, int, int]:
+    """Stream the capped prefix and return fallback signal counts.
+
+    The window matches ``_iter_decoded_grep_lines``: at most
+    ``_MAX_FILE_SIZE`` bytes, finalized only at real EOF. Counts stay
+    comparable to ``decode_text_bytes_with_encoding_fallback`` on that
+    same prefix.
+    """
     bad = 0
     good = 0
-    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    saw_non_ascii = False
+    other = 0
+    letters = 0
+    pending_lead: int | None = None
+    prefix = b""
+    decoder = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
+    hit_eof = False
     with open(path, "rb") as raw:
         read_total = 0
         while read_total < _MAX_FILE_SIZE:
@@ -525,28 +552,97 @@ def _mostly_utf8_lossy_ok(path: Path, cancel: threading.Event) -> bool:
             want = min(_GREP_READ_CHUNK, _MAX_FILE_SIZE - read_total)
             chunk = raw.read(want)
             if not chunk:
+                hit_eof = True
                 break
             read_total += len(chunk)
+            if len(prefix) < len(_UTF8_BOM):
+                prefix += chunk[: len(_UTF8_BOM) - len(prefix)]
+            other, letters, pending_lead = _feed_gbk_pair_trails(
+                chunk,
+                other,
+                letters,
+                pending_lead,
+            )
             text = decoder.decode(chunk, final=False)
-            replaced = text.count("\ufffd")
-            bad += replaced
-            good += len(text) - replaced
+            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
+            bad += piece_bad
+            good += piece_good
+            saw_non_ascii = saw_non_ascii or piece_saw
             if len(chunk) < want:
+                hit_eof = True
                 break
-        text = decoder.decode(b"", final=True)
-        replaced = text.count("\ufffd")
-        bad += replaced
-        good += len(text) - replaced
-    return _mostly_utf8_replacement_ok(bad, good)
+        else:
+            if cancel.is_set():
+                raise _GrepCancelled()
+            if not raw.read(1):
+                hit_eof = True
+        if hit_eof:
+            text = decoder.decode(b"", final=True)
+            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
+            bad += piece_bad
+            good += piece_good
+            saw_non_ascii = saw_non_ascii or piece_saw
+    return (
+        prefix.startswith(_UTF8_BOM),
+        bad,
+        good,
+        saw_non_ascii,
+        other,
+        letters,
+    )
+
+
+def _select_grep_decoding(
+    path: Path,
+    cancel: threading.Event,
+) -> tuple[str, bool]:
+    """Return ``(encoding, lossy)`` using the shared fallback choice."""
+    with open(path, "rb") as raw:
+        for encoding in _GREP_UTF8_ENCODINGS:
+            if cancel.is_set():
+                raise _GrepCancelled()
+            raw.seek(0)
+            try:
+                for _line in _iter_decoded_grep_lines(raw, encoding, cancel):
+                    pass
+            except UnicodeDecodeError:
+                continue
+            return encoding, False
+
+    bom, bad, good, saw, other, letters = _scan_grep_fallback_stats(
+        path,
+        cancel,
+    )
+    gbk_ok = _grep_strict_encoding_ok(path, "gbk", cancel)
+    cp_ok = _grep_strict_encoding_ok(path, "cp1252", cancel)
+    choice = _choose_fallback_decoding(
+        _FallbackSignals(
+            bom=bom,
+            bad=bad,
+            good=good,
+            saw_non_ascii=saw,
+            other_trails=other,
+            letter_trails=letters,
+            gbk_ok=gbk_ok,
+            cp1252_ok=cp_ok,
+        ),
+    )
+    if choice is None:
+        return "latin-1", False
+    return choice
 
 
 def _iter_decoded_grep_lines_lossy(
     raw: BinaryIO,
     cancel: threading.Event,
 ) -> Iterator[str]:
-    """Yield lines with UTF-8 ``errors='replace'`` under the size cap."""
+    """Yield lines with UTF-8-SIG ``errors='replace'`` under the size cap.
+
+    ``utf-8-sig`` drops a leading BOM so a dirty byte after it cannot
+    leave U+FEFF in the match text.
+    """
     decoder = io.IncrementalNewlineDecoder(
-        codecs.getincrementaldecoder("utf-8")(errors="replace"),
+        codecs.getincrementaldecoder("utf-8-sig")(errors="replace"),
         translate=True,
     )
     pending = ""
@@ -591,35 +687,14 @@ def _iter_grep_lines(
     path: Path,
     cancel: threading.Event,
 ) -> Iterator[str]:
-    """Yield text lines using the utf-8 → gbk/cp936 ladder.
+    """Yield text lines using the shared utf-8 → gbk/cp1252 choice.
 
-    The file is scanned once per encoding until one accepts every byte, then
-    scanned again to yield lines. Both passes stream; neither builds a
-    second copy of the whole file. A mostly-UTF-8 file with a few dirty
-    bytes uses lossy UTF-8 instead of falling through to GBK.
+    The file is scanned in bounded chunks to pick an encoding, then scanned
+    again to yield lines. Neither pass builds a second copy of the file.
+    Lossy UTF-8 is used only when a real non-ASCII character or a BOM
+    survived; longer GBK/CP1252 text falls through to a strict decode.
     """
-    chosen = "latin-1"
-    utf8_failed = False
-    with open(path, "rb") as raw:
-        for encoding in _GREP_TEXT_ENCODINGS:
-            if cancel.is_set():
-                raise _GrepCancelled()
-            raw.seek(0)
-            try:
-                for _line in _iter_decoded_grep_lines(raw, encoding, cancel):
-                    pass
-            except UnicodeDecodeError:
-                if encoding in ("utf-8", "utf-8-sig"):
-                    utf8_failed = True
-                continue
-            chosen = encoding
-            break
-
-    lossy_utf8 = False
-    if chosen not in ("utf-8", "utf-8-sig") and utf8_failed:
-        if _mostly_utf8_lossy_ok(path, cancel):
-            lossy_utf8 = True
-            chosen = "utf-8"
+    chosen, lossy_utf8 = _select_grep_decoding(path, cancel)
 
     if lossy_utf8:
         logger.debug(

@@ -1005,6 +1005,71 @@ def test_walk_and_grep_short_cp1252_finds_accent(temp_dir):
     assert any("Café" in line for line in matches)
 
 
+def test_walk_and_grep_longer_gbk_finds_character(temp_dir):
+    """Pattern 锘 matches GBK ``name=锘``."""
+    target = temp_dir / "name.txt"
+    target.write_bytes("name=锘".encode("gbk"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("锘"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("锘" in line for line in matches)
+
+
+def test_walk_and_grep_longer_cp1252_finds_accent(temp_dir):
+    """Pattern Cafés matches a longer CP1252 file."""
+    target = temp_dir / "cafes.txt"
+    target.write_bytes("Cafés".encode("cp1252"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("Cafés"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("Cafés" in line for line in matches)
+
+
+def test_walk_and_grep_bom_and_dirty_byte_strips_bom(temp_dir):
+    """A BOM plus one invalid byte stays searchable without U+FEFF."""
+    target = temp_dir / "bom.txt"
+    target.write_bytes(b"\xef\xbb\xbfhello\xff\n")
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("hello"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert all("hello" in line for line in matches)
+    assert all("\ufeff" not in line for line in matches)
+
+
+def test_walk_and_grep_utf8_chinese_cp1252_decodable_stays(temp_dir):
+    """Dirty UTF-8 that CP1252 accepts still matches the Chinese text."""
+    target = temp_dir / "nihao.txt"
+    target.write_bytes("你好世界\n".encode("utf-8") + b"\xff")
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("你好世界"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("你好世界" in line for line in matches)
+
+
 def test_walk_and_grep_streams_bounded_reads_and_keeps_gbk(
     temp_dir,
     monkeypatch,
@@ -1104,6 +1169,13 @@ def test_iter_grep_lines_matches_normalized_newlines(temp_dir, monkeypatch):
         "a\u2028b needle\n".encode("utf-8"),
         "姓名: 张三\r\n下一行\n".encode("gbk"),
         b"\xef\xbb\xbfhello\r\nworld",
+        "name=锘".encode("gbk"),
+        "Cafés".encode("cp1252"),
+        "Cafés au lait".encode("cp1252"),
+        b"\xef\xbb\xbfhello\xff",
+        "你好世界\n".encode("utf-8") + b"\xff",
+        "姓名: 张三\n".encode("utf-8") + b"\xff",
+        b"hello\x81world",
         b"only",
         b"\n",
         b"\r\n",
