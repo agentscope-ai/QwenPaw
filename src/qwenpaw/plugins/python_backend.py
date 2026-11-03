@@ -128,18 +128,16 @@ def _files_for_loaded_origins(
     metadata_path=None,
     record_reads=None,
 ):
-    """Validate fresh RECORD rows, then stat only loaded-origin candidates."""
+    """Validate all RECORD rows, retaining only this query's loaded origins."""
     from .execution.dependencies import _read_record
 
     record = _read_record(distribution, metadata_path, record_reads)
     if not record:
         return distribution.files
-    key = ("host_paths", metadata_path)
-    if (
-        record_reads is None
-        or metadata_path is None
-        or key not in record_reads
-    ):
+    origins = frozenset(origins)
+    key = ("host_matches", metadata_path)
+    cached = record_reads.get(key) if record_reads is not None else None
+    if cached is None or cached[0] != origins:
         paths = []
         for row in csv.reader(record.splitlines()):
             if not 1 <= len(row) <= 3:
@@ -150,21 +148,18 @@ def _files_for_loaded_origins(
             # Retain unusual anchor semantics without a Path per ordinary row.
             if path.startswith("//") or "\\" in path or ":" in path:
                 path = str(PurePosixPath(path))
-            paths.append((os.path.normcase(os.path.normpath(path)), path))
+            if os.path.normcase(os.path.normpath(path)) in origins:
+                paths.append(PurePosixPath(path))
+        paths = tuple(paths)
         if record_reads is not None and metadata_path is not None:
-            record_reads[key] = tuple(paths)
+            record_reads[key] = (origins, paths)
     else:
-        paths = record_reads[key]
-    candidates = [
-        PurePosixPath(path) for name, path in paths if name in origins
-    ]
+        paths = cached[1]
     if sys.version_info < (3, 12):
-        return candidates
+        return list(paths)
     # Validate every row before checking candidates, and check all candidates
     # so a later matching-origin error cannot be hidden by an earlier match.
-    return [
-        path for path in candidates if distribution.locate_file(path).exists()
-    ]
+    return [path for path in paths if distribution.locate_file(path).exists()]
 
 
 def _host_paths(cwd):
@@ -600,6 +595,11 @@ def _observe_host_dependencies(
         observe_dependencies,
     )
 
+    # TODO: Build the package-to-file lookup during installation and reuse it
+    # here. First ensure each process's dependency files stay unchanged. Today,
+    # the shared installation directory can change, so this scan is needed to
+    # detect updates that would replace or hide a package already loaded by
+    # the host. See PluginLoader._dependency_environment for the update plan.
     embedded_owners = dict(_embedded_owners or {})
     record_reads = (
         inventory.setdefault("records", {}) if inventory is not None else {}
@@ -644,17 +644,19 @@ def _observe_host_dependencies(
         root = Path(row["metadata_path"]).parent
         distribution = PathDistribution(Path(row["metadata_path"]))
         if root not in relative_modules:
-            indexed = relative_modules[root] = {}
+            indexed = {}
             for module_name, path in loaded.items():
                 for origin in _relative_module_origins(
                     (path, resolved[str(path)]),
                     root,
                 ):
                     indexed.setdefault(origin, set()).add(module_name)
-        indexed = relative_modules[root]
+            # Every distribution in this root shares one immutable query.
+            relative_modules[root] = (indexed, frozenset(indexed))
+        indexed, origins = relative_modules[root]
         files = _files_for_loaded_origins(
             distribution,
-            indexed,
+            origins,
             metadata_path=row["metadata_path"],
             record_reads=record_reads,
         )
