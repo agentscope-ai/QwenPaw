@@ -195,8 +195,13 @@ it("reports decision configuration without a second decision-model switch", asyn
   );
   await screen.findByRole("slider");
   expect(onDecisionConfiguredChange).toHaveBeenLastCalledWith(true);
-  expect(screen.queryByText("chat.sessionSettings.advanced")).toBeNull();
-  expect(screen.queryByRole("switch")).toBeNull();
+  const advanced = screen.queryByText("chat.sessionSettings.advanced");
+  if (advanced) fireEvent.click(advanced);
+  expect(
+    screen.queryByRole("switch", {
+      name: "chat.sessionSettings.decisionEnabled",
+    }),
+  ).not.toBeInTheDocument();
 });
 
 const thinkingView = {

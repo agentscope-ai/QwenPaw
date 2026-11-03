@@ -3976,7 +3976,7 @@
     "contextStrategyNative": "Native",
     "decisionCompactLabel": "Decision model compaction",
     "decisionCompactEnabled": "Enable decision model compaction",
-    "decisionCompactDescription": "Off by default. Reuses the agent decision model, or the global default decision model. Configure it in Model settings. Under automatic context pressure, ReMe shortens low-relevance tool results with recovery references before normal compaction. Works with Scroll and native, independently of long-term memory and the chat decision toggle. Requires automatic context compaction. Decision requests send bounded conversation evidence to the configured provider.",
+    "decisionCompactDescription": "Off by default. Reuses the agent decision model, or the global default decision model. Configure it in Model settings. Under automatic context pressure, ReMe shortens low-relevance tool results with recovery references before normal compaction. Works with Scroll and native, independently of long-term memory and the chat's tool approval mode. Requires automatic context compaction. Decision requests send bounded conversation evidence to the configured provider.",
     "decisionCompactAdvanced": "Request limits",
     "decisionCompact_drop_threshold": "Low-relevance threshold",
     "decisionCompact_drop_thresholdHelp": "Only results at or below this probability may be shortened. Lower values preserve more originals.",

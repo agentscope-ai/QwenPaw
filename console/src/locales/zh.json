@@ -3833,7 +3833,7 @@
     "contextStrategyNative": "Native",
     "decisionCompactLabel": "决策模型压缩",
     "decisionCompactEnabled": "启用决策模型压缩",
-    "decisionCompactDescription": "默认关闭，复用智能体的决策模型，未选择时使用全局默认决策模型，请在模型设置中配置。自动触发上下文压缩时，ReMe 先将低相关性工具结果替换为带恢复引用的短预览，再继续现有压缩流程。支持 Scroll 和原生策略，独立于长期记忆及聊天决策开关，需要开启自动上下文压缩。决策请求会将有界的对话证据发送至配置的供应商。",
+    "decisionCompactDescription": "默认关闭，复用智能体的决策模型，未选择时使用全局默认决策模型，请在模型设置中配置。自动触发上下文压缩时，ReMe 先将低相关性工具结果替换为带恢复引用的短预览，再继续现有压缩流程。支持 Scroll 和原生策略，独立于长期记忆及聊天的工具审批模式，需要开启自动上下文压缩。决策请求会将有界的对话证据发送至配置的供应商。",
     "decisionCompactAdvanced": "请求限制",
     "decisionCompact_drop_threshold": "低相关性阈值",
     "decisionCompact_drop_thresholdHelp": "仅缩短相关性概率不高于该值的结果；数值越低，保留原文越多。",
