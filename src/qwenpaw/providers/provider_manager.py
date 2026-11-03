@@ -1249,6 +1249,7 @@ class ProviderManager(
             await _clear_local_provider()
             return
 
+        setup_result.model_info.model_type = local_models[0].model_type
         await self.update_provider_async(
             "qwenpaw-local",
             {
