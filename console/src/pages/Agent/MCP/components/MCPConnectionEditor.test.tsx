@@ -1,5 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { useRef } from "react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { TFunction } from "i18next";
+import { settingsSearchTarget } from "@/pages/SettingsCenter/settingsSearch";
+import { useSettingsSearchTarget } from "@/pages/SettingsCenter/useSettingsSearchTarget";
 import { MCPConnectionEditor } from "./MCPConnectionEditor";
 import { readConnection, connectionError } from "./connectionValue";
 vi.mock("react-i18next", () => ({
@@ -15,6 +19,46 @@ const config = {
   enabled: false,
 };
 describe("MCP connection editor", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("locates arguments without matching the help text or changing the connection", async () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([
+      {},
+    ] as unknown as DOMRectList);
+    const onChange = vi.fn();
+    const target = settingsSearchTarget(
+      "mcp",
+      "acp.args",
+      ((key: string) => key) as TFunction,
+    );
+    function Fixture() {
+      const root = useRef<HTMLDivElement>(null);
+      useSettingsSearchTarget(root, target, "mcp");
+      return (
+        <div ref={root}>
+          <MCPConnectionEditor
+            value={JSON.stringify(config)}
+            onChange={onChange}
+          />
+        </div>
+      );
+    }
+    render(<Fixture />);
+    const args = screen.getByLabelText("acp.args · acp.argsHelp");
+    await waitFor(() =>
+      expect(args.closest("[data-settings-target]")).toHaveAttribute(
+        "data-search-highlight",
+        "true",
+      ),
+    );
+    expect(args).toHaveValue(config.args[0]);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("opens editable essentials directly and preserves advanced values", () => {
     const onChange = vi.fn();
     render(

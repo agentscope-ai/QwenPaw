@@ -595,9 +595,9 @@ class QwenPawAgent(Agent):
 
         await self._close_decision_compactor()
 
-        # Scroll history: apply the retention window (if any) while the
-        # connection is still open, then release it (db + -wal + -shm fds —
-        # otherwise they accumulate across requests on a long-lived server).
+        # Apply retention while history is available, then retire the request's
+        # manager. Workspace-owned history stays open for subsequent requests;
+        # standalone managers close their own connection.
         cm = getattr(self, "_context_manager", None)
         if cm is not None:
             if hasattr(cm, "purge_old"):

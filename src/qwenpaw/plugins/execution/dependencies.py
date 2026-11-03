@@ -11,6 +11,7 @@ from importlib.util import source_from_cache
 import inspect
 import os
 from pathlib import Path
+import re
 import sys
 import sysconfig
 from typing import Any, Mapping
@@ -211,53 +212,72 @@ class DependencySnapshot:
         }
 
 
-def protected_dependency_target(path):
-    """Protect local stdlib/support while preserving actual package sites."""
-    target = canonical_environment_path(path)
+def _dependency_protection_roots(resolved=None):
+    """Resolve common protection inputs once per synchronous classification."""
+    if resolved is None:
+        resolved = {}
+
+    def canonical_roots(paths):
+        for path in paths:
+            if path and str(path) not in resolved:
+                resolved[str(path)] = canonical_environment_path(path)
+        return {str(resolved[str(path)]) for path in paths if path}
+
+    package_roots = canonical_roots(
+        (
+            sysconfig.get_path("purelib"),
+            sysconfig.get_path("platlib"),
+        ),
+    )
+    standard = canonical_roots(
+        (
+            sysconfig.get_path("stdlib"),
+            sysconfig.get_path("platstdlib"),
+            sysconfig.get_config_var("DESTSHARED"),
+        ),
+    )
+    source = Path(__file__).resolve()
+    support = canonical_roots((source.parents[3], source.parent))
+    return package_roots, standard, support - package_roots
+
+
+def _protected_dependency_target(target, roots):
+    package_roots, standard, support = roots
 
     def contains(root):
         parts = Path(root).parts
         return target.parts[: len(parts)] == parts
 
-    package_roots = {
-        str(canonical_environment_path(path))
-        for path in (
-            sysconfig.get_path("purelib"),
-            sysconfig.get_path("platlib"),
-        )
-        if path
-    }
-    standard = {
-        str(canonical_environment_path(path))
-        for path in (
-            sysconfig.get_path("stdlib"),
-            sysconfig.get_path("platstdlib"),
-            sysconfig.get_config_var("DESTSHARED"),
-        )
-        if path
-    }
-    support = {
-        str(canonical_environment_path(Path(__file__).resolve().parents[3])),
-        str(canonical_environment_path(Path(__file__).resolve().parent)),
-    }
-    return any(contains(root) for root in support - package_roots) or (
+    return any(contains(root) for root in support) or (
         any(contains(root) for root in standard)
         and not any(contains(root) for root in package_roots)
+    )
+
+
+def protected_dependency_target(path):
+    """Protect local stdlib/support while preserving actual package sites."""
+    return _protected_dependency_target(
+        canonical_environment_path(path),
+        _dependency_protection_roots(),
     )
 
 
 def dependency_sites(sites, *, explicit=(), distributions=()):
     """Classify roots without granting explicit paths protected writes."""
     del explicit, distributions
-    return tuple(
-        dict.fromkeys(
-            str(canonical_environment_path(path))
-            for path in sites
-            if path
-            and Path(path).is_dir()
-            and not protected_dependency_target(path)
-        ),
-    )
+    roots = None
+    resolved = {}
+    classified = {}
+    for path in dict.fromkeys(str(path) for path in sites if path):
+        if Path(path).is_dir():
+            if roots is None:
+                roots = _dependency_protection_roots(resolved)
+            if str(path) not in resolved:
+                resolved[str(path)] = canonical_environment_path(path)
+            target = resolved[str(path)]
+            if not _protected_dependency_target(target, roots):
+                classified[str(target)] = None
+    return tuple(classified)
 
 
 def _read_record(distribution, metadata_path, records):
@@ -271,7 +291,16 @@ def _read_record(distribution, metadata_path, records):
 
 def _record_entries(distribution, *, metadata_path=None, record_reads=None):
     """Validate RECORD once without allocating a Path for each file."""
+    key = ("entries", metadata_path)
     record = _read_record(distribution, metadata_path, record_reads)
+    if record_reads is not None and metadata_path is not None:
+        if key not in record_reads:
+            record_reads[key] = _parse_record_entries(record)
+        return record_reads[key]
+    return _parse_record_entries(record)
+
+
+def _parse_record_entries(record):
     if not record:
         return None
     entries = []
@@ -394,6 +423,54 @@ def _installed_metadata(
     embedded_sites=None,
     embedded_owners=None,
     record_reads=None,
+    inventory=None,
+):
+    """Reuse unfiltered metadata only in a caller-owned observation."""
+    key = ("metadata", tuple(str(site) for site in sites))
+    if inventory is None or key not in inventory:
+        embedded, owners = set(), {}
+        result = _read_installed_metadata(
+            sites,
+            embedded_sites=embedded,
+            embedded_owners=owners,
+            record_reads=record_reads,
+        )
+        if inventory is not None:
+            inventory[key] = (result, embedded, owners)
+    else:
+        result, embedded, owners = inventory[key]
+    if embedded_sites is not None:
+        embedded_sites.update(embedded)
+    if embedded_owners is not None:
+        embedded_owners.update(owners)
+    rows, invalid, observed = result
+    return (
+        {name: dict(row) for name, row in rows.items()},
+        dict(invalid),
+        dict(observed),
+    )
+
+
+class _HeaderDistribution(metadata.PathDistribution):
+    """Use the native metadata parser without its unused description body."""
+
+    def read_text(self, filename):
+        value = super().read_text(filename)
+        if value and (
+            boundary := re.search(r"\A(?:\r\n|\n|\r)|\n\r?\n|\r\r", value)
+        ):
+            # Keep the separator: empty headers with a body are still a
+            # present METADATA file and must not fall through to PKG-INFO.
+            return value[: boundary.end()]
+        return value
+
+
+def _read_installed_metadata(
+    sites,
+    *,
+    embedded_sites=None,
+    embedded_owners=None,
+    record_reads=None,
 ):
     """Read metadata headers and invalid names without importing code."""
     # pylint: disable=protected-access
@@ -421,7 +498,11 @@ def _installed_metadata(
             parents[parent] = str(canonical_environment_path(origin.parent))
         # Preserve the audited site's spelling in the serialized snapshot.
         origin = Path(parents[parent]) / origin.name
-        installed_metadata = distribution.metadata
+        installed_metadata = (
+            _HeaderDistribution(distribution._path)
+            if type(distribution) is metadata.PathDistribution
+            else distribution
+        ).metadata
         name = installed_metadata.get("Name")
         version = installed_metadata.get("Version")
         key = str(canonicalize_name(name or origin.name.split("-", 1)[0]))
@@ -607,6 +688,20 @@ def _dependency_closure(requirements, rows, environment):
             )
 
 
+def _inventory_sites(code_root, paths):
+    """Resolve ordered search roots with this consumer's source exclusion."""
+    root = Path(code_root).resolve()
+    return tuple(
+        dict.fromkeys(
+            str(canonical_environment_path(path))
+            for path in paths
+            if path
+            and Path(path).is_dir()
+            and not Path(path).resolve().is_relative_to(root)
+        ),
+    )
+
+
 # Inventory and relevant-closure rejection form one child-only audit.
 # pylint: disable=too-many-branches,too-many-statements,protected-access
 def observe_dependencies(
@@ -614,33 +709,29 @@ def observe_dependencies(
     *,
     _embedded_owners=None,
     _record_reads=None,
+    _inventory=None,
 ) -> DependencySnapshot:
     """Inspect this interpreter's paths before candidate imports execute."""
-    excluded = {Path(packet["code_root"]).resolve()}
-    sites = tuple(
-        dict.fromkeys(
-            str(canonical_environment_path(item))
-            for item in packet["_audit_sites"]
-            if item
-            and Path(item).is_dir()
-            and not any(
-                Path(item).resolve().is_relative_to(root) for root in excluded
-            )
-        ),
-    )
+    if _record_reads is None and _inventory is not None:
+        _record_reads = _inventory.setdefault("records", {})
+    sites = _inventory_sites(packet["code_root"], packet["_audit_sites"])
     embedded_sites = set()
     rows, invalid, observed = _installed_metadata(
         sites,
         embedded_sites=embedded_sites,
         embedded_owners=_embedded_owners,
         record_reads=_record_reads,
+        inventory=_inventory,
     )
     from .runtime import _requirements
 
     scanned = set()
     environment = default_environment()
     for name, _ in _dependency_closure(
-        _requirements(packet.get("requirements_path")),
+        packet.get(
+            "_requirements",
+            _requirements(packet.get("requirements_path")),
+        ),
         rows,
         environment,
     ):
@@ -683,6 +774,88 @@ def observe_dependencies(
             ),
         },
     )
+
+
+@dataclass(frozen=True)
+class _ReadInventory:
+    """Scoped metadata for a read decision, deliberately not audit evidence."""
+
+    sites: tuple[str, ...]
+    dependency_sites: tuple[str, ...]
+    marker_environment: Mapping[str, str]
+    distributions: Mapping[str, Mapping[str, Any]]
+    invalid: Mapping[str, str]
+    embedded_owners: Mapping[str, str]
+
+
+def read_dependency_inventory(
+    code_root,
+    paths,
+    requirements,
+    *,
+    inventory=None,
+):
+    """Check just the candidate closure and its actual imported providers."""
+    root = Path(code_root).resolve()
+    sites = _inventory_sites(root, paths)
+    records = (
+        inventory.setdefault("records", {}) if inventory is not None else {}
+    )
+    embedded = set()
+    embedded_owners = {}
+    rows, invalid, observed = _installed_metadata(
+        sites,
+        embedded_sites=embedded,
+        embedded_owners=embedded_owners,
+        record_reads=records,
+        inventory=inventory,
+    )
+    environment = default_environment()
+    relevant = set()
+    for name, requirement in _dependency_closure(
+        requirements,
+        rows,
+        environment,
+    ):
+        if name in invalid:
+            raise dependency_error(invalid[name])
+        row = rows.get(name)
+        if row is None or not requirement.specifier.contains(
+            Version(row["version"]),
+            prereleases=True,
+        ):
+            raise ProtocolValidationError(
+                requirement.name if requirement.url else str(requirement),
+                reason_code="DEPENDENCY_UNSATISFIED",
+            )
+        relevant.add(name)
+        # Derive import providers from the same installed RECORD as full audit.
+        tops = set(row["top_level"])
+        for item in observed[name].files or ():
+            parts = str(item).replace("\\", "/").split("/")
+            if (
+                len(parts) == 2
+                and parts[0] in {"bin", "Scripts"}
+                and not parts[1].casefold().startswith("__init__.")
+            ):
+                continue
+            if parts[0] not in {"", ".", ".."} and not parts[0].endswith(
+                (".dist-info", ".egg-info"),
+            ):
+                tops.add(parts[0].split(".", 1)[0])
+        row["top_level"] = tuple(sorted(tops))
+    for name in invalid:
+        rows.pop(name, None)
+    view = _ReadInventory(
+        sites,
+        dependency_sites(site for site in sites if site not in embedded),
+        environment,
+        rows,
+        invalid,
+        embedded_owners,
+    )
+    check_import_origins(view, root, relevant)
+    return view, relevant
 
 
 def validate_driver(component: Any) -> None:
@@ -810,7 +983,10 @@ def require_dependencies(
 
     relevant = set()
     for name, requirement in _dependency_closure(
-        _requirements(packet.get("requirements_path")),
+        packet.get(
+            "_requirements",
+            _requirements(packet.get("requirements_path")),
+        ),
         snapshot.distributions,
         snapshot.marker_environment,
     ):

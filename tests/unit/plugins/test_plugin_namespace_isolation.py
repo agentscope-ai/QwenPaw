@@ -107,17 +107,25 @@ def _write_manifest(
 
 async def _load(loader, plugin_dir: Path, backend_entry: str = "plugin.py"):
     from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.loader import _manifest_as_dict
 
     manifest = PluginManifest.from_dict(
         json.loads((plugin_dir / "plugin.json").read_text(encoding="utf-8")),
     )
-    return await loader._load_backend_module(
-        manifest.id,
-        plugin_dir / backend_entry,
-        plugin_dir,
-        None,
-        manifest,
-    )
+    backend = loader._python_backend
+    with backend.registration_scope(backend.describe(plugin_dir, manifest)):
+        definition = backend.import_definition(
+            manifest.id,
+            plugin_dir / backend_entry,
+            plugin_dir,
+        )
+        await loader._invoke_plugin_register(
+            manifest.id,
+            definition,
+            None,
+            _manifest_as_dict(manifest),
+        )
+    return definition
 
 
 _REGISTER_OK = (

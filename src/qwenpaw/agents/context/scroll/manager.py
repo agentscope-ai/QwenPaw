@@ -22,6 +22,7 @@ import json
 import logging
 import sqlite3
 import time
+import weakref
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -96,8 +97,17 @@ class ScrollContextManager:
         compact_tool_result_max_bytes: int | None = None,
         tool_results_dir: str | None = None,
         recall_loop_guard: Any = None,
+        owns_history: bool = True,
     ) -> None:
         self._history = history
+        self._owns_history = owns_history
+        self._closed = False
+        self._history_release = None
+        if not owns_history:
+            history.acquire()
+            # Explicit close is the normal path. Also release when a cancelled
+            # or failed agent build discards a manager before attaching it.
+            self._history_release = weakref.finalize(self, history.release)
         self._session_id = session_id
         self._agent_id = agent_id
         # Kept for constructor compatibility with older integrations. Scroll
@@ -336,7 +346,7 @@ class ScrollContextManager:
         # Teardown race: a stop/cancel can close the store while a final
         # ``on_save`` is still in flight. The connection was retired on
         # purpose, so skip the write quietly instead of degrading durability.
-        if self._history.closed:
+        if self._closed or self._history.closed:
             return True
         try:
             self._persist_new(agent)
@@ -2310,4 +2320,9 @@ class ScrollContextManager:
         ).isoformat()
 
     def close(self) -> None:
-        self._history.close()
+        """Retire this request; only standalone managers close the database."""
+        self._closed = True
+        if self._history_release is not None:
+            self._history_release()
+        elif self._owns_history:
+            self._history.close()

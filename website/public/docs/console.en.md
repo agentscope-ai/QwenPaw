@@ -325,12 +325,15 @@ indexed memories even when the current workspace file is outside those
 directories; that file will not appear unless it has been indexed. Other
 memory backends do not expose the Tags tab or clickable preview tags.
 
-**Download workspace:**
-Click **Download** to export the entire workspace as a `.zip` to your machine.
+**Workspace backup and restore:**
+Use **Settings → Backup** to create, export, import, and restore backups.
+See [Backup & Restore](./backup).
 
-**Upload/restore workspace:**
-Click **Upload** → choose a `.zip` (max 100 MB). Existing workspace files will be
-replaced. Useful for migration and backup restore.
+The legacy `GET /api/workspace/download` and `POST /api/workspace/upload`
+endpoints, including their `/api/agents/{agentId}/workspace/...` variants,
+have been removed. API clients must migrate to the `/api/backups` APIs.
+Legacy workspace ZIPs are not compatible with the backup format; extract
+individual files locally and upload them through Files if needed.
 
 ---
 

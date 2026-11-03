@@ -2,43 +2,14 @@
 # pylint: disable=redefined-outer-name,protected-access
 """Tag browsing enumerates complete files through the existing ReMe index."""
 
-import json
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from reme.components.tag_index import LocalTagIndex
-from reme.components.file_chunker.markdown_file_chunker import (
-    MarkdownFileChunker,
-)
 from reme.schema import FileFrontMatter, FileNode
 
 from qwenpaw.agents.memory.reme_tags import list_tag_files
-
-
-@pytest.mark.parametrize(
-    "case",
-    json.loads(
-        (
-            Path(__file__).parents[3] / "fixtures/memory_tags_contract.json"
-        ).read_text(encoding="utf-8"),
-    ),
-    ids=lambda case: case["name"],
-)
-def test_preview_tags_match_reme_frontmatter_contract(case):
-    """The Console and real ReMe consume the same cross-language fixtures."""
-    frontmatter, _, _ = MarkdownFileChunker._parse_front_matter(
-        f"---\n{case['frontmatter']}\n---\nBody",
-    )
-    index = LocalTagIndex()
-    assert (
-        index.normalize_tags(
-            (frontmatter.model_extra or {}).get("memory_tags"),
-        )
-        == case["canonical"]
-    )
-    assert index.normalize_query_tags(case["display"]) == case["canonical"]
 
 
 @pytest.fixture

@@ -36,6 +36,7 @@ from qwenpaw.plugins.dependency_upgrade import DependencyUpgradeManager
 from qwenpaw.plugins.execution.dependencies import (
     DependencySnapshot,
     _installed_metadata,
+    canonical_environment_path,
 )
 from tests.channel_support.host import (
     Host,
@@ -315,6 +316,94 @@ async def test_forced_stop_reaps_uncooperative_process_tree(tmp_path, process):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows Job and venv host ownership",
+)
+async def test_host_exit_reaps_uncooperative_process_tree(tmp_path):
+    import json
+    import sysconfig
+    import venv
+    from contextlib import suppress
+
+    import psutil
+
+    from .timing import WAIT_TIMEOUT
+
+    runtime = tmp_path / "runtime"
+    venv.EnvBuilder(with_pip=False, symlinks=False).create(runtime)
+    site = Path(
+        sysconfig.get_path(
+            "purelib",
+            vars={"base": str(runtime), "platbase": str(runtime)},
+        ),
+    )
+    (site / "test-runtime.pth").write_text(
+        sysconfig.get_path("purelib") + "\n",
+    )
+    executable = runtime / "Scripts/python.exe"
+    script = """
+import asyncio, json, os, sys
+from pathlib import Path
+sys.path[:0] = [sys.argv[1], str(Path(sys.argv[1]) / 'src')]
+from qwenpaw.plugins.execution import PluginProcess
+from tests.channel_support.process import launch, eventually
+
+async def main():
+    process = PluginProcess()
+    spec, marker = launch(
+        Path(sys.argv[2]), mode='tree', restart_limit=2,
+        python_executable=Path(sys.argv[3]),
+    )
+    await process.start(spec)
+    await eventually(marker.exists)
+    probe = await process.call('sample.probe', {})
+    data = json.dumps([os.getpid(), probe['pid'], int(marker.read_text())])
+    sys.stdout.buffer.write(data.encode() + b'\\n')
+    sys.stdout.buffer.flush()
+    await asyncio.Event().wait()
+
+asyncio.run(main())
+"""
+    host = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        script,
+        str(ROOT),
+        str(tmp_path),
+        str(executable),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    members = []
+    owner = psutil.Process(host.pid)
+    try:
+        line = await asyncio.wait_for(host.stdout.readline(), WAIT_TIMEOUT)
+        assert line, await host.stderr.read()
+        host_pid, worker_pid, descendant = json.loads(line)
+        owner = psutil.Process(host_pid)
+        members = owner.children(recursive=True)
+        assert {worker_pid, descendant} <= {member.pid for member in members}
+        assert len({host_pid, worker_pid, descendant}) == 3
+        assert all(alive(member.pid) for member in members)
+        owner.kill()
+        await asyncio.wait_for(host.wait(), WAIT_TIMEOUT)
+        await eventually(lambda: all(not alive(p.pid) for p in members))
+    finally:
+        with suppress(psutil.NoSuchProcess, PermissionError):
+            members.extend(psutil.Process(host.pid).children(recursive=True))
+        with suppress(psutil.NoSuchProcess):
+            owner.kill()
+        for member in members:
+            with suppress(psutil.NoSuchProcess):
+                member.kill()
+        with suppress(ProcessLookupError):
+            if host.returncode is None:
+                host.kill()
+        await asyncio.wait_for(host.communicate(), WAIT_TIMEOUT)
+
+
+@pytest.mark.asyncio
 async def test_cancel_inflight_call_cleans_up_and_next_request_succeeds(
     tmp_path,
     process,
@@ -475,12 +564,16 @@ async def test_payload_quota_waits_for_confirmed_discard(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("layout", ["source", "frozen"])
+@pytest.mark.parametrize(
+    ("layout", "supplied_snapshot"),
+    [("source", False), ("frozen", False), ("frozen", True)],
+)
 async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
     tmp_path,
     monkeypatch,
     process,
     layout,
+    supplied_snapshot,
 ):
     from qwenpaw.plugins.channel_bootstrap import (
         resolve_default_channel_runtime,
@@ -492,7 +585,25 @@ async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
     )
     if layout == "frozen":
         expected_support, site = runtime_layout(tmp_path, monkeypatch)
+        # Desktop staging shares support and configured dependency roots;
+        # the interpreter also contributes its own native site-packages.
+        import json
+
+        manifest = Path(os.environ["QWENPAW_CHANNEL_RUNTIME_MANIFEST"])
+        data = json.loads(manifest.read_text())
+        data["dependency_paths"] = ["support"]
+        manifest.write_text(json.dumps(data))
+        monkeypatch.setenv(
+            "QWENPAW_CHANNEL_DEPENDENCY_PATHS",
+            json.dumps([str(expected_support)]),
+        )
         runtime = resolve_default_channel_runtime()
+        shutil.copytree(
+            site,
+            runtime.dependency_install_target,
+            dirs_exist_ok=True,
+        )
+        site = runtime.dependency_install_target
     else:
         site = dependency_site(tmp_path / "dependencies")
         runtime = resolve_default_channel_runtime()
@@ -518,13 +629,76 @@ async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
     from qwenpaw.plugins import dependency_maintenance as maintenance
 
     selected_root = maintenance.state_root()
+    if layout == "source":
+        scope = "a" * 64
+        monkeypatch.setattr(maintenance, "_READER_SCOPE", scope)
+        monkeypatch.setenv("QWENPAW_DEPENDENCY_READER_SCOPE", "b" * 64)
+        maintenance.prepare_reader_scope(
+            (*runtime.dependency_paths, *maintenance.host_sites()),
+            scope,
+        )
     key = "QWENPAW_DEPENDENCY_STATE_DIR"
     store._apply_to_environ({key: str(tmp_path / "untrusted-state")})
     assert maintenance.state_root() == selected_root
     monkeypatch.setenv(key, str(tmp_path / "direct-mutation"))
+    from qwenpaw.plugins.dependency_gate import admit_shared_dependencies
+    from qwenpaw.plugins.dependency_usage import (
+        DependencyDeclaration,
+        DependencyUsageRegistry,
+    )
+    from qwenpaw.plugins.install_lock import environment_observation
+    from qwenpaw.plugins.ownership import RuntimeOwners
+
+    async def audit():
+        async with environment_observation(runtime.dependency_paths):
+            return (await process.audit(spec)).snapshot
+
+    usage = DependencyUsageRegistry(RuntimeOwners())
+    token = usage.declare(
+        DependencyDeclaration(
+            spec.plugin_id,
+            spec.source_revision,
+            ("sample-shared-sdk==1.0",),
+            None,
+        ),
+    )
+    snapshot = await audit() if supplied_snapshot else None
+    admitted = await admit_shared_dependencies(
+        audit,
+        plugin_id=spec.plugin_id,
+        requirements_file=requirements,
+        usage_registry=usage,
+        admission_token=token,
+        targets=runtime.dependency_paths,
+        snapshot=snapshot,
+        validate=lambda: None,
+    )
+    assert str(canonical_environment_path(site)) in admitted.dependency_sites
+    if layout == "frozen":
+        assert expected_support in runtime.dependency_paths
+        assert (
+            str(canonical_environment_path(expected_support))
+            not in admitted.dependency_sites
+        )
+        native = Path(admitted.prefix) / (
+            "Lib/site-packages"
+            if os.name == "nt"
+            else (
+                f"lib/python{sys.version_info.major}.{sys.version_info.minor}/"
+                "site-packages"
+            )
+        )
+        assert (
+            str(canonical_environment_path(native))
+            in admitted.dependency_sites
+        )
     await process.start(spec)
     probe = await process.call("sample.probe", {})
     assert Path(probe["dependency_state"]) == selected_root
+    if layout == "source":
+        directory = maintenance._readers_dir(site) / scope
+        assert list(directory.glob(f"{probe['pid']}-*.lease"))
+        assert not list(maintenance._readers_dir(site).glob("*.lease"))
     assert any(
         row["pid"] == probe["pid"] for row in maintenance.live_readers([site])
     )
@@ -794,7 +968,9 @@ def test_namespace_additions_preserve_file_ownership(
             files,
             [{"path": str(wheel)} for wheel in wheels],
         )
-        assert set(payload["new"]) == {str(site / path) for path in files}
+        assert set(payload["new"]) == {
+            str(maintenance.canonical(site / path)) for path in files
+        }
         for path, row in payload["new"].items():
             assert (operation / row["payload"]).read_bytes() == files[
                 Path(path).relative_to(site).as_posix()
@@ -1023,7 +1199,7 @@ def test_native_launcher_publish_and_exact_rollback(
             _dependency_snapshot(files).distributions["sample-shared-sdk"],
             alias,
         )
-        assert str(launcher.resolve()) in owned
+        assert str(maintenance.canonical(launcher)) in owned
         files.prefix = alias
     operation = _prepare_dependency_operation(files)
     cache = launcher.parent / "__pycache__/sdk.cpython-313.opt-1.pyc"
@@ -1149,7 +1325,9 @@ def test_record_rejects_duplicate_installed_ownership(dependency_files):
 
 @pytest_asyncio.fixture
 async def staged_upgrade(tmp_path, monkeypatch, request):
-    broken_source = getattr(request, "param", False)
+    scenario = getattr(request, "param", False)
+    broken_source = scenario is True
+    shared_reader = scenario == "shared_reader"
     host = await Host.create(tmp_path, monkeypatch)
     site = tmp_path / "plugin_runtime/site"
     site.mkdir(parents=True)
@@ -1164,13 +1342,13 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
         dependency_paths=(site,),
         dependency_install_target=site,
     )
-    # An installed Python backend has roots disjoint from the channel worker.
-    # Its real audit must remain covered when maintenance observes consumers.
+    # Keep disjoint installed-consumer coverage and exercise a read consumer
+    # sharing the writer environment without a prebuilt full snapshot.
     import json
     from qwenpaw.plugins import python_backend
 
-    independent_site = tmp_path / "independent-site"
-    independent_site.mkdir()
+    independent_site = site if shared_reader else tmp_path / "independent-site"
+    independent_site.mkdir(exist_ok=True)
     monkeypatch.setattr(
         python_backend,
         "_host_paths",
@@ -1192,7 +1370,34 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
         "class Plugin:\n    def register(self, api):\n        pass\n"
         "plugin = Plugin()\n",
     )
-    assert independent_site.resolve() != site.resolve()
+    assert (independent_site.resolve() == site.resolve()) is shared_reader
+    independent_manifest, _ = next(
+        (manifest, path)
+        for manifest, path in host.loader.discover_plugins()
+        if manifest.id == "independent-consumer"
+    )
+    independent_binding = host.loader.backend_resolver.resolve(
+        independent,
+        independent_manifest,
+    )
+    usage = host.registry.dependency_usage
+    read_token = usage.declare(
+        independent_binding.description.dependency_declaration(),
+    )
+    assert (
+        await independent_binding.backend.admit_existing(
+            independent_binding.description,
+            usage=usage,
+            token=read_token,
+        )
+        is None
+    )
+    read_use = next(
+        use
+        for use in usage.snapshot().uses
+        if use.plugin_id == "independent-consumer"
+    )
+    assert read_use.snapshot is None and read_use.environment is not None
     old = local_wheel(tmp_path / "old", version="0.5", value="0.5")
     with zipfile.ZipFile(next(old.glob("*.whl"))) as archive:
         archive.extractall(site)
@@ -1245,7 +1450,11 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("staged_upgrade", [False, True], indirect=True)
+@pytest.mark.parametrize(
+    "staged_upgrade",
+    [False, True, "shared_reader"],
+    indirect=True,
+)
 async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
     staged_upgrade,
 ):
@@ -1291,6 +1500,17 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
     assert (site / "neighbor.txt").read_bytes() == (
         b"preserve unrelated bytes\x00"
     )
+    from qwenpaw.plugins.dependency_usage import DependencyDeclaration
+
+    usage = host.registry.dependency_usage
+    unknown = usage.declare(
+        DependencyDeclaration("unknown-host", "unknown", (), None),
+    )
+    usage.observe_host(unknown, None)
+    usage.withdraw(unknown)
+    with pytest.raises(SharedDependencyError) as rejected:
+        await manager.stage(source)
+    assert rejected.value.decision.reason_code == "DEPENDENCY_PLAN_UNVERIFIED"
 
 
 @pytest.mark.asyncio

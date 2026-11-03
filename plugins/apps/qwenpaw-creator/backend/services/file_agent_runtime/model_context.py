@@ -18,6 +18,75 @@ from services.project_files.model_view import (
 MODEL_INPUT_BYTES = 384 * 1024
 HISTORY_BYTES = 128 * 1024
 
+# Providers bill inline media as vision tokens, not as request bytes. Counting
+# a ``data:`` URL by its Base64 text length charges a 2MB image ~2.7MB against
+# a 384KB budget, and because media-bearing user messages are contract content
+# that compaction may not drop, the request is refused locally and never
+# reaches the model — the understanding record just comes back empty. Charge a
+# representative text-equivalent instead: decoded bytes / 128, clamped.
+# Calibrated against a measured 2MB image costing ~2.5K vision tokens, which is
+# roughly 10KB of text budget; the clamp keeps a huge clip from being treated
+# as free.
+_INLINE_MEDIA_BYTES_DIVISOR = 128
+_INLINE_MEDIA_MIN_BYTES = 8 * 1024
+_INLINE_MEDIA_MAX_BYTES = 512 * 1024
+
+
+def _data_url_charge(url: str) -> int:
+    """Text-budget representative of one inline ``data:`` URL."""
+    _, _, encoded = url.partition(";base64,")
+    decoded_bytes = len(encoded) * 3 // 4
+    charge = decoded_bytes // _INLINE_MEDIA_BYTES_DIVISOR
+    return max(
+        _INLINE_MEDIA_MIN_BYTES,
+        min(charge, _INLINE_MEDIA_MAX_BYTES),
+    )
+
+
+def _inline_media_relief(node: Any) -> int:
+    """Bytes the naive JSON count over-charges for inline media parts.
+
+    Subtracted from ``json_bytes`` so both measurements agree on what one
+    image or clip actually costs the provider.
+    """
+    if node is None or isinstance(node, str):
+        # Neither can carry relief, and this runs over the whole history of
+        # every context estimate.
+        return 0
+    if isinstance(node, dict):
+        relief = 0
+        for key, value in node.items():
+            if (
+                key == "url"
+                and isinstance(value, str)
+                and value.startswith("data:")
+            ):
+                # A data URL is ASCII by construction, so the character
+                # count is the byte count. Only the hand-edited exception
+                # pays for an encode, which would otherwise copy every
+                # megabyte of the payload a second time just to measure it.
+                raw = (
+                    len(value)
+                    if value.isascii()
+                    else len(value.encode("utf-8"))
+                )
+                relief += max(0, raw - _data_url_charge(value))
+            elif isinstance(value, (dict, list)):
+                # Only a mapping or a sequence can lead to a ``url`` key, so a
+                # plain string of the history is not worth a call: a context
+                # estimate walks the whole conversation on every turn.
+                relief += _inline_media_relief(value)
+        return relief
+    if isinstance(node, list):
+        return sum(_inline_media_relief(item) for item in node)
+    return 0
+
+
+def _media_aware_bytes(value: Any) -> int:
+    """Serialized size with inline media charged as vision tokens."""
+    return json_bytes(value) - _inline_media_relief(value)
+
+
 # These are runtime receipts carried in the provider's user role, not human
 # requirements. Keep durable messages intact, but let old receipts leave the
 # bounded history just like old tool results. Unknown sources fail closed.
@@ -83,13 +152,18 @@ def compact_conversation_history(
         for part in item.get("content") or []:
             if isinstance(part, dict) and _snapshot_content(part.get("text")):
                 latest_snapshot = index
-    if json_bytes(result) <= max_bytes:
+    if _media_aware_bytes(result) <= max_bytes:
         return result
     # Preserve every human goal/constraint and the newest state. Runtime
     # feedback also uses the user role; retaining every old review would make
     # a long production exceed the hard budget even after all tools are gone.
     # The current request/notification batch is outside this history view.
     removed = 0
+    # Relief is a plain sum over list items and an elided slot contributes
+    # zero, so carry it across the loop instead of re-walking every message
+    # on each pass; json_bytes stays the loop's only full traversal, exactly
+    # as it was before inline media entered the budget.
+    relief = _inline_media_relief(result)
     for index, item in enumerate(result):
         human_input = (
             item.get("role") == "user"
@@ -97,9 +171,10 @@ def compact_conversation_history(
         )
         if human_input or index == latest_snapshot:
             continue
-        if json_bytes(result) <= max_bytes - 256:
+        if json_bytes(result) - relief <= max_bytes - 256:
             break
         result[index] = None
+        relief -= _inline_media_relief(item)
         removed += 1
     return [
         {
@@ -228,7 +303,9 @@ def prepare_model_messages(
             )
 
     def size() -> int:
-        return json_bytes({"messages": result, "tools": tools})
+        # Inline media is charged as vision tokens, not as Base64 text, so a
+        # media-bearing contract message can fit alongside the tools schema.
+        return _media_aware_bytes({"messages": result, "tools": tools})
 
     carried_snapshot = None
     while size() > max_bytes:
