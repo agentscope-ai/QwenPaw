@@ -394,7 +394,7 @@ class TestRecommendedModels:
     def test_8gb_tier_recommends_2b_models(self, manager, monkeypatch):
         monkeypatch.setattr(manager, "_detect_available_memory_gb", lambda: 8)
         models = manager.get_recommended_models()
-        assert len(models) == 2
+        assert len(models) == 4
         assert all("2B" in m.id for m in models if m.model_type == "chat")
         assert not [m for m in models if m.model_type == "decision"]
 
@@ -409,6 +409,7 @@ class TestRecommendedModels:
         assert all("4B" in m.id for m in models if m.model_type == "chat")
         assert {m.id for m in models if m.model_type == "decision"} == {
             "agentscope-ai/Piccolo-4B-Q8_0",
+            "AgentScope/Piccolo-4B-Q8_0",
         }
 
     @pytest.mark.parametrize(
@@ -446,11 +447,17 @@ class TestRecommendedModels:
             if m.id.endswith("-BF16")
         ]
         assert {m.id for m in models} == {
-            f"agentscope-ai/Piccolo-{size}B-BF16" for size in expected_sizes
+            f"{owner}/Piccolo-{size}B-BF16"
+            for owner in ("agentscope-ai", "AgentScope")
+            for size in expected_sizes
         }
         for model in models:
             assert model.model_type == "decision"
-            assert model.source == DownloadSource.HUGGINGFACE
+            assert model.source == (
+                DownloadSource.MODELSCOPE
+                if model.id.startswith("AgentScope/")
+                else DownloadSource.HUGGINGFACE
+            )
             assert model.size_bytes is not None
             assert model.size_bytes > 0
             assert model.downloaded == (model.id == downloaded)
@@ -502,6 +509,14 @@ class TestRecommendedModels:
             for quantization in large_quantizations:
                 model_id = f"agentscope-ai/QwenPaw-Flash-{size}-{quantization}"
                 expected[model_id] = DownloadSource.HUGGINGFACE
+        expected.update(
+            {
+                model_id.replace(
+                    "agentscope-ai/", "AgentScope/"
+                ): DownloadSource.MODELSCOPE
+                for model_id in list(expected)
+            }
+        )
         assert len(models) == len(expected)
         assert {model.id: model.source for model in models} == expected
 

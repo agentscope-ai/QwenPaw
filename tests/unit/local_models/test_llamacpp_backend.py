@@ -47,10 +47,22 @@ class _FakeServerProcess:
 
 
 @pytest.mark.asyncio
+async def test_cannot_start_model_while_runtime_is_being_replaced(
+    monkeypatch, tmp_path
+):
+    backend = _build_downloader(monkeypatch)
+    monkeypatch.setattr(backend, "_is_download_active", lambda: True)
+    with pytest.raises(RuntimeError, match="engine update"):
+        await backend.setup_server(tmp_path, "AgentScope/Piccolo-4B-Q8_0")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["agentscope-ai", "AgentScope"])
 @pytest.mark.parametrize("size", ["4B", "9B", "27B"])
 @pytest.mark.parametrize("suffix", ["", "-BF16", "-Q8_0", "-Q4_K_M"])
 @pytest.mark.parametrize("requested,expected", [(4096, 4096), (65536, 8192)])
 async def test_piccolo_requires_whole_prompt_without_cache(
+    owner,
     size,
     suffix,
     requested,
@@ -69,7 +81,7 @@ async def test_piccolo_requires_whole_prompt_without_cache(
     await backend._create_server_process(
         tmp_path / "model.gguf",
         None,
-        f"agentscope-ai/Piccolo-{size}{suffix}",
+        f"{owner}/Piccolo-{size}{suffix}",
         9001,
         requested,
         {},
@@ -838,10 +850,10 @@ def test_finalize_download_result_returns_failed_result_on_fs_error(
     (staging_dir / "bin").mkdir()
     (staging_dir / "bin" / "server").write_text("tar-binary")
 
-    def _raise_move_error(src: str, dst: str) -> None:
+    def _raise_move_error(src: Path, dst: Path) -> None:
         raise OSError("Permission denied")
 
-    monkeypatch.setattr(downloader_module.shutil, "move", _raise_move_error)
+    monkeypatch.setattr(Path, "rename", _raise_move_error)
 
     result, downloaded_bytes = downloader._finalize_download_result(
         DownloadTaskResult(

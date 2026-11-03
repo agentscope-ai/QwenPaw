@@ -36,7 +36,8 @@ from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
 
 logger = logging.getLogger(__name__)
 PICCOLO_REPO_IDS = {
-    f"agentscope-ai/Piccolo-{size}B{suffix}"
+    f"{owner}/Piccolo-{size}B{suffix}"
+    for owner in ("agentscope-ai", "AgentScope")
     for size in (4, 9, 27)
     for suffix in ("", "-BF16", "-Q8_0", "-Q4_K_M")
 }
@@ -53,6 +54,24 @@ class DownloadSource(str, Enum):
     MODELSCOPE = "modelscope"
     # First try Hugging Face, then fall back to ModelScope if unreachable
     AUTO = "auto"
+
+
+def repository_for_source(repo_id: str, source: DownloadSource) -> str:
+    """Resolve the official mirror while leaving third-party IDs intact."""
+    owner, separator, name = repo_id.partition("/")
+    if (
+        separator
+        and owner in {"agentscope-ai", "AgentScope"}
+        and name.startswith(("Piccolo-", "QwenPaw-Flash-"))
+        and source != DownloadSource.AUTO
+    ):
+        owner = (
+            "AgentScope"
+            if source == DownloadSource.MODELSCOPE
+            else "agentscope-ai"
+        )
+        return f"{owner}/{name}"
+    return repo_id
 
 
 class LocalModelInfo(ModelInfo):
@@ -209,7 +228,19 @@ class ModelManager:
                     ),
                 )
 
-        # check local download status for each recommended model
+        models.extend(
+            model.model_copy(
+                update={
+                    "id": repository_for_source(
+                        model.id,
+                        DownloadSource.MODELSCOPE,
+                    ),
+                    "source": DownloadSource.MODELSCOPE,
+                },
+            )
+            for model in list(models)
+        )
+        # Each mirror has its own stored ID and lifecycle controls.
         for model in models:
             model.downloaded = self.is_downloaded(model.id)
 
@@ -242,14 +273,25 @@ class ModelManager:
             models.append(
                 LocalModelInfo(
                     id=repo_id,
-                    name=repo_id.rsplit("/", maxsplit=1)[-1]
-                    if is_piccolo
-                    else repo_id,
+                    name=(
+                        repo_id.rsplit("/", maxsplit=1)[-1]
+                        if is_piccolo
+                        else repo_id
+                    ),
                     model_type="decision" if is_piccolo else "chat",
                     source=(
-                        DownloadSource.HUGGINGFACE
-                        if is_piccolo
-                        else DownloadSource.AUTO
+                        DownloadSource.MODELSCOPE
+                        if repo_id.startswith(
+                            (
+                                "AgentScope/Piccolo-",
+                                "AgentScope/QwenPaw-Flash-",
+                            )
+                        )
+                        else (
+                            DownloadSource.HUGGINGFACE
+                            if repo_id.startswith("agentscope-ai/")
+                            else DownloadSource.AUTO
+                        )
                     ),
                     size_bytes=size_bytes,
                     downloaded=True,
@@ -278,11 +320,15 @@ class ModelManager:
         if self._is_download_active():
             raise RuntimeError("A model download is already in progress.")
 
-        repo_id = model_id
+        resolved_source = (
+            self._resolve_download_source()
+            if source in (None, DownloadSource.AUTO)
+            else source
+        )
+        repo_id = repository_for_source(model_id, resolved_source)
         final_dir = Path(self.get_model_dir(repo_id)).expanduser().resolve()
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
-        resolved_source = source or self._resolve_download_source()
         total_bytes = self._estimate_download_size(
             repo_id=repo_id,
             source=resolved_source,
@@ -490,6 +536,9 @@ class ModelManager:
         local_dir: Path,
     ) -> str:
         """Download a model repository from ModelScope."""
+        options = {}
+        if repo_id in PICCOLO_REPO_IDS:
+            options["allow_file_pattern"] = PICCOLO_DOWNLOAD_PATTERNS
         with open(
             os.devnull,
             "a",
@@ -497,12 +546,16 @@ class ModelManager:
             buffering=1,
             errors="replace",
         ) as sink_stream:
-            with contextlib.redirect_stdout(
-                sink_stream,
-            ), contextlib.redirect_stderr(sink_stream):
+            with (
+                contextlib.redirect_stdout(
+                    sink_stream,
+                ),
+                contextlib.redirect_stderr(sink_stream),
+            ):
                 return ModelManager._get_modelscope_snapshot_download()(
                     model_id=repo_id,
                     local_dir=str(local_dir),
+                    **options,
                 )
 
     def _estimate_huggingface_size(
@@ -564,6 +617,12 @@ class ModelManager:
         found = False
         for item in files:
             if not isinstance(item, dict):
+                continue
+            name = item.get("Path") or item.get("Name") or ""
+            if repo_id in PICCOLO_REPO_IDS and not any(
+                fnmatch.fnmatch(name, pattern)
+                for pattern in PICCOLO_DOWNLOAD_PATTERNS
+            ):
                 continue
             size = item.get("Size")
             if isinstance(size, int):

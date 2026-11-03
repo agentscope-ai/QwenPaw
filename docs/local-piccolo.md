@@ -1,40 +1,36 @@
 # Local Piccolo decisions
 
-Piccolo uses QwenPaw's native Jev decision interface for tool review and ReMe context compaction. The model repositories are `agentscope-ai/Piccolo-4B`, `agentscope-ai/Piccolo-9B`, and `agentscope-ai/Piccolo-27B` on Hugging Face. Their model cards and weights use Apache-2.0, matching the QwenPaw-Flash release convention. GGUF variants use separate `-BF16`, `-Q8_0`, and `-Q4_K_M` repositories. Built-in recommendations include BF16 and Q8_0 according to machine memory. For example, `agentscope-ai/Piccolo-9B-BF16` downloads the unquantized BF16 GGUF, while `agentscope-ai/Piccolo-9B-Q8_0` downloads the smaller Q8 variant. Q4_K_M model cards record the expanded synthetic numerical regression results and limitations.
+Piccolo uses QwenPaw's native Jev decision interface for tool review and ReMe context compaction. Models are available on [Hugging Face](https://huggingface.co/agentscope-ai) (`agentscope-ai/Piccolo-*`) and [ModelScope](https://modelscope.cn/organization/AgentScope) (`AgentScope/Piccolo-*`). GGUF variants use `-BF16`, `-Q8_0`, and `-Q4_K_M` repositories. The catalog recommends BF16 and Q8_0 models according to machine memory; Q4_K_M is available through custom model download.
 
 ## Download and enable
 
-The local model selector separates **Chat models** and **Decision models** into independently scrollable sections. Both use the same managed runtime, which serves one model at a time. Repository IDs are shown as plain text; existing download and lifecycle controls are retained.
+1. In **Models → QwenPaw Local**, install or update the inference engine. The managed runtime supports both Flash chat and Piccolo decisions.
+2. Choose **Hugging Face** or **ModelScope**, download a model under **Decision models**, and click **Start**. Check **Models → Default models → Decision model**.
+3. For tool review, choose **Decision Model Mode** in the agent's security settings and enable review in the conversation.
+4. For compaction, enable context compaction and **Decision model compaction** in the agent's context settings.
 
-1. In **Models → Local models**, download the appropriate Piccolo GGUF and use the existing **Start** control. Starting Piccolo selects the decision model slot; it does not replace the default chat selection on another provider.
-2. Check **Models → Default models → Decision model**. An agent-specific decision model can override the global selection.
-3. For tool review, enable automatic review, select **Decision Model Mode** in the agent's security settings, and enable review in the conversation.
-4. For compaction, enable context compaction and its separate **Decision model compaction** switch in the agent's context settings.
+Both model groups share one managed runtime. Starting another local model switches that runtime to the selected model. Piccolo fills the decision slot; Flash fills the chat slot. Other providers' default selections remain unchanged.
 
-The existing fallback remains active when a decision fails. Starting the model does not turn on review or compaction. QwenPaw manages one llama.cpp model at a time; starting Piccolo replaces any chat model running in that same local runtime.
+## Runtime builds and releases
 
-## Compatible runtime
+[`runtime-release.json`](../src/qwenpaw/local_models/runtime-release.json) pins the llama.cpp revision, the [Piccolo patch](patches/piccolo-llama.cpp.patch), and the installer release. The build matrix covers macOS and Linux on x64/ARM64, Windows CPU on x64/ARM64, and Windows x64 with CUDA 12.4/13.1.
 
-This integration requires the companion [llama.cpp patch](patches/piccolo-llama.cpp.patch), based on upstream commit [`f4d8af608a6b39946406f9439edfb6e83ca6a923`](https://github.com/ggml-org/llama.cpp/commit/f4d8af608a6b39946406f9439edfb6e83ca6a923). It is not part of a released upstream binary yet. QwenPaw rejects a runtime that reports Piccolo as an ordinary text-generation model.
-
-Build the runtime in a separate checkout:
+Build and test a bundle locally:
 
 ```bash
-git clone https://github.com/ggml-org/llama.cpp
-cd llama.cpp
-git checkout f4d8af608a6b39946406f9439edfb6e83ca6a923
-git apply /path/to/QwenPaw/docs/patches/piccolo-llama.cpp.patch
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_UI=OFF
-cmake --build build --target llama-server llama-quantize test-piccolo-layout -j 6
+python -m pip install cmake ninja
+python scripts/piccolo_runtime.py build --target macos-arm64
+python scripts/test_piccolo_runtime.py \
+  --archive dist/piccolo-runtime/llama-piccolo-v1-bin-macos-arm64.tar.gz \
+  --flash /path/to/Flash.gguf --piccolo /path/to/Piccolo.gguf \
+  --gpu-layers auto
 ```
 
-Use the platform backend options from llama.cpp's build documentation when needed. Stop the managed local model, back up QwenPaw's local runtime, and install `llama-server` with its matching shared libraries into the existing runtime directory. Print its exact location from the QwenPaw Python environment:
+Windows builds run in a Visual Studio developer shell; ARM64 also requires LLVM. The smoke test runs Flash chat, Piccolo decisions, then Flash again using the packaged files.
 
-```bash
-python -c 'from qwenpaw.local_models.llamacpp import LlamaCppBackend; print(LlamaCppBackend().executable.parent)'
-```
+The **Piccolo runtime** workflow builds and tests every platform. A `llama-cpp-<release>` tag (for example, `llama-cpp-piccolo-v1`) publishes the bundles to QwenPaw's download service using the existing OSS credentials. Publish from the reviewed commit before merging the installer update. The PR check **Runtime available for installer** verifies that every package is available at the configured URL.
 
-Then continue with the normal download and Start controls. There is no additional service URL or TypeSafe account to configure. Reinstalling an unpatched upstream runtime removes Piccolo support. Unmodified Ollama's chat API does not implement this inference contract.
+The installer verifies the archive checksum and release identity before replacing the runtime, and restores the previous installation if the replacement fails. Model files are kept separately.
 
 ## Inference contract
 
