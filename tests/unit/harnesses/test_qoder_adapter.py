@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -41,6 +42,7 @@ from qwenpaw.harnesses.capabilities import (
     HarnessRuntimeCapabilities,
     HarnessSkillDefinition,
 )
+from qwenpaw.app.chats.provider_migration import _qoder_lineage
 from qwenpaw.harnesses.qoder.adapter import QoderAdapter
 from qwenpaw.harnesses.qoder.projection import materialize_skill_plugin
 from qwenpaw.harnesses.registry import create_adapter, get_provider
@@ -61,7 +63,7 @@ def persisted_sdk_history(monkeypatch):
                 uuid=f"persisted-message-{reads}",
                 session_id="qoder-session",
                 message={"id": "model-response-1", "content": "Done"},
-            )
+            ),
         ]
 
     monkeypatch.setattr(
@@ -741,3 +743,65 @@ async def test_cli_timeout_reaps_process(tmp_path: Path) -> None:
 
     assert process.killed is True
     assert process.waited is True
+
+
+def test_legacy_lineage_preserves_native_ids_across_compactions(monkeypatch):
+    """Recover ancestry without summary or sidechain messages."""
+    entries = []
+    parent = None
+    for n in range(1, 4):
+        for role in ("user", "assistant"):
+            uid = f"{role}-{n}"
+            entries.append(
+                {
+                    "uuid": uid,
+                    "type": role,
+                    "parentUuid": parent,
+                    "message": {"content": f"fact-{n}"},
+                },
+            )
+            parent = uid
+        if n < 3:
+            entries.extend(
+                [
+                    {
+                        "uuid": f"compact-{n}",
+                        "type": "system",
+                        "subtype": "compact_boundary",
+                        "parentUuid": None,
+                        "logicalParentUuid": parent,
+                    },
+                    {
+                        "uuid": f"summary-{n}",
+                        "type": "user",
+                        "parentUuid": f"compact-{n}",
+                        "isCompactSummary": True,
+                        "message": {"content": "synthetic summary"},
+                    },
+                ],
+            )
+            parent = f"summary-{n}"
+    entries.append(
+        {
+            "uuid": "side",
+            "type": "assistant",
+            "parentUuid": "user-1",
+            "isSidechain": True,
+            "message": {"content": "unrelated"},
+        },
+    )
+    raw = "\n".join(json.dumps(entry) for entry in entries)
+    monkeypatch.setattr(
+        "qoder_agent_sdk._internal.sessions._read_session_file",
+        lambda *_: raw,
+    )
+    sid = "11111111-1111-4111-8111-111111111111"
+    expected = [
+        f"{role}-{n}" for n in range(1, 4) for role in ("user", "assistant")
+    ]
+    assert [message.uuid for message in _qoder_lineage(sid)] == expected
+    assert [message.uuid for message in _qoder_lineage(sid)] == expected
+    entries[2]["logicalParentUuid"] = "missing"
+    raw = "\n".join(json.dumps(entry) for entry in entries)
+    with pytest.raises(ValueError, match="ancestry is missing"):
+        _qoder_lineage(sid)

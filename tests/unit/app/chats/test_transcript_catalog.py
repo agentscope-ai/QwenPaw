@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.app.chats import transcript_schema
+from qwenpaw.app.chats.provider_migration import _record_matches, _signature
 from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
@@ -851,3 +852,74 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
     assert restored["fork_turn_id"] == "turn-2"
     assert restored["fork_turn_seq"] == 2
     assert child_path.read_bytes() == child_bytes
+
+
+def test_native_migration_partial_matches_remain_rebuildable(tmp_path):
+    """Commands and ambiguous turns cannot erase exact native boundaries."""
+    catalog = TranscriptCatalog(tmp_path)
+    identity = dict(session_id="native", user_id="user", channel="console")
+    catalog.start_turn(**identity, turn_id="one")
+    catalog.finish_turn(**identity, turn_id="one", status="completed")
+    catalog.start_turn(**identity, turn_id="two")
+    catalog.finish_turn(**identity, turn_id="two", status="completed")
+    binding = {"provider": "codex", "external_session_id": "thread"}
+    catalog.record_provider_fact(
+        **identity,
+        kind="session_bound",
+        data=binding,
+    )
+
+    def blocks(text):
+        return [
+            (role, {"type": "text", "text": text})
+            for role in ("user", "assistant")
+        ]
+
+    turns = {
+        "one": blocks("first"),
+        "compact": blocks("/compact"),
+        "ambiguous": blocks("repeat"),
+        "missing": blocks("missing"),
+        "two": blocks("last"),
+        "out-of-order": blocks("first"),
+    }
+    candidates = [
+        (_signature(blocks(text)), str(n))
+        for n, text in enumerate(
+            [
+                "first",
+                "repeat",
+                "repeat",
+                "last",
+            ],
+        )
+    ]
+    try:
+        for _ in range(2):
+            state = catalog.read_provider_state(**identity)
+            _record_matches(
+                catalog,
+                identity,
+                state,
+                turns,
+                candidates,
+                "turn",
+            )
+        state = catalog.read_provider_state(**identity)
+        assert set(state["boundaries"]) == {"one", "two"}
+        storage = catalog.storage_id_for(**identity)
+        path = tmp_path / "transcripts" / (storage + ".db")
+        with sqlite3.connect(path) as connection:
+            assert (
+                connection.execute(
+                    "SELECT count(*) FROM event_log "
+                    "WHERE event_type = 'provider.turn_boundary'",
+                ).fetchone()[0]
+                == 2
+            )
+        store = TranscriptStore(path, storage_id=storage, create=False)
+        store.rebuild_projections()
+        store.close()
+        assert catalog.read_provider_state(**identity) == state
+    finally:
+        catalog.close()

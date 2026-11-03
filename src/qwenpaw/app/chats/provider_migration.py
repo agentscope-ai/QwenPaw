@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Recover exact legacy boundaries from provider-owned history."""
 
 import json
@@ -40,9 +41,7 @@ def recover_qoder_boundaries(catalog, identity):
     turns = catalog.read_legacy_turn_blocks(**identity)
     if not turns or all(t in state["boundaries"] for t in turns):
         return
-    # Qoder is optional and must not be imported for other backends.
-    sdk = import_module("qoder_agent_sdk")
-    native = sdk.get_session_messages(binding["external_session_id"])
+    native = _qoder_lineage(binding["external_session_id"])
     candidates, blocks = [], []
     for message in native:
         if message.parent_tool_use_id:
@@ -58,20 +57,57 @@ def recover_qoder_boundaries(catalog, identity):
             if kind == "thinking":
                 continue
             if kind == "tool_use":
-                block = {"type": "data", "data": {
-                    "call_id": block["id"],
-                    "arguments": block["input"],
-                }}
+                block = {
+                    "type": "data",
+                    "data": {
+                        "call_id": block["id"],
+                        "arguments": block["input"],
+                    },
+                }
             elif kind == "tool_result":
-                block = {"type": "data", "data": {
-                    "call_id": block["tool_use_id"],
-                    "output": block.get("content"),
-                }}
+                block = {
+                    "type": "data",
+                    "data": {
+                        "call_id": block["tool_use_id"],
+                        "output": block.get("content"),
+                    },
+                }
             blocks.append((message.type, block))
         if message.message.get("stop_reason") == "end_turn":
             candidates.append((_signature(blocks), message.uuid))
             blocks = []
     _record_matches(catalog, identity, state, turns, candidates, "message")
+
+
+def _qoder_lineage(session_id):
+    """Read native ancestry across compaction without changing its context."""
+    # Use the installed SDK's path resolution and transcript parser only.
+    sdk = import_module("qoder_agent_sdk._internal.sessions")
+    if sdk._validate_uuid(session_id) is None:
+        raise ValueError("invalid Qoder session ID")
+    content = sdk._read_session_file(session_id, None)
+    if content is None:
+        raise FileNotFoundError("Qoder session history is missing")
+    entries = [
+        entry
+        for entry in sdk._parse_transcript_entries(content)
+        if not entry.get("isSidechain") and not entry.get("teamName")
+    ]
+    ids = {entry["uuid"] for entry in entries}
+    for entry in entries:
+        if entry.get("subtype") == "compact_boundary":
+            parent = entry.get("logicalParentUuid")
+            if parent:
+                if parent not in ids:
+                    raise ValueError("Qoder compaction ancestry is missing")
+                entry["parentUuid"] = parent
+    return [
+        sdk._to_session_message(entry)
+        for entry in sdk._build_conversation_chain(entries)
+        if entry.get("type") in {"user", "assistant"}
+        and not entry.get("isMeta")
+        and not entry.get("isCompactSummary")
+    ]
 
 
 def _record_matches(catalog, identity, state, turns, candidates, kind):
@@ -80,13 +116,23 @@ def _record_matches(catalog, identity, state, turns, candidates, kind):
     previous = -1
     matched = []
     for turn_id, local in turns.items():
+        inputs = [
+            block.get("text", "").strip()
+            for role, block in local
+            if role == "user" and block.get("type") == "text"
+        ]
+        if len(inputs) == 1 and inputs[0].split(maxsplit=1)[:1] == [
+            "/compact",
+        ]:
+            continue
         signature = _signature(local)
         matches = [
-            i for i, (value, _) in enumerate(candidates)
+            i
+            for i, (value, _) in enumerate(candidates)
             if signature is not None and value == signature
         ]
         if len(matches) != 1 or matches[0] <= previous:
-            return
+            continue
         previous = matches[0]
         matched.append((turn_id, candidates[previous][1]))
     for turn_id, boundary_id in matched:
@@ -95,8 +141,11 @@ def _record_matches(catalog, identity, state, turns, candidates, kind):
                 **identity,
                 kind="turn_boundary",
                 turn_id=turn_id,
-                data={**binding, "boundary_kind": kind,
-                      "boundary_id": boundary_id},
+                data={
+                    **binding,
+                    "boundary_kind": kind,
+                    "boundary_id": boundary_id,
+                },
             )
 
 
@@ -114,10 +163,13 @@ async def recover_codex_boundaries(catalog, identity, binary=None):
     candidates = []
     try:
         await client.start()
-        result = await client.request("thread/read", {
-            "threadId": binding["external_session_id"],
-            "includeTurns": True,
-        })
+        result = await client.request(
+            "thread/read",
+            {
+                "threadId": binding["external_session_id"],
+                "includeTurns": True,
+            },
+        )
         for turn in result["thread"]["turns"]:
             if turn.get("status") != "completed":
                 continue
@@ -130,19 +182,33 @@ async def recover_codex_boundaries(catalog, identity, binary=None):
                     role = "user" if kind == "user" else "assistant"
                     if kind in {"tool_call", "tool_output"}:
                         continue
-                    blocks.append((role, {
-                        "type": "text", "text": entry.text,
-                    }))
+                    blocks.append(
+                        (
+                            role,
+                            {
+                                "type": "text",
+                                "text": entry.text,
+                            },
+                        ),
+                    )
             candidates.append((_signature(blocks), turn["id"]))
     finally:
         await client.stop()
     # Native thread/read omits stored tools; match unique text boundaries.
     text_turns = {
-        turn_id: [(role, block) for role, block in blocks
-                  if block.get("type") == "text"]
+        turn_id: [
+            (role, block)
+            for role, block in blocks
+            if block.get("type") == "text"
+        ]
         for turn_id, blocks in turns.items()
     }
     await run_sync_io(
-        _record_matches, catalog, identity, state,
-        text_turns, candidates, "turn",
+        _record_matches,
+        catalog,
+        identity,
+        state,
+        text_turns,
+        candidates,
+        "turn",
     )
