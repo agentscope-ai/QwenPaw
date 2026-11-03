@@ -22,11 +22,16 @@ API endpoints:
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 import time
 from http.server import HTTPServer
 
 import pytest
+
+from qwenpaw.app.chats.transcript_catalog import (
+    resolve_session_database_path,
+)
 from helpers import (
     MOCK_LLM_PROVIDER_ID,
     MockLLMHandler,
@@ -51,7 +56,13 @@ def mock_llm():
     srv.shutdown()
 
 
-def _run_turn(app_server, *, user_id: str, prompt: str) -> None:
+def _run_turn(
+    app_server,
+    *,
+    user_id: str,
+    prompt: str,
+    session_id: str | None = None,
+) -> None:
     """Drive one console turn to completion for this session."""
     submit = app_server.api_request(
         "POST",
@@ -59,7 +70,7 @@ def _run_turn(app_server, *, user_id: str, prompt: str) -> None:
         json={
             "channel": "console",
             "user_id": user_id,
-            "session_id": f"console:{user_id}",
+            "session_id": session_id or f"console:{user_id}",
             "input": [
                 {
                     "role": "user",
@@ -304,6 +315,23 @@ def test_history_carries_metadata_and_timestamps(
         meta = with_meta[0]["metadata"]
         assert "original_id" in meta, meta
         assert "timestamp" in meta, meta
+        # The paged endpoint must expose the same stable message identity.
+        page = app_server.api_request(
+            "GET",
+            f"/api/chats/{chat_id}/messages",
+            params={"limit": 1},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert page.status_code == 200, app_server.logs_tail()
+        indexed = {message["id"]: message for message in messages}
+        assert page.json()["messages"]
+        for message in page.json()["messages"]:
+            assert message["metadata"]["original_id"] == (
+                indexed[message["id"]]["metadata"]["original_id"]
+            )
+            assert message["metadata"]["timestamp"] == (
+                indexed[message["id"]]["metadata"]["timestamp"]
+            )
     finally:
         if chat_id:
             _delete_chat(app_server, chat_id)
@@ -369,3 +397,97 @@ def test_history_of_unknown_chat_returns_404(app_server):
         timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_checkpoint_restore_preserves_history_and_fork(app_server, mock_llm):
+    """Restore actual completed turns, then continue and fork twice."""
+    srv, mock_url = mock_llm
+    srv.force_error = False
+    srv.force_tool_call = False
+    unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+    provider_id = register_mock_provider(app_server, mock_url)
+    user_id = "checkpoint-history-regression"
+    identity = {
+        "session_id": f"console:{user_id}",
+        "user_id": user_id,
+        "channel": "console",
+    }
+    chat_ids = []
+
+    def runtime_state():
+        path = resolve_session_database_path(
+            app_server.working_dir / "workspaces" / "default",
+            **identity,
+        )
+        assert path is not None
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            return conn.execute(
+                "SELECT state_json, context_generation, current_usage_json "
+                "FROM session_runtime WHERE session_id = ?",
+                (identity["session_id"],),
+            ).fetchone()
+        finally:
+            conn.close()
+
+    try:
+        _run_turn(app_server, user_id=user_id, prompt="checkpoint baseline")
+        chat_id = _create_chat(app_server, user_id=user_id, name="restore")
+        chat_ids.append(chat_id)
+        baseline = _read_history(app_server, chat_id)
+        state = runtime_state()
+        assert state is not None
+        snapshot = app_server.api_request(
+            "POST",
+            "/api/workspace/checkpoints/snapshot",
+            json=identity,
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert snapshot.status_code == 200, snapshot.text
+        _run_turn(app_server, user_id=user_id, prompt="after checkpoint")
+        assert len(_read_history(app_server, chat_id)) > len(baseline)
+        restored = app_server.api_request(
+            "POST",
+            "/api/workspace/checkpoints/restore",
+            json={**identity, "commit": snapshot.json()["commit"]},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert restored.status_code == 200, restored.text
+        assert _read_history(app_server, chat_id) == baseline
+        assert runtime_state() == state
+        _run_turn(app_server, user_id=user_id, prompt="continue restored")
+        history = _read_history(app_server, chat_id)
+        assert len(history) > len(baseline)
+        parent_id = chat_id
+        for _ in range(2):
+            turn_id = history[-1]["metadata"]["qwenpaw_transcript_position"][
+                "turn_id"
+            ]
+            fork = app_server.api_request(
+                "POST",
+                f"/api/chats/{parent_id}/fork",
+                json={"turn_id": turn_id},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert fork.status_code == 200, fork.text
+            child = fork.json()
+            chat_ids.append(child["id"])
+            inherited = _read_history(app_server, child["id"])
+            assert [m["content"] for m in inherited] == [
+                m["content"] for m in history
+            ]
+            _run_turn(
+                app_server,
+                user_id=child["user_id"],
+                session_id=child["session_id"],
+                prompt="continue fork",
+            )
+            history = _read_history(app_server, child["id"])
+            assert len(history) > len(inherited)
+            parent_id = child["id"]
+    finally:
+        for chat_id in reversed(chat_ids):
+            _delete_chat(app_server, chat_id)
+        unregister_mock_provider(app_server, provider_id)

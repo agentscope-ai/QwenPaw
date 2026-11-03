@@ -61,7 +61,7 @@ class Runtime:
         request: Any,
     ) -> AsyncGenerator[Any, None]:
         """8-phase lifecycle orchestration."""
-        request = self._normalize(request)
+        request = self.normalize_request(request)
         from ..schemas import AgentRequest
 
         if (
@@ -598,7 +598,8 @@ class Runtime:
         return f"<system-reminder>{detail}</system-reminder>"
 
     @staticmethod
-    def _normalize(request: Any) -> Any:
+    def normalize_request(request: Any) -> Any:
+        """Resolve request identity before leasing or recording a turn."""
         from ..schemas import AgentRequest
 
         if isinstance(request, dict):

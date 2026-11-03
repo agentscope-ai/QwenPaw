@@ -26,6 +26,7 @@ from typing import (
 from ...config.timezone import normalize_tz
 from ..._session_signals import TURN_COMMIT_KEY
 from ...schemas import AgentResponse, RunStatus
+from ...runtime import Runtime
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 from ...config.utils import load_config
 from ...constant import WORKING_DIR
@@ -455,6 +456,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
     @_sdk_observe_stream
     async def stream_query(self, request: Any) -> AsyncGenerator[Any, None]:
         """Lease the session for the entire request, including final writes."""
+        request = Runtime.normalize_request(request)
         session_id = str(getattr(request, "session_id", "") or "")
         identity = (
             session_id,
@@ -521,8 +523,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 settings=settings,
             )
         else:
-            from ...runtime import Runtime
-
             rt = Runtime(workspace=self, app_services=self._app_services)
             stream = rt.run(request)
         transcript_store = self.transcript_store

@@ -1437,7 +1437,7 @@ async def get_chat_user_messages(
     chat_id: str,
     before: Optional[str] = Query(None),
     limit: int = Query(200, ge=1, le=1000),
-    include_app_owned: bool = Query(True),
+    include_app_owned: bool = Query(False),
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> ChatUserMessagePage:

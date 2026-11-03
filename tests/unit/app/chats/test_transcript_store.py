@@ -815,7 +815,8 @@ def test_page_byte_limit_splits_one_message_by_content_block(tmp_path):
 
     pages = []
     before = None
-    max_bytes = 2_500
+    # Fit one full block including its projected identity metadata.
+    max_bytes = 2_600
     while True:
         page = store.get_page(
             session_id="session-1",

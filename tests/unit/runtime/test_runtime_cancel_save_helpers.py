@@ -62,7 +62,9 @@ def _agent(name="TestAgent", context=None):
 
 class TestNormalize:
     def test_dict_coerced_to_agent_request(self):
-        request = Runtime._normalize({"session_id": "s1", "user_id": "u1"})
+        request = Runtime.normalize_request(
+            {"session_id": "s1", "user_id": "u1"},
+        )
         from qwenpaw.schemas import AgentRequest
 
         assert isinstance(request, AgentRequest)
@@ -70,7 +72,7 @@ class TestNormalize:
         assert request.user_id == "u1"
 
     def test_missing_session_id_generated(self):
-        request = Runtime._normalize({"input": []})
+        request = Runtime.normalize_request({"input": []})
         assert request.session_id
         # user_id falls back to session_id
         assert request.user_id == request.session_id
@@ -79,7 +81,7 @@ class TestNormalize:
         from qwenpaw.schemas import AgentRequest
 
         original = AgentRequest(session_id="fixed", user_id="bob")
-        result = Runtime._normalize(original)
+        result = Runtime.normalize_request(original)
         assert result is original
         assert result.session_id == "fixed"
 
@@ -93,7 +95,7 @@ class TestBuildContext:
     def test_request_agent_id_wins(self):
         runtime = _runtime(workspace_agent_id="ws-agent")
 
-        request = Runtime._normalize(
+        request = Runtime.normalize_request(
             {"session_id": "s1", "agent_id": "body-agent"},
         )
         ctx = runtime._build_context(request)
@@ -101,19 +103,19 @@ class TestBuildContext:
 
     def test_workspace_agent_id_fallback(self):
         runtime = _runtime(workspace_agent_id="ws-agent")
-        request = Runtime._normalize({"session_id": "s1"})
+        request = Runtime.normalize_request({"session_id": "s1"})
         ctx = runtime._build_context(request)
         assert ctx.agent_id == "ws-agent"
 
     def test_default_when_no_agent_id(self):
         runtime = _runtime(workspace_agent_id=None)
-        request = Runtime._normalize({"session_id": "s1"})
+        request = Runtime.normalize_request({"session_id": "s1"})
         ctx = runtime._build_context(request)
         assert ctx.agent_id == "default"
 
     def test_root_ids_fall_back_to_session_and_agent(self):
         runtime = _runtime(workspace_agent_id="ws-agent")
-        request = Runtime._normalize({"session_id": "s1"})
+        request = Runtime.normalize_request({"session_id": "s1"})
         ctx = runtime._build_context(request)
         assert ctx.root_session_id == "s1"
         assert ctx.root_agent_id == "ws-agent"

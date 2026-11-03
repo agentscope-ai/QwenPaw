@@ -454,6 +454,7 @@ class TranscriptPageBuilder:
             json.loads(row["envelope_json"]) | {"content": content},
         )
         metadata = dict(message.metadata or {})
+        metadata.setdefault("original_id", message.id)
         metadata.setdefault("timestamp", row["message_created_at"])
         metadata["qwenpaw_transcript_position"] = {
             "turn_id": str(row["turn_id"]),
