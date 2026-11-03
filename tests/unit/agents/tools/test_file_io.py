@@ -404,12 +404,15 @@ class TestEditFilePreservesBytes:
         f.write_bytes(original.encode("utf-8"))
 
         result = await edit_file(
-            str(f), "set TARGET=staging", "set TARGET=production"
+            str(f),
+            "set TARGET=staging",
+            "set TARGET=production",
         )
 
         assert "Successfully replaced" in result.content[0].text
         expected = original.replace(
-            "set TARGET=staging", "set TARGET=production"
+            "set TARGET=staging",
+            "set TARGET=production",
         )
         assert f.read_bytes() == expected.encode("utf-8")
 
@@ -454,7 +457,8 @@ class TestEditFilePreservesBytes:
 
     @pytest.mark.asyncio
     async def test_new_lines_in_new_text_follow_the_file_ending(
-        self, tmp_path
+        self,
+        tmp_path,
     ):
         f = tmp_path / "crlf.txt"
         original = "one\r\ntwo\r\nthree\r\n"
