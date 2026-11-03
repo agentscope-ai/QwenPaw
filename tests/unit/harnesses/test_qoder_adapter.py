@@ -337,6 +337,45 @@ async def test_models_and_turns_use_sdk_capabilities(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+async def test_turn_forwards_every_advertised_effort(
+    tmp_path: Path,
+    effort: str,
+) -> None:
+    binary = _executable(tmp_path / "qodercli")
+    clients: list[FakeQoderClient] = []
+
+    def factory(options: QoderAgentOptions) -> FakeQoderClient:
+        client = FakeQoderClient(options)
+        clients.append(client)
+        return client
+
+    adapter = QoderAdapter(
+        tmp_path,
+        binary=str(binary),
+        client_factory=factory,
+    )
+
+    [
+        event
+        async for event in adapter.run_turn(
+            session_id="chat-1",
+            prompt="Fix it",
+            cwd=tmp_path,
+            settings={
+                "model": "auto",
+                "reasoning_effort": effort,
+                "permission_mode": "default",
+            },
+        )
+    ]
+
+    assert clients[-1].options.extra_args == {
+        "reasoning-effort": effort,
+    }
+
+
+@pytest.mark.asyncio
 async def test_discovers_qoder_owned_skills_as_read_only(
     tmp_path: Path,
 ) -> None:
