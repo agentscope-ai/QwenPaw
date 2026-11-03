@@ -14,17 +14,20 @@ import pytest
 
 from qwenpaw.agents.command_handler import CommandHandler
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.config.config import LightContextConfig
 
 
-def _config(strategy="scroll"):
-    scroll_config = SimpleNamespace(db_filename="history.db")
-    lcc = SimpleNamespace(strategy=strategy, scroll_config=scroll_config)
+def _config(strategy="scroll", *, summary_timeout_seconds=300):
+    lcc = LightContextConfig(
+        strategy=strategy,
+        scroll_config={"summary_timeout_seconds": summary_timeout_seconds},
+    )
     running = SimpleNamespace(light_context_config=lcc)
     return SimpleNamespace(running=running, id="ag1")
 
 
 def _handler(tmp_path, *, strategy="scroll", workspace=True, monkeypatch):
-    state = SimpleNamespace(context=[], session_id="sess-x")
+    state = SimpleNamespace(context=[], session_id="stored-session")
     handler = CommandHandler(
         agent_name="QwenPaw",
         state=state,
@@ -41,7 +44,12 @@ def _handler(tmp_path, *, strategy="scroll", workspace=True, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_builds_scroll_manager_under_scroll(tmp_path, monkeypatch):
+@pytest.mark.parametrize("timeout", [45, 600])
+async def test_builds_scroll_manager_under_scroll(
+    tmp_path,
+    monkeypatch,
+    timeout,
+):
     catalog = TranscriptCatalog(tmp_path)
     catalog.ensure_session_database(
         session_id="sess-x",
@@ -50,11 +58,13 @@ async def test_builds_scroll_manager_under_scroll(tmp_path, monkeypatch):
     )
     handler = _handler(tmp_path, strategy="scroll", monkeypatch=monkeypatch)
     handler._context_generation = 2
-    mgr = await handler._build_standalone_scroll_manager(_config("scroll"))
+    config = _config(summary_timeout_seconds=timeout)
+    mgr = await handler._build_standalone_scroll_manager(config)
     try:
         assert mgr is not None
         # Bound to the authoritative session id, not state.session_id.
         assert mgr._session_id == "sess-x\x1fcontext:2"
+        assert mgr._summary_timeout_seconds == timeout
         assert not (tmp_path / "history.db").exists()
         assert list((tmp_path / "transcripts").glob("*.db"))
     finally:

@@ -711,6 +711,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 # Already gated: the adapter only supplies an offloader when
                 # ``offload_dialog`` is on, so this archives iff configured.
                 offloader=self._offloader,
+                summary_timeout_seconds=lcc.scroll_config.summary_timeout_seconds,
             )
         except Exception:
             logger.exception("Failed to build scroll manager for /compact")
