@@ -9,6 +9,7 @@ on:
       - 'scripts/piccolo_runtime.py'
       - 'scripts/test_piccolo_runtime.py'
       - 'scripts/test_piccolo_install.py'
+      - 'scripts/pack-tauri/sign_macos_bundle.sh'
   push:
     tags: ['llama-cpp-piccolo-v*']
   workflow_dispatch:

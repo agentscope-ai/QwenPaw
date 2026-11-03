@@ -270,6 +270,12 @@ def package(target, build_dir, source, output, cuda=None):
             source / "licenses/LICENSE-FlexDM",
             bundle / "LICENSE-FlexDM",
         )
+        if config["os"] == "macos":
+            run(
+                "bash",
+                ROOT / "scripts/pack-tauri/sign_macos_bundle.sh",
+                bundle,
+            )
         executable = bundle / (
             "llama-server.exe" if config["os"] == "windows" else "llama-server"
         )

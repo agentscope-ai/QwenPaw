@@ -6,7 +6,7 @@
   "targets": [
     {
       "id": "macos-arm64",
-      "runner": "macos-15",
+      "runner": "macos-26",
       "os": "macos",
       "arch": "arm64",
       "backend": "metal"
