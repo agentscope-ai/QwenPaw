@@ -99,7 +99,7 @@ def _write_bytes_atomic(path: Path, data: bytes) -> None:
                 continue
         if temp_path is None:
             raise OSError(
-                f"Unable to allocate an atomic temp file for {target}"
+                f"Unable to allocate an atomic temp file for {target}",
             )
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
