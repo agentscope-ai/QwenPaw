@@ -21,9 +21,16 @@ result is lost still consumes it and the next slice continues from a higher
 index; replace mode resends the whole text, so a reserved-but-lost index loses
 no content. A response that finishes or is cancelled after `stream.start`
 closes the stream with a final `input_state=10` slice through the shared stream
-cleanup hooks instead of leaving the QQ message generating. An empty first slice
-uses the native `...` placeholder, and a stored resource without a recorded
-`stream_type` keeps streaming rather than failing every later slice.
+cleanup hooks instead of leaving the QQ message generating.
+
+The stream is opened by the first slice that carries real text rather than by
+`stream.start`: QQ rejects a `replace` slice that does not start with the
+content it already delivered (`40007`), so the placeholder the host opens every
+stream with must never be sent. A response that only ends never opens a stream
+for nothing, an empty reply opens and closes with the native `...` placeholder,
+and a stored resource without a recorded `stream_type` keeps streaming rather
+than failing every later slice. The descriptor declares the `streaming`
+capability because the host drops the channel's streaming policy otherwise.
 
 Text supports the original bounded chunks and explicit QQ validation fallback.
 C2C/group upload rich media; group cannot send type4 files (including ordinary

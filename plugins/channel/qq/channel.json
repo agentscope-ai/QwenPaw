@@ -178,6 +178,7 @@
     "channel.management.qrcode.v1",
     "media",
     "send.approval_resolution.v1",
-    "send.content_source.v1"
+    "send.content_source.v1",
+    "streaming"
   ]
 }
