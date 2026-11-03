@@ -406,7 +406,10 @@ def main():
     parser.add_argument("--base-url")
     args = parser.parse_args()
     if args.command == "matrix":
-        print(json.dumps({"include": CONFIG["targets"]}))
+        targets = (
+            [target_config(args.target)] if args.target else CONFIG["targets"]
+        )
+        print(json.dumps({"include": targets}))
     elif args.command == "build":
         if not args.target:
             parser.error("build requires --target")

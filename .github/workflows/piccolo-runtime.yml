@@ -10,15 +10,13 @@ on:
       - 'scripts/test_piccolo_runtime.py'
       - 'scripts/test_piccolo_install.py'
   push:
-    branches: ['codex/piccolo-runtime-install']
-    paths:
-      - '.github/workflows/piccolo-runtime.yml'
-      - 'docs/patches/piccolo-llama.cpp.patch'
-      - 'src/qwenpaw/local_models/**'
-      - 'scripts/*piccolo_runtime.py'
-      - 'scripts/test_piccolo_install.py'
     tags: ['llama-cpp-piccolo-v*']
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Single runtime target (leave empty to build all platforms)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,7 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: targets
-        run: echo "value=$(python scripts/piccolo_runtime.py matrix)" >> "$GITHUB_OUTPUT"
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          args=()
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          echo "value=$(python scripts/piccolo_runtime.py matrix "${args[@]}")" >> "$GITHUB_OUTPUT"
       - name: Check release tag
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -78,6 +81,12 @@ jobs:
           for role, model in config['smoke_models'].items():
               snapshot_download(model['repo'], revision=model['revision'], local_dir=f'var/models/{role}', allow_patterns=model['files'])
           PY
+      - name: Use x64 Python for Windows ARM application dependencies
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
       - name: Install production installer dependencies
         run: >-
           python -m pip install httpx pydantic python-dotenv psutil
