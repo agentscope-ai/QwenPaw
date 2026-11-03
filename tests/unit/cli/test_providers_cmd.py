@@ -101,6 +101,9 @@ class FakeManager:
     def get_provider(self, pid):
         return self._providers.get(pid)
 
+    def saved_plugin_provider_infos(self):
+        return {}
+
     def get_active_model(self):
         return self.active_model
 
@@ -128,8 +131,17 @@ class FakeManager:
             raise ValueError("activation refused")
         self.activated.append((pid, model))
 
-    def _save_provider(self, provider, is_builtin=False):
-        self.saved.append(provider.id)
+    async def add_model_to_provider(self, provider_id, model):
+        ok, message = await self._providers[provider_id].add_model(model)
+        if not ok:
+            raise ValueError(message)
+        self.saved.append(provider_id)
+
+    async def delete_model_from_provider(self, provider_id, model_id):
+        ok, message = await self._providers[provider_id].delete_model(model_id)
+        if not ok:
+            raise ValueError(message)
+        self.saved.append(provider_id)
 
 
 @pytest.fixture()
@@ -174,17 +186,6 @@ class TestIsConfigured:
     def test_api_key_not_required(self):
         p = FakeProvider("p", api_key="", require_api_key=False)
         assert pcmd._is_configured(p) is True
-
-
-class TestSaveProvider:
-    def test_missing_provider_ignored(self, manager):
-        pcmd._save_provider(manager, "ghost")
-        assert manager.saved == []
-
-    def test_saves_builtin_flag(self, manager):
-        manager._providers["builtin-one"] = FakeProvider("builtin-one")
-        pcmd._save_provider(manager, "builtin-one")
-        assert manager.saved == ["builtin-one"]
 
 
 class TestAllProviderObjects:
@@ -1040,7 +1041,7 @@ class TestRemoveModelCmd:
             pcmd.models_group,
             ["remove-model", "p1", "-m", "missing"],
         )
-        assert res.exit_code == 0
+        assert res.exit_code == 1
         assert "not found" in res.output
 
 
@@ -1092,3 +1093,211 @@ class TestSimpleDelegatingCmds:
         res = CliRunner().invoke(pcmd.models_group, ["set-llm"])
         assert res.exit_code == 0
         assert called == [True]
+
+
+@pytest.mark.parametrize("require_api_key", [False, True])
+def test_plugin_provider_explicit_target_normalizes_id(
+    monkeypatch,
+    require_api_key,
+):
+    from contextlib import contextmanager
+
+    from qwenpaw.cli import http
+    from qwenpaw.config import utils
+
+    calls = []
+    provider = FakeProvider("example", require_api_key=require_api_key)
+    manager = SimpleNamespace(
+        plugin_providers={"example": {}},
+        get_provider=lambda provider_id: provider,
+    )
+    monkeypatch.setattr(pcmd, "_manager", lambda: manager)
+    monkeypatch.setattr(utils, "is_qwenpaw_running", lambda: False)
+    monkeypatch.setattr(
+        http,
+        "resolve_base_url",
+        lambda *args: "http://remote:8123",
+    )
+
+    @contextmanager
+    def client(url):
+        assert url == "http://remote:8123"
+
+        def put(path, json):
+            calls.append((path, json))
+            return SimpleNamespace(raise_for_status=lambda: None)
+
+        yield SimpleNamespace(put=put)
+
+    monkeypatch.setattr(http, "client", client)
+
+    @click.command()
+    @click.option("--host", default="127.0.0.1")
+    def command(host):
+        pcmd.configure_provider_api_key_interactive("EXAMPLE")
+
+    result = CliRunner().invoke(
+        command,
+        ["--host", "remote"],
+        input="http://new-base\nprobe-key\n",
+    )
+    assert result.exit_code == 0, (result.output, result.exception)
+    values = {"base_url": "http://new-base"}
+    if require_api_key:
+        values["api_key"] = "probe-key"
+    assert calls == [("models/example/config", values)]
+
+
+@pytest.mark.parametrize("require_api_key", [False, True])
+def test_unavailable_plugin_provider_connection_change_invalidates_snapshot(
+    tmp_path,
+    monkeypatch,
+    require_api_key,
+):
+    import json
+
+    from qwenpaw.config import utils
+    from qwenpaw.providers import provider_manager as managers
+    from qwenpaw.providers import provider_manager_persistence as persistence
+
+    monkeypatch.setattr(utils, "is_qwenpaw_running", lambda: False)
+    # Exercise persistence without reading the user's encryption key store.
+    monkeypatch.setattr(
+        persistence,
+        "decrypt_dict_fields",
+        lambda data, fields: dict(data),
+    )
+
+    def encrypt(data, fields):
+        return {
+            key: (
+                "probe-encrypted:" + value
+                if key in fields and isinstance(value, str)
+                else value
+            )
+            for key, value in data.items()
+        }
+
+    monkeypatch.setattr(persistence, "encrypt_dict_fields", encrypt)
+    monkeypatch.setattr(managers, "SECRET_DIR", tmp_path / "secrets")
+    manager = managers.ProviderManager()
+    path = manager.plugin_path / "example.json"
+    snapshot = ProviderInfo(
+        id="example",
+        name="Example",
+        base_url="https://old.invalid",
+        api_key="old-key",
+        require_api_key=require_api_key,
+        models_last_synced_at="2026-01-01T00:00:00Z",
+        models_last_sync_error="old error",
+        models_syncing=True,
+        models=[
+            {
+                "id": "curated",
+                "name": "Curated",
+                "availability_status": "available",
+                "billing": "free",
+                "is_free": True,
+            },
+        ],
+        discovered_models=[{"id": "old-only", "name": "Old only"}],
+    )
+    raw = {
+        **snapshot.model_dump(mode="json"),
+        "preserved_plugin_field": {"value": 17},
+    }
+    path.write_text(json.dumps(raw))
+    monkeypatch.setattr(pcmd, "_manager", lambda: manager)
+    result = CliRunner().invoke(
+        pcmd.models_group,
+        ["config-key", "EXAMPLE"],
+        input="https://new.invalid\nnew-key\n",
+    )
+    assert result.exit_code == 0, (result.output, result.exception)
+    actual = json.loads(path.read_text())
+    assert actual["base_url"] == "https://new.invalid"
+    assert actual["api_key"] == (
+        "probe-encrypted:new-key" if require_api_key else "old-key"
+    )
+    assert actual["discovered_models"] == []
+    assert actual["models_last_synced_at"] is None
+    assert actual["models_last_sync_error"] is None
+    assert actual["models_syncing"] is False
+    assert actual["models"][0]["availability_status"] == "unverified"
+    assert actual["models"][0]["billing"] == "unknown"
+    assert actual["preserved_plugin_field"] == {"value": 17}
+
+
+@pytest.mark.parametrize("action", ["add", "remove"])
+def test_plugin_model_command_persists_owned_snapshot(
+    tmp_path,
+    monkeypatch,
+    action,
+):
+    import json
+    from qwenpaw.config import utils
+    from qwenpaw.providers import provider_manager as managers
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+
+    monkeypatch.setattr(managers, "SECRET_DIR", tmp_path)
+    monkeypatch.setattr(utils, "is_qwenpaw_running", lambda: False)
+    manager = managers.ProviderManager()
+    asyncio.run(
+        manager.register_plugin_provider_async(
+            "example",
+            OpenAIProvider,
+            "Example",
+            "https://example.invalid/v1",
+            metadata={"chat_model": "OpenAIChatModel"},
+        ),
+    )
+    monkeypatch.setattr(pcmd, "_manager", lambda: manager)
+    runner = CliRunner()
+    added = runner.invoke(
+        pcmd.models_group,
+        [
+            "add-model",
+            "example",
+            "-m",
+            "demo",
+            "-n",
+            "Demo",
+        ],
+    )
+    assert added.exit_code == 0, added.output
+    if action == "remove":
+        result = runner.invoke(
+            pcmd.models_group,
+            [
+                "remove-model",
+                "example",
+                "-m",
+                "demo",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+    else:
+        duplicate = runner.invoke(
+            pcmd.models_group,
+            [
+                "add-model",
+                "example",
+                "-m",
+                "demo",
+                "-n",
+                "Demo",
+            ],
+        )
+        assert duplicate.exit_code == 1
+        assert "added to" not in duplicate.output
+    data = json.loads((manager.plugin_path / "example.json").read_text())
+    assert [model["id"] for model in data["extra_models"]] == (
+        ["demo"] if action == "add" else []
+    )
+    assert not (manager.custom_path / "example.json").exists()
+    restored = managers.ProviderManager().saved_plugin_provider_infos()[
+        "example"
+    ]
+    assert [model.id for model in restored.extra_models] == (
+        ["demo"] if action == "add" else []
+    )

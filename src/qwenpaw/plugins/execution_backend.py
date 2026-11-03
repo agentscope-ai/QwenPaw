@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 import hashlib
@@ -29,6 +29,7 @@ class PluginDescription:
     payload: object
     source_identity: object | None = None
     requirements: tuple[str, ...] | None = None
+    required_extras: tuple[str, ...] = ()
 
     def __post_init__(self):
         if self.requirements is None:
@@ -178,10 +179,28 @@ class ExecutionBackend(Protocol):
 
 @dataclass(frozen=True)
 class BackendBinding:
-    """A fixed backend and its description for one source version."""
+    """A runtime backend and optional public registration for one source.
+
+    Both definitions belong to the same plugin lifecycle. Their dependency
+    admissions stay separate so a public command need not start its driver.
+    """
 
     backend: ExecutionBackend
     description: PluginDescription
+    registration: BackendBinding | None = None
+
+    def refresh(self, source_path: Path, manifest: PluginManifest):
+        """Describe current files while retaining the selected backend."""
+        return BackendBinding(
+            self.backend,
+            self.backend.describe(
+                Path(source_path),
+                manifest.model_copy(deep=True),
+            ),
+            self.registration.refresh(source_path, manifest)
+            if self.registration is not None and manifest.entry.backend
+            else None,
+        )
 
     def rebase(self, source_path: Path, manifest: PluginManifest):
         """Rebuild paths with the pinned backend and verify source identity."""
@@ -204,6 +223,9 @@ class BackendBinding:
         return BackendBinding(
             self.backend,
             replace(description, requirements=self.description.requirements),
+            self.registration.rebase(source_path, manifest)
+            if self.registration is not None
+            else None,
         )
 
     def validate_update(self, candidate, *, in_place):
@@ -223,6 +245,59 @@ class BackendBinding:
             candidate.description,
             in_place=in_place,
         )
+        if (
+            self.registration is not None
+            and candidate.registration is not None
+        ):
+            self.registration.validate_update(
+                candidate.registration,
+                in_place=in_place,
+            )
+
+    def capture_restore_state(self, record):
+        return (
+            self.backend.capture_restore_state(record),
+            self.registration.capture_restore_state(record)
+            if self.registration is not None
+            else None,
+        )
+
+    def restore_state(self, state):
+        if state is None:
+            return
+        runtime, registration = state
+        self.backend.restore_state(runtime)
+        if self.registration is not None:
+            self.registration.restore_state(registration)
+
+    async def load_definition(self, config, saved_definition=None):
+        """Keep public registration alongside an executable runtime definition."""
+        from .settings import is_plugin_enabled
+
+        saved = saved_definition
+        if isinstance(saved, PluginDefinition):
+            saved = saved.runtime_definition
+        result = await self.backend.load_definition(
+            self.description,
+            config,
+            saved_definition=saved,
+        )
+        if (
+            self.registration is not None
+            and result.definition is not None
+            and is_plugin_enabled(config)
+        ):
+            result = replace(
+                result,
+                definition=PluginDefinition(
+                    result.definition,
+                    self.registration,
+                    saved_definition.public_definition
+                    if isinstance(saved_definition, PluginDefinition)
+                    else None,
+                ),
+            )
+        return result
 
     async def admit_existing(self, *, usage, token, snapshot=None):
         return await self.backend.admit_existing(
@@ -253,8 +328,25 @@ class BackendBinding:
         )
 
 
+@dataclass
+class PluginDefinition:
+    """Runtime and public definitions registered under one plugin owner.
+
+    Public registration stays lightweight; authored call handlers import
+    their runtime SDKs. The host retains the definition for re-registration.
+    """
+
+    runtime_definition: object
+    public_binding: BackendBinding
+    public_definition: object | None = None
+
+    # TODO: Independent activation/failure domains and idle SDK cache release
+    # need explicit capability resource scopes. Registration and rollback
+    # currently cover the plugin; imported shared SDKs live with the process.
+
+
 class BackendResolver:
-    """Select once from entry shape and trusted host-registered adapters."""
+    """Resolve runtime definitions and their public registration without imports."""
 
     def __init__(self, python_backend: ExecutionBackend):
         self._python_backend = python_backend
@@ -278,22 +370,23 @@ class BackendResolver:
         source_path: Path,
         manifest: PluginManifest,
     ) -> BackendBinding:
-        """Describe a snapshot without consulting executable plugin code."""
+        """Describe all definitions owned by one installed plugin."""
+        if manifest.entry.descriptor is None:
+            return self.resolve_registration(source_path, manifest)
         manifest = manifest.model_copy(deep=True)
         backend = self.select(manifest)
         return BackendBinding(
             backend,
             backend.describe(Path(source_path), manifest),
+            self.resolve_registration(source_path, manifest)
+            if manifest.entry.backend
+            else None,
         )
 
     def select(self, manifest):
         """Select the trusted adapter without hashing unrelated source trees."""
         backend = self._python_backend
         if manifest.entry.descriptor is not None:
-            if manifest.entry.backend is not None:
-                raise ValueError(
-                    "descriptor and backend entries are mutually exclusive",
-                )
             try:
                 backend = self._descriptors[manifest.plugin_type]
             except KeyError as exc:
@@ -302,11 +395,29 @@ class BackendResolver:
                 ) from exc
         return backend
 
+    def resolve_registration(
+        self,
+        source_path: Path,
+        manifest: PluginManifest,
+    ) -> BackendBinding:
+        """Describe the public Python entry for an explicit consumer."""
+        manifest = manifest.model_copy(deep=True)
+        return BackendBinding(
+            self._python_backend,
+            self._python_backend.describe(Path(source_path), manifest),
+        )
 
+
+@contextmanager
 def registration_scope(binding: BackendBinding):
-    """Default for host adapters predating scoped registration."""
-    scope = getattr(binding.backend, "registration_scope", None)
-    return scope(binding.description) if scope is not None else nullcontext()
+    """Retain every definition's import custody through registration rollback."""
+    with ExitStack() as scopes:
+        scope = getattr(binding.backend, "registration_scope", None)
+        if scope is not None:
+            scopes.enter_context(scope(binding.description))
+        if binding.registration is not None:
+            scopes.enter_context(registration_scope(binding.registration))
+        yield
 
 
 def discovers_disabled(binding: BackendBinding) -> bool:

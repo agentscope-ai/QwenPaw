@@ -278,7 +278,6 @@ async def _managed_connectivity_notes(cfg, timeout):
         ChannelManagementService,
         ManagementError,
     )
-    from ..app.channels.process_supervisor import LaunchSpec
     from ..channel_protocol.management import MANAGEMENT_CAPABILITIES
     from ..config.utils import get_plugins_dir
     from ..plugins.loader import PluginLoader
@@ -299,21 +298,7 @@ async def _managed_connectivity_notes(cfg, timeout):
         channel_runtime=runtime,
     )
     service = ChannelManagementService(loader)
-    controls = set(LaunchSpec.__dataclass_fields__) - {"config", "enabled"}
-    controls.update(
-        {
-            "workspace_dir",
-            "media_dir",
-            "token_file",
-            "token_file_path",
-            "bot_token_file",
-            "context_file",
-            "context_tokens_file",
-            "entrypoint",
-            "management_entrypoint",
-            "credential_keys",
-        },
-    )
+    controls = service.private_config_fields()
     try:
         await loader.load_all_plugins(
             configs=cfg.plugins,

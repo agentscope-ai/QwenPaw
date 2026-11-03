@@ -54,7 +54,10 @@ from ..providers.hub_managed import (
     managed_provider,
     managed_slot,
 )
-from ..providers.model_selection import resolve_model_slot_override
+from ..providers.model_selection import (
+    resolve_model_slot_override,
+    select_primary_model,
+)
 from ..providers.capping_formatter import (
     CappingFormatterMixin,
     MAX_INLINE_MEDIA_BYTES,
@@ -2567,11 +2570,10 @@ def create_model_and_formatter(
             pass
 
     settings = _load_agent_model_settings(agent_id, agent_config)
-    model_slot = settings.model_slot
-    slot = resolve_model_slot_override(model_slot_override)
-    explicit = slot is not None and bool(slot.provider_id and slot.model)
-    if explicit:
-        model_slot = slot
+    request_override = resolve_model_slot_override(model_slot_override)
+    request_slot = select_primary_model(None, request_model=request_override)
+    explicit = request_slot is not None
+    model_slot = request_slot or settings.model_slot
 
     if hub_mode() and model_slot is None:
         model_slot = ProviderManager.get_instance().active_model
@@ -2662,7 +2664,7 @@ def create_model_and_formatter(
         compact_threshold=settings.compact_threshold,
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
-        has_model_override=slot is not None,
+        has_model_override=request_override is not None,
         require_image_support=(
             require_image_support
             and model_info is not None

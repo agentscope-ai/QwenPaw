@@ -7,6 +7,9 @@ from packaging.version import InvalidVersion, Version
 
 from .errors import SDKCompatibilityError
 
+# TODO: Maintainers must approve the SDK release version for CLI, extensions
+# and capability dependencies. Update API since values and template sdk.version
+# declarations together if a new release version is chosen.
 SDK_VERSION = "1.2.0"
 SDK_CAPABILITIES = frozenset(
     {
@@ -34,6 +37,9 @@ SDK_CAPABILITIES = frozenset(
         "channels",
         "drivers",
         "harnesses",
+        "cli",
+        "extensions",
+        "dependencies",
     },
 )
 

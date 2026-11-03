@@ -388,6 +388,24 @@ class DependencyUpgradeManager:
     def status(self, operation_id):
         return self._public(self._read(operation_id))
 
+    def start_maintenance_worker(self, operation_id):
+        """Start an approved worker that waits for its CLI parent to exit."""
+        directory = self._directory(operation_id)
+        operation = self._read(operation_id)
+        if operation["status"] != "waiting_restart" or not operation.get(
+            "approved",
+        ):
+            raise RuntimeError(
+                "Dependency operation is not awaiting maintenance.",
+            )
+        _launch_maintenance_worker(directory, operation)
+        result = self._public(operation)
+        result["message"] = (
+            "Maintenance starts when this CLI exits. "
+            "Query this operation for its result."
+        )
+        return result
+
     def cancel(self, operation_id):
         directory = self._directory(operation_id)
         from .dependency_transaction import operation_lock
@@ -2061,10 +2079,37 @@ def run_native_continuation(directory, phase):
     asyncio.run(continue_operation(directory, preflight=phase == "1"))
 
 
+def _launch_maintenance_worker(directory, operation):
+    """Detach the retained worker so its parent can release the environment."""
+    import subprocess
+
+    script = directory / "worker" / "dependency_worker.py"
+    command = [operation["worker_python"], "-I", "-B", "-S", str(script)]
+    options = (
+        {"start_new_session": True}
+        if os.name != "nt"
+        else {
+            "creationflags": getattr(
+                subprocess,
+                "CREATE_NEW_PROCESS_GROUP",
+                0,
+            ),
+        }
+    )
+    with (directory / "worker.log").open("ab") as log:
+        # The worker waits for its parent to exit; waiting here would deadlock.
+        return subprocess.Popen(  # pylint: disable=consider-using-with
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            **options,
+        )
+
+
 def schedule_maintenance(manager, directory, operation, *, loop=None):
     """Explicit apply persists approval before handing off to a fresh worker."""
     import shlex
-    import subprocess
 
     worker = directory / "worker"
     operation.update(
@@ -2093,28 +2138,7 @@ def schedule_maintenance(manager, directory, operation, *, loop=None):
     ]
     manager._save(directory, operation)
     if shutdown is not None and restart is not None:
-        options = (
-            {"start_new_session": True}
-            if os.name != "nt"
-            else {
-                "creationflags": getattr(
-                    subprocess,
-                    "CREATE_NEW_PROCESS_GROUP",
-                    0,
-                ),
-            }
-        )
-        log = (directory / "worker.log").open("ab")
-        try:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                **options,
-            )
-        finally:
-            log.close()
+        process = _launch_maintenance_worker(directory, operation)
         operation["worker_pid"] = process.pid
         operation[
             "message"

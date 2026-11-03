@@ -4,9 +4,14 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .dependency_requirements import (
+    resolve_optional_dependencies,
+    validate_optional_dependencies,
+)
 
 if TYPE_CHECKING:
     from .execution_backend import BackendBinding
@@ -76,10 +81,6 @@ class PluginEntryPoints(BaseModel):
             raise ValueError(
                 "descriptor must be a canonical relative JSON path",
             )
-        if self.backend is not None:
-            raise ValueError(
-                "descriptor and backend entries are mutually exclusive",
-            )
         return self
 
 
@@ -147,6 +148,36 @@ class QwenPawVersionConstraint(BaseModel):
     max: Optional[str] = None
 
 
+class CliDeclaration(BaseModel):
+    """Static mount metadata; Click owns parameters and command behavior."""
+
+    id: str = Field(min_length=1)
+    path: tuple[str, ...] = Field(min_length=1)
+    kind: Literal["command", "group"] = "command"
+    help: str = ""
+    requires: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_path(self):
+        if any(
+            not part
+            or part.startswith("-")
+            or part in {".", ".."}
+            or any(c.isspace() or c in "/\\" for c in part)
+            for part in self.path
+        ):
+            raise ValueError("cli.path must contain command names")
+        return self
+
+
+class ExtensionDeclaration(BaseModel):
+    """A named contribution to a host contract with optional requirements."""
+
+    point: str = Field(min_length=1)
+    id: str = Field(min_length=1)
+    requires: tuple[str, ...] = ()
+
+
 class PluginManifest(BaseModel):
     """Plugin manifest definition.
 
@@ -174,13 +205,77 @@ class PluginManifest(BaseModel):
     description_i18n: Dict[str, str] = Field(default_factory=dict)
     author: str = ""
     entry: PluginEntryPoints = Field(default_factory=PluginEntryPoints)
+    cli: tuple[CliDeclaration, ...] = ()
+    extensions: tuple[ExtensionDeclaration, ...] = ()
     dependencies: List[str] = Field(default_factory=list)
+    optional_dependencies: Dict[str, List[str]] = Field(default_factory=dict)
     min_version: str = "0.1.0"
     max_version: Optional[str] = None
     qwenpaw_version: Optional[QwenPawVersionConstraint] = None
     sdk: Optional[Dict[str, Any]] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
+
+    def declares_extension(self, point: str) -> bool:
+        """Select a host contract without importing contribution code."""
+        return any(item.point == point for item in self.extensions)
+
+    @model_validator(mode="after")
+    def _validate_optional_dependencies(self):
+        validate_optional_dependencies(self.optional_dependencies)
+        for declaration in (*self.cli, *self.extensions):
+            resolve_optional_dependencies(
+                self.optional_dependencies,
+                declaration.requires,
+            )
+        capabilities = (self.sdk or {}).get("capabilities", ())
+        if self.optional_dependencies and (
+            not isinstance(capabilities, (list, tuple))
+            or "dependencies" not in capabilities
+        ):
+            raise ValueError(
+                "optional_dependencies require the dependencies SDK capability",
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_cli_contract(self):
+        # Pydantic resolves nested entry models before after-validators.
+        # pylint: disable=no-member
+        if not self.cli:
+            return self
+        caps = (self.sdk or {}).get("capabilities", ())
+        if not isinstance(caps, (list, tuple)) or not all(
+            isinstance(cap, str) for cap in caps
+        ):
+            raise ValueError("sdk.capabilities must be a list of names")
+        if "cli" not in caps or not self.entry.backend:
+            raise ValueError(
+                "cli declarations require cli capability and entry.backend",
+            )
+        if len({c.id for c in self.cli}) != len(self.cli):
+            raise ValueError("cli IDs must be unique within a plugin")
+        if len({c.path for c in self.cli}) != len(self.cli):
+            raise ValueError("cli paths must be unique within a plugin")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_extensions(self):
+        if not self.extensions:
+            return self
+        caps = (self.sdk or {}).get("capabilities", ())
+        if not isinstance(caps, (list, tuple)) or not all(
+            isinstance(cap, str) for cap in caps
+        ):
+            raise ValueError("sdk.capabilities must be a list of names")
+        if "extensions" not in caps or not self.entry.backend:
+            raise ValueError(
+                "extensions require extensions capability and entry.backend",
+            )
+        keys = [(item.point, item.id) for item in self.extensions]
+        if len(set(keys)) != len(keys):
+            raise ValueError("Extension contribution IDs must be unique")
+        return self
 
     @model_validator(mode="before")
     @classmethod

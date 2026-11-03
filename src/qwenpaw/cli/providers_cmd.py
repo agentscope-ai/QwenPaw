@@ -78,6 +78,9 @@ def _wait_for_local_model_download(
 
 
 def _manager() -> ProviderManager:
+    from .plugin_resources import ensure_resources
+
+    ensure_resources("providers")
     return ProviderManager.get_instance()
 
 
@@ -99,16 +102,6 @@ def _is_configured(provider: Provider) -> bool:
     if provider.require_api_key and not provider.api_key:
         return False
     return True
-
-
-def _save_provider(manager: ProviderManager, provider_id: str) -> None:
-    provider = manager.get_provider(provider_id)
-    if provider is None:
-        return
-    manager._save_provider(  # pylint: disable=protected-access
-        provider,
-        is_builtin=provider_id in manager.builtin_providers,
-    )
 
 
 def _all_provider_objects(manager: ProviderManager) -> list[Provider]:
@@ -168,6 +161,15 @@ def configure_provider_api_key_interactive(
         )
 
     defn = manager.get_provider(provider_id)
+    saved = None
+    if defn is None:
+        from ..providers.provider import provider_identity_key
+
+        saved = manager.saved_plugin_provider_infos().get(
+            provider_identity_key(provider_id),
+        )
+        if saved is not None:
+            defn = saved
     if defn is None:
         click.echo(
             click.style(
@@ -207,10 +209,14 @@ def configure_provider_api_key_interactive(
         if not base_url:
             base_url = None
 
+    from .plugin_resources import update_provider_config
+
     if not defn.require_api_key:
-        if base_url is not None and not manager.update_provider(
+        if base_url is not None and not update_provider_config(
+            manager,
             provider_id,
             {"base_url": base_url},
+            saved=saved,
         ):
             raise click.ClickException("Failed to update provider base URL.")
         click.echo(
@@ -234,12 +240,14 @@ def configure_provider_api_key_interactive(
         prompt_suffix=f" [{'set' if current_key else 'not set'}]: ",
     )
 
-    ok = manager.update_provider(
+    ok = update_provider_config(
+        manager,
         provider_id,
         {
             "api_key": api_key if api_key else None,
             "base_url": base_url,
         },
+        saved=saved,
     )
     if not ok:
         click.echo(
@@ -294,15 +302,15 @@ def _add_models_interactive(provider_id: str) -> None:
             default=model_id,
         ).strip()
         try:
-            ok, msg = asyncio.run(
-                defn.add_model(ModelInfo(id=model_id, name=model_name)),
+            from .plugin_resources import add_provider_model
+
+            add_provider_model(
+                manager,
+                provider_id,
+                ModelInfo(id=model_id, name=model_name),
             )
-            if ok:
-                _save_provider(manager, provider_id)
-                click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
-                all_models.append(ModelInfo(id=model_id, name=model_name))
-            else:
-                click.echo(click.style(f"Error: {msg}", fg="red"))
+            click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
+            all_models.append(ModelInfo(id=model_id, name=model_name))
         except (ValueError, AppBaseException) as exc:
             click.echo(click.style(f"Error: {exc}", fg="red"))
 
@@ -580,6 +588,15 @@ def list_cmd() -> None:
                     label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")
 
+    for info in manager.saved_plugin_provider_infos().values():
+        click.echo(f"\n  {info.name} ({info.id}) [plugin unavailable]")
+        click.echo(f"  {'base_url':16s}: {info.base_url or '(not set)'}")
+        click.echo(
+            f"  {'api_key':16s}: {_mask_api_key(info.api_key) or '(not set)'}",
+        )
+        for model in info.models + info.extra_models:
+            click.echo(f"    - {model.name} ({model.id})")
+
     click.echo(f"\n{'═' * 44}")
     click.echo("  Active Model Slot")
     click.echo(f"{'═' * 44}")
@@ -706,10 +723,13 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found.")
-        asyncio.run(
-            provider.add_model(ModelInfo(id=model_id, name=model_name)),
+        from .plugin_resources import add_provider_model
+
+        add_provider_model(
+            manager,
+            provider_id,
+            ModelInfo(id=model_id, name=model_name),
         )
-        _save_provider(manager, provider_id)
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -739,12 +759,10 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found.")
-        ok, msg = asyncio.run(provider.delete_model(model_id=model_id))
-        if ok:
-            _save_provider(manager, provider_id)
-            click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
-        else:
-            click.echo(click.style(f"Error: {msg}", fg="red"))
+        from .plugin_resources import delete_provider_model
+
+        delete_provider_model(manager, provider_id, model_id)
+        click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc

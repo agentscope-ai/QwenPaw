@@ -8,6 +8,7 @@ from qwenpaw.plugins.harnesses import HarnessBackend, HarnessCallContext
 
 from qwenpaw.plugins import PluginContext
 from qwenpaw.plugins.apps import AppContext, ChatRequest, TaskSnapshot
+from qwenpaw.plugins.cli import CliContext
 from qwenpaw.plugins.context import RequestContext
 from qwenpaw.plugins.drivers import DriverContext, DriverRequestContext
 from qwenpaw.plugins.events import ChatEvent
@@ -227,6 +228,33 @@ async def checkpoint_contract(call: ToolContext) -> None:
     assert_type(await call.checkpoints.timeline(), tuple[CheckpointEntry, ...])
     assert_type(await call.checkpoints.snapshot(name="before"), SnapshotResult)
     assert_type(await call.checkpoints.restore("target"), RestoreResult)
+
+
+def terminal_contract(context: "PluginContext", call: "CliContext") -> None:
+    import click
+    from qwenpaw.plugins.cli import CliSpec
+    from qwenpaw.plugins.doctor import DOCTOR, DoctorSpec
+    from qwenpaw.plugins.resources import Registration
+    from qwenpaw.plugins.logging import PluginLogger
+
+    async def operation() -> str:
+        return "result"
+
+    assert_type(call.run(operation()), str)
+    assert_type(call.logger, PluginLogger)
+    assert_type(
+        context.register_cli(
+            CliSpec("hello", lambda ctx: click.Command("hello")),
+        ),
+        Registration,
+    )
+    assert_type(
+        context.register_extension(
+            DOCTOR,
+            DoctorSpec("hello", lambda ctx: []),
+        ),
+        Registration,
+    )
 
 
 async def close_streams(

@@ -3,5 +3,9 @@
   "name": "Hello SDK",
   "version": "1.0.0",
   "entry": {"backend": "main.py"},
-  "sdk": {"version": "1.0.0", "capabilities": ["tools", "storage", "logging", "models"]}
+  "sdk": {"version": "1.1.0", "capabilities": ["tools", "storage", "logging", "models", "cli", "extensions"]},
+  "extensions": [{"point": "qwenpaw.doctor", "id": "hello"}],
+  "cli": [
+    {"id": "hello", "path": ["hello"], "kind": "group", "help": "Public SDK terminal example"}
+  ]
 }
