@@ -1,3 +1,12 @@
+---
+name: omp-roles
+description: "Use this skill whenever you need the allowed_tools / skills preset for a sub-agent role before calling spawn_subagent. Trigger especially when user mentions: \"role\", \"spawn_subagent\", \"allowed_tools\", or any OMP role name (executor, architect, analyst, critic, security-reviewer, code-reviewer, qa-tester, planner, explore, debugger, verifier). Also use when a /ultrawork, /ralph, /autopilot, /ultraqa, or /team workflow step asks for role tool/skill configuration."
+metadata:
+  builtin_skill_version: "0.1.1"
+  qwenpaw:
+    requires: {}
+---
+
 # OMP Role Tool Configuration
 
 When using spawn_subagent (single or batch mode) to dispatch sub-agents,

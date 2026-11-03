@@ -277,7 +277,7 @@ pub(super) fn dispatch_request(
     let mut result = match method {
         "observe_window" => {
             state.settle_before_observe(window.hwnd);
-            observe_window(state, &window)
+            observe_window(state, &window, true)
         }
         "close_window" => close_window(&window),
         "click" => click(observation(state, observation_id)?, &params),
@@ -366,6 +366,7 @@ pub(super) fn dispatch_request(
             needs_user_idle,
         )
     }) {
+        state.note_action(active_after);
         return Ok(action_handoff(result, active_after));
     }
     // Keep the safety boundary -- the input observation has already been
@@ -434,7 +435,10 @@ fn refresh_after_action(state: &mut ServerState, previous: &WindowInfo) -> Optio
         return None;
     }
     state.settle_before_observe(current.hwnd);
-    observe_window(state, &current).ok()
+    // Replacement observations keep semantic state current without paying to
+    // encode images that the action response does not attach. A later
+    // coordinate action starts with an explicit visual observation.
+    observe_window(state, &current, false).ok()
 }
 
 fn parse_input_steps(
@@ -739,7 +743,7 @@ fn requires_user_idle_on_mac(method: &str, target_is_frontmost: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::super::state::WindowInfo;
+    use super::super::state::{ScreenshotTarget, WindowInfo};
     use super::*;
     use std::io::Cursor;
 
@@ -754,9 +758,18 @@ mod tests {
                 title: String::new(),
                 class_name: String::new(),
             },
-            bounds: [0, 0, 100, 100],
-            display_width: 100,
-            display_height: 100,
+            window_bounds: [0, 0, 100, 100],
+            screenshots: std::collections::HashMap::from([(
+                "screenshot-1".to_string(),
+                ScreenshotTarget {
+                    hwnd,
+                    bounds: [0, 0, 100, 100],
+                    display_width: 100,
+                    display_height: 100,
+                },
+            )]),
+            #[cfg(windows)]
+            input_hwnd: hwnd,
             accessibility_revision: None,
             #[cfg(target_os = "macos")]
             transient_text_ready: false,

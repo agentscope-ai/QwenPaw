@@ -20,6 +20,8 @@ Commands for controlling conversation context.
 
 Manually trigger context compaction (**requires waiting**). Under Scroll, eligible older turns are archived while the configured recent tail and active turn remain live. If turns are archived, the continuation summary is updated. Long-term-memory saving can also run in the background when enabled.
 
+Both Scroll and native compaction use the conversation's effective model, including a model selected in the chat UI. An explicit request model takes precedence over the conversation selection, followed by the agent default and then the global default. Scroll summary generation still requests thinking off using the selected model's supported parameters.
+
 ```
 /compact
 ```
@@ -58,7 +60,7 @@ Optionally, add a one-shot instruction to guide which supported information the 
 ```
 **New Conversation Started!**
 
-- Summary task started in background
+- Auto-memory task started in background
 - Ready for new conversation
 ```
 
@@ -460,20 +462,22 @@ Git deduplicates identical content, and automatic GC removes old refs according 
 
 Commands for viewing and managing conversation history.
 
-| Command             | Response Content              |
-| ------------------- | ----------------------------- |
-| `/history`          | 📋 Message list + Token stats |
-| `/message`          | 📄 Specified message details  |
-| `/compact_str`      | 📝 Compressed summary content |
-| `/summarize_status` | 📊 Summary task status        |
-| `/dump_history`     | 📁 Exported history file path |
-| `/load_history`     | ✅ History load result        |
+| Command               | Response Content              |
+| --------------------- | ----------------------------- |
+| `/history`            | 📋 Message list + Token stats |
+| `/message`            | 📄 Specified message details  |
+| `/compact_str`        | 📝 Compressed summary content |
+| `/auto_memory_status` | 📊 Auto-memory task status    |
+| `/dump_history`       | 📁 Exported history file path |
+| `/load_history`       | ✅ History load result        |
 
 ---
 
 ### /history - View Current Conversation History
 
 Display a list of all uncompressed messages in the current conversation, along with detailed **context usage information**.
+
+The maximum input length and context-usage percentage use the conversation's effective model, including conversation and request overrides.
 
 ```
 /history
@@ -510,7 +514,7 @@ Display a list of all uncompressed messages in the current conversation, along w
 
 > 💡 **Tip**: Use `/history` frequently to monitor your context usage.
 >
-> When `Context usage` approaches 75%, the conversation is about to trigger auto-`compact`.
+> Auto-compaction may run when `Context usage` reaches the configured automatic compaction threshold.
 >
 > If context exceeds the maximum limit, please report the model and `/history` logs to the community, then use `/compact` or `/new` to manage context.
 >
@@ -583,30 +587,32 @@ Status: in_progress
 
 ---
 
-### /summarize_status - View Summary Task Status
+### /auto_memory_status - View Auto-memory Task Status
 
-Display the running status of all background summary tasks, including task ID, start time, and execution results.
+Display the running status of all background auto-memory tasks, including task ID, start time, and execution results.
 
 ```
-/summarize_status
+/auto_memory_status
 ```
 
 **Example response:**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
+  - Trigger: compact
   - Status: completed
   - Result: User requested help building a user authentication system...
 - **task-002**
   - Start: 2024-01-15 10:35:00
+  - Trigger: periodic
   - Status: failed
-  - Error: Summary generation timeout
+  - Error: Auto-memory processing timeout
 ```
 
-> 💡 Using `/compact` or `/new` automatically starts a summary task in the background. Use this command to check its execution status.
+> 💡 Using `/compact` or `/new` automatically starts an auto-memory task in the background. Use this command to check its execution status.
 
 ---
 
@@ -691,7 +697,7 @@ Commands for managing and switching AI models. These commands execute directly w
 | `/model`                         | Show current active model                        | ✅   |
 | `/model -h` or `/model help`     | Show help information                            | ✅   |
 | `/model list`                    | List all available models                        | ✅   |
-| `/model <provider>:<model>`      | Switch to specified model                        | ✅   |
+| `/model <provider>:<model>`      | Change the agent default model                   | ✅   |
 | `/model reset`                   | Reset to global default model                    | ✅   |
 | `/model info <provider>:<model>` | Show detailed information about a specific model | ✅   |
 
@@ -699,7 +705,7 @@ Commands for managing and switching AI models. These commands execute directly w
 
 ### /model - Show Current Model
 
-Display the currently active model for this agent.
+Display the model currently selected for this conversation, including any request or conversation override. The response identifies whether the model comes from a request override, a conversation override, the agent default, or the global default.
 
 **Usage:**
 
@@ -768,6 +774,8 @@ Manage and switch AI models for the current agent.
 
 Display all configured providers and their available models. The currently active model is marked with **[ACTIVE]**.
 
+`/model` and the **[ACTIVE]** marker include the current conversation's model override. Switching or resetting a model with `/model` updates the agent default; an existing conversation override remains in effect. Clear that override in the conversation's model selector to inherit the agent default.
+
 **Usage:**
 
 ```
@@ -809,7 +817,7 @@ Example: `/model openai:gpt-4o`
 
 ### /model <provider>:<model> - Switch Model
 
-Switch the current agent to use a different model.
+Change the current agent's default model. Conversations with their own model override keep that selection; the command reports this when the current conversation has an override.
 
 **Usage:**
 
@@ -833,7 +841,7 @@ Switch the current agent to use a different model.
 Provider: `anthropic`
 Model: `claude-3-5-sonnet-20241022`
 
-The new model will be used for subsequent messages.
+The new agent default will be used for subsequent messages that inherit it.
 ```
 
 > 💡 **Tip**: Model changes only affect the current agent. Other agents continue using their configured models.
@@ -842,7 +850,7 @@ The new model will be used for subsequent messages.
 
 ### /model reset - Reset to Global Default
 
-Reset the current agent's model to the global default model configured in the web UI.
+Reset the current agent's default model to the global default configured in the web UI. Existing conversation overrides remain in effect.
 
 **Usage:**
 
@@ -855,12 +863,9 @@ Reset the current agent's model to the global default model configured in the we
 ```
 **Model Reset**
 
-Agent model has been reset to global default:
-
+Agent now uses global default model:
 Provider: `openai`
 Model: `gpt-4o`
-
-The global default model will be used for subsequent messages.
 ```
 
 > 💡 **Tip**: Use this command to revert agent-specific model overrides.
@@ -1014,7 +1019,11 @@ qwenpaw daemon logs -n 200   # From terminal, specify 200 lines
 
 ### /approval - Tool Execution Approval Commands
 
-Manage tool guard approval requests. When `approval_level` is set to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a pending-approval flow. Use these commands to approve, deny, list, or cancel requests.
+Manage tool guard and command approval requests. When `approval_level` is set
+to `STRICT` or `SMART`, tools with CRITICAL or HIGH findings enter a
+pending-approval flow. Side-effecting `/reme` generation commands also use
+this flow with exact-requester identity isolation. Use these commands to
+approve, deny, list, or cancel requests visible to the current caller.
 
 **Usage:**
 
@@ -1022,7 +1031,7 @@ Manage tool guard approval requests. When `approval_level` is set to `STRICT` or
 /approval approve [request_id]           # Approve specific request or queue head
 /approval deny [request_id] [reason]     # Deny with optional reason
 /approval list                           # List pending approvals (current session)
-/approval list --all                     # List all pending approvals (all sessions)
+/approval list --all                     # List visible approvals across sessions
 /approval cancel <request_id>            # Cancel a specific request
 ```
 
@@ -1035,7 +1044,11 @@ Manage tool guard approval requests. When `approval_level` is set to `STRICT` or
 /deny <request_id> <reason>              # Same as /approval deny <request_id> <reason>
 ```
 
-> `/approval list` shows pending approvals for the current session (including child sessions). Use `--all` or `-a` to see all sessions for this agent.
+> `/approval list` shows caller-visible approvals for the current session
+> (including permitted child sessions). Use `--all` or `-a` to search the
+> current Agent's other sessions. Exact-requester approvals remain visible and
+> resolvable only to their originating Agent, user, channel, session, and root
+> session; the authenticated Console is an explicit administrator.
 
 ---
 
@@ -1072,6 +1085,21 @@ For a full guide, see [Loop Engineering](./loop-engineering).
 
 ---
 
+## Advisor Mode — Plan and Step In
+
+Run the conversation in Advisor Mode: a stronger model writes a plan before the agent starts and steps in when it keeps failing, while the agent itself does the work.
+
+```
+/advisor <task description>
+/advisor on
+/advisor off
+/advisor status
+```
+
+For a full guide, see [Advisor Mode](./advisor-mode).
+
+---
+
 ## Mission Mode — Multi-Agent Autonomous Execution
 
 Decompose large tasks into user stories and complete them through a **master → worker → verifier** pipeline with context isolation.
@@ -1084,6 +1112,64 @@ Decompose large tasks into user stories and complete them through a **master →
 ```
 
 For a full guide, see [Loop Engineering](./loop-engineering).
+
+---
+
+## ReMe Memory Commands
+
+Use the single `/reme` entry point for QwenPaw's explicitly chat-safe ReMe
+actions:
+
+```text
+/reme help
+/reme status
+/reme search query="project decisions" limit=5
+/reme search query="project decisions" tags='["architecture","memory"]'
+/reme auto_dream hint="focus on AI chip work"
+/reme auto_memory count=2 memory_hint="record technical decisions"
+/reme daily_paper topics="agents,memory" force=true
+/reme auto_fin topics="gold,robotics" window_hours=12
+```
+
+The chat allowlist is `status`, `search`, `proactive`, `auto_memory`,
+`auto_dream`, `daily_paper`, and `auto_fin`. Backend availability alone does
+not make an action callable from chat. Raw vault actions such as `read`,
+`read_image`, `write`, `edit`, `delete`, `move`, `list`, `stat`,
+`daily_write`, `daily_list`, `frontmatter_*`, and `node_search` are excluded.
+Global maintenance actions such as `reindex`, `undo_reindex`, and
+`daily_reindex` must instead use the authenticated Console or maintenance API.
+
+The syntax is `/reme <action> key=value`. Wrap values containing spaces in
+double quotes. Wrap JSON lists and objects in single quotes so their inner
+double quotes are preserved, for example `tags='["a","b"]'` or
+`filter='{"kind":"decision"}'`. Values use ReMe's CLI parsing, so numbers,
+booleans, lists, and objects keep their native types. `/reme help` intersects
+the live backend catalog with QwenPaw's chat allowlist, shows the parameters
+accepted by this ReMe version, and marks required arguments with `*`.
+Validation therefore stays aligned with the running backend without allowing a
+new backend job to expand chat permissions automatically.
+
+`auto_memory` is QwenPaw-managed: `count` selects recent assistant reply
+groups from the current conversation (default `1`), `memory_hint` optionally
+guides extraction, and QwenPaw supplies the messages and session ID. Add
+`show_metadata=true` to another action to include its metadata in the visible
+response. The complete visible response is truncated at 20,000 characters to
+protect the chat context. Structured metadata is attached to the message up to
+8,000 serialized characters; larger metadata is replaced by a bounded preview.
+
+Generation actions such as `daily_paper` and `auto_fin` use the same command
+surface. They require approval before running, then the command waits for the
+action result. Each approval is bound to the originating Agent, user, channel,
+session, and root session. Another chat participant or session cannot list,
+approve, deny, or cancel it; the authenticated Console remains an explicit
+administrator. Canceling the originating request also removes its pending
+approval. Unlike `auto_memory`, these actions are not submitted to the
+conversation Auto-Memory queue. Their `*_cron_enabled` settings control
+scheduled runs only and do not gate manual `/reme` execution. Use `/reme help`
+for the exact live parameters supported by the installed ReMe plugins.
+
+The former `/dream`, `/memorize`, and `/reme_status` commands have been
+removed. Use `/reme auto_dream`, `/reme auto_memory`, and `/reme status`.
 
 ---
 

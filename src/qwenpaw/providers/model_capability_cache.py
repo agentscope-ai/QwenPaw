@@ -51,6 +51,12 @@ class ModelCapabilityCache:
         ``rejects_media`` (bool):
             The model rejects multimodal (image/audio/video) input
             despite being marked as supporting it.
+        ``rejects_audio`` (bool):
+            The model rejects audio input while other media can remain
+            supported.
+        ``rejects_video`` (bool):
+            The endpoint rejects video input while other media can remain
+            supported.
     """
 
     _instance: ModelCapabilityCache | None = None

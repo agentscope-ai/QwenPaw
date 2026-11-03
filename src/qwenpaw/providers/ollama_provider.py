@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 
 from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import ModelConnectionResult
 
 
 class OllamaProvider(OpenAIProvider):
@@ -57,12 +58,20 @@ class OllamaProvider(OpenAIProvider):
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> tuple[bool, str]:
+    ) -> ModelConnectionResult:
         """Check if a specific model is reachable/usable"""
         models = await self.fetch_models(timeout=timeout)
         if any(model.id == model_id for model in models):
-            return True, ""
-        return False, f"Model '{model_id}' not found"
+            return ModelConnectionResult(
+                success=True,
+                verification="provider_only",
+            )
+        return ModelConnectionResult(
+            success=False,
+            message=f"Model '{model_id}' not found",
+            error_kind="model_not_found",
+            verification="provider_only",
+        )
 
     def _context_catalog_enabled(self) -> bool:
         """Ollama serves models locally: the family's cloud window does not
@@ -89,9 +98,12 @@ class OllamaProvider(OpenAIProvider):
             temperature=gen_kwargs.pop("temperature", None),
             top_p=gen_kwargs.pop("top_p", None),
         )
+        disable_kwargs = self.get_agent_thinking_kwargs(model_id, "off")
+        disable_kwargs.pop("disable_thinking", None)
         return OpenAIChatModelCompat(
             credential=credential,
             provider_id=self.id,
+            disable_thinking_kwargs=disable_kwargs,
             model=model_id,
             parameters=parameters,
             stream=True,

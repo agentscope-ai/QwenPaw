@@ -72,23 +72,19 @@ class TestReActAgentConfig:
         except Exception:
             logger.warning("Breadcrumb verification skipped (locale mismatch)")
 
-        # Step 3: Verify tabs exist
-        log_test_step("3. Verify tabs exist")
-        react_tab = page.locator('[data-node-key="reactAgent"] .qwenpaw-tabs-tab-btn').first
+        # Step 3: Verify the runtime workbench is visible.
+        log_test_step("3. Verify runtime workbench")
+        react_tab = page.locator('[data-runtime-key="reactAgent"]').first
         expect(react_tab).to_be_visible(timeout=5000)
-        logger.info("ReAct agent tab visible")
+        logger.info("ReAct agent section visible")
 
-        # Step 4: Verify the ReAct agent tab is active by default
-        log_test_step("4. Verify the ReAct agent tab is active by default")
-        active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        # Step 4: Verify the workspace section is active by default.
+        log_test_step("4. Verify the workspace section is active by default")
+        active_panel = react_tab
         expect(active_panel).to_be_visible(timeout=5000)
 
         # Verify the card title
-        card_title = active_panel.locator('.qwenpaw-spark-title').first
-        expect(card_title).to_be_visible(timeout=5000)
-        title_text = card_title.inner_text()
-        assert "ReAct" in title_text, f"Card title does not contain ReAct: {title_text}"
-        logger.info(f"Card title: {title_text}")
+        assert active_panel.inner_text().strip(), "Runtime section is empty"
 
         # Step 5: Verify the agent language dropdown
         log_test_step("5. Verify the agent language dropdown")
@@ -175,23 +171,21 @@ class TestAgentConfigTabSwitch:
         log_test_step("1. Visit the runtime config page")
         navigate_to_agent_config(page)
 
-        # Step 2: Verify all tabs are visible
-        log_test_step("2. Verify all tabs are visible")
-        tab_keys = ["reactAgent", "llmRetry", "llmRateLimiter", "lightContext"]
-
-        for key in tab_keys:
-            tab_btn = page.locator(f'[data-node-key="{key}"] .qwenpaw-tabs-tab-btn').first
-            expect(tab_btn).to_be_visible(timeout=5000)
-
-        logger.info(f"All {len(tab_keys)} tabs are visible")
+        # Step 2: Verify the workbench navigation is visible.
+        log_test_step("2. Verify workbench navigation")
+        group_tabs = page.locator('[role="tab"]')
+        expect(group_tabs).to_have_count(5, timeout=5000)
 
         # Step 3: Switch to the LLM auto-retry tab
         log_test_step("3. Switch to the LLM auto-retry tab")
-        llm_retry_tab = page.locator('[data-node-key="llmRetry"] .qwenpaw-tabs-tab-btn').first
-        llm_retry_tab.click()
+        recovery_tab = page.locator(
+            '[role="tab"]:has-text("Recovery"), '
+            '[role="tab"]:has-text("失败与等待")'
+        ).first
+        recovery_tab.click()
         page.wait_for_timeout(1500)
 
-        retry_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        retry_panel = page.locator('[data-runtime-key="llmRetry"]').first
         expect(retry_panel).to_be_visible(timeout=5000)
 
         retry_switches = retry_panel.locator('button.qwenpaw-switch[role="switch"]').all()
@@ -201,11 +195,9 @@ class TestAgentConfigTabSwitch:
 
         # Step 4: Switch to the LLM rate limiter tab
         log_test_step("4. Switch to the LLM rate limiter tab")
-        rate_limiter_tab = page.locator('[data-node-key="llmRateLimiter"] .qwenpaw-tabs-tab-btn').first
-        rate_limiter_tab.click()
-        page.wait_for_timeout(1500)
-
-        rate_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        rate_panel = page.locator(
+            '[data-runtime-key="llmRateLimiter"]'
+        ).first
         expect(rate_panel).to_be_visible(timeout=5000)
 
         rate_switches = rate_panel.locator('button.qwenpaw-switch[role="switch"]').all()
@@ -215,11 +207,16 @@ class TestAgentConfigTabSwitch:
 
         # Step 5: Switch to the context management tab
         log_test_step("5. Switch to the context management tab")
-        context_tab = page.locator('[data-node-key="lightContext"] .qwenpaw-tabs-tab-btn').first
+        context_tab = page.locator(
+            '[role="tab"]:has-text("Context budget"), '
+            '[role="tab"]:has-text("上下文容量")'
+        ).first
         context_tab.click()
         page.wait_for_timeout(1500)
 
-        context_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        context_panel = page.locator(
+            '[data-runtime-key="lightContext"]'
+        ).first
         expect(context_panel).to_be_visible(timeout=5000)
 
         context_inputs = context_panel.locator('.qwenpaw-input, .qwenpaw-input-number, .qwenpaw-select').all()
@@ -228,11 +225,14 @@ class TestAgentConfigTabSwitch:
 
         # Step 6: Switch back to the ReAct agent tab to confirm round-trip
         log_test_step("6. Switch back to the ReAct agent tab")
-        react_tab = page.locator('[data-node-key="reactAgent"] .qwenpaw-tabs-tab-btn').first
+        react_tab = page.locator(
+            '[role="tab"]:has-text("Workspace"), '
+            '[role="tab"]:has-text("工作环境")'
+        ).first
         react_tab.click()
         page.wait_for_timeout(1000)
 
-        react_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        react_panel = page.locator('[data-runtime-key="reactAgent"]').first
         expect(react_panel).to_be_visible(timeout=5000)
         logger.info("Switched back to ReAct agent tab")
 
@@ -275,12 +275,17 @@ class TestAgentConfigSaveAndReset:
 
         # Step 2: Switch to the long-term memory tab (context compaction was merged in; this tab has a toggle switch)
         log_test_step("2. Switch to the long-term memory tab")
-        context_tab = page.locator('[data-node-key="remeLightMemory"] .qwenpaw-tabs-tab-btn').first
+        context_tab = page.locator(
+            '[role="tab"]:has-text("Memory"), '
+            '[role="tab"]:has-text("记忆与检索")'
+        ).first
         expect(context_tab).to_be_visible(timeout=5000)
         context_tab.click()
         page.wait_for_timeout(1500)
 
-        context_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        context_panel = page.locator(
+            '[data-runtime-key="remeLightMemory"]'
+        ).first
         expect(context_panel).to_be_visible(timeout=5000)
         logger.info("Switched to long-term memory tab")
 
@@ -302,14 +307,8 @@ class TestAgentConfigSaveAndReset:
         assert new_checked != initial_checked, f"Switch did not flip: {initial_checked} -> {new_checked}"
         logger.info(f"Switch toggled: {initial_checked} -> {new_checked}")
 
-        # Step 5: Locate the save button and click it
-        log_test_step("5. Click the save button")
-        save_btn = page.locator('button.qwenpaw-btn-primary:has-text("Save")').first
-        if not save_btn.is_visible():
-            # Fall back to the footer area
-            save_btn = page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
-        expect(save_btn).to_be_visible(timeout=5000)
-        save_btn.click()
+        # Step 5: Wait for the debounced auto-save.
+        log_test_step("5. Wait for auto-save")
         page.wait_for_timeout(2000)
 
         # Step 6: Verify the save success notification
@@ -329,12 +328,17 @@ class TestAgentConfigSaveAndReset:
 
         # Step 8: Switch to the long-term memory tab
         log_test_step("8. Switch to the long-term memory tab")
-        context_tab_refreshed = page.locator('[data-node-key="remeLightMemory"] .qwenpaw-tabs-tab-btn').first
+        context_tab_refreshed = page.locator(
+            '[role="tab"]:has-text("Memory"), '
+            '[role="tab"]:has-text("记忆与检索")'
+        ).first
         expect(context_tab_refreshed).to_be_visible(timeout=5000)
         context_tab_refreshed.click()
         page.wait_for_timeout(1500)
 
-        context_panel_refreshed = page.locator('.qwenpaw-tabs-tabpane-active').first
+        context_panel_refreshed = page.locator(
+            '[data-runtime-key="remeLightMemory"]'
+        ).first
         expect(context_panel_refreshed).to_be_visible(timeout=5000)
 
         # Step 9: Verify the switch state was persisted
@@ -359,14 +363,8 @@ class TestAgentConfigSaveAndReset:
         )
         logger.info(f"Switch restored to initial state: {restored_checked}")
 
-        # Save again
-        save_btn_refreshed = page.locator('button.qwenpaw-btn-primary:has-text("Save")').first
-        if not save_btn_refreshed.is_visible():
-            save_btn_refreshed = page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
-        if save_btn_refreshed.is_visible():
-            save_btn_refreshed.click()
-            page.wait_for_timeout(2000)
-            logger.info("Saved restored state")
+        page.wait_for_timeout(2000)
+        logger.info("Restored state auto-saved")
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - config modification, save and persistence OK")
@@ -685,8 +683,8 @@ class TestContextCompactConfig:
 
         log_test_step("Switch to the context management tab")
         context_tab = page.locator(
-            '[data-node-key="lightContext"] .qwenpaw-tabs-tab-btn, '
-            '.qwenpaw-tabs-tab-btn:has-text("Context")'
+            '[role="tab"]:has-text("Context budget"), '
+            '[role="tab"]:has-text("上下文容量")'
         ).first
         expect(context_tab).to_be_visible(timeout=5000)
         context_tab.click()
@@ -697,13 +695,15 @@ class TestContextCompactConfig:
         active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
         expect(active_panel).to_be_visible(timeout=5000)
 
-        # Verify the card title
-        card_title = active_panel.locator('.qwenpaw-spark-title').first
-        expect(card_title).to_be_visible()
-        title_text = card_title.inner_text()
-        assert "Context" in title_text or "Compact" in title_text, \
-            f"Card title does not contain expected keywords: {title_text}"
-        logger.info(f"Card title verified: {title_text}")
+        context_section = page.locator(
+            '[data-runtime-key="lightContext"]'
+        ).first
+        expect(context_section).to_be_visible(timeout=5000)
+        title_text = context_section.inner_text()
+        assert "Context" in title_text or "上下文" in title_text, (
+            "Context section does not contain expected content"
+        )
+        logger.info("Context section content verified")
 
         log_test_step("Verify context management config items exist")
         # The context management tab may have switches, sliders, inputs or selects
@@ -796,53 +796,53 @@ class TestMemorySummaryConfig:
         log_test_step("Navigate to the runtime config page")
         navigate_to_agent_config(page)
 
-        log_test_step("Switch to the Memory Summary tab")
+        log_test_step("Switch to the Long-term Memory tab")
         memory_tab = page.locator(
-            '[data-node-key="memorySummary"] .qwenpaw-tabs-tab-btn, '
-            '.qwenpaw-tabs-tab-btn:has-text("Memory")'
+            '[role="tab"]:has-text("Memory"), '
+            '[role="tab"]:has-text("记忆与检索")'
         ).first
         expect(memory_tab).to_be_visible(timeout=5000)
         memory_tab.click()
         page.wait_for_timeout(1500)
-        logger.info("Switched to Memory Summary tab")
+        logger.info("Switched to the memory tab")
 
-        log_test_step("Verify active panel content")
-        active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
-        expect(active_panel).to_be_visible(timeout=5000)
+        log_test_step("Verify the memory configuration rendered")
+        memory_section = page.locator(
+            '[data-runtime-key="remeLightMemory"]'
+        ).first
+        expect(memory_section).to_be_visible(timeout=10000)
+        memory_text = memory_section.inner_text()
+        assert "Memory" in memory_text or "记忆" in memory_text, (
+            "Memory section does not contain expected content"
+        )
+        logger.info("Memory configuration present")
 
-        # Verify the card title
-        card_title = active_panel.locator('.qwenpaw-spark-title').first
-        expect(card_title).to_be_visible()
-        title_text = card_title.inner_text()
-        assert "Memory" in title_text or "Summary" in title_text, \
-            f"Card title does not contain expected keywords: {title_text}"
-        logger.info(f"Card title verified: {title_text}")
-
-        log_test_step("Verify the memory summary switch exists")
-        switches = active_panel.locator('.qwenpaw-switch').all()
-        assert len(switches) >= 1, f"Memory summary switch not found; found {len(switches)} switches"
-        logger.info(f"Found {len(switches)} switches")
-
-        log_test_step("Verify the Cron expression input exists")
-        cron_input = active_panel.locator('#memory_summary_dream_cron, input[id*="dream_cron"]').first
-        if cron_input.count() == 0:
-            cron_input = active_panel.locator('input').nth(0)
-        assert cron_input.count() > 0, "Cron expression input not found"
-        logger.info("Cron expression input present")
+        log_test_step("Verify the memory switches exist")
+        switches = memory_section.locator('button[role="switch"]').all()
+        assert len(switches) >= 1, (
+            f"Memory switches not found; found {len(switches)}"
+        )
+        logger.info(f"Found {len(switches)} memory switches")
 
         log_test_step("Verify number inputs exist")
-        number_inputs = active_panel.locator('.qwenpaw-input-number').all()
-        assert len(number_inputs) >= 1, f"No number inputs found; got {len(number_inputs)}"
+        number_inputs = memory_section.locator(
+            'input[role="spinbutton"]'
+        ).all()
+        assert len(number_inputs) >= 1, (
+            f"No number inputs found; got {len(number_inputs)}"
+        )
         logger.info(f"Found {len(number_inputs)} number inputs")
 
-        log_test_step("Toggle the memory summary switch")
+        log_test_step("Toggle a memory switch and restore")
         first_switch = switches[0]
         original_state = first_switch.get_attribute("aria-checked")
         first_switch.click()
         page.wait_for_timeout(1000)
         new_state = first_switch.get_attribute("aria-checked")
-        assert original_state != new_state, \
-            f"Switch toggle had no effect: before={original_state}, after={new_state}"
+        assert original_state != new_state, (
+            f"Switch toggle had no effect: before={original_state}, "
+            f"after={new_state}"
+        )
         logger.info(f"Switch toggled: {original_state} -> {new_state}")
 
         # Restore the original state

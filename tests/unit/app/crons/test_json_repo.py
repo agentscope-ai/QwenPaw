@@ -43,6 +43,23 @@ async def test_save_and_load_round_trip(repo: JsonJobRepository):
     assert loaded.jobs[0].id == "j1"
 
 
+@pytest.mark.asyncio
+async def test_load_accepts_legacy_long_dispatch_ids(repo: JsonJobRepository):
+    data = JobsFile(
+        version=1,
+        jobs=[make_cron_job_spec(job_id="legacy")],
+    ).model_dump(mode="json")
+    target = data["jobs"][0]["dispatch"]["target"]
+    target["user_id"] = "u" * 257
+    target["session_id"] = "s" * 257
+    repo.path.write_text(json.dumps(data), encoding="utf-8")
+
+    loaded = await repo.load()
+
+    assert len(loaded.jobs[0].dispatch.target.user_id) == 257
+    assert len(loaded.jobs[0].dispatch.target.session_id) == 257
+
+
 # ---------------------------------------------------------------------------
 # append_history / get_history / delete_history
 # ---------------------------------------------------------------------------

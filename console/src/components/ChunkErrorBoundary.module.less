@@ -1,0 +1,49 @@
+.recovery {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.diagnostics {
+  width: min(100%, 640px);
+  margin: 0 0 16px;
+  color: var(--app-text);
+  text-align: left;
+
+  summary {
+    width: fit-content;
+    max-width: 100%;
+    min-height: 40px;
+    margin: 0 auto;
+    padding: 10px 0;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  pre {
+    max-height: 320px;
+    overflow: auto;
+    margin: 12px 0;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+.observation {
+  margin: 0 0 4px;
+}
+
+.note {
+  margin: 8px 0;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.actions {
+  button {
+    min-height: 40px;
+  }
+}

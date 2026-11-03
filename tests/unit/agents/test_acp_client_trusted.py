@@ -56,6 +56,41 @@ class TestACPHostedClientTrustedAutoApprove:
         assert client._pending_permission is None  # noqa: W0212
 
     @pytest.mark.asyncio
+    async def test_trusted_uses_protocol_kind_with_custom_option_id(
+        self,
+    ) -> None:
+        client = self._make_client(trusted=True)
+        client._on_message = AsyncMock()  # noqa: W0212
+
+        options = [
+            {
+                "optionId": "reject",
+                "kind": "reject_once",
+                "label": "Reject",
+            },
+            {
+                "optionId": "approve_once",
+                "kind": "allow_once",
+                "label": "Approve once",
+            },
+        ]
+        tool_call = {
+            "title": "Execute",
+            "kind": "execute",
+            "rawInput": {"command": "ls -la"},
+        }
+
+        response = await client.request_permission(
+            options=options,
+            session_id="sess-1",
+            tool_call=tool_call,
+        )
+
+        assert response.outcome.outcome == "selected"
+        assert response.outcome.option_id == "approve_once"
+        assert client._pending_permission is None  # noqa: W0212
+
+    @pytest.mark.asyncio
     async def test_trusted_still_blocks_destructive_command(self) -> None:
         client = self._make_client(trusted=True)
         client._on_message = AsyncMock()  # noqa: W0212

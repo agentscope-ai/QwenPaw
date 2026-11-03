@@ -10,12 +10,12 @@
 
 A backup is a single zip file (stored at `~/.qwenpaw.backups/<backup_id>.zip`) that may contain up to four kinds of content:
 
-| Module               | Path                                | Actual content                                                                                                                                                                        |
-| -------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Agent workspaces** | `~/.qwenpaw/workspaces/<agent_id>/` | Every file inside each agent's workspace, e.g. persona files, memory, skills, chat history, and channel configs (including channel credentials such as `bot_token` and `app_secret`). |
-| **Global settings**  | `~/.qwenpaw/config.json`            | Runtime parameters, security rules, and other global settings.                                                                                                                        |
-| **Skill pool**       | `~/.qwenpaw/skill_pool/`            | The globally shared skill repository.                                                                                                                                                 |
-| **Secrets**          | `~/.qwenpaw.secret/`                | **LLM provider configuration (including API keys)**, plus environment variables used by tools and skills.                                                                             |
+| Module               | Path                                | Actual content                                                                                                                                                                                                            |
+| -------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agent workspaces** | `~/.qwenpaw/workspaces/<agent_id>/` | Every file inside each agent's workspace, including persona, memory, skills, chat history, channel config, plus public mail configuration, local mail indexes, and `credentials.yaml` with encrypted mailbox credentials. |
+| **Global settings**  | `~/.qwenpaw/config.json`            | Runtime parameters, security rules, and other global settings.                                                                                                                                                            |
+| **Skill pool**       | `~/.qwenpaw/skill_pool/`            | The globally shared skill repository.                                                                                                                                                                                     |
+| **Secrets**          | `~/.qwenpaw.secret/`                | **LLM provider configuration (including API keys)**, plus environment variables used by tools and skills.                                                                                                                 |
 
 > **Not packaged**: local model weights (too large — re-download on the target machine), runtime caches, and temporary files.
 
@@ -34,6 +34,16 @@ The internal layout of a backup zip looks like this:
 A backup ID has the format `qwenpaw-<version>-<timestamp>-<short8>`, which makes it easy to identify the source version and creation time across machines.
 
 > **Tip**: An LLM provider's API key belongs to **Secrets**, **not Global settings**. If you only back up the global settings without the secrets, you will need to re-enter your model API keys in the Console after restoring.
+
+### Conversation history protection
+
+Instance backup preserves a complete, consistent copy of every selected
+agent's conversation history without requiring you to stop the service. If
+history cannot be saved completely, the backup fails with an error rather than
+reporting success for an archive that silently omitted conversations.
+
+During restore, QwenPaw checks conversation history again before replacing the
+workspace. If the check fails, the existing workspace remains unchanged.
 
 ---
 
@@ -138,7 +148,7 @@ Steps:
 
 ## Security Notes
 
-- Backup files **may contain sensitive credentials**: a full backup packages secrets by default (model API keys, the encryption master key, Console login credentials, etc.); even a partial backup contains channel credentials inside agent settings (e.g. `bot_token`, `app_secret`). **Keep your backup files safe and do not share them with others.**
+- Backup files **may contain sensitive credentials**: a full backup may package model API keys, the encryption master key, Console login credentials, and other secrets. Even a partial backup that includes an agent workspace can contain channel credentials (`bot_token`, `app_secret`, etc.) and encrypted mailbox credentials in `credentials.yaml`. `agent.json` and `drivers/mcp/qwenpawmail.yaml` no longer store a plaintext mailbox authorization code, but any backup containing both encrypted credentials and decryption material remains highly sensitive. **Keep backup files safe and do not share them with others.**
 - When migrating across machines, **local model weights are not included** — re-download the models you need on the target machine.
 - **Restart the service** after a restore so the new configuration takes full effect.
 
@@ -198,3 +208,4 @@ A: Full restore restores the whole instance as it was at backup time — think o
 - [Configuration & Working Directory](./config) — `config.json`, working directory, environment variables
 - [Multi-Agent](./multi-agent) — agent workspace structure
 - [Skills](./skills) — relationship between the skill pool and per-agent skills
+- [Mailbox Management](./mailbox) — mailbox credentials and workspace state files

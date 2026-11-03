@@ -6,24 +6,6 @@ from __future__ import annotations
 from enum import StrEnum
 
 
-class ShotCamera(StrEnum):
-    STATIC = "⊙ 静止"
-    PUSH_IN = "↑ 推近"
-    PULL_OUT = "↓ 拉远"
-    PAN_RIGHT = "→ 横摇右"
-    PAN_LEFT = "← 横摇左"
-    CRANE = "↕ 升降"
-    ORBIT = "◎ 环绕"
-    HANDHELD = "～ 手持晃动"
-
-
-class ShotFraming(StrEnum):
-    WIDE = "全景"
-    MEDIUM = "中景"
-    CLOSE = "近景"
-    CLOSE_UP = "特写"
-
-
 class SpecialistRole(StrEnum):
     SOURCE_INTELLIGENCE = "source_intelligence_agent"
     VISUAL_DEVELOPMENT = "visual_development_agent"
@@ -101,6 +83,19 @@ class TaskStatus(StrEnum):
     QUARANTINED = "QUARANTINED"
 
 
+# A Task in one of these states will never produce more work, so its scratch
+# can be released.  QUARANTINED stays terminal-but-preserved: the result is
+# disputed and the files are the only evidence.
+TERMINAL_TASK_STATUSES = frozenset(
+    {
+        TaskStatus.SUCCEEDED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+        TaskStatus.QUARANTINED,
+    },
+)
+
+
 class TaskKind(StrEnum):
     ASSET_INGEST = "asset_ingest"
     ASSET_IMPORT = "asset_import"
@@ -113,6 +108,7 @@ class TaskKind(StrEnum):
     R2V_GENERATION = "r2v_generation"
     AI_EDIT_EXECUTE = "ai_edit_execute"
     COMPOSE = "compose"
+    SCRIPT_DRAFT = "script_draft"
 
 
 class CreatorProgressPhase(StrEnum):
@@ -141,6 +137,7 @@ class CreatorCommandType(StrEnum):
     GENERATE_CAST_LINEUP_IMAGE = "GENERATE_CAST_LINEUP_IMAGE"
     GENERATE_VIDEO_PROMPT = "GENERATE_VIDEO_PROMPT"
     GENERATE_R2V_VIDEO = "GENERATE_R2V_VIDEO"
+    GENERATE_S2V_VIDEO = "GENERATE_S2V_VIDEO"
     EXECUTE_EDIT = "EXECUTE_EDIT"
     ATTACH_SOURCE_ASSETS = "ATTACH_SOURCE_ASSETS"
     DETACH_SOURCE_ASSETS = "DETACH_SOURCE_ASSETS"
@@ -151,6 +148,7 @@ class CreatorCommandType(StrEnum):
     SET_FINAL_COMPOSE_TRANSITION = "SET_FINAL_COMPOSE_TRANSITION"
     COMPOSE_FINAL_VIDEO = "COMPOSE_FINAL_VIDEO"
     ANALYZE_SOURCE_MEDIA = "ANALYZE_SOURCE_MEDIA"
+    GENERATE_TIMELINE_SCRIPT = "GENERATE_TIMELINE_SCRIPT"
 
 
 DETERMINISTIC_COMMANDS = frozenset(

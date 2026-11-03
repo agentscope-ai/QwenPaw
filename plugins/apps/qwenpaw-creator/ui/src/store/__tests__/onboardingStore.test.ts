@@ -6,6 +6,7 @@ import {
 
 // jsdom's localStorage is incomplete; replace with an in-memory version.
 const memory = new Map<string, string>();
+const store = () => useOnboardingStore.getState();
 
 function readStored(): Record<string, unknown> {
   const raw = memory.get(ONBOARDING_STORAGE_KEY);
@@ -42,59 +43,53 @@ beforeEach(() => {
 });
 
 describe("useOnboardingStore", () => {
-  it("completes the home tour and clears any pending manual request", () => {
-    useOnboardingStore.getState().requestHomeTour();
-    expect(useOnboardingStore.getState().homeTourRequested).toBe(true);
+  it("completes the home tour, clears the request and allows a manual replay", () => {
+    store().requestHomeTour();
+    expect(store().homeTourRequested).toBe(true);
 
-    useOnboardingStore.getState().completeHomeTour();
-    const state = useOnboardingStore.getState();
-    expect(state.homeTourDone).toBe(true);
-    expect(state.homeTourRequested).toBe(false);
+    store().completeHomeTour();
+    expect(store()).toMatchObject({
+      homeTourDone: true,
+      homeTourRequested: false,
+    });
     expect(readStored().homeTourDone).toBe(true);
     // Runtime request state must not be persisted.
     expect(readStored()).not.toHaveProperty("homeTourRequested");
+
+    // A finished tour can still be replayed via manual request.
+    store().requestHomeTour();
+    expect(store()).toMatchObject({
+      homeTourDone: true,
+      homeTourRequested: true,
+    });
+    store().completeHomeTour();
+    expect(store().homeTourRequested).toBe(false);
   });
 
   it("tracks home, project and assets tours independently", () => {
-    useOnboardingStore.getState().completeProjectTour();
-    useOnboardingStore.getState().completeAssetsTour();
-    const state = useOnboardingStore.getState();
-    expect(state.projectTourDone).toBe(true);
-    expect(state.assetsTourDone).toBe(true);
-    expect(state.homeTourDone).toBe(false);
-    expect(readStored().projectTourDone).toBe(true);
-    expect(readStored().assetsTourDone).toBe(true);
-    expect(readStored().homeTourDone).toBe(false);
+    store().completeProjectTour();
+    store().completeAssetsTour();
+    const expected = {
+      projectTourDone: true,
+      assetsTourDone: true,
+      homeTourDone: false,
+    };
+    expect(store()).toMatchObject(expected);
+    expect(readStored()).toMatchObject(expected);
   });
 
   it("marks one-time hints as seen exactly once", () => {
-    useOnboardingStore.getState().markHintSeen("mention");
-    useOnboardingStore.getState().markHintSeen("mention");
-    useOnboardingStore.getState().markHintSeen("review");
-    expect(useOnboardingStore.getState().hints).toEqual({
-      mention: true,
-      review: true,
-    });
+    store().markHintSeen("mention");
+    store().markHintSeen("mention");
+    store().markHintSeen("review");
+    expect(store().hints).toEqual({ mention: true, review: true });
     expect(readStored().hints).toEqual({ mention: true, review: true });
-  });
-
-  it("allows replaying a finished tour via manual request", () => {
-    useOnboardingStore.getState().completeProjectTour();
-    useOnboardingStore.getState().requestProjectTour();
-    const state = useOnboardingStore.getState();
-    expect(state.projectTourDone).toBe(true);
-    expect(state.projectTourRequested).toBe(true);
-
-    useOnboardingStore.getState().completeProjectTour();
-    expect(useOnboardingStore.getState().projectTourRequested).toBe(false);
   });
 
   it("ignores corrupted persisted payloads gracefully", () => {
     memory.set(ONBOARDING_STORAGE_KEY, "not-json{");
     // markHintSeen re-persists, overwriting corrupted data without throwing.
-    expect(() =>
-      useOnboardingStore.getState().markHintSeen("addToConversation"),
-    ).not.toThrow();
+    expect(() => store().markHintSeen("addToConversation")).not.toThrow();
     expect(readStored().hints).toEqual({ addToConversation: true });
   });
 });

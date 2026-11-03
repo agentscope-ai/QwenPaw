@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..utils.io_utils import run_sync_io
 from .model_wrapper import TokenRecordingModelWrapper
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,80 @@ def _turn_from_stats(stats: dict[str, Any]) -> dict[str, Any] | None:
         "prompt_tokens": max(est - latest_out, 0),
         "completion_tokens": latest_out,
         "total_tokens": est,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_eligible_input_tokens": 0,
+        "cache_observed": False,
+        "cache_hit_rate": None,
         "estimated": True,
+    }
+
+
+def _message_turn_usage(msg: Any) -> dict[str, Any] | None:
+    """Read persisted per-turn usage from one message."""
+    metadata = getattr(msg, "metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    payload = metadata.get(TURN_USAGE_META_KEY)
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get("usage")
+    return usage if isinstance(usage, dict) else None
+
+
+def add_session_cache_usage(
+    turn: dict[str, Any] | None,
+    messages: Any,
+) -> dict[str, Any] | None:
+    """Add token-weighted cache totals for the current durable session."""
+    if turn is None:
+        return None
+    cache_read = 0
+    cache_eligible = 0
+    cache_observed = False
+    current = find_turn_closing_assistant_in_context(messages)
+    for msg in reversed(messages or []):
+        if msg is current:
+            continue
+        usage = _message_turn_usage(msg)
+        if usage is None:
+            continue
+        if "session_cache_observed" in usage:
+            cache_read += int(
+                usage.get("session_cache_read_tokens", 0) or 0,
+            )
+            cache_eligible += int(
+                usage.get(
+                    "session_cache_eligible_input_tokens",
+                    0,
+                )
+                or 0,
+            )
+            cache_observed = cache_observed or bool(
+                usage.get("session_cache_observed", False),
+            )
+            break
+        if not usage.get("cache_observed", False):
+            continue
+        cache_read += int(usage.get("cache_read_tokens", 0) or 0)
+        cache_eligible += int(
+            usage.get("cache_eligible_input_tokens", 0) or 0,
+        )
+        cache_observed = True
+    if turn.get("cache_observed", False):
+        cache_read += int(turn.get("cache_read_tokens", 0) or 0)
+        cache_eligible += int(
+            turn.get("cache_eligible_input_tokens", 0) or 0,
+        )
+        cache_observed = True
+    return {
+        **turn,
+        "session_cache_read_tokens": cache_read,
+        "session_cache_eligible_input_tokens": cache_eligible,
+        "session_cache_observed": cache_observed,
+        "session_cache_hit_rate": (
+            cache_read / cache_eligible * 100 if cache_eligible > 0 else None
+        ),
     }
 
 
@@ -72,7 +146,8 @@ async def snapshot_context_usage_for_state(
         if max_input_length <= 0:
             agent_config = load_agent_config(agent_id)
             max_input_length = int(
-                get_model_max_input_length(agent_config) or 0,
+                (await run_sync_io(get_model_max_input_length, agent_config))
+                or 0,
             )
         if max_input_length <= 0:
             return None
@@ -132,7 +207,14 @@ async def resolve_turn_usage(
         preferred_max_input_length=context_size,
     )
     if not stats:
-        return turn, None, agent_state
+        return (
+            add_session_cache_usage(
+                turn,
+                getattr(agent_state, "context", None),
+            ),
+            None,
+            agent_state,
+        )
 
     ctx = {
         "estimated_tokens": stats["estimated_tokens"],
@@ -143,6 +225,10 @@ async def resolve_turn_usage(
         turn = _turn_from_stats(stats)
     else:
         turn = reconcile_turn_completion_from_stats(turn, stats)
+    turn = add_session_cache_usage(
+        turn,
+        getattr(agent_state, "context", None),
+    )
     return turn, ctx, agent_state
 
 
@@ -150,7 +236,7 @@ def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:
     """Last assistant message after the latest user message."""
     if not messages:
         return None
-    for msg in reversed(list(messages)):
+    for msg in reversed(messages):
         role = getattr(msg, "role", None)
         if role == "user":
             break

@@ -12,6 +12,7 @@ catalog every model inherited the 128k ``max_input_length`` default, so a
 from types import SimpleNamespace
 
 import pytest
+from qwenpaw.providers import model_resolution
 
 from qwenpaw.providers.context_windows import (
     DEFAULT_CONTEXT_WINDOW,
@@ -70,7 +71,22 @@ def test_known_windows(model_id: str, expected: int):
 
 def test_resolve_explicit_config_wins():
     assert (
-        resolve_context_window("claude-sonnet-4-5", configured=1_000_000)
+        resolve_context_window(
+            "claude-sonnet-4-5",
+            configured=1_000_000,
+            configured_is_explicit=True,
+        )
+        == 1_000_000
+    )
+
+
+def test_resolve_provider_default_does_not_override_api():
+    assert (
+        resolve_context_window(
+            "claude-sonnet-4-5",
+            configured=64_000,
+            auto_detected=1_000_000,
+        )
         == 1_000_000
     )
 
@@ -107,6 +123,7 @@ def test_resolve_without_catalog_uses_default():
         resolve_context_window(
             "qwen3-coder:30b",
             configured=32_768,
+            configured_is_explicit=True,
             use_catalog=False,
         )
         == 32_768
@@ -131,6 +148,11 @@ def test_short_patterns_require_a_word_boundary():
     assert known_context_size("foo-bar-o3") == 200_000
 
 
+@pytest.fixture(autouse=True)
+def static_catalog_only(monkeypatch):
+    monkeypatch.setattr(model_resolution, f"model_metadata", lambda *args: [])
+
+
 class _CatalogProvider:
     """Minimal stand-in exposing what get_context_size touches.
 
@@ -142,6 +164,19 @@ class _CatalogProvider:
 
     def get_model_info(self, model_id):
         return self._info
+
+    def get_discovered_model_info(self, model_id):
+        return None
+
+    hidden_model_ids = []
+    removed_model_ids = []
+    discovered_models = []
+    models = []
+    extra_models = []
+    id = f"test-catalog"
+    base_url = f""
+    is_local = False
+    resolve_model_info = Provider.resolve_model_info
 
     get_context_size = Provider.get_context_size
     _get_context_size = Provider._get_context_size
@@ -161,6 +196,7 @@ def test_context_size_prefers_explicit_user_config():
         id="claude-sonnet-4-5",
         name="x",
         max_input_length=1_000_000,
+        max_input_length_configured=True,
     )
     assert p.get_context_size("claude-sonnet-4-5") == 1_000_000
 
@@ -217,6 +253,77 @@ def test_context_size_default_when_unknown_everywhere():
     )
 
 
+def test_context_size_uses_discovered_only_api_metadata():
+    p = _CatalogProvider()
+    p.get_discovered_model_info = lambda _model_id: ModelInfo(
+        id="remote-only",
+        name="Remote Only",
+        max_input_length_auto_detected=512_000,
+    )
+
+    assert p.get_context_size("remote-only") == 512_000
+
+
+def test_context_size_api_supplements_non_explicit_configured_model():
+    p = _CatalogProvider()
+    p._info = ModelInfo(
+        id="claude-sonnet-4-5",
+        name="Configured",
+        max_input_length=64_000,
+    )
+    p.get_discovered_model_info = lambda _model_id: ModelInfo(
+        id="claude-sonnet-4-5",
+        name="Discovered",
+        max_input_length_auto_detected=1_000_000,
+    )
+
+    assert p.get_context_size("claude-sonnet-4-5") == 1_000_000
+
+
+def test_context_size_uses_non_explicit_catalog_value_for_unknown_model():
+    p = _CatalogProvider()
+    p._info = ModelInfo(
+        id="catalog-only-model",
+        name="Catalog Only",
+        max_input_length=2_000_000,
+    )
+
+    assert p.get_context_size("catalog-only-model") == 2_000_000
+
+
+def test_context_size_api_wins_over_non_explicit_catalog_value():
+    p = _CatalogProvider()
+    p._info = ModelInfo(
+        id="catalog-only-model",
+        name="Catalog Only",
+        max_input_length=2_000_000,
+    )
+    p.get_discovered_model_info = lambda _model_id: ModelInfo(
+        id="catalog-only-model",
+        name="Discovered",
+        max_input_length_auto_detected=3_000_000,
+    )
+
+    assert p.get_context_size("catalog-only-model") == 3_000_000
+
+
+def test_context_size_explicit_config_wins_over_discovered_metadata():
+    p = _CatalogProvider()
+    p._info = ModelInfo(
+        id="claude-sonnet-4-5",
+        name="Configured",
+        max_input_length=64_000,
+        max_input_length_configured=True,
+    )
+    p.get_discovered_model_info = lambda _model_id: ModelInfo(
+        id="claude-sonnet-4-5",
+        name="Discovered",
+        max_input_length_auto_detected=1_000_000,
+    )
+
+    assert p.get_context_size("claude-sonnet-4-5") == 64_000
+
+
 def test_private_alias_still_works():
     # Providers call self._get_context_size internally; it must stay wired.
     p = _CatalogProvider()
@@ -257,6 +364,7 @@ def test_ollama_explicit_config_still_wins():
                 id="qwen3-coder:30b",
                 name="qwen3-coder",
                 max_input_length=32_768,
+                max_input_length_configured=True,
             ),
         ],
     )

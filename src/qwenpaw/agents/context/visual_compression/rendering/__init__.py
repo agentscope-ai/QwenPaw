@@ -3,6 +3,7 @@
 
 from .renderer import (
     RenderedPage,
+    count_render_cells,
     estimate_text_pages,
     measure_content_columns,
     page_count_for_text,
@@ -14,6 +15,7 @@ from .renderer import (
 
 __all__ = [
     "RenderedPage",
+    "count_render_cells",
     "estimate_text_pages",
     "measure_content_columns",
     "page_count_for_text",

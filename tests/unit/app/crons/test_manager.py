@@ -10,6 +10,7 @@ verify fixes for #4835 (load-layer corruption), #4957 (TaskEngineMixin
 stale status — in agentscope-runtime), or #4232 (SafeJSONSession
 concurrent writes — already fixed upstream).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +22,7 @@ import pytest
 from qwenpaw.app.crons.contracts import ServiceCronJob
 from qwenpaw.app.crons.manager import CronManager
 from qwenpaw.app.crons.models import (
+    CronJobSpec,
     CronJobState,
     ScheduleSpec,
 )
@@ -29,6 +31,21 @@ from tests.unit.app.conftest import (
     make_cron_job_spec,
     make_execution_record,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_inbox_writes(monkeypatch):
+    """Prevent cron tests from writing to the real inbox store.
+
+    CronManager._execute_once calls append_inbox_event on success,
+    which writes to WORKING_DIR/inbox_events.json.  Without this
+    guard any test that exercises _execute_once (directly or via
+    the scheduler) would leak real data to disk.
+    """
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.manager.append_inbox_event",
+        AsyncMock(),
+    )
 
 
 @pytest.fixture
@@ -42,6 +59,39 @@ def manager(repo: InMemoryJobRepository) -> CronManager:
         repo=repo,
         workspace=MagicMock(),
         channel_manager=AsyncMock(),
+    )
+
+
+def _review_gated_job(job_id: str = "imported") -> CronJobSpec:
+    job = make_cron_job_spec(job_id=job_id, enabled=False)
+    portability = {
+        "source": "codex",
+        "source_id": "automation-1",
+        "requires_review": True,
+        "safety": "disabled_until_explicit_promotion",
+    }
+    dispatch = job.dispatch.model_copy(
+        update={"meta": {"portability": dict(portability)}},
+    )
+    return job.model_copy(
+        update={
+            "meta": {"portability": portability},
+            "dispatch": dispatch,
+        },
+    )
+
+
+def _legacy_provenance_job(job_id: str = "legacy-imported") -> CronJobSpec:
+    job = make_cron_job_spec(job_id=job_id, enabled=True)
+    return job.model_copy(
+        update={
+            "meta": {
+                "portability": {
+                    "source": "codex",
+                    "source_id": "legacy-automation",
+                },
+            },
+        },
     )
 
 
@@ -265,6 +315,168 @@ async def test_pause_and_resume_raise_for_missing_job(manager: CronManager):
 
 
 @pytest.mark.asyncio
+async def test_review_gated_job_cannot_run_or_resume(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _review_gated_job()
+    await repo.upsert_job(job)
+    await manager.start()
+    manager._executor.execute = AsyncMock()
+
+    with pytest.raises(PermissionError, match="explicit promotion"):
+        await manager.run_job(job.id or "")
+    with pytest.raises(PermissionError, match="explicit promotion"):
+        await manager.resume_job(job.id or "")
+
+    stored = await repo.get_job(job.id or "")
+    assert stored is not None
+    assert stored.enabled is False
+    manager._executor.execute.assert_not_awaited()
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_legacy_import_provenance_is_repaired_and_fail_closed(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _legacy_provenance_job()
+    await repo.upsert_job(job)
+    await manager.start()
+
+    stored = await repo.get_job(job.id or "")
+    assert stored is not None
+    assert stored.enabled is False
+    assert stored.meta["portability"]["requires_review"] is True
+    assert stored.dispatch.meta["portability"]["safety"] == (
+        "disabled_until_explicit_promotion"
+    )
+    assert stored.request is not None
+    assert (
+        stored.request.request_context["portability_review_required"] is True
+    )
+
+    with pytest.raises(PermissionError, match="explicit promotion"):
+        await manager.run_job(job.id or "")
+    with pytest.raises(PermissionError, match="explicit promotion"):
+        await manager.resume_job(job.id or "")
+
+    promoted = await manager.promote_imported_job(job.id or "")
+    assert promoted.enabled is False
+    assert promoted.meta["portability"]["promoted_at"]
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_generic_update_cannot_enable_or_clear_review_gate(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _review_gated_job()
+    await repo.upsert_job(job)
+
+    with pytest.raises(PermissionError, match="remain disabled"):
+        await manager.create_or_replace_job(
+            job.model_copy(update={"enabled": True}),
+        )
+    with pytest.raises(PermissionError, match="only be cleared"):
+        await manager.create_or_replace_job(
+            job.model_copy(update={"meta": {}}),
+        )
+
+    assert await repo.get_job(job.id or "") == job
+
+
+@pytest.mark.asyncio
+async def test_promotion_clears_review_gate_but_keeps_job_disabled(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _review_gated_job()
+    await repo.upsert_job(job)
+    await manager.start()
+
+    promoted = await manager.promote_imported_job(
+        job.id or "",
+        actor="test-reviewer",
+    )
+
+    assert promoted.enabled is False
+    portability = promoted.meta["portability"]
+    assert portability["requires_review"] is False
+    assert portability["safety"] == "reviewed_disabled"
+    assert portability["promoted_by"] == "test-reviewer"
+    await manager.resume_job(job.id or "")
+    stored = await repo.get_job(job.id or "")
+    assert stored is not None
+    assert stored.enabled is True
+    await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_remote_job_promotion_requires_explicit_local_project_dir(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    job = _review_gated_job("remote-no-mapping")
+    portability = dict(job.meta["portability"])
+    portability.update(
+        {
+            "source_cwd_remote_or_unverified": True,
+            "source_cwd_binding": "omitted_remote_or_unverified",
+        },
+    )
+    job = job.model_copy(update={"meta": {"portability": portability}})
+    await repo.upsert_job(job)
+
+    with pytest.raises(PermissionError, match="local project_dir"):
+        await manager.promote_imported_job(job.id or "")
+
+    stored = await repo.get_job(job.id or "")
+    assert stored is not None
+    assert stored.meta["portability"]["requires_review"] is True
+
+
+@pytest.mark.asyncio
+async def test_remote_job_can_be_promoted_after_local_directory_mapping(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+    tmp_path,
+):
+    job = _review_gated_job("remote-with-mapping")
+    portability = dict(job.meta["portability"])
+    portability.update(
+        {
+            "source_cwd_remote_or_unverified": True,
+            "source_cwd_binding": "omitted_remote_or_unverified",
+        },
+    )
+    assert job.request is not None
+    request = job.request.model_copy(
+        update={
+            "request_context": {
+                "source": "cron",
+                "portability_review_required": True,
+                "project_dir": str(tmp_path),
+            },
+        },
+    )
+    job = job.model_copy(
+        update={
+            "meta": {"portability": portability},
+            "request": request,
+        },
+    )
+    await repo.upsert_job(job)
+
+    promoted = await manager.promote_imported_job(job.id or "")
+
+    assert promoted.enabled is False
+    assert promoted.meta["portability"]["requires_review"] is False
+
+
+@pytest.mark.asyncio
 async def test_paused_job_remains_paused_after_restart(
     manager: CronManager,
     repo: InMemoryJobRepository,
@@ -451,3 +663,66 @@ async def test_run_job_creates_background_task_for_known_job(
 
     mock_exec.assert_called_once()
     await manager.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("previous_value", [True, False])
+@pytest.mark.parametrize(
+    "incoming",
+    ["no_runtime", "no_share_session", True, False],
+)
+async def test_api_replace_preserves_omitted_share_session(
+    tmp_path,
+    previous_value,
+    incoming,
+):
+    """Legacy replacement JSON must not opt existing jobs out of sharing."""
+    from qwenpaw.app.crons.api import replace_job
+    from qwenpaw.app.crons.repo.json_repo import JsonJobRepository
+
+    path = tmp_path / "jobs.json"
+    repo = JsonJobRepository(path)
+    manager = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+    )
+    original = make_cron_job_spec(job_id="legacy")
+    original.runtime.share_session = previous_value
+    await manager.create_or_replace_job(original)
+    payload = original.model_dump(mode="json")
+    payload["name"] = "renamed"
+    if incoming == "no_runtime":
+        payload.pop("runtime")
+    elif incoming == "no_share_session":
+        payload["runtime"].pop("share_session")
+    else:
+        payload["runtime"]["share_session"] = incoming
+    response = await replace_job(
+        "legacy",
+        CronJobSpec.model_validate(payload),
+        manager,
+    )
+    expected = incoming if isinstance(incoming, bool) else previous_value
+    reloaded = await JsonJobRepository(path).get_job("legacy")
+    assert reloaded.name == "renamed"
+    assert reloaded.runtime.share_session is expected
+    assert response.runtime.share_session is expected
+
+
+@pytest.mark.asyncio
+async def test_api_create_defaults_to_unshared_session(tmp_path):
+    from qwenpaw.app.crons.api import create_job
+    from qwenpaw.app.crons.repo.json_repo import JsonJobRepository
+
+    repo = JsonJobRepository(tmp_path / "jobs.json")
+    manager = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+    )
+    payload = make_cron_job_spec(job_id="new").model_dump(mode="json")
+    payload.pop("runtime")
+    created = await create_job(CronJobSpec.model_validate(payload), manager)
+    saved = await repo.get_job(created.id)
+    assert saved.runtime.share_session is False

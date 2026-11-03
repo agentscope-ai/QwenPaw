@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Copy,
   Download,
   Expand,
   FileText,
@@ -10,6 +11,7 @@ import {
   useCallback,
   useEffect,
   lazy,
+  useLayoutEffect,
   useRef,
   useState,
   Suspense,
@@ -21,8 +23,11 @@ import { buildAuthHeaders } from "../../api/authHeaders";
 import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
 import { setTextareaValue } from "../../pages/Chat/utils";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
+import { copyText } from "../../utils/clipboard";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
+import { useMemoryTagSupport } from "./useMemoryTagSupport";
 import styles from "./FilesWorkspace.module.less";
 
 const PREVIEW_WIDTH_STORAGE_KEY = "qwenpaw-files-preview-width";
@@ -30,6 +35,12 @@ const WORKSPACE_WIDTH_STORAGE_KEY = "qwenpaw-files-workspace-width";
 const MIN_DRAWER_WIDTH = 420;
 const MIN_CHAT_WIDTH = 420;
 const FilesWorkspace = lazy(() => import("./FilesWorkspace"));
+
+function readStoredWidth(key: string): number {
+  if (typeof window === "undefined") return 0;
+  const stored = Number(localStorage.getItem(key));
+  return Number.isFinite(stored) && stored > 0 ? stored : 0;
+}
 
 interface FilesDrawerProps {
   state: Exclude<FilesDrawerState, { kind: "closed" }>;
@@ -63,25 +74,29 @@ export default function FilesDrawer({
   scope,
 }: FilesDrawerProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const drawerRef = useRef<HTMLElement>(null);
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [memoryTagToBrowse, setMemoryTagToBrowse] = useState<string>();
   const prefersReducedMotion = useReducedMotion();
   const isWorkspace = state.kind === "workspace";
+  const agentId = scope.agentId;
+  const memoryTagsSupported = useMemoryTagSupport(agentId);
   const chatId = scope.chatId;
   const projectDirOverride = scope.projectDirOverride;
   const target = state.target;
+  useEffect(() => setMemoryTagToBrowse(undefined), [agentId, target]);
   const widthStorageKey = isWorkspace
     ? WORKSPACE_WIDTH_STORAGE_KEY
     : PREVIEW_WIDTH_STORAGE_KEY;
-  const [width, setWidth] = useState(0);
+  const [width, setWidth] = useState(() => readStoredWidth(widthStorageKey));
 
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(widthStorageKey));
-    setWidth(Number.isFinite(stored) && stored > 0 ? stored : 0);
+  useLayoutEffect(() => {
+    setWidth(readStoredWidth(widthStorageKey));
   }, [widthStorageKey]);
 
   const close = useCallback(() => {
@@ -169,7 +184,7 @@ export default function FilesDrawer({
             };
           })
       : target.source === "profile"
-      ? workspaceApi.loadFile(target.path).then((file) => ({
+      ? workspaceApi.loadFile(target.path, agentId).then((file) => ({
           metadata: {
             path: target.path,
             size: new Blob([file.content]).size,
@@ -213,7 +228,7 @@ export default function FilesDrawer({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [chatId, projectDirOverride, target]);
+  }, [agentId, chatId, projectDirOverride, target]);
 
   const resizeFromPointer = (event: React.PointerEvent) => {
     event.preventDefault();
@@ -226,7 +241,7 @@ export default function FilesDrawer({
     const maximum = Math.max(MIN_DRAWER_WIDTH, containerWidth - MIN_CHAT_WIDTH);
     const move = (nextEvent: PointerEvent) => {
       const next = Math.min(
-        Math.max(MIN_DRAWER_WIDTH, initial + nextEvent.clientX - startX),
+        Math.max(MIN_DRAWER_WIDTH, initial + startX - nextEvent.clientX),
         maximum,
       );
       setWidth(next);
@@ -246,6 +261,17 @@ export default function FilesDrawer({
 
   const drawerStyle = width > 0 ? { width: `${width}px` } : undefined;
   const filename = target?.path.split("/").pop() ?? t("files.title");
+  const canCopy =
+    metadata?.preview_kind === "text" || metadata?.preview_kind === "csv";
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await copyText(content);
+      message.success(t("common.copied"));
+    } catch {
+      message.error(t("common.copyFailed"));
+    }
+  }, [content, message, t]);
 
   return (
     <motion.aside
@@ -256,13 +282,13 @@ export default function FilesDrawer({
       style={drawerStyle}
       layout={isResizing || prefersReducedMotion ? false : "size"}
       initial={
-        prefersReducedMotion ? false : { opacity: 0, x: -18, scale: 0.995 }
+        prefersReducedMotion ? false : { opacity: 0, x: 18, scale: 0.995 }
       }
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={
         prefersReducedMotion
           ? { opacity: 0 }
-          : { opacity: 0, x: -14, scale: 0.995 }
+          : { opacity: 0, x: 14, scale: 0.995 }
       }
       transition={
         prefersReducedMotion
@@ -308,7 +334,7 @@ export default function FilesDrawer({
             const next = Math.min(
               Math.max(
                 MIN_DRAWER_WIDTH,
-                base + (event.key === "ArrowRight" ? 24 : -24),
+                base + (event.key === "ArrowLeft" ? 24 : -24),
               ),
               maximum,
             );
@@ -339,6 +365,16 @@ export default function FilesDrawer({
           >
             <ArrowLeft size={15} />
             {t("files.backToPreview")}
+          </button>
+        )}
+        {target && canCopy && (
+          <button
+            type="button"
+            className={styles.iconButton}
+            aria-label={t("common.copy")}
+            onClick={() => void handleCopy()}
+          >
+            <Copy size={16} />
           </button>
         )}
         {target && (target.source === "workspace" || target.artifactUrl) && (
@@ -386,13 +422,13 @@ export default function FilesDrawer({
           initial={
             prefersReducedMotion
               ? false
-              : { opacity: 0, x: isWorkspace ? 10 : -10 }
+              : { opacity: 0, x: isWorkspace ? -10 : 10 }
           }
           animate={{ opacity: 1, x: 0 }}
           exit={
             prefersReducedMotion
               ? { opacity: 0 }
-              : { opacity: 0, x: isWorkspace ? -8 : 8 }
+              : { opacity: 0, x: isWorkspace ? 8 : -8 }
           }
           transition={
             prefersReducedMotion
@@ -406,7 +442,11 @@ export default function FilesDrawer({
                 <div className={styles.empty}>{t("common.loading")}</div>
               }
             >
-              <FilesWorkspace initialTarget={target} scope={scope} />
+              <FilesWorkspace
+                initialTarget={target}
+                initialMemoryTag={memoryTagToBrowse}
+                scope={scope}
+              />
             </Suspense>
           ) : (
             <>
@@ -424,6 +464,20 @@ export default function FilesDrawer({
                     root={target.root}
                     projectDirOverride={projectDirOverride}
                     workspaceBacked={target.source === "workspace"}
+                    onMemoryTagClick={
+                      memoryTagsSupported &&
+                      !target.artifactUrl &&
+                      (target.source === "memory" ||
+                        target.source === "daily" ||
+                        target.source === "digest" ||
+                        (target.source === "workspace" &&
+                          target.root === "workspace"))
+                        ? (tag) => {
+                            setMemoryTagToBrowse(tag);
+                            dispatch({ type: "EXPAND_WORKSPACE" });
+                          }
+                        : undefined
+                    }
                   />
                 ) : metadata?.preview_kind === "text" ? (
                   <pre className={styles.textPreview}>{content}</pre>

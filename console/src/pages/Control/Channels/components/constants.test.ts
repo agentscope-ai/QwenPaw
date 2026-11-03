@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { describe, it, expect, vi } from "vitest";
 import { CHANNEL_LABELS, getChannelLabel, isLoopbackHost } from "./constants";
 
@@ -27,7 +28,7 @@ describe("getChannelLabel", () => {
       (key: string, opts?: { defaultValue?: string }) =>
         opts?.defaultValue ?? key,
     );
-    getChannelLabel("discord", t as any);
+    getChannelLabel("discord", t as unknown as TFunction);
     expect(t).toHaveBeenCalledWith("channels.channelNames.discord", {
       defaultValue: "Discord",
     });

@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import logging
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     Any,
@@ -24,34 +26,97 @@ from pydantic import (
     BaseModel,
     Field,
     ConfigDict,
+    PrivateAttr,
     field_validator,
     model_validator,
 )
 import shortuuid
 from qwenpaw.exceptions import (
+    AgentConfigConflictError,
     ConfigurationException,
 )
 
+from .history_path import normalize_history_db_filename
 from .timezone import detect_system_timezone
+from .channel_normalizers import NORMALIZER_MARKER, strip_trailing_slash
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
     HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
     HEARTBEAT_MAX_TIMEOUT_SECONDS,
-    LLM_ACQUIRE_TIMEOUT,
-    LLM_BACKOFF_BASE,
-    LLM_BACKOFF_CAP,
-    LLM_MAX_CONCURRENT,
-    LLM_MAX_RETRIES,
-    LLM_MAX_QPM,
-    LLM_RATE_LIMIT_JITTER,
-    LLM_RATE_LIMIT_PAUSE,
+    EnvVarLoader,
     WORKING_DIR,
 )
 from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+AUTO_FIN_MAX_WINDOW_HOURS = 168
+
+_CSS_HEX_COLOR_RE = re.compile(
+    r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+)
+_CSS_COLOR_FUNCTION_RE = re.compile(
+    r"^(rgb|rgba|hsl|hsla)\(([^()]*)\)$",
+    re.IGNORECASE,
+)
+_CSS_NUMBER_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+_CSS_NUMBER_RE = re.compile(rf"^{_CSS_NUMBER_PATTERN}$")
+_CSS_PERCENT_RE = re.compile(rf"^{_CSS_NUMBER_PATTERN}%$")
+_CSS_HUE_RE = re.compile(
+    rf"^{_CSS_NUMBER_PATTERN}(?:deg|grad|rad|turn)?$",
+    re.IGNORECASE,
+)
+_CSS_RADIUS_RE = re.compile(r"^(?:0|(?:0|[1-9]\d*)(?:\.\d+)?px)$")
+
+
+def _is_safe_css_color(value: str) -> bool:
+    """Return whether a value is a supported standalone CSS color."""
+    normalized = value.strip()
+    if _CSS_HEX_COLOR_RE.fullmatch(normalized):
+        return True
+
+    match = _CSS_COLOR_FUNCTION_RE.fullmatch(normalized)
+    if match is None:
+        return False
+
+    function_name, body = match.groups()
+    if "," in body:
+        parts = [part.strip() for part in body.split(",")]
+        channels = parts[:3]
+        alpha = parts[3] if len(parts) == 4 else None
+        valid_syntax = "/" not in body and len(parts) in (3, 4) and all(parts)
+    else:
+        slash_parts = body.split("/")
+        channels = slash_parts[0].split()
+        alpha = slash_parts[1].strip() if len(slash_parts) == 2 else None
+        valid_syntax = (
+            len(slash_parts) <= 2
+            and len(channels) == 3
+            and (alpha is None or bool(alpha))
+        )
+
+    if not valid_syntax:
+        return False
+
+    if alpha is not None and not (
+        _CSS_NUMBER_RE.fullmatch(alpha) or _CSS_PERCENT_RE.fullmatch(alpha)
+    ):
+        return False
+
+    if function_name.lower().startswith("rgb"):
+        return all(
+            _CSS_NUMBER_RE.fullmatch(channel)
+            or _CSS_PERCENT_RE.fullmatch(channel)
+            for channel in channels
+        )
+    return bool(
+        _CSS_HUE_RE.fullmatch(channels[0])
+        and _CSS_PERCENT_RE.fullmatch(channels[1])
+        and _CSS_PERCENT_RE.fullmatch(channels[2]),
+    )
+
 
 # A legacy field can be present in the root config and in several agent
 # profiles, all of which may be validated repeatedly during one process
@@ -60,9 +125,80 @@ logger = logging.getLogger(__name__)
 _legacy_scroll_tool_cap_warned = False
 
 
+@dataclass(frozen=True)
+class _AgentConfigFingerprint:
+    """Metadata used to invalidate one cached agent configuration."""
+
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+
+
+@dataclass(frozen=True)
+class _AgentConfigCacheEntry:
+    """Cached agent configuration and its persisted file version."""
+
+    config: Any
+    fingerprint: _AgentConfigFingerprint
+
+
+def _agent_config_fingerprint(path: Path) -> _AgentConfigFingerprint:
+    """Return a cross-platform fingerprint for an agent config file."""
+    stat_result = path.stat()
+    return _AgentConfigFingerprint(
+        device=stat_result.st_dev,
+        inode=stat_result.st_ino,
+        size=stat_result.st_size,
+        mtime_ns=stat_result.st_mtime_ns,
+    )
+
+
+def _read_agent_config_snapshot(
+    path: Path,
+    retries: int = 3,
+) -> tuple[bytes, _AgentConfigFingerprint]:
+    """Read one stable snapshot across concurrent atomic replacements."""
+    for _attempt in range(retries):
+        before = _agent_config_fingerprint(path)
+        content = path.read_bytes()
+        after = _agent_config_fingerprint(path)
+        if before == after:
+            return content, after
+    raise OSError(f"Agent config changed repeatedly while reading {path}")
+
+
+def _json_payload_digest(payload: Any) -> bytes:
+    """Return the digest produced by the default atomic JSON serializer."""
+    content = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=False,
+    ).encode("utf-8")
+    return hashlib.sha256(content).digest()
+
+
+def _assert_agent_config_unchanged(
+    path: Path,
+    expected_digest: bytes,
+    agent_id: str,
+) -> None:
+    """Reject a write when its source snapshot is no longer current."""
+    try:
+        current_content, _fingerprint = _read_agent_config_snapshot(path)
+    except FileNotFoundError as exc:
+        raise AgentConfigConflictError(agent_id) from exc
+    if hashlib.sha256(current_content).digest() != expected_digest:
+        raise AgentConfigConflictError(agent_id)
+
+
 # ============================================================================
 # Core config models (moved here to avoid circular imports)
 # ============================================================================
+
+
+ModelType = Literal["chat", "decision"]
 
 
 class ModelSlotConfig(BaseModel):
@@ -76,6 +212,9 @@ class ActiveModelsInfo(BaseModel):
     """Active models information for provider manager."""
 
     active_llm: ModelSlotConfig | None
+    default_models: Dict[ModelType, ModelSlotConfig | None] = Field(
+        default_factory=dict,
+    )
     effective_max_input_length: int | None = None
 
 
@@ -261,6 +400,8 @@ class DiscordConfig(BaseChannelConfig):
 
 
 class DingTalkConfig(BaseChannelConfig):
+    model_config = ConfigDict(extra="allow")
+
     client_id: str = ""
     client_secret: str = ""
     message_type: str = "markdown"
@@ -272,6 +413,7 @@ class DingTalkConfig(BaseChannelConfig):
     card_auto_layout: bool = False
     at_sender_on_reply: bool = False
     streaming_enabled: bool = False
+    share_session_in_group: bool = False
     endpoint: str = ""
 
 
@@ -281,9 +423,13 @@ class FeishuConfig(BaseChannelConfig):
     domain: 'feishu' for China, 'lark' for international.
     streaming_enabled: enable CardKit streaming card updates for real-time
     typewriter-style text output.
+    auto_collapse_thinking: collapse the reasoning panel when its stream
+    finishes (the panel stays manually collapsible either way).
     share_session_in_group: if True, all group members share one session;
     if False (default), each member gets an independent session.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     app_id: str = ""
     app_secret: str = ""
@@ -291,7 +437,10 @@ class FeishuConfig(BaseChannelConfig):
     verification_token: str = ""
     media_dir: Optional[str] = None
     # "feishu" / "lark", or a full http(s) base URL for custom gateways.
-    domain: str = "feishu"
+    domain: str = Field(
+        default="feishu",
+        json_schema_extra={"pattern": "^(feishu$|lark$|https?://)"},
+    )
 
     @field_validator("domain")
     @classmethod
@@ -304,6 +453,9 @@ class FeishuConfig(BaseChannelConfig):
 
     streaming_enabled: bool = False
     share_session_in_group: bool = False
+    # Auto-collapse the reasoning panel once a stream finishes. The panel is
+    # always collapsible by hand; this only controls the automatic collapse.
+    auto_collapse_thinking: bool = False
 
 
 class QQConfig(BaseChannelConfig):
@@ -373,6 +525,14 @@ class ConsoleConfig(BaseChannelConfig):
     enabled: bool = True
     media_dir: Optional[str] = None
 
+    @field_validator("enabled")
+    @classmethod
+    def keep_console_enabled(cls, value: bool) -> bool:
+        """Keep the required console channel enabled."""
+        if not value:
+            return True
+        return value
+
 
 class WecomConfig(BaseChannelConfig):
     """WeCom (Enterprise WeChat) AI Bot channel config."""
@@ -392,12 +552,13 @@ class WecomConfig(BaseChannelConfig):
 class MatrixConfig(BaseChannelConfig):
     """Matrix channel configuration."""
 
-    homeserver: str = ""
-
-    @field_validator("homeserver")
-    @classmethod
-    def strip_trailing_slash(cls, v: str) -> str:
-        return v.rstrip("/")
+    homeserver: str = Field(
+        default="",
+        json_schema_extra={NORMALIZER_MARKER: "strip_trailing_slash"},
+    )
+    strip_trailing_slash = field_validator("homeserver", mode="after")(
+        strip_trailing_slash,
+    )
 
     user_id: str = ""
     access_token: str = ""
@@ -419,6 +580,8 @@ class MatrixConfig(BaseChannelConfig):
     # When True, apply m.mentions + optional pill on outbound messages.
     outbound_structured_mentions: bool = True
     streaming_enabled: bool = False
+    # Keep the legacy room-wide session unless isolation is requested.
+    share_session_in_group: bool = True
 
 
 class VoiceChannelConfig(BaseChannelConfig):
@@ -694,6 +857,15 @@ class EmbeddingModelConfig(BaseModel):
         ge=1,
         description="Maximum batch size for embedding",
     )
+    health_check_timeout: float = Field(
+        default=15.0,
+        gt=0,
+        le=300,
+        description=(
+            "Per-attempt timeout in seconds for embedding connection tests "
+            "and ReMe startup health checks"
+        ),
+    )
 
 
 class RerankerConfig(BaseModel):
@@ -737,28 +909,6 @@ class RerankerConfig(BaseModel):
     )
 
 
-class ADBPGMemoryConfig(BaseModel):
-    """ADBPG (AnalyticDB for PostgreSQL) REST memory configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    rest_base_url: str = ""
-    rest_api_key: str = ""
-
-    # Behavior
-    memory_isolation: bool = Field(
-        default=True,
-        description="Per-agent memory isolation (True) or shared (False)",
-    )
-    search_timeout: float = 10.0
-    auto_memory_search_config: AutoMemorySearchConfig = Field(
-        default_factory=lambda: AutoMemorySearchConfig(
-            enabled=True,
-            max_results=3,
-        ),
-    )
-
-
 class ReMeLightMemoryConfig(BaseModel):
     """ReMeLight memory manager configuration."""
 
@@ -798,15 +948,23 @@ class ReMeLightMemoryConfig(BaseModel):
     )
     auto_memory_inbox_push_enabled: bool = Field(
         default=True,
-        description="Whether to push auto-memory results to the inbox",
+        description=(
+            "Whether to push auto-memory changes and failures to the inbox"
+        ),
     )
     auto_dream_inbox_push_enabled: bool = Field(
         default=True,
-        description="Whether to push auto-dream results to the inbox",
+        description=(
+            "Whether to push auto-dream changes and failures to the inbox"
+        ),
     )
     daily_paper_inbox_push_enabled: bool = Field(
         default=True,
         description="Whether to push Daily Paper results to the inbox",
+    )
+    auto_fin_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push Auto Fin results to the inbox",
     )
 
     auto_memory_interval: int | None = Field(
@@ -816,6 +974,19 @@ class ReMeLightMemoryConfig(BaseModel):
         "None or <= 0 disables periodic auto memory. WARNING: Setting "
         "too small (e.g., 1-3) may cause high token usage and heavy "
         "background task burden.",
+    )
+
+    auto_memory_include_images: bool = Field(
+        default=False,
+        description=(
+            "Include conversation images in auto-memory when the memory "
+            "model has confirmed image-input support"
+        ),
+    )
+
+    auto_memory_generate_tags: bool = Field(
+        default=False,
+        description="Generate entity tags after auto-memory writes a note",
     )
 
     dream_cron_enabled: bool = Field(
@@ -857,6 +1028,35 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Topics to prioritize when selecting Daily Paper papers",
     )
 
+    auto_fin_cron_enabled: bool = Field(
+        default=False,
+        description="Whether to enable the scheduled Auto Fin job",
+    )
+
+    auto_fin_cron: str = Field(
+        default="0 18 * * *",
+        description=(
+            "Cron expression for Auto Fin generation "
+            "(use auto_fin_cron_enabled to enable/disable)"
+        ),
+    )
+
+    auto_fin_topics: str = Field(
+        default="gold,robotics,semiconductors",
+        description="Comma-separated topics used to filter CLS news",
+    )
+
+    auto_fin_window_hours: float = Field(
+        default=24,
+        ge=1,
+        le=AUTO_FIN_MAX_WINDOW_HOURS,
+        allow_inf_nan=False,
+        description=(
+            "Rolling number of hours of CLS news to analyze; "
+            f"must be between 1 and {AUTO_FIN_MAX_WINDOW_HOURS}"
+        ),
+    )
+
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
     )
@@ -877,12 +1077,20 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    pending_reindex_embedding_config: EmbeddingModelConfig | None = Field(
+        default=None,
+        description=(
+            "Last indexed embedding configuration available for undo while "
+            "a vector-space change is pending"
+        ),
+    )
+
     memory_search_enabled: bool = Field(
         default=True,
         description="Whether to expose the memory_search tool to the agent",
     )
 
-    @field_validator("dream_cron", "daily_paper_cron")
+    @field_validator("dream_cron", "daily_paper_cron", "auto_fin_cron")
     @classmethod
     def validate_service_cron(cls, value: str) -> str:
         """Reject expressions that the runtime scheduler cannot install."""
@@ -896,6 +1104,16 @@ class ReMeLightMemoryConfig(BaseModel):
             raise ValueError(f"Invalid cron expression: {value!r}") from exc
         return value
 
+    @model_validator(mode="after")
+    def validate_enabled_auto_fin_cron(self) -> "ReMeLightMemoryConfig":
+        """Require a schedule whenever the Auto Fin job is enabled."""
+        if self.auto_fin_cron_enabled and not self.auto_fin_cron.strip():
+            raise ValueError(
+                "auto_fin_cron must not be empty when "
+                "auto_fin_cron_enabled is true",
+            )
+        return self
+
     @model_validator(mode="before")
     @classmethod
     def migrate_shared_inbox_switch(cls, values: Any) -> Any:
@@ -908,6 +1126,7 @@ class ReMeLightMemoryConfig(BaseModel):
             "auto_memory_inbox_push_enabled",
             "auto_dream_inbox_push_enabled",
             "daily_paper_inbox_push_enabled",
+            "auto_fin_inbox_push_enabled",
         ):
             migrated.setdefault(field_name, legacy_value)
         return migrated
@@ -990,7 +1209,8 @@ class ToolResultPruningConfig(BaseModel):
         ge=1,
         le=365,
         description=(
-            "Number of days to retain complete archived tool result files. "
+            "Number of days to retain complete archived tool result files "
+            "after their latest publication or reuse. "
             "This lifetime is independent of Scroll history retention; after "
             "expiry, history may still contain the bounded preview but not "
             "the complete artifact."
@@ -1026,17 +1246,25 @@ class ScrollContextConfig(BaseModel):
     """Scroll (retrieval-driven) context manager configuration.
 
     Only consulted when ``LightContextConfig.strategy == "scroll"``. The
-    durable history lives at ``{working_dir}/{db_filename}``; evicted turns
-    fold into an in-context eviction index recallable from the sandboxed
-    ``recall_history_python`` REPL.
+    durable history uses ``db_filename`` (relative to the workspace unless
+    absolute). Evicted turns fold into an in-context eviction index,
+    recallable from the sandboxed ``recall_history_python`` REPL.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     db_filename: str = Field(
         default="history.db",
-        description="SQLite history store filename, relative to working_dir.",
+        description=(
+            f"SQLite history path, absolute or relative to the workspace."
+        ),
     )
+
+    @field_validator("db_filename")
+    @classmethod
+    def validate_db_filename(cls, value: str) -> str:
+        """Normalize the configured durable history filename."""
+        return normalize_history_db_filename(value)
 
     tool_output_token_cap: int = Field(
         default=3000,
@@ -1111,6 +1339,22 @@ class VisualCompactConfig(BaseModel):
     )
 
 
+class DecisionCompactConfig(BaseModel):
+    """Optional recoverable tool-result compaction with a decision model."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+    enabled: bool = False
+    drop_threshold: float = Field(default=0.1, ge=0, le=1)
+    preserve_recent_messages: int = Field(default=6, ge=0)
+    preview_chars: int = Field(default=300, ge=0)
+    total_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    max_state_tokens: int = Field(default=25000, gt=0)
+    max_request_tokens: int = Field(default=30000, gt=0)
+    evidence_chars: int = Field(default=2000, gt=0)
+    max_concurrency: int = Field(default=4, ge=1, le=32)
+
+
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
@@ -1149,6 +1393,9 @@ class LightContextConfig(BaseModel):
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
     )
+    decision_compact_config: DecisionCompactConfig = Field(
+        default_factory=DecisionCompactConfig,
+    )
     visual_compact_config: VisualCompactConfig = Field(
         default_factory=VisualCompactConfig,
     )
@@ -1173,8 +1420,8 @@ class LightContextConfig(BaseModel):
 class AutoTitleConfig(BaseModel):
     """Async chat-title generation configuration.
 
-    The console handler creates each new chat with a 10-character
-    placeholder name and spawns a background task that asks the active
+    The console handler creates each new chat with a placeholder name bounded
+    to 500 characters and spawns a background task that asks the active
     LLM for a concise title. Each new chat costs one short extra LLM
     call; flip ``enabled`` to ``False`` to keep the placeholder and
     avoid the spend.
@@ -1186,7 +1433,7 @@ class AutoTitleConfig(BaseModel):
         default=True,
         description=(
             "Generate a chat title via the active LLM after the first "
-            "user message. Disable to keep the truncated placeholder "
+            "user message. Disable to keep the placeholder "
             "and skip the extra per-chat LLM call."
         ),
     )
@@ -1405,7 +1652,7 @@ class GoalLoopModeConfig(BaseModel):
     """Editable values for the fixed built-in Goal pipeline."""
 
     max_iterations: int = Field(default=20, ge=1, le=500)
-    max_tokens: int = Field(default=300_000, ge=1)
+    max_tokens: int = Field(default=0, ge=-1)
 
 
 class MissionLoopModeConfig(BaseModel):
@@ -1598,24 +1845,41 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_retry_enabled: bool = Field(
-        default=LLM_MAX_RETRIES > 0,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_RETRIES",
+            3,
+            min_value=0,
+        )
+        > 0,
         description="Whether to auto-retry transient LLM API errors",
     )
 
     llm_max_retries: int = Field(
-        default=max(LLM_MAX_RETRIES, 1),
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_RETRIES",
+            3,
+            min_value=1,
+        ),
         ge=1,
         description="Maximum retry attempts for transient LLM API errors",
     )
 
     llm_backoff_base: float = Field(
-        default=LLM_BACKOFF_BASE,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_BACKOFF_BASE",
+            1.0,
+            min_value=0.1,
+        ),
         ge=0.1,
         description="Base delay in seconds for exponential LLM retry backoff",
     )
 
     llm_backoff_cap: float = Field(
-        default=LLM_BACKOFF_CAP,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_BACKOFF_CAP",
+            10.0,
+            min_value=0.5,
+        ),
         ge=0.5,
         description=(
             "Maximum delay cap in seconds for LLM retry backoff; "
@@ -1624,7 +1888,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_max_concurrent: int = Field(
-        default=LLM_MAX_CONCURRENT,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_CONCURRENT",
+            10,
+            min_value=1,
+        ),
         ge=1,
         description=(
             "Maximum number of concurrent in-flight LLM calls. "
@@ -1633,7 +1901,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_max_qpm: int = Field(
-        default=LLM_MAX_QPM,
+        default_factory=lambda: EnvVarLoader.get_int(
+            "QWENPAW_LLM_MAX_QPM",
+            600,
+            min_value=0,
+        ),
         ge=0,
         description=(
             "Maximum queries per minute (60-second sliding window). "
@@ -1643,7 +1915,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_rate_limit_pause: float = Field(
-        default=LLM_RATE_LIMIT_PAUSE,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_RATE_LIMIT_PAUSE",
+            5.0,
+            min_value=1.0,
+        ),
         ge=1.0,
         description=(
             "Default pause duration (seconds) applied globally when a 429 "
@@ -1652,7 +1928,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_rate_limit_jitter: float = Field(
-        default=LLM_RATE_LIMIT_JITTER,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_RATE_LIMIT_JITTER",
+            1.0,
+            min_value=0.0,
+        ),
         ge=0.0,
         description=(
             "Random jitter range (seconds) added on top of the pause so "
@@ -1661,7 +1941,11 @@ class AgentsRunningConfig(BaseModel):
     )
 
     llm_acquire_timeout: float = Field(
-        default=LLM_ACQUIRE_TIMEOUT,
+        default_factory=lambda: EnvVarLoader.get_float(
+            "QWENPAW_LLM_ACQUIRE_TIMEOUT",
+            300.0,
+            min_value=10.0,
+        ),
         ge=10.0,
         description=(
             "Maximum time (seconds) a caller waits to acquire a rate-limiter "
@@ -1735,10 +2019,12 @@ class AgentsRunningConfig(BaseModel):
 
     memory_manager_backend: str = Field(default="remelight")
 
-    adbpg_memory_config: Optional[ADBPGMemoryConfig] = Field(
-        default=None,
-        description="ADBPG memory configuration (used when "
-        "memory_manager_backend='adbpg')",
+    memory_backend_configs: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description=(
+            "Opaque per-agent configuration owned and validated by memory "
+            "backend plugins"
+        ),
     )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
@@ -1758,6 +2044,34 @@ class AgentsRunningConfig(BaseModel):
             "the value is written back to the agent profile."
         ),
     )
+
+    @field_validator("memory_manager_backend")
+    @classmethod
+    def normalize_memory_backend_id(cls, value: str) -> str:
+        """Persist backend identifiers in the registry's canonical form."""
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("memory_manager_backend must not be empty")
+        return normalized
+
+    @field_validator("memory_backend_configs")
+    @classmethod
+    def normalize_memory_backend_config_ids(
+        cls,
+        value: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Canonicalize opaque config keys and reject ambiguous duplicates."""
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for backend_id, config in value.items():
+            key = backend_id.strip().lower()
+            if not key:
+                raise ValueError("memory backend config id must not be empty")
+            if key in normalized:
+                raise ValueError(
+                    f"duplicate memory backend config id: {backend_id}",
+                )
+            normalized[key] = config
+        return normalized
 
 
 class AgentsLLMRoutingConfig(BaseModel):
@@ -1823,8 +2137,326 @@ class CodingModeConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        description="Enable Coding Mode IDE layout and tools",
+        description=(
+            "Route enabled tools through sandboxed Python orchestration"
+        ),
     )
+
+
+AdvisorThinkingLevel = Literal["inherit", "off", "low", "medium", "high"]
+
+
+class AdvisorInterventionConfig(BaseModel):
+    """When the advisor is called back in mid-run (Advisor Mode).
+
+    The trigger fires on ``consecutive_failures`` failed tool calls in a
+    row, or ``window_failures`` failures within the last ``window_size``
+    steps. Counters reset after each intervention.
+    """
+
+    consecutive_failures: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Failed tool calls in a row before the advisor is consulted"
+        ),
+    )
+    window_size: int = Field(
+        default=10,
+        ge=1,
+        description="Number of recent steps the failure window spans",
+    )
+    window_failures: int = Field(
+        default=4,
+        ge=1,
+        description=(
+            "Failed tool calls within the window before the advisor is "
+            "consulted"
+        ),
+    )
+    cooldown_steps: int = Field(
+        default=0,
+        ge=0,
+        description="Steps to wait after an intervention before the next",
+    )
+    max_interventions: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum automatic interventions per run",
+    )
+
+
+class AdvisorModeConfig(BaseModel):
+    """Configuration for Advisor Mode (stored in agent.json).
+
+    In Advisor Mode the agent's primary model acts as the advisor: it
+    writes a strategic plan before the agent's first step and is consulted
+    again when the agent keeps failing. The agent itself (the worker) runs
+    on the cheaper ``subagent_model`` when one is configured.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable Advisor Mode for this agent",
+    )
+    plan_enabled: bool = Field(
+        default=True,
+        description=(
+            "Ask the advisor for a plan before the agent's first step"
+        ),
+    )
+    followup_enabled: bool = Field(
+        default=True,
+        description=(
+            "Consult the advisor again mid-run when repeated tool "
+            "failures are detected"
+        ),
+    )
+    on_demand_enabled: bool = Field(
+        default=True,
+        description=(
+            "Expose a consult_advisor tool so the agent can ask the "
+            "advisor on its own"
+        ),
+    )
+    max_consults: int = Field(
+        default=32,
+        ge=0,
+        description="Maximum on-demand consultations per conversation",
+    )
+    recent_messages: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "How many of the agent's latest messages the advisor sees at "
+            "each intervention or consultation. Every text, tool call and "
+            "tool result counts as one"
+        ),
+    )
+    intervention: AdvisorInterventionConfig = Field(
+        default_factory=AdvisorInterventionConfig,
+        description="Thresholds for the mid-run auto intervention",
+    )
+    advisor_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Model that answers as the advisor. None means the agent's "
+            "primary model"
+        ),
+    )
+    worker_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Model the agent runs on while Advisor Mode is on. None means "
+            "the sub-agent model, or the primary model when none is set"
+        ),
+    )
+    advisor_thinking: AdvisorThinkingLevel = Field(
+        default="off",
+        description=(
+            "Thinking level for the advisor's own calls. 'inherit' "
+            "follows the agent and model defaults"
+        ),
+    )
+
+
+class FallbackPolicyConfig(BaseModel):
+    """Policy controlling cross-model fallback targets."""
+
+    enabled: bool = Field(default=True)
+    target_scope: Literal["configured", "free_only"] = Field(
+        default="configured",
+    )
+
+
+class AgentMailCredential(BaseModel):
+    """Credential for an agent-managed mailbox account.
+
+    Secret values exist on the in-memory model because the mail monitor and
+    agent-edit flow consume them, but Pydantic must never serialize them.
+    Persistence stores those values in the workspace credential store and
+    hydrates them again when ``agent.json`` is loaded.
+    """
+
+    name: str = Field(
+        default="",
+        description="Mailbox account name",
+    )
+    domain: str = Field(
+        default="163.com",
+        description="Mail domain suffix",
+    )
+    auth_code: str = Field(
+        default="",
+        description=(
+            "Provider credential: authorization code, app password, or "
+            "mailbox login password"
+        ),
+        exclude=True,
+        repr=False,
+    )
+    password: str = Field(
+        default="",
+        description="Legacy registration field retained for migration only",
+        exclude=True,
+        repr=False,
+    )
+    phone_number: str = Field(
+        default="",
+        description="Legacy registration field retained for migration only",
+        exclude=True,
+        repr=False,
+    )
+    provider: str = Field(
+        default="",
+        description=(
+            "Mail service provider for enterprise mailboxes with a "
+            "custom domain. Empty string means auto-detect by domain. "
+            "Allowed values: '', 'tencent_exmail', 'aliyun_qiye', "
+            "'netease_qiye'."
+        ),
+    )
+
+
+class AgentMailPushRule(BaseModel):
+    """One deterministic rule applied to each incoming email."""
+
+    # "subject" is a legacy alias of "content" (subject + body).
+    field: Literal["from", "subject", "content", "keyword"] = "from"
+    contains: str = ""
+    action: Literal["mark_read", "move", "notify", "wake_agent"] = "notify"
+    param: str = ""
+
+
+class AgentMailPushConfig(BaseModel):
+    """Realtime mail push (IMAP IDLE) monitoring configuration."""
+
+    mode: Literal[
+        "off",
+        "rules_only",
+        "rules_then_agent",
+        "agent_all",
+    ] = "off"
+    rules: list[AgentMailPushRule] = Field(default_factory=list)
+    poll_interval_seconds: int = 120
+    access_control_enabled: bool = False
+
+
+class AgentMailConfig(BaseModel):
+    """Mailbox management configuration.
+
+    Public mailbox metadata and push rules are stored in ``agent.json``;
+    credential secrets are stored separately in encrypted form.
+    """
+
+    is_new_account: bool = Field(
+        default=False,
+        description=(
+            "True = dedicated mailbox registration pending; supplying the "
+            "mail credential completes registration and changes it to False"
+        ),
+    )
+    credential: AgentMailCredential = Field(
+        default_factory=AgentMailCredential,
+        description="Mailbox account credential",
+    )
+    push: Optional[AgentMailPushConfig] = Field(
+        default=None,
+        description="Realtime push monitoring config (None = disabled)",
+    )
+
+
+AGENT_MAIL_CREDENTIAL_REF = "mail/qwenpawmail"
+AGENT_MAIL_SECRET_FIELDS = ("auth_code", "password", "phone_number")
+
+
+def _agent_mail_credential_store(workspace_dir: Path):
+    """Return the existing per-workspace encrypted credential store."""
+    from ..drivers.credentials.store import AsyncCredentialStore
+
+    return AsyncCredentialStore(workspace_dir / "credentials.yaml")
+
+
+def _agent_mail_public_identity(mail: AgentMailConfig) -> dict[str, object]:
+    credential = mail.credential
+    return {
+        "is_new_account": mail.is_new_account,
+        "name": (credential.name or "").strip().lower(),
+        "domain": (credential.domain or "").strip().lower(),
+        "provider": (credential.provider or "").strip().lower(),
+    }
+
+
+def save_agent_mail_credentials(
+    workspace_dir: Path,
+    mail: AgentMailConfig | None,
+) -> None:
+    """Persist mailbox secrets outside ``agent.json``.
+
+    Empty values are not stored.  Removing mail configuration also removes the
+    managed credential record so a stale DriverCard fails closed.
+    """
+    store = _agent_mail_credential_store(workspace_dir)
+    if mail is None:
+        store.delete_sync(AGENT_MAIL_CREDENTIAL_REF)
+        return
+
+    secrets = {
+        field_name: value
+        for field_name in AGENT_MAIL_SECRET_FIELDS
+        if (value := getattr(mail.credential, field_name, ""))
+    }
+    if not secrets:
+        # A non-null mail config with blank in-memory values commonly means a
+        # decryption/keychain problem or a redacted edit payload.  Preserve the
+        # encrypted record; explicit mail removal above is the only revocation
+        # operation.
+        return
+
+    from ..drivers.credentials.types import CredentialRecord
+
+    store.put_sync(
+        CredentialRecord(
+            ref=AGENT_MAIL_CREDENTIAL_REF,
+            kind="static",
+            public=_agent_mail_public_identity(mail),
+            secrets=secrets,
+            meta={"managed_by": "agent_mail"},
+        ),
+    )
+
+
+def hydrate_agent_mail_credentials(
+    workspace_dir: Path,
+    mail: AgentMailConfig | None,
+) -> AgentMailConfig | None:
+    """Hydrate the in-memory mail model from the encrypted store."""
+    if mail is None:
+        return None
+
+    from ..drivers.errors import CredentialNotFoundError
+    from ..security.secret_store import is_encrypted
+
+    try:
+        record = _agent_mail_credential_store(workspace_dir).get_sync(
+            AGENT_MAIL_CREDENTIAL_REF,
+        )
+    except CredentialNotFoundError:
+        return mail
+
+    if record.public and record.public != _agent_mail_public_identity(mail):
+        # Never apply a credential to a different mailbox after somebody
+        # manually edits only the public fields in agent.json.
+        return mail
+
+    for field_name in AGENT_MAIL_SECRET_FIELDS:
+        value = record.secrets.get(field_name)
+        # ``decrypt`` deliberately returns an ENC token when the master key is
+        # unavailable.  Do not pass that ciphertext to IMAP/SMTP as though it
+        # were a real credential.
+        if isinstance(value, str) and not is_encrypted(value):
+            setattr(mail.credential, field_name, value)
+    return mail
 
 
 class AgentProfileConfig(BaseModel):
@@ -1832,6 +2464,24 @@ class AgentProfileConfig(BaseModel):
 
     Each agent has its own configuration file with all settings.
     """
+
+    _source_digest: bytes | None = PrivateAttr(default=None)
+
+    def source_digest(self) -> bytes | None:
+        """Return the content version captured when this model was loaded."""
+        return self._source_digest
+
+    def record_source_digest(self, digest: bytes) -> None:
+        """Record the content version represented by this model."""
+        self._source_digest = digest
+
+    @property
+    def uses_scroll_history(self) -> bool:
+        """Whether this runtime writes through to durable Scroll history."""
+        return (
+            self.backend == "qwenpaw"
+            and self.running.light_context_config.strategy == "scroll"
+        )
 
     id: str = Field(..., description="Unique agent ID")
     name: str = Field(..., description="Human-readable agent name")
@@ -1843,9 +2493,13 @@ class AgentProfileConfig(BaseModel):
     project_dir: Optional[str] = Field(
         default=None,
         description=(
-            "Default project directory for tools and project files. "
+            "Primary default project directory (legacy single-path view). "
             "None means use workspace_dir."
         ),
+    )
+    project_dirs: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ordered default project directories, primary first.",
     )
     backend: str = Field(
         default="qwenpaw",
@@ -1889,6 +2543,46 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Active model for this agent (provider_id + model)",
     )
+    decision_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description=(
+            "Decision model for this agent; None disables it by default"
+        ),
+    )
+    fallback_models: List["ModelSlotConfig"] = Field(
+        default_factory=list,
+        description="Ordered chat model fallback chain for transient failures",
+    )
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+        description="Chat model fallback policy",
+    )
+    subagent_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description="Optional cheaper model used by spawned subagents",
+    )
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "budget",
+    ] = f"inherit"
+    thinking_budget: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode=f"after")
+    def validate_thinking_budget(self):
+        """Keep effort and numeric budget settings mutually exclusive."""
+        if (self.thinking_level == f"budget") != (
+            self.thinking_budget is not None
+        ):
+            raise ValueError(f"Budget mode requires thinking_budget")
+        return self
+
     language: str = Field(
         default="zh",
         description="Language setting for this agent",
@@ -1926,6 +2620,14 @@ class AgentProfileConfig(BaseModel):
     coding_mode: CodingModeConfig = Field(
         default_factory=CodingModeConfig,
         description="Coding Mode configuration for this agent",
+    )
+    advisor_mode: AdvisorModeConfig = Field(
+        default_factory=AdvisorModeConfig,
+        description="Advisor Mode configuration for this agent",
+    )
+    mail: Optional[AgentMailConfig] = Field(
+        default=None,
+        description="Mailbox management configuration",
     )
 
 
@@ -2045,6 +2747,13 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    http_timeout: Optional[float] = Field(
+        default=None,
+        gt=0,
+        description="HTTP MCP connect/write/pool timeout in seconds; "
+        "raises the read (sse_read_timeout) budget to at least this value. "
+        "None keeps the client default (30s / 300s).",
+    )
     tools: Optional[List[str]] = Field(
         default=None,
         description="Tool whitelist. Only listed tools will be loaded. "
@@ -2069,6 +2778,9 @@ class MCPClientConfig(BaseModel):
 
         if "type" in payload and "transport" not in payload:
             payload["transport"] = payload["type"]
+
+        if "timeout" in payload and "http_timeout" not in payload:
+            payload["http_timeout"] = payload["timeout"]
 
         if (
             "transport" not in payload
@@ -2118,17 +2830,20 @@ class MCPConfig(BaseModel):
     """MCP clients configuration.
 
     Uses a dict to allow dynamic client definitions.
-    Default tavily_search client is created and auto-enabled if API key exists.
+    Default anysearch client is provided but disabled by default; enable it
+    in the Console to use AnySearch through MCP. Access follows the default
+    ask policy (no blanket allow).
     """
 
     clients: Dict[str, MCPClientConfig] = Field(
         default_factory=lambda: {
-            "tavily_search": MCPClientConfig(
-                name="tavily_mcp",
+            "anysearch": MCPClientConfig(
+                name="anysearch_mcp",
                 enabled=False,
-                command="npx",
-                args=["-y", "tavily-mcp@latest"],
-                env={"TAVILY_API_KEY": ""},
+                transport="streamable_http",
+                url="https://api.anysearch.com/mcp",
+                headers={"Authorization": "Bearer ${ANYSEARCH_API_KEY}"},
+                description="AnySearch web search via MCP",
             ),
         },
     )
@@ -2329,6 +3044,9 @@ class ToolsConfig(BaseModel):
         icon value.
         """
         defaults = _default_builtin_tools()
+        # Retired built-ins must not remain as nonfunctional settings.
+        for name in (f"lsp", f"ast_search"):
+            self.builtin_tools.pop(name, None)
         # Keep persisted configurations from the former stable-track name
         # compatible with the unified browser identity.
         legacy = self.builtin_tools.pop("browser_use", None)
@@ -2677,10 +3395,66 @@ class BrowserConfig(BaseModel):
         return value
 
 
+class ThemeDarkConfig(BaseModel):
+    """Optional theme overrides used when the console is in dark mode."""
+
+    accent: Optional[str] = None
+    accent_bg: Optional[str] = None
+    surface: Optional[str] = None
+
+    @field_validator("accent", "accent_bg", "surface")
+    @classmethod
+    def _validate_color(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not _is_safe_css_color(value):
+            raise ValueError("must be a CSS color")
+        return value.strip() if value is not None else None
+
+
+class ThemeConfig(BaseModel):
+    """User-configurable Console appearance tokens."""
+
+    accent: Optional[str] = None
+    accent_hover: Optional[str] = None
+    accent_bg: Optional[str] = None
+    radius: Optional[str] = None
+    dark: Optional[ThemeDarkConfig] = None
+
+    @field_validator("accent", "accent_hover", "accent_bg")
+    @classmethod
+    def _validate_color(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not _is_safe_css_color(value):
+            raise ValueError("must be a CSS color")
+        return value.strip() if value is not None else None
+
+    @field_validator("radius")
+    @classmethod
+    def _validate_radius(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            value = value.strip()
+            if not _CSS_RADIUS_RE.fullmatch(value):
+                raise ValueError("must be a pixel value or 0")
+        return value
+
+
+class ChannelPluginState(BaseModel):
+    """Host distribution intent, never runtime ownership or credentials."""
+
+    version: int = 0
+    preset: Literal["light", "channels-full"] = "light"
+    legacy_pending: list[str] = Field(default_factory=list)
+    legacy_captured: list[str] = Field(default_factory=list)
+    uninstalled: list[str] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
     channels: ChannelConfig = ChannelConfig()
+    channel_plugin_state: ChannelPluginState = Field(
+        default_factory=ChannelPluginState,
+    )
+    channel_send_timeouts: Dict[str, float] = Field(default_factory=dict)
+
     mcp: MCPConfig = MCPConfig()
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
@@ -2689,6 +3463,7 @@ class Config(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    theme: Optional[ThemeConfig] = None
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
@@ -2707,6 +3482,13 @@ class Config(BaseModel):
         "Skills found here are read-only (no edit/create); they can be "
         "listed, downloaded to a workspace, and deleted.",
     )
+
+    @field_validator("channel_send_timeouts", mode="before")
+    @classmethod
+    def _validate_channel_send_timeouts(cls, value):
+        from ..channel_protocol.outbound_budget import validate_send_timeouts
+
+        return validate_send_timeouts(value)
 
 
 ChannelConfigUnion = Union[
@@ -2824,22 +3606,30 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
             migrated = True
         # allow_from → access_control.json whitelist
         allow_from = ch_cfg.get("allow_from")
-        if allow_from and isinstance(allow_from, list):
-            try:
-                from ..app.channels.access_control import (
-                    get_access_control_store,
-                )
+        if isinstance(allow_from, list):
+            migration_succeeded = True
+            if allow_from:
+                try:
+                    from ..app.channels.access_control import (
+                        get_access_control_store,
+                    )
 
-                store = get_access_control_store(workspace_dir)
-                store.import_allow_from(ch_key, set(allow_from))
-            except Exception:
-                pass
-            del ch_cfg["allow_from"]
-            migrated = True
+                    store = get_access_control_store(workspace_dir)
+                    store.import_allow_from(ch_key, set(allow_from))
+                except Exception:
+                    migration_succeeded = False
+                    logger.exception(
+                        f"Failed to migrate access control for channel "
+                        f"{ch_key}",
+                    )
+            if migration_succeeded:
+                del ch_cfg["allow_from"]
+                migrated = True
         # group_allow_from (matrix legacy) → whitelist
         grp_allow = ch_cfg.get("group_allow_from")
-        if grp_allow is not None:
-            if isinstance(grp_allow, list) and grp_allow:
+        if isinstance(grp_allow, list):
+            migration_succeeded = True
+            if grp_allow:
                 try:
                     from ..app.channels.access_control import (
                         get_access_control_store,
@@ -2848,9 +3638,14 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
                     store = get_access_control_store(workspace_dir)
                     store.import_allow_from(ch_key, set(grp_allow))
                 except Exception:
-                    pass
-            del ch_cfg["group_allow_from"]
-            migrated = True
+                    migration_succeeded = False
+                    logger.exception(
+                        f"Failed to migrate group access control for channel "
+                        f"{ch_key}",
+                    )
+            if migration_succeeded:
+                del ch_cfg["group_allow_from"]
+                migrated = True
     return migrated
 
 
@@ -2897,13 +3692,61 @@ def migrate_project_directory_config(data: object) -> bool:
     return True
 
 
+def migrate_agent_mail_credentials(
+    data: object,
+    workspace_dir: Path,
+) -> bool:
+    """Move legacy plaintext mailbox secrets into ``credentials.yaml``.
+
+    The encrypted record is written before the caller removes the plaintext
+    fields from ``agent.json``.  A credential-store failure therefore leaves
+    the legacy file untouched instead of losing the only usable copy.
+    """
+    if not isinstance(data, dict):
+        return False
+    mail_data = data.get("mail")
+    if not isinstance(mail_data, dict):
+        return False
+    credential_data = mail_data.get("credential")
+    if not isinstance(credential_data, dict):
+        return False
+
+    present_fields = {
+        field_name
+        for field_name in AGENT_MAIL_SECRET_FIELDS
+        if field_name in credential_data
+    }
+    if not present_fields:
+        return False
+
+    incoming_mail = AgentMailConfig.model_validate(mail_data)
+    incoming_values = {
+        field_name: getattr(incoming_mail.credential, field_name)
+        for field_name in present_fields
+    }
+
+    # A manually edited legacy file may contain only the one changed secret.
+    # Hydrate the other fields first, then let explicitly present values win.
+    merged_mail = incoming_mail.model_copy(deep=True)
+    for field_name in AGENT_MAIL_SECRET_FIELDS:
+        setattr(merged_mail.credential, field_name, "")
+    hydrate_agent_mail_credentials(workspace_dir, merged_mail)
+    for field_name, value in incoming_values.items():
+        setattr(merged_mail.credential, field_name, value)
+
+    save_agent_mail_credentials(workspace_dir, merged_mail)
+    for field_name in present_fields:
+        credential_data.pop(field_name, None)
+    return True
+
+
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
 ) -> AgentProfileConfig:
-    """Load agent's complete configuration from workspace/agent.json with
-    mtime-based caching.
+    """Load an agent configuration with fingerprint-based caching.
 
-    Uses file modification time to avoid unnecessary disk reads.
+    The fingerprint detects same-mtime atomic replacements. Each loaded model
+    also records a content digest used to reject stale saves.
 
     Args:
         agent_id: Agent ID to load
@@ -2916,6 +3759,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     """
     from .utils import (
         load_config,
+        _migrate_last_dispatch_state,
         _agent_config_cache,
         _agent_config_lock,
     )
@@ -2938,43 +3782,76 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         save_agent_config(agent_id, fallback_config)
         return fallback_config
 
-    # Check mtime to see if we can use cached config
-    try:
-        current_mtime = agent_config_path.stat().st_mtime
-    except OSError:
-        fallback_config = build_fallback_agent_profile_config(agent_id, config)
-        save_agent_config(agent_id, fallback_config)
-        return fallback_config
-
     with _agent_config_lock:
-        # Return cached config if mtime hasn't changed
-        if agent_id in _agent_config_cache:
-            cached_config, cached_mtime = _agent_config_cache[agent_id]
-            if cached_mtime == current_mtime:
-                return cached_config
-
-        # Need to reload config from disk
         try:
-            with open(agent_config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except UnicodeDecodeError as e:
+            current_fingerprint = _agent_config_fingerprint(agent_config_path)
+        except OSError as exc:
+            raise ConfigurationException(
+                config_key="agent",
+                message=f"Agent '{agent_id}' config is temporarily unavailable",
+            ) from exc
+        cached_entry = _agent_config_cache.get(agent_id)
+        if (
+            isinstance(cached_entry, _AgentConfigCacheEntry)
+            and cached_entry.fingerprint == current_fingerprint
+        ):
+            return cached_entry.config.model_copy(deep=True)
+
+        try:
+            raw_content, current_fingerprint = _read_agent_config_snapshot(
+                agent_config_path,
+            )
+            content_digest = hashlib.sha256(raw_content).digest()
+            data = json.loads(raw_content)
+        except UnicodeDecodeError as exc:
             raise ConfigurationException(
                 config_key="agent",
                 message=(
                     f"Agent '{agent_id}' configuration file is corrupted "
                     f"(invalid UTF-8 encoding). Path: {agent_config_path}. "
-                    f"Please repair or delete it. Error: {e}"
+                    f"Please repair or delete it. Error: {exc}"
                 ),
-            ) from e
-        except json.JSONDecodeError as e:
+            ) from exc
+        except json.JSONDecodeError as exc:
             raise ConfigurationException(
                 config_key="agent",
                 message=(
                     f"Agent '{agent_id}' configuration file contains "
-                    f"invalid JSON. Path: {agent_config_path}. Error: {e}"
+                    f"invalid JSON. Path: {agent_config_path}. Error: {exc}"
                 ),
-            ) from e
+            ) from exc
 
+        try:
+            _assert_agent_config_unchanged(
+                agent_config_path,
+                content_digest,
+                agent_id,
+            )
+        except AgentConfigConflictError:
+            _agent_config_cache.pop(agent_id, None)
+            raise
+        last_dispatch_migrated = False
+        last_dispatch_migration_failed = False
+        migration_write_failed = False
+        mail_credentials_migrated = migrate_agent_mail_credentials(
+            data,
+            workspace_dir,
+        )
+        if "last_dispatch" in data:
+            try:
+                _migrate_last_dispatch_state(
+                    workspace_dir,
+                    data["last_dispatch"],
+                )
+            except Exception:
+                last_dispatch_migration_failed = True
+                logger.exception(
+                    f"Failed to migrate last dispatch state for agent "
+                    f"{agent_id}",
+                )
+            else:
+                data.pop("last_dispatch")
+                last_dispatch_migrated = True
         project_dir_migrated = migrate_project_directory_config(data)
 
         # Match the existing migration behavior: migrate this workspace only
@@ -2996,14 +3873,24 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             display_migrated = False
             access_control_migrated = False
 
-        if (
-            project_dir_migrated
-            or weixin_migrated
-            or display_migrated
-            or access_control_migrated
-        ):
+        migrations_applied = (
+            project_dir_migrated,
+            mail_credentials_migrated,
+            weixin_migrated,
+            display_migrated,
+            access_control_migrated,
+            last_dispatch_migrated,
+        )
+        if any(migrations_applied):
             try:
-                if project_dir_migrated or weixin_migrated or display_migrated:
+                _assert_agent_config_unchanged(
+                    agent_config_path,
+                    content_digest,
+                    agent_id,
+                )
+                if not mail_credentials_migrated and (
+                    project_dir_migrated or weixin_migrated or display_migrated
+                ):
                     import uuid as _uuid
                     import shutil as _shutil
 
@@ -3018,18 +3905,23 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                         f"{migration_name}-migrate.bak",
                     )
                     _shutil.copy2(agent_config_path, backup_path)
-                with open(
-                    agent_config_path,
-                    "w",
-                    encoding="utf-8",
-                ) as file:
-                    json.dump(data, file, ensure_ascii=False, indent=2)
+                write_json_atomic(agent_config_path, data)
+                content_digest = _json_payload_digest(data)
                 try:
-                    current_mtime = agent_config_path.stat().st_mtime
+                    current_fingerprint = _agent_config_fingerprint(
+                        agent_config_path,
+                    )
                 except OSError:
                     pass
+            except AgentConfigConflictError:
+                _agent_config_cache.pop(agent_id, None)
+                raise
             except OSError:
-                pass
+                migration_write_failed = True
+                logger.exception(
+                    f"Failed to persist agent config migration for "
+                    f"{agent_id}",
+                )
 
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
         # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
@@ -3052,14 +3944,21 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         _sanitize_loop_config(data, agent_id)
 
         agent_config = AgentProfileConfig(**data)
+        hydrate_agent_mail_credentials(workspace_dir, agent_config.mail)
+        agent_config.record_source_digest(content_digest)
 
-        # Cache the config with its mtime
-        _agent_config_cache[agent_id] = (agent_config, current_mtime)
+        if migration_write_failed or last_dispatch_migration_failed:
+            _agent_config_cache.pop(agent_id, None)
+        else:
+            _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
+                config=agent_config.model_copy(deep=True),
+                fingerprint=current_fingerprint,
+            )
 
-        return agent_config
+        return agent_config.model_copy(deep=True)
 
 
-def save_agent_config(
+def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
     agent_config: AgentProfileConfig,
 ) -> None:
@@ -3076,6 +3975,7 @@ def save_agent_config(
         load_config,
         _agent_config_cache,
         _agent_config_lock,
+        _record_agent_config_publication,
     )
 
     config = load_config()
@@ -3089,12 +3989,109 @@ def save_agent_config(
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
     agent_config_path = workspace_dir / "agent.json"
+    candidate = agent_config.model_copy(deep=True)
     with _agent_config_lock:
-        write_json_atomic(
-            agent_config_path,
-            agent_config.model_dump(exclude_none=True),
-        )
-        _agent_config_cache.pop(agent_id, None)
+        from ..drivers.errors import CredentialNotFoundError
+
+        credential_store = None
+        previous_mail_credential = None
+        mail_credential_updated = False
+        try:
+            source_digest = candidate.source_digest()
+            if source_digest is not None:
+                _assert_agent_config_unchanged(
+                    agent_config_path,
+                    source_digest,
+                    agent_id,
+                )
+
+            cached_entry = _agent_config_cache.get(agent_id)
+            had_mail = bool(
+                isinstance(cached_entry, _AgentConfigCacheEntry)
+                and cached_entry.config.mail is not None,
+            )
+            if (
+                not had_mail
+                and not isinstance(cached_entry, _AgentConfigCacheEntry)
+                and agent_config_path.is_file()
+            ):
+                try:
+                    persisted = json.loads(
+                        agent_config_path.read_text(encoding="utf-8"),
+                    )
+                    had_mail = isinstance(persisted, dict) and (
+                        persisted.get("mail") is not None
+                    )
+                except (OSError, json.JSONDecodeError):
+                    pass
+
+            if candidate.mail is not None or had_mail:
+                credential_store = _agent_mail_credential_store(workspace_dir)
+                try:
+                    previous_mail_credential = credential_store.get_sync(
+                        AGENT_MAIL_CREDENTIAL_REF,
+                    )
+                except CredentialNotFoundError:
+                    previous_mail_credential = None
+                save_agent_mail_credentials(workspace_dir, candidate.mail)
+                mail_credential_updated = True
+
+            payload = candidate.model_dump(exclude_none=True)
+            saved_digest = _json_payload_digest(payload)
+            if not candidate.uses_scroll_history:
+                from ..agents.context.scroll.sync import (
+                    invalidate_agent_migration,
+                )
+
+                invalidate_agent_migration(workspace_dir)
+            write_json_atomic(agent_config_path, payload)
+            _record_agent_config_publication()
+            candidate.record_source_digest(saved_digest)
+            agent_config.record_source_digest(saved_digest)
+            try:
+                saved_fingerprint = _agent_config_fingerprint(
+                    agent_config_path,
+                )
+            except OSError:
+                _agent_config_cache.pop(agent_id, None)
+            else:
+                _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
+                    config=candidate.model_copy(deep=True),
+                    fingerprint=saved_fingerprint,
+                )
+        except Exception:
+            # Keep the public agent config and its referenced credential on the
+            # same logical version when JSON publication fails.
+            if credential_store is not None and mail_credential_updated:
+                try:
+                    if previous_mail_credential is None:
+                        credential_store.delete_sync(
+                            AGENT_MAIL_CREDENTIAL_REF,
+                        )
+                    else:
+                        credential_store.put_sync(previous_mail_credential)
+                except Exception:  # pylint: disable=broad-except
+                    logger.exception(
+                        "Failed to restore mail credential after agent config "
+                        "write failure for %s",
+                        sanitize_log_value(agent_id),
+                    )
+            _agent_config_cache.pop(agent_id, None)
+            raise
+
+
+def mutate_agent_config(
+    agent_id: str,
+    mutator: Callable[[AgentProfileConfig], None],
+) -> AgentProfileConfig:
+    """Apply one agent-profile mutation as an atomic transaction."""
+    from .utils import _agent_config_lock
+
+    with _agent_config_lock:
+        candidate = load_agent_config(agent_id)
+        mutator(candidate)
+        save_agent_config(agent_id, candidate)
+        return candidate.model_copy(deep=True)
 
 
 async def load_agent_config_async(agent_id: str) -> AgentProfileConfig:
@@ -3110,22 +4107,14 @@ async def update_agent_config_async(
 ) -> AgentProfileConfig:
     """Atomically read, mutate, and durably save one agent configuration.
 
-    The complete legacy transaction runs in a worker thread while holding the
-    same re-entrant lock used by synchronous readers and writers. This avoids
-    blocking the event loop without introducing an await boundary between the
-    read and write phases.
+    The complete transaction runs in a worker thread while holding the
+    same re-entrant lock used by synchronous readers and writers. This
+    avoids blocking the event loop without introducing an await boundary
+    between the read and write phases.
     """
     from ..utils.io_utils import run_sync_io
-    from .utils import _agent_config_lock
 
-    def update_sync() -> AgentProfileConfig:
-        with _agent_config_lock:
-            agent_config = load_agent_config(agent_id).model_copy(deep=True)
-            updater(agent_config)
-            save_agent_config(agent_id, agent_config)
-            return agent_config
-
-    return await run_sync_io(update_sync)
+    return await run_sync_io(mutate_agent_config, agent_id, updater)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

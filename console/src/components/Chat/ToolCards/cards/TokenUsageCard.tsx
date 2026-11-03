@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { DashboardOutlined } from "@ant-design/icons";
+import { Gauge as DashboardOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
@@ -22,7 +22,7 @@ const TokenUsageCard: React.FC<TokenUsageCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<DashboardOutlined />}
+      icon={<DashboardOutlined size="1em" />}
       title={title}
     >
       {resultText && <DefaultBlock title="Output" content={resultText} />}

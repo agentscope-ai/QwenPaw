@@ -94,33 +94,14 @@ class DriverManager:
     async def build_drivers(self) -> None:
         """Scan cards_dir and build enabled handlers."""
         built: dict[str, DriverHandler] = {}
-        for path in await self._card_store.list_paths():
-            try:
-                card = await self._card_store.load_path(path)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to build Driver from %s: %s",
-                    path,
-                    exc,
-                    exc_info=True,
-                )
-                continue
-            try:
-                if not card.enabled:
-                    logger.debug(
-                        "Driver '%s' is disabled; skipping",
-                        card.name,
-                    )
-                    continue
-                handler = await self._build_and_init_handler(card)
-                built[card.name] = handler
-            except Exception as exc:
-                logger.warning(
-                    "Failed to build Driver '%s': %s",
-                    card.name,
-                    exc,
-                    exc_info=True,
-                )
+        paths = await self._card_store.list_paths()
+        results = await asyncio.gather(
+            *(self._load_and_build_driver(path) for path in paths),
+        )
+        for result in results:
+            if result is not None:
+                name, handler = result
+                built[name] = handler
 
         collisions: set[str] = set()
         old_handlers: list[DriverHandler] = []
@@ -148,6 +129,40 @@ class DriverManager:
             )
 
         await self._shutdown_handlers(old_handlers)
+
+    async def _load_and_build_driver(
+        self,
+        path: Path,
+    ) -> tuple[str, DriverHandler] | None:
+        """Load and initialize one enabled persistent Driver."""
+        try:
+            card = await self._card_store.load_path(path)
+        except Exception as exc:
+            logger.warning(
+                "Failed to build Driver from %s: %s",
+                path,
+                exc,
+                exc_info=True,
+            )
+            return None
+
+        try:
+            if not card.enabled:
+                logger.debug(
+                    "Driver '%s' is disabled; skipping",
+                    card.name,
+                )
+                return None
+            handler = await self._build_and_init_handler(card)
+            return card.name, handler
+        except Exception as exc:
+            logger.warning(
+                "Failed to build Driver '%s': %s",
+                card.name,
+                exc,
+                exc_info=True,
+            )
+            return None
 
     async def upsert_driver(
         self,

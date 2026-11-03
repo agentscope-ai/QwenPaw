@@ -18,4 +18,12 @@ describe("AgentStatusIndicator", () => {
     const indicator = screen.getByRole("status", { name: label });
     expect(indicator).toHaveAttribute("data-status", status);
   });
+
+  it("gives disabled state precedence over a stale runtime status", () => {
+    render(<AgentStatusIndicator status="running" enabled={false} />);
+
+    expect(
+      screen.getByRole("status", { name: "agent.status.disabled" }),
+    ).toHaveAttribute("data-status", "disabled");
+  });
 });

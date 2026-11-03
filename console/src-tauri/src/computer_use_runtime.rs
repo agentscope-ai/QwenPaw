@@ -720,7 +720,7 @@ pub(crate) fn backend_environment(app: &tauri::AppHandle) -> Vec<(String, String
 }
 
 /// Stop the helper when the desktop host exits.
-pub(crate) fn stop(app: &tauri::AppHandle) {
+pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<ComputerUseRuntimeState>();
     if let Some(control) = state
         .control
@@ -733,9 +733,7 @@ pub(crate) fn stop(app: &tauri::AppHandle) {
             log::warn!("[computer-use] control endpoint stopped unexpectedly");
         }
     }
-    if let Err(error) = stop_helper(app) {
-        log::warn!("[computer-use] failed to stop helper: {error}");
-    }
+    stop_helper(app)
 }
 
 /// Terminate the managed helper as part of desktop-host shutdown.
@@ -1235,10 +1233,9 @@ mod tests {
 
     #[test]
     fn parses_matching_helper_ready_line() {
-        assert_eq!(
-            parse_helper_ready_line("QWENPAW_COMPUTER_USE_READY {\"protocol_version\":1}"),
-            Ok(Some(()))
-        );
+        let line =
+            format!("QWENPAW_COMPUTER_USE_READY {{\"protocol_version\":{PROTOCOL_VERSION}}}");
+        assert_eq!(parse_helper_ready_line(&line), Ok(Some(())));
     }
 
     #[test]
@@ -1248,8 +1245,12 @@ mod tests {
 
     #[test]
     fn rejects_incompatible_helper_ready_line() {
-        let error = parse_helper_ready_line("QWENPAW_COMPUTER_USE_READY {\"protocol_version\":2}")
-            .expect_err("protocol mismatch must fail startup");
+        let line = format!(
+            "QWENPAW_COMPUTER_USE_READY {{\"protocol_version\":{}}}",
+            PROTOCOL_VERSION + 1
+        );
+        let error =
+            parse_helper_ready_line(&line).expect_err("protocol mismatch must fail startup");
 
         assert!(error.contains("incompatible"));
     }

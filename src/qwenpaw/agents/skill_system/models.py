@@ -68,6 +68,7 @@ class SkillRequirements(BaseModel):
 
     require_bins: list[str] = Field(default_factory=list)
     require_envs: list[str] = Field(default_factory=list)
+    require_mcps: list[str] = Field(default_factory=list)
 
 
 __all__ = [

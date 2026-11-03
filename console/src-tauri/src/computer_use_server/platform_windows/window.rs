@@ -11,8 +11,9 @@ use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
+    EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW, GA_ROOT,
+    GA_ROOTOWNER, GWL_STYLE, WM_CLOSE, WS_POPUP,
 };
 
 use super::super::app_identity::app_id_from_path;
@@ -23,6 +24,108 @@ use super::super::state::WindowInfo;
 // before reporting that it is still open (usually a save prompt).
 const CLOSE_POLL_ATTEMPTS: u32 = 40;
 const CLOSE_POLL_INTERVAL_MS: u64 = 50;
+const MAX_RELATED_WINDOWS: usize = 3;
+
+/// Visible top-level surfaces that belong to one stable target window.
+/// Related windows are ordered back to front for monotonically increasing
+/// screenshot z-index values; `input_hwnd` identifies the frontmost surface.
+pub(super) struct ObservationWindows {
+    pub(super) input_hwnd: isize,
+    pub(super) related: Vec<isize>,
+}
+
+pub(super) fn observation_windows(window: &WindowInfo) -> ObservationWindows {
+    let target = HWND(window.hwnd as _);
+    let target_thread = unsafe { GetWindowThreadProcessId(target, None) };
+    struct EnumData {
+        target: HWND,
+        target_thread: u32,
+        related: Vec<isize>,
+    }
+
+    unsafe extern "system" fn callback(hwnd: HWND, data: LPARAM) -> BOOL {
+        let data = unsafe { &mut *(data.0 as *mut EnumData) };
+        if hwnd == data.target {
+            return BOOL(0);
+        }
+        if data.related.len() >= MAX_RELATED_WINDOWS {
+            return BOOL(0);
+        }
+        if unsafe { IsWindowVisible(hwnd).as_bool() }
+            && matches_target_window_with_thread(data.target, hwnd, data.target_thread)
+            && get_visible_window_rect(hwnd).is_ok()
+        {
+            data.related.push(hwnd.0 as isize);
+        }
+        BOOL(1)
+    }
+
+    let mut data = EnumData {
+        target,
+        target_thread,
+        related: Vec::new(),
+    };
+    unsafe {
+        let _ = EnumWindows(Some(callback), LPARAM(&mut data as *mut EnumData as isize));
+    }
+    let input_hwnd = data.related.first().copied().unwrap_or(window.hwnd);
+    data.related.reverse();
+    ObservationWindows {
+        input_hwnd,
+        related: data.related,
+    }
+}
+
+/// Accept the selected window, its children/owned windows, and visible popup
+/// surfaces created by the same UI thread. The latter covers native menus and
+/// drop-downs that intentionally have no owner HWND.
+pub(super) fn matches_target_window(target: HWND, candidate: HWND) -> bool {
+    let target_thread = unsafe { GetWindowThreadProcessId(target, None) };
+    matches_target_window_with_thread(target, candidate, target_thread)
+}
+
+/// Return whether `candidate` is the surface itself or one of its child HWNDs.
+/// Coordinate input is bound to a captured surface, not merely to any popup
+/// created by the same application thread.
+pub(super) fn matches_observed_surface(surface: HWND, candidate: HWND) -> bool {
+    !candidate.0.is_null() && unsafe { GetAncestor(candidate, GA_ROOT) == surface }
+}
+
+fn matches_target_window_with_thread(target: HWND, candidate: HWND, target_thread: u32) -> bool {
+    if candidate.0.is_null() {
+        return false;
+    }
+    unsafe {
+        let candidate_root = GetAncestor(candidate, GA_ROOT);
+        window_relation_matches(
+            target,
+            candidate_root,
+            GetAncestor(target, GA_ROOTOWNER),
+            GetAncestor(candidate, GA_ROOTOWNER),
+        ) || same_thread_popup(candidate_root, target_thread)
+    }
+}
+
+fn same_thread_popup(candidate: HWND, target_thread: u32) -> bool {
+    popup_relation_matches(
+        target_thread,
+        unsafe { GetWindowThreadProcessId(candidate, None) },
+        unsafe { GetWindowLongPtrW(candidate, GWL_STYLE) } as u32,
+    )
+}
+
+fn popup_relation_matches(target_thread: u32, candidate_thread: u32, style: u32) -> bool {
+    target_thread != 0 && candidate_thread == target_thread && style & WS_POPUP.0 != 0
+}
+
+pub(super) fn window_relation_matches(
+    target: HWND,
+    candidate_root: HWND,
+    target_root_owner: HWND,
+    candidate_root_owner: HWND,
+) -> bool {
+    candidate_root == target || (target_root_owner == target && candidate_root_owner == target)
+}
 
 pub(crate) fn list_windows(app: Option<&str>) -> Vec<Value> {
     enumerate_windows()
@@ -222,5 +325,13 @@ mod tests {
             "notepad",
             "Notepad"
         )));
+    }
+
+    #[test]
+    fn only_same_thread_popup_styles_extend_the_target_surface() {
+        assert!(popup_relation_matches(7, 7, WS_POPUP.0));
+        assert!(!popup_relation_matches(7, 8, WS_POPUP.0));
+        assert!(!popup_relation_matches(7, 7, 0));
+        assert!(!popup_relation_matches(0, 0, WS_POPUP.0));
     }
 }

@@ -18,7 +18,10 @@ from PIL import Image
 
 from models import config as model_config
 from services.runtime_files.safe_remote_download import safe_download_bytes
+from utils.logger import setup_logger
 from utils.paths import local_path_from_file_url, media_path_from_url
+
+logger = setup_logger("models.media_transport")
 
 OSS_POLICY_URL = "https://dashscope.aliyuncs.com/api/v1/uploads"
 DEFAULT_CREATOR_MEDIA_BUCKET = "creator-store"
@@ -158,6 +161,12 @@ def _dashscope_temp_upload_cache_key(
     )
 
 
+def _mask_key(key: str) -> str:
+    if not key:
+        return "(empty)"
+    return "[redacted]"
+
+
 def _fetch_dashscope_upload_policy(
     client: httpx.Client,
     *,
@@ -166,6 +175,13 @@ def _fetch_dashscope_upload_policy(
     size: int,
 ) -> dict:
     """Fetch the model-bound upload policy and enforce its size limit."""
+    logger.info(
+        "DashScope upload policy request | url=%s, model=%s, api_key=%s, size=%d",
+        OSS_POLICY_URL,
+        model_name,
+        _mask_key(api_key),
+        size,
+    )
     policy_response = client.get(
         OSS_POLICY_URL,
         params={"action": "getPolicy", "model": model_name},
@@ -173,6 +189,10 @@ def _fetch_dashscope_upload_policy(
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
+    )
+    logger.info(
+        "DashScope upload policy response | status=%d",
+        policy_response.status_code,
     )
     policy_response.raise_for_status()
     payload = policy_response.json()
@@ -239,6 +259,13 @@ def _upload_local_file_to_dashscope_temp_sync(
             "DashScope temporary upload rejects files larger than 1GB; "
             "provide a safe public nativeModelUrl/publicSourceUrl instead",
         )
+    logger.info(
+        "DashScope temp upload start | path=%s, size=%d, model=%s, media_type=%s",
+        path,
+        size,
+        model_name,
+        media_type,
+    )
     timeout = httpx.Timeout(connect=30.0, read=300.0, write=3600.0, pool=30.0)
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         policy = _fetch_dashscope_upload_policy(
@@ -249,13 +276,15 @@ def _upload_local_file_to_dashscope_temp_sync(
         )
         filename = _dashscope_transport_filename(path, media_type)
         with path.open("rb") as file_handle:
-            return _post_dashscope_temp_upload(
+            result = _post_dashscope_temp_upload(
                 client,
                 policy,
                 filename,
                 file_handle,
                 media_type,
             )
+            logger.info("DashScope temp upload complete | result=%s", result)
+            return result
 
 
 async def upload_local_file_to_dashscope_temp(
@@ -328,6 +357,13 @@ def _upload_reference_bytes_to_dashscope_temp_sync(
             "DashScope temporary upload rejects files larger than 1GB",
         )
     media_type = _reference_media_type(filename, content)
+    logger.info(
+        "DashScope reference upload start | filename=%s, size=%d, model=%s, media_type=%s",
+        filename,
+        size,
+        model_name,
+        media_type,
+    )
     timeout = httpx.Timeout(connect=30.0, read=300.0, write=3600.0, pool=30.0)
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         policy = _fetch_dashscope_upload_policy(
@@ -336,13 +372,15 @@ def _upload_reference_bytes_to_dashscope_temp_sync(
             model_name=model_name,
             size=size,
         )
-        return _post_dashscope_temp_upload(
+        result = _post_dashscope_temp_upload(
             client,
             policy,
             _safe_filename(filename),
             content,
             media_type,
         )
+        logger.info("DashScope reference upload complete | result=%s", result)
+        return result
 
 
 async def upload_reference_bytes_to_dashscope_temp(

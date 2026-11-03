@@ -33,6 +33,7 @@ export const DOC_GROUPS: DocGroup[] = [
         slug: "memory-evolving-and-proactive",
         titleKey: "docs.memoryEvolvingAndProactive",
       },
+      { slug: "mailbox", titleKey: "docs.mailbox" },
     ],
   },
   {
@@ -47,6 +48,8 @@ export const DOC_GROUPS: DocGroup[] = [
         slug: "loop-engineering",
         titleKey: "docs.loopEngineering",
       },
+      { slug: "advisor-mode", titleKey: "docs.advisorMode" },
+      { slug: "import", titleKey: "docs.import" },
       { slug: "config", titleKey: "docs.config" },
     ],
   },
@@ -60,6 +63,10 @@ export const DOC_GROUPS: DocGroup[] = [
       { slug: "plugins", titleKey: "docs.plugins" },
       { slug: "plugins-migration", titleKey: "docs.pluginsMigration" },
     ],
+  },
+  {
+    titleKey: "docs.groupHub",
+    children: [{ slug: "hub", titleKey: "docs.hub" }],
   },
   {
     titleKey: "docs.groupBrowserDesktop",

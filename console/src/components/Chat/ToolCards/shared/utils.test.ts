@@ -13,6 +13,7 @@ import {
   formatMemorySearch,
   getMediaInfo,
   hasMultimediaPreview,
+  shortFileName,
 } from "./utils";
 import type { ToolCallContent } from "./types";
 
@@ -30,6 +31,33 @@ const translate = ((key: string) => {
 
   return translations[key] ?? key;
 }) as TFunction;
+
+describe("shortFileName", () => {
+  it("extracts a filename from a POSIX path", () => {
+    expect(shortFileName("/tmp/report.txt")).toBe("report.txt");
+  });
+
+  it("extracts a filename from a Windows path", () => {
+    expect(shortFileName("C:\\Users\\test\\report.txt")).toBe("report.txt");
+  });
+
+  it("strips URL query and hash and decodes the filename", () => {
+    expect(
+      shortFileName(
+        "https://example.com/QA%E6%B5%8B%E8%AF%95.md?download=1#preview",
+      ),
+    ).toBe("QA测试.md");
+  });
+
+  it("keeps malformed percent sequences verbatim", () => {
+    expect(shortFileName("file:///tmp/100%_done.md")).toBe("100%_done.md");
+  });
+
+  it("returns no filename for inline data and blob URLs", () => {
+    expect(shortFileName("data:text/plain;base64,abc")).toBe("");
+    expect(shortFileName("blob:https://example.com/id")).toBe("");
+  });
+});
 
 describe("formatMemorySearch", () => {
   it("renders memory search results as readable markdown cards", () => {
@@ -149,6 +177,64 @@ describe("getMediaInfo", () => {
     );
     expect(media?.url).toBe("/api/files/preview/abs/path/file1.txt");
     expect(media?.name).toBe("file1.txt");
+  });
+
+  it("uses the DataBlock `name` for a non-ASCII filename", () => {
+    // agentscope types URLSource.url as a pydantic AnyUrl, so the URL always
+    // arrives percent-encoded while the readable name rides along on `name`.
+    const media = getMediaInfo(
+      baseToolCall({
+        params: { file_path: "/media/QA测试_示例.md" },
+        status: "done",
+        result: JSON.stringify([
+          {
+            type: "data",
+            source: {
+              type: "url",
+              url: "file:///media/QA%E6%B5%8B%E8%AF%95_%E7%A4%BA%E4%BE%8B.md",
+              media_type: "text/markdown",
+            },
+            name: "QA测试_示例.md",
+          },
+          { type: "text", text: "File sent successfully." },
+        ]),
+      }),
+    );
+    expect(media?.name).toBe("QA测试_示例.md");
+  });
+
+  it("decodes a percent-encoded URL when no block name is present", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        status: "done",
+        result: JSON.stringify([
+          {
+            type: "data",
+            source: {
+              type: "url",
+              url: "file:///media/QA%E6%B5%8B%E8%AF%95_%E7%A4%BA%E4%BE%8B.md",
+              media_type: "text/markdown",
+            },
+          },
+        ]),
+      }),
+    );
+    expect(media?.name).toBe("QA测试_示例.md");
+  });
+
+  it("keeps a malformed percent sequence verbatim instead of throwing", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        status: "done",
+        result: JSON.stringify([
+          {
+            type: "data",
+            source: { type: "url", url: "file:///media/100%_done.md" },
+          },
+        ]),
+      }),
+    );
+    expect(media?.name).toBe("100%_done.md");
   });
 
   it("only auto-expands multimedia file previews", () => {

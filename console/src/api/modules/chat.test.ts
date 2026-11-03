@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { chatApi } from "./chat";
+import { chatApi, sessionApi } from "./chat";
 
 // chat.ts uses both fetch (uploadFile) and the request wrapper (others) — mock both
 vi.mock("../request", () => ({ request: vi.fn() }));
@@ -13,6 +13,19 @@ vi.mock("../authHeaders", () => ({
 
 import { request } from "../request";
 import { getApiToken } from "../config";
+
+it("resolves a deep link with an explicit alias scope and abort signal", async () => {
+  const controller = new AbortController();
+  await chatApi.resolveChat("chat/id", {
+    currentAgentId: "agent a",
+    signal: controller.signal,
+  });
+
+  expect(request).toHaveBeenCalledWith(
+    "/chats/resolve?chat_id=chat%2Fid&current_agent_id=agent+a",
+    { signal: controller.signal },
+  );
+});
 
 // ---------------------------------------------------------------------------
 // filePreviewUrl — pure function, highest ROI
@@ -142,6 +155,13 @@ describe("chatApi.listChats", () => {
     expect(request).toHaveBeenCalledWith("/chats?user_id=u1");
   });
 
+  it("can list chats for a specific agent without changing the active agent", async () => {
+    await chatApi.listChats({ agentId: "other-agent" });
+    expect(request).toHaveBeenCalledWith("/chats", {
+      headers: { "X-Agent-Id": "other-agent" },
+    });
+  });
+
   it("builds query string with channel", async () => {
     await chatApi.listChats({ channel: "console" });
     expect(request).toHaveBeenCalledWith("/chats?channel=console");
@@ -152,6 +172,16 @@ describe("chatApi.listChats", () => {
     expect(request).toHaveBeenCalledWith(expect.stringContaining("user_id=u1"));
     expect(request).toHaveBeenCalledWith(
       expect.stringContaining("channel=dingtalk"),
+    );
+  });
+
+  it("can exclude PawApp-owned dialogues for the main Chat surface", async () => {
+    await chatApi.listChats({
+      archived: false,
+      include_app_owned: false,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats?archived=false&include_app_owned=false",
     );
   });
 });
@@ -168,6 +198,63 @@ describe("chatApi CRUD", () => {
     expect(request).toHaveBeenCalledWith(
       "/chats/chat%2F1",
       expect.objectContaining({ signal: undefined }),
+    );
+  });
+
+  it("getChat can exclude PawApp-owned dialogue history", async () => {
+    await chatApi.getChat("chat-1", { include_app_owned: false });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1?include_app_owned=false",
+      expect.objectContaining({ signal: undefined }),
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Signal passthrough — regression for #598
+  // When getChat is called with an AbortSignal, it must be forwarded to the
+  // underlying request so callers can cancel in-flight fetches.
+  // -------------------------------------------------------------------------
+  it("getChat forwards AbortSignal to request (#598)", async () => {
+    const controller = new AbortController();
+    await chatApi.getChat("chat-1", { signal: controller.signal });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("getChat forwards signal together with include_app_owned (#598)", async () => {
+    const controller = new AbortController();
+    await chatApi.getChat("chat-1", {
+      signal: controller.signal,
+      include_app_owned: true,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1?include_app_owned=true",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("getChatStatus uses the lightweight status endpoint", async () => {
+    await chatApi.getChatStatus("chat/1");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1/status",
+      expect.objectContaining({ signal: undefined, headers: undefined }),
+    );
+  });
+
+  it("getChatStatus forwards agent identity and AbortSignal", async () => {
+    const controller = new AbortController();
+    await chatApi.getChatStatus("chat-1", {
+      signal: controller.signal,
+      agentId: "agent-2",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1/status",
+      expect.objectContaining({
+        signal: controller.signal,
+        headers: { "X-Agent-Id": "agent-2" },
+      }),
     );
   });
 
@@ -202,6 +289,66 @@ describe("chatApi CRUD", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify(["id1", "id2"]),
+      }),
+    );
+  });
+
+  it("forwards captured agent identity for session mutations", async () => {
+    vi.mocked(request).mockClear();
+    await chatApi.archiveChat("chat-1", "agent-a");
+    await chatApi.unarchiveChat("chat-1", "agent-a");
+    await chatApi.batchArchiveChats(["chat-1"], "agent-a");
+    await chatApi.batchUnarchiveChats(["chat-1"], "agent-a");
+    await sessionApi.updateSession("chat-1", { name: "Renamed" }, "agent-a");
+    await sessionApi.deleteSession("chat-1", "agent-a");
+    await sessionApi.batchDeleteSessions(["chat-1"], "agent-a");
+
+    expect(request).toHaveBeenCalledTimes(7);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(options).toEqual(
+        expect.objectContaining({ headers: { "X-Agent-Id": "agent-a" } }),
+      );
+    }
+  });
+
+  it("creates and renames chat groups", async () => {
+    await chatApi.createGroup("Work");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "Work" }),
+      }),
+    );
+
+    await chatApi.updateGroup("group/1", { name: "Projects" });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups/group%2F1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ name: "Projects" }),
+      }),
+    );
+  });
+
+  it("pins a chat group", async () => {
+    await chatApi.updateGroup("group-1", { pinned: true });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups/group-1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ pinned: true }),
+      }),
+    );
+  });
+
+  it("persists the complete chat-group order", async () => {
+    await chatApi.reorderGroups(["default", "subagents"]);
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups/order",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ group_ids: ["default", "subagents"] }),
       }),
     );
   });

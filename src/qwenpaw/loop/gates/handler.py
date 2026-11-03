@@ -139,6 +139,9 @@ class StopHandler:
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             continuation_message=msg,
+            inject_on_tool_call=bool(
+                continue_result and continue_result.inject_on_tool_call,
+            ),
             reason=(
                 continue_result.reason
                 if continue_result

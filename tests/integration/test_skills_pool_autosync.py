@@ -5,7 +5,7 @@ Deepens coverage of ``SkillPoolService`` / the pool router beyond the
 CRUD paths already in ``test_skills_pool.py``. Focus: the v2.0 auto-sync
 surface that was previously 0-covered:
 
-  - PUT  /api/skills/pool/{skill_name}/auto-update   (toggle + 404)
+  - PUT  /api/skills/pool/{skill_name}/auto-sync   (toggle + 404)
   - GET  /api/skills/pool/builtin-notice
   - GET  /api/skills/pool/builtin-sources
   - POST /api/skills/pool/refresh
@@ -81,26 +81,26 @@ def _pool_entry(app_server, name: str) -> dict[str, Any] | None:
 
 
 # ================================================================== #
-# A — auto-update toggle (happy path, P0/P1)
+# A — auto-sync toggle (happy path, P0/P1)
 # ================================================================== #
 
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_auto_update_enable_then_disable_roundtrip(app_server) -> None:
-    """PUT auto-update toggles the pool skill's auto_update flag.
+def test_auto_sync_enable_then_disable_roundtrip(app_server) -> None:
+    """PUT auto-sync toggles the pool skill's auto_sync flag.
 
     Test flow:
       1. Create a pool skill.
-      2. PUT .../auto-update {enabled:True} -> 200 updated/enabled.
-      3. GET /pool: the skill shows auto_update=True.
-      4. PUT .../auto-update {enabled:False} -> 200.
-      5. GET /pool: auto_update=False again.
+      2. PUT .../auto-sync {enabled:True} -> 200 updated/enabled.
+      3. GET /pool: the skill shows auto_sync=True.
+      4. PUT .../auto-sync {enabled:False} -> 200.
+      5. GET /pool: auto_sync=False again.
       6. finally: delete the pool skill.
 
     API endpoints:
       - POST /api/skills/pool/create
-      - PUT  /api/skills/pool/{skill_name}/auto-update
+      - PUT  /api/skills/pool/{skill_name}/auto-sync
       - GET  /api/skills/pool
       - DELETE /api/skills/pool/{skill_name}
     """
@@ -110,7 +110,7 @@ def test_auto_update_enable_then_disable_roundtrip(app_server) -> None:
 
         on = app_server.api_request(
             "PUT",
-            f"{_POOL_BASE}/{name}/auto-update",
+            f"{_POOL_BASE}/{name}/auto-sync",
             json={"enabled": True, "targets": None},
             timeout=_HTTP_TIMEOUT,
         )
@@ -118,40 +118,40 @@ def test_auto_update_enable_then_disable_roundtrip(app_server) -> None:
         assert on.json()["updated"] is True
         assert on.json()["enabled"] is True
         entry = _pool_entry(app_server, name)
-        assert entry is not None and entry["auto_update"] is True, entry
+        assert entry is not None and entry["auto_sync"] is True, entry
 
         off = app_server.api_request(
             "PUT",
-            f"{_POOL_BASE}/{name}/auto-update",
+            f"{_POOL_BASE}/{name}/auto-sync",
             json={"enabled": False},
             timeout=_HTTP_TIMEOUT,
         )
         assert off.status_code == 200, app_server.logs_tail()
         assert off.json()["enabled"] is False
         entry = _pool_entry(app_server, name)
-        assert entry is not None and entry["auto_update"] is False, entry
+        assert entry is not None and entry["auto_sync"] is False, entry
     finally:
         _delete_pool_skill_quietly(app_server, name)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_auto_update_persists_targets(app_server) -> None:
-    """PUT auto-update with explicit targets persists them.
+def test_auto_sync_persists_targets(app_server) -> None:
+    """PUT auto-sync with explicit targets persists them.
 
     Test flow:
       1. Create a pool skill.
-      2. PUT .../auto-update {enabled:True, targets:[...]} -> 200,
+      2. PUT .../auto-sync {enabled:True, targets:[...]} -> 200,
          response echoes the targets.
-      3. GET /pool: the slim list entry shows auto_update=True.
+      3. GET /pool: the slim list entry shows auto_sync=True.
       4. GET /pool/{name}: the detail entry exposes the persisted
-         auto_update_targets (the list view intentionally only carries
+         auto_sync_targets (the list view intentionally only carries
          lightweight fields; per-skill detail lives on the detail
          endpoint).
       5. finally: delete the pool skill.
 
     API endpoints:
-      - PUT /api/skills/pool/{skill_name}/auto-update
+      - PUT /api/skills/pool/{skill_name}/auto-sync
       - GET /api/skills/pool
       - GET /api/skills/pool/{skill_name}
     """
@@ -161,15 +161,15 @@ def test_auto_update_persists_targets(app_server) -> None:
         _create_pool_skill(app_server, name)
         resp = app_server.api_request(
             "PUT",
-            f"{_POOL_BASE}/{name}/auto-update",
+            f"{_POOL_BASE}/{name}/auto-sync",
             json={"enabled": True, "targets": targets},
             timeout=_HTTP_TIMEOUT,
         )
         assert resp.status_code == 200, app_server.logs_tail()
         assert resp.json()["targets"] == targets
         entry = _pool_entry(app_server, name)
-        assert entry is not None, "pool skill missing after auto-update"
-        assert entry["auto_update"] is True
+        assert entry is not None, "pool skill missing after auto-sync"
+        assert entry["auto_sync"] is True
         detail = app_server.api_request(
             "GET",
             f"{_POOL_BASE}/{name}",
@@ -177,22 +177,22 @@ def test_auto_update_persists_targets(app_server) -> None:
         )
         assert detail.status_code == 200, app_server.logs_tail()
         detail_body = detail.json()
-        assert detail_body["auto_update_targets"] == targets, detail_body
+        assert detail_body["auto_sync_targets"] == targets, detail_body
     finally:
         _delete_pool_skill_quietly(app_server, name)
 
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_auto_update_unknown_skill_returns_404(app_server) -> None:
-    """PUT auto-update on a missing pool skill -> 404.
+def test_auto_sync_unknown_skill_returns_404(app_server) -> None:
+    """PUT auto-sync on a missing pool skill -> 404.
 
     API endpoints:
-      - PUT /api/skills/pool/{skill_name}/auto-update
+      - PUT /api/skills/pool/{skill_name}/auto-sync
     """
     resp = app_server.api_request(
         "PUT",
-        f"{_POOL_BASE}/integ-pool-au-nonexistent/auto-update",
+        f"{_POOL_BASE}/integ-pool-au-nonexistent/auto-sync",
         json={"enabled": True},
         timeout=_HTTP_TIMEOUT,
     )

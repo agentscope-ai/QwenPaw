@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for bounded multi-agent startup scheduling."""
+
 # pylint: disable=protected-access
 from __future__ import annotations
 
@@ -18,9 +19,25 @@ from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
 from qwenpaw.app.workspace import Workspace
-from qwenpaw.agents.memory.adbpg_memory_manager import ADBPGMemoryManager
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.agents.memory.reme_light_memory_manager import (
+    ReMeLightMemoryManager,
+)
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
+from qwenpaw.memory import MemoryBackendContext, memory_registry
+
+
+class _RemoteMemoryManager:
+    def __init__(self, context: MemoryBackendContext) -> None:
+        self.context = context
+        self.config = dict(context.backend_config)
+
+    async def start(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
 
 
 def _config(*agent_ids: str):
@@ -63,6 +80,9 @@ class _ReloadWorkspace:
         accepted: set[str] | None = None,
     ) -> None:
         self.agent_id = agent_id
+        self.config = AgentProfileConfig(id=agent_id, name=agent_id)
+        self.config.running.light_context_config.strategy = "native"
+        self.start_history_retention = AsyncMock()
         self.task_tracker = TaskTracker()
         self._service_manager = _ReloadServiceManager(reusable, accepted)
         self.started = False
@@ -104,6 +124,50 @@ def test_workspace_reload_reuses_memory_manager(tmp_path) -> None:
 
     descriptor = workspace._service_manager.descriptors["memory_manager"]
     assert descriptor.reusable is True
+    assert descriptor.require_clean_stop is True
+
+
+@pytest.mark.asyncio
+async def test_workspace_falls_back_to_remelight_for_unregistered_backend(
+    monkeypatch,
+    tmp_path,
+    caplog,
+) -> None:
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        language="zh",
+        running=SimpleNamespace(
+            memory_manager_backend="missing-memory-plugin",
+            memory_backend_configs={
+                "missing-memory-plugin": {"token": "keep-me"},
+            },
+            light_context_config=SimpleNamespace(
+                token_count_estimate_divisor=4.0,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        ReMeLightMemoryManager,
+        "_initialize_reme",
+        lambda _self: None,
+    )
+
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    assert isinstance(workspace.memory_manager, ReMeLightMemoryManager)
+    assert workspace.memory_manager.context.backend_config == {}
+    assert (
+        workspace.config.running.memory_manager_backend
+        == "missing-memory-plugin"
+    )
+    assert workspace.config.running.memory_backend_configs == {
+        "missing-memory-plugin": {"token": "keep-me"},
+    }
+    assert "using 'remelight'" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -117,7 +181,15 @@ async def test_workspace_replaces_reused_memory_manager_after_backend_switch(
     workspace._config = SimpleNamespace(
         running=SimpleNamespace(memory_manager_backend="none"),
     )
-    old_manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
+    old_manager = SimpleNamespace(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=tmp_path,
+            backend_config={"kind": "old"},
+        ),
+        close=AsyncMock(),
+    )
 
     await workspace.set_reusable_components(
         {"memory_manager": old_manager},
@@ -141,7 +213,14 @@ async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
     workspace._config = SimpleNamespace(
         running=SimpleNamespace(memory_manager_backend="none"),
     )
-    old_manager = NoopMemoryManager(str(tmp_path), "agent-1")
+    old_manager = NoopMemoryManager(
+        context=MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=constants.WORKING_DIR,
+            backend_config={},
+        ),
+    )
 
     await workspace.set_reusable_components(
         {"memory_manager": old_manager},
@@ -151,6 +230,65 @@ async def test_workspace_keeps_reused_manager_when_backend_is_unchanged(
 
     assert workspace.memory_manager is old_manager
     assert "memory_manager" in workspace._service_manager.reused_services
+
+
+@pytest.mark.asyncio
+async def test_workspace_recreates_plugin_manager_when_config_changes(
+    tmp_path,
+) -> None:
+    """A reload must not keep a client with the old remote scope or URL."""
+    old_config = {
+        "base_url": "http://old.example",
+        "scope_id": "agent:old",
+    }
+    new_config = {
+        "base_url": "http://new.example",
+        "scope_id": "agent:new",
+    }
+    workspace = Workspace(
+        agent_id="agent-1",
+        workspace_dir=str(tmp_path),
+    )
+    workspace._config = SimpleNamespace(
+        running=SimpleNamespace(
+            memory_manager_backend="remote-memory",
+            memory_backend_configs={
+                "remote-memory": new_config,
+            },
+            light_context_config=SimpleNamespace(
+                token_count_estimate_divisor=4.0,
+            ),
+        ),
+        language="zh",
+    )
+    old_manager = _RemoteMemoryManager(
+        MemoryBackendContext(
+            agent_id="agent-1",
+            working_dir=tmp_path,
+            host_working_dir=tmp_path,
+            backend_config=old_config,
+        ),
+    )
+    memory_registry.register_backend(
+        plugin_id="test-remote-memory",
+        backend_id="remote-memory",
+        factory=_RemoteMemoryManager,
+        label="Remote Memory",
+    )
+
+    await workspace.set_reusable_components(
+        {"memory_manager": old_manager},
+    )
+    descriptor = workspace._service_manager.descriptors["memory_manager"]
+    await workspace._service_manager._start_service(descriptor)
+
+    manager = workspace.memory_manager
+    assert manager is not old_manager
+    assert isinstance(manager, _RemoteMemoryManager)
+    assert manager.config["base_url"] == "http://new.example"
+    assert manager.config["scope_id"] == "agent:new"
+    await manager.close()
+    memory_registry.unregister_owner("test-remote-memory")
 
 
 @pytest.mark.asyncio
@@ -300,17 +438,12 @@ async def test_cleanup_forces_stop_after_maximum_wait_rounds(
 
 def _read_custom_startup_concurrency(
     value: str | None = None,
-    legacy_value: str | None = None,
 ) -> int:
     """Read the import-time setting in an isolated interpreter."""
     env = os.environ.copy()
     env.pop(constants.CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV, None)
-    legacy_env = "COPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY"
-    env.pop(legacy_env, None)
     if value is not None:
         env[constants.CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV] = value
-    if legacy_value is not None:
-        env[legacy_env] = legacy_value
 
     code = (
         "from qwenpaw.constant import "
@@ -365,61 +498,9 @@ def test_custom_startup_concurrency_parsing(
     assert _read_custom_startup_concurrency(value=value) == expected
 
 
-def test_custom_startup_concurrency_supports_legacy_env() -> None:
-    """The legacy COPAW-prefixed environment variable remains supported."""
-    assert _read_custom_startup_concurrency(legacy_value="3") == 3
-
-
 @pytest.mark.asyncio
-async def test_core_agents_overlap_before_custom_agents(
-    monkeypatch,
-) -> None:
-    manager = MultiAgentManager()
-    config = _config("default", BUILTIN_QA_AGENT_ID, "custom")
-    monkeypatch.setattr(
-        "qwenpaw.app.multi_agent_manager.load_config",
-        lambda: config,
-    )
-
-    core_started = set()
-    both_core_started = asyncio.Event()
-    release_core = asyncio.Event()
-    custom_started = asyncio.Event()
-
-    async def get_agent(agent_id: str):
-        if agent_id in {"default", BUILTIN_QA_AGENT_ID}:
-            core_started.add(agent_id)
-            if len(core_started) == 2:
-                both_core_started.set()
-            await release_core.wait()
-        else:
-            custom_started.set()
-        return SimpleNamespace()
-
-    manager.get_agent = AsyncMock(side_effect=get_agent)
-    callback = MagicMock()
-    task = asyncio.create_task(
-        manager.start_all_configured_agents(
-            on_core_ready=callback,
-        ),
-    )
-
-    await asyncio.wait_for(both_core_started.wait(), timeout=1)
-    assert not custom_started.is_set()
-    release_core.set()
-    result = await asyncio.wait_for(task, timeout=1)
-
-    assert result == {
-        "default": True,
-        BUILTIN_QA_AGENT_ID: True,
-        "custom": True,
-    }
-    callback.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_core_ready_waits_for_enabled_qa(monkeypatch) -> None:
-    """Ready is published only after both enabled core agents finish."""
+async def test_default_ready_does_not_wait_for_enabled_qa(monkeypatch) -> None:
+    """Default is ready while QA continues through the bounded queue."""
     manager = MultiAgentManager()
     config = _config("default", BUILTIN_QA_AGENT_ID)
     monkeypatch.setattr(
@@ -446,33 +527,11 @@ async def test_core_ready_waits_for_enabled_qa(monkeypatch) -> None:
 
     await asyncio.wait_for(default_done.wait(), timeout=1)
     await asyncio.wait_for(qa_started.wait(), timeout=1)
-    callback.assert_not_called()
+    callback.assert_called_once_with({"default": True})
 
     release_qa.set()
     await asyncio.wait_for(task, timeout=1)
     callback.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_core_ready_does_not_wait_for_disabled_qa(monkeypatch) -> None:
-    """A disabled QA agent is excluded from the core readiness phase."""
-    manager = MultiAgentManager()
-    config = _config("default", BUILTIN_QA_AGENT_ID)
-    config.agents.profiles[BUILTIN_QA_AGENT_ID].enabled = False
-    monkeypatch.setattr(
-        "qwenpaw.app.multi_agent_manager.load_config",
-        lambda: config,
-    )
-    manager.get_agent = AsyncMock(return_value=SimpleNamespace())
-    callback = MagicMock()
-
-    result = await manager.start_all_configured_agents(
-        on_core_ready=callback,
-    )
-
-    assert result == {"default": True}
-    manager.get_agent.assert_awaited_once_with("default")
-    callback.assert_called_once_with({"default": True})
 
 
 @pytest.mark.asyncio
@@ -536,7 +595,7 @@ async def test_custom_agent_startup_respects_concurrency(
 
     async def get_agent(agent_id: str):
         nonlocal active_custom, peak_custom
-        if agent_id in custom_ids:
+        if agent_id != "default":
             active_custom += 1
             peak_custom = max(peak_custom, active_custom)
             await asyncio.sleep(0.01)
@@ -551,8 +610,8 @@ async def test_custom_agent_startup_respects_concurrency(
 
     assert all(result.values())
     assert peak_custom == 2
-    startup_display.start_custom_agents.assert_called_once_with(6)
-    assert startup_display.advance.call_count == 6
+    startup_display.start_custom_agents.assert_called_once_with(7)
+    assert startup_display.advance.call_count == 7
 
 
 @pytest.mark.asyncio
@@ -605,7 +664,7 @@ async def test_runtime_startups_share_concurrency_and_pending_state(
 @pytest.mark.asyncio
 async def test_startup_display_skips_empty_custom_phase(monkeypatch) -> None:
     manager = MultiAgentManager()
-    config = _config("default", BUILTIN_QA_AGENT_ID)
+    config = _config("default")
     monkeypatch.setattr(
         "qwenpaw.app.multi_agent_manager.load_config",
         lambda: config,

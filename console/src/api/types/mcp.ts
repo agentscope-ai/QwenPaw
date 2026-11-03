@@ -43,6 +43,12 @@ export interface MCPClientInfo {
   env: Record<string, string>;
   /** Working directory for stdio command */
   cwd: string;
+  /**
+   * HTTP MCP connect/write/pool timeout in seconds.
+   * Also raises the SSE/HTTP read budget to at least this value.
+   * null keeps the client default (30s / 300s); HTTP/SSE only.
+   */
+  http_timeout: number | null;
   /** Tool whitelist (null means all tools enabled) */
   tools: string[] | null;
   /** OAuth status (null if OAuth not configured) */
@@ -102,6 +108,12 @@ export interface MCPClientCreateRequest {
     env?: Record<string, string>;
     /** Working directory for stdio command */
     cwd?: string;
+    /**
+     * HTTP MCP connect/write/pool timeout in seconds.
+     * Also raises the SSE/HTTP read budget to at least this value.
+     * Omit for the client default (30s / 300s); HTTP/SSE only.
+     */
+    http_timeout?: number;
   };
 }
 
@@ -199,4 +211,10 @@ export interface MCPClientUpdateRequest {
   env?: Record<string, string>;
   /** Working directory for stdio command */
   cwd?: string;
+  /**
+   * HTTP MCP connect/write/pool timeout in seconds.
+   * Also raises the SSE/HTTP read budget to at least this value.
+   * Omit to leave unchanged; HTTP/SSE only.
+   */
+  http_timeout?: number;
 }

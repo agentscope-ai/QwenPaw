@@ -62,7 +62,9 @@ describe("DefaultBlock copy", () => {
     fireEvent.click(screen.getByRole("button"));
 
     await waitFor(() => {
-      expect(screen.getByLabelText("check")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /copied/i }),
+      ).toBeInTheDocument();
     });
   });
 });
@@ -79,6 +81,19 @@ describe("DefaultBlock large output", () => {
   it("keeps syntax highlighting for small content", () => {
     render(<DefaultBlock title="Output" content={makeLines(10)} />);
     expect(screen.getByTestId("syntax")).toBeInTheDocument();
+  });
+
+  it("pretty-prints JSON strings through the syntax highlighter", () => {
+    render(
+      <DefaultBlock
+        title="Output"
+        content={'[{"type":"data","source":{"type":"base64"}}]'}
+      />,
+    );
+
+    expect(screen.getByTestId("syntax")).toHaveTextContent(
+      /"source": \{\s+"type": "base64"/,
+    );
   });
 
   it("renders many-line output as plain text with head and tail", () => {

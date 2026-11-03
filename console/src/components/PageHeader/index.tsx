@@ -44,7 +44,10 @@ export function PageHeader({
       : buildItemsFromParentCurrent(parent, current);
 
   return (
-    <div className={`${styles.pageHeader} ${className ?? ""}`.trim()}>
+    <div
+      data-page-header
+      className={`${styles.pageHeader} ${className ?? ""}`.trim()}
+    >
       <div className={styles.leading}>
         <div className={styles.leadingTop}>
           <div className={styles.breadcrumbHeader}>

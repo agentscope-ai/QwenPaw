@@ -110,7 +110,7 @@ export function PetOsBubble({
 
     while (fontSize >= 10) {
       border = Math.max(2, Math.round(containerH * 0.018));
-      padding = Math.max(5, Math.round(containerH * 0.06));
+      padding = Math.max(5, Math.round(containerH * 0.04));
       const availW = Math.max(1, maxBubbleW - padding * 2 - border * 2);
       lines = wrapGreedy(text, fontSize, availW);
       textW = Math.max(...lines.map((l) => measureWidth(l, fontSize)), 1);
@@ -246,35 +246,41 @@ export function InterviewSummaryBox({
   const targetFontSize = Math.max(12, Math.round((stageWidth / 1280) * 34));
   const maxBoxW = Math.round(stageWidth * 0.7);
   const maxBoxH = Math.round(stageHeight * 0.25);
-  const padBase = Math.max(8, Math.round(stageWidth * 0.01));
-  const lines = wrapGreedy(text, targetFontSize, maxBoxW - padBase * 2);
+  const estPadding = Math.max(8, Math.round(Math.min(maxBoxW, maxBoxH) * 0.12));
+  const lines = wrapGreedy(text, targetFontSize, maxBoxW - estPadding * 2);
   const lineHeight = lineHeightOf(targetFontSize);
   const textW = Math.max(
     ...lines.map((l) => measureWidth(l, targetFontSize)),
     1,
   );
   const textH = lines.length * lineHeight - 2;
-  let boxW = Math.min(textW + padBase * 2, maxBoxW);
-  let boxH = Math.min(textH + padBase * 2, maxBoxH);
+  let boxW = Math.min(textW + estPadding * 2, maxBoxW);
+  let boxH = Math.min(textH + estPadding * 2, maxBoxH);
   let fontSize = targetFontSize;
-  if (textW + padBase * 2 > maxBoxW || textH + padBase * 2 > maxBoxH) {
+  if (textW + estPadding * 2 > maxBoxW || textH + estPadding * 2 > maxBoxH) {
     const s = Math.min(
-      maxBoxW / Math.max(textW + padBase * 2, 1),
-      maxBoxH / Math.max(textH + padBase * 2, 1),
+      maxBoxW / Math.max(textW + estPadding * 2, 1),
+      maxBoxH / Math.max(textH + estPadding * 2, 1),
     );
     fontSize = Math.max(10, Math.round(targetFontSize * s));
-    const reLines = wrapGreedy(text, fontSize, maxBoxW - padBase * 2).slice(
+    const reLines = wrapGreedy(text, fontSize, maxBoxW - estPadding * 2).slice(
       0,
       2,
     );
     const reW = Math.max(...reLines.map((l) => measureWidth(l, fontSize)), 1);
     const reH = reLines.length * lineHeightOf(fontSize) - 2;
-    boxW = Math.min(reW + padBase * 2, maxBoxW);
-    boxH = Math.min(reH + padBase * 2, maxBoxH);
+    boxW = Math.min(reW + estPadding * 2, maxBoxW);
+    boxH = Math.min(reH + estPadding * 2, maxBoxH);
     lines.length = 0;
     lines.push(...reLines);
   }
   const padding = Math.max(8, Math.round(Math.min(boxW, boxH) * 0.12));
+  const availW = Math.max(1, boxW - padding * 2);
+  const renderLines = wrapGreedy(text, fontSize, availW);
+  if (renderLines.length > 0) {
+    lines.length = 0;
+    lines.push(...renderLines);
+  }
   const border = Math.max(2, Math.round(Math.min(boxW, boxH) * 0.04));
   const radius = Math.max(4, Math.round(Math.min(boxW, boxH) * 0.18));
   const lh = lineHeightOf(fontSize);

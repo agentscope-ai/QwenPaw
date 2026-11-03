@@ -15,7 +15,10 @@ from urllib.parse import urlparse
 
 from domain.errors import StorageIntegrityError, ValidationError
 from models import config as model_config
-from models.media_transport import upload_local_file_to_dashscope_temp
+from models.vlm_model import (
+    transport_local_media_url,
+    uses_dashscope_transport,
+)
 from services.project_files.assets import AssetFileStore
 from services.project_files.facade import CreatorFileServices
 from services.project_files.remote_cache import resolve_remote_cache
@@ -28,6 +31,22 @@ from services.runtime_files.media_probe import (
 from services.runtime_files.models import CreatorMessageRecord
 
 _MEDIA_PART_TYPES = frozenset({"image_url", "video_url"})
+
+
+def _media_type_of(url: str, declared: str) -> str:
+    """Mime actually carried by *url*, falling back to *declared*.
+
+    An oversized page image is re-encoded as a downscaled JPEG on the
+    inline path, so the ``image/png`` a caller declares no longer
+    describes the payload. Consumers read the data URL header first, but
+    a stale sibling field is a trap for any that do not.
+    """
+    if url.startswith("data:"):
+        header, _, _ = url[5:].partition(";")
+        if header:
+            return header
+    return declared
+
 
 # DashScope rejects native video inputs shorter than about two seconds
 # ("The video file is too short"); such clips are delivered as an ordered
@@ -212,7 +231,7 @@ async def _short_video_frame_parts(
             },
         ]
         for timestamp_ms, frame_path in frames:
-            public_url = await upload_local_file_to_dashscope_temp(
+            public_url = await transport_local_media_url(
                 frame_path,
                 api_key=api_key,
                 model_name=model_name,
@@ -253,9 +272,11 @@ async def source_intelligence_content_parts(
     assets panel carry no message attachment, so target refs are the only
     route to their media. Public URLs stay public so analysis can begin while
     the Runtime cache task is still downloading. File-backed versions are
-    uploaded to DashScope's model-bound temporary OSS. Clips shorter than the
-    model's native-video minimum are delivered as ordered frame sequences.
-    Nothing is silently converted to a textual URL placeholder.
+    handed to the provider-bound VLM transport, which uploads to DashScope's
+    model-bound temporary OSS or inlines Base64 for any other gateway.
+    Clips shorter than the model's native-video minimum are delivered as
+    ordered frame sequences. Nothing is silently converted to a textual URL
+    placeholder.
     """
 
     parts: list[dict[str, Any]] = []
@@ -263,8 +284,42 @@ async def source_intelligence_content_parts(
     seen_urls: set[str] = set()
     referenced_versions: list[str] = []
 
+    snapshot = None
+    target_logical_ids: set[str] = set()
+    if target_refs:
+        snapshot = services.projects.read(project_id)
+        for target_ref in target_refs:
+            kind, separator, identifier = str(target_ref).partition(":")
+            if kind == "asset" and separator and identifier:
+                target_logical_ids.add(identifier)
+
+    def _foreign_to_targets(version_id: str | None) -> bool:
+        """Media provably owned by another delegation's target is dropped.
+
+        Per-target delegations share one triggering message whose refs cover
+        every upload; without this scope each run would re-observe every
+        sibling image. Unattributable media (no version or unknown version)
+        is kept — the pre-existing message-attachment contract.
+        """
+
+        if not target_logical_ids or version_id is None or snapshot is None:
+            return False
+        version = snapshot.project.assets.source_versions_by_id.get(
+            version_id,
+        )
+        return (
+            version is not None
+            and version.logical_asset_id not in target_logical_ids
+        )
+
     for content_part in request.content_parts:
         payload = content_part.model_dump(mode="json", exclude_none=True)
+        attachment = payload.get("attachment")
+        attachment_version = (
+            _version_id_from_ref(attachment.get("assetVersionRef"))
+            if isinstance(attachment, Mapping)
+            else None
+        )
         if content_part.type in _MEDIA_PART_TYPES:
             nested = payload.get(content_part.type)
             if not isinstance(nested, Mapping) or not str(
@@ -273,18 +328,14 @@ async def source_intelligence_content_parts(
                 raise ValidationError(
                     f"用户素材 {content_part.type} 缺少可传给模型的 URL",
                 )
-            identity = _part_identity(payload)
-            if identity not in seen:
-                seen.add(identity)
-                seen_urls.add(str(nested.get("url") or ""))
-                parts.append(payload)
-        attachment = payload.get("attachment")
-        if isinstance(attachment, Mapping):
-            version_id = _version_id_from_ref(
-                attachment.get("assetVersionRef"),
-            )
-            if version_id:
-                referenced_versions.append(version_id)
+            if not _foreign_to_targets(attachment_version):
+                identity = _part_identity(payload)
+                if identity not in seen:
+                    seen.add(identity)
+                    seen_urls.add(str(nested.get("url") or ""))
+                    parts.append(payload)
+        if attachment_version and not _foreign_to_targets(attachment_version):
+            referenced_versions.append(attachment_version)
 
     metadata_refs = request.metadata.get("assetVersionRefs") or []
     if isinstance(metadata_refs, list):
@@ -292,12 +343,14 @@ async def source_intelligence_content_parts(
             version_id
             for value in metadata_refs
             if (version_id := _version_id_from_ref(value)) is not None
+            and not _foreign_to_targets(version_id)
         )
 
     if not referenced_versions and not target_refs:
         return parts
 
-    snapshot = services.projects.read(project_id)
+    if snapshot is None:
+        snapshot = services.projects.read(project_id)
     if target_refs:
         sources_by_asset = {
             source.logical_asset_id: source
@@ -320,6 +373,9 @@ async def source_intelligence_content_parts(
     file_store = AssetFileStore(services.projects.project_root(project_id))
     api_key = model_config.get_vlm_api_key().strip()
     model_name = (model_config.get_vlm_model_name() or "qwen3.7-plus").strip()
+    # Only the DashScope temporary-OSS transport presents this credential;
+    # every other gateway is served inline Base64 and needs no upload key.
+    needs_upload_key = uses_dashscope_transport()
     for version_id in dict.fromkeys(referenced_versions):
         version = snapshot.project.assets.source_versions_by_id.get(version_id)
         if version is None:
@@ -348,7 +404,7 @@ async def source_intelligence_content_parts(
             ):
                 local_path = _local_source_path(snapshot, file_store, version)
                 if local_path is not None:
-                    if not api_key:
+                    if needs_upload_key and not api_key:
                         raise ValidationError(
                             "本地素材传给素材理解 Agent 需要配置 Creator VLM API key",
                         )
@@ -379,12 +435,12 @@ async def source_intelligence_content_parts(
                 raise StorageIntegrityError(
                     f"用户素材 {version_id} 不可用: {inspection.status.value}",
                 )
-            if not api_key:
+            if needs_upload_key and not api_key:
                 raise ValidationError(
                     "本地素材传给素材理解 Agent 需要配置 Creator VLM API key",
                 )
             local_path = Path(file_store.project_root, indexed.relative_uri)
-            public_url = await upload_local_file_to_dashscope_temp(
+            public_url = await transport_local_media_url(
                 local_path,
                 api_key=api_key,
                 model_name=model_name,
@@ -438,7 +494,7 @@ async def document_page_content_parts(
     if not isinstance(refs, list) or not refs:
         return []
     api_key = model_config.get_vlm_api_key().strip()
-    if not api_key:
+    if uses_dashscope_transport() and not api_key:
         raise ValidationError(
             "文档页图传给素材理解 Agent 需要配置 Creator VLM API key",
         )
@@ -452,23 +508,24 @@ async def document_page_content_parts(
         _checksum, page, local_path = resolved
         if not local_path.is_file():
             raise StorageIntegrityError(f"文档页图不存在: {ref}")
-        public_url = await upload_local_file_to_dashscope_temp(
+        public_url = await transport_local_media_url(
             local_path,
             api_key=api_key,
             model_name=model_name,
             media_type="image/png",
         )
+        media_type = _media_type_of(public_url, "image/png")
         parts.append(
             {
                 "type": "image_url",
                 "image_url": {
                     "url": public_url,
-                    "mediaType": "image/png",
+                    "mediaType": media_type,
                     "page": page,
                 },
                 "attachment": {
                     "documentPageRef": str(ref),
-                    "mediaType": "image/png",
+                    "mediaType": media_type,
                 },
             },
         )
@@ -502,7 +559,7 @@ async def video_frame_content_parts(
     if not isinstance(refs, list) or not refs:
         return []
     api_key = model_config.get_vlm_api_key().strip()
-    if not api_key:
+    if uses_dashscope_transport() and not api_key:
         raise ValidationError(
             "视频帧图传给专家 Agent 需要配置 Creator VLM API key",
         )
@@ -526,7 +583,7 @@ async def video_frame_content_parts(
             raise StorageIntegrityError(f"视频帧路径越界: {ref}")
         if not local_path.is_file():
             raise StorageIntegrityError(f"视频帧不存在: {ref}")
-        public_url = await upload_local_file_to_dashscope_temp(
+        public_url = await transport_local_media_url(
             local_path,
             api_key=api_key,
             model_name=model_name,

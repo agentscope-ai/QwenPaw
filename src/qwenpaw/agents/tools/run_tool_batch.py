@@ -622,12 +622,12 @@ async def _call_tool(
         response: ToolChunk | None = None
         tool_stream = toolkit.call_tool(tool_call, agent_state)
         async for chunk in tool_stream:
+            # Preserve interruption while draining the toolkit's final
+            # response. Closing at its interrupted yield makes AgentScope
+            # yield from finally during GeneratorExit.
+            if getattr(response, "state", None) == ToolResultState.INTERRUPTED:
+                continue
             response = chunk
-            # An INTERRUPTED chunk is terminal: keep it as the response and
-            # stop consuming so a later chunk can't overwrite the signal.
-            # (Post-loop callers detect interruption via ``response.state``.)
-            if getattr(chunk, "state", None) == ToolResultState.INTERRUPTED:
-                break
         if response is None:
             return _json_tool_response(
                 {
@@ -641,6 +641,12 @@ async def _call_tool(
             await tool_stream.aclose()
         raise
     except Exception as exc:  # pylint: disable=broad-except
+        if getattr(response, "state", None) == ToolResultState.INTERRUPTED:
+            logger.warning(
+                f"Tool stream cleanup failed after interruption: {tool_name}",
+                exc_info=True,
+            )
+            return response
         return _json_tool_response(
             {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
         )
@@ -1061,10 +1067,7 @@ def _load_actions_from_file(
     args: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     actions = _load_batch_file(file_path)
-    if not args:
-        return actions
-
-    return _resolve_args(actions, args)
+    return _resolve_args(actions, args or {})
 
 
 def _validate_batch_actions(actions: Any) -> list[dict[str, Any]]:
@@ -1142,14 +1145,15 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
     - ``wait`` (float, optional): Seconds to sleep after this step.
 
     Use ``${args.<name>}`` placeholders in argument values for parts
-    that vary at runtime. Use ``${steps.<index>.<path>}`` to reference
-    an action by its zero-based position in the batch JSON, not by the
-    execution count. If a loop jumps back to the same action, that action
-    keeps the same ``steps.<index>`` reference; it resolves to that
-    action's most recent execution result. Use ``${vars.<name>}`` to
-    reference runtime variables created by ``set_var``. The brace-delimited
-    syntax is required so that placeholders are unambiguous inside
-    mixed-content strings (e.g. shell commands).
+    that vary at runtime. Every referenced argument path is required;
+    ``args`` may be omitted when the file contains no argument placeholders.
+    Use ``${steps.<index>.<path>}`` to reference an action by its zero-based
+    position in the batch JSON, not by the execution count. If a loop jumps
+    back to the same action, that action keeps the same ``steps.<index>``
+    reference; it resolves to that action's most recent execution result.
+    Use ``${vars.<name>}`` to reference runtime variables created by
+    ``set_var``. The brace-delimited syntax is required so that placeholders
+    are unambiguous inside mixed-content strings (e.g. shell commands).
 
     Combine ``set_var``, ``goto``, and ``label`` to build loops — for
     example, iterating over a dynamic list, retrying until a condition

@@ -72,9 +72,12 @@ export default function HarnessModelSelector({
     async (nextModel?: HarnessModel, nextEffort?: string) => {
       setSaving(true);
       try {
+        // Send explicit nulls: the PATCH endpoint only touches fields
+        // present in the body, and JSON.stringify drops undefined -- an
+        // omitted field would silently keep the old server-side value.
         await agentsApi.updateBackendSettings(selectedAgent, {
-          model: nextModel?.id,
-          reasoning_effort: nextEffort,
+          model: nextModel?.id ?? null,
+          reasoning_effort: nextEffort ?? null,
         });
         updateAgent(selectedAgent, {
           backend_model: nextModel?.id ?? null,
@@ -162,7 +165,7 @@ export default function HarnessModelSelector({
       open={open}
       onOpenChange={setOpen}
       placement="bottomRight"
-      overlayClassName={styles.overlay}
+      classNames={{ root: styles.overlay }}
     >
       <button type="button" className={styles.trigger}>
         <Cpu size={15} />

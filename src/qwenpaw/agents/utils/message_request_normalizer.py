@@ -9,12 +9,18 @@ stored conversation state.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from copy import deepcopy
 from typing import Any
 
 from agentscope.message import Msg, TextBlock
 
-from ...constant import MEDIA_UNSUPPORTED_PLACEHOLDER
+from ...constant import (
+    MEDIA_UNSUPPORTED_PLACEHOLDER,
+    QWENPAW_MESSAGE_TAG_KEY,
+    SCROLL_MEMORY_MESSAGE_TAG,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
 from .tool_message_utils import _sanitize_tool_messages
 
 # Block types stripped from copied messages during request-time
@@ -26,6 +32,7 @@ from .tool_message_utils import _sanitize_tool_messages
 # user-facing history; this one prepares retryable requests.
 _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
+_DOCUMENT_MIME_TYPES = frozenset({"application/pdf"})
 
 # Fields that are provider-specific and should not leak across families.
 # Gemini: extra_content carries thought_signature.
@@ -34,6 +41,131 @@ _PROVIDER_ONLY_TOOL_USE_FIELDS = frozenset({"extra_content", "raw_input"})
 
 # The subset that is preserved when the target is its native family.
 _GEMINI_NATIVE_FIELDS = frozenset({"extra_content"})
+
+_OMITTED_MEDIA_IDS = "qwenpaw_omitted_media_ids"
+
+
+def _get(value: Any, key: str, default: Any = None) -> Any:
+    return (
+        value.get(key, default)
+        if isinstance(value, dict)
+        else getattr(value, key, default)
+    )
+
+
+def _omitted_ids(msg: Msg) -> set[str]:
+    metadata = getattr(msg, "metadata", None)
+    value = (
+        metadata.get(_OMITTED_MEDIA_IDS) if isinstance(metadata, dict) else []
+    )
+    return (
+        {item for item in value if isinstance(item, str) and item}
+        if isinstance(value, list)
+        else set()
+    )
+
+
+def _media_block_lists(msg: Msg) -> Iterator[list[Any]]:
+    """Yield top-level and nested media-bearing block lists."""
+    content = _get(msg, "content")
+    if not isinstance(content, list):
+        return
+    yield content
+    for block in content:
+        block_type = _get(block, "type")
+        field = {"tool_result": "output", "hint": "hint"}.get(block_type)
+        nested = _get(block, field) if field else None
+        if isinstance(nested, list):
+            yield nested
+
+
+def _historical_media(msgs: list[Msg]) -> Iterator[tuple[Msg, Any]]:
+    """Yield eligible media before the latest real user turn, oldest first."""
+    boundary = 0
+    for index, msg in enumerate(msgs):
+        metadata = getattr(msg, "metadata", None)
+        tag = (
+            metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+            if isinstance(metadata, dict)
+            else None
+        )
+        if (
+            msg.role == "user"
+            and (
+                not isinstance(tag, str)
+                or tag not in SYNTHETIC_USER_MESSAGE_TAGS
+            )
+            and tag != SCROLL_MEMORY_MESSAGE_TAG
+        ):
+            boundary = index
+    for msg in msgs[:boundary]:
+        if not isinstance(getattr(msg, "metadata", None), dict):
+            continue
+        omitted = _omitted_ids(msg)
+        for blocks in _media_block_lists(msg):
+            for block in blocks:
+                block_id = _get(block, "id")
+                if (
+                    _is_media_block(block)
+                    and isinstance(block_id, str)
+                    and block_id
+                    and block_id not in omitted
+                ):
+                    omitted.add(block_id)
+                    yield msg, block
+
+
+def mark_media_omitted_after_overflow(msgs: list[Msg]) -> int:
+    """Mark historical omissions in memory while retaining original media.
+
+    Keep original assets and the active turn. Only mark historical media
+    after the provider has rejected the request body size. The next session
+    state save serializes these markers; this function does not write to
+    disk or update history.db.
+    """
+    count = 0
+    for msg, block in _historical_media(msgs):
+        block_id = _get(block, "id")
+        msg.metadata[_OMITTED_MEDIA_IDS] = sorted(
+            _omitted_ids(msg) | {block_id},
+        )
+        count += 1
+    return count
+
+
+def _media_placeholder(block: Any) -> str:
+    source = _get(block, "source")
+    media_type = _get(source, "media_type") or _get(block, "type", "media")
+    reference = (
+        _get(source, "path")
+        or _get(source, "url")
+        or _get(source, "name")
+        or _get(block, "name")
+    )
+    if not isinstance(reference, str) or reference.startswith("data:"):
+        reference = None
+    suffix = f": {reference}" if reference else ""
+    return f"[{media_type} omitted (body size limit){suffix}]"
+
+
+def _omit_rejected_media(msgs: list[Msg]) -> None:
+    """Replace rejected media only in request copies, before merging."""
+    for msg in msgs:
+        omitted = _omitted_ids(msg)
+        if not omitted:
+            continue
+        for blocks in _media_block_lists(msg):
+            for index, block in enumerate(blocks):
+                block_id = _get(block, "id")
+                if (
+                    _is_media_block(block)
+                    and isinstance(block_id, str)
+                    and block_id in omitted
+                ):
+                    blocks[index] = TextBlock(
+                        id=block_id,
+                        text=_media_placeholder(block),
+                    )
 
 
 def _clean_provider_specific_fields(
@@ -113,7 +245,14 @@ def _strip_unsigned_thinking_for_anthropic(msgs: list[Msg]) -> None:
 
 def _clone_msg(msg: Msg) -> Msg:
     """Return a deep copy of an AgentScope message."""
-    return Msg.model_validate(deepcopy(msg.model_dump(mode="json")))
+    payload = deepcopy(msg.model_dump(mode="json"))
+    if not isinstance(payload.get("metadata"), dict):
+        payload["metadata"] = {}
+    for blocks in _media_block_lists(payload):
+        for block in blocks:
+            if _is_media_block(block) and block.get("id") is None:
+                block.pop("id", None)
+    return Msg.model_validate(payload)
 
 
 def _clone_messages(msgs: list[Msg]) -> list[Msg]:
@@ -122,26 +261,174 @@ def _clone_messages(msgs: list[Msg]) -> list[Msg]:
 
 
 def _is_media_block(block: Any) -> bool:
-    """Check if a block is a media block (dict or Pydantic DataBlock)."""
-    if isinstance(block, dict):
-        return block.get("type") in _MEDIA_BLOCK_TYPES
-    btype = getattr(block, "type", None)
+    """Check if a block carries media or a supported document payload."""
+    btype = (
+        block.get("type")
+        if isinstance(block, dict)
+        else getattr(block, "type", None)
+    )
     if btype in _MEDIA_BLOCK_TYPES:
         return True
     # 2.0 DataBlock: type="data", media type in source.media_type
     if btype == "data":
-        source = getattr(block, "source", None)
-        mt = getattr(source, "media_type", "") or ""
-        return mt.startswith(_MEDIA_MIME_PREFIXES)
+        source = (
+            block.get("source")
+            if isinstance(block, dict)
+            else getattr(block, "source", None)
+        )
+        mt = (
+            source.get("media_type", "")
+            if isinstance(source, dict)
+            else getattr(source, "media_type", "")
+        ) or ""
+        return (
+            mt.startswith(_MEDIA_MIME_PREFIXES) or mt in _DOCUMENT_MIME_TYPES
+        )
     return False
 
 
-def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
+def _is_audio_block(block: Any) -> bool:
+    """Check if a block carries audio content."""
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        if block_type == "audio":
+            return True
+        if block_type == "data":
+            source = block.get("source")
+            media_type = (
+                source.get("media_type", "")
+                if isinstance(source, dict)
+                else ""
+            )
+            return media_type.startswith("audio/")
+        return False
+
+    block_type = getattr(block, "type", None)
+    if block_type == "audio":
+        return True
+    if block_type == "data":
+        source = getattr(block, "source", None)
+        media_type = getattr(source, "media_type", "") or ""
+        return media_type.startswith("audio/")
+    return False
+
+
+def _is_document_block(block: Any) -> bool:
+    """Check if a block carries a PDF document payload.
+
+    ``application/pdf`` is rendered as an OpenAI ``file`` content part (or
+    ``input_file`` on the Responses API). OpenAI-compatible Chat Completions
+    servers (vLLM, DeepSeek, DashScope, ...) reject ``file`` parts, so
+    document blocks must be stripped at request time irrespective of the
+    model's multimodal support.
+    """
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        if block_type == "file":
+            return True
+        if block_type == "data":
+            source = block.get("source")
+            media_type = (
+                source.get("media_type", "")
+                if isinstance(source, dict)
+                else ""
+            )
+            return media_type == "application/pdf"
+        return False
+
+    block_type = getattr(block, "type", None)
+    if block_type == "file":
+        return True
+    if block_type == "data":
+        source = getattr(block, "source", None)
+        media_type = getattr(source, "media_type", "") or ""
+        return media_type == "application/pdf"
+    return False
+
+
+def _is_video_block(block: Any) -> bool:
+    """Recognize legacy video blocks and current video DataBlocks."""
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        source = block.get("source")
+    else:
+        block_type = getattr(block, "type", None)
+        source = getattr(block, "source", None)
+    media_type = (
+        source.get("media_type")
+        if isinstance(source, dict)
+        else getattr(source, "media_type", None)
+    ) or ""
+    return block_type == "video" or (
+        block_type == "data" and media_type.startswith("video/")
+    )
+
+
+def _is_empty_media_block(block: Any) -> bool:
+    """Check if a media block carries an empty payload.
+
+    A zero-length base64 payload is serialized by the formatters as an empty
+    data URI (``data:image/png;base64,``), which every provider rejects
+    (e.g. OpenAI's *"Image data cannot be empty"*). Such a block carries no
+    information and must be dropped before formatting. URL sources are left
+    alone: their emptiness cannot be determined without fetching them.
+    """
+    if not _is_media_block(block):
+        return False
+    source = (
+        block.get("source")
+        if isinstance(block, dict)
+        else getattr(block, "source", None)
+    )
+    if source is None:
+        return False
+    stype = (
+        source.get("type")
+        if isinstance(source, dict)
+        else getattr(source, "type", None)
+    )
+    if stype != "base64":
+        return False
+    data = (
+        source.get("data")
+        if isinstance(source, dict)
+        else getattr(source, "data", None)
+    )
+    return not data
+
+
+def _strip_media_blocks_in_place(
+    msgs: list[Msg],
+    *,
+    audio_only: bool = False,
+    video_only: bool = False,
+    document_only: bool = False,
+    tool_result_only: bool = False,
+    empty_only: bool = False,
+) -> int:
     """Strip media blocks from copied messages only.
 
-    Handles both 1.x dict blocks and 2.0 Pydantic block objects.
+    Handles both 1.x dict blocks and 2.0 Pydantic block objects. When
+    ``audio_only`` is true, image, video, and file blocks are preserved.
+    With ``video_only``, only video blocks are removed.
+    When ``document_only`` is true, only PDF document blocks are removed
+    (image/audio/video blocks are preserved). With ``tool_result_only``,
+    stripping applies only to blocks nested inside tool results, so
+    user-supplied document blocks keep their upstream formatting path.
+    With ``empty_only``, only media blocks with a zero-length payload are
+    removed (see :func:`_is_empty_media_block`).
     """
     total_stripped = 0
+    if empty_only:
+        should_strip = _is_empty_media_block
+    elif document_only:
+        should_strip = _is_document_block
+    elif audio_only:
+        should_strip = _is_audio_block
+    elif video_only:
+        should_strip = _is_video_block
+    else:
+        should_strip = _is_media_block
 
     for msg in msgs:
         if not isinstance(msg.content, list):
@@ -150,7 +437,7 @@ def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
         new_content = []
         stripped_this_message = 0
         for block in msg.content:
-            if _is_media_block(block):
+            if should_strip(block) and not tool_result_only:
                 total_stripped += 1
                 stripped_this_message += 1
                 continue
@@ -168,20 +455,24 @@ def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
             )
             if btype == "tool_result" and isinstance(output, list):
                 original_len = len(output)
-                filtered = [
-                    item for item in output if not _is_media_block(item)
-                ]
+                filtered = [item for item in output if not should_strip(item)]
                 stripped_count = original_len - len(filtered)
                 total_stripped += stripped_count
                 stripped_this_message += stripped_count
-                if isinstance(block, dict):
-                    block["output"] = (
-                        filtered if filtered else MEDIA_UNSUPPORTED_PLACEHOLDER
-                    )
+                if filtered:
+                    replacement: Any = filtered
+                elif stripped_count:
+                    replacement = MEDIA_UNSUPPORTED_PLACEHOLDER
                 else:
-                    block.output = (
-                        filtered if filtered else MEDIA_UNSUPPORTED_PLACEHOLDER
-                    )
+                    # Nothing was stripped: keep the original output as it is.
+                    # An already-empty tool result must stay empty, otherwise
+                    # the model is told that media was dropped from a result
+                    # that never carried any.
+                    replacement = output
+                if isinstance(block, dict):
+                    block["output"] = replacement
+                else:
+                    block.output = replacement
 
             new_content.append(block)
 
@@ -242,6 +533,8 @@ def normalize_messages_for_model_request(
     *,
     supports_multimodal: bool,
     target_family: str = "openai",
+    strip_audio: bool = False,
+    strip_video: bool = False,
 ) -> list[Msg]:
     """Return a normalized copy for provider request formatting.
 
@@ -251,8 +544,11 @@ def normalize_messages_for_model_request(
         target_family: Provider family of the *current* model
             (``"openai"`` | ``"anthropic"`` | ``"gemini"``).
             Used to strip fields that belong to other providers.
+        strip_audio: Whether to remove only audio blocks from the request copy.
+        strip_video: Whether to remove video blocks before media preparation.
     """
     normalized = _clone_messages(msgs)
+    _omit_rejected_media(normalized)
     # Sanitize first: _repair_empty_tool_inputs needs raw_input to fix
     # empty input fields.  _clean_provider_specific_fields runs after so
     # that raw_input (and other provider artefacts) are stripped only once
@@ -262,8 +558,33 @@ def normalize_messages_for_model_request(
     _clean_provider_specific_fields(normalized, target_family)
     if target_family == "anthropic":
         _strip_unsigned_thinking_for_anthropic(normalized)
+    # Empty media blocks (e.g. a tool returning a zero-byte image) would be
+    # serialized as ``data:<mime>;base64,`` — an empty data URI every
+    # provider rejects. Drop them unconditionally, before the multimodal
+    # branching below, since no endpoint accepts an empty data URI.
+    _strip_media_blocks_in_place(normalized, empty_only=True)
     if not supports_multimodal:
         _strip_media_blocks_in_place(normalized)
+    elif strip_audio:
+        _strip_media_blocks_in_place(normalized, audio_only=True)
+    elif target_family == "openai":
+        # OpenAI-compatible Chat Completions servers (vLLM, DeepSeek,
+        # DashScope, ...) reject ``file`` content parts (that shape exists
+        # only in the Responses API). PDF documents returned by tools would
+        # otherwise be serialized as ``{"type": "file"}`` and rejected with
+        # 400 even by multimodal servers, so strip tool-result document
+        # blocks for the OpenAI chat family regardless of multimodal
+        # support. User-supplied documents keep the upstream formatting
+        # path (formatters emit ``file`` parts from them). Images, audio
+        # and video are preserved: ``image_url`` / ``input_audio`` parts
+        # are accepted by these endpoints.
+        _strip_media_blocks_in_place(
+            normalized,
+            document_only=True,
+            tool_result_only=True,
+        )
+    if supports_multimodal and strip_video:
+        _strip_media_blocks_in_place(normalized, video_only=True)
     return normalized
 
 

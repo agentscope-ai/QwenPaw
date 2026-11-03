@@ -6,13 +6,15 @@ tauri-win / tauri-mac) end-to-end:
 
 1. ``GET /api/version`` — health + version match.
 2. ``GET /``           — frontend HTML served.
-3. ``PUT /api/models/<provider>/config``            — install API key.
-4. ``POST /api/models/<provider>/models``           — register the chat model
+3. ``POST /api/agents/default/memory/reindex?scope=bm25`` — prove the packaged
+   ReMe runtime starts.
+4. ``PUT /api/models/<provider>/config``            — install API key.
+5. ``POST /api/models/<provider>/models``           — register the chat model
                                                        (newer aliases like
                                                        qwen3.6-plus aren't in
                                                        the built-in catalogue).
-5. ``PUT /api/models/active``                       — mark it active globally.
-6. **UI single-round factual Q&A**                  — drive the real SPA:
+6. ``PUT /api/models/active``                       — mark it active globally.
+7. **UI single-round factual Q&A**                  — drive the real SPA:
    - Open the page and wait for the chat input to render.
    - Send "What is the tallest mountain in the world?" via the
      input box.
@@ -158,6 +160,33 @@ def verify_frontend(base_url: str) -> None:
             "Frontend HTML does not mention QwenPaw — wrong bundle?",
         )
     print("PASS  GET / -> frontend HTML served")
+
+
+def verify_reme_runtime(base_url: str) -> None:
+    """Run a provider-free job against the packaged ReMe runtime."""
+    body = _http(
+        "POST",
+        f"{base_url}/api/agents/default/memory/reindex?scope=bm25",
+        timeout=120,
+    )
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Memory reindex returned non-JSON: {body[:200]}",
+        ) from exc
+    if payload.get("status") != "completed" or payload.get("scope") != "bm25":
+        raise RuntimeError(
+            f"Memory reindex returned an unexpected response: {body[:300]}",
+        )
+    print("PASS  packaged ReMe runtime completed BM25 reindex")
+
+
+def verify_packaged_api(base_url: str) -> None:
+    """Verify the desktop's basic API, frontend, and embedded ReMe runtime."""
+    health_check(base_url)
+    verify_frontend(base_url)
+    verify_reme_runtime(base_url)
 
 
 def configure_provider(
@@ -909,8 +938,7 @@ def main() -> int:
     driver: UIDriver | None = None
     try:
         # ---- API-level checks (always run, no key needed) ----
-        health_check(base_url)
-        verify_frontend(base_url)
+        verify_packaged_api(base_url)
 
         # ---- UI load (always run unless --skip-ui, no key needed) ----
         # This catches broken Vite bundles, missing assets, CSP issues,

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from agentscope.model import ChatResponse
+from agentscope.message import TextBlock, ThinkingBlock
 
 from qwenpaw.utils.model_response import (
     consume_model_response,
@@ -53,6 +54,61 @@ def test_extract_response_text(response, expected):
     assert extract_response_text(response) == expected
 
 
+def test_extract_response_text_skips_typed_thinking_block():
+    response = ChatResponse(
+        content=[
+            ThinkingBlock(thinking="Here's a thinking process"),
+            TextBlock(text="Deploying QwenPaw"),
+        ],
+        is_last=True,
+    )
+
+    assert extract_response_text(response) == "Deploying QwenPaw"
+
+
+def test_extract_response_text_skips_compatible_reasoning_text_block():
+    response = {
+        "content": [
+            {
+                "type": "reasoning",
+                "text": "Here's a thinking process",
+            },
+            {"type": "text", "text": "Deploying QwenPaw"},
+        ],
+    }
+
+    assert extract_response_text(response) == "Deploying QwenPaw"
+
+
+def test_extract_response_text_prefers_typed_answer_over_combined_text():
+    response = SimpleNamespace(
+        text="Here's a thinking process\nDeploying QwenPaw",
+        content=[
+            {"type": "thinking", "text": "Here's a thinking process"},
+            {"type": "text", "text": "Deploying QwenPaw"},
+        ],
+    )
+
+    assert extract_response_text(response) == "Deploying QwenPaw"
+
+
+def test_extract_response_text_does_not_fall_back_from_thinking_only_content():
+    response = SimpleNamespace(
+        text="Here's a thinking process",
+        content=[
+            {"type": "thinking", "text": "Here's a thinking process"},
+        ],
+    )
+
+    assert extract_response_text(response) == ""
+
+
+def test_extract_response_text_falls_back_from_empty_content_list():
+    response = SimpleNamespace(text="Deploying QwenPaw", content=[])
+
+    assert extract_response_text(response) == "Deploying QwenPaw"
+
+
 async def test_consume_non_streaming():
     async def model(messages, **kw):
         return SimpleNamespace(text="done")
@@ -68,6 +124,26 @@ async def test_consume_agentscope_chat_response():
         )
 
     assert await consume_model_response(model, []) == "done"
+
+
+async def test_consume_agentscope_stream_ignores_thinking_chunks():
+    async def model(messages, **kw):
+        async def gen():
+            yield ChatResponse(
+                content=[ThinkingBlock(thinking="Analyze the request")],
+                is_last=False,
+            )
+            yield ChatResponse(
+                content=[
+                    ThinkingBlock(thinking="Analyze the request"),
+                    TextBlock(text="Deploying QwenPaw"),
+                ],
+                is_last=True,
+            )
+
+        return gen()
+
+    assert await consume_model_response(model, []) == "Deploying QwenPaw"
 
 
 async def test_consume_streaming_takes_last_non_empty_chunk():

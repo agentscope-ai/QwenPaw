@@ -100,6 +100,7 @@ def test_successful_install_records_a_passing_probe(
     assert result["installed"] is True
 
 
+@pytest.mark.p2
 def test_non_reset_repair_preserves_existing_bridge_token(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -140,6 +141,7 @@ def test_non_reset_repair_preserves_existing_bridge_token(
         ),
     ],
 )
+@pytest.mark.p2
 def test_windows_batch_path_literal_normalizes_and_escapes(
     source: str,
     expected: str,
@@ -147,6 +149,7 @@ def test_windows_batch_path_literal_normalizes_and_escapes(
     assert extension_setup._windows_batch_path_literal(source) == expected
 
 
+@pytest.mark.p2
 def test_windows_launcher_uses_cmd_safe_path_literals(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,

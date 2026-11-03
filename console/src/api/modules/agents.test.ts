@@ -55,6 +55,22 @@ describe("agentsApi", () => {
     expect(result).toEqual(agent);
   });
 
+  it("updateModelSettings sends a narrow PATCH request", async () => {
+    const settings = {
+      fallback_models: [{ provider_id: "openai", model: "fallback" }],
+      subagent_model: null,
+    };
+    vi.mocked(request).mockResolvedValue(settings);
+
+    const result = await agentsApi.updateModelSettings("a1", settings);
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/model-settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+    expect(result).toEqual(settings);
+  });
+
   it("updates third-party model settings from Chat", async () => {
     await agentsApi.updateBackendSettings("a1", {
       model: "gpt-test-codex",
@@ -73,11 +89,30 @@ describe("agentsApi", () => {
     const resp = { status: "completed" } as const;
     vi.mocked(request).mockResolvedValue(resp);
     const result = await agentsApi.rebuildMemoryIndex("a1");
-    expect(request).toHaveBeenCalledWith("/agents/a1/memory/reindex", {
-      method: "POST",
-      timeout: 10 * 60 * 1000,
-    });
+    expect(request).toHaveBeenCalledWith(
+      "/agents/a1/memory/reindex?scope=all",
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+      },
+    );
     expect(result).toEqual(resp);
+  });
+
+  it("passes scoped reindex and supports undo", async () => {
+    await agentsApi.rebuildMemoryIndex("a1", "embedding");
+    expect(request).toHaveBeenCalledWith(
+      "/agents/a1/memory/reindex?scope=embedding",
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+      },
+    );
+
+    await agentsApi.undoEmbeddingReindex("a1");
+    expect(request).toHaveBeenLastCalledWith("/agents/a1/memory/reindex/undo", {
+      method: "POST",
+    });
   });
 
   it("getMemoryStatus fetches structured ReMe status", async () => {
@@ -126,6 +161,17 @@ describe("agentsApi", () => {
     const result = await agentsApi.getMemoryGraph("a1");
     expect(request).toHaveBeenCalledWith("/agents/a1/memory/graph");
     expect(result).toEqual(graph);
+  });
+
+  it("encodes tag expressions without changing literal plus signs or Unicode", async () => {
+    const signal = new AbortController().signal;
+    await agentsApi.getMemoryTagFiles("a1", "C++ & 赵六", 2, signal);
+    const [path, options] = vi.mocked(request).mock.calls[0];
+    const url = new URL(path, "http://localhost");
+    expect(url.pathname).toBe("/agents/a1/memory/tag-files");
+    expect(url.searchParams.get("tag")).toBe("C++ & 赵六");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(options?.signal).toBe(signal);
   });
 
   it("deleteAgent sends DELETE /agents/${id}", async () => {

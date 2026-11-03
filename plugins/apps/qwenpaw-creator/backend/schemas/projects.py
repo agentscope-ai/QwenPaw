@@ -51,6 +51,10 @@ class ExecutionPreauthorizationPolicy(StrictModel):
 
 
 class ProjectCreateRequest(StrictModel):
+    production_stage: Literal["script", "media"] | None = Field(
+        None,
+        alias="productionStage",
+    )
     client_request_id: str = Field(alias="clientRequestId")
     name: str = Field(min_length=1)
     description: str = ""
@@ -58,6 +62,7 @@ class ProjectCreateRequest(StrictModel):
     aspect_ratio: str = Field("16:9", alias="aspectRatio")
     resolution: str = "720P"
     content_type: str | None = Field(None, alias="contentType")
+    template_id: str | None = Field(None, alias="templateId")
     execution_preauthorization: ExecutionPreauthorizationPolicy | None = Field(
         None,
         alias="executionPreauthorization",
@@ -73,6 +78,11 @@ class ProjectCreateRequest(StrictModel):
         if not stripped:
             raise ValueError("initialGoal 不能为空")
         return stripped
+
+
+class ProductionStageRequest(StrictModel):
+    stage: Literal["script", "media"]
+    project_etag: str = Field(alias="projectEtag", min_length=1)
 
 
 class ProjectCreateResponse(StrictModel):

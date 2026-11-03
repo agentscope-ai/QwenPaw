@@ -1,0 +1,2 @@
+# QwenPaw-Data domain packages run in the isolated managed service environment.
+# The PawApp backend itself uses only QwenPaw SDK dependencies.

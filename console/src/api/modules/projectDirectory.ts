@@ -1,6 +1,18 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type {
+  ChatProjectDirSource,
+  ProjectDirEntry,
+  ProjectDirPayloadEntry,
+} from "./chatProjectDirectory";
+
+export interface AgentProjectDirs {
+  project_dirs: ProjectDirEntry[];
+  source: ChatProjectDirSource;
+  workspace_dir: string;
+  workspace_exists?: boolean;
+}
 
 export interface ProjectDirectoryInfo {
   path: string;
@@ -25,6 +37,16 @@ export interface BrowseDirsResponse {
 }
 
 export const projectDirectoryApi = {
+  getDirs: () => request<AgentProjectDirs>("/workspace/project-directory/dirs"),
+  setDirs: (entries: ProjectDirPayloadEntry[]) =>
+    request<AgentProjectDirs>("/workspace/project-directory/dirs", {
+      method: "PUT",
+      body: JSON.stringify({ project_dirs: entries }),
+    }),
+  clearDirs: () =>
+    request<AgentProjectDirs>("/workspace/project-directory/dirs", {
+      method: "DELETE",
+    }),
   /** Get the current Agent default project directory. */
   get: () => request<ProjectDirectoryInfo>("/workspace/project-directory"),
 
@@ -101,6 +123,16 @@ export const projectDirectoryApi = {
       `/workspace/project-directory/browse-dirs?path=${encodeURIComponent(
         path || "~",
       )}${showHidden ? "&show_hidden=true" : ""}`,
+    ),
+
+  /** Create a direct child in the directory currently being browsed. */
+  createDirectory: (parent: string, name: string) =>
+    request<{ path: string; name: string }>(
+      "/workspace/project-directory/browse-dirs/create",
+      {
+        method: "POST",
+        body: JSON.stringify({ parent, name }),
+      },
     ),
 
   /** Low-level: POST to clone endpoint and return a ReadableStream of SSE. */

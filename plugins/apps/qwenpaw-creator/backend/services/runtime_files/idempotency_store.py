@@ -146,18 +146,21 @@ class IdempotencyRecordStore:
         owner_id: str,
         scope: str,
         idempotency_key: str,
+        cross_thread_hold: bool = False,
     ) -> CrossProcessFileLock:
         """Serialize execution/recovery for one idempotency identity.
 
         This deliberately uses a lock domain separate from the record's
         short atomic-update lock: callers hold it while invoking the backing
         transaction and still need to complete/fail the record without a
-        self-deadlock.  ``flock`` releases it if the worker process crashes.
+        self-deadlock.  The in-process lock is released by the context
+        manager, or implicitly when the process exits.
         """
 
         _key_hash, key = self._key(owner_id, scope, idempotency_key)
         return CrossProcessFileLock(
             self.root / ".operation-locks" / f"{key}.lock",
+            cross_thread_hold=cross_thread_hold,
             timeout_seconds=self.lock_timeout_seconds,
         )
 

@@ -73,6 +73,33 @@ async def test_probe_rejects_dimension_mismatch(monkeypatch) -> None:
     assert "expected 3, got 2" in result.message
 
 
+@pytest.mark.asyncio
+async def test_probe_uses_configured_health_check_timeout(monkeypatch) -> None:
+    observed = {}
+
+    class FakeModel:
+        async def __call__(self, _inputs):
+            return SimpleNamespace(embeddings=[[0.1, 0.2, 0.3]])
+
+    async def fake_wait_for(awaitable, timeout):
+        observed["timeout"] = timeout
+        return await awaitable
+
+    monkeypatch.setattr(
+        module,
+        "create_embedding_model",
+        lambda *_args, **_kwargs: FakeModel(),
+    )
+    monkeypatch.setattr(module.asyncio, "wait_for", fake_wait_for)
+
+    _model, result = await module.test_embedding_model(
+        _config(health_check_timeout=42),
+    )
+
+    assert result.success is True
+    assert observed["timeout"] == 42
+
+
 def test_vector_space_fingerprint_ignores_key_and_cache_settings() -> None:
     first = _config(api_key="old", max_cache_size=10)
     second = _config(api_key="new", max_cache_size=20)
@@ -99,3 +126,33 @@ def test_tested_config_fingerprint_ignores_reme_store_settings() -> None:
     assert module.embedding_config_fingerprint(
         first,
     ) == module.embedding_config_fingerprint(second)
+
+
+@pytest.mark.parametrize(
+    "fingerprint",
+    [
+        module.embedding_config_fingerprint,
+        module.embedding_vector_space_fingerprint,
+    ],
+)
+def test_fingerprints_ignore_inapplicable_dashscope_use_dimensions(
+    fingerprint,
+) -> None:
+    first = _config(backend="dashscope", use_dimensions=False)
+    second = _config(backend="dashscope", use_dimensions=True)
+
+    assert fingerprint(first) == fingerprint(second)
+
+
+@pytest.mark.parametrize(
+    "fingerprint",
+    [
+        module.embedding_config_fingerprint,
+        module.embedding_vector_space_fingerprint,
+    ],
+)
+def test_fingerprints_keep_openai_use_dimensions(fingerprint) -> None:
+    first = _config(backend="openai", use_dimensions=False)
+    second = _config(backend="openai", use_dimensions=True)
+
+    assert fingerprint(first) != fingerprint(second)

@@ -1,0 +1,245 @@
+.card {
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 24px;
+  padding: 24px;
+  margin-bottom: 24px;
+  background: radial-gradient(
+      ellipse at 95% 0,
+      var(--app-accent-faint),
+      transparent 55%
+    ),
+    var(--app-surface);
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  h3 {
+    margin: 8px 0 0;
+    color: var(--app-text);
+    font-size: 30px;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  small {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--app-text-tertiary);
+    letter-spacing: 0;
+  }
+}
+.scroll {
+  overflow-x: auto;
+  padding: 22px 2px 8px;
+}
+.calendar {
+  display: grid;
+  grid-template-rows: repeat(7, 18px);
+  grid-auto-flow: column;
+  grid-template-columns: repeat(var(--weeks), 18px);
+  gap: 5px;
+  width: max-content;
+}
+.cellWrap {
+  position: relative;
+}
+.month {
+  position: absolute;
+  top: -22px;
+  font-size: 10px;
+  color: var(--app-text-tertiary);
+  white-space: nowrap;
+}
+.cell,
+.legend i {
+  background: color-mix(
+    in srgb,
+    var(--app-accent) var(--intensity),
+    var(--app-fill)
+  );
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 4px;
+}
+.cell {
+  width: 18px;
+  height: 18px;
+  display: block;
+  padding: 0;
+  cursor: pointer;
+  &:hover,
+  &:focus-visible,
+  &[aria-pressed="true"] {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+.padding {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+.legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0 24px;
+  font-size: 11px;
+  color: var(--app-text-secondary);
+  > span:last-child {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  i {
+    display: block;
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+  }
+}
+.rankingToggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--app-border-subtle);
+  padding: 16px 0 0;
+  background: transparent;
+  color: var(--app-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  > span:last-child {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--app-text-secondary);
+  }
+}
+.ranking {
+  overflow: hidden;
+}
+.model {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+  padding-top: 18px;
+  font-size: 12px;
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  strong {
+    font-variant-numeric: tabular-nums;
+  }
+  > div {
+    grid-column: 1/-1;
+    height: 4px;
+    background: var(--app-fill);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  i {
+    display: block;
+    height: 100%;
+    background: var(--app-accent);
+    border-radius: inherit;
+  }
+}
+@media (max-width: 600px) {
+  .card {
+    padding: 18px;
+  }
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
+.facts {
+  display: grid;
+  gap: 20px;
+  border-left: 1px solid var(--app-border-subtle);
+  padding-left: 24px;
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  span {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+  }
+  strong {
+    font-size: 22px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  small {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--app-text-tertiary);
+  }
+}
+@media (max-width: 600px) {
+  .facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-left: 0;
+    padding: 0;
+    gap: 12px;
+  }
+  .facts strong {
+    font-size: 18px;
+  }
+}
+
+.calendarLayout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.weekdays {
+  display: grid;
+  grid-template-rows: repeat(7, 14px);
+  gap: 4px;
+  padding-top: 22px;
+  min-width: 28px;
+  font-size: 10px;
+  color: var(--app-text-tertiary);
+}
+.calendar {
+  grid-template-rows: repeat(7, 14px);
+  grid-template-columns: repeat(var(--weeks), 14px);
+  gap: 4px;
+}
+.cell,
+.padding {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+.cell[data-future="true"] {
+  opacity: 0.35;
+  cursor: default;
+  outline: none;
+}
+.scroll {
+  min-width: 0;
+  flex: 1;
+}
+.facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-left: 0;
+  border-top: 1px solid var(--app-border-subtle);
+  margin-top: 20px;
+  padding: 20px 0 0;
+}

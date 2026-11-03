@@ -30,7 +30,7 @@ class FilesPage(BasePage):
     """
 
     PAGE_TITLE = "QwenPaw Console"
-    WORKSPACE_URL = f"{config.base_url}/workspace"
+    WORKSPACE_URL = f"{config.base_url}/files"
     PAGE_URL = WORKSPACE_URL
 
     # ========== Selector definitions ==========

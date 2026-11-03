@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Telemetry collection for installation analytics."""
+
 from __future__ import annotations
 
 import json
@@ -9,8 +10,14 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable
+
+from ..__version__ import __version__ as QWENPAW_VERSION
+from ..constant import EnvVarLoader
+from .io_utils import get_sync_path_lock, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +37,6 @@ def _safe_get(func: Callable[[], str], default: str = "unknown") -> str:
 
 def _detect_install_method() -> str:
     """Detect how QwenPaw was installed based on environment signals."""
-    from ..constant import EnvVarLoader
-
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return "docker"
     if EnvVarLoader.get_bool("QWENPAW_DESKTOP_APP"):
@@ -52,11 +57,13 @@ def get_system_info() -> dict[str, Any]:
     - architecture: CPU architecture (x86_64/arm64/etc)
     - has_gpu: GPU availability detection
     """
-    from ..__version__ import __version__ as qwenpaw_ver
+    return {"install_id": str(uuid.uuid4()), **get_environment_info()}
 
+
+def get_environment_info() -> dict[str, Any]:
+    """Collect the Runtime environment without generating an identity."""
     info = {
-        "install_id": str(uuid.uuid4()),
-        "qwenpaw_version": _safe_get(lambda: qwenpaw_ver, "unknown"),
+        "qwenpaw_version": _safe_get(lambda: QWENPAW_VERSION, "unknown"),
         "install_method": _safe_get(_detect_install_method, "unknown"),
         "os": _safe_get(platform.system, "unknown"),
         "os_version": _safe_get(platform.release, "unknown"),
@@ -214,16 +221,20 @@ def has_telemetry_been_collected(working_dir: Path) -> bool:
 
 
 def is_telemetry_opted_out(working_dir: Path) -> bool:
-    """Check if the user has explicitly opted out of telemetry.
+    """Check the process setting and saved telemetry opt-out.
 
-    Once opted out, telemetry is never collected again regardless of version.
+    QWENPAW_TELEMETRY_DISABLED disables telemetry for this process without
+    persisting the choice. A saved opt-out applies regardless of version.
 
     Args:
         working_dir: Path to QwenPaw working directory
 
     Returns:
-        True if user has opted out, False otherwise
+        True if telemetry is disabled or the user has opted out.
     """
+    if EnvVarLoader.get_bool("QWENPAW_TELEMETRY_DISABLED"):
+        return True
+
     marker_file = working_dir / TELEMETRY_MARKER_FILE
     if not marker_file.exists():
         return False
@@ -234,51 +245,54 @@ def is_telemetry_opted_out(working_dir: Path) -> bool:
         return False
 
 
+@contextmanager
+def telemetry_marker(working_dir: Path) -> Iterator[dict[str, Any]]:
+    """Update shared telemetry state using the existing lock and writer."""
+    path = working_dir / TELEMETRY_MARKER_FILE
+    with get_sync_path_lock(path):
+        try:
+            data = (
+                json.loads(path.read_text(encoding="utf-8"))
+                if path.exists()
+                else {}
+            )
+        except json.JSONDecodeError:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        before = json.dumps(data)
+        yield data
+        if json.dumps(data) != before:
+            working_dir.mkdir(parents=True, exist_ok=True)
+            write_json_atomic(path, data)
+
+
 def mark_telemetry_collected(
     working_dir: Path,
     *,
     opted_out: bool = False,
 ) -> None:
-    """Mark that telemetry has been collected for the current version.
-
-    Maintains a list of all versions that have been collected, so switching
-    between previously-collected versions won't re-trigger the prompt.
-
-    Args:
-        working_dir: Path to QwenPaw working directory
-        opted_out: If True, marks the user as permanently opted out
-    """
-    marker_file = working_dir / TELEMETRY_MARKER_FILE
+    """Save installation consent/version without replacing daily state."""
     current = _get_current_version()
     try:
-        collected_versions: list[str] = []
-        prev_opted_out = False
-        if marker_file.exists():
-            try:
-                old_data = json.loads(
-                    marker_file.read_text(encoding="utf-8"),
-                )
-                collected_versions = old_data.get("collected_versions", [])
-                prev_opted_out = old_data.get("opted_out", False) is True
-                # Migrate from v1.1 single-version format
-                if not collected_versions:
-                    old_ver = old_data.get("qwenpaw_version", "")
-                    if old_ver:
-                        collected_versions = [old_ver]
-            except Exception:
-                pass
-
-        if current not in collected_versions:
-            collected_versions.append(current)
-
-        marker_data = {
-            "collected_at": time.time(),
-            "qwenpaw_version": current,
-            "collected_versions": collected_versions,
-            "opted_out": opted_out or prev_opted_out,
-            "version": "1.3",
-        }
-        marker_file.write_text(json.dumps(marker_data), encoding="utf-8")
+        with telemetry_marker(working_dir) as data:
+            versions = data.get("collected_versions", [])
+            if not versions:
+                old_version = data.get("qwenpaw_version", "")
+                if old_version:
+                    versions = [old_version]
+            if current not in versions:
+                versions.append(current)
+            data.update(
+                {
+                    "collected_at": time.time(),
+                    "qwenpaw_version": current,
+                    "collected_versions": versions,
+                    "opted_out": opted_out
+                    or data.get("opted_out", False) is True,
+                    "version": "1.4",
+                },
+            )
     except Exception as e:
         logger.debug("Failed to write telemetry marker: %s", e)
 
@@ -290,8 +304,11 @@ def collect_and_upload_telemetry(working_dir: Path) -> bool:
         working_dir: Path to QwenPaw working directory
 
     Returns:
-        True if upload succeeded, False otherwise
+        True if upload succeeded, False if disabled or upload failed.
     """
+    if is_telemetry_opted_out(working_dir):
+        return False
+
     # Collect system info
     info = get_system_info()
 

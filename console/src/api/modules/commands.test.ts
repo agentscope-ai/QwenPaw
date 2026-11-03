@@ -79,4 +79,18 @@ describe("commandsApi", () => {
     });
     expect(result).toEqual(resp);
   });
+
+  it.each(["approve", "deny"] as const)(
+    "rejects an unsuccessful %s response",
+    async (action) => {
+      vi.mocked(request).mockResolvedValue({
+        success: false,
+        message: "Approval already resolved",
+      });
+
+      await expect(
+        commandsApi.sendApprovalCommand(action, "req-1", "sess-1"),
+      ).rejects.toThrow("Approval already resolved");
+    },
+  );
 });

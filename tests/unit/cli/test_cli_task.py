@@ -349,9 +349,15 @@ def test_isolated_workspace_creates_overlay(tmp_path):
 
     skills_dir = tmp_path / "ext_skills"
     (skills_dir / "alpha").mkdir(parents=True)
-    (skills_dir / "alpha" / "SKILL.md").write_text("# alpha\n")
+    (skills_dir / "alpha" / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: Test alpha skill\n---\n# alpha\n",
+        encoding="utf-8",
+    )
     (skills_dir / "beta").mkdir(parents=True)
-    (skills_dir / "beta" / "SKILL.md").write_text("# beta\n")
+    (skills_dir / "beta" / "SKILL.md").write_text(
+        "---\nname: beta\ndescription: Test beta skill\n---\n# beta\n",
+        encoding="utf-8",
+    )
     (skills_dir / "not-a-skill").mkdir(parents=True)
 
     base_ws = tmp_path / "real_workspace"

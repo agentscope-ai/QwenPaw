@@ -12,12 +12,13 @@ use objc2_screen_capture_kit::{
     SCContentFilter, SCScreenshotManager, SCShareableContent, SCStreamConfiguration,
 };
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use super::super::state::{
-    accessibility_revision, next_id, Observation, ServerState, WindowInfo, SCREENSHOT_JPEG_QUALITY,
-    SCREENSHOT_MAX_EDGE,
+    accessibility_revision, next_id, Observation, ScreenshotTarget, ServerState, WindowInfo,
+    SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
 };
 use super::accessibility_tree::collect_accessibility;
 use super::window_bounds;
@@ -25,6 +26,7 @@ use super::window_bounds;
 pub(crate) fn observe_window(
     state: &mut ServerState,
     window: &WindowInfo,
+    include_screenshot: bool,
 ) -> Result<Value, (&'static str, String)> {
     let window_id = u32::try_from(window.hwnd).map_err(|_| {
         (
@@ -45,15 +47,32 @@ pub(crate) fn observe_window(
     let has_transient_surface = accessibility
         .as_ref()
         .is_ok_and(|(_, _, transient)| *transient);
-    let capture = if has_transient_surface {
-        Err(
+    let capture = if !include_screenshot {
+        None
+    } else if has_transient_surface {
+        Some(Err(
             "The active transient surface is available through accessibility but is not part of the selected window capture."
                 .to_string(),
-        )
+        ))
     } else {
-        capture_window_image(window_id, capture_width, capture_height)
+        Some(capture_window_image(
+            window_id,
+            capture_width,
+            capture_height,
+        ))
     };
-    if let (Err(capture_error), Err(accessibility_error)) = (&capture, &accessibility) {
+    if include_screenshot && !capture.as_ref().is_some_and(Result::is_ok) && accessibility.is_err()
+    {
+        let capture_error = capture
+            .as_ref()
+            .and_then(|result| result.as_ref().err())
+            .cloned()
+            .unwrap_or_else(|| "Screenshot capture was not requested.".to_string());
+        let accessibility_error = accessibility
+            .as_ref()
+            .err()
+            .cloned()
+            .unwrap_or_else(|| "Accessibility text was unavailable.".to_string());
         return Err((
             "capture_failed",
             format!("{capture_error} Accessibility was also unavailable: {accessibility_error}",),
@@ -69,8 +88,9 @@ pub(crate) fn observe_window(
     };
     let point_bounds = point_bounds.unwrap_or([0, 0, capture_width as i32, capture_height as i32]);
     let accessibility_revision = accessibility_revision(&accessibility);
+    let mut screenshot_targets = HashMap::new();
     let (display_width, display_height, visual, screenshots) = match capture {
-        Ok(capture) => {
+        Some(Ok(capture)) => {
             let width = capture.width;
             let height = capture.height;
             // Bound the longest edge to keep payload and image-token cost
@@ -104,22 +124,45 @@ pub(crate) fn observe_window(
                     ColorType::Rgb,
                 )
                 .map_err(|error| ("capture_failed", format!("JPEG encoding failed: {error}")))?;
+            let screenshot_id = next_id("screenshot");
+            screenshot_targets.insert(
+                screenshot_id.clone(),
+                ScreenshotTarget {
+                    hwnd: window.hwnd,
+                    bounds: point_bounds,
+                    display_width: display_width as u32,
+                    display_height: display_height as u32,
+                },
+            );
             (
                 display_width as u32,
                 display_height as u32,
                 json!({"available": true}),
                 json!([{
+                    "id": screenshot_id,
                     "url": format!(
                         "data:image/jpeg;base64,{}",
                         base64::engine::general_purpose::STANDARD.encode(&jpeg),
                     ),
+                    "origin_x": point_bounds[0],
+                    "origin_y": point_bounds[1],
+                    "width": display_width,
+                    "height": display_height,
+                    "z_index": 0,
+                    "kind": "main",
                 }]),
             )
         }
-        Err(reason) => (
+        Some(Err(reason)) => (
             0,
             0,
             json!({"available": false, "reason": reason}),
+            json!([]),
+        ),
+        None => (
+            0,
+            0,
+            json!({"available": false, "requested": false}),
             json!([]),
         ),
     };
@@ -129,9 +172,8 @@ pub(crate) fn observe_window(
         observation_id.clone(),
         Observation {
             window: window.clone(),
-            bounds: point_bounds,
-            display_width,
-            display_height,
+            window_bounds: point_bounds,
+            screenshots: screenshot_targets,
             accessibility_revision,
             transient_text_ready: false,
             elements,

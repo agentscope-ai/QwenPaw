@@ -5,6 +5,7 @@
 event buffer. Reconnects get buffer replay + new events. Cleanup when task
 completes.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,11 +14,22 @@ import logging
 import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
+from typing import (
+    Any,
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Optional,
+)
 
 logger = logging.getLogger(__name__)
 
 _SENTINEL = None
+
+# Indirection so tests can simulate a failing task creation without
+# patching the process-wide ``asyncio`` module.
+_create_task = asyncio.create_task
 
 # Emitted to reconnect subscribers right after the buffered events, so
 # the client can render the replayed part instantly (no token-by-token
@@ -35,6 +47,7 @@ class _RunState:
     start_time: Optional[datetime] = None
     finish_time: Optional[datetime] = None
     owner: object | None = None
+    channel_id: str | None = None
 
 
 class TaskTracker:
@@ -126,6 +139,7 @@ class TaskTracker:
     async def snapshot_active_tasks(
         self,
         owner: object | None = None,
+        channel_id: str | None = None,
     ) -> dict[str, asyncio.Future]:
         """Return the currently active tasks without tracking later runs."""
         async with self._lock:
@@ -134,6 +148,7 @@ class TaskTracker:
                 for run_key, state in self._runs.items()
                 if not state.task.done()
                 and (owner is None or state.owner is owner)
+                and (channel_id is None or state.channel_id == channel_id)
             }
 
     async def wait_tasks_done(
@@ -213,7 +228,12 @@ class TaskTracker:
             except ValueError:
                 pass
 
-    async def request_stop(self, run_key: str) -> bool:
+    async def request_stop(
+        self,
+        run_key: str,
+        *,
+        reason: str = "user",
+    ) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
         logger.debug("[STOP] request_stop called for run_key=%s", run_key)
         async with self._lock:
@@ -235,7 +255,7 @@ class TaskTracker:
                 run_key,
             )
             task = state.task
-            task.cancel()
+            task.cancel(reason)
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
         try:
             await task
@@ -247,8 +267,10 @@ class TaskTracker:
         self,
         run_key: str,
         payload: Any,
-        stream_fn: Callable[..., Coroutine],
+        stream_fn: Callable[[Any], AsyncIterator[str]],
         owner: object | None = None,
+        on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
+        channel_id: str | None = None,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
@@ -269,8 +291,8 @@ class TaskTracker:
                 queues=[my_queue],
                 buffer=[],
                 owner=owner,
+                channel_id=channel_id,
             )
-            self._runs[run_key] = run
 
             tracker_ref = weakref.ref(self)
 
@@ -309,6 +331,14 @@ class TaskTracker:
                                 q.put_nowait(err_sse)
                 finally:
                     finish_time = datetime.now(timezone.utc)
+                    if on_finished is not None:
+                        try:
+                            await on_finished(run_key, finish_time)
+                        except Exception:  # pylint: disable=broad-except
+                            logger.exception(
+                                "run completion callback failed run_key=%s",
+                                run_key,
+                            )
                     tracker = tracker_ref()
                     if tracker is not None:
                         async with tracker.lock:
@@ -323,20 +353,45 @@ class TaskTracker:
                                 None,
                             )
 
-            run.task = asyncio.create_task(_producer())
+            # Register the run only once the producer task exists.
+            # Registering a placeholder first would leak a permanent
+            # "running" entry -- the status counters read
+            # ``not state.task.done()``, and a bare Future is never done --
+            # if task creation ever failed. This is defensive hardening:
+            # the window is synchronous and a running loop cannot be
+            # closed, so the failure is not reachable in practice.
+            run.task = _create_task(_producer())
+            self._runs[run_key] = run
             return my_queue, True
 
     async def stream_from_queue(
         self,
         queue: asyncio.Queue,
         run_key: str,
+        *,
+        cancel_run: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Yield SSE strings from *queue* until the sentinel ``None``.
 
         Always detaches *queue* from *run_key* when this stream ends or is
         closed (including client disconnect), so reconnects do not leak queues.
+        Channel queue executions opt into cancelling and joining their exact
+        producer; ordinary subscribers leave the run alive on disconnect.
         """
+
+        async def owned_task():
+            async with self._lock:
+                state = self._runs.get(run_key)
+                return (
+                    state.task
+                    if state is not None and queue in state.queues
+                    else None
+                )
+
+        producer = None
         try:
+            if cancel_run:
+                producer = await owned_task()
             while True:
                 try:
                     event = await queue.get()
@@ -344,6 +399,24 @@ class TaskTracker:
                         break
                     yield event
                 except asyncio.CancelledError:
+                    if cancel_run:
+                        raise
                     break
         finally:
-            await self.detach_subscriber(run_key, queue)
+            if cancel_run and asyncio.current_task().cancelling():
+                from ..utils.io_utils import run_async_to_completion
+
+                async def stop_and_detach():
+                    # Capture may itself have been cancelled waiting on the
+                    # lock. The exact subscriber queue excludes later runs
+                    # that reuse this key.
+                    task = producer or await owned_task()
+                    if task is not None:
+                        if not task.done() and not task.cancelling():
+                            task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                    await self.detach_subscriber(run_key, queue)
+
+                await run_async_to_completion(stop_and_detach())
+            else:
+                await self.detach_subscriber(run_key, queue)

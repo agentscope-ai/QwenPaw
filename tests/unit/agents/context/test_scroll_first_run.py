@@ -147,19 +147,67 @@ def test_no_notice_when_strategy_is_native(tmp_path: Path, caplog):
     assert _notice_records(caplog) == []
 
 
-def test_wiring_failure_closes_history_store(tmp_path: Path, monkeypatch):
-    histories = []
+@pytest.mark.parametrize("shared", [False, True])
+def test_wiring_failure_closes_only_owned_history_store(
+    tmp_path: Path,
+    monkeypatch,
+    shared,
+):
+    from qwenpaw.agents.context.scroll.history import HistoryStore
+    from qwenpaw.agents.context.scroll import repl
 
-    def fail_manager(**kwargs):
+    histories = []
+    supplied = HistoryStore(tmp_path / "history.db") if shared else None
+    manager_class = scroll_manager_mod.ScrollContextManager
+
+    def track_manager(**kwargs):
         histories.append(kwargs["history"])
+        return manager_class(**kwargs)
+
+    def fail_tool(**_kwargs):
         raise RuntimeError("wiring failed")
 
     monkeypatch.setattr(
         scroll_manager_mod,
         "ScrollContextManager",
-        fail_manager,
+        track_manager,
+    )
+    monkeypatch.setattr(repl, "make_recall_history_python", fail_tool)
+
+    try:
+        components = build_scroll_components(
+            agent_config=_agent_config(),
+            workspace_dir=tmp_path,
+            model=_DummyModel(),
+            session_id="s1",
+            history_store=supplied,
+        )
+        assert components is None
+        assert len(histories) == 1
+        assert histories[0].closed is (not shared)
+    finally:
+        if supplied is not None:
+            assert supplied.close() is True
+
+
+def test_invalid_history_path_falls_back_without_writing_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lcc = LightContextConfig()
+    lcc.scroll_config.db_filename = f"invalid\0.db"
+    agent_config = SimpleNamespace(
+        running=SimpleNamespace(light_context_config=lcc),
     )
 
-    assert _build(tmp_path) is None
-    assert len(histories) == 1
-    assert histories[0].closed is True
+    components = build_scroll_components(
+        agent_config=agent_config,
+        workspace_dir=str(workspace),
+        model=_DummyModel(),
+        session_id="s1",
+        agent_id="ag1",
+    )
+
+    assert components is None
+    assert not (tmp_path / "outside.db").exists()

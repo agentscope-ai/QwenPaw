@@ -6,7 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from domain.errors import ValidationError
-from services.project_files.models import Project, R2VCreation, VisualEntity
+from services.project_files.models import (
+    Project,
+    R2VCreation,
+    VisualEntity,
+    narrative_timeline_ids,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,11 +40,14 @@ class VisualDesignReadinessIssue:
 
 def _referenced_entities(
     project: Project,
+    element_id: str | None,
 ) -> dict[str, list[tuple[str, R2VCreation]]]:
     references: dict[str, list[tuple[str, R2VCreation]]] = {}
-    for timeline_id in project.timelines.order:
+    for timeline_id in narrative_timeline_ids(project):
         timeline = project.timelines.items[timeline_id]
-        for element_id, element in timeline.elements_by_id.items():
+        for ref, element in timeline.elements_by_id.items():
+            if element_id is not None and ref != element_id:
+                continue
             if not element.enabled or not isinstance(
                 element.creation,
                 R2VCreation,
@@ -58,7 +66,7 @@ def _referenced_entities(
             )
             for entity_id in entity_ids:
                 references.setdefault(entity_id, []).append(
-                    (element_id, element.creation),
+                    (ref, element.creation),
                 )
     return references
 
@@ -66,11 +74,24 @@ def _referenced_entities(
 def _entity_readiness_issues(
     entity: VisualEntity,
     element_references: list[tuple[str, R2VCreation]],
+    *,
+    bound_only: bool,
 ) -> list[VisualDesignReadinessIssue]:
     entity_id = entity.entity_id
     issues: list[VisualDesignReadinessIssue] = []
     defined = set(entity.variants.order)
-    for variant_id in entity.required_variant_ids:
+    required = entity.required_variant_ids
+    if bound_only:
+        # Each generation consumes one chosen state. Planned states for other
+        # shots/episodes remain in the project contract without blocking it.
+        required = list(
+            dict.fromkeys(
+                creation.visual_variant_refs.get(entity_id)
+                or (required[0] if len(required) == 1 else "")
+                for _, creation in element_references
+            ),
+        )
+    for variant_id in filter(None, required):
         if variant_id not in defined:
             issues.append(
                 VisualDesignReadinessIssue(
@@ -116,6 +137,7 @@ def _entity_readiness_issues(
 
 def _lineup_readiness_issues(
     project: Project,
+    target_element_id: str | None,
 ) -> list[VisualDesignReadinessIssue]:
     """Declared lineup references must be materialized before storyboards.
 
@@ -128,9 +150,14 @@ def _lineup_readiness_issues(
     """
 
     issues: list[VisualDesignReadinessIssue] = []
-    for timeline_id in project.timelines.order:
+    for timeline_id in narrative_timeline_ids(project):
         timeline = project.timelines.items[timeline_id]
         for element_id, element in timeline.elements_by_id.items():
+            if (
+                target_element_id is not None
+                and element_id != target_element_id
+            ):
+                continue
             if not element.enabled or not isinstance(
                 element.creation,
                 R2VCreation,
@@ -154,32 +181,38 @@ def _lineup_readiness_issues(
 
 def visual_design_readiness_issues(
     project: Project,
+    *,
+    element_id: str | None = None,
 ) -> tuple[VisualDesignReadinessIssue, ...]:
-    """Return project-wide visual gaps relevant to enabled R2V Elements.
+    """Audit the full plan, or only a target storyboard's actual inputs."""
 
-    The gate is intentionally project-wide: once storyboard production starts,
-    every visual entity referenced by the enabled plan must have its declared
-    Variant set materialized and selected. This keeps later Elements from
-    discovering missing character states after storyboard spend has begun.
-    """
-
-    references = _referenced_entities(project)
+    references = _referenced_entities(project, element_id)
     issues: list[VisualDesignReadinessIssue] = []
     for entity_id in project.visual.entities.order:
         element_references = references.get(entity_id)
         if not element_references:
             continue
         entity = project.visual.entities.items[entity_id]
-        issues.extend(_entity_readiness_issues(entity, element_references))
-    issues.extend(_lineup_readiness_issues(project))
+        issues.extend(
+            _entity_readiness_issues(
+                entity,
+                element_references,
+                bound_only=element_id is not None,
+            ),
+        )
+    issues.extend(_lineup_readiness_issues(project, element_id))
 
     return tuple(issues)
 
 
-def assert_visual_design_ready_for_storyboards(project: Project) -> None:
-    """Block storyboard spend until the structured visual plan is complete."""
+def assert_visual_design_ready_for_storyboards(
+    project: Project,
+    *,
+    element_id: str | None = None,
+) -> None:
+    """Block spend until the target's structured visual inputs are ready."""
 
-    issues = visual_design_readiness_issues(project)
+    issues = visual_design_readiness_issues(project, element_id=element_id)
     if not issues:
         return
     details = "；".join(issue.message() for issue in issues[:12])

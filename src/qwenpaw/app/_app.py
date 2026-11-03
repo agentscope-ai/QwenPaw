@@ -1,23 +1,26 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
 import asyncio
-import hmac
 import inspect
 import mimetypes
 import os
+import stat
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..__version__ import __version__
+from ..backup import BackupManager
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
+from ..cli.windows_shutdown import install_shutdown_handlers
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
 from ..constant import (
@@ -30,7 +33,7 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
-from ..utils.io_utils import run_sync_io
+from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.logging import (
     LOG_FILE_PATH,
     add_project_file_handler,
@@ -40,17 +43,23 @@ from ..utils.startup_display import AgentStartupDisplay
 from ..utils.system_info import summarize_python_environment
 from .auth import (
     AuthMiddleware,
+    RuntimeBoundaryMiddleware,
+    TrustedProxySchemeMiddleware,
     auto_register_from_env,
     check_proxy_config_sanity,
 )
+from .exception_handlers import register_exception_handlers
+from .response_compression import ResponseCompressionMiddleware
 from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
     migrate_legacy_skills_to_skill_pool,
     migrate_legacy_workspace_to_default_agent,
 )
+from .routers.runtime import router as runtime_router
 from .routers import create_agent_scoped_router
 from .routers import router as api_router
+from .routers.advisor_mode import router as advisor_mode_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
@@ -61,6 +70,12 @@ from .routers.voice import voice_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+_WORKSPACE_SHUTDOWN_DEADLINE_SECONDS = 12.0
+
+# Uvicorn imports this module inside the serving process. Under ``--reload``
+# that is a spawned child, distinct from the CLI/reloader process, so it must
+# expose its own PID-scoped graceful-shutdown event.
+install_shutdown_handlers()
 
 # Ensure static assets are served with browser-compatible MIME types across
 # platforms (notably Windows may miss .js/.mjs mappings).
@@ -76,14 +91,47 @@ mimetypes.add_type("image/svg+xml", ".svg")
 load_envs_into_environ()
 
 
-async def _sync_scroll_history_on_startup() -> None:
-    """Run the composed legacy-history migration outside the event loop."""
-    try:
-        from ..agents.context.scroll.sync import sync_all_scroll_agents
+async def _shutdown_plugins(app: FastAPI) -> None:
+    """Tear down plugin runtime resources before other services stop."""
+    plugin_loader = getattr(app.state, "plugin_loader", None)
+    if plugin_loader is not None:
+        logger.info("Executing plugin shutdown (mode=shutdown)...")
+        from ..plugins.lifecycle import UnloadMode
 
-        await run_sync_io(sync_all_scroll_agents)
-    except Exception:  # noqa: BLE001 - session sync must never block startup
-        logger.warning("session-sync: import/launch failed", exc_info=True)
+        reports = await plugin_loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+        failed = [
+            report.plugin_id for report in reports if not report.quiescent
+        ]
+        if failed:
+            raise RuntimeError(
+                "Plugin shutdown incomplete: " + ", ".join(failed),
+            )
+        return
+    plugin_registry = getattr(app.state, "plugin_registry", None)
+    if plugin_registry is None:
+        return
+    logger.info("Executing plugin shutdown hooks...")
+    for hook in plugin_registry.get_shutdown_hooks():
+        try:
+            logger.info(
+                f"Executing shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}' (priority"
+                f"={hook.priority})",
+            )
+            result = hook.callback()
+            if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                await result
+            logger.info(
+                f"✓ Completed shutdown hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}'",
+            )
+        except Exception as exc:
+            logger.error(
+                f"✗ Failed to execute shutdown hook "
+                f"'{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}': {exc}",
+                exc_info=True,
+            )
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
@@ -105,6 +153,70 @@ def _start_browser_runtime(app: FastAPI, kernel: Any, interval: float) -> None:
     app.state.browser_watchdog = asyncio.create_task(
         _browser_idle_watchdog(kernel, interval),
     )
+
+
+async def _stop_workspaces_after_dependents(
+    app: FastAPI,
+    import_jobs: Any,
+    *,
+    deadline_sec: float = _WORKSPACE_SHUTDOWN_DEADLINE_SECONDS,
+) -> None:
+    """Stop workspace dependents, hard-exiting if they cannot quiesce."""
+    completed = threading.Event()
+
+    def enforce_deadline() -> None:
+        if not completed.wait(deadline_sec):
+            # Teardown cannot safely continue while a worker still uses its
+            # workspace. Exit the whole process even for direct SIGTERM or
+            # Ctrl+C, which have no external CLI force-kill watchdog.
+            os._exit(1)  # pylint: disable=protected-access
+
+    threading.Thread(target=enforce_deadline, daemon=True).start()
+    try:
+        await _stop_workspaces_after_dependents_impl(app, import_jobs)
+    finally:
+        completed.set()
+
+
+async def _stop_workspaces_after_dependents_impl(
+    app: FastAPI,
+    import_jobs: Any,
+) -> None:
+    """Quiesce management, imports and hooks before destroying workspaces."""
+    failures = []
+    for name in (
+        "channel_ingress",
+        "channel_qrcode_sessions",
+        "channel_management",
+    ):
+        service = getattr(app.state, name, None)
+        if service is not None:
+            try:
+                await service.aclose()
+            except (Exception, asyncio.CancelledError) as exc:
+                failures.append(exc)
+    if failures:
+        for error in failures:
+            if not isinstance(error, asyncio.CancelledError):
+                raise error
+        raise failures[0]
+    imports_quiesced = await import_jobs.shutdown()
+    while not imports_quiesced:
+        # A bounded cancellation attempt is not proof that a worker has
+        # released its workspace. The process watchdog is the cutoff.
+        imports_quiesced = await import_jobs.drain()
+
+    await _shutdown_plugins(app)
+
+    # Hooks may access live workspaces. Stop them before unrelated cleanup
+    # delays the memory drain, but only after their dependents have finished.
+    multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
+    if multi_agent_mgr is not None:
+        logger.info("Stopping MultiAgentManager...")
+        try:
+            await multi_agent_mgr.stop_all()
+        except Exception as exc:
+            logger.error("Error stopping MultiAgentManager: %s", exc)
 
 
 async def _stop_browser_runtime(app: FastAPI) -> None:
@@ -177,20 +289,29 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
-    # Migrate old conversations from sessions/*.json into each scroll agent's
-    # history.db, so chats from before scroll existed stay recallable. This is
-    # a one-off backfill, not core startup work: if it fails, we log and keep
-    # booting — that agent just won't have its old chats imported (scroll still
-    # records new turns normally). The import sits inside the try for the same
-    # reason — even a failed import must not block init.
-    #
-    # Note: being pure backfill, this could later run asynchronously (off the
-    # boot path) to speed up startup.
-    await _sync_scroll_history_on_startup()
+    from ..config.utils import get_agent_dirs
+    from ..portability.transaction_journal import recover_import_transactions
 
-    # Create core managers (instant — no I/O)
-    provider_manager = ProviderManager.get_instance()
-    local_model_manager = LocalModelManager.get_instance()
+    try:
+        recovered_transactions = await recover_import_transactions(
+            get_agent_dirs(),
+        )
+    except Exception:
+        logger.exception(
+            "PawPort transaction recovery failed; continuing startup",
+        )
+        recovered_transactions = []
+    if recovered_transactions:
+        logger.warning(
+            "Recovered %d interrupted PawPort import transaction(s)",
+            len(recovered_transactions),
+        )
+
+    # Provider initialization scans and may migrate persisted configuration.
+    provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
+    local_model_manager = await asyncio.to_thread(
+        LocalModelManager.get_instance,
+    )
 
     # --- AppServiceManager + WorkspaceRegistry ---
     app_services = None
@@ -269,9 +390,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         factory_kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
-            extra_command_specs=_api_action_command_specs
-            if _api_action_command_specs
-            else None,
+            extra_command_specs=(
+                _api_action_command_specs
+                if _api_action_command_specs
+                else None
+            ),
         )
         # Merge factory output into workspace_registry._bootstrap_kwargs
         for key, value in factory_kwargs.items():
@@ -303,6 +426,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             exc_info=True,
         )
 
+    backup_manager = BackupManager()
+
     # Start token usage manager background tasks
     logger.debug("Starting TokenUsageManager background tasks...")
     from ..token_usage import get_token_usage_manager
@@ -316,8 +441,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.multi_agent_manager = workspace_registry
     app.state.provider_manager = provider_manager
     app.state.local_model_manager = local_model_manager
+    app.state.backup_manager = backup_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
+    app.state.channel_management = None
+    app.state.channel_qrcode_sessions = None
 
     async def _get_agent_by_id(agent_id: str = None):
         """Get agent instance by ID, or active agent if not specified."""
@@ -329,6 +457,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.get_agent_by_id = _get_agent_by_id
 
     app.state.startup_ready = asyncio.Event()
+    app.state.market_ready = asyncio.Event()
+    app.state.market_startup_failed = False
     app.state.startup_time = startup_start_time
     from ..browser.execution.kernel import get_default_kernel_manager
 
@@ -338,18 +468,23 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         get_default_kernel_manager(),
         max(0.1, browser_config.idle_ttl_seconds),
     )
-    if browser_config.experimental:
-        from ..browser.runtime.managed_playwright import (
-            start_managed_chromium_download,
-        )
-
-        start_managed_chromium_download()
     try:
         from ..browser.control_link.chrome.ws_handler import prime_bridge_token
 
         prime_bridge_token()
     except Exception:
         logger.warning("Bridge token priming failed", exc_info=True)
+
+    # Resolving the process timezone can run subprocess probes (POSIX
+    # `timedatectl`), so warm the cache off the event loop here rather than
+    # letting the first chat-history request pay for it. Best-effort: the
+    # cache is populated lazily anyway.
+    try:
+        from .chats.utils import _process_local_tz
+
+        await asyncio.to_thread(_process_local_tz)
+    except Exception:
+        logger.debug("Timezone prewarm skipped", exc_info=True)
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
@@ -368,10 +503,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # ---- Plugin System (phase 1: channel plugins) ----
-            # Load channel-type plugins *before* agents start so that
-            # ChannelManager discovers them via get_channel_registry()
-            # on first creation — no reload needed afterwards.
+            # ---- Plugin System (phase 1: startup-critical plugins) ----
+            # Channels, memory backends and Hubs register before readiness.
             logger.debug("Initializing plugin system...")
 
             from ..config.utils import get_plugins_dir
@@ -382,10 +515,72 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # and load through the same pipeline as 'app'-type plugins
             # (plugin.json carrying meta.pawapp); surfaced only in the App
             # Center, hidden from the sidebar.
+            from ..market.builtin import seed_builtin_hub_plugins
+
+            try:
+                await asyncio.to_thread(
+                    seed_builtin_hub_plugins,
+                    get_plugins_dir(),
+                )
+            except (OSError, ValueError, TimeoutError):
+                logger.exception("Could not initialize default Hub plugins")
+
             plugin_dirs = [get_plugins_dir()]
 
-            plugin_loader = PluginLoader(plugin_dirs)
+            from ..plugins.official_channels import (
+                provision_bundled_channels,
+                resolve_default_channel_runtime,
+            )
 
+            try:
+                channel_runtime = await asyncio.to_thread(
+                    resolve_default_channel_runtime,
+                )
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                logger.exception("Official channel runtime unavailable")
+                channel_runtime = None
+            plugin_loader = await PluginLoader.create(
+                plugin_dirs,
+                channel_runtime=channel_runtime,
+            )
+            from ..cli.app_cmd import _dependency_restart
+
+            if _dependency_restart is not None:
+                import signal
+
+                plugin_loader.dependency_upgrade_restart = _dependency_restart
+                plugin_loader.dependency_upgrade_shutdown = (
+                    lambda: signal.raise_signal(signal.SIGINT)
+                )
+            from .channels.management import ChannelManagementService
+            from .channels.qrcode_sessions import ChannelQRCodeSessions
+
+            app.state.plugin_loader = plugin_loader
+            app.state.plugin_registry = plugin_loader.registry
+            from .channels.ingress import ChannelIngressService
+            from .server_context import server_port
+            from .auth import is_trusted_proxy
+
+            app.state.channel_ingress = ChannelIngressService(
+                plugin_loader.registry,
+                host_port=server_port(app),
+                trusted_proxy=is_trusted_proxy,
+            )
+            plugin_loader.registry.channel_ingress_service = (
+                app.state.channel_ingress
+            )
+            app.state.channel_management = ChannelManagementService(
+                plugin_loader,
+            )
+            app.state.channel_qrcode_sessions = ChannelQRCodeSessions(
+                plugin_loader,
+                app.state.channel_management,
+            )
+            workspace_registry.channel_qrcode_sessions = (
+                app.state.channel_qrcode_sessions
+            )
+
+            plugin_loader.registry.set_workspace_manager(workspace_registry)
             plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
@@ -396,16 +591,29 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
-            # Phase 1: load channel plugins before agents start
+            # Phase 1: register only; projection waits for activate_all
             await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
-                types=["channel"],
+                types=["channel", "memory", "hub"],
+                activate=False,
             )
-            logger.debug("Phase 1: channel plugins loaded")
+            try:
+                seed_errors = await provision_bundled_channels(plugin_loader)
+                for plugin_id, reason in seed_errors.items():
+                    logger.warning(
+                        "Official channel %s needs repair: %s",
+                        plugin_id,
+                        reason,
+                    )
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                logger.exception("Official channel migration pending")
+            logger.debug("Phase 1: channel, memory and Hub plugins loaded")
+            app.state.market_ready.set()
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
                 core_elapsed = time.time() - startup_start_time
+                logger.info(f"Core agents ready in {core_elapsed:.3f}s")
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
@@ -423,11 +631,23 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
+            startup_provider_ids = provider_manager.startup_sync_provider_ids()
+            asyncio.create_task(
+                provider_manager.sync_startup_provider_models(
+                    startup_provider_ids,
+                ),
+                name="qwenpaw-provider-model-sync",
+            )
+            asyncio.create_task(
+                provider_manager.sync_remote_catalogs(),
+                name="qwenpaw-provider-catalog-sync",
+            )
 
             # Phase 2: load remaining plugins (channel plugins already
             # loaded — load_plugin skips them automatically)
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
+                activate=False,
             )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
 
@@ -439,84 +659,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 workspace_registry,
             )
 
-            for (
-                provider_id,
-                provider_reg,
-            ) in plugin_loader.registry.get_all_providers().items():
-                provider_manager.register_plugin_provider(
-                    provider_id=provider_id,
-                    provider_class=provider_reg.provider_class,
-                    label=provider_reg.label,
-                    base_url=provider_reg.base_url,
-                    metadata=provider_reg.metadata,
-                )
-                logger.debug(
-                    f"Registered plugin provider: {provider_id}",
-                )
-
             app.state.plugin_loader = plugin_loader
             app.state.plugin_registry = plugin_loader.registry
 
-            # ---- Plugin Control Commands ----
-            logger.debug("Registering plugin control commands...")
-            from qwenpaw.runtime.commands.control import register_command
-
-            from ..app.channels.command_registry import CommandRegistry
-
-            command_registry = CommandRegistry()
-
-            control_commands = plugin_loader.registry.get_control_commands()
-            for cmd_reg in control_commands:
-                try:
-                    register_command(cmd_reg.handler)
-
-                    command_registry.register_command(
-                        f"/{cmd_reg.handler.command_name}",
-                        priority_level=cmd_reg.priority_level,
-                    )
-
-                    logger.debug(
-                        f"Registered plugin control command: "
-                        f"/{cmd_reg.handler.command_name} "
-                        f"from plugin '{cmd_reg.plugin_id}' (priority"
-                        f"={cmd_reg.priority_level})",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to register control command "
-                        f"'{cmd_reg.handler.command_name}' "
-                        f"from plugin '{cmd_reg.plugin_id}': {e}",
-                        exc_info=True,
-                    )
-
-            # ---- Startup Hooks ----
-            logger.debug("Executing plugin startup hooks...")
-            startup_hooks = plugin_loader.registry.get_startup_hooks()
-            for hook in startup_hooks:
-                try:
-                    logger.debug(
-                        f"Executing startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' "
-                        f"(priority={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(
-                        result,
-                    ) or inspect.isawaitable(result):
-                        await result
-
-                    logger.debug(
-                        f"Completed startup hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute startup hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
+            logger.debug("Activating loaded plugins...")
+            await plugin_loader.activate_all_loaded()
 
             # ---- Approval Service ----
             try:
@@ -532,16 +679,40 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.warning(f"Approval service setup skipped: {e}")
 
-            # ---- Skill pool auto-update sync ----
+            # ---- Skill Pool builtin update + workspace auto-sync ----
             try:
-                from ..agents.skill_system import run_pool_auto_update_sync
-                from .routers.skills import post_auto_update_inbox
+                from ..agents.skill_system import run_pool_automation_pipeline
+                from .routers.skills import post_pool_automation_inbox
 
-                au_result = await asyncio.to_thread(run_pool_auto_update_sync)
-                await post_auto_update_inbox(au_result)
+                result = await asyncio.to_thread(
+                    run_pool_automation_pipeline,
+                )
+                await post_pool_automation_inbox(result)
             except Exception:
                 logger.warning(
-                    "Skill pool auto-update sync skipped on startup",
+                    "Skill Pool automation skipped on startup",
+                    exc_info=True,
+                )
+
+            # ---- Orphan skill staging dirs ----
+            # Best-effort housekeeping: a leaked stage dir is harmless, so
+            # cleanup must never gate startup on temp-dir I/O.
+            try:
+                from ..agents.skill_system import (
+                    cleanup_orphan_skill_stages,
+                )
+
+                removed = await asyncio.to_thread(
+                    cleanup_orphan_skill_stages,
+                )
+                if removed:
+                    logger.info(
+                        "Removed %d orphan skill staging dir(s)",
+                        removed,
+                    )
+            except Exception:
+                logger.warning(
+                    "Orphan skill staging cleanup skipped",
                     exc_info=True,
                 )
 
@@ -558,53 +729,37 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 "Background startup encountered an error",
                 exc_info=True,
             )
+        finally:
+            if not app.state.market_ready.is_set():
+                app.state.market_startup_failed = True
+                app.state.market_ready.set()
 
     _bg_task = asyncio.create_task(_background_startup())
+    daily_telemetry = start_daily_telemetry()
 
     try:
         yield
     finally:
+        await daily_telemetry.close()
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()
             with suppress(asyncio.CancelledError):
                 await _bg_task
 
+        # Import jobs can write workspaces and install plugins. Stop them
+        # before closing the services they depend on.
+        from .routers.portability_imports import PORTABILITY_IMPORT_JOBS
+
+        await _stop_workspaces_after_dependents(app, PORTABILITY_IMPORT_JOBS)
+
+        logger.info("Stopping BackupManager...")
+        await backup_manager.shutdown()
+
         await _stop_browser_runtime(app)
         from ..agents.tools import shutdown_browser_runtime
 
         await shutdown_browser_runtime()
-
-        # ==================== Execute Shutdown Hooks ====================
-        plugin_registry = getattr(app.state, "plugin_registry", None)
-        if plugin_registry is not None:
-            logger.info("Executing plugin shutdown hooks...")
-            shutdown_hooks = plugin_registry.get_shutdown_hooks()
-            for hook in shutdown_hooks:
-                try:
-                    logger.info(
-                        f"Executing shutdown hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' (priority"
-                        f"={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(result) or inspect.isawaitable(
-                        result,
-                    ):
-                        await result
-
-                    logger.info(
-                        f"✓ Completed shutdown hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute shutdown hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
 
         local_model_mgr = getattr(app.state, "local_model_manager", None)
         if local_model_mgr is not None:
@@ -626,15 +781,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 await _app_svc.stop()
             except Exception as e:
                 logger.error(f"Error stopping AppServiceManager: {e}")
-
-        # Stop multi-agent manager (stops all agents and their components)
-        multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
-        if multi_agent_mgr is not None:
-            logger.info("Stopping MultiAgentManager...")
-            try:
-                await multi_agent_mgr.stop_all()
-            except Exception as e:
-                logger.error(f"Error stopping MultiAgentManager: {e}")
 
         # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client
@@ -684,11 +830,17 @@ app = FastAPI(
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
+register_exception_handlers(app)
+
+# Compress large JSON responses such as skill and workspace listings.
+app.add_middleware(ResponseCompressionMiddleware, minimum_size=1000)
 
 # Add agent context middleware for agent-scoped routes
 app.add_middleware(AgentContextMiddleware)
 
 app.add_middleware(AuthMiddleware)
+app.add_middleware(TrustedProxySchemeMiddleware)
+app.add_middleware(RuntimeBoundaryMiddleware)
 
 # Apply CORS middleware if CORS_ORIGINS is set
 if CORS_ORIGINS:
@@ -790,39 +942,7 @@ def get_doctor_runtime():
     }
 
 
-@app.post("/api/desktop/shutdown")
-async def post_desktop_shutdown(
-    x_qwenpaw_desktop_shutdown_token: str | None = Header(default=None),
-):
-    """Gracefully stop the desktop sidecar before the Tauri app exits.
-
-    The Tauri shell calls this on quit so uvicorn performs a normal shutdown
-    (running the lifespan ``finally`` block that flushes memory/index) instead
-    of being force-killed. Only available when running as the desktop sidecar.
-    """
-    from ..tauri.env import DESKTOP_APP_ENV, DESKTOP_SHUTDOWN_TOKEN_ENV
-
-    expected_token = os.environ.get(DESKTOP_SHUTDOWN_TOKEN_ENV)
-    if (
-        os.environ.get(DESKTOP_APP_ENV) != "1"
-        or not expected_token
-        or x_qwenpaw_desktop_shutdown_token is None
-        or not hmac.compare_digest(
-            x_qwenpaw_desktop_shutdown_token,
-            expected_token,
-        )
-    ):
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    server = getattr(app.state, "uvicorn_server", None)
-    if server is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Desktop backend is not ready",
-        )
-
-    server.should_exit = True
-    return {"ok": True}
+app.include_router(runtime_router)
 
 
 app.include_router(api_router, prefix="/api")
@@ -857,6 +977,9 @@ app.include_router(approval_router, prefix="/api")
 # Coding Mode router: /api/coding-mode
 app.include_router(coding_mode_router, prefix="/api")
 
+# Advisor Mode router: /api/advisor-mode
+app.include_router(advisor_mode_router, prefix="/api")
+
 # Loops router: /api/loops
 app.include_router(loops_router, prefix="/api")
 
@@ -873,6 +996,10 @@ app.include_router(voice_router, tags=["voice"])
 # Register these AFTER API routes to ensure proper routing priority
 if os.path.isdir(_CONSOLE_STATIC_DIR):
     _console_path = Path(_CONSOLE_STATIC_DIR)
+    _console_static = StaticFiles(
+        directory=str(_console_path),
+        check_dir=False,
+    )
 
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
@@ -916,10 +1043,11 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         # favicons, images placed in public/).  Only serve regular files whose
         # path does not escape the console directory.
         if full_path and ".." not in full_path:
-            # Security: Reject absolute paths to prevent path traversal bypass
-            if not Path(full_path).is_absolute():
-                static_file = _console_path / full_path
-                if static_file.is_file():
-                    return FileResponse(static_file)
+            try:
+                static_file, file_stat = _console_static.lookup_path(full_path)
+            except (OSError, ValueError):
+                return _serve_console_index()
+            if file_stat and stat.S_ISREG(file_stat.st_mode):
+                return FileResponse(static_file, stat_result=file_stat)
 
         return _serve_console_index()

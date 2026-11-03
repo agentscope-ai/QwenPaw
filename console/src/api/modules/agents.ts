@@ -1,11 +1,15 @@
 import { request } from "../request";
+import type { EmbeddingModelConfig } from "../types/agent";
 import type {
   AgentListResponse,
+  AgentModelSettingsPatch,
   AgentProfileConfig,
   CreateAgentRequest,
   CopyAgentRequest,
   AgentProfileRef,
   MemoryGraphSnapshot,
+  MemoryTagPage,
+  MemoryTagFilePage,
   ReorderAgentsResponse,
 } from "../types/agents";
 
@@ -14,12 +18,13 @@ export interface ReMeComponentMemoryUsage {
   human: string;
 }
 
-export interface MemoryCaptureTaskStatus {
+export interface AutoMemoryTaskStatus {
   task_id: string;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   queued_at: string | null;
   finished_at: string | null;
   message_count: number;
+  trigger: "periodic" | "manual" | "compact" | "new" | string;
   result: string | null;
   error: string | null;
 }
@@ -38,11 +43,13 @@ export interface ReMeMemoryStatusResponse {
       enabled: boolean;
       interval: number;
     };
-    tasks: MemoryCaptureTaskStatus[];
+    tasks: AutoMemoryTaskStatus[];
     recent: {
       last_error: string | null;
     };
     reindexing: boolean;
+    embedding_reindex_required: boolean;
+    embedding_reindex_undo_available: boolean;
   };
 }
 
@@ -54,8 +61,10 @@ export const agentsApi = {
   listAgents: () => request<AgentListResponse>("/agents"),
 
   // Get agent details
-  getAgent: (agentId: string) =>
-    request<AgentProfileConfig>(`/agents/${agentId}`),
+  getAgent: (agentId: string, signal?: AbortSignal) =>
+    signal
+      ? request<AgentProfileConfig>(`/agents/${agentId}`, { signal })
+      : request<AgentProfileConfig>(`/agents/${agentId}`),
 
   // Create new agent
   createAgent: (agent: CreateAgentRequest) =>
@@ -78,19 +87,39 @@ export const agentsApi = {
       body: JSON.stringify(agent),
     }),
 
+  updateModelSettings: (agentId: string, settings: AgentModelSettingsPatch) =>
+    request<AgentProfileConfig>(`/agents/${agentId}/model-settings`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
+
   updateBackendSettings: (
     agentId: string,
-    settings: { model?: string; reasoning_effort?: string },
+    settings: {
+      model?: string | null;
+      reasoning_effort?: string | null;
+    },
   ) =>
     request<AgentProfileConfig>(`/agents/${agentId}/backend-settings`, {
       method: "PATCH",
       body: JSON.stringify(settings),
     }),
 
-  rebuildMemoryIndex: (agentId: string) =>
-    request<{ status: "completed" }>(`/agents/${agentId}/memory/reindex`, {
+  rebuildMemoryIndex: (
+    agentId: string,
+    scope: "all" | "bm25" | "embedding" = "all",
+  ) =>
+    request<{ status: "completed"; scope: string }>(
+      `/agents/${agentId}/memory/reindex?scope=${scope}`,
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+      },
+    ),
+
+  undoEmbeddingReindex: (agentId: string) =>
+    request<EmbeddingModelConfig>(`/agents/${agentId}/memory/reindex/undo`, {
       method: "POST",
-      timeout: 10 * 60 * 1000,
     }),
 
   getMemoryStatus: (agentId: string, signal?: AbortSignal) => {
@@ -109,6 +138,25 @@ export const agentsApi = {
 
   getMemoryGraph: (agentId: string) =>
     request<MemoryGraphSnapshot>(`/agents/${agentId}/memory/graph`),
+
+  getMemoryTags: (agentId: string, page = 1, signal?: AbortSignal) =>
+    request<MemoryTagPage>(
+      `/agents/${encodeURIComponent(agentId)}/memory/tags?page=${page}`,
+      { signal },
+    ),
+
+  getMemoryTagFiles: (
+    agentId: string,
+    tag: string,
+    page = 1,
+    signal?: AbortSignal,
+  ) =>
+    request<MemoryTagFilePage>(
+      `/agents/${encodeURIComponent(
+        agentId,
+      )}/memory/tag-files?${new URLSearchParams({ tag, page: String(page) })}`,
+      { signal },
+    ),
 
   // Delete agent
   deleteAgent: (agentId: string) =>

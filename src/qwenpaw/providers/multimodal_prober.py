@@ -9,6 +9,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+from ..utils.logging import sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # 32x32 red PNG (96 bytes), used as minimal probe image.
@@ -77,15 +79,41 @@ _PROBE_VIDEO_B64 = (
 class ProbeResult:
     """Result of multimodal capability probing."""
 
-    supports_image: bool = False
-    supports_video: bool = False
+    supports_image: bool | None = None
+    supports_video: bool | None = None
     image_message: str = ""
     video_message: str = ""
     probe_source: str = "probed"
 
     @property
-    def supports_multimodal(self) -> bool:
-        return self.supports_image or self.supports_video
+    def supports_multimodal(self) -> bool | None:
+        values = (self.supports_image, self.supports_video)
+        if True in values:
+            return True
+        return False if all(value is False for value in values) else None
+
+    def __post_init__(self) -> None:
+        """Do not turn failed diagnostics into negative model capability."""
+        for field, message in (
+            (f"supports_image", self.image_message),
+            (f"supports_video", self.video_message),
+        ):
+            if any(
+                word in message.lower()
+                for word in (
+                    f"inconclusive",
+                    f"probe failed",
+                    f"skipped:",
+                    f"did not recognise",
+                    f"401",
+                    f"403",
+                    f"429",
+                    f"timeout",
+                    f"timed out",
+                    f"connection",
+                )
+            ):
+                setattr(self, field, None)
 
 
 def _is_media_keyword_error(exc: Exception) -> bool:
@@ -98,9 +126,17 @@ def _is_media_keyword_error(exc: Exception) -> bool:
         "multimodal",
         "image_url",
         "video_url",
-        "does not support",
     ]
-    return any(kw in error_str for kw in keywords)
+    return any(kw in error_str for kw in keywords) and any(
+        marker in error_str
+        for marker in (
+            f"not support",
+            f"unsupported",
+            f"not allowed",
+            f"only support",
+            f"cannot process",
+        )
+    )
 
 
 # Shared prompt for image color-probe across all providers.
@@ -152,6 +188,7 @@ def evaluate_image_probe_answer(
 
     answer = answer.lower().strip()
     reasoning = reasoning.lower().strip()
+    model_id = sanitize_log_value(model_id)
 
     if any(kw in answer for kw in _RED_KW):
         elapsed = time.monotonic() - start_time
@@ -210,6 +247,7 @@ def evaluate_video_probe_answer(
 
     answer = answer.lower().strip()
     reasoning = reasoning.lower().strip()
+    model_id = sanitize_log_value(model_id)
 
     answer_match = any(kw in answer for kw in _BLUE_KW)
     reasoning_match = reasoning and any(kw in reasoning for kw in _BLUE_KW)

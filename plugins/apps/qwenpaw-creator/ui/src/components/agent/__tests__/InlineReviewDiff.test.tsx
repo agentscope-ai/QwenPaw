@@ -6,55 +6,38 @@ import type {
   FileProjectReviewRecord,
 } from "@/contracts/creator";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
+import { makeReviewOperation, makeReviewRecord } from "@/test/agentFixtures";
+import DiffView from "@/components/agent/DiffView";
 
-function operation(
-  overrides: Partial<FileProjectReviewOperation>,
-): FileProjectReviewOperation {
-  return {
-    kind: "update",
+const operation = (overrides: Partial<FileProjectReviewOperation>) =>
+  makeReviewOperation({
     json_pointer: "/strategy/creative_brief",
-    file_id: null,
-    target_ref: null,
-    before_hash: "hash-before",
-    after_hash: "hash-after",
     before: "旧文案",
     after: "新文案",
-    operation_id: "operation-1",
     ui_locator: { page: "plan", mediaType: "text" },
-    decision: "PENDING",
     ...overrides,
-  };
-}
+  });
 
-function review(
+const review = (
   operations: FileProjectReviewOperation[],
   overrides: Partial<FileProjectReviewRecord> = {},
-): FileProjectReviewRecord {
-  return {
-    review_id: "review-1",
-    round_id: "round-1",
-    request_id: "request-1",
-    request_message_seq: 2,
-    interrupted_run_id: "run-1",
-    baseline_generation: 1,
-    baseline_etag: "etag-base",
-    candidate_generation: 2,
-    candidate_etag: "etag-candidate",
-    decision_token: "token-1",
-    status: "PENDING",
-    operations,
-    created_at: "2026-07-24T00:00:00Z",
-    updated_at: "2026-07-24T00:00:00Z",
-    ...overrides,
-  };
-}
+) => makeReviewRecord({ operations, ...overrides });
+
+// One replaced Element object shared by both ancestor-slice tests.
+const elementReplaced = review([
+  operation({
+    json_pointer: "/timelines/items/0/elements_by_id/element-1",
+    before: { title: "旧标题", description: "同样" },
+    after: { title: "新标题", description: "同样" },
+  }),
+]);
 
 afterEach(() => {
   useFileProjectReviewStore.getState().reset();
 });
 
 describe("matchReviewOperations", () => {
-  it("matches an operation whose pointer equals the field pointer", () => {
+  it("matches an exact pointer and ignores unrelated ones", () => {
     const matches = matchReviewOperations(
       [review([operation({})])],
       "/strategy/creative_brief",
@@ -63,41 +46,30 @@ describe("matchReviewOperations", () => {
     expect(matches[0].relation).toBe("exact");
     expect(matches[0].before).toBe("旧文案");
     expect(matches[0].after).toBe("新文案");
+    expect(
+      matchReviewOperations(
+        [review([operation({ json_pointer: "/strategy/creative_direction" })])],
+        "/strategy/creative_brief",
+      ),
+    ).toHaveLength(0);
   });
 
-  it("extracts the field slice when an ancestor object was replaced", () => {
+  it("extracts only the changed field slice when an ancestor object was replaced", () => {
     const matches = matchReviewOperations(
-      [
-        review([
-          operation({
-            json_pointer: "/timelines/items/0/elements_by_id/element-1",
-            before: { title: "旧标题", description: "同样" },
-            after: { title: "新标题", description: "同样" },
-          }),
-        ]),
-      ],
+      [elementReplaced],
       "/timelines/items/0/elements_by_id/element-1/title",
     );
     expect(matches).toHaveLength(1);
     expect(matches[0].relation).toBe("ancestor");
     expect(matches[0].before).toBe("旧标题");
     expect(matches[0].after).toBe("新标题");
-  });
-
-  it("skips ancestor slices whose field value did not change", () => {
-    const matches = matchReviewOperations(
-      [
-        review([
-          operation({
-            json_pointer: "/timelines/items/0/elements_by_id/element-1",
-            before: { title: "旧标题", description: "同样" },
-            after: { title: "新标题", description: "同样" },
-          }),
-        ]),
-      ],
-      "/timelines/items/0/elements_by_id/element-1/description",
-    );
-    expect(matches).toHaveLength(0);
+    // The untouched sibling field yields no match.
+    expect(
+      matchReviewOperations(
+        [elementReplaced],
+        "/timelines/items/0/elements_by_id/element-1/description",
+      ),
+    ).toHaveLength(0);
   });
 
   it("reports descendant operations with their sub path", () => {
@@ -131,14 +103,6 @@ describe("matchReviewOperations", () => {
     expect(matches).toHaveLength(0);
   });
 
-  it("ignores unrelated pointers", () => {
-    const matches = matchReviewOperations(
-      [review([operation({ json_pointer: "/strategy/creative_direction" })])],
-      "/strategy/creative_brief",
-    );
-    expect(matches).toHaveLength(0);
-  });
-
   it("collects rejection intent before submitting an inline undo", async () => {
     const current = review([operation({})]);
     const decide = vi.fn(async () => current);
@@ -162,5 +126,20 @@ describe("matchReviewOperations", () => {
         { action: "UNDO_ONLY" },
       ),
     );
+  });
+});
+
+describe("DiffView", () => {
+  it("renders removed and added lines for text changes", () => {
+    render(<DiffView before={"alpha\nbeta"} after={"alpha\ngamma"} />);
+    expect(screen.getByText("beta")).toBeInTheDocument();
+    expect(screen.getByText("gamma")).toBeInTheDocument();
+    expect(document.querySelector('[data-diff-kind="removed"]')).toBeTruthy();
+    expect(document.querySelector('[data-diff-kind="added"]')).toBeTruthy();
+  });
+
+  it("shows an empty-state message when both sides are empty", () => {
+    render(<DiffView before={null} after={null} />);
+    expect(screen.getByText("（无内容变化）")).toBeInTheDocument();
   });
 });

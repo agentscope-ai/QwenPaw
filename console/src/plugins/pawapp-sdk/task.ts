@@ -9,21 +9,24 @@
  */
 import { hostFetch } from "../hostSdk/fetch";
 import type { PawTaskEventHandler, PawTaskHandle } from "./types";
-import { getApiUrl } from "../../api/config";
-import { buildAuthHeaders } from "../../api/authHeaders";
+import { normalizeAppId, normalizeAppRelativePath } from "./scope";
 
 /**
  * Create a PawTask — posts to backend to start task, then connects
  * to SSE stream for realtime events.
  */
-export function createPawTask(
+function createPawTaskWithScope(
   appId: string,
   path: string,
   params?: unknown,
+  strictScope = false,
 ): PawTaskHandle {
   const listeners = new Map<string, Set<PawTaskEventHandler>>();
   let taskId = "";
-  let abortController: AbortController | null = new AbortController();
+  const abortController = new AbortController();
+  let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let readerFinalizePromise: Promise<void> | null = null;
+  let settled = false;
 
   // Promise that resolves with the final result
   let resolveResult!: (value: unknown) => void;
@@ -46,20 +49,60 @@ export function createPawTask(
     }
   }
 
+  function finalizeReaderOnce(): Promise<void> {
+    if (!activeReader) return Promise.resolve();
+    if (!readerFinalizePromise) {
+      const reader = activeReader;
+      readerFinalizePromise = (async () => {
+        try {
+          await reader.cancel();
+        } catch {
+          // Best-effort cleanup; preserve the task's original outcome.
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch {
+            // The lock may already have been released by the stream runtime.
+          }
+        }
+      })();
+    }
+    return readerFinalizePromise;
+  }
+
+  function finalize(
+    outcome: "resolve" | "reject",
+    value: unknown,
+    terminalEvent?: { type: string; data: unknown },
+  ): boolean {
+    if (settled) return false;
+    settled = true;
+    if (terminalEvent) emit(terminalEvent.type, terminalEvent.data);
+    if (outcome === "resolve") resolveResult(value);
+    else rejectResult(value);
+    return true;
+  }
+
   // Start the task asynchronously
   (async () => {
     try {
       // POST to create task
-      const normalized = path.startsWith("/") ? path : `/${path}`;
+      const normalizedAppId = strictScope ? normalizeAppId(appId) : appId;
+      const normalized = strictScope
+        ? normalizeAppRelativePath(path)
+        : path.startsWith("/")
+        ? path
+        : `/${path}`;
       // Use unified route: /{appId}/... -> /api/{appId}/... via getApiUrl
-      const createRes = await hostFetch(`/${appId}${normalized}`, {
+      const createRes = await hostFetch(`/${normalizedAppId}${normalized}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: params != null ? JSON.stringify(params) : undefined,
-        signal: abortController?.signal,
+        signal: abortController.signal,
       });
 
       if (!createRes.ok) {
+        void createRes.body?.cancel().catch(() => undefined);
         throw new Error(
           `Task creation failed: ${createRes.status} ${createRes.statusText}`,
         );
@@ -71,67 +114,84 @@ export function createPawTask(
       if (!taskId) {
         throw new Error("No task_id returned from backend");
       }
+      if (settled) return;
 
       // Connect to SSE stream using fetch-based approach
       // (EventSource doesn't support custom auth headers)
-      const streamUrl = getApiUrl(`/${appId}/task/${taskId}/stream`);
-      const sseRes = await fetch(streamUrl, {
-        headers: {
-          ...buildAuthHeaders(),
-          Accept: "text/event-stream",
+      const sseRes = await hostFetch(
+        `/${normalizedAppId}/task/${encodeURIComponent(taskId)}/stream`,
+        {
+          headers: {
+            Accept: "text/event-stream",
+          },
+          signal: abortController.signal,
         },
-        signal: abortController?.signal,
-      });
+      );
 
       if (!sseRes.ok || !sseRes.body) {
+        void sseRes.body?.cancel().catch(() => undefined);
         throw new Error(`SSE connection failed: ${sseRes.status}`);
       }
 
       const reader = sseRes.body.getReader();
+      activeReader = reader;
       const decoder = new TextDecoder();
       let buffer = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (!settled) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const eventData = JSON.parse(line.slice(6));
-              const eventType = eventData.type ?? eventData.event ?? "message";
+          for (const line of lines) {
+            if (settled) break;
+            if (line.startsWith("data: ")) {
+              try {
+                const eventData = JSON.parse(line.slice(6));
+                const eventType =
+                  eventData.type ?? eventData.event ?? "message";
 
-              if (eventType === "done") {
-                emit("done", eventData.data ?? eventData);
-                resolveResult(eventData.data ?? eventData.result ?? null);
-                return;
-              } else if (eventType === "error") {
-                const err = new Error(eventData.message ?? "Task failed");
-                emit("error", eventData);
-                rejectResult(err);
-                return;
-              } else {
-                emit(eventType, eventData.data ?? eventData);
+                if (eventType === "done") {
+                  finalize(
+                    "resolve",
+                    eventData.data ?? eventData.result ?? null,
+                    { type: "done", data: eventData.data ?? eventData },
+                  );
+                } else if (eventType === "error") {
+                  finalize(
+                    "reject",
+                    new Error(eventData.message ?? "Task failed"),
+                    { type: "error", data: eventData },
+                  );
+                } else {
+                  emit(eventType, eventData.data ?? eventData);
+                }
+              } catch {
+                // Non-JSON line, emit as raw
+                emit("message", line.slice(6));
               }
-            } catch {
-              // Non-JSON line, emit as raw
-              emit("message", line.slice(6));
             }
           }
         }
+      } finally {
+        void finalizeReaderOnce();
+        activeReader = null;
       }
 
       // Stream ended without explicit done/error
-      resolveResult(null);
+      finalize("resolve", null);
     } catch (err) {
-      if ((err as Error).name === "AbortError") {
-        rejectResult(new Error("Task cancelled"));
+      if (
+        (err as Error).name === "AbortError" ||
+        abortController.signal.aborted
+      ) {
+        finalize("reject", new Error("Task cancelled"));
       } else {
-        rejectResult(err);
+        finalize("reject", err);
       }
     }
   })();
@@ -149,8 +209,9 @@ export function createPawTask(
       return handle;
     },
     cancel() {
-      abortController?.abort();
-      abortController = null;
+      if (!finalize("reject", new Error("Task cancelled"))) return;
+      abortController.abort();
+      void finalizeReaderOnce();
     },
     get result() {
       return resultPromise;
@@ -161,4 +222,22 @@ export function createPawTask(
   };
 
   return handle;
+}
+
+/** Legacy path-compatible task factory. */
+export function createPawTask(
+  appId: string,
+  path: string,
+  params?: unknown,
+): PawTaskHandle {
+  return createPawTaskWithScope(appId, path, params, false);
+}
+
+/** @internal Strict task factory used by permanent app-scoped handles. */
+export function createScopedPawTask(
+  appId: string,
+  path: string,
+  params?: unknown,
+): PawTaskHandle {
+  return createPawTaskWithScope(appId, path, params, true);
 }

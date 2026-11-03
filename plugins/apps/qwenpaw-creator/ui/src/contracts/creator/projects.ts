@@ -1,6 +1,9 @@
+import type { CreatorSessionStatus } from "./sessions";
+
 export type CreatorScenario = "short_drama" | "video_edit" | "general";
 
 export interface ProjectCreateRequest {
+  productionStage?: "script" | "media";
   clientRequestId: string;
   name: string;
   description?: string;
@@ -8,6 +11,7 @@ export interface ProjectCreateRequest {
   aspectRatio: string;
   resolution: string;
   contentType?: string | null;
+  templateId?: string;
   /** Optional atomic bootstrap goal persisted in the file Runtime aggregate. */
   initialGoal?: string;
 }
@@ -57,6 +61,8 @@ export interface ProjectSummary {
    * preview button on the home page.
    */
   finalVideoVersionId?: string | null;
+  /** Current session status, null when no runtime session exists. */
+  status?: CreatorSessionStatus | null;
 }
 
 export interface ProjectListResponse {

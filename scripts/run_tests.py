@@ -8,7 +8,7 @@ Usage:
 
 Options:
     -u, --unit [DIR]      Run unit tests (optionally specify subdirectory)
-    -i, --integrated      Run integrated tests
+    -i, --integrated      Run integration tests (tests/integration)
     -a, --all             Run all tests (default)
     -c, --coverage        Generate coverage report
     -p, --parallel        Run tests in parallel
@@ -18,9 +18,19 @@ Examples:
     python scripts/run_tests.py                    # Run all tests
     python scripts/run_tests.py -u                 # Run all unit tests
     python scripts/run_tests.py -u providers       # Run unit tests in providers
-    python scripts/run_tests.py -i                 # Run integrated tests
+    python scripts/run_tests.py -i                 # Run integration tests
     python scripts/run_tests.py -a -c              # Run all tests with coverage
     python scripts/run_tests.py -p                 # Run tests in parallel
+
+Notes:
+    * The default ``-a`` run executes the complete ``tests/unit`` tree
+      (root-level files included), ``tests/contract`` and
+      ``tests/integration`` — the same tiers GitHub Actions runs.
+    * A missing test suite directory is reported as an error with a
+      nonzero exit status instead of being silently skipped.
+    * Output is safe on terminals with limited encodings (for example
+      CP936/GBK on Windows): unencodable status symbols are replaced
+      instead of raising ``UnicodeEncodeError``.
 """
 
 import argparse
@@ -30,7 +40,26 @@ from pathlib import Path
 from typing import Optional
 
 
-class Colors:
+def _make_output_safe(stream) -> None:
+    """Keep printing from crashing on limited terminal encodings.
+
+    Windows consoles frequently use CP936/GBK; the Unicode status
+    symbols below used to raise ``UnicodeEncodeError`` before the test
+    outcome was reported.  Replacing unencodable characters keeps the
+    runner usable there.
+    """
+    if hasattr(stream, "reconfigure"):
+        try:
+            stream.reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
+_make_output_safe(sys.stdout)
+_make_output_safe(sys.stderr)
+
+
+class Colors:  # pylint: disable=too-few-public-methods
     """ANSI color codes for terminal output."""
 
     RED = "\033[0;31m"
@@ -61,10 +90,10 @@ def print_warning(message: str) -> None:
 
 
 def check_pytest() -> bool:
-    """Check if pytest is installed."""
+    """Check that pytest is usable by the active interpreter."""
     try:
         subprocess.run(
-            ["pytest", "--version"],
+            [sys.executable, "-m", "pytest", "--version"],
             capture_output=True,
             check=True,
         )
@@ -73,85 +102,20 @@ def check_pytest() -> bool:
         return False
 
 
-def run_unit_tests(
-    project_root: Path,
-    subdir: Optional[str] = None,
-    coverage: bool = False,
-    parallel: bool = False,
-) -> int:
-    """Run unit tests."""
-    if subdir:
-        # Run specific subdirectory
-        test_path = project_root / "tests" / "unit" / subdir
-        if not test_path.is_dir():
-            print_error(f"Unit test directory not found: {test_path}")
-            return 1
-
-        print_info(f"Running unit tests in: {subdir}")
-        return_code = run_pytest(test_path, coverage, parallel)
-        if return_code == 0:
-            print_success(f"Unit tests in {subdir} completed")
-        return return_code
-    else:
-        # Run all unit test subdirectories
-        print_info("Running all unit tests...")
-        unit_dir = project_root / "tests" / "unit"
-
-        if not unit_dir.is_dir():
-            print_warning("Unit test directory not found: tests/unit")
-            return 0
-
-        subdirs = [d for d in unit_dir.iterdir() if d.is_dir()]
-        if not subdirs:
-            print_warning("No unit test subdirectories found")
-            return 0
-
-        overall_return_code = 0
-        for test_dir in subdirs:
-            dirname = test_dir.name
-            print_info(f"Running unit tests in: {dirname}")
-            return_code = run_pytest(test_dir, coverage, parallel)
-            if return_code == 0:
-                print_success(f"Unit tests in {dirname} completed")
-            else:
-                overall_return_code = return_code
-            print()
-
-        return overall_return_code
-
-
-def run_integrated_tests(
-    project_root: Path,
-    coverage: bool = False,
-    parallel: bool = False,
-) -> int:
-    """Run integrated tests."""
-    print_info("Running integrated tests...")
-    integrated_dir = project_root / "tests" / "integrated"
-
-    if not integrated_dir.is_dir():
-        print_warning("Integrated test directory not found: tests/integrated")
-        return 0
-
-    # Check if there are any Python test files
-    test_files = list(integrated_dir.glob("*.py"))
-    if not test_files:
-        print_warning("No integrated test files found in tests/integrated")
-        return 0
-
-    return_code = run_pytest(integrated_dir, coverage, parallel)
-    if return_code == 0:
-        print_success("Integrated tests completed")
-    return return_code
-
-
 def run_pytest(
+    project_root: Path,
     test_path: Path,
     coverage: bool = False,
     parallel: bool = False,
 ) -> int:
-    """Run pytest with specified options."""
-    cmd = ["pytest", "-v", str(test_path)]
+    """Run pytest for ``test_path`` from the repository root.
+
+    Running from the root lets pytest pick up the repository
+    configuration (markers, timeouts, ...), and invoking pytest through
+    ``sys.executable`` targets the active interpreter even when the
+    ``pytest`` entry point is not on PATH.
+    """
+    cmd = [sys.executable, "-m", "pytest", "-v", str(test_path)]
 
     if coverage:
         cmd.extend(
@@ -166,10 +130,93 @@ def run_pytest(
         cmd.extend(["-n", "auto"])
 
     try:
-        result = subprocess.run(cmd, cwd=test_path.parents[2], check=True)
+        result = subprocess.run(cmd, cwd=project_root, check=True)
         return result.returncode
     except subprocess.CalledProcessError as e:
         return e.returncode
+
+
+def run_unit_tests(
+    project_root: Path,
+    subdir: Optional[str] = None,
+    coverage: bool = False,
+    parallel: bool = False,
+) -> int:
+    """Run unit tests.
+
+    Without ``subdir`` the complete ``tests/unit`` tree is executed in
+    one pytest invocation, so files placed directly in ``tests/unit``
+    are included as well.
+    """
+    if subdir:
+        test_path = project_root / "tests" / "unit" / subdir
+        if not test_path.is_dir():
+            print_error(f"Unit test directory not found: {test_path}")
+            return 1
+
+        print_info(f"Running unit tests in: {subdir}")
+        return_code = run_pytest(project_root, test_path, coverage, parallel)
+        if return_code == 0:
+            print_success(f"Unit tests in {subdir} completed")
+        return return_code
+
+    unit_dir = project_root / "tests" / "unit"
+    if not unit_dir.is_dir():
+        print_error("Unit test directory not found: tests/unit")
+        return 1
+
+    print_info("Running all unit tests...")
+    return_code = run_pytest(project_root, unit_dir, coverage, parallel)
+    if return_code == 0:
+        print_success("Unit tests completed")
+    return return_code
+
+
+def run_contract_tests(
+    project_root: Path,
+    coverage: bool = False,
+    parallel: bool = False,
+) -> int:
+    """Run contract tests (tests/contract)."""
+    print_info("Running contract tests...")
+    contract_dir = project_root / "tests" / "contract"
+    if not contract_dir.is_dir():
+        print_error("Contract test directory not found: tests/contract")
+        return 1
+
+    return_code = run_pytest(project_root, contract_dir, coverage, parallel)
+    if return_code == 0:
+        print_success("Contract tests completed")
+    return return_code
+
+
+def run_integrated_tests(
+    project_root: Path,
+    coverage: bool = False,
+    parallel: bool = False,
+) -> int:
+    """Run integration tests (tests/integration).
+
+    A missing directory is an error: silently returning success here
+    used to mask the fact that no integration test ran at all.
+    """
+    print_info("Running integration tests...")
+    integration_dir = project_root / "tests" / "integration"
+    if not integration_dir.is_dir():
+        print_error(
+            "Integration test directory not found: tests/integration",
+        )
+        return 1
+
+    return_code = run_pytest(
+        project_root,
+        integration_dir,
+        coverage,
+        parallel,
+    )
+    if return_code == 0:
+        print_success("Integration tests completed")
+    return return_code
 
 
 def main() -> int:
@@ -191,7 +238,7 @@ def main() -> int:
         "-i",
         "--integrated",
         action="store_true",
-        help="Run integrated tests",
+        help="Run integration tests (tests/integration)",
     )
     parser.add_argument(
         "-a",
@@ -245,12 +292,18 @@ def main() -> int:
             parallel=args.parallel,
         )
         print()
+        contract_code = run_contract_tests(
+            project_root,
+            coverage=args.coverage,
+            parallel=args.parallel,
+        )
+        print()
         integrated_code = run_integrated_tests(
             project_root,
             coverage=args.coverage,
             parallel=args.parallel,
         )
-        return_code = unit_code or integrated_code
+        return_code = unit_code or contract_code or integrated_code
     elif args.unit is not None:
         return_code = run_unit_tests(
             project_root,
@@ -266,12 +319,18 @@ def main() -> int:
         )
 
     print()
-    if args.coverage:
-        print_success(
-            "Test run completed! Coverage report generated in htmlcov/index.html",
-        )
+    if return_code == 0:
+        if args.coverage:
+            print_success(
+                "Test run completed! Coverage report generated in "
+                "htmlcov/index.html",
+            )
+        else:
+            print_success("All test suites completed successfully!")
     else:
-        print_success("Test run completed!")
+        print_error(
+            f"Test run finished with failures (exit code {return_code})",
+        )
     print()
 
     return return_code

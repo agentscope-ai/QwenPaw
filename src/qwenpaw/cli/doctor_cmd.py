@@ -16,6 +16,7 @@ from pathlib import Path
 import click
 import httpx
 
+from ..utils.io_utils import run_sync_io
 from ..__version__ import __version__
 from ..app.auth import has_registered_users, is_auth_enabled
 from ..config import load_config
@@ -27,7 +28,7 @@ from ..utils.console_static import (
     CONSOLE_STATIC_ENV,
     resolve_console_static_dir,
 )
-from ..utils.http import trust_env_for_url
+from ..utils.runtime_api import api_client
 from ..utils.system_info import summarize_python_environment
 from .doctor_checks import (
     active_llm_local_failure_hint,
@@ -86,8 +87,8 @@ def _same_python_executable(a: str, b: str) -> bool:
 
 
 def _http_get(url: str, **kwargs) -> httpx.Response:
-    kwargs.setdefault("trust_env", trust_env_for_url(url))
-    return httpx.get(url, **kwargs)
+    with api_client(url) as client:
+        return client.get(url, **kwargs)
 
 
 def _check_api_health(
@@ -277,7 +278,7 @@ def _check_web_auth(base: str) -> tuple[bool, str]:
             "        2) Complete registration (single user) on the login "
             "page.\n"
             "        For automation, set QWENPAW_AUTH_USERNAME and "
-            "QWENPAW_AUTH_PASSWORD (legacy COPAW_* names still work) — the "
+            "QWENPAW_AUTH_PASSWORD — the "
             "server creates the user on startup.",
         )
     return (
@@ -322,7 +323,7 @@ async def _check_active_llm(
     deep: bool,
 ) -> tuple[bool, str, list[str]]:
     manager = ProviderManager.get_instance()
-    slot = manager.get_active_model()
+    slot = await run_sync_io(manager.get_active_model)
     if (
         slot is None
         or not (slot.provider_id or "").strip()
@@ -334,7 +335,7 @@ async def _check_active_llm(
             "an active model",
             [],
         )
-    provider = manager.get_provider(slot.provider_id)
+    provider = await run_sync_io(manager.get_provider, slot.provider_id)
     if provider is None:
         return False, f"provider not found: {slot.provider_id!r}", []
     ok, reason = _provider_is_configured(provider)
@@ -712,8 +713,7 @@ def run_doctor_checks(
         failed = True
         click.echo(click.style("FAIL", fg="red") + f" — {detail}", err=True)
         _doctor_fix_hint(
-            "Fix: set `QWENPAW_WORKING_DIR` (or legacy `COPAW_WORKING_DIR`) "
-            "or run `qwenpaw init`. "
+            "Fix: set `QWENPAW_WORKING_DIR` or run `qwenpaw init`. "
             "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
             "--only ensure-working-dir` if the parent path exists and is "
             "writable. Apply: run the plan `without --dry-run` (add `-y` to "

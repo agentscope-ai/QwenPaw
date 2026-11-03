@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -10,18 +10,32 @@ vi.mock("./ToolCallSessionContext", () => ({
   useToolCallSessionId: () => "",
 }));
 
+const hookState = vi.hoisted(() => ({ lastIsCalling: false }));
+const rawDisplayMocks = vi.hoisted(() => ({
+  formatRawToolValue: vi.fn((value: unknown) => JSON.stringify(value)),
+}));
+
+vi.mock("./rawToolDisplay", () => rawDisplayMocks);
+
 vi.mock("../../../../hooks/useToolCallControl", () => ({
-  useToolCallControl: () => ({
-    bannerVisible: false,
-    offloadRemaining: 12,
-    killRemaining: 30,
-    defaultPolicy: "keep_foreground",
-    maxInternalTimeoutSecs: null,
-    elapsed: 0,
-    toggleBanner: vi.fn(),
-    closeBanner: vi.fn(),
-    updateRemaining: vi.fn(),
-  }),
+  useToolCallControl: (
+    _sessionId: string,
+    _toolCallId: string | undefined,
+    isCalling: boolean,
+  ) => {
+    hookState.lastIsCalling = isCalling;
+    return {
+      bannerVisible: false,
+      offloadRemaining: 12,
+      killRemaining: 30,
+      defaultPolicy: "keep_foreground",
+      maxInternalTimeoutSecs: null,
+      elapsed: 0,
+      toggleBanner: vi.fn(),
+      closeBanner: vi.fn(),
+      updateRemaining: vi.fn(),
+    };
+  },
 }));
 
 vi.mock("./ToolCallControlPopover", () => ({
@@ -55,6 +69,12 @@ const streamingInputContent: ToolCallContent = {
 };
 
 describe("ToolCardShell lazy body", () => {
+  beforeEach(() => {
+    localStorage.removeItem("qwenpaw_tool_calls_default_expanded");
+    localStorage.removeItem("qwenpaw_tool_display_mode");
+    rawDisplayMocks.formatRawToolValue.mockClear();
+  });
+
   it("opens file-facing results by default when requested", () => {
     render(
       <ToolCardShell
@@ -80,6 +100,89 @@ describe("ToolCardShell lazy body", () => {
 
     expect(container.querySelector("details")).not.toHaveAttribute("open");
     expect(screen.queryByText("raw output")).not.toBeInTheDocument();
+  });
+
+  it("shows raw input and output after opening a raw-mode card", () => {
+    localStorage.setItem("qwenpaw_tool_display_mode", "raw-input-output");
+    const rawContent: ToolCallContent = {
+      ...content,
+      rawInput: '{"command":"pwd"}',
+      params: { command: "pwd" },
+      result: { stdout: "/workspace" },
+    };
+
+    const { container } = render(
+      <ToolCardShell content={rawContent} icon={<span />} title="Ordinary tool">
+        <div>processed output</div>
+      </ToolCardShell>,
+    );
+
+    const details = container.querySelector("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(screen.queryByText("Input")).not.toBeInTheDocument();
+
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+
+    expect(screen.getByText("Input")).toBeInTheDocument();
+    expect(screen.getByText("Output")).toBeInTheDocument();
+    expect(screen.getByText(/command/)).toBeInTheDocument();
+    expect(screen.getByText(/workspace/)).toBeInTheDocument();
+    expect(screen.queryByText("processed output")).not.toBeInTheDocument();
+  });
+
+  it("does not format raw values until the collapsed body is mounted", () => {
+    localStorage.setItem("qwenpaw_tool_display_mode", "raw-input-output");
+    const rawContent: ToolCallContent = {
+      ...content,
+      rawInput: { command: "pwd" },
+      result: { stdout: "/workspace" },
+    };
+
+    const { container, rerender } = render(
+      <ToolCardShell content={rawContent} icon={<span />} title="Raw tool" />,
+    );
+
+    expect(rawDisplayMocks.formatRawToolValue).not.toHaveBeenCalled();
+
+    const details = container.querySelector("details");
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+
+    expect(rawDisplayMocks.formatRawToolValue).toHaveBeenCalledTimes(2);
+
+    rawDisplayMocks.formatRawToolValue.mockClear();
+    details!.open = false;
+    fireEvent(details!, new Event("toggle"));
+    rerender(
+      <ToolCardShell
+        content={{ ...rawContent, result: { stdout: "/updated" } }}
+        icon={<span />}
+        title="Raw tool"
+      />,
+    );
+    expect(rawDisplayMocks.formatRawToolValue).not.toHaveBeenCalled();
+
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+    expect(rawDisplayMocks.formatRawToolValue).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not auto-open media cards in raw mode", () => {
+    localStorage.setItem("qwenpaw_tool_display_mode", "raw-input-output");
+
+    const { container } = render(
+      <ToolCardShell
+        content={content}
+        icon={<span />}
+        title="Send file"
+        defaultExpanded
+      >
+        <div>hello.txt</div>
+      </ToolCardShell>,
+    );
+
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
   });
 
   it("does not toggle the tool when its summary action is clicked", () => {
@@ -201,5 +304,35 @@ describe("ToolCardShell lazy body", () => {
     const previewBlock = previewTitle.parentElement?.parentElement;
     expect(previewBlock).toHaveTextContent("path");
     expect(previewBlock).toHaveTextContent("notes.txt");
+  });
+});
+
+describe("ToolCardShell execution gating", () => {
+  it("does not treat a pending call as executing", () => {
+    // Arguments completed but not dispatched yet — lifecycle queries
+    // would only collect 404s.
+    render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span />}
+        title="Shell"
+        isStreaming
+      />,
+    );
+
+    expect(hookState.lastIsCalling).toBe(false);
+  });
+
+  it("treats a dispatched call as executing", () => {
+    render(
+      <ToolCardShell
+        content={{ ...runningContent, executionStarted: true }}
+        icon={<span />}
+        title="Shell"
+        isStreaming
+      />,
+    );
+
+    expect(hookState.lastIsCalling).toBe(true);
   });
 });

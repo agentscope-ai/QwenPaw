@@ -1,47 +1,61 @@
 .trigger {
   max-width: 240px;
-  height: 30px;
+  min-width: 0;
+  height: auto;
+  min-height: max(30px, calc(30px * var(--app-font-scale)));
   padding: 0 9px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  color: var(--ant-color-text-secondary);
-  background: rgba(243, 107, 33, 0.07);
-  border: 1px solid rgba(243, 107, 33, 0.2);
+  color: var(--app-text-secondary);
+  background: var(--app-accent-faint);
+  border: 1px solid var(--app-accent-border);
   border-radius: 8px;
   cursor: pointer;
 
+  > svg {
+    width: var(--app-icon-sm);
+    height: var(--app-icon-sm);
+    flex: 0 0 auto;
+  }
+
   > span {
+    min-width: 0;
+    flex: 1 1 0;
     overflow: hidden;
-    color: var(--ant-color-text);
-    font-size: 12px;
+    color: var(--app-text);
+    font-size: var(--app-font-caption);
     font-weight: 550;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   em {
-    color: #d95b17;
-    font-size: 9px;
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    color: var(--app-accent-text);
+    font-size: calc(11px * var(--app-font-scale));
     font-style: normal;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   &:hover {
-    border-color: #f36b21;
-    background: rgba(243, 107, 33, 0.11);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
   }
 }
 
 .triggerError {
-  color: var(--ant-color-error);
-  border-color: color-mix(in srgb, var(--ant-color-error) 35%, transparent);
+  color: var(--app-error-text);
+  border-color: color-mix(in srgb, var(--app-error) 35%, transparent);
 }
 
 .triggerCompact {
-  width: 30px;
-  min-width: 30px;
+  width: var(--app-icon-button);
+  min-width: var(--app-icon-button);
   padding: 0;
   justify-content: center;
 }
@@ -64,7 +78,7 @@
 
   > svg:last-child {
     flex: 0 0 auto;
-    color: var(--ant-color-text-tertiary);
+    color: var(--app-text-tertiary);
   }
 
   &:hover {
@@ -89,31 +103,62 @@
   }
 
   strong {
-    color: var(--ant-color-text);
-    font-size: 11px;
-    font-weight: 650;
+    color: var(--app-text);
+    font-size: var(--app-font-secondary);
+    font-weight: 600;
     line-height: 1.25;
   }
 
   small {
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     flex: 1;
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 9px;
+    font-size: var(--app-font-caption);
     font-weight: 500;
     line-height: 1.3;
   }
 }
 
 .panel {
-  width: 460px;
+  width: 760px;
   max-width: calc(100vw - 56px);
-  max-height: min(394px, calc(100vh - 40px));
-  padding: 6px;
+  max-height: min(620px, calc(100dvh - 40px));
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   overflow: hidden;
+}
+
+.inlineEditor {
+  width: 100%;
+
+  .panel {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    padding: 0;
+  }
+}
+
+.desktopPopover.desktopPopover {
+  z-index: 1100;
+  width: min(792px, calc(100vw - 24px));
+
+  :global(.ant-popover-inner),
+  :global(.qwenpaw-popover-inner),
+  :global(.ant-popover-content),
+  :global(.qwenpaw-popover-content) {
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+  }
+
+  .panel {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
 }
 
 .panelHeading {
@@ -124,62 +169,112 @@
 
   > div {
     min-width: 0;
+    flex: 1;
     display: flex;
     flex-direction: column;
   }
 
   strong {
-    color: var(--ant-color-text);
-    font-size: 14px;
+    color: var(--app-text);
+    font-size: var(--app-font-body);
     font-weight: 650;
   }
 }
 
+.inlineHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inlineHint {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--app-font-secondary);
+}
+
+.panelClose {
+  width: max(44px, calc(44px * var(--app-font-scale)));
+  height: max(44px, calc(44px * var(--app-font-scale)));
+  flex: 0 0 max(44px, calc(44px * var(--app-font-scale)));
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
+}
+
+/* Bound-directory count, sitting at the end of the title row. */
+.headingCount {
+  flex: 0 0 auto;
+  min-width: 20px;
+  padding: 1px 7px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
+  font-weight: 650;
+  text-align: center;
+  border-radius: 7px;
+  background: var(--app-fill-subtle);
+}
+
 .headingIcon {
-  width: 32px;
-  height: 32px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  color: #f36b21;
+  color: var(--app-accent);
   border-radius: 11px;
-  background: rgba(243, 107, 33, 0.1);
+  background: var(--app-accent-soft);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .pathInput {
   height: 42px;
+  /* Never absorb the panel's height deficit: the browser body shrinks. */
+  flex: 0 0 auto;
   border-radius: 10px;
 
   &:focus-within {
-    border-color: rgba(243, 107, 33, 0.5);
-    box-shadow: 0 0 0 3px rgba(243, 107, 33, 0.08);
+    border-color: var(--app-accent-border);
+    box-shadow: 0 0 0 3px var(--app-accent-ring);
   }
 }
 
 .pathChip {
   min-width: 0;
   min-height: 46px;
+  flex: 0 0 auto;
   padding: 6px 8px;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 28px;
   align-items: center;
   gap: 9px;
-  border: 1px solid rgba(243, 107, 33, 0.34);
+  border: 1px solid var(--app-accent-border);
   border-radius: 11px;
-  background: rgba(243, 107, 33, 0.08);
-  box-shadow: inset 3px 0 0 #f36b21;
+  background: var(--app-accent-soft);
+  box-shadow: inset 3px 0 0 var(--app-accent);
 }
 
 .pathChipIcon {
-  width: 32px;
-  height: 32px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #f36b21;
+  color: var(--app-accent);
   border-radius: 9px;
-  background: var(--ant-color-bg-container);
+  background: var(--app-surface);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 }
 
 .pathChipCopy {
@@ -195,15 +290,15 @@
   }
 
   strong {
-    color: var(--ant-color-text);
-    font-size: 12px;
+    color: var(--app-text);
+    font-size: var(--app-font-caption);
     font-weight: 650;
   }
 
   small {
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 9px;
+    font-size: var(--app-font-caption);
   }
 }
 
@@ -214,26 +309,26 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   border: 0;
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
 
   &:hover {
-    color: var(--ant-color-text);
-    background: var(--ant-color-bg-container);
+    color: var(--app-text);
+    background: var(--app-surface);
   }
 }
 
 .splitBody {
   min-height: 0;
-  height: 236px;
+  height: 340px;
   display: grid;
-  flex: 1 1 236px;
-  grid-template-columns: minmax(170px, 0.82fr) minmax(230px, 1.18fr);
+  flex: 1 1 340px;
+  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 0.7fr);
   overflow: hidden;
-  border: 1px solid var(--ant-color-border-secondary);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
 }
 
@@ -248,12 +343,8 @@
 .recentPane {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--ant-color-border-secondary);
-  background: color-mix(
-    in srgb,
-    var(--ant-color-fill-quaternary) 58%,
-    transparent
-  );
+  border-right: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-fill-faint) 58%, transparent);
 }
 
 .sectionHeading {
@@ -261,14 +352,25 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  color: var(--ant-color-text-tertiary);
-  font-size: 10px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
 
   strong {
-    color: var(--ant-color-text-secondary);
-    font-size: 11px;
-    font-weight: 650;
+    color: var(--app-text-secondary);
+    font-size: var(--app-font-secondary);
+    font-weight: 600;
   }
+}
+
+.sectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sectionHelp {
+  flex: 0 0 auto;
+  color: var(--app-text-tertiary);
 }
 
 .recent {
@@ -284,10 +386,10 @@
     min-height: 44px;
     padding: 5px 7px;
     display: grid;
-    grid-template-columns: 30px minmax(0, 1fr) 18px;
+    grid-template-columns: 24px minmax(0, 1fr);
     align-items: center;
     gap: 9px;
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     text-align: left;
     border: 1px solid transparent;
     border-radius: 10px;
@@ -299,31 +401,36 @@
       background 150ms ease;
 
     &:hover {
-      color: var(--ant-color-text);
-      border-color: var(--ant-color-border-secondary);
-      background: var(--ant-color-bg-container);
+      color: var(--app-text);
+      border-color: var(--app-border);
+      background: var(--app-surface);
     }
   }
 }
 
 .recent button.recentSelected {
-  color: #f36b21;
-  border-color: rgba(243, 107, 33, 0.34);
-  background: rgba(243, 107, 33, 0.09);
-  box-shadow: inset 3px 0 0 #f36b21;
+  color: var(--app-accent-text);
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  box-shadow: inset 3px 0 0 var(--app-accent);
 }
 
 .recentIcon {
-  width: 30px;
-  height: 30px;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: var(--ant-color-fill-tertiary);
+  background: var(--app-fill-subtle);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
 
   .recentSelected & {
-    background: var(--ant-color-bg-container);
+    background: var(--app-surface);
   }
 }
 
@@ -340,41 +447,27 @@
   }
 
   strong {
-    color: var(--ant-color-text);
-    font-size: 11px;
-    font-weight: 650;
+    color: var(--app-text);
+    font-size: var(--app-font-secondary);
+    font-weight: 600;
   }
 
   small {
-    color: var(--ant-color-text-secondary);
+    color: var(--app-text-secondary);
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 9px;
+    font-size: var(--app-font-caption);
   }
 }
 
 .recentCheck {
-  width: 17px;
-  height: 17px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: transparent;
-  border: 1px solid var(--ant-color-border);
-  border-radius: 50%;
-  background: var(--ant-color-bg-container);
-
-  .recentSelected & {
-    color: #fff;
-    border-color: #f36b21;
-    background: #f36b21;
-  }
+  display: none;
 }
 
 .browserPane {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--ant-color-bg-container);
+  background: var(--app-surface);
 }
 
 .browserHeading {
@@ -391,15 +484,15 @@
   }
 
   strong {
-    color: var(--ant-color-text-secondary);
-    font-size: 11px;
-    font-weight: 650;
+    color: var(--app-text-secondary);
+    font-size: var(--app-font-secondary);
+    font-weight: 600;
   }
 
   code {
     overflow: hidden;
-    color: var(--ant-color-text-tertiary);
-    font-size: 9px;
+    color: var(--app-text-tertiary);
+    font-size: var(--app-font-caption);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -417,6 +510,26 @@
   }
 }
 
+.createDirectoryForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 28px;
+  align-items: start;
+  gap: 4px;
+
+  :global(.ant-btn) {
+    width: 28px;
+    height: 24px;
+    padding: 0;
+  }
+
+  > small {
+    grid-column: 1 / -1;
+    color: var(--app-error-text);
+    font-size: var(--app-font-caption);
+    line-height: 1.3;
+  }
+}
+
 .directories {
   width: 100%;
   min-height: 0;
@@ -425,54 +538,67 @@
   flex-direction: column;
   gap: 3px;
   overflow: auto;
-
-  > button:not(:global(.ant-btn)) {
-    width: 100%;
-    min-width: 0;
-    min-height: 34px;
-    padding: 0 9px;
-    display: grid;
-    grid-template-columns: 17px minmax(0, 1fr) 14px;
-    align-items: center;
-    gap: 8px;
-    color: var(--ant-color-text-secondary);
-    text-align: left;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    background: transparent;
-    cursor: pointer;
-    transition:
-      color 150ms ease,
-      border-color 150ms ease,
-      background 150ms ease;
-
-    span {
-      overflow: hidden;
-      color: var(--ant-color-text);
-      font-size: 11px;
-      font-weight: 550;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    > svg:last-child {
-      color: var(--ant-color-text-tertiary);
-    }
-
-    &:hover {
-      border-color: var(--ant-color-border-secondary);
-      background: var(--ant-color-fill-quaternary);
-    }
-  }
 }
 
-.directories > button.directorySelected:not(:global(.ant-btn)) {
-  color: #f36b21;
-  border-color: rgba(243, 107, 33, 0.3);
-  background: rgba(243, 107, 33, 0.08);
+.directoryRow {
+  display: flex;
+  flex-shrink: 0;
+  min-height: max(44px, calc(44px * var(--app-font-scale)));
+  border: 1px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
 
-  > svg:last-child {
-    color: #f36b21;
+  &:hover {
+    background: var(--app-fill-faint);
+  }
+}
+.directoryPick,
+.directoryEnter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 0;
+  color: var(--app-text-secondary);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: -3px;
+    border-radius: 8px;
+  }
+}
+.directoryPick {
+  flex: 1;
+  padding: 10px 12px;
+  text-align: start;
+  > span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--app-text);
+    font-size: var(--app-font-secondary);
+  }
+  > svg {
+    flex-shrink: 0;
+  }
+}
+.directoryEnter {
+  width: 40px;
+  justify-content: center;
+  flex-shrink: 0;
+  &:hover {
+    color: var(--app-accent-text);
+    background: var(--app-accent-soft);
+  }
+}
+.directorySelected {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-faint);
+  .directoryPick {
+    color: var(--app-accent-text);
   }
 }
 
@@ -481,22 +607,25 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
 }
 
 .emptyState {
   padding: 24px 8px;
   display: block;
-  color: var(--ant-color-text-tertiary);
-  font-size: 10px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
   text-align: center;
 }
 
 .actions {
   padding-top: 2px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
+  > :first-child:not(:last-child) {
+    margin-right: auto;
+  }
 
   :global(.ant-btn) {
     border-radius: 9px;
@@ -504,34 +633,47 @@
 
   :global(.ant-btn-primary) {
     min-width: 74px;
-    background: #f36b21;
-    box-shadow: 0 5px 14px rgba(243, 107, 33, 0.18);
+    background: var(--app-accent);
+    box-shadow: none;
 
     &:hover {
-      background: #d95613 !important;
+      background: var(--app-accent-active) !important;
     }
   }
 }
 
+.syncDefaultOption {
+  min-width: 0;
+  flex: 0 0 auto;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
+  line-height: 1.4;
+
+  :global(.ant-checkbox + span) {
+    min-width: 0;
+    white-space: normal;
+  }
+}
+
 .recent strong {
-  color: var(--ant-color-text);
+  color: var(--app-text);
 }
 
 .recent button:hover {
   .recentIcon {
-    color: #f36b21;
+    color: var(--app-accent);
   }
 }
 
 .recentSelected {
   .recentIcon {
-    color: #f36b21;
+    color: var(--app-accent);
   }
 }
 
 .hint {
-  color: var(--ant-color-text-tertiary);
-  font-size: 10px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
 }
 
 .spin {
@@ -544,21 +686,6 @@
   }
 }
 
-:global(.dark-mode) {
-  .trigger {
-    background: rgba(255, 145, 77, 0.1);
-    border-color: rgba(255, 145, 77, 0.24);
-
-    em {
-      color: #ff914d;
-    }
-  }
-
-  .panelHeading {
-    color: #ff914d;
-  }
-}
-
 @media (max-width: 500px) {
   .trigger {
     max-width: 150px;
@@ -567,39 +694,378 @@
       display: none;
     }
   }
+}
 
-  .panel {
-    width: calc(100vw - 24px);
-    max-width: calc(100vw - 72px);
-    max-height: calc(100vh - 20px);
-    gap: 10px;
+/* ── Session scope: bound directory list ──────────────────────────────
+   The desktop panel uses the available viewport up to its comfortable size,
+   leaving the browser enough room for five rows even with a full bound list. */
+.panelWithList {
+  height: min(640px, calc(100dvh - 40px));
+  max-height: min(640px, calc(100dvh - 40px));
+}
+
+.inlineEditor .panelWithList {
+  height: auto;
+  max-height: none;
+}
+
+.panelWithList .splitBody {
+  height: auto;
+  min-height: 200px;
+  flex: 1 1 340px;
+}
+
+.boundDirs {
+  min-height: 0;
+  display: flex;
+  /* Shrinks before the actions row does: Apply must stay on screen even
+     with the maximum number of extra roots bound. */
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.boundList {
+  min-height: 0;
+  max-height: 104px;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+/* One row: a folder mark, a two-line identity (name over full path), then
+   tags and row actions. Shared by bound rows and the pending-add row. */
+.boundList li {
+  min-width: 0;
+  min-height: 42px;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--app-text-secondary);
+  border: 1px solid transparent;
+  border-radius: 9px;
+}
+
+.boundIcon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--app-fill-subtle);
+}
+
+.boundCopy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 1px;
+
+  strong,
+  small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .splitBody {
+  strong {
+    color: var(--app-text);
+    font-size: var(--app-font-caption);
+    font-weight: 650;
+  }
+
+  small {
+    color: var(--app-text-tertiary);
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: var(--app-font-caption);
+  }
+}
+
+/* Tag and row action share one size so "Primary" and "Make primary" read as
+   the same class of label. */
+.boundTag,
+.boundAction {
+  flex: 0 0 auto;
+  font-size: var(--app-font-caption);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.boundTag {
+  color: var(--app-accent-text);
+}
+
+.boundAction {
+  padding: 3px 7px;
+  color: var(--app-text-tertiary);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    color: var(--app-accent-text);
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+/* The primary is the resolution base, so it reads as the anchor row. */
+.boundList li[data-primary="true"] {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-faint);
+
+  .boundIcon {
+    color: var(--app-accent);
+    background: var(--app-surface);
+  }
+}
+
+.boundList li[data-missing="true"] {
+  .boundCopy strong {
+    color: var(--app-error-text);
+  }
+
+  .boundTag {
+    color: var(--app-error-text);
+  }
+}
+
+/* The queued directory sits at the end of the list, dashed so it reads as
+   "not bound yet". */
+
+/* Sits under the panel title: which directory the tools default to. */
+.boundHint {
+  margin-top: 1px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.listError {
+  color: var(--app-error-text);
+  font-size: var(--app-font-caption);
+  word-break: break-all;
+}
+
+/* Anchor for `hideTrigger` callers: the panel is opened from their own
+   control, so this only supplies a position to attach the popover to. */
+.hiddenAnchor {
+  display: block;
+  width: 0;
+  height: 0;
+}
+
+.mobileDrawer {
+  .panel {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .panelHeading,
+  .pathInput,
+  .pathChip,
+  .actions {
+    flex: 0 0 auto;
+  }
+
+  .panelHeading {
+    min-height: 44px;
+  }
+
+  .panelClose {
+    margin: -4px -6px -4px 0;
+  }
+
+  .splitBody,
+  .panelWithList .splitBody {
     height: auto;
     min-height: 0;
+    flex: 1 1 auto;
     grid-template-columns: minmax(0, 1fr);
-    overflow: auto;
+    grid-template-rows: 104px minmax(0, 1fr);
+    overflow: hidden;
   }
 
   .recentPane {
-    min-height: 145px;
-    max-height: 170px;
-    overflow: auto;
+    min-height: 82px;
+    max-height: 104px;
+    padding: 8px;
     border-right: 0;
-    border-bottom: 1px solid var(--ant-color-border-secondary);
+    border-bottom: 1px solid var(--app-border);
   }
 
   .browserPane {
-    min-height: 190px;
-    max-height: 220px;
+    min-height: 0;
+    padding: 8px;
+  }
+
+  .browserHeading {
+    flex-wrap: wrap;
+  }
+
+  .browserHeading > div:first-child {
+    flex: 1 1 100%;
+  }
+
+  .browserActions {
+    width: 100%;
+    justify-content: space-between;
+
+    :global(.ant-btn) {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  .createDirectoryForm {
+    grid-template-columns: minmax(0, 1fr) 44px 44px;
+    gap: 8px;
+
+    :global(.ant-btn) {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  .recent,
+  .directories,
+  .boundList {
+    overscroll-behavior: contain;
+  }
+
+  .directoryPick,
+  .directoryEnter {
+    min-height: 44px;
+  }
+
+  .boundDirs {
+    flex: 0 0 auto;
+    max-height: 132px;
+  }
+
+  .boundList {
+    min-height: 44px;
+  }
+
+  .boundList li {
+    min-height: 44px;
   }
 
   .actions {
+    :global(.ant-btn) {
+      min-height: 44px;
+    }
+
     :global(.ant-btn-text) {
       max-width: 65%;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+  }
+}
+
+.inlineEditor .splitBody {
+  flex: 0 0 340px;
+  min-height: 280px;
+}
+.inlineHeading .inlineHint {
+  flex: initial;
+  color: var(--app-text-secondary);
+  font-weight: 500;
+}
+.inlineHeading .headingCount {
+  margin-left: auto;
+}
+.browserHeading {
+  flex-wrap: wrap;
+}
+.browserHeading > div:first-child {
+  flex: 1 1 140px;
+}
+.pathInput :global(.ant-input-suffix) {
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.boundList li {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .inlineEditor .splitBody {
+    grid-template-columns: 1fr;
+    grid-template-rows: 110px minmax(0, 1fr);
+    height: 380px;
+    flex-basis: 380px;
+  }
+  .inlineEditor .recentPane {
+    max-height: 110px;
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border);
+  }
+  .inlineEditor .recent {
+    flex-direction: row;
+  }
+  .inlineEditor .recent button {
+    flex: 0 0 160px;
+  }
+  .browserActions :global(.ant-btn) {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+.directoryBreadcrumbs {
+  display: flex;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  min-width: 0;
+  padding-block: 2px;
+  > span {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--app-text-tertiary);
+  }
+  button {
+    border: 0;
+    background: transparent;
+    color: var(--app-text-secondary);
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    cursor: pointer;
+    &:hover {
+      background: var(--app-accent-faint);
+      color: var(--app-accent-text);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--app-focus-ring);
+      outline-offset: -2px;
+    }
+    &[aria-current] {
+      color: var(--app-text);
+      font-weight: 500;
     }
   }
 }

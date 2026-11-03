@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { AgentsRunningConfig } from "../../../api/types";
+import { SettingsRuntimeConfigContext } from "../../SettingsCenter/SettingsSearchRequest";
 
 // vi.hoisted runs before the hoisted vi.mock factories, so the shared mock
 // objects are available inside them.
@@ -16,6 +18,7 @@ const hoisted = vi.hoisted(() => {
   const messageMock = {
     success: vi.fn(),
     error: vi.fn(),
+    destroy: vi.fn(),
   };
   const apiMocks = {
     getAgentRunningConfig: vi.fn(),
@@ -29,6 +32,7 @@ const hoisted = vi.hoisted(() => {
   // A stable translation function so useCallback dependencies don't change on
   // every render and trigger an infinite fetchConfig loop via useEffect.
   const stableT = (k: string) => k;
+  const agentState = { selectedAgent: "agent-1" };
   return {
     mockSetFieldsValue,
     mockValidateFields,
@@ -38,6 +42,7 @@ const hoisted = vi.hoisted(() => {
     apiMocks,
     modalConfirmMock,
     stableT,
+    agentState,
   };
 });
 
@@ -63,9 +68,13 @@ vi.mock("../../../api", () => ({
   default: hoisted.apiMocks,
 }));
 
-vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
-}));
+vi.mock("../../../stores/agentStore", () => {
+  const useAgentStore = Object.assign(
+    () => ({ selectedAgent: hoisted.agentState.selectedAgent }),
+    { getState: () => hoisted.agentState, subscribe: () => () => {} },
+  );
+  return { useAgentStore };
+});
 
 vi.mock("../../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({ message: hoisted.messageMock }),
@@ -84,6 +93,7 @@ const {
   apiMocks,
   messageMock,
   modalConfirmMock,
+  agentState,
 } = hoisted;
 
 type Config = AgentsRunningConfig;
@@ -116,7 +126,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       max_input_length: 1000,
     } as unknown as Config["light_context_config"],
     memory_manager_backend: "remelight",
-    adbpg_memory_config: null,
+    memory_backend_configs: {},
     reme_light_memory_config:
       {} as unknown as Config["reme_light_memory_config"],
     approval_level: "AUTO",
@@ -144,6 +154,7 @@ describe("useAgentConfig", () => {
     messageMock.success.mockReset();
     messageMock.error.mockReset();
     modalConfirmMock.mockReset();
+    agentState.selectedAgent = "agent-1";
 
     apiMocks.getAgentRunningConfig.mockResolvedValue(makeConfig());
     apiMocks.getAgentLanguage.mockResolvedValue({ language: "en" });
@@ -209,6 +220,49 @@ describe("useAgentConfig", () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it("ignores a stale config response after switching away and back", async () => {
+    let resolveDisabledAgent!: (config: Config) => void;
+    const disabledAgentConfig = new Promise<Config>((resolve) => {
+      resolveDisabledAgent = resolve;
+    });
+    const currentAgentConfig = makeConfig({ history_max_length: 300 });
+
+    const view = renderConfigHook();
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    mockSetFieldsValue.mockClear();
+
+    apiMocks.getAgentRunningConfig
+      .mockImplementationOnce(() => disabledAgentConfig)
+      .mockResolvedValueOnce(currentAgentConfig);
+
+    agentState.selectedAgent = "agent-2";
+    view.rerender();
+    await waitFor(() =>
+      expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(2),
+    );
+
+    agentState.selectedAgent = "agent-1";
+    view.rerender();
+    await waitFor(() =>
+      expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(3),
+    );
+    await waitFor(() =>
+      expect(mockSetFieldsValue).toHaveBeenCalledWith(
+        expect.objectContaining({ history_max_length: 300 }),
+      ),
+    );
+
+    await act(async () => {
+      resolveDisabledAgent(makeConfig({ history_max_length: 200 }));
+      await disabledAgentConfig;
+    });
+
+    expect(mockSetFieldsValue).not.toHaveBeenCalledWith(
+      expect.objectContaining({ history_max_length: 200 }),
+    );
+    expect(view.result.current.loading).toBe(false);
+  });
+
   it("falls back context_manager_backend to 'light' when not in MAPPINGS", async () => {
     apiMocks.getAgentRunningConfig.mockResolvedValue(
       makeConfig({ context_manager_backend: "unknown-backend" }),
@@ -223,7 +277,7 @@ describe("useAgentConfig", () => {
     expect(callArg.context_manager_backend).toBe("light");
   });
 
-  it("falls back memory_manager_backend to 'remelight' when not in MAPPINGS", async () => {
+  it("preserves an unavailable plugin backend for diagnostics", async () => {
     apiMocks.getAgentRunningConfig.mockResolvedValue(
       makeConfig({ memory_manager_backend: "nope" }),
     );
@@ -234,7 +288,7 @@ describe("useAgentConfig", () => {
     const callArg = mockSetFieldsValue.mock.calls[0][0] as {
       memory_manager_backend: string;
     };
-    expect(callArg.memory_manager_backend).toBe("remelight");
+    expect(callArg.memory_manager_backend).toBe("nope");
   });
 
   it("handleSave calls updateAgentRunningConfig and message.success on success", async () => {
@@ -271,6 +325,43 @@ describe("useAgentConfig", () => {
     expect(onConfigLoaded).toHaveBeenCalledWith(savedConfig);
   });
 
+  it("updates settings search only after a successful config load or save", async () => {
+    const updateSearch = vi.fn();
+    const loadedConfig = makeConfig({ memory_manager_backend: "none" });
+    const savedConfig = makeConfig({ memory_manager_backend: "remelight" });
+    apiMocks.getAgentRunningConfig.mockResolvedValue(loadedConfig);
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(savedConfig);
+    const { result } = renderHook(() => useAgentConfig(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <SettingsRuntimeConfigContext.Provider value={updateSearch}>
+          {children}
+        </SettingsRuntimeConfigContext.Provider>
+      ),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(updateSearch).toHaveBeenCalledWith("agent-1", loadedConfig);
+
+    updateSearch.mockClear();
+    await act(async () => {
+      await result.current.handleSave(true);
+    });
+    expect(updateSearch).toHaveBeenCalledExactlyOnceWith(
+      "agent-1",
+      savedConfig,
+    );
+
+    updateSearch.mockClear();
+    apiMocks.updateAgentRunningConfig.mockRejectedValue(
+      new Error("save failed"),
+    );
+    await act(async () => {
+      await expect(result.current.handleSave(true)).rejects.toThrow(
+        "save failed",
+      );
+    });
+    expect(updateSearch).not.toHaveBeenCalled();
+  });
+
   it("handleSave persists configToSave containing approval_level", async () => {
     apiMocks.updateAgentRunningConfig.mockResolvedValue(makeConfig());
     const { result } = renderConfigHook();
@@ -295,7 +386,8 @@ describe("useAgentConfig", () => {
       makeConfig({ max_iters: 100 }),
     );
     const loaded = makeConfig({ max_iters: 100 });
-    const { max_iters: _staleMaxIters, ...formWithoutMaxIters } = loaded;
+    const formWithoutMaxIters: Partial<Config> = { ...loaded };
+    delete formWithoutMaxIters.max_iters;
     mockGetFieldsValue.mockReturnValue({
       ...formWithoutMaxIters,
       loop: {
@@ -388,7 +480,7 @@ describe("useAgentConfig", () => {
     expect(messageMock.error).toHaveBeenCalledWith("save failed");
   });
 
-  it("handleTimezoneChange calls updateUserTimezone and message.success", async () => {
+  it("timezone selection updates immediately and saves after inactivity", async () => {
     apiMocks.updateUserTimezone.mockResolvedValue({
       timezone: "Asia/Shanghai",
     });
@@ -401,10 +493,35 @@ describe("useAgentConfig", () => {
       await result.current.handleTimezoneChange("Asia/Shanghai");
     });
 
-    expect(apiMocks.updateUserTimezone).toHaveBeenCalledWith("Asia/Shanghai");
     expect(result.current.timezone).toBe("Asia/Shanghai");
-    expect(messageMock.success).toHaveBeenCalledWith(
-      "agentConfig.timezoneSaveSuccess",
+    expect(apiMocks.updateUserTimezone).not.toHaveBeenCalled();
+    await waitFor(
+      () => {
+        expect(apiMocks.updateUserTimezone).toHaveBeenCalledWith(
+          "Asia/Shanghai",
+        );
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  it("coalesces rapid timezone picks and flushes the last choice on leaving", async () => {
+    apiMocks.updateUserTimezone.mockResolvedValue({ timezone: "Asia/Tokyo" });
+    const { result, unmount } = renderConfigHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => {
+      result.current.handleTimezoneChange("Asia/Shanghai");
+    });
+    act(() => {
+      result.current.handleTimezoneChange("Asia/Tokyo");
+    });
+    expect(result.current.timezone).toBe("Asia/Tokyo");
+    expect(apiMocks.updateUserTimezone).not.toHaveBeenCalled();
+    unmount();
+    await waitFor(() =>
+      expect(apiMocks.updateUserTimezone).toHaveBeenCalledExactlyOnceWith(
+        "Asia/Tokyo",
+      ),
     );
   });
 
@@ -435,5 +552,107 @@ describe("useAgentConfig", () => {
     expect(modalConfirmMock).toHaveBeenCalledTimes(1);
     const options = modalConfirmMock.mock.calls[0][0] as { title: string };
     expect(options.title).toBe("agentConfig.languageConfirmTitle");
+  });
+
+  // -------------------------------------------------------------------------
+  // #5137 — config lost when Collapse is not rendered
+  // When a Collapse panel is collapsed (unrendered), form.getFieldsValue()
+  // only returns currently registered fields. The deep-merge logic in
+  // handleSave must preserve the original nested values from collapsed panels
+  // so they are not lost on save.
+  // -------------------------------------------------------------------------
+  it("handleSave preserves collapsed (unrendered) nested config via deep merge (#5137)", async () => {
+    const originalConfig = makeConfig({
+      reme_light_memory_config: {
+        needs_reindex: false,
+        embedding_model: "text-embedding-v3",
+        search_top_k: 5,
+      } as unknown as Config["reme_light_memory_config"],
+      light_context_config: {
+        strategy: "scroll",
+        context_compact_config: {
+          enabled: true,
+          compact_threshold_ratio: 0.8,
+          reserve_threshold_ratio: 0.1,
+        },
+        scroll_config: {
+          history_retention_days: 14,
+        },
+      } as unknown as Config["light_context_config"],
+      memory_backend_configs: {
+        adbpg: {
+          auto_search_enabled: true,
+          auto_save_enabled: true,
+          search_top_k: 10,
+        },
+      },
+    });
+
+    apiMocks.getAgentRunningConfig.mockResolvedValue(originalConfig);
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(originalConfig);
+
+    // Simulate: only light_context_config.strategy is rendered (other panels collapsed).
+    // getFieldsValue(true) returns partial nested objects.
+    mockGetFieldsValue.mockReturnValue({
+      light_context_config: {
+        strategy: "native",
+        // context_compact_config and scroll_config are MISSING because their
+        // Collapse panels are collapsed (unrendered).
+      },
+      reme_light_memory_config: {
+        // Only needs_reindex is rendered; embedding_model and search_top_k are
+        // inside a collapsed sub-panel.
+        needs_reindex: true,
+      },
+      // The plugin config is entirely inside a collapsed panel.
+    });
+
+    const { result } = renderConfigHook();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
+
+    // The rendered field should be updated
+    expect(saved.light_context_config!.strategy).toBe("native");
+
+    // The collapsed (unrendered) nested fields must be preserved from original
+    expect(saved.light_context_config!.context_compact_config.enabled).toBe(
+      true,
+    );
+    expect(
+      saved.light_context_config!.context_compact_config
+        .compact_threshold_ratio,
+    ).toBe(0.8);
+    expect(
+      saved.light_context_config!.scroll_config.history_retention_days,
+    ).toBe(14);
+
+    // reme_light_memory_config: rendered field updated, collapsed fields preserved
+    expect(saved.reme_light_memory_config!.needs_reindex).toBe(true);
+    expect(
+      (
+        saved.reme_light_memory_config as Config["reme_light_memory_config"] & {
+          embedding_model: string;
+        }
+      ).embedding_model,
+    ).toBe("text-embedding-v3");
+    expect(
+      (
+        saved.reme_light_memory_config as Config["reme_light_memory_config"] & {
+          search_top_k: number;
+        }
+      ).search_top_k,
+    ).toBe(5);
+
+    // Plugin config: entirely collapsed — original values fully preserved.
+    expect(saved.memory_backend_configs?.adbpg.auto_search_enabled).toBe(true);
+    expect(saved.memory_backend_configs?.adbpg.auto_save_enabled).toBe(true);
+    expect(saved.memory_backend_configs?.adbpg.search_top_k).toBe(10);
   });
 });

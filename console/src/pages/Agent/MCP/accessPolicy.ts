@@ -64,6 +64,30 @@ export const MCP_CHANNEL_SOURCE_VALUES = [
   "xiaoyi",
 ] as const;
 
+export function getMCPChannelSourceValues(
+  policy: MCPAccessPolicy,
+  availableValues: readonly string[] = [],
+): string[] {
+  const savedValues = [
+    ...policy.client_overrides,
+    ...policy.tool_overrides,
+  ].flatMap((rule) =>
+    rule.source_type === "channel" ? [rule.source_value] : [],
+  );
+  const values = new Set<string>();
+  for (const value of [
+    ...MCP_CHANNEL_SOURCE_VALUES,
+    ...availableValues,
+    ...savedValues,
+  ]) {
+    const normalized = (value || "").trim();
+    if (normalized && normalized !== "*") {
+      values.add(normalized);
+    }
+  }
+  return Array.from(values);
+}
+
 export function normalizeMCPAccessPolicy(
   policy: MCPAccessPolicy,
 ): MCPAccessPolicy {

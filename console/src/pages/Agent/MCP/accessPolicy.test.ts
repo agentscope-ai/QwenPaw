@@ -4,6 +4,7 @@ import {
   addClientRule,
   addToolRule,
   buildMCPAccessToolGroups,
+  getMCPChannelSourceValues,
   removeClientRule,
   removeToolRule,
   upsertClientRule,
@@ -102,6 +103,30 @@ describe("MCP access policy helpers", () => {
         ],
       }),
     ]);
+  });
+
+  it("merges dynamic and saved custom channel source values", () => {
+    const values = getMCPChannelSourceValues(
+      {
+        ...policy,
+        client_overrides: [
+          ...policy.client_overrides,
+          {
+            source_type: "channel",
+            source_value: "saved-channel",
+            subject_type: "all",
+            subject_value: "",
+            effect: "allow",
+          },
+        ],
+      },
+      ["plugin-channel", "console", "*"],
+    );
+
+    expect(values).toContain("plugin-channel");
+    expect(values).toContain("saved-channel");
+    expect(values.filter((value) => value === "console")).toHaveLength(1);
+    expect(values).not.toContain("*");
   });
 
   it("adds and updates MCP-wide client rules independently from tool rules", () => {

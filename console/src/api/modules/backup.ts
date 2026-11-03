@@ -10,6 +10,7 @@ import type {
   BackupTrustMode,
   BackupDetail,
   BackupProgressEvent,
+  BackupJobSnapshot,
   BackupConflictResponse,
   CreateBackupRequest,
   RestoreBackupRequest,
@@ -68,6 +69,57 @@ export const backupApi = {
 
     if (!meta) throw new Error("No completion event received");
     return meta;
+  },
+
+  startBackupJob: (data: CreateBackupRequest) =>
+    request<BackupJobSnapshot>("/backups/jobs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getActiveBackupJob: () =>
+    request<BackupJobSnapshot | null>("/backups/jobs/active"),
+
+  getBackupJob: (jobId: string) =>
+    request<BackupJobSnapshot>(`/backups/jobs/${jobId}`),
+
+  cancelBackupJob: (jobId: string) =>
+    request<BackupJobSnapshot>(`/backups/jobs/${jobId}/cancel`, {
+      method: "POST",
+    }),
+
+  streamBackupJob: async (
+    jobId: string,
+    onSnapshot: (snapshot: BackupJobSnapshot) => void,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const url = getApiUrl(`/backups/jobs/${jobId}/events`);
+    const res = await fetch(url, {
+      headers: buildAuthHeaders(),
+      signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `Request failed: ${res.status}`);
+    }
+
+    if (!res.body) throw new Error("No backup event stream received");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop() ?? "";
+      for (const chunk of chunks) {
+        if (!chunk.startsWith("data: ")) continue;
+        const snapshot = JSON.parse(chunk.slice(6)) as BackupJobSnapshot;
+        onSnapshot(snapshot);
+      }
+    }
   },
 
   restoreBackup: (id: string, data: RestoreBackupRequest) =>

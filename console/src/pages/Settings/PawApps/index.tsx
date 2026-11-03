@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { PawAppAccessGate } from "../../../plugins/PawAppAccessGate";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, Empty, Spin, Button, Tag, Typography, Space } from "antd";
 import { AppWindow, ExternalLink, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { pawappApi, type PawAppInfo } from "../../../api/modules/pawapp";
-import { getApiUrl } from "../../../api/config";
 import styles from "./index.module.less";
 
 const { Text, Paragraph } = Typography;
@@ -15,35 +15,32 @@ export default function PawAppsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedApp, setSelectedApp] = useState<PawAppInfo | null>(null);
 
-  const fetchApps = async () => {
+  const fetchApps = useCallback(async () => {
     setLoading(true);
     try {
       const data = await pawappApi.list();
       setApps(data.apps);
       // Auto-select first app if none selected
-      if (!selectedApp && data.apps.length > 0) {
-        setSelectedApp(data.apps[0]);
-      }
+      setSelectedApp((current) => current ?? data.apps[0] ?? null);
     } catch (err) {
       console.error("Failed to fetch PawApps:", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchApps();
-  }, []);
+  }, [fetchApps]);
 
   const getIframeSrc = (app: PawAppInfo): string | null => {
     if (!app.home_page) return null;
-    return getApiUrl(`/pawapps/${app.id}/static/${app.home_page}`);
+    return pawappApi.getStaticUrl(app.id, app.home_page);
   };
 
   return (
     <div className={styles.page}>
       <PageHeader
-        parent={t("nav.settings")}
         current={t("nav.pawapps", "PawApps")}
         extra={
           <Button
@@ -127,7 +124,9 @@ export default function PawAppsPage() {
                         type="link"
                         icon={<ExternalLink size={14} />}
                         onClick={() => {
-                          const src = getIframeSrc(selectedApp);
+                          const src = `/apps/${encodeURIComponent(
+                            selectedApp.id,
+                          )}`;
                           if (src) window.open(src, "_blank");
                         }}
                       >
@@ -136,12 +135,14 @@ export default function PawAppsPage() {
                     )}
                   </div>
                   {selectedApp.home_page ? (
-                    <iframe
-                      className={styles.appIframe}
-                      src={getIframeSrc(selectedApp) || ""}
-                      title={selectedApp.name}
-                      sandbox="allow-scripts allow-forms allow-same-origin"
-                    />
+                    <PawAppAccessGate appId={selectedApp.id}>
+                      <iframe
+                        className={styles.appIframe}
+                        src={getIframeSrc(selectedApp) || ""}
+                        title={selectedApp.name}
+                        sandbox="allow-scripts allow-forms allow-same-origin"
+                      />
+                    </PawAppAccessGate>
                   ) : (
                     <Empty
                       description={t(

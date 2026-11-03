@@ -1,0 +1,70 @@
+.collapsedSteps {
+  // Stay inside the bubble's paint boundary: content-visibility on the SDK
+  // bubble clips a negatively offset header, including its left border.
+  width: 100%;
+  overflow-anchor: none;
+
+  /* Closed headers add a 1px border; keep both content baselines equal. */
+  :global([class$="-accordion-group-header-close"]),
+  :global([class$="-accordion-group-header-open"]) {
+    min-height: var(--app-icon-button);
+    padding-block: calc(6px * var(--app-font-scale));
+    font-size: var(--app-font-caption);
+    line-height: 1.5;
+  }
+
+  :global([class$="-accordion-group-header-close"]) {
+    padding-left: calc(8px * var(--app-font-scale));
+  }
+
+  :global([class$="-accordion-group-header-open"]) {
+    padding-left: calc(9px * var(--app-font-scale));
+  }
+
+  :global([class$="-accordion-group-header-icon"]) {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+    flex: 0 0 var(--app-icon-md);
+
+    :global([data-spark-icon]) {
+      font-size: var(--app-icon-sm) !important;
+    }
+
+    :global([data-spark-icon]) > svg {
+      width: 1em;
+      height: 1em;
+      transform: none;
+    }
+  }
+
+  :global([class$="-accordion-group-header-arrow"]) {
+    :global([data-spark-icon]) {
+      font-size: var(--app-icon-sm) !important;
+    }
+
+    :global([data-spark-icon]) > svg {
+      width: 1em;
+      height: 1em;
+      transform: none;
+    }
+  }
+
+  :global([class$="-accordion-group-open"]) {
+    border: 0;
+  }
+
+  :global(.dark-mode) & {
+    :global([class$="-accordion-group-header-close"]),
+    :global([class$="-accordion-group-header-open"]),
+    :global([class$="-accordion-group-open"]) {
+      background-color: transparent;
+    }
+
+    /* Beat the dark chat blanket `span { color: ... !important }` rule. */
+    :global(
+        [class$="-accordion-group-icon-success"][class$="-accordion-group-icon-success"][class$="-accordion-group-icon-success"]
+      ) {
+      color: var(--app-success-text) !important;
+    }
+  }
+}

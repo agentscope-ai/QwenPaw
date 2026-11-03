@@ -19,6 +19,7 @@ def _locator_spec(method: str, *args: str, **kwargs: str) -> list[dict]:
     ]
 
 
+@pytest.mark.p1
 async def test_real_provider_isolates_sessions_and_profile(
     fixture_url: str,
     tmp_path,
@@ -62,6 +63,7 @@ async def test_real_provider_isolates_sessions_and_profile(
         await link.close_all()
 
 
+@pytest.mark.p1
 async def test_real_provider_observes_locates_and_acts(
     fixture_url: str,
 ) -> None:
@@ -106,6 +108,7 @@ async def test_real_provider_observes_locates_and_acts(
         await link.close_all()
 
 
+@pytest.mark.p1
 async def test_real_provider_rejects_unsupported_context_and_method() -> None:
     link = PlaywrightControlLink()
     try:

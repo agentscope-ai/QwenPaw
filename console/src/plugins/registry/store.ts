@@ -19,6 +19,7 @@ import type {
   MenuItem,
   MenuLocation,
   Route,
+  RouteMeta,
   RouteWrapper,
   SlotInfo,
   SlotKind,
@@ -67,6 +68,21 @@ interface MenuEntry {
   registeredAt: number;
 }
 
+function removeEntriesBySource<K, T extends { source: string }>(
+  registry: Map<K, T[]>,
+  source: string,
+): boolean {
+  let changed = false;
+  for (const [key, entries] of registry) {
+    const remaining = entries.filter((entry) => entry.source !== source);
+    if (remaining.length === entries.length) continue;
+    changed = true;
+    if (remaining.length > 0) registry.set(key, remaining);
+    else registry.delete(key);
+  }
+  return changed;
+}
+
 class MenuRegistryImpl {
   // Single source: each id has a STACK of entries (replace pushes, dispose pops).
   private stacks = new Map<string, MenuEntry[]>();
@@ -104,6 +120,13 @@ class MenuRegistryImpl {
 
   remove(targetId: string): void {
     if (this.stacks.delete(targetId)) {
+      this.invalidate();
+      notify();
+    }
+  }
+
+  removeBySource(source: string): void {
+    if (removeEntriesBySource(this.stacks, source)) {
       this.invalidate();
       notify();
     }
@@ -334,7 +357,9 @@ interface RouteWrapEntry {
 interface ResolvedRoute {
   id: string;
   path: string;
+  caseSensitive?: boolean;
   source: string;
+  meta?: RouteMeta;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Component: React.ComponentType<any>;
 }
@@ -458,6 +483,21 @@ class RouteRegistryImpl {
     }
   }
 
+  removeBySource(source: string): void {
+    let changed = false;
+    for (const [id, entry] of this.bases) {
+      if (entry.source !== source) continue;
+      this.bases.delete(id);
+      changed = true;
+    }
+    changed = removeEntriesBySource(this.overrides, source) || changed;
+    changed = removeEntriesBySource(this.wraps, source) || changed;
+    if (changed) {
+      this.invalidate();
+      notify();
+    }
+  }
+
   snapshot(): ResolvedRoute[] {
     return this.resolvedSnapshot;
   }
@@ -555,7 +595,9 @@ class RouteRegistryImpl {
       out.push({
         id: entry.route.id,
         path: entry.route.path,
+        caseSensitive: entry.route.caseSensitive,
         source: overrideTop?.source ?? entry.source,
+        meta: entry.route.meta,
         Component,
       });
     }
@@ -606,6 +648,12 @@ class SlotRegistryImpl {
     const built = this.buildSnapshot(name);
     this.snapshots.set(name, built);
     return built;
+  }
+
+  removeBySource(source: string): void {
+    if (!removeEntriesBySource(this.slots, source)) return;
+    this.snapshots.clear();
+    notify();
   }
 
   /** Debug: every registered slot across the registry. */

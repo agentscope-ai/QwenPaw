@@ -13,33 +13,49 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Modal, Switch } from "antd";
+import { Dropdown, Modal, Switch, type MenuProps } from "antd";
 import {
-  ArrowLeftRight,
+  Check,
   ChevronDown,
   ChevronRight,
-  File,
-  FileCode2,
-  FileText,
   Folder,
   FolderOpen,
   GripVertical,
   LoaderCircle,
   Network,
+  Plus,
   Settings2,
   RefreshCw,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  memo,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEventHandler,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { UploadConflictError, workspaceApi } from "../../api/modules/workspace";
-import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
+import {
+  chatProjectDirectoryApi,
+  type ProjectDirEntry,
+} from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
-import { directoriesMatch, workspaceRoots } from "./directorySources";
-import { isDefaultWorkspaceMarkdown } from "./defaultWorkspaceMarkdown";
+import { loadSessionProjectDirs } from "../project-directory/loadSessionProjectDirs";
+import {
+  isProjectRoot,
+  projectRootPath,
+  workspaceRoots,
+} from "./directorySources";
+import FileGlyph from "./FileGlyph";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
@@ -49,6 +65,8 @@ import {
   buildMemoryTree,
   type MemoryTreeEntry,
 } from "./memoryTree";
+import { selectProfileFiles } from "./profileFileSelection";
+import { useDirectoryListing } from "./useDirectoryListing";
 import type {
   DirectoryEntry,
   FileTarget,
@@ -65,6 +83,13 @@ interface DirectoryNodeProps {
   onSelect: (target: FileTarget) => void;
   depth: number;
   root: WorkspaceRoot;
+  scopeKey: string;
+  revision: number;
+  expandedPaths: ReadonlySet<string>;
+  onToggle: (path: string) => void;
+  activeTreeItemPath: string | null;
+  defaultTreeItemPath?: string;
+  onTreeItemFocus: (path: string) => void;
 }
 
 interface ProfileFileRowProps {
@@ -73,32 +98,81 @@ interface ProfileFileRowProps {
   selected: boolean;
   onSelect: () => void;
   onToggle: () => void;
+  activeTreeItemPath: string | null;
+  defaultTreeItemPath?: string;
+  onTreeItemFocus: (path: string) => void;
+}
+
+interface WorkspaceFileRowProps {
+  entry: DirectoryEntry;
+  level: number;
+  paddingInlineStart?: number;
+  root: WorkspaceRoot;
+  selected: boolean;
+  tabbable: boolean;
+  onSelect: (target: FileTarget) => void;
+  onTreeItemFocus: (path: string) => void;
 }
 
 type NavigatorSource = "workspace" | "profile" | "daily" | "digest";
 
-function FileGlyph({ name }: { name: string }) {
-  const extension = name.split(".").pop()?.toLowerCase();
-  if (["md", "mdx", "txt", "log", "csv"].includes(extension ?? "")) {
-    return <FileText size={15} />;
-  }
-  if (
-    [
-      "py",
-      "ts",
-      "tsx",
-      "js",
-      "jsx",
-      "go",
-      "rs",
-      "java",
-      "html",
-      "css",
-    ].includes(extension ?? "")
-  ) {
-    return <FileCode2 size={15} />;
-  }
-  return <File size={15} />;
+/** Switcher entry that opens the binding panel instead of changing the root. */
+const MANAGE_DIRS_KEY = "__manage_project_dirs__";
+
+function treeItemAttributes(
+  path: string,
+  level: number,
+  selected: boolean,
+  activePath: string | null,
+  defaultPath: string | undefined,
+  onFocusPath: (path: string) => void,
+) {
+  const onFocus: FocusEventHandler<HTMLButtonElement> = () => onFocusPath(path);
+  return {
+    role: "treeitem" as const,
+    "aria-level": level,
+    "aria-selected": selected,
+    "data-tree-path": path,
+    tabIndex: (activePath ?? defaultPath) === path ? 0 : -1,
+    onFocus,
+  };
+}
+
+const WorkspaceFileRow = memo(function WorkspaceFileRow({
+  entry,
+  level,
+  paddingInlineStart,
+  root,
+  selected,
+  tabbable,
+  onSelect,
+  onTreeItemFocus,
+}: WorkspaceFileRowProps) {
+  return (
+    <button
+      type="button"
+      className={`${styles.treeRow} ${selected ? styles.treeRowSelected : ""}`}
+      style={
+        paddingInlineStart === undefined ? undefined : { paddingInlineStart }
+      }
+      onClick={() => onSelect({ source: "workspace", path: entry.path, root })}
+      role="treeitem"
+      aria-level={level}
+      aria-selected={selected}
+      data-tree-path={entry.path}
+      tabIndex={tabbable ? 0 : -1}
+      onFocus={() => onTreeItemFocus(entry.path)}
+    >
+      <FileGlyph name={entry.name} />
+      <span>{entry.name}</span>
+    </button>
+  );
+});
+
+/** Last path segment, for the short display name of a directory. */
+function basenameOf(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  return trimmed.split(/[\\/]/).pop() || trimmed;
 }
 
 function ProfileFileRow({
@@ -107,6 +181,9 @@ function ProfileFileRow({
   selected,
   onSelect,
   onToggle,
+  activeTreeItemPath,
+  defaultTreeItemPath,
+  onTreeItemFocus,
 }: ProfileFileRowProps) {
   const { t } = useTranslation();
   const {
@@ -132,7 +209,19 @@ function ProfileFileRow({
         transition,
       }}
     >
-      <button type="button" className={styles.profileOpen} onClick={onSelect}>
+      <button
+        type="button"
+        className={styles.profileOpen}
+        onClick={onSelect}
+        {...treeItemAttributes(
+          entry.path,
+          1,
+          selected,
+          activeTreeItemPath,
+          defaultTreeItemPath,
+          onTreeItemFocus,
+        )}
+      >
         {enabled && (
           <span
             className={styles.dragHandle}
@@ -167,42 +256,32 @@ function DirectoryNode({
   onSelect,
   depth,
   root,
+  scopeKey,
+  revision,
+  expandedPaths,
+  onToggle,
+  activeTreeItemPath,
+  defaultTreeItemPath,
+  onTreeItemFocus,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [children, setChildren] = useState<DirectoryEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-
-  const load = useCallback(
-    async (nextCursor?: string) => {
-      setLoading(true);
-      try {
-        const page = await workspaceApi.listDirectory(
-          entry.path,
-          nextCursor,
-          200,
-          chatId,
-          root,
-          projectDirOverride,
-        );
-        setChildren((current) =>
-          nextCursor ? [...current, ...page.entries] : page.entries,
-        );
-        setCursor(page.next_cursor);
-        setHasMore(page.has_more);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [chatId, entry.path, projectDirOverride, root],
+  const expanded = expandedPaths.has(entry.path);
+  const {
+    entries: children,
+    loading,
+    hasMore,
+    loadMore,
+    failed,
+    retry,
+  } = useDirectoryListing(
+    entry.path,
+    root,
+    chatId,
+    projectDirOverride,
+    scopeKey,
+    revision,
+    expanded,
   );
-
-  const toggle = () => {
-    setExpanded((current) => !current);
-    if (!expanded && children.length === 0) void load();
-  };
 
   return (
     <>
@@ -210,8 +289,16 @@ function DirectoryNode({
         type="button"
         className={styles.treeRow}
         style={{ paddingInlineStart: 12 + depth * 16 }}
-        onClick={toggle}
+        onClick={() => onToggle(entry.path)}
         aria-expanded={expanded}
+        {...treeItemAttributes(
+          entry.path,
+          depth + 1,
+          entry.path === selectedPath,
+          activeTreeItemPath,
+          defaultTreeItemPath,
+          onTreeItemFocus,
+        )}
       >
         {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         {expanded ? <FolderOpen size={15} /> : <Folder size={15} />}
@@ -230,33 +317,57 @@ function DirectoryNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               root={root}
+              scopeKey={scopeKey}
+              revision={revision}
+              expandedPaths={expandedPaths}
+              onToggle={onToggle}
+              activeTreeItemPath={activeTreeItemPath}
+              defaultTreeItemPath={defaultTreeItemPath}
+              onTreeItemFocus={onTreeItemFocus}
             />
           ) : (
-            <button
-              type="button"
+            <WorkspaceFileRow
               key={child.path}
-              className={`${styles.treeRow} ${
-                child.path === selectedPath ? styles.treeRowSelected : ""
-              }`}
-              style={{ paddingInlineStart: 29 + (depth + 1) * 16 }}
-              onClick={() =>
-                onSelect({ source: "workspace", path: child.path, root })
+              entry={child}
+              level={depth + 2}
+              paddingInlineStart={29 + (depth + 1) * 16}
+              root={root}
+              selected={child.path === selectedPath}
+              tabbable={
+                (activeTreeItemPath ?? defaultTreeItemPath) === child.path
               }
-            >
-              <FileGlyph name={child.name} />
-              <span>{child.name}</span>
-            </button>
+              onSelect={onSelect}
+              onTreeItemFocus={onTreeItemFocus}
+            />
           ),
         )}
       {expanded && hasMore && (
         <button
           type="button"
           className={styles.loadMore}
-          onClick={() => void load(cursor ?? undefined)}
-          disabled={loading}
+          onClick={() => void loadMore()}
+          disabled={loading || failed}
         >
           {t("files.loadMore")}
         </button>
+      )}
+      {expanded && failed && (
+        <div
+          className={styles.listingError}
+          style={{ paddingInlineStart: 12 + depth * 16 }}
+          role="alert"
+        >
+          <span>{t("files.listFailed")}</span>
+          <button
+            type="button"
+            className={styles.loadMore}
+            onClick={() => void retry()}
+            disabled={loading}
+          >
+            <RefreshCw size={14} aria-hidden="true" />
+            {t("common.retry")}
+          </button>
+        </div>
       )}
     </>
   );
@@ -270,6 +381,9 @@ function MemoryDirectoryNode({
   source,
   activeGraphRoot,
   onShowGraph,
+  activeTreeItemPath,
+  defaultTreeItemPath,
+  onTreeItemFocus,
 }: {
   entry: MemoryTreeEntry;
   selectedPath: string;
@@ -278,6 +392,9 @@ function MemoryDirectoryNode({
   source: "daily" | "digest";
   activeGraphRoot: MemoryGraphRoot | null;
   onShowGraph: (root: MemoryGraphRoot) => void;
+  activeTreeItemPath: string | null;
+  defaultTreeItemPath?: string;
+  onTreeItemFocus: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -303,6 +420,14 @@ function MemoryDirectoryNode({
           style={{ paddingInlineStart: 12 + depth * 16 }}
           onClick={() => setExpanded((current) => !current)}
           aria-expanded={expanded}
+          {...treeItemAttributes(
+            entry.path,
+            depth + 1,
+            entry.path === selectedPath,
+            activeTreeItemPath,
+            defaultTreeItemPath,
+            onTreeItemFocus,
+          )}
         >
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           {expanded ? <FolderOpen size={15} /> : <Folder size={15} />}
@@ -334,6 +459,9 @@ function MemoryDirectoryNode({
               source={source}
               activeGraphRoot={activeGraphRoot}
               onShowGraph={onShowGraph}
+              activeTreeItemPath={activeTreeItemPath}
+              defaultTreeItemPath={defaultTreeItemPath}
+              onTreeItemFocus={onTreeItemFocus}
             />
           ) : (
             <button
@@ -349,6 +477,14 @@ function MemoryDirectoryNode({
                   path: child.path,
                 })
               }
+              {...treeItemAttributes(
+                child.path,
+                depth + 2,
+                child.path === selectedPath,
+                activeTreeItemPath,
+                defaultTreeItemPath,
+                onTreeItemFocus,
+              )}
             >
               <FileGlyph name={child.name} />
               <span>{child.name}</span>
@@ -365,6 +501,9 @@ interface FilesNavigatorProps {
   activeMemoryGraphRoot: MemoryGraphRoot | null;
   onShowMemoryGraph: (root: MemoryGraphRoot) => void;
   onShowFiles: () => void;
+  memoryTagsActive?: boolean;
+  memoryTagsPanel?: ReactNode;
+  onShowMemoryTags?: () => void;
   scope: FilesWorkspaceScope;
 }
 
@@ -374,10 +513,19 @@ export default function FilesNavigator({
   activeMemoryGraphRoot,
   onShowMemoryGraph,
   onShowFiles,
+  memoryTagsActive = false,
+  memoryTagsPanel,
+  onShowMemoryTags,
   scope,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
+  // Depend on these primitives rather than on `scope`: the parent rebuilds the
+  // scope object on every render, so a callback keyed on it would re-run the
+  // directory fetches whenever anything unrelated re-renders.
+  const scopeKind = scope.kind;
+  const agentId = scope.agentId;
+  const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const initialProjectDirOverride =
     scope.kind === "session" ? scope.projectDirOverride : undefined;
   const [pendingProjectDir, setPendingProjectDir] = useState(
@@ -388,22 +536,70 @@ export default function FilesNavigator({
       ? pendingProjectDir
       : initialProjectDirOverride;
   const scopeKey = filesWorkspaceScopeKey(scope);
-  const [entries, setEntries] = useState<DirectoryEntry[]>([]);
-  const [profileFiles, setProfileFiles] = useState<DirectoryEntry[]>([]);
+  const [allProfileFiles, setAllProfileFiles] = useState<DirectoryEntry[]>([]);
   const [dailyFiles, setDailyFiles] = useState<MemoryTreeEntry[]>([]);
   const [digestFiles, setDigestFiles] = useState<MemoryTreeEntry[]>([]);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<File[] | null>(null);
   const [conflictingNames, setConflictingNames] = useState<string[]>([]);
+  const [profilePickerOpen, setProfilePickerOpen] = useState(false);
+  const [profileSearch, setProfileSearch] = useState("");
   const [source, setSource] = useState<NavigatorSource>("workspace");
+  const activeSource = memoryTagsActive ? "tags" : source;
+  const [activeTreeItemPath, setActiveTreeItemPath] = useState<string | null>(
+    null,
+  );
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
+  const [directoryRevision, setDirectoryRevision] = useState(0);
+  const [expansion, setExpansion] = useState<
+    Record<string, ReadonlySet<string>>
+  >({});
+  const directoryIdentity = JSON.stringify([
+    scopeKey,
+    chatId,
+    projectDirOverride,
+    workspaceRoot,
+  ]);
+  const expandedPaths = expansion[directoryIdentity] ?? new Set<string>();
+  const toggleDirectory = useCallback(
+    (path: string) =>
+      setExpansion((current) => {
+        const paths = new Set(current[directoryIdentity]);
+        if (paths.has(path)) paths.delete(path);
+        else paths.add(path);
+        return { ...current, [directoryIdentity]: paths };
+      }),
+    [directoryIdentity],
+  );
+  const {
+    entries,
+    hasMore,
+    loading: rootLoading,
+    failed: rootFailed,
+    reload: loadRoot,
+    retry: retryRoot,
+    loadMore: loadMoreRoot,
+  } = useDirectoryListing(
+    "",
+    workspaceRoot,
+    chatId,
+    projectDirOverride,
+    scopeKey,
+    directoryRevision,
+  );
+  const navigatorLoading = source === "workspace" ? rootLoading : loading;
+  // Every directory bound to this session, primary first. Only session scope
+  // can hold more than one — an agent default is a single directory — so agent
+  // scope keeps the synthesized single-entry list below.
+  const [boundDirs, setBoundDirs] = useState<ProjectDirEntry[]>([]);
+  // Opens the binding panel from the switcher's "manage directories" item.
+  const [managingDirs, setManagingDirs] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
@@ -416,9 +612,11 @@ export default function FilesNavigator({
     const state = useCodingTabsStore.getState();
     const tabs = state.tabsByAgent[scopeKey] ?? [];
     const diffs = state.diffsByAgent[scopeKey] ?? {};
+    // Every project root, matching what `clearProjectTabs` tears down: an
+    // unsaved file in an extra root would otherwise be discarded silently.
     const hasUnsavedProjectState = tabs.some(
       (tab) =>
-        (tab.workspaceRoot ?? "project") === "project" &&
+        isProjectRoot(tab.workspaceRoot) &&
         (tab.dirty || Boolean(diffs[tab.path])),
     );
     if (!hasUnsavedProjectState) return true;
@@ -443,17 +641,167 @@ export default function FilesNavigator({
     }
   }, [scope, scopeKey]);
 
-  const sameDirectory = useMemo(
+  /**
+   * A chat with no server id has nothing persisted, and its pending selection
+   * reaches the Files API as a single primary path — so only that directory can
+   * actually be served. Offering the rest would produce rows that 403 on click.
+   */
+  const extraRootsPending = scopeKind === "session" && !chatId;
+
+  /** The bound list, or the single known project dir while it is still loading
+   *  (and always, on agent scope). Keeps the switcher stable during the first
+   *  render instead of briefly collapsing to workspace-only. */
+  const rootDirs = useMemo<ProjectDirEntry[]>(() => {
+    const fallback: ProjectDirEntry[] = projectDirectory
+      ? [
+          {
+            path: projectDirectory,
+            label: null,
+            exists: true,
+            nested_with: null,
+            // This is only the pre-fetch fallback. Both values come from the
+            // same API response here; the server-provided entry replaces it
+            // once the bound-directory snapshot has loaded.
+            is_workspace: projectDirectory === workspaceDirectory,
+          },
+        ]
+      : [];
+    if (extraRootsPending || boundDirs.length === 0) return fallback;
+    return boundDirs;
+  }, [boundDirs, extraRootsPending, projectDirectory, workspaceDirectory]);
+
+  /** How many bound directories the switcher cannot offer yet.
+   *
+   *  The primary travels as the single pending header, and the agent workspace
+   *  always has a root of its own — neither is waiting on anything, so neither
+   *  counts. A session that binds only those two must report zero, not one. */
+  const pendingRootCount = useMemo(
     () =>
-      directoriesMatch(projectDirectory, workspaceDirectory) &&
-      Boolean(workspaceDirectory),
-    [projectDirectory, workspaceDirectory],
+      extraRootsPending
+        ? boundDirs
+            .slice(1)
+            .filter((entry) => entry.path && !entry.is_workspace).length
+        : 0,
+    [boundDirs, extraRootsPending],
   );
-  const roots = useMemo(() => workspaceRoots(sameDirectory), [sameDirectory]);
+  const roots = useMemo(() => workspaceRoots(rootDirs), [rootDirs]);
+  const profileFiles = useMemo(
+    () => selectProfileFiles(allProfileFiles, enabledFiles),
+    [allProfileFiles, enabledFiles],
+  );
+  /** Coarse flavour for styling; the precise root lives in `workspaceRoot`. */
+  const rootFlavour = isProjectRoot(workspaceRoot) ? "project" : "workspace";
+
+  /** Name, path and status to render for one root in the switcher. */
+  const describeRoot = useCallback(
+    (root: WorkspaceRoot) => {
+      if (root === "workspace") {
+        return {
+          path: workspaceDirectory,
+          name: basenameOf(workspaceDirectory) || t("files.workspaceDirectory"),
+          missing: false,
+          // A session with nothing bound resolves its primary to the workspace,
+          // which collapses onto this root — so the tag belongs here too, or
+          // the switcher would show no primary at all.
+          primary: Boolean(rootDirs[0]?.is_workspace),
+        };
+      }
+      const rootPath = projectRootPath(root);
+      // Exact match: `rootPath` was copied verbatim out of one of these
+      // entries by `projectRootFor`, so there is no spelling to reconcile —
+      // and folding case here could match the wrong entry when two bound
+      // roots differ only in case, which a case-sensitive volume allows.
+      const index = rootPath
+        ? rootDirs.findIndex((entry) => entry.path === rootPath)
+        : 0;
+      const entry = index >= 0 ? rootDirs[index] : undefined;
+      const path = entry?.path ?? rootPath ?? projectDirectory;
+      return {
+        path,
+        name: entry?.label || basenameOf(path) || t("files.projectDirectory"),
+        // An entry the resolver could not find is flagged rather than hidden:
+        // silently dropping it would look like the binding was lost.
+        missing: entry ? !entry.exists : false,
+        primary: index === 0,
+      };
+    },
+    [projectDirectory, rootDirs, t, workspaceDirectory],
+  );
+
+  const activeRoot = describeRoot(workspaceRoot);
+
+  const rootMenuItems = useMemo<MenuProps["items"]>(() => {
+    const items: NonNullable<MenuProps["items"]> = [];
+    roots.forEach((root) => {
+      // The workspace is the agent's own storage, not project content — keep it
+      // visually separate from the directories the session works in.
+      if (root === "workspace" && items.length > 0) {
+        items.push({ type: "divider" });
+      }
+      const info = describeRoot(root);
+      items.push({
+        key: root,
+        label: (
+          <span className={styles.rootOption}>
+            <span className={styles.rootOptionIcon}>
+              {root === "workspace" ? (
+                <Settings2 size={14} />
+              ) : (
+                <FolderOpen size={14} />
+              )}
+            </span>
+            <span className={styles.rootOptionCopy}>
+              <strong>{info.name}</strong>
+              <small title={info.path}>{info.path}</small>
+            </span>
+            {info.primary && (
+              <em className={styles.rootOptionTag}>{t("files.primaryRoot")}</em>
+            )}
+            {info.missing && (
+              <em className={styles.rootOptionTagMissing}>
+                {t("files.rootMissing")}
+              </em>
+            )}
+            {root === workspaceRoot && (
+              <span className={styles.rootOptionCheck}>
+                <Check size={13} />
+              </span>
+            )}
+          </span>
+        ),
+      });
+    });
+    if (pendingRootCount > 0) {
+      items.push({
+        key: "__pending_roots__",
+        disabled: true,
+        label: (
+          <small className={styles.rootOptionHint}>
+            {t("files.rootsPending", { count: pendingRootCount })}
+          </small>
+        ),
+      });
+    }
+    if (scopeKind === "session") {
+      items.push(
+        { type: "divider" },
+        { key: MANAGE_DIRS_KEY, label: t("files.manageDirs") },
+      );
+    }
+    return items;
+  }, [describeRoot, pendingRootCount, roots, scopeKind, t, workspaceRoot]);
   const managedProfileNames = useMemo(
     () => new Set(profileFiles.map((file) => file.path)),
     [profileFiles],
   );
+  const availableProfileFiles = useMemo(() => {
+    const query = profileSearch.trim().toLocaleLowerCase();
+    return allProfileFiles.filter(
+      (file) =>
+        !managedProfileNames.has(file.path) &&
+        (!query || file.name.toLocaleLowerCase().includes(query)),
+    );
+  }, [allProfileFiles, managedProfileNames, profileSearch]);
 
   const loadDirectoryIdentity = useCallback(async () => {
     const agentInfo = await projectDirectoryApi.get();
@@ -464,26 +812,20 @@ export default function FilesNavigator({
       : agentInfo.path;
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
-  }, [chatId, projectDirOverride]);
-
-  const loadRoot = useCallback(async () => {
-    setLoading(true);
-    try {
-      const page = await workspaceApi.listDirectory(
-        "",
-        undefined,
-        200,
-        chatId,
-        workspaceRoot,
-        projectDirOverride,
-      );
-      setEntries(page.entries);
-      setCursor(page.next_cursor);
-      setHasMore(page.has_more);
-    } finally {
-      setLoading(false);
+    if (scopeKind !== "session") {
+      // Agent scope binds a single directory; nothing to switch between.
+      setBoundDirs([]);
+      return;
     }
-  }, [chatId, projectDirOverride, workspaceRoot]);
+    try {
+      const snapshot = await loadSessionProjectDirs(agentId, sessionId, chatId);
+      setBoundDirs(snapshot.dirs);
+    } catch {
+      // Fall back to the single directory above rather than blanking the
+      // switcher: the tree itself is still perfectly usable.
+      setBoundDirs([]);
+    }
+  }, [agentId, chatId, projectDirOverride, scopeKind, sessionId]);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -493,29 +835,16 @@ export default function FilesNavigator({
         workspaceApi.getSystemPromptFiles(),
       ]);
       const order = Array.isArray(enabled) ? enabled : [];
+      const mappedFiles = files.map((file) => ({
+        name: file.filename.split("/").pop() ?? file.filename,
+        path: file.filename,
+        kind: "file" as const,
+        size: file.size,
+        modified_at: file.modified_time,
+        preview_kind: "text" as const,
+      }));
       setEnabledFiles(order);
-      setProfileFiles(
-        files
-          .filter((file) => isDefaultWorkspaceMarkdown(file.filename))
-          .map((file) => ({
-            name: file.filename.split("/").pop() ?? file.filename,
-            path: file.filename,
-            kind: "file" as const,
-            size: file.size,
-            modified_at: file.modified_time,
-            preview_kind: "text" as const,
-          }))
-          .sort((left, right) => {
-            const leftIndex = order.indexOf(left.path);
-            const rightIndex = order.indexOf(right.path);
-            if (leftIndex >= 0 && rightIndex >= 0) {
-              return leftIndex - rightIndex;
-            }
-            if (leftIndex >= 0) return -1;
-            if (rightIndex >= 0) return 1;
-            return left.name.localeCompare(right.name);
-          }),
-      );
+      setAllProfileFiles(mappedFiles);
     } finally {
       setLoading(false);
     }
@@ -545,12 +874,21 @@ export default function FilesNavigator({
   }, []);
 
   useEffect(() => {
-    void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()]);
-  }, [loadDirectoryIdentity, loadProfile, loadRoot]);
+    void Promise.all([loadDirectoryIdentity(), loadProfile()]);
+  }, [loadDirectoryIdentity, loadProfile]);
 
+  // Keep the viewed root one the switcher actually offers. Covers both the
+  // primary-is-the-workspace case (where "project" is never offered) and a
+  // rebind that dropped the directory currently on screen.
+  //
+  // `roots` is empty until the directory list arrives, and that is precisely
+  // when this must not fire: switching to a provisional root would strand the
+  // tree there, because the real list contains that root too and this effect
+  // would have nothing left to correct.
   useEffect(() => {
-    if (sameDirectory) setWorkspaceRoot("workspace");
-  }, [sameDirectory]);
+    if (roots.length === 0 || roots.includes(workspaceRoot)) return;
+    setWorkspaceRoot(roots[0]);
+  }, [roots, workspaceRoot]);
 
   useEffect(() => {
     if (source === "profile") void loadProfile();
@@ -566,7 +904,7 @@ export default function FilesNavigator({
       await loadProfile();
       return;
     }
-    await loadRoot();
+    setDirectoryRevision((current) => current + 1);
   };
 
   const runUpload = async (
@@ -606,6 +944,15 @@ export default function FilesNavigator({
     setEnabledFiles(next);
   };
 
+  const addProfileFile = async (filename: string) => {
+    if (enabledFiles.includes(filename)) return;
+    const next = [...enabledFiles, filename];
+    await workspaceApi.setSystemPromptFiles(next);
+    setEnabledFiles(next);
+    setProfilePickerOpen(false);
+    setProfileSearch("");
+  };
+
   const reorderProfileFiles = async (event: DragEndEvent) => {
     if (!event.over || event.active.id === event.over.id) return;
     const oldIndex = enabledFiles.indexOf(String(event.active.id));
@@ -614,16 +961,6 @@ export default function FilesNavigator({
     const next = arrayMove(enabledFiles, oldIndex, newIndex);
     await workspaceApi.setSystemPromptFiles(next);
     setEnabledFiles(next);
-    setProfileFiles((current) =>
-      [...current].sort((left, right) => {
-        const leftIndex = next.indexOf(left.path);
-        const rightIndex = next.indexOf(right.path);
-        if (leftIndex >= 0 && rightIndex >= 0) return leftIndex - rightIndex;
-        if (leftIndex >= 0) return -1;
-        if (rightIndex >= 0) return 1;
-        return left.name.localeCompare(right.name);
-      }),
-    );
   };
 
   const displayEntries = useMemo(() => {
@@ -633,19 +970,114 @@ export default function FilesNavigator({
     if (source === "workspace") return entries;
     return [];
   }, [dailyFiles, digestFiles, entries, profileFiles, source]);
+  const defaultTreeItemPath = displayEntries[0]?.path;
+
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree) return;
+    const restoreVisibleTreeItem = () => {
+      const items = Array.from(
+        tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+      );
+      setActiveTreeItemPath((current) => {
+        if (!current) return current;
+        if (items.some((item) => item.dataset.treePath === current)) {
+          return current;
+        }
+        return items[0]?.dataset.treePath ?? null;
+      });
+    };
+    restoreVisibleTreeItem();
+    const observer = new MutationObserver(restoreVisibleTreeItem);
+    observer.observe(tree, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  const handleTreeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!(event.target instanceof HTMLElement)) return;
+    const currentItem = event.target.closest<HTMLElement>('[role="treeitem"]');
+    if (!currentItem || !event.currentTarget.contains(currentItem)) return;
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const currentIndex = items.indexOf(currentItem);
+    if (currentIndex < 0) return;
+    const focusItem = (item: HTMLElement | undefined) => {
+      if (!item) return;
+      item.focus();
+    };
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusItem(items[currentIndex + 1]);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusItem(items[currentIndex - 1]);
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusItem(items[0]);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      focusItem(items[items.length - 1]);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      const expanded = currentItem.getAttribute("aria-expanded");
+      if (expanded === "false") {
+        event.preventDefault();
+        currentItem.click();
+        return;
+      }
+      if (expanded === "true") {
+        const level = Number(currentItem.getAttribute("aria-level"));
+        const nextItem = items[currentIndex + 1];
+        if (Number(nextItem?.getAttribute("aria-level")) > level) {
+          event.preventDefault();
+          focusItem(nextItem);
+        }
+      }
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      if (currentItem.getAttribute("aria-expanded") === "true") {
+        event.preventDefault();
+        currentItem.click();
+        return;
+      }
+      const level = Number(currentItem.getAttribute("aria-level"));
+      for (let index = currentIndex - 1; index >= 0; index -= 1) {
+        if (Number(items[index].getAttribute("aria-level")) < level) {
+          event.preventDefault();
+          focusItem(items[index]);
+          break;
+        }
+      }
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      currentItem.click();
+    }
+  };
 
   return (
     <aside
       className={styles.navigator}
       data-source={source}
-      data-root={workspaceRoot}
+      data-root={rootFlavour}
       aria-label={t("files.navigator")}
     >
       <header className={styles.navigatorHeader}>
         <div className={styles.directoryToolbar}>
-          <div className={styles.directoryContext} data-root={workspaceRoot}>
+          <div className={styles.directoryContext} data-root={rootFlavour}>
             <span className={styles.directoryContextIcon}>
-              {workspaceRoot === "project" ? (
+              {isProjectRoot(workspaceRoot) ? (
                 <FolderOpen size={15} />
               ) : (
                 <Settings2 size={15} />
@@ -653,43 +1085,70 @@ export default function FilesNavigator({
             </span>
             <div className={styles.directoryContextBody}>
               <span className={styles.directoryContextLabel}>
-                {t(`files.${workspaceRoot}Directory`)}
+                {t(`files.${rootFlavour}Directory`)}
               </span>
-              {workspaceRoot === "project" ? (
+              {/* One plain-text identity for every root. Binding is reached
+                  through the switcher's "manage directories" item, so the
+                  header does not carry a second interactive control. */}
+              <span className={styles.directoryIdentity}>
+                <span className={styles.directoryIdentityText}>
+                  <strong>{activeRoot.name}</strong>
+                  <span title={activeRoot.path}>{activeRoot.path}</span>
+                </span>
+                {activeRoot.missing && (
+                  <em className={styles.rootOptionTagMissing}>
+                    {t("files.rootMissing")}
+                  </em>
+                )}
+              </span>
+              {scopeKind === "session" && (
                 <SessionProjectDirectory
                   scope={scope}
                   showFullPath
+                  hideTrigger
+                  open={managingDirs}
+                  onOpenChange={setManagingDirs}
                   beforeChange={confirmDirectoryChange}
-                  onChanged={handleDirectoryChanged}
+                  onChanged={() => {
+                    handleDirectoryChanged();
+                    void loadDirectoryIdentity();
+                  }}
                 />
-              ) : (
-                <span className={styles.directoryIdentity}>
-                  <span className={styles.directoryIdentityText}>
-                    <strong>
-                      {workspaceDirectory
-                        .replace(/[\\/]+$/, "")
-                        .split(/[\\/]/)
-                        .pop() || t("files.workspaceDirectory")}
-                    </strong>
-                    <span title={workspaceDirectory}>{workspaceDirectory}</span>
-                  </span>
-                </span>
               )}
             </div>
-            {roots.length > 1 && (
-              <button
-                type="button"
-                className={styles.directorySwitch}
-                onClick={() =>
-                  setWorkspaceRoot((current) =>
-                    current === "project" ? "workspace" : "project",
-                  )
-                }
-                aria-label={t("files.switchDirectory")}
-                title={t("files.switchDirectory")}
+            {/* Session scope always gets the trigger, even with a single root:
+                it is the only way to reach "manage directories", and a session
+                with nothing bound yet has exactly one root — the case where
+                binding a directory matters most. */}
+            {(roots.length > 1 || scopeKind === "session") && (
+              <Dropdown
+                menu={{
+                  items: rootMenuItems,
+                  selectedKeys: [workspaceRoot],
+                  onClick: ({ key }) => {
+                    if (key === MANAGE_DIRS_KEY) {
+                      setManagingDirs(true);
+                      return;
+                    }
+                    // Only the viewed root changes — open editor tabs keep the
+                    // root they were opened from, so nothing is invalidated and
+                    // no unsaved-changes confirmation is owed here.
+                    setActiveTreeItemPath(null);
+                    setWorkspaceRoot(key as WorkspaceRoot);
+                  },
+                }}
+                trigger={["click"]}
+                placement="bottomRight"
               >
-                <ArrowLeftRight size={14} />
-              </button>
+                <button
+                  type="button"
+                  className={styles.directorySwitch}
+                  aria-label={t("files.switchRoot")}
+                  title={t("files.switchRoot")}
+                >
+                  <ChevronDown size={14} />
+                </button>
+              </Dropdown>
             )}
           </div>
           <div className={styles.directoryTools}>
@@ -701,19 +1160,21 @@ export default function FilesNavigator({
             >
               <RefreshCw size={15} />
             </button>
-            <button
-              type="button"
-              className={styles.iconButton}
-              onClick={() => uploadRef.current?.click()}
-              aria-label={t("files.upload")}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <LoaderCircle className={styles.spin} size={15} />
-              ) : (
-                <Upload size={15} />
-              )}
-            </button>
+            {source === "workspace" && !memoryTagsActive && (
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => uploadRef.current?.click()}
+                aria-label={t("files.upload")}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <LoaderCircle className={styles.spin} size={15} />
+                ) : (
+                  <Upload size={15} />
+                )}
+              </button>
+            )}
           </div>
         </div>
         <input
@@ -729,27 +1190,39 @@ export default function FilesNavigator({
         />
       </header>
       <div className={styles.sourceTabs} role="tablist">
-        {(["workspace", "profile", "daily", "digest"] as NavigatorSource[]).map(
-          (item) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === item}
-              key={item}
-              className={`${styles.sourceTab} ${
-                source === item ? styles.sourceTabActive : ""
-              }`}
-              data-source={item}
-              onClick={() => {
-                setSource(item);
-                onShowFiles();
-              }}
-            >
-              {t(`files.${item}`)}
-            </button>
-          ),
-        )}
+        {(
+          [
+            "workspace",
+            "profile",
+            "daily",
+            "digest",
+            ...(memoryTagsPanel ? ["tags"] : []),
+          ] as (NavigatorSource | "tags")[]
+        ).map((item) => (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSource === item}
+            key={item}
+            className={`${styles.sourceTab} ${
+              activeSource === item ? styles.sourceTabActive : ""
+            }`}
+            data-source={item}
+            onClick={() => {
+              setActiveTreeItemPath(null);
+              if (item === "tags") {
+                onShowMemoryTags?.();
+                return;
+              }
+              setSource(item);
+              onShowFiles();
+            }}
+          >
+            {t(item === "tags" ? "files.memoryTagsLabel" : `files.${item}`)}
+          </button>
+        ))}
       </div>
+      {memoryTagsActive && memoryTagsPanel}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -759,8 +1232,25 @@ export default function FilesNavigator({
           items={enabledFiles}
           strategy={verticalListSortingStrategy}
         >
-          <div className={styles.tree} role="tree" aria-busy={loading}>
-            {loading && displayEntries.length === 0 ? (
+          <div
+            ref={treeRef}
+            className={styles.tree}
+            hidden={memoryTagsActive}
+            role="tree"
+            aria-busy={navigatorLoading}
+            onKeyDown={handleTreeKeyDown}
+          >
+            {source === "profile" && (
+              <button
+                type="button"
+                className={styles.profileAddButton}
+                onClick={() => setProfilePickerOpen(true)}
+              >
+                <Plus size={14} />
+                <span>{t("files.addSystemPrompt")}</span>
+              </button>
+            )}
+            {navigatorLoading && displayEntries.length === 0 ? (
               <div className={styles.empty}>
                 <LoaderCircle className={styles.spin} size={16} />
                 {t("common.loading")}
@@ -779,12 +1269,15 @@ export default function FilesNavigator({
                         source={source}
                         activeGraphRoot={activeMemoryGraphRoot}
                         onShowGraph={onShowMemoryGraph}
+                        activeTreeItemPath={activeTreeItemPath}
+                        defaultTreeItemPath={defaultTreeItemPath}
+                        onTreeItemFocus={setActiveTreeItemPath}
                       />
                     );
                   }
                   return (
                     <DirectoryNode
-                      key={entry.path}
+                      key={`${directoryIdentity}:${entry.path}`}
                       entry={entry}
                       chatId={chatId}
                       projectDirOverride={projectDirOverride}
@@ -792,6 +1285,13 @@ export default function FilesNavigator({
                       selectedPath={selectedPath}
                       onSelect={onSelect}
                       root={workspaceRoot}
+                      scopeKey={scopeKey}
+                      revision={directoryRevision}
+                      expandedPaths={expandedPaths}
+                      onToggle={toggleDirectory}
+                      activeTreeItemPath={activeTreeItemPath}
+                      defaultTreeItemPath={defaultTreeItemPath}
+                      onTreeItemFocus={setActiveTreeItemPath}
                     />
                   );
                 }
@@ -808,6 +1308,26 @@ export default function FilesNavigator({
                         onSelect({ source: "profile", path: entry.path })
                       }
                       onToggle={() => void toggleProfileFile(entry.path)}
+                      activeTreeItemPath={activeTreeItemPath}
+                      defaultTreeItemPath={defaultTreeItemPath}
+                      onTreeItemFocus={setActiveTreeItemPath}
+                    />
+                  );
+                }
+                if (source === "workspace") {
+                  return (
+                    <WorkspaceFileRow
+                      key={entry.path}
+                      entry={entry}
+                      level={1}
+                      root={workspaceRoot}
+                      selected={entry.path === selectedPath}
+                      tabbable={
+                        (activeTreeItemPath ?? defaultTreeItemPath) ===
+                        entry.path
+                      }
+                      onSelect={onSelect}
+                      onTreeItemFocus={setActiveTreeItemPath}
                     />
                   );
                 }
@@ -822,10 +1342,17 @@ export default function FilesNavigator({
                       onSelect({
                         source,
                         path: entry.path,
-                        root:
-                          source === "workspace" ? workspaceRoot : undefined,
+                        root: undefined,
                       })
                     }
+                    {...treeItemAttributes(
+                      entry.path,
+                      1,
+                      entry.path === selectedPath,
+                      activeTreeItemPath,
+                      defaultTreeItemPath,
+                      setActiveTreeItemPath,
+                    )}
                   >
                     <FileGlyph name={entry.name} />
                     <span>{entry.name}</span>
@@ -833,26 +1360,31 @@ export default function FilesNavigator({
                 );
               })
             )}
-            {!loading && displayEntries.length === 0 && (
-              <div className={styles.empty}>{t("files.sourceEmpty")}</div>
+            {source === "workspace" && rootFailed && (
+              <div className={styles.listingError} role="alert">
+                <span>{t("files.listFailed")}</span>
+                <button
+                  type="button"
+                  className={styles.loadMore}
+                  onClick={() => void retryRoot()}
+                  disabled={rootLoading}
+                >
+                  <RefreshCw size={14} aria-hidden="true" />
+                  {t("common.retry")}
+                </button>
+              </div>
             )}
+            {!navigatorLoading &&
+              !(source === "workspace" && rootFailed) &&
+              displayEntries.length === 0 && (
+                <div className={styles.empty}>{t("files.sourceEmpty")}</div>
+              )}
             {source === "workspace" && hasMore && (
               <button
                 type="button"
                 className={styles.loadMore}
-                onClick={async () => {
-                  const page = await workspaceApi.listDirectory(
-                    "",
-                    cursor ?? undefined,
-                    200,
-                    chatId,
-                    workspaceRoot,
-                    projectDirOverride,
-                  );
-                  setEntries((current) => [...current, ...page.entries]);
-                  setCursor(page.next_cursor);
-                  setHasMore(page.has_more);
-                }}
+                onClick={() => void loadMoreRoot()}
+                disabled={rootLoading || rootFailed}
               >
                 {t("files.loadMore")}
               </button>
@@ -860,6 +1392,48 @@ export default function FilesNavigator({
           </div>
         </SortableContext>
       </DndContext>
+      <Modal
+        className={styles.profilePickerModal}
+        open={profilePickerOpen}
+        title={t("files.addSystemPromptTitle")}
+        footer={null}
+        centered
+        onCancel={() => {
+          setProfilePickerOpen(false);
+          setProfileSearch("");
+        }}
+      >
+        <p className={styles.profilePickerDescription}>
+          {t("files.addSystemPromptDescription")}
+        </p>
+        <input
+          className={styles.profilePickerSearch}
+          value={profileSearch}
+          onChange={(event) => setProfileSearch(event.target.value)}
+          placeholder={t("files.searchSystemPromptFiles")}
+          aria-label={t("files.searchSystemPromptFiles")}
+          autoFocus
+        />
+        <div className={styles.profilePickerList}>
+          {availableProfileFiles.map((file) => (
+            <button
+              type="button"
+              key={file.path}
+              className={styles.profilePickerItem}
+              onClick={() => void addProfileFile(file.path)}
+            >
+              <FileGlyph name={file.name} />
+              <span>{file.name}</span>
+              <Plus size={14} />
+            </button>
+          ))}
+          {availableProfileFiles.length === 0 && (
+            <div className={styles.profilePickerEmpty}>
+              {t("files.noSystemPromptCandidates")}
+            </div>
+          )}
+        </div>
+      </Modal>
       <Modal
         className={styles.conflictModal}
         open={pendingUploads !== null}

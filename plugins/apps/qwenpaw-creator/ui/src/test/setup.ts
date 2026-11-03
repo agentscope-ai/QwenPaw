@@ -65,6 +65,7 @@ class TestEventSource {
   readonly withCredentials: boolean;
   readyState = 1;
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
+  onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
   private listeners = new Map<string, Set<EventListener>>();
   constructor(url: string | URL, init?: EventSourceInit) {

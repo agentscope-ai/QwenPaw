@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
 """Tool call lifecycle management for QwenPaw."""
 
-from ._context import CancelReason, OffloadReason, ToolCallContext
+from ._context import (
+    CancelReason,
+    OffloadReason,
+    ToolCallContext,
+    cancellation_reason,
+    format_cancel_message,
+)
 from ._coordinator import ToolCoordinator
 from ._ctxvars import get_call_context, reset_call_context, set_call_context
 from ._entry import ToolCallEntry, ToolCallStatus
@@ -32,7 +38,9 @@ __all__ = [
     "ToolStream",
     "arm_kill_deadline",
     "cancellable_wait",
+    "cancellation_reason",
     "effective_timeout",
+    "format_cancel_message",
     "get_call_context",
     "reset_call_context",
     "set_call_context",

@@ -9,11 +9,18 @@
  *   • csv    – parsed table
  */
 
-import { ExternalLink, FileWarning, LoaderCircle } from "lucide-react";
+import {
+  ExternalLink,
+  FileCode2,
+  FileWarning,
+  LoaderCircle,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock";
@@ -21,7 +28,10 @@ import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
 import { openHtmlFile } from "../../utils/openHtmlFile";
-import { parseMarkdownFrontmatter } from "../../utils/markdown";
+import {
+  parseMarkdownFrontmatter,
+  parseMemoryTags,
+} from "../../utils/markdown";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -293,26 +303,91 @@ const markdownComponents = {
   },
 };
 
-function MarkdownPreview({ content }: { content: string }) {
+type MarkdownAstNode = {
+  type?: string;
+  lang?: string;
+  children?: MarkdownAstNode[];
+};
+
+function preserveMathCodeBlocks() {
+  return (tree: MarkdownAstNode) => {
+    const visit = (child: MarkdownAstNode) => {
+      if (child.type === "code" && child.lang === "math") {
+        child.lang = "latex";
+      }
+      for (const nested of child.children ?? []) visit(nested);
+    };
+    for (const child of tree.children ?? []) visit(child);
+  };
+}
+
+function MarkdownPreview({
+  content,
+  onMemoryTagClick,
+}: {
+  content: string;
+  onMemoryTagClick?: (tag: string) => void;
+}) {
+  const { t } = useTranslation();
+  const tags = useMemo(() => parseMemoryTags(content), [content]);
   const { body, entries } = useMemo(
     () => parseMarkdownFrontmatter(content),
     [content],
   );
+  // Tags come from the resolved YAML document, including merge keys and
+  // quoted keys. Render one semantic tag row independently of raw metadata.
+  const metadataEntries = tags.length
+    ? [
+        ...entries.filter(
+          ({ key }) =>
+            !["memory_tags", '"memory_tags"', "'memory_tags'"].includes(key),
+        ),
+        { key: "memory_tags", value: "" },
+      ]
+    : entries;
 
   return (
     <div className={styles.markdownWrap}>
-      {entries.length > 0 && (
+      {metadataEntries.length > 0 && (
         <dl className={styles.frontmatter} aria-label="Front matter">
-          {entries.map(({ key, value }, index) => (
+          {metadataEntries.map(({ key, value }, index) => (
             <div className={styles.frontmatterRow} key={`${key}:${index}`}>
-              <dt className={styles.frontmatterKey}>{key}</dt>
-              <dd className={styles.frontmatterValue}>{value}</dd>
+              <dt className={styles.frontmatterKey}>
+                {key === "memory_tags" ? t("files.memoryTagsLabel") : key}
+              </dt>
+              <dd className={styles.frontmatterValue}>
+                {key === "memory_tags" && tags.length > 0 ? (
+                  <span className={styles.memoryTags}>
+                    {tags.map((tag) =>
+                      onMemoryTagClick ? (
+                        <button
+                          type="button"
+                          key={tag}
+                          className={styles.memoryTag}
+                          onClick={() => onMemoryTagClick(tag)}
+                          aria-label={t("files.memoryTagBrowse", { tag })}
+                          title={t("files.memoryTagBrowse", { tag })}
+                        >
+                          {tag}
+                        </button>
+                      ) : (
+                        <span key={tag} className={styles.memoryTag}>
+                          {tag}
+                        </span>
+                      ),
+                    )}
+                  </span>
+                ) : (
+                  value
+                )}
+              </dd>
             </div>
           ))}
         </dl>
       )}
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath, preserveMathCodeBlocks]}
+        rehypePlugins={[rehypeKatex]}
         components={markdownComponents}
       >
         {body}
@@ -321,14 +396,35 @@ function MarkdownPreview({ content }: { content: string }) {
   );
 }
 
-function buildReadOnlyHtml(content: string): string {
+function buildReadOnlyHtml(content: string): {
+  html: string;
+  hasDynamicContent: boolean;
+  hasStaticContent: boolean;
+} {
   const document = new DOMParser().parseFromString(content, "text/html");
+  let hasDynamicContent = Array.from(document.querySelectorAll("script")).some(
+    (script) => {
+      const type = (script.getAttribute("type") ?? "")
+        .split(";")[0]
+        .trim()
+        .toLowerCase();
+      return [
+        "",
+        "module",
+        "text/javascript",
+        "application/javascript",
+        "text/ecmascript",
+        "application/ecmascript",
+      ].includes(type);
+    },
+  );
   document
     .querySelectorAll("script, meta[http-equiv='refresh']")
     .forEach((element) => element.remove());
   document.querySelectorAll("*").forEach((element) => {
     Array.from(element.attributes).forEach((attribute) => {
       if (attribute.name.toLowerCase().startsWith("on")) {
+        hasDynamicContent ||= Boolean(attribute.value.trim());
         element.removeAttribute(attribute.name);
       }
     });
@@ -347,13 +443,26 @@ function buildReadOnlyHtml(content: string): string {
     .querySelectorAll("button, input, select, textarea")
     .forEach((element) => element.setAttribute("disabled", ""));
 
+  const staticBody = document.body.cloneNode(true) as HTMLElement;
+  staticBody
+    .querySelectorAll("style, template")
+    .forEach((element) => element.remove());
+  const hasStaticContent = Boolean(
+    staticBody.textContent?.trim() ||
+      staticBody.querySelector("img, svg, video, audio, iframe, object, embed"),
+  );
+
   const style = document.createElement("style");
   style.textContent = [
     "a, button, input, select, textarea, form, iframe, object, embed,",
     "audio, video, [contenteditable] { pointer-events: none !important; }",
   ].join(" ");
   document.head.appendChild(style);
-  return `<!doctype html>\n${document.documentElement.outerHTML}`;
+  return {
+    html: `<!doctype html>\n${document.documentElement.outerHTML}`,
+    hasDynamicContent,
+    hasStaticContent,
+  };
 }
 
 function HtmlPreview({
@@ -365,36 +474,72 @@ function HtmlPreview({
   workspaceBacked,
 }: FilePreviewProps) {
   const { t } = useTranslation();
-  const readOnlyHtml = useMemo(() => buildReadOnlyHtml(content), [content]);
+  const { html, hasDynamicContent, hasStaticContent } = useMemo(
+    () => buildReadOnlyHtml(content),
+    [content],
+  );
+  const showFallback = hasDynamicContent && !hasStaticContent;
+  const openButton = (
+    <button
+      type="button"
+      className={
+        showFallback
+          ? `${styles.htmlOpenButton} ${styles.htmlFallbackButton}`
+          : styles.htmlOpenButton
+      }
+      onClick={() =>
+        openHtmlFile({
+          content,
+          filePath,
+          chatId,
+          projectDirOverride,
+          root,
+          workspaceBacked,
+        })
+      }
+    >
+      <ExternalLink size={14} strokeWidth={1.5} aria-hidden="true" />
+      {t("files.openHtmlInBrowser")}
+    </button>
+  );
 
   return (
     <div className={styles.htmlWrap}>
-      <div className={styles.htmlToolbar}>
-        <button
-          type="button"
-          className={styles.htmlOpenButton}
-          onClick={() =>
-            openHtmlFile({
-              content,
-              filePath,
-              chatId,
-              projectDirOverride,
-              root,
-              workspaceBacked,
-            })
-          }
+      {!showFallback && <div className={styles.htmlToolbar}>{openButton}</div>}
+      {hasDynamicContent && (
+        <div
+          className={showFallback ? styles.htmlFallback : styles.htmlNotice}
+          role="status"
         >
-          <ExternalLink size={14} />
-          {t("files.openHtmlInBrowser")}
-        </button>
-      </div>
-      <iframe
-        className={styles.htmlFrame}
-        srcDoc={readOnlyHtml}
-        sandbox=""
-        tabIndex={-1}
-        title={t("files.htmlPreview")}
-      />
+          {showFallback && (
+            <span className={styles.htmlFallbackIcon}>
+              <FileCode2 size={28} strokeWidth={1.5} aria-hidden="true" />
+            </span>
+          )}
+          <div className={showFallback ? styles.htmlFallbackText : undefined}>
+            {showFallback && (
+              <h3 className={styles.htmlFallbackTitle}>
+                {t("files.htmlReadOnlyTitle")}
+              </h3>
+            )}
+            <p className={styles.htmlNoticeText}>
+              {t("files.htmlReadOnlyNotice", {
+                context: showFallback ? "fallback" : undefined,
+              })}
+            </p>
+          </div>
+          {showFallback && openButton}
+        </div>
+      )}
+      {!showFallback && (
+        <iframe
+          className={styles.htmlFrame}
+          srcDoc={html}
+          sandbox=""
+          tabIndex={-1}
+          title={t("files.htmlPreview")}
+        />
+      )}
     </div>
   );
 }
@@ -456,6 +601,7 @@ export interface FilePreviewProps {
   root?: WorkspaceRoot;
   projectDirOverride?: string;
   workspaceBacked?: boolean;
+  onMemoryTagClick?: (tag: string) => void;
 }
 
 export default function FilePreview({
@@ -466,6 +612,7 @@ export default function FilePreview({
   root,
   projectDirOverride,
   workspaceBacked,
+  onMemoryTagClick,
 }: FilePreviewProps) {
   const type = getPreviewType(filePath);
 
@@ -489,7 +636,10 @@ export default function FilePreview({
       />
     );
   }
-  if (type === "markdown") return <MarkdownPreview content={content} />;
+  if (type === "markdown")
+    return (
+      <MarkdownPreview content={content} onMemoryTagClick={onMemoryTagClick} />
+    );
   if (type === "html") {
     return (
       <HtmlPreview

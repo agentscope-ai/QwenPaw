@@ -14,6 +14,7 @@ const hoisted = vi.hoisted(() => {
     setFieldsValue: mockFormSetFieldsValue,
   };
   const messageMock = {
+    destroy: vi.fn(),
     success: vi.fn(),
     error: vi.fn(),
   };
@@ -32,6 +33,9 @@ const hoisted = vi.hoisted(() => {
   const markSandboxSavedMock = vi.fn();
   const setEnabledMock = vi.fn();
   const fetchAllMock = vi.fn();
+  const addCustomRuleMock = vi.fn();
+  const updateCustomRuleMock = vi.fn();
+  const deleteCustomRuleMock = vi.fn();
   // Mutable value so individual tests can override savedSandboxEnabled
   // without needing vi.doMock (which doesn't work after module import).
   let savedSandboxEnabledValue = false;
@@ -47,6 +51,9 @@ const hoisted = vi.hoisted(() => {
     markSandboxSavedMock,
     setEnabledMock,
     fetchAllMock,
+    addCustomRuleMock,
+    updateCustomRuleMock,
+    deleteCustomRuleMock,
     savedSandboxEnabledValue,
     get savedSandboxEnabled() {
       return savedSandboxEnabledValue;
@@ -103,9 +110,9 @@ vi.mock("./useToolGuard", () => ({
     fetchAll: hoisted.fetchAllMock,
     toggleRule: vi.fn(),
     toggleAutoDeny: vi.fn(),
-    deleteCustomRule: vi.fn(),
-    addCustomRule: vi.fn(),
-    updateCustomRule: vi.fn(),
+    deleteCustomRule: hoisted.deleteCustomRuleMock,
+    addCustomRule: hoisted.addCustomRuleMock,
+    updateCustomRule: hoisted.updateCustomRuleMock,
     buildSaveBody: hoisted.buildSaveBodyMock,
   }),
 }));
@@ -120,6 +127,7 @@ const {
   apiMocks,
   fetchAllMock,
   markSandboxSavedMock,
+  addCustomRuleMock,
 } = hoisted;
 
 describe("useSecurityPage", () => {
@@ -137,7 +145,20 @@ describe("useSecurityPage", () => {
     hoisted.buildSaveBodyMock.mockClear();
     hoisted.setEnabledMock.mockClear();
     markSandboxSavedMock.mockClear();
+    addCustomRuleMock.mockReset();
+    hoisted.updateCustomRuleMock.mockReset();
+    hoisted.deleteCustomRuleMock.mockReset();
     hoisted.savedSandboxEnabled = false;
+  });
+
+  it("exposes each protected tool option exactly once", () => {
+    const { result } = renderHook(() => useSecurityPage());
+    const values = result.current.toolOptions.map((option) => option.value);
+    const labels = result.current.toolOptions.map((option) => option.label);
+
+    expect(new Set(values).size).toBe(values.length);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(values.filter((value) => value === "browser")).toHaveLength(1);
   });
 
   it("handleSave calls api.updateToolGuard with guarded_tools array and message.success", async () => {
@@ -146,7 +167,7 @@ describe("useSecurityPage", () => {
       guarded_tools: ["t1"],
       denied_tools: [],
     });
-    apiMocks.updateToolGuard.mockResolvedValue({});
+    apiMocks.updateToolGuard.mockImplementation(async (body) => body);
 
     const { result } = renderHook(() => useSecurityPage());
 
@@ -174,7 +195,7 @@ describe("useSecurityPage", () => {
       guarded_tools: [],
       denied_tools: ["d1"],
     });
-    apiMocks.updateToolGuard.mockResolvedValue({});
+    apiMocks.updateToolGuard.mockImplementation(async (body) => body);
 
     const { result } = renderHook(() => useSecurityPage());
 
@@ -263,7 +284,7 @@ describe("useSecurityPage", () => {
       guarded_tools: ["t1"],
       denied_tools: [],
     });
-    apiMocks.updateToolGuard.mockResolvedValue({});
+    apiMocks.updateToolGuard.mockImplementation(async (body) => body);
 
     const { result } = renderHook(() => useSecurityPage());
 
@@ -296,5 +317,71 @@ describe("useSecurityPage", () => {
     expect(apiMocks.updateToolGuard).not.toHaveBeenCalled();
     expect(messageMock.error).toHaveBeenCalledWith("Network error");
     expect(messageMock.success).not.toHaveBeenCalled();
+  });
+
+  it("persists a new rule before closing the editor", async () => {
+    hoisted.savedSandboxEnabled = true;
+    const rule = {
+      id: "TOOL_CMD_UI_TEST_RULE",
+      tools: [],
+      params: [],
+      category: "command_injection",
+      severity: "HIGH",
+      patterns: "^UI_TEST_NEVER_MATCH$",
+      exclude_patterns: "",
+      description: "created",
+      remediation: "",
+    };
+    mockFormValidateFields.mockResolvedValueOnce(rule).mockResolvedValueOnce({
+      enabled: true,
+      guarded_tools: [],
+      denied_tools: [],
+    });
+    apiMocks.updateToolGuard.mockImplementation(async (body) => body);
+    const { result } = renderHook(() => useSecurityPage());
+
+    act(() => result.current.openAddRule());
+    await act(async () => result.current.handleEditSave());
+
+    expect(apiMocks.updateToolGuard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        custom_rules: [
+          expect.objectContaining({
+            id: "TOOL_CMD_UI_TEST_RULE",
+            patterns: ["^UI_TEST_NEVER_MATCH$"],
+          }),
+        ],
+      }),
+    );
+    expect(addCustomRuleMock).toHaveBeenCalledTimes(1);
+    expect(result.current.editModal).toBe(false);
+  });
+
+  it("keeps the rule editor open when persistence fails", async () => {
+    hoisted.savedSandboxEnabled = true;
+    mockFormValidateFields
+      .mockResolvedValueOnce({
+        id: "TOOL_CMD_UI_TEST_RULE",
+        tools: [],
+        params: [],
+        category: "command_injection",
+        severity: "HIGH",
+        patterns: "a^",
+        exclude_patterns: "",
+      })
+      .mockResolvedValueOnce({
+        enabled: true,
+        guarded_tools: [],
+        denied_tools: [],
+      });
+    apiMocks.updateToolGuard.mockRejectedValue(new Error("save failed"));
+    const { result } = renderHook(() => useSecurityPage());
+
+    act(() => result.current.openAddRule());
+    await act(async () => result.current.handleEditSave());
+
+    expect(addCustomRuleMock).not.toHaveBeenCalled();
+    expect(result.current.editModal).toBe(true);
+    expect(messageMock.error).toHaveBeenCalledWith("save failed");
   });
 });

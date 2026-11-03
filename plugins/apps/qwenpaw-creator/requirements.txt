@@ -10,6 +10,7 @@ pypdfium2
 matplotlib
 pandas
 openpyxl
+tabulate
 # GIS (.geojson/.kml/.shp) and 3D model (.obj/.stl/.glb/...) renderers
 # (vendored mm_plugins geo/model3d); both degrade to a clear missing-
 # dependency error when absent.

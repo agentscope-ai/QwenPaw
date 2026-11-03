@@ -54,25 +54,49 @@ def test_audit_close_waits_for_active_connection_user(tmp_path):
     """Closing the singleton must share its connection lock."""
     import threading
 
+    class _ObservedRLock:
+        def __init__(self):
+            self._lock = threading.RLock()
+            self.acquire_attempted = threading.Event()
+
+        def acquire(self):
+            self.acquire_attempted.set()
+            return self._lock.acquire()
+
+        def release(self):
+            self._lock.release()
+
+        def __enter__(self):
+            self.acquire()
+            return self
+
+        def __exit__(self, *_args):
+            self.release()
+
     existing = AuditLog._instance
     if existing is not None:
         existing.close()
     audit_log = AuditLog.get_instance(tmp_path)
+    observed_lock = _ObservedRLock()
+    audit_log._lock = observed_lock
     close_finished = threading.Event()
 
     def close_log():
         audit_log.close()
         close_finished.set()
 
-    audit_log._lock.acquire()
+    observed_lock.acquire()
+    observed_lock.acquire_attempted.clear()
     close_thread = threading.Thread(target=close_log)
     close_thread.start()
     try:
-        assert not close_finished.wait(timeout=0.05)
+        assert observed_lock.acquire_attempted.wait(timeout=1)
+        assert not close_finished.is_set()
     finally:
-        audit_log._lock.release()
-    close_thread.join(timeout=1)
+        observed_lock.release()
+    close_thread.join(timeout=5)
 
+    assert not close_thread.is_alive()
     assert close_finished.is_set()
     audit_log.record(
         str(tmp_path),
@@ -671,14 +695,70 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
 
-    def test_sudo_deny(self, policy):
-        """Bash(sudo ...) is DENY — caught by TOOL_CMD_PRIVILEGE_ESCALATION
-        (CRITICAL) in Phase 1 deep-security scanning. Users can disable
-        this detection rule in the frontend to fall back to the Phase 2
-        builtin ASK rule."""
-        tc = _tc("Bash", "sudo apt-get install something")
-        decision = policy.evaluate(tc)
-        assert decision.action == GovernanceAction.DENY
+    @pytest.mark.parametrize(
+        ("command", "custom_rule", "auto_denied", "expected"),
+        [
+            (
+                "sudo apt-get install something",
+                False,
+                set(),
+                GovernanceAction.ASK,
+            ),
+            (
+                "echo critical_marker",
+                True,
+                set(),
+                GovernanceAction.ASK,
+            ),
+            (
+                "echo critical_marker",
+                True,
+                {"CRITICAL_CUSTOM"},
+                GovernanceAction.DENY,
+            ),
+        ],
+    )
+    def test_critical_finding_respects_explicit_auto_deny(
+        self,
+        policy,
+        monkeypatch,
+        command,
+        custom_rule,
+        auto_denied,
+        expected,
+    ):
+        """CRITICAL asks unless its rule is explicitly auto-denied."""
+        from qwenpaw.governance.policy import DetectionRuleConfig
+
+        def resolve_auto_denied_rules():
+            return auto_denied
+
+        monkeypatch.setattr(
+            "qwenpaw.security.tool_guard.utils.resolve_auto_denied_rules",
+            resolve_auto_denied_rules,
+        )
+        if custom_rule:
+            policy.detection_rules = [
+                DetectionRuleConfig(
+                    id="CRITICAL_CUSTOM",
+                    tools=["execute_shell_command"],
+                    patterns=[r"\bcritical_marker\b"],
+                    severity="CRITICAL",
+                    description="critical custom rule",
+                ),
+            ]
+
+        decision = policy.evaluate(_tc("Bash", command))
+
+        assert decision.action == expected
+        assert decision.findings
+        finding_ids = {finding.rule_id for finding in decision.findings}
+        expected_rule_id = (
+            "CRITICAL_CUSTOM"
+            if custom_rule
+            else "TOOL_CMD_PRIVILEGE_ESCALATION"
+        )
+        assert expected_rule_id in finding_ids
 
     def test_internal_tool_allow(self, policy):
         """Internal tools should be ALLOW from user_rules."""
@@ -1579,6 +1659,97 @@ class TestDeepScanConfigMerge:
         # Should still detect via policy.yaml rule
         rule_ids = [f.rule_id for f in findings]
         assert "YAML_FALLBACK_RULE" in rule_ids
+
+
+class TestFileGuardConfigBridge:
+    """File Guard settings participate in active governance decisions."""
+
+    @staticmethod
+    def _patch_config(monkeypatch, *, enabled: bool, paths: list[str]):
+        from types import SimpleNamespace
+
+        config = SimpleNamespace(
+            security=SimpleNamespace(
+                file_guard=SimpleNamespace(
+                    enabled=enabled,
+                    sensitive_files=paths,
+                ),
+                tool_guard=SimpleNamespace(
+                    custom_rules=[],
+                    disabled_rules=[],
+                    shell_evasion_checks={},
+                ),
+            ),
+        )
+        monkeypatch.setattr("qwenpaw.config.load_config", lambda: config)
+
+    def test_read_allow_rule_cannot_override_sensitive_path(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        secret_dir = tmp_path / "protected"
+        secret_dir.mkdir()
+        secret_file = secret_dir / "credentials.json"
+        self._patch_config(
+            monkeypatch,
+            enabled=True,
+            paths=[f"{secret_dir}/"],
+        )
+        policy = _create_default_policy(str(tmp_path), str(tmp_path))
+        policy.execution_level = "smart"
+
+        decision = policy.evaluate(_tc("Read", str(secret_file)))
+
+        assert decision.action is GovernanceAction.ASK
+        assert decision.source == "sensitive_paths"
+        assert [finding.rule_id for finding in decision.findings or []] == [
+            "SENSITIVE_FILE_BLOCK",
+        ]
+
+    def test_shell_uses_file_guard_paths_from_config(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        secret_dir = tmp_path / "protected"
+        secret_dir.mkdir()
+        self._patch_config(
+            monkeypatch,
+            enabled=True,
+            paths=[f"{secret_dir}/"],
+        )
+        policy = _create_default_policy(str(tmp_path), str(tmp_path))
+        policy.execution_level = "smart"
+
+        decision = policy.evaluate(_tc("Bash", f"ls -la {secret_dir}/"))
+
+        assert decision.action is GovernanceAction.ASK
+        assert decision.source == "sensitive_paths"
+
+    def test_disabled_file_guard_does_not_scan_sensitive_paths(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        secret_dir = tmp_path / "protected"
+        secret_dir.mkdir()
+        self._patch_config(
+            monkeypatch,
+            enabled=False,
+            paths=[f"{secret_dir}/"],
+        )
+        policy = _create_default_policy(str(tmp_path), str(tmp_path))
+        policy.sensitive_paths = [f"{secret_dir}/"]
+
+        findings = policy._deep_security_scan(
+            _tc("Read", str(secret_dir / "credentials.json")),
+            "file",
+        )
+
+        assert not any(
+            finding.rule_id == "SENSITIVE_FILE_BLOCK" for finding in findings
+        )
 
 
 # ===========================================================================

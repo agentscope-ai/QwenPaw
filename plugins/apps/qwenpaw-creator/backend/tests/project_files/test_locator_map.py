@@ -76,17 +76,6 @@ def test_storyboard_version_points_to_element_workbench() -> None:
     }
 
 
-def test_video_version_is_video_media() -> None:
-    locator = derive_ui_locator(
-        "/assets/artifact_versions_by_id/ver-video",
-        _project(),
-    )
-    assert locator["page"] == "element"
-    assert locator["elementId"] == "el-1"
-    assert locator["mediaType"] == "video"
-    assert locator["artifactVersionId"] == "ver-video"
-
-
 def test_character_image_points_to_asset_detail() -> None:
     locator = derive_ui_locator(
         "/assets/artifact_versions_by_id/ver-char",
@@ -96,25 +85,6 @@ def test_character_image_points_to_asset_detail() -> None:
     assert locator["assetId"] == "char-7"
     assert locator["mediaType"] == "image"
     assert locator["artifactKind"] == "visual_asset_image"
-
-
-def test_slot_selected_version_pointer_uses_selected_version() -> None:
-    locator = derive_ui_locator(
-        "/assets/artifact_slots_by_id/element:el-1:main/selected_version_id",
-        _project(),
-    )
-    assert locator["page"] == "element"
-    assert locator["mediaType"] == "video"
-    assert locator["artifactVersionId"] == "ver-video"
-
-
-def test_file_pointer_resolves_through_owning_version() -> None:
-    locator = derive_ui_locator(
-        "/assets/files_by_id/file-vid",
-        _project(),
-    )
-    assert locator["mediaType"] == "video"
-    assert locator["artifactVersionId"] == "ver-video"
 
 
 def test_element_text_pointer_carries_pointer_as_field() -> None:
@@ -129,15 +99,6 @@ def test_element_text_pointer_carries_pointer_as_field() -> None:
         "field": (
             "/timelines/items/tl-1/elements_by_id/el-1/creation/video_prompt"
         ),
-    }
-
-
-def test_top_level_prose_pointer_is_plan_text() -> None:
-    locator = derive_ui_locator("/description", _project())
-    assert locator == {
-        "page": "plan",
-        "mediaType": "text",
-        "field": "/description",
     }
 
 

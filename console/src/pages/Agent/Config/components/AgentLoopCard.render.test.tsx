@@ -1,12 +1,14 @@
+import { ConfigAutoSaveContext } from "../configAutoSaveContext";
 import { useEffect } from "react";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Form } from "@agentscope-ai/design";
 import type { FormInstance } from "antd";
-import type { CustomLoopModeConfig } from "@/api/types";
+import type { AgentsRunningConfig, CustomLoopModeConfig } from "@/api/types";
 import { renderWithProviders } from "@/test/common_setup";
-import { AgentLoopCard, buildCustomLoopMode } from "./AgentLoopCard";
+import { AgentLoopCard } from "./AgentLoopCard";
+import { buildCustomLoopMode } from "./agentLoopHelpers";
 
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
@@ -20,9 +22,13 @@ vi.mock("react-i18next", () => ({
 
 function LoopForm({
   modes = [],
+  doomLoop,
   onForm,
+  onEdit = () => {},
 }: {
+  onEdit?: () => void;
   modes?: CustomLoopModeConfig[];
+  doomLoop?: AgentsRunningConfig["loop"]["doom_loop"];
   onForm?: (form: FormInstance) => void;
 }) {
   const [form] = Form.useForm();
@@ -31,16 +37,77 @@ function LoopForm({
   }, [form, onForm]);
 
   return (
-    <Form form={form} initialValues={{ loop: { custom_modes: modes } }}>
-      <AgentLoopCard />
+    <Form
+      form={form}
+      initialValues={{ loop: { custom_modes: modes, doom_loop: doomLoop } }}
+      onValuesChange={onEdit}
+    >
+      <ConfigAutoSaveContext.Provider value={onEdit}>
+        <AgentLoopCard />
+      </ConfigAutoSaveContext.Provider>
     </Form>
   );
 }
 
 describe("AgentLoopCard custom mode rendering", () => {
+  it.each(["built-in", "custom"])(
+    "updates %s repetition thresholds and notifies autosave",
+    async (kind) => {
+      let form: FormInstance | undefined;
+      const onEdit = vi.fn();
+      const mode = buildCustomLoopMode([], "Safe", "safe", "safe", 1);
+      const gateIndex = mode.gates.findIndex(
+        (gate) => gate.type === "doom_loop",
+      );
+      const base =
+        kind === "built-in"
+          ? ["loop", "doom_loop"]
+          : ["loop", "custom_modes", 0, "gates", gateIndex, "params"];
+      renderWithProviders(
+        <LoopForm
+          modes={[mode]}
+          doomLoop={{
+            enabled: true,
+            window_size: 3,
+            similarity_threshold: 1,
+            stages: [
+              { after: 3, action: "modify_prompt", prompt: "Change strategy" },
+              { after: 6, action: "stop", prompt: "Ask for help" },
+            ],
+          }}
+          onEdit={onEdit}
+          onForm={(next) => (form = next)}
+        />,
+      );
+      if (kind === "custom") {
+        fireEvent.click(screen.getByRole("tab", { name: "Safe" }));
+      }
+      const editor = within(screen.getByRole("tabpanel"));
+      fireEvent.click(editor.getByText("Repetition protection"));
+      const input = await editor.findByLabelText("After");
+      const stepper = within(
+        input.closest("[class*='stepper']")! as HTMLElement,
+      );
+      expect(input).toHaveValue("3");
+      fireEvent.click(stepper.getByRole("button", { name: "common.increase" }));
+      fireEvent.click(stepper.getByRole("button", { name: "common.increase" }));
+      expect(input).toHaveValue("5");
+      expect(form?.getFieldValue([...base, "stages", 0, "after"])).toBe(5);
+      fireEvent.click(stepper.getByRole("button", { name: "common.decrease" }));
+      expect(input).toHaveValue("4");
+      fireEvent.change(input, { target: { value: "12" } });
+      fireEvent.blur(input);
+      expect(form?.getFieldValue([...base, "stages", 0, "after"])).toBe(12);
+      expect(onEdit).toHaveBeenCalled();
+    },
+  );
+
   it("shows a newly created template and its preset gates immediately", async () => {
     let form: FormInstance | undefined;
-    renderWithProviders(<LoopForm onForm={(next) => (form = next)} />);
+    const onEdit = vi.fn();
+    renderWithProviders(
+      <LoopForm onEdit={onEdit} onForm={(next) => (form = next)} />,
+    );
 
     fireEvent.click(screen.getByLabelText("Create custom loop mode"));
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
@@ -48,6 +115,7 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(
       await screen.findByRole("tab", { name: "New Loop Mode" }),
     ).toHaveAttribute("aria-selected", "true");
+    expect(onEdit).toHaveBeenCalled();
     const editor = within(screen.getByRole("tabpanel"));
     expect(editor.getByText("Iteration limit")).toBeInTheDocument();
     expect(editor.getByText("Token budget")).toBeInTheDocument();
@@ -61,11 +129,20 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       true,
     );
+    onEdit.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    expect(onEdit).toHaveBeenCalledOnce();
+    onEdit.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onEdit).toHaveBeenCalledOnce();
   }, 15_000);
 
   it("opens Gate choices from the plus button and enables a blank mode", async () => {
     let form: FormInstance | undefined;
-    renderWithProviders(<LoopForm onForm={(next) => (form = next)} />);
+    const onEdit = vi.fn();
+    renderWithProviders(
+      <LoopForm onEdit={onEdit} onForm={(next) => (form = next)} />,
+    );
 
     fireEvent.click(screen.getByLabelText("Create custom loop mode"));
     fireEvent.mouseDown(screen.getByRole("combobox"));
@@ -86,6 +163,12 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       true,
     );
+    onEdit.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    expect(onEdit).toHaveBeenCalledOnce();
+    onEdit.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onEdit).toHaveBeenCalledOnce();
   }, 15_000);
 
   it("renders Mission defaults as three separate gates", async () => {

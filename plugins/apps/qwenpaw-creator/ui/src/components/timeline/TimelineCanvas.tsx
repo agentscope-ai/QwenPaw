@@ -51,6 +51,15 @@ interface TimelineCanvasProps {
   selectedElementId: string | null;
   previewOpen: boolean;
   tasks: TaskView[];
+  /**
+   * "card" renders the self-contained timeline panel; "split" renders
+   * display:contents so the stage / transport / tracks become items of the
+   * plan page's grid (design 83:13383: stage top-left, transport + tracks
+   * full-width at the bottom) with the preview always visible.
+   */
+  variant?: "card" | "split";
+  /** Extra controls at the right end of the transport row (e.g. 历史快照). */
+  transportExtra?: React.ReactNode;
   onPreviewOpenChange: (open: boolean) => void;
   onPlayheadChange: (tick: number) => void;
   onSelectElement: (elementId: string) => void;
@@ -116,12 +125,17 @@ export default function TimelineCanvas({
   selectedElementId,
   previewOpen,
   tasks,
+  variant = "card",
+  transportExtra,
   onPreviewOpenChange,
   onPlayheadChange,
   onSelectElement,
   onActiveElementIdsChange,
 }: TimelineCanvasProps) {
   const { t } = useTranslation();
+  const split = variant === "split";
+  // The split stage is always visible; the card variant keeps the toggle.
+  const stageOpen = split || previewOpen;
   const [collapsed, setCollapsed] = useState(false);
   const [muted, setMuted] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -661,68 +675,78 @@ export default function TimelineCanvas({
   return (
     <section
       data-timeline-panel
-      className={`relative mx-4 mt-3 shrink-0 overflow-visible rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-sm ${
-        previewOpen ? "flex max-h-[66vh] flex-col" : ""
-      }`}
+      className={
+        split
+          ? "contents"
+          : `relative mx-4 mt-3 shrink-0 overflow-visible rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-sm ${
+              previewOpen ? "flex max-h-[66vh] flex-col" : ""
+            }`
+      }
     >
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] px-3 py-1.5 text-[11px] text-[var(--color-text-tertiary)]">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <b className="text-[var(--color-text-primary)]">
-            {t("timeline.timeline")}
-          </b>
-          <span
-            data-timeline-playhead-summary
-            className="rounded-full bg-[var(--color-accent-soft)] px-2 py-0.5 font-semibold text-[var(--color-accent)]"
-          >
-            {/* Pure playhead semantics: derived from the timeline at the
+      {!split && (
+        <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] px-3 py-1.5 text-[11px] text-[var(--color-text-tertiary)]">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <b className="text-[var(--color-text-primary)]">
+              {t("timeline.timeline")}
+            </b>
+            <span
+              data-timeline-playhead-summary
+              className="rounded-full bg-[var(--color-accent-soft)] px-2 py-0.5 font-semibold text-[var(--color-accent)]"
+            >
+              {/* Pure playhead semantics: derived from the timeline at the
                 playhead tick, never from an explicit selection. */}
-            {seconds(playheadTick, timeline.ticks_per_second)}s ·{" "}
-            {t("timeline.itemsCount", { count: active.length })}
-          </span>
-          <span
-            className={`rounded-full bg-[var(--color-bg-secondary)] px-2 py-0.5 ${
-              scrollable ? "ring-1 ring-[var(--color-border)]" : ""
-            }`}
-          >
-            {tracks.length} {t("timeline.track")}
-            {scrollable ? t("timeline.scrollable") : ""}
-          </span>
+              {seconds(playheadTick, timeline.ticks_per_second)}s ·{" "}
+              {t("timeline.itemsCount", { count: active.length })}
+            </span>
+            <span
+              className={`rounded-full bg-[var(--color-bg-secondary)] px-2 py-0.5 ${
+                scrollable ? "ring-1 ring-[var(--color-border)]" : ""
+              }`}
+            >
+              {tracks.length} {t("timeline.track")}
+              {scrollable ? t("timeline.scrollable") : ""}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 pr-3">
+            <button
+              type="button"
+              onClick={() => onPreviewOpenChange(!previewOpen)}
+              className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-semibold ${
+                previewOpen
+                  ? "border-[var(--color-accent)]/40 bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                  : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
+              }`}
+            >
+              {previewOpen ? (
+                <ChevronUp className="h-3 w-3" />
+              ) : (
+                <ChevronDown className="h-3 w-3" />
+              )}
+              {previewOpen
+                ? t("timeline.collapsePreview")
+                : t("timeline.videoPreview")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollapsed((value) => !value)}
+              className="rounded-md border border-[var(--color-border)] px-2 py-1 font-semibold text-[var(--color-text-secondary)]"
+            >
+              {collapsed
+                ? t("timeline.expandTimeline")
+                : t("timeline.collapseTimeline")}
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 pr-3">
-          <button
-            type="button"
-            onClick={() => onPreviewOpenChange(!previewOpen)}
-            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-semibold ${
-              previewOpen
-                ? "border-[var(--color-accent)]/40 bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
-                : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
-            }`}
-          >
-            {previewOpen ? (
-              <ChevronUp className="h-3 w-3" />
-            ) : (
-              <ChevronDown className="h-3 w-3" />
-            )}
-            {previewOpen
-              ? t("timeline.collapsePreview")
-              : t("timeline.videoPreview")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setCollapsed((value) => !value)}
-            className="rounded-md border border-[var(--color-border)] px-2 py-1 font-semibold text-[var(--color-text-secondary)]"
-          >
-            {collapsed
-              ? t("timeline.expandTimeline")
-              : t("timeline.collapseTimeline")}
-          </button>
-        </div>
-      </div>
+      )}
 
-      {previewOpen && (
+      {stageOpen && (
         <div
           data-timeline-video-preview
-          className="relative flex h-[clamp(220px,40vh,400px)] min-h-0 w-full shrink items-center justify-center overflow-hidden bg-[#12100f]"
+          className={
+            split
+              ? "relative col-start-1 row-start-2 m-3 mt-0 flex min-h-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--color-bg-primary)]"
+              : "relative flex h-[clamp(220px,40vh,400px)] min-h-0 w-full shrink items-center justify-center overflow-hidden bg-[#12100f]"
+          }
         >
           {previewMode === "live" ? (
             <TimelineLivePreview
@@ -740,7 +764,7 @@ export default function TimelineCanvas({
             <video
               ref={videoRef}
               src={renderUrl}
-              className="h-full w-full bg-black object-contain"
+              className="h-full w-full object-contain"
               muted={muted}
               playsInline
               preload="auto"
@@ -831,9 +855,18 @@ export default function TimelineCanvas({
           workspaces instead of overlapping the timecode. */}
       <div
         data-timeline-transport
-        className="flex min-h-[38px] flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/45 px-2.5 py-1 text-[11px]"
+        className={`flex min-h-[38px] flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/45 px-2.5 py-1 text-[11px] ${
+          split
+            ? "col-span-full row-start-3 border-t bg-[var(--color-bg-primary)]"
+            : ""
+        }`}
       >
         <div className="flex min-w-0 flex-[1_1_280px] items-center gap-1.5">
+          {split && (
+            <b className="mr-2 shrink-0 text-xs font-medium text-[var(--color-text-primary)]">
+              {t("timeline.timeline")}
+            </b>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -849,7 +882,7 @@ export default function TimelineCanvas({
           <button
             type="button"
             onClick={togglePlayback}
-            className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white"
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-text-primary)] text-[var(--color-bg-primary)]"
             aria-label={t("timeline.playPause")}
           >
             {playing ? (
@@ -977,30 +1010,40 @@ export default function TimelineCanvas({
               <ZoomIn className="h-3.5 w-3.5" />
             </button>
           </div>
+          {transportExtra}
         </div>
       </div>
 
-      <TimelineTracks
-        project={project}
-        timeline={effectiveTimeline}
-        authorityTimeline={timeline}
-        durationTick={timelineDuration}
-        playheadTick={playheadTick}
-        zoom={zoom}
-        snapEnabled={snapEnabled}
-        collapsed={collapsed}
-        previewOpen={previewOpen}
-        editable
-        selectedElementId={selectedElementId}
-        playbackStates={playbackStates}
-        agentWorking={agentWorking.working}
-        onPlayheadChange={onPlayheadChange}
-        onSelectElement={onSelectElement}
-        onActiveElementIdsChange={onActiveElementIdsChange}
-        onDragOverridesChange={setDragOverrides}
-        onCommitSpans={commitSpans}
-        onZoomChange={changeZoom}
-      />
+      <div
+        data-timeline-tracks
+        className={
+          split
+            ? "col-span-full row-start-4 flex h-[225px] min-h-0 flex-col overflow-hidden bg-[var(--color-bg-primary)]"
+            : "contents"
+        }
+      >
+        <TimelineTracks
+          project={project}
+          timeline={effectiveTimeline}
+          authorityTimeline={timeline}
+          durationTick={timelineDuration}
+          playheadTick={playheadTick}
+          zoom={zoom}
+          snapEnabled={snapEnabled}
+          collapsed={collapsed}
+          previewOpen={stageOpen}
+          editable
+          selectedElementId={selectedElementId}
+          playbackStates={playbackStates}
+          agentWorking={agentWorking.working}
+          onPlayheadChange={onPlayheadChange}
+          onSelectElement={onSelectElement}
+          onActiveElementIdsChange={onActiveElementIdsChange}
+          onDragOverridesChange={setDragOverrides}
+          onCommitSpans={commitSpans}
+          onZoomChange={changeZoom}
+        />
+      </div>
     </section>
   );
 }

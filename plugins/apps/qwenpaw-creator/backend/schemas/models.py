@@ -220,9 +220,20 @@ class SelfReviewConfig(_ConfigBase):
     sync_enabled: bool = False
     media_enabled: bool = False
     render_enabled: bool = False
+    # Advanced per-operator switches (self-review 高级配置). Keys come
+    # from ``services.run_review.operator_registry``; a missing key means
+    # "auto" — enabled whenever the operator's own dependency (ASR key,
+    # easyocr, opencv) is available (能开尽开). Explicit booleans win.
+    operators: dict[str, bool] = Field(default_factory=dict)
     env_overrides: dict[str, str] = Field(
         default_factory=dict,
         alias="envOverrides",
+    )
+    # Response-only resolved operator states (source: user/auto plus the
+    # dependency probe) for the settings UI; never persisted.
+    operator_status: list[dict[str, Any]] = Field(
+        default_factory=list,
+        alias="operatorStatus",
     )
 
 
@@ -284,6 +295,7 @@ class ModelConnectionTestRequest(StrictModel):
     protocol: str = ""
     provider: Literal["whisper", "fun-asr"] | None = None
     voice: str = ""
+    require_api_key: bool = True
 
 
 class ConnectionTestResponse(StrictModel):
@@ -292,3 +304,9 @@ class ConnectionTestResponse(StrictModel):
     error: str | None = None
     detail: str | None = None
     suggestion: str | None = None
+    # A green test is really two facts: the credential was accepted, and this
+    # model can serve the modality. A free read-only probe proves only the
+    # first — three dead ASR routes stayed behind a passing model-list call —
+    # so the UI must not report one as the other. ``None`` means the path
+    # cannot tell, which keeps the field from inventing a verdict.
+    capability_verified: bool | None = None

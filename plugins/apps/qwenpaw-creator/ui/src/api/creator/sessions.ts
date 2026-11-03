@@ -39,17 +39,32 @@ export function createConversation(
   );
 }
 
+export interface ListMessagesOptions {
+  /** Forward cursor: return messages with seq > after (live catch-up). */
+  after?: number;
+  /** Backward cursor: return the page of messages with seq < before. */
+  before?: number;
+  /** Return the newest page (initial load); mutually exclusive with after. */
+  tail?: boolean;
+  limit?: number;
+}
+
 export function listMessages(
   projectId: string,
   conversationId: string,
-  after = 0,
-  limit = 50,
+  options: ListMessagesOptions = {},
 ): Promise<MessagePage> {
+  const params = new URLSearchParams();
+  const backward = options.tail || options.before != null;
+  if (options.tail) params.set("tail", "true");
+  if (options.before != null) params.set("before", String(options.before));
+  if (!backward && options.after) params.set("after", String(options.after));
+  params.set("limit", String(options.limit ?? 50));
   return creatorRequest(
     `/projects/${encodeURIComponent(
       projectId,
     )}/conversations/${encodeURIComponent(conversationId)}` +
-      `/messages?after=${after}&limit=${limit}`,
+      `/messages?${params.toString()}`,
   );
 }
 

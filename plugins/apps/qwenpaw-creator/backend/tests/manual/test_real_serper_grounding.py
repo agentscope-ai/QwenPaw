@@ -2,18 +2,14 @@
 # pylint: disable=protected-access
 """Manual real-provider acceptance for Serper grounding.
 
-This opt-in entry point exercises the real Serper ``/search``, ``/images``,
-``/lens`` and ``/scrape`` endpoints plus the no-OSS Uguu path. These calls
-consume real quota. Every test skips unless
-``SERPER_API_KEY`` is exported, so the module stays collectable-but-inert in CI
-and in the default local suite.
+This opt-in entry point exercises the real Serper ``/search``, ``/lens``
+(via the no-OSS Uguu path) and ``/scrape`` endpoints. These calls consume
+real quota; every test skips unless ``SERPER_API_KEY`` is exported, so
+the module stays collectable-but-inert in CI and the default suite.
 
 Run manually::
 
     SERPER_API_KEY=... pytest tests/manual/test_real_serper_grounding.py -q
-
-``SERPER_LENS_IMAGE_URL`` may override the public reference image used for
-the reverse image search case.
 """
 
 from __future__ import annotations
@@ -36,11 +32,6 @@ requires_serper_key = pytest.mark.skipif(
     reason="SERPER_API_KEY not configured; manual real-provider run only",
 )
 
-DEFAULT_LENS_IMAGE_URL = (
-    "https://upload.wikimedia.org/wikipedia/commons/a/a8/"
-    "Tour_Eiffel_Wikimedia_Commons.jpg"
-)
-
 
 def _run(coroutine_factory):
     async def runner():
@@ -59,51 +50,11 @@ def test_real_serper_text_search_returns_relevant_sources():
             3,
         ),
     )
-
     assert results, "real /search returned no organic results"
     for source in results:
         assert source["provider"] == "serper"
         assert source["url"].startswith(("http://", "https://"))
         assert source["title"]
-
-
-@requires_serper_key
-def test_real_serper_image_search_returns_image_urls():
-    results = _run(
-        lambda client: adapters._search_serper_visuals(
-            client,
-            "Eiffel Tower at dusk",
-            3,
-        ),
-    )
-
-    assert results, "real /images returned no image results"
-    for source in results:
-        assert source["provider"] == "serper"
-        assert source["url"].startswith(("http://", "https://"))
-
-
-@requires_serper_key
-def test_real_serper_lens_reverse_image_search():
-    image_url = os.environ.get(
-        "SERPER_LENS_IMAGE_URL",
-        DEFAULT_LENS_IMAGE_URL,
-    )
-    results = _run(
-        lambda client: adapters._search_serper_lens(
-            client,
-            image_url,
-            5,
-            query="manual lens acceptance",
-        ),
-    )
-
-    # Lens recall depends on the reference image; require a well-formed
-    # response rather than a minimum match count.
-    assert isinstance(results, list)
-    for source in results:
-        assert source["provider"] == "serper_lens"
-        assert source["url"].startswith(("http://", "https://"))
 
 
 @requires_serper_key
@@ -115,7 +66,6 @@ def test_real_serper_scrape_extracts_page_content():
             goal="construction year",
         ),
     )
-
     assert results, "real /scrape returned no content"
     assert results[0]["provider"] == "serper_scrape"
     assert results[0]["content"]

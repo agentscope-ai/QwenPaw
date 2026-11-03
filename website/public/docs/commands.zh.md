@@ -18,6 +18,8 @@
 
 ### /compact - 压缩当前对话
 
+Scroll 和 native 两种压缩策略都会使用当前会话生效的模型，包括在聊天界面中选择的会话模型。优先级为：请求显式指定的模型 → 会话模型 → Agent 默认模型 → 全局默认模型。Scroll 生成摘要时仍会通过所选模型支持的参数请求关闭 thinking。
+
 手动触发上下文压缩（**需要等待**）。在 Scroll 下，符合条件的较早轮次会被归档，同时近期尾部和活动轮次仍保留在 live context 中。发生归档时会更新 continuation summary；启用长期记忆后，还可以在后台执行相应的保存任务。
 
 ```
@@ -58,7 +60,7 @@
 ```
 **New Conversation Started!**
 
-- Summary task started in background
+- Auto-memory task started in background
 - Ready for new conversation
 ```
 
@@ -460,18 +462,20 @@ Git 会对相同内容去重，自动垃圾回收也会按保留策略删除旧�
 
 查看和管理对话历史的命令。
 
-| 命令                | 返回内容                 |
-| ------------------- | ------------------------ |
-| `/history`          | 📋 消息列表 + Token 统计 |
-| `/message`          | 📄 指定消息详情          |
-| `/compact_str`      | 📝 压缩摘要内容          |
-| `/summarize_status` | 📊 摘要任务状态          |
-| `/dump_history`     | 📁 历史导出文件路径      |
-| `/load_history`     | ✅ 历史加载结果          |
+| 命令                  | 返回内容                 |
+| --------------------- | ------------------------ |
+| `/history`            | 📋 消息列表 + Token 统计 |
+| `/message`            | 📄 指定消息详情          |
+| `/compact_str`        | 📝 压缩摘要内容          |
+| `/auto_memory_status` | 📊 自动记忆任务状态      |
+| `/dump_history`       | 📁 历史导出文件路径      |
+| `/load_history`       | ✅ 历史加载结果          |
 
 ---
 
 ### /history - 查看当前对话历史
+
+最大输入长度和上下文使用率按当前会话生效的模型计算，包含会话级和请求级模型覆盖。
 
 显示当前对话中所有未压缩的消息列表，以及详细的**上下文占用情况**。
 
@@ -510,7 +514,7 @@ Git 会对相同内容去重，自动垃圾回收也会按保留策略删除旧�
 
 > 💡 **提示**：建议多使用 `/history` 命令了解当前上下文占用情况。
 >
-> 当 `Context usage` 接近 75% 时，对话即将触发自动 `compact`。
+> 当 `Context usage` 达到配置的自动压缩阈值时，可能触发自动压缩。
 >
 > 如果出现上下文超过最大上限的情况，请向社区反馈对应的模型和 `/history` 日志，然后主动使用 `/compact` 或 `/new` 来管理上下文。
 >
@@ -583,30 +587,32 @@ Status: in_progress
 
 ---
 
-### /summarize_status - 查看摘要任务状态
+### /auto_memory_status - 查看自动记忆任务状态
 
-显示所有后台摘要任务的运行状态，包括任务 ID、开始时间和执行结果。
+显示所有后台自动记忆任务的运行状态，包括任务 ID、开始时间和执行结果。
 
 ```
-/summarize_status
+/auto_memory_status
 ```
 
 **返回示例：**
 
 ```
-**Summary Task Status**
+**Auto-memory Task Status**
 
 - **task-001**
   - Start: 2024-01-15 10:30:00
+  - Trigger: compact
   - Status: completed
   - Result: 用户请求帮助构建用户认证系统...
 - **task-002**
   - Start: 2024-01-15 10:35:00
+  - Trigger: periodic
   - Status: failed
-  - Error: Summary generation timeout
+  - Error: Auto-memory processing timeout
 ```
 
-> 💡 使用 `/compact` 或 `/new` 时会自动在后台启动摘要任务，可通过此命令查看其执行情况。
+> 💡 使用 `/compact` 或 `/new` 时会自动在后台启动自动记忆任务，可通过此命令查看其执行情况。
 
 ---
 
@@ -690,7 +696,7 @@ skill。
 | `/model`                         | 显示当前使用的模型     | ✅   |
 | `/model -h` 或 `/model help`     | 显示帮助信息           | ✅   |
 | `/model list`                    | 列出所有可用模型       | ✅   |
-| `/model <provider>:<model>`      | 切换到指定模型         | ✅   |
+| `/model <provider>:<model>`      | 修改 Agent 默认模型    | ✅   |
 | `/model reset`                   | 重置为全局默认模型     | ✅   |
 | `/model info <provider>:<model>` | 显示指定模型的详细信息 | ✅   |
 
@@ -698,7 +704,7 @@ skill。
 
 ### `/model` - 显示当前模型
 
-显示当前 Agent 正在使用的模型。
+显示当前会话选中的模型，包含请求级和会话级模型覆盖。返回结果会标明模型来源：请求覆盖、会话覆盖、Agent 默认值或全局默认值。
 
 **用法：**
 
@@ -767,6 +773,8 @@ Manage and switch AI models for the current agent.
 
 显示所有已配置的 Provider 及其可用模型。当前激活的模型会标记为 **[ACTIVE]**。
 
+`/model` 和 **[ACTIVE]** 标记会显示当前会话覆盖后生效的模型。通过 `/model` 切换或重置模型修改的是 Agent 默认值，已有的会话模型覆盖仍然生效；在会话模型选择器中清除覆盖后，才会继承 Agent 默认值。
+
 **用法：**
 
 ```
@@ -808,7 +816,7 @@ Example: `/model openai:gpt-4o`
 
 ### `/model <provider>:<model>` - 切换模型
 
-将当前 Agent 切换到使用不同的模型。
+修改当前 Agent 的默认模型。已有会话模型覆盖的会话会保留原有选择；如果当前会话存在覆盖，命令会明确提示。
 
 **用法：**
 
@@ -832,7 +840,7 @@ Example: `/model openai:gpt-4o`
 Provider: `anthropic`
 Model: `claude-3-5-sonnet-20241022`
 
-The new model will be used for subsequent messages.
+The new agent default will be used for subsequent messages that inherit it.
 ```
 
 > 💡 **提示**：模型切换只影响当前 Agent，其他 Agent 继续使用各自配置的模型。
@@ -841,7 +849,7 @@ The new model will be used for subsequent messages.
 
 ### `/model reset` - 重置为全局默认模型
 
-将当前 Agent 的模型重置为在 Web UI 中配置的全局默认模型。
+将当前 Agent 的默认模型重置为在 Web UI 中配置的全局默认模型，已有的会话模型覆盖仍然生效。
 
 **用法：**
 
@@ -854,12 +862,9 @@ The new model will be used for subsequent messages.
 ```
 **Model Reset**
 
-Agent model has been reset to global default:
-
+Agent now uses global default model:
 Provider: `openai`
 Model: `gpt-4o`
-
-The global default model will be used for subsequent messages.
 ```
 
 > 💡 **提示**：使用此命令可以撤销 Agent 级别的模型覆盖设置。
@@ -1013,7 +1018,10 @@ qwenpaw daemon logs -n 200   # 在终端指定 200 行
 
 ### `/approval` - 工具执行审批命令
 
-管理工具审批请求。当 `approval_level` 设为 `STRICT` 或 `SMART` 时，存在 CRITICAL 或 HIGH 级别发现的工具调用会进入待审批队列，使用这些命令进行批准、拒绝、列表查看或取消操作。
+管理工具和命令审批请求。当 `approval_level` 设为 `STRICT` 或 `SMART` 时，存在
+CRITICAL 或 HIGH 级别发现的工具调用会进入待审批队列。具有副作用的 `/reme`
+生成命令也使用此流程，并启用精确请求者身份隔离。使用这些命令可以批准、拒绝、
+查看或取消当前调用者有权处理的请求。
 
 **用法：**
 
@@ -1021,7 +1029,7 @@ qwenpaw daemon logs -n 200   # 在终端指定 200 行
 /approval approve [request_id]           # 批准指定请求或队首请求
 /approval deny [request_id] [reason]     # 拒绝并附理由
 /approval list                           # 列出当前会话的待审批项
-/approval list --all                     # 列出所有会话的待审批项
+/approval list --all                     # 跨会话列出当前调用者可见的待审批项
 /approval cancel <request_id>            # 取消指定请求
 ```
 
@@ -1034,7 +1042,9 @@ qwenpaw daemon logs -n 200   # 在终端指定 200 行
 /deny <request_id> <reason>              # 等同于 /approval deny <request_id> <reason>
 ```
 
-> `/approval list` 显示当前会话（含子会话）的待审批项。使用 `--all` 或 `-a` 查看该 Agent 所有会话的待审批项。
+> `/approval list` 显示当前会话中调用者可见的待审批项（包含允许处理的子会话）。
+> 使用 `--all` 或 `-a` 搜索当前 Agent 的其他会话。精确请求者审批仅对发起请求的
+> Agent、用户、频道、会话和根会话可见且可处理；经过身份验证的控制台是显式管理员。
 
 ---
 
@@ -1071,6 +1081,21 @@ qwenpaw daemon version --agent-id abc123
 
 ---
 
+## 顾问模式 — 规划与介入
+
+让对话在顾问模式下运行：更强的模型在智能体开始前写好计划，并在其反复失败时介入，智能体本身负责干活。
+
+```
+/advisor <任务描述>
+/advisor on
+/advisor off
+/advisor status
+```
+
+完整指南请参阅 [顾问模式](./advisor-mode)。
+
+---
+
 ## Mission 模式 — 多 Agent 自主执行
 
 将大型任务拆解为多个用户故事，通过 **master → worker → verifier** 流水线自动完成，上下文隔离防止信息腐烂。
@@ -1083,6 +1108,55 @@ qwenpaw daemon version --agent-id abc123
 ```
 
 完整指南请参阅 [循环工程](./loop-engineering)。
+
+---
+
+## ReMe 记忆命令
+
+通过统一的 `/reme` 入口调用 QwenPaw 明确允许在聊天中使用的 ReMe action：
+
+```text
+/reme help
+/reme status
+/reme search query="项目决策" limit=5
+/reme search query="项目决策" tags='["架构","记忆"]'
+/reme auto_dream hint="重点整理 AI 芯片"
+/reme auto_memory count=2 memory_hint="记录技术决策"
+/reme daily_paper topics="智能体,记忆" force=true
+/reme auto_fin topics="黄金,机器人" window_hours=12
+```
+
+聊天 allowlist 包含 `status`、`search`、`proactive`、`auto_memory`、
+`auto_dream`、`daily_paper` 和 `auto_fin`。action 在后端可用并不代表它能从
+聊天调用。`read`、`read_image`、`write`、`edit`、`delete`、`move`、
+`list`、`stat`、`daily_write`、`daily_list`、`frontmatter_*`、`node_search`
+等原始 vault action 不对聊天开放；`reindex`、`undo_reindex`、
+`daily_reindex` 等全局维护 action 必须通过经过身份验证的控制台或维护 API 执行。
+
+命令格式为 `/reme <action> key=value`。包含空格的值使用双引号；JSON 列表和
+对象使用单引号包住，避免其中的双引号被命令行解析移除，例如
+`tags='["架构","记忆"]'` 或 `filter='{"kind":"decision"}'`。参数值沿用 ReMe
+CLI 的解析规则，因此数字、布尔值、列表和对象会保留对应类型。
+`/reme help` 会将运行时 backend action 目录与 QwenPaw 的聊天 allowlist 取交集，
+展示当前 ReMe 版本实际接受的参数，并用 `*` 标出必填项。参数校验仍以正在运行的
+后端为准，但新增 backend job 不会自动扩大聊天权限。
+
+`auto_memory` 由 QwenPaw 托管：`count` 选择当前会话最近的助手回复组（默认
+为 `1`），`memory_hint` 可选地指导记忆提取，消息内容与会话 ID 由 QwenPaw
+自动注入。其他 action 可添加 `show_metadata=true`，在回复正文中展示元数据。
+为保护对话上下文，整条可见回复最多展示 20,000 个字符。消息仍会附加最多
+8,000 个序列化字符的结构化元数据；超出时改为附加有界预览。
+
+`daily_paper`、`auto_fin` 等生成类 action 也使用同一个命令入口。它们在执行前
+需要审批，命令会等待 action 返回结果。每项审批都会绑定发起请求的 Agent、用户、
+频道、会话和根会话；其他聊天参与者或会话无法查看、批准、拒绝或取消，经过身份验证的
+控制台则作为显式管理员。取消原始请求也会删除对应的待审批项。与 `auto_memory`
+不同，这些 action 不会提交到对话记忆队列。对应的 `*_cron_enabled` 配置只控制
+定时运行，不限制手动执行 `/reme`。当前安装的 ReMe 插件具体支持哪些参数，以
+`/reme help` 显示的运行时 action 目录为准。
+
+原 `/dream`、`/memorize` 和 `/reme_status` 命令已移除，请分别使用
+`/reme auto_dream`、`/reme auto_memory` 和 `/reme status`。
 
 ---
 

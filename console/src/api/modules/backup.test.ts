@@ -42,7 +42,8 @@ vi.mock("../../utils/downloadFileFromUrl", () => {
   };
 });
 
-import { backupApi } from "./backup";
+import { backupApi, RESTORE_BACKUP_TIMEOUT_MS } from "./backup";
+import { request } from "../request";
 import {
   downloadFileFromUrl,
   DownloadCancelledError,
@@ -358,6 +359,43 @@ describe("backupApi", () => {
       await expect(backupApi.exportBackup("b1", "n")).rejects.toThrow(
         "Network failure",
       );
+    });
+  });
+
+  // =========================================================================
+  // restoreBackup — extended timeout contract (regression for A#84705305)
+  // =========================================================================
+  // Restore rewrites workspaces/config synchronously and can legitimately
+  // outlive the default 30s API timeout (large archives / slow disks). The
+  // original defect: restoreBackup did NOT pass an extended timeout, so the
+  // request aborted at 30s with no useful error. This asserts the request
+  // configuration contract, not transport internals.
+  // =========================================================================
+  describe("restoreBackup (A#84705305)", () => {
+    it("exposes a restore timeout well above the default 30s", () => {
+      expect(RESTORE_BACKUP_TIMEOUT_MS).toBeGreaterThan(30_000);
+    });
+
+    it("sends POST /backups/:id/restore with the given body and extended timeout", async () => {
+      vi.mocked(request).mockResolvedValueOnce({
+        ok: true,
+        preserved_local_keys: [],
+      });
+
+      const data = {
+        include_agents: true,
+        agent_ids: ["a1"],
+        include_global_config: true,
+        include_secrets: false,
+        include_skill_pool: false,
+      };
+      await backupApi.restoreBackup("b1", data);
+
+      expect(request).toHaveBeenCalledWith("/backups/b1/restore", {
+        method: "POST",
+        body: JSON.stringify(data),
+        timeout: RESTORE_BACKUP_TIMEOUT_MS,
+      });
     });
   });
 });

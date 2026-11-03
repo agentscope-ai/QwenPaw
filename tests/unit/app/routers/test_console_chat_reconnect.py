@@ -16,7 +16,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers.console import _extract_session_and_payload
@@ -177,4 +177,67 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     payload = json.loads(received[1][len("data: ") :])
     assert payload == {"type": "replay_end"}
     # No fresh run was started by the reconnect.
+    assert console_workspace.console_channel.stream_calls == []
+
+
+@pytest.mark.asyncio
+async def test_new_message_rejects_active_run(
+    app,
+    console_workspace,
+    monkeypatch,
+):
+    """A non-reconnect payload must not silently attach to an active run."""
+    from starlette.requests import Request
+    from qwenpaw.app.routers import console
+
+    tracker = console_workspace.task_tracker
+    release = asyncio.Event()
+
+    async def slow_stream(_payload):
+        await release.wait()
+        yield "data: existing\n\n"
+
+    await tracker.attach_or_start("chat-1", None, slow_stream)
+    monkeypatch.setattr(
+        console,
+        "_persist_pending_project_dirs",
+        AsyncMock(side_effect=lambda _ws, chat, _payload: chat),
+    )
+
+    request = Request(
+        scope={
+            "type": "http",
+            "method": "POST",
+            "path": "/api/console/chat",
+            "headers": [],
+            "app": app,
+        },
+    )
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await console.post_console_chat(
+                request_data={
+                    "session_id": "console:default",
+                    "user_id": "default",
+                    "channel": "console",
+                    "input": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "new message"},
+                            ],
+                        },
+                    ],
+                },
+                request=request,
+            )
+    finally:
+        release.set()
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == (
+        "A task is already running for this chat. Wait for it to finish or "
+        "use a different session_id."
+    )
     assert console_workspace.console_channel.stream_calls == []

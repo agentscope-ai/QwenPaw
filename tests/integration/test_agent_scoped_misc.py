@@ -56,16 +56,16 @@ def test_tools_list_returns_array(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_tools_config_update_unknown_returns_500(app_server) -> None:
+def test_tools_config_update_unknown_returns_404(app_server) -> None:
     """Test purpose:
     - Verify POST /api/agents/{agentId}/tools/{name}/config with an
-      unknown tool name returns 500 because the PluginRegistry rejects
-      config writes for non-existent tools.
+      unknown tool name returns 404 because the builtin_tools
+      membership check rejects config writes for missing tools.
 
     Test flow:
     1. Create agent.
     2. POST /{bogus_tool}/config.
-    3. Assert 500 and detail mentions ``not found``.
+    3. Assert 404 and detail is ``Tool 'integ-nosuch-tool' not found``.
 
     API endpoints:
     - POST /api/agents/{agentId}/tools/{tool_name}/config
@@ -79,8 +79,10 @@ def test_tools_config_update_unknown_returns_500(app_server) -> None:
             json={"config": {"api_key": "test"}},
             timeout=_HTTP_TIMEOUT,
         )
-        assert resp.status_code == 500, app_server.logs_tail()
-        assert "not found" in resp.json().get("detail", "").lower()
+        assert resp.status_code == 404, app_server.logs_tail()
+        assert (
+            resp.json().get("detail") == "Tool 'integ-nosuch-tool' not found"
+        )
     finally:
         delete_agent_quietly(app_server, agent_id)
 

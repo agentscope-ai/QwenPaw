@@ -5,7 +5,7 @@
  */
 import { useRef } from "react";
 import { Button } from "antd";
-import { ImportOutlined } from "@ant-design/icons";
+import { Import as ImportOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 interface Props {
@@ -36,7 +36,7 @@ export default function ImportButton({ onPick }: Props) {
         }}
       />
       <Button
-        icon={<ImportOutlined />}
+        icon={<ImportOutlined size="1em" />}
         onClick={() => fileInputRef.current?.click()}
       >
         {t("backup.import")}

@@ -9,30 +9,46 @@ Covers:
 - _get_multimodal_fallback_hint
 - view_image
 - view_video
+- view_audio
 """
 # pylint: disable=protected-access,unused-argument
 
+import asyncio
 import base64
 from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
-from agentscope.message import Base64Source
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    Msg,
+    TextBlock,
+)
 from PIL import Image
 
+from qwenpaw.agents.tools import view_media
 from qwenpaw.agents.utils import image_freezing
+from qwenpaw.agents.utils.image_freezing import freeze_image_bytes
 from qwenpaw.agents.tools.view_media import (
     _IMAGE_EXTENSIONS,
     _VIDEO_EXTENSIONS,
     _check_multimodal_support,
+    _download_remote_image,
     _get_multimodal_fallback_hint,
     _is_url,
     _validate_media_path,
     _validate_url_extension,
+    view_audio,
     view_image,
     view_video,
 )
-from qwenpaw.providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from qwenpaw.providers.capping_formatter import (
+    MAX_INLINE_MEDIA_BYTES,
+    _CappingOpenAIFormatter,
+)
+from qwenpaw.agents import model_factory
 
 
 # ---------------------------------------------------------------------------
@@ -262,13 +278,183 @@ class TestViewImage:
     """Tests for view_image."""
 
     @pytest.mark.asyncio
+    @patch(
+        "qwenpaw.agents.tools.view_media._download_remote_image",
+        new_callable=AsyncMock,
+    )
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
-    async def test_url_image(self, mock_support):
+    async def test_url_image(self, mock_support, mock_download):
         mock_support.return_value = True
+        image_bytes = BytesIO()
+        Image.new("RGB", (2, 2), color="red").save(
+            image_bytes,
+            format="PNG",
+        )
+        mock_download.return_value = (image_bytes.getvalue(), None)
+
         result = await view_image("https://example.com/photo.jpg")
-        assert result.content is not None
-        types = [getattr(b, "type", None) for b in result.content]
-        assert "data" in types
+
+        assert len(result.content) == 2
+        assert result.content[0].model_dump(
+            mode="json",
+            exclude={"id", "created_at", "finished_at"},
+        ) == {
+            "type": "data",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": base64.b64encode(image_bytes.getvalue()).decode(
+                    "ascii",
+                ),
+            },
+            "name": None,
+        }
+        assert result.content[1].model_dump(
+            mode="json",
+            exclude={"id", "created_at", "finished_at"},
+        ) == {
+            "type": "text",
+            "text": "Image loaded from remote source.",
+        }
+        mock_download.assert_awaited_once_with(
+            "https://example.com/photo.jpg",
+            50 * 1024 * 1024,
+        )
+
+    @pytest.mark.asyncio
+    @patch(
+        "qwenpaw.agents.tools.view_media._download_remote_image",
+        new_callable=AsyncMock,
+    )
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_oversized_url_image_is_staged_for_compression(
+        self,
+        mock_support,
+        mock_download,
+        monkeypatch,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        channels = [Image.effect_noise((32, 32), 100) for _ in range(3)]
+        image = Image.merge("RGB", channels)
+        image_buffer = BytesIO()
+        image.save(image_buffer, format="PNG")
+        image_bytes = image_buffer.getvalue()
+        assert len(image_bytes) > 64
+        mock_download.return_value = (image_bytes, None)
+        monkeypatch.setattr(view_media, "MAX_INLINE_MEDIA_BYTES", 64)
+        monkeypatch.setattr(
+            view_media,
+            "get_current_workspace_dir",
+            lambda: tmp_path,
+        )
+
+        result = await view_image("https://example.com/photo.png")
+
+        downloaded_files = list((tmp_path / "downloads").iterdir())
+        assert len(downloaded_files) == 1
+        downloaded_file = downloaded_files[0]
+        assert downloaded_file.name.startswith("remote-image-")
+        assert downloaded_file.suffix == ".png"
+        assert downloaded_file.read_bytes() == image_bytes
+        assert [
+            block.model_dump(
+                mode="json",
+                exclude={"id", "created_at", "finished_at"},
+            )
+            for block in result.content
+        ] == [
+            {
+                "type": "text",
+                "text": (
+                    f"Remote image is {len(image_bytes)} bytes and "
+                    "exceeds the 64-byte inline image limit. It was "
+                    f"downloaded to: {downloaded_file}. Compress or "
+                    "resize this local file below the inline limit, "
+                    "then call view_image with the compressed file path."
+                ),
+            },
+        ]
+
+    @pytest.mark.asyncio
+    @patch(
+        "qwenpaw.agents.tools.view_media._download_remote_image",
+        new_callable=AsyncMock,
+    )
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_invalid_oversized_url_image_is_not_staged(
+        self,
+        mock_support,
+        mock_download,
+        monkeypatch,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        mock_download.return_value = (b"x" * 65, None)
+        monkeypatch.setattr(view_media, "MAX_INLINE_MEDIA_BYTES", 64)
+        monkeypatch.setattr(
+            view_media,
+            "get_current_workspace_dir",
+            lambda: tmp_path,
+        )
+
+        result = await view_image("https://example.com/photo.png")
+
+        assert [block.type for block in result.content] == ["text"]
+        assert "not a valid image" in result.content[0].text
+        assert not (tmp_path / "downloads").exists()
+
+    @pytest.mark.asyncio
+    @patch(
+        "qwenpaw.agents.tools.view_media._download_remote_image",
+        new_callable=AsyncMock,
+    )
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_url_download_failure_is_text_only(
+        self,
+        mock_support,
+        mock_download,
+    ):
+        mock_support.return_value = True
+        mock_download.return_value = (None, "remote server returned HTTP 404")
+
+        result = await view_image("https://example.com/missing.png")
+
+        assert [
+            block.model_dump(
+                mode="json",
+                exclude={"id", "created_at", "finished_at"},
+            )
+            for block in result.content
+        ] == [
+            {
+                "type": "text",
+                "text": (
+                    "Error: failed to load remote image: "
+                    "remote server returned HTTP 404"
+                ),
+            },
+        ]
+
+    @pytest.mark.asyncio
+    @patch(
+        "qwenpaw.agents.tools.view_media._download_remote_image",
+        new_callable=AsyncMock,
+    )
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_url_invalid_image_is_text_only(
+        self,
+        mock_support,
+        mock_download,
+    ):
+        mock_support.return_value = True
+        mock_download.return_value = (b"<html>not an image</html>", None)
+
+        result = await view_image("https://example.com/image.png")
+
+        assert len(result.content) == 1
+        assert result.content[0].type == "text"
+        assert "not a valid image" in result.content[0].text
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
@@ -470,10 +656,25 @@ class TestViewImage:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._probe_multimodal_if_needed")
+    @patch(
+        "qwenpaw.agents.tools.view_media._download_remote_image",
+        new_callable=AsyncMock,
+    )
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
-    async def test_fallback_hint_included(self, mock_support, mock_probe):
+    async def test_fallback_hint_included(
+        self,
+        mock_support,
+        mock_download,
+        mock_probe,
+    ):
         mock_support.return_value = False
         mock_probe.return_value = False
+        image_bytes = BytesIO()
+        Image.new("RGB", (2, 2), color="red").save(
+            image_bytes,
+            format="PNG",
+        )
+        mock_download.return_value = (image_bytes.getvalue(), None)
         result = await view_image("https://example.com/img.jpg")
         text_parts = [
             b.text
@@ -481,6 +682,426 @@ class TestViewImage:
             if getattr(b, "type", None) == "text"
         ]
         assert any("multimodal" in t.lower() for t in text_parts)
+
+
+class TestFreezeImageBytes:
+    """Tests for the shared local/remote image freezing path."""
+
+    @pytest.mark.parametrize(
+        ("image_format", "media_type"),
+        [
+            ("PNG", "image/png"),
+            ("JPEG", "image/jpeg"),
+            ("GIF", "image/gif"),
+            ("WEBP", "image/webp"),
+        ],
+    )
+    def test_native_format_uses_detected_type_and_preserves_bytes(
+        self,
+        image_format,
+        media_type,
+    ):
+        image_bytes = BytesIO()
+        Image.new("RGB", (2, 2), color="blue").save(
+            image_bytes,
+            format=image_format,
+        )
+
+        block, error = freeze_image_bytes(
+            image_bytes.getvalue(),
+            "misleading.jpg",
+        )
+
+        assert error is None
+        assert block is not None
+        assert block.model_dump(
+            mode="json",
+            exclude={"id", "created_at", "finished_at"},
+        ) == {
+            "type": "data",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.b64encode(image_bytes.getvalue()).decode(
+                    "ascii",
+                ),
+            },
+            "name": None,
+        }
+
+    @pytest.mark.parametrize(
+        "invalid_bytes",
+        [
+            b"<html>not an image</html>",
+            b'{"type": "not-an-image"}',
+            b"random-bytes",
+            b"\x89PNG\r\n\x1a\ntruncated",
+        ],
+    )
+    def test_invalid_bytes_are_rejected(self, invalid_bytes):
+        block, error = freeze_image_bytes(
+            invalid_bytes,
+            "image.png",
+        )
+
+        assert block is None
+        assert error is not None
+        assert "not a valid image" in error
+
+
+class TestRemoteImageDownloadLimit:
+    """Tests for the configurable remote image download limit."""
+
+    def test_default_limit(self, monkeypatch):
+        monkeypatch.delenv(
+            "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            raising=False,
+        )
+        result = view_media._remote_image_download_max_bytes()
+
+        assert result == 50 * 1024 * 1024
+
+    def test_positive_limit_has_no_upper_clamp(self, monkeypatch):
+        monkeypatch.setenv(
+            "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            "10000",
+        )
+
+        result = view_media._remote_image_download_max_bytes()
+
+        assert result == 10000 * 1024 * 1024
+
+    @pytest.mark.parametrize("value", ["invalid", "0", "-1"])
+    def test_invalid_or_nonpositive_limit_uses_default(
+        self,
+        monkeypatch,
+        value,
+    ):
+        monkeypatch.setenv(
+            "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            value,
+        )
+
+        result = view_media._remote_image_download_max_bytes()
+
+        assert result == 50 * 1024 * 1024
+
+
+class TestDownloadRemoteImage:
+    """Tests for bounded remote image downloads."""
+
+    @pytest.mark.asyncio
+    async def test_public_image_is_downloaded(self):
+        requests = []
+
+        def return_image(request):
+            requests.append(request)
+            return httpx.Response(
+                200,
+                content=b"image-bytes",
+                request=request,
+            )
+
+        transport = httpx.MockTransport(return_image)
+        client = httpx.AsyncClient(transport=transport)
+
+        with patch.object(
+            view_media,
+            "_resolve_host_addresses",
+            return_value=("93.184.216.34",),
+        ) as mock_resolve, patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://example.com/image.png",
+                32,
+            )
+
+        assert result == (b"image-bytes", None)
+        mock_resolve.assert_called_once_with("example.com", 443)
+        assert len(requests) == 1
+        assert requests[0].url == httpx.URL(
+            "https://93.184.216.34/image.png",
+        )
+        assert requests[0].headers["host"] == "example.com"
+        assert requests[0].extensions["sni_hostname"] == "example.com"
+
+    @pytest.mark.asyncio
+    async def test_http_error_is_returned(self):
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                404,
+                request=request,
+            ),
+        )
+        client = httpx.AsyncClient(transport=transport)
+
+        with patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://93.184.216.34/missing.png",
+                32,
+            )
+
+        assert result == (None, "remote server returned HTTP 404")
+
+    @pytest.mark.asyncio
+    async def test_timeout_is_returned(self):
+        def raise_timeout(request):
+            raise httpx.ReadTimeout(
+                "timed out",
+                request=request,
+            )
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(raise_timeout),
+        )
+
+        with patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://93.184.216.34/slow.png",
+                32,
+            )
+
+        assert result == (None, "remote image download timed out")
+
+    @pytest.mark.asyncio
+    async def test_reported_size_is_rejected_before_reading(self):
+        class TrackingStream(httpx.AsyncByteStream):
+            def __init__(self):
+                self.was_read = False
+
+            async def __aiter__(self):
+                self.was_read = True
+                yield b"a" * 33
+
+        stream = TrackingStream()
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-length": "33"},
+                stream=stream,
+                request=request,
+            ),
+        )
+        client = httpx.AsyncClient(transport=transport)
+
+        with patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://93.184.216.34/image.png",
+                32,
+            )
+
+        assert result == (
+            None,
+            "remote image exceeds the 32-byte download limit",
+        )
+        assert stream.was_read is False
+
+    @pytest.mark.asyncio
+    async def test_streamed_image_over_limit_is_rejected(self):
+        class ChunkedStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"a" * 17
+                yield b"b" * 17
+
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                stream=ChunkedStream(),
+                request=request,
+            ),
+        )
+        client = httpx.AsyncClient(transport=transport)
+
+        with patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://93.184.216.34/image.png",
+                32,
+            )
+
+        assert result == (
+            None,
+            "remote image exceeds the 32-byte download limit",
+        )
+
+    @pytest.mark.asyncio
+    async def test_total_timeout_is_returned(self, monkeypatch):
+        class SlowStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                await asyncio.sleep(0.05)
+                yield b"image-bytes"
+
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                stream=SlowStream(),
+                request=request,
+            ),
+        )
+        client = httpx.AsyncClient(transport=transport)
+        monkeypatch.setattr(
+            view_media,
+            "_REMOTE_IMAGE_TOTAL_TIMEOUT",
+            0.01,
+        )
+
+        with patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://93.184.216.34/slow.png",
+                32,
+            )
+
+        assert result == (None, "remote image download timed out")
+
+    @pytest.mark.asyncio
+    async def test_public_redirect_is_downloaded(self):
+        requested_paths = []
+
+        def redirect_then_image(request):
+            requested_paths.append(request.url.path)
+            if request.url.path == "/start.png":
+                return httpx.Response(
+                    302,
+                    headers={"location": "/final.png"},
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                content=b"image-bytes",
+                request=request,
+            )
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(redirect_then_image),
+        )
+
+        with patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://93.184.216.34/start.png",
+                32,
+            )
+
+        assert result == (b"image-bytes", None)
+        assert requested_paths == ["/start.png", "/final.png"]
+
+    @pytest.mark.asyncio
+    async def test_redirect_limit_is_rejected(self):
+        requested_paths = []
+
+        def redirect_again(request):
+            requested_paths.append(request.url.path)
+            return httpx.Response(
+                302,
+                headers={"location": "/again.png"},
+                request=request,
+            )
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(redirect_again),
+        )
+
+        with patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://93.184.216.34/start.png",
+                32,
+            )
+
+        assert result == (None, "remote image exceeded redirect limit")
+        assert len(requested_paths) == (
+            view_media._REMOTE_IMAGE_MAX_REDIRECTS + 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_loopback_is_rejected(self):
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                302,
+                headers={
+                    "location": "http://127.0.0.1/private.png",
+                },
+                request=request,
+            ),
+        )
+        client = httpx.AsyncClient(transport=transport)
+
+        with patch.object(
+            view_media.httpx,
+            "AsyncClient",
+            return_value=client,
+        ):
+            result = await _download_remote_image(
+                "https://93.184.216.34/start.png",
+                32,
+            )
+
+        assert result == (
+            None,
+            "remote image URL targets a non-public address",
+        )
+
+    @pytest.mark.asyncio
+    async def test_mixed_public_and_private_dns_answers_are_rejected(self):
+        with patch.object(
+            view_media,
+            "_resolve_host_addresses",
+            return_value=("93.184.216.34", "127.0.0.1"),
+        ):
+            result = await _download_remote_image(
+                "https://example.com/image.png",
+                32,
+            )
+
+        assert result == (
+            None,
+            "remote image URL targets a non-public address",
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1/image.png",
+            "http://192.168.1.10/image.png",
+        ],
+    )
+    async def test_non_public_target_is_rejected(self, url):
+        data, error = await _download_remote_image(
+            url,
+            MAX_INLINE_MEDIA_BYTES,
+        )
+
+        assert data is None
+        assert error == "remote image URL targets a non-public address"
 
 
 # ---------------------------------------------------------------------------
@@ -522,3 +1143,230 @@ class TestViewVideo:
         mock_support.return_value = True
         result = await view_video("/nonexistent/vid.mp4")
         assert "does not exist" in result.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# view_audio
+# ---------------------------------------------------------------------------
+
+
+def _make_native_config():
+    """Return a mock config with audio_mode='native'."""
+    cfg = MagicMock()
+    cfg.agents.audio_mode = "native"
+    return cfg
+
+
+class TestViewAudio:
+    """Tests for view_audio (native mode)."""
+
+    # Formats that the formatter supports natively (no ffmpeg needed).
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ext", [".wav", ".mp3"])
+    async def test_native_no_conversion_needed(self, tmp_path, ext):
+        """WAV/MP3 files should be used directly without conversion."""
+        audio = tmp_path / f"test{ext}"
+        audio.write_bytes(b"\x00" * 100)
+
+        mock_cfg = _make_native_config()
+        with (
+            patch("qwenpaw.config.load_config", return_value=mock_cfg),
+            patch(
+                "qwenpaw.agents.tools.view_media.run_sync_io",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await view_audio(str(audio))
+
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" in types
+        assert result.state.value == "success"
+
+    # Formats that require ffmpeg conversion.
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ext", [".ogg", ".flac", ".m4a", ".amr", ".opus"])
+    async def test_native_conversion_success(self, tmp_path, ext):
+        """All non-native formats should use converted WAV on success."""
+        audio = tmp_path / f"test{ext}"
+        audio.write_bytes(b"\x00" * 100)
+        converted_wav = tmp_path / "converted.wav"
+        converted_wav.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        mock_cfg = _make_native_config()
+        with (
+            patch("qwenpaw.config.load_config", return_value=mock_cfg),
+            patch(
+                "qwenpaw.agents.tools.view_media.run_sync_io",
+                new_callable=AsyncMock,
+                return_value=str(converted_wav),
+            ),
+        ):
+            result = await view_audio(str(audio))
+
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" in types
+        assert result.state.value == "success"
+        data_block = next(
+            b for b in result.content if getattr(b, "type", None) == "data"
+        )
+        assert "converted.wav" in str(data_block.source.url)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ext", [".ogg", ".flac", ".m4a", ".amr", ".opus"])
+    async def test_native_missing_ffmpeg(self, tmp_path, ext):
+        """Non-native formats with no ffmpeg should return error."""
+        audio = tmp_path / f"test{ext}"
+        audio.write_bytes(b"\x00" * 100)
+
+        mock_cfg = _make_native_config()
+        with (
+            patch("qwenpaw.config.load_config", return_value=mock_cfg),
+            patch(
+                "qwenpaw.agents.tools.view_media.run_sync_io",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await view_audio(str(audio))
+
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" not in types
+        text_block = next(
+            b for b in result.content if getattr(b, "type", None) == "text"
+        )
+        assert "conversion failed" in text_block.text.lower()
+        assert "ffmpeg" in text_block.text.lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ext", [".ogg", ".flac", ".m4a", ".amr", ".opus"])
+    async def test_native_conversion_exception(self, tmp_path, ext):
+        """Non-native formats where conversion raises should return error."""
+        audio = tmp_path / f"test{ext}"
+        audio.write_bytes(b"\x00" * 100)
+
+        mock_cfg = _make_native_config()
+        with (
+            patch("qwenpaw.config.load_config", return_value=mock_cfg),
+            patch(
+                "qwenpaw.agents.tools.view_media.run_sync_io",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("ffmpeg crashed"),
+            ),
+        ):
+            result = await view_audio(str(audio))
+
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" not in types
+        text_block = next(
+            b for b in result.content if getattr(b, "type", None) == "text"
+        )
+        assert "conversion failed" in text_block.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# view_audio → formatter integration
+# ---------------------------------------------------------------------------
+
+
+def _make_openai_formatter():
+    """Create a file-block-aware OpenAI capping formatter."""
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    return formatter_class()
+
+
+class TestViewAudioFormatterIntegration:
+    """Verify view_audio output produces correct wire messages."""
+
+    @pytest.mark.asyncio
+    async def test_success_wav_produces_input_audio(self):
+        """WAV DataBlock from view_audio should become input_audio."""
+        wav_bytes = b"RIFF" + b"\x00" * 100
+        audio_block = DataBlock(
+            source=Base64Source(
+                media_type="audio/wav",
+                data=base64.b64encode(wav_bytes).decode("ascii"),
+            ),
+        )
+        msg = Msg(
+            name="tool",
+            role="assistant",
+            content=[
+                audio_block,
+                TextBlock(
+                    type="text",
+                    text="Audio loaded in native mode: test.wav",
+                ),
+            ],
+        )
+
+        formatter = _make_openai_formatter()
+        token = model_factory._FORMATTER_SEEN_MEDIA_KEYS.set(set())
+        try:
+            formatted = await formatter.format([msg])
+        finally:
+            model_factory._FORMATTER_SEEN_MEDIA_KEYS.reset(token)
+
+        content = formatted[0]["content"]
+        wire_types = [item["type"] for item in content]
+        assert "input_audio" in wire_types
+
+    @pytest.mark.asyncio
+    async def test_success_mp3_produces_input_audio(self):
+        """MP3 DataBlock from view_audio should become input_audio."""
+        mp3_bytes = b"\xff\xfb" + b"\x00" * 100
+        audio_block = DataBlock(
+            source=Base64Source(
+                media_type="audio/mp3",
+                data=base64.b64encode(mp3_bytes).decode("ascii"),
+            ),
+        )
+        msg = Msg(
+            name="tool",
+            role="assistant",
+            content=[
+                audio_block,
+                TextBlock(
+                    type="text",
+                    text="Audio loaded in native mode: test.mp3",
+                ),
+            ],
+        )
+
+        formatter = _make_openai_formatter()
+        token = model_factory._FORMATTER_SEEN_MEDIA_KEYS.set(set())
+        try:
+            formatted = await formatter.format([msg])
+        finally:
+            model_factory._FORMATTER_SEEN_MEDIA_KEYS.reset(token)
+
+        content = formatted[0]["content"]
+        wire_types = [item["type"] for item in content]
+        assert "input_audio" in wire_types
+
+    @pytest.mark.asyncio
+    async def test_failure_no_data_block_no_input_audio(self):
+        """Error output (text only) should not produce input_audio."""
+        msg = Msg(
+            name="tool",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "Error: audio conversion failed for test.ogg. "
+                        "Install ffmpeg to enable native audio playback."
+                    ),
+                ),
+            ],
+        )
+
+        formatter = _make_openai_formatter()
+        formatted = await formatter.format([msg])
+
+        content = formatted[0]["content"]
+        wire_types = [item["type"] for item in content]
+        assert "input_audio" not in wire_types
+        assert "audio" not in wire_types

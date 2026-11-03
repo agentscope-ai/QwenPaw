@@ -37,4 +37,16 @@ describe("osRouteStore", () => {
     expect(useOsWindows.getState().windows["core.chat"]).toBeDefined();
     expect(useOsWindows.getState().windows["core.inbox"]).toBeDefined();
   });
+
+  it("opens tool offload policy in System Settings", () => {
+    useOsRoute.getState().navigateTo("core.offload-policy", "/offload-policy");
+
+    expect(useOsWindows.getState().windows["os.settings"]).toBeDefined();
+    expect(useOsRoute.getState().targets["os.settings"].path).toBe(
+      "core.offload-policy",
+    );
+    expect(
+      useOsWindows.getState().windows["core.offload-policy"],
+    ).toBeUndefined();
+  });
 });

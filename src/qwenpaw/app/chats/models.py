@@ -7,7 +7,14 @@ from enum import Enum
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from qwenpaw.schemas import Message
 
 from ..channels.schema import DEFAULT_CHANNEL
@@ -21,6 +28,72 @@ class SessionSource(str, Enum):
 
     chat = "chat"
     cron = "cron"
+    subagent = "subagent"
+
+
+class ChatGroupKind(str, Enum):
+    """Distinguishes built-in and user-created chat groups."""
+
+    default = "default"
+    cron = "cron"
+    subagents = "subagents"
+    custom = "custom"
+
+
+DEFAULT_CHAT_GROUP_ID = "default"
+CRON_CHAT_GROUP_ID = "cron"
+SUBAGENT_CHAT_GROUP_ID = "subagents"
+CHAT_NAME_MAX_LENGTH = 500
+
+SOURCE_CHAT_GROUP_IDS = {
+    SessionSource.chat: DEFAULT_CHAT_GROUP_ID,
+    SessionSource.cron: CRON_CHAT_GROUP_ID,
+    SessionSource.subagent: SUBAGENT_CHAT_GROUP_ID,
+}
+
+
+class ChatGroup(BaseModel):
+    """One persisted group in the Console chat list."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str = Field(min_length=1, max_length=64)
+    order: int = Field(default=0, ge=0)
+    kind: ChatGroupKind = Field(default=ChatGroupKind.custom)
+    source: Optional[SessionSource] = Field(
+        default=None,
+        description="Session source represented by a built-in group",
+    )
+    pinned: bool = Field(
+        default=False,
+        description="Whether the group is pinned above regular groups",
+    )
+
+
+def default_chat_groups() -> list[ChatGroup]:
+    """Return source-driven built-in groups for a chat registry."""
+    return [
+        ChatGroup(
+            id=DEFAULT_CHAT_GROUP_ID,
+            name="Uncategorized",
+            order=0,
+            kind=ChatGroupKind.default,
+            source=SessionSource.chat,
+        ),
+        ChatGroup(
+            id=CRON_CHAT_GROUP_ID,
+            name="Scheduled tasks",
+            order=1,
+            kind=ChatGroupKind.cron,
+            source=SessionSource.cron,
+        ),
+        ChatGroup(
+            id=SUBAGENT_CHAT_GROUP_ID,
+            name="Subagents",
+            order=2,
+            kind=ChatGroupKind.subagents,
+            source=SessionSource.subagent,
+        ),
+    ]
 
 
 class ChatSpec(BaseModel):
@@ -33,7 +106,11 @@ class ChatSpec(BaseModel):
         default_factory=lambda: str(uuid4()),
         description="Chat UUID identifier",
     )
-    name: str = Field(default="New Chat", description="Chat name")
+    name: str = Field(
+        default="New Chat",
+        max_length=CHAT_NAME_MAX_LENGTH,
+        description="Chat name",
+    )
     session_id: str = Field(
         ...,
         description="Session identifier (channel:user_id format)",
@@ -47,6 +124,10 @@ class ChatSpec(BaseModel):
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Chat last update timestamp",
+    )
+    last_finished_at: Optional[datetime] = Field(
+        default=None,
+        description="When the most recent task for this chat finished",
     )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
@@ -68,6 +149,26 @@ class ChatSpec(BaseModel):
         default=SessionSource.chat,
         description="What initiated this session (chat, cron, …)",
     )
+    group_id: Optional[str] = Field(
+        default=None,
+        description="Persisted Console group identifier",
+    )
+    parent_session_id: Optional[str] = Field(
+        default=None,
+        description="Immediate parent session for a subagent chat",
+    )
+    root_session_id: Optional[str] = Field(
+        default=None,
+        description="Root session for a subagent chat tree",
+    )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def limit_name_length(cls, value: Any) -> Any:
+        """Keep persisted chat names within the storage boundary."""
+        if isinstance(value, str):
+            return value[:CHAT_NAME_MAX_LENGTH]
+        return value
 
     @computed_field  # type: ignore[misc]
     @property
@@ -86,11 +187,60 @@ class ChatUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, description="Chat name")
+    name: str | None = Field(
+        default=None,
+        max_length=CHAT_NAME_MAX_LENGTH,
+        description="Chat name",
+    )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def limit_name_length(cls, value: Any) -> Any:
+        """Keep renamed chat names within the storage boundary."""
+        if isinstance(value, str):
+            return value[:CHAT_NAME_MAX_LENGTH]
+        return value
+
     pinned: bool | None = Field(
         default=None,
         description="Whether the chat is pinned to the top",
     )
+    group_id: str | None = Field(
+        default=None,
+        description="Target Console group identifier",
+    )
+
+
+class ChatGroupCreate(BaseModel):
+    """Fields accepted when creating a custom chat group."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=64)
+
+
+class ChatGroupUpdate(BaseModel):
+    """Mutable chat-group fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    pinned: bool | None = None
+
+    @model_validator(mode="after")
+    def require_update(self) -> "ChatGroupUpdate":
+        """Reject an empty group update."""
+        if self.name is None and self.pinned is None:
+            raise ValueError("At least one group field must be provided")
+        return self
+
+
+class ChatGroupOrderUpdate(BaseModel):
+    """Complete group order submitted by the Console."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    group_ids: list[str] = Field(min_length=2)
 
 
 class ChatHistory(BaseModel):
@@ -126,3 +276,14 @@ class ChatsFile(BaseModel):
 
     version: int = 1
     chats: list[ChatSpec] = Field(default_factory=list)
+    groups: list[ChatGroup] = Field(default_factory=default_chat_groups)
+
+    @model_validator(mode="after")
+    def ensure_system_groups(self) -> "ChatsFile":
+        """Ensure every source-driven built-in group is present."""
+        by_id = {group.id: group for group in self.groups}
+        defaults = default_chat_groups()
+        for group in defaults:
+            if group.id not in by_id:
+                self.groups.append(group)
+        return self

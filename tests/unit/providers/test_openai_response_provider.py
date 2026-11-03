@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from agentscope.model import OpenAIResponseModel
-from openai import BadRequestError
+from agentscope.tool import ToolChoice
+from openai import APIError, BadRequestError
 
 from qwenpaw.providers.multimodal_prober import _PROBE_VIDEO_URL
 from qwenpaw.providers.openai_response_provider import (
+    OpenAIResponseModelCompat,
     OpenAIResponseProvider,
     _extract_reasoning_text,
     _extract_response_text,
@@ -55,6 +60,269 @@ def _bad_request(message: str) -> BadRequestError:
         ),
         body=None,
     )
+
+
+def _make_response_model() -> OpenAIResponseModelCompat:
+    model = _make_provider().get_chat_model_instance("gpt-5")
+    assert isinstance(model, OpenAIResponseModelCompat)
+    return model
+
+
+@pytest.mark.parametrize(
+    f"event_type",
+    [f"error", f"response.failed"],
+)
+async def test_stream_error_preserves_openai_api_error(
+    event_type: str,
+) -> None:
+    class FakeError:
+        type = f"error"
+        message = f"upstream failed"
+
+        def model_dump(self) -> dict[str, str]:
+            return {
+                f"type": self.type,
+                f"message": self.message,
+            }
+
+    error = FakeError()
+    event = (
+        error
+        if event_type == f"error"
+        else SimpleNamespace(
+            type=event_type,
+            response=SimpleNamespace(error=error),
+        )
+    )
+    request = httpx.Request(
+        f"POST",
+        f"https://example.test/v1/responses",
+    )
+
+    class FakeStream:
+        def __init__(self) -> None:
+            self.response = SimpleNamespace(
+                request=request,
+                headers={},
+            )
+            self._event = event
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._event is None:
+                raise StopAsyncIteration
+            item = self._event
+            self._event = None
+            return item
+
+    with pytest.raises(APIError) as exc_info:
+        async for _ in _make_response_model()._parse_stream_response(
+            datetime.now(),
+            FakeStream(),
+        ):
+            pass
+
+    assert {
+        f"message": exc_info.value.message,
+        f"request": exc_info.value.request,
+        f"body": exc_info.value.body,
+    } == {
+        f"message": f"upstream failed",
+        f"request": request,
+        f"body": {
+            f"type": f"error",
+            f"message": f"upstream failed",
+        },
+    }
+
+
+def test_format_tools_defaults_to_non_strict_after_sanitizing() -> None:
+    tools: list[dict[str, Any]] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "Demo tool",
+                "parameters": {
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": {
+                        "query": {"type": "string"},
+                        "created_on": {
+                            "anyOf": [
+                                {"type": "string"},
+                                {"type": "null"},
+                            ],
+                            "default": None,
+                        },
+                    },
+                },
+            },
+        },
+    ]
+    choice = ToolChoice(mode="required", tools=["demo"])
+
+    formatted, tool_choice = _make_response_model()._format_tools(
+        tools,
+        choice,
+    )
+
+    assert formatted == [
+        {
+            "type": "function",
+            "name": "demo",
+            "description": "Demo tool",
+            "parameters": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string"},
+                    "created_on": {
+                        "type": "string",
+                        "default": None,
+                    },
+                },
+            },
+            "strict": False,
+        },
+    ]
+    assert tool_choice == {
+        "type": "allowed_tools",
+        "mode": "required",
+        "tools": [{"type": "function", "name": "demo"}],
+    }
+    assert tools[0]["function"]["parameters"]["properties"]["created_on"] == {
+        "anyOf": [
+            {"type": "string"},
+            {"type": "null"},
+        ],
+        "default": None,
+    }
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_format_tools_preserves_explicit_strict(strict: bool) -> None:
+    tools: list[dict[str, Any]] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "Demo tool",
+                "strict": strict,
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        },
+    ]
+
+    formatted, tool_choice = _make_response_model()._format_tools(
+        tools,
+        None,
+    )
+
+    assert formatted == [
+        {
+            "type": "function",
+            "name": "demo",
+            "description": "Demo tool",
+            "strict": strict,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    ]
+    assert tool_choice is None
+
+
+async def test_check_model_connection_closes_stream_and_client(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    captured: list[dict] = []
+
+    class FakeStream:
+        def __init__(self):
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+        async def close(self):
+            self.closed = True
+
+    stream = FakeStream()
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            captured.append(kwargs)
+            return stream
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(responses=FakeResponses(), close=close)
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    ok, message = await provider.check_model_connection("gpt-5", timeout=4)
+
+    assert ok is True
+    assert message == ""
+    assert captured == [
+        {
+            "model": "gpt-5",
+            "input": "ping",
+            "timeout": 4,
+            "max_output_tokens": 20,
+            "stream": True,
+        },
+    ]
+    assert stream.closed is True
+    close.assert_awaited_once()
+
+
+async def test_check_model_connection_closes_resources_on_error(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class FailingStream:
+        def __init__(self):
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("stream failed")
+
+        async def close(self):
+            self.closed = True
+
+    stream = FailingStream()
+    close = AsyncMock()
+    fake_client = SimpleNamespace(
+        responses=SimpleNamespace(create=AsyncMock(return_value=stream)),
+        close=close,
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    result = await provider.check_model_connection("gpt-5")
+
+    assert result.success is False
+    assert stream.closed is True
+    close.assert_awaited_once()
 
 
 # ------ _extract_response_text ----------------------------

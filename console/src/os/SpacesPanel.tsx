@@ -11,6 +11,7 @@ import { useAgentStore } from "../stores/agentStore";
 import { useOsWindows } from "./osWindowStore";
 import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
+import { isAgentAvailableInChat } from "../utils/agentVisibility";
 
 const SPACE_COLORS = [
   "#FF7F16",
@@ -38,8 +39,14 @@ export default function SpacesPanel({ visible }: { visible: boolean }) {
   const switchSpace = useOsWindows((s) => s.switchSpace);
 
   const spaces = useMemo(() => {
-    const list = agents.map((a) => ({ id: a.id, name: a.name }));
-    if (!list.some((s) => s.id === selectedAgent)) {
+    const list = agents
+      .filter(isAgentAvailableInChat)
+      .map((a) => ({ id: a.id, name: a.name }));
+    const selected = agents.find((agent) => agent.id === selectedAgent);
+    if (
+      !list.some((s) => s.id === selectedAgent) &&
+      (!selected || isAgentAvailableInChat(selected))
+    ) {
       list.unshift({ id: selectedAgent, name: selectedAgent });
     }
     return list;

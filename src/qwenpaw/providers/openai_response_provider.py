@@ -9,8 +9,11 @@ from typing import Any
 
 from agentscope.model import ChatModelBase, OpenAIResponseModel
 
+from .adapters.usage import UsageStream, cache_usage
 from .capping_formatter import _CappingOpenAIResponseFormatter
 from .openai_provider import OpenAIProvider
+from .provider import ModelConnectionResult
+from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -77,18 +80,36 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
 
     * ``extra_generate_kwargs`` — merged into every ``_call_api`` call
       (provider-level kwargs like ``extra_body``).
-    * ``_format_tools`` — sanitizes boolean JSON Schema values that strict
-      providers reject (same fix as ``OpenAIChatModelCompat``).
+    * ``_format_tools`` — sanitizes incompatible JSON Schema values and
+      defaults Responses function tools to non-strict mode.
     """
 
     def __init__(
         self,
         *,
         extra_generate_kwargs: dict[str, Any] | None = None,
+        request_policy: Any = None,
         **kwargs: Any,
     ) -> None:
         self._extra_generate_kwargs = extra_generate_kwargs or {}
+        self._request_policy = request_policy
         super().__init__(**kwargs)
+
+    def _parse_completion_response(self, start_datetime, response):
+        """Retain Responses cache writes as well as cache reads."""
+        parsed = super()._parse_completion_response(start_datetime, response)
+        cache_usage(parsed.usage, getattr(response, f"usage", None))
+        return parsed
+
+    async def _parse_stream_response(self, start_datetime, response):
+        """Read counters from the completed response exactly once."""
+        captured = UsageStream(response)
+        async for parsed in super()._parse_stream_response(
+            start_datetime,
+            captured,
+        ):
+            cache_usage(parsed.usage, captured.usage, captured.headers)
+            yield parsed
 
     async def _call_api(
         self,
@@ -105,6 +126,8 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         ):
             generate_kwargs["max_output_tokens"] = max_tokens
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        if self._request_policy is not None:
+            merged = self._request_policy(model_name, f"responses", merged)
         disable_thinking = merged.pop("disable_thinking", False)
         inherited_max_tokens = merged.pop("max_tokens", None)
         if (
@@ -133,7 +156,14 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
 
         if tools:
             tools = _sanitize_tool_schemas(tools)
-        return super()._format_tools(tools, tool_choice)
+        formatted_tools, formatted_choice = super()._format_tools(
+            tools,
+            tool_choice,
+        )
+        if formatted_tools:
+            for tool in formatted_tools:
+                tool.setdefault("strict", False)
+        return formatted_tools, formatted_choice
 
 
 class OpenAIResponseProvider(OpenAIProvider):
@@ -153,20 +183,25 @@ class OpenAIResponseProvider(OpenAIProvider):
     (e.g. DashScope).
     """
 
+    wire_protocol = f"responses"
+
     async def check_model_connection(
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> tuple[bool, str]:
+    ) -> ModelConnectionResult:
         """Check if a model is reachable via the Responses API."""
         from openai import APIError
 
         model_id = (model_id or "").strip()
         if not model_id:
-            return False, "Empty model ID"
+            return ModelConnectionResult(
+                success=False,
+                message="Empty model ID",
+            )
 
+        client = self._client(timeout=timeout)
         try:
-            client = self._client(timeout=timeout)
             res = await client.responses.create(
                 model=model_id,
                 input="ping",
@@ -174,16 +209,32 @@ class OpenAIResponseProvider(OpenAIProvider):
                 max_output_tokens=20,
                 stream=True,
             )
-            async for _ in res:
-                break
-            return True, ""
-        except APIError:
-            return False, f"API error when connecting to model '{model_id}'"
-        except Exception:
-            return (
-                False,
-                f"Unknown exception when connecting to model '{model_id}'",
+            try:
+                async for _ in res:
+                    break
+            finally:
+                await res.close()
+            return ModelConnectionResult(success=True)
+        except APIError as exc:
+            status = getattr(exc, "status_code", None)
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    "API error when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+                http_status=status if isinstance(status, int) else None,
             )
+        except Exception as exc:
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    "Unknown exception when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+            )
+        finally:
+            await self._close_client(client)
 
     # Responses API's max_output_tokens includes reasoning
     # tokens, so reasoning models (o-series, gpt-5) can
@@ -208,7 +259,7 @@ class OpenAIResponseProvider(OpenAIProvider):
 
         logger.info(
             "Image probe (responses) start: model=%s url=%s",
-            model_id,
+            sanitize_log_value(model_id),
             self.base_url,
         )
         start_time = time.monotonic()
@@ -249,8 +300,8 @@ class OpenAIResponseProvider(OpenAIProvider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             status = getattr(e, "status_code", None)
@@ -261,11 +312,13 @@ class OpenAIResponseProvider(OpenAIProvider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
 
     async def _try_video_url(
         self,
@@ -274,7 +327,7 @@ class OpenAIResponseProvider(OpenAIProvider):
         timeout: float,
         *,
         start_time: float,
-    ) -> tuple[bool, str] | None:
+    ) -> tuple[bool | None, str] | None:
         """Try a single video URL via the Responses API.
 
         Returns None to signal the caller should try the next
@@ -332,28 +385,33 @@ class OpenAIResponseProvider(OpenAIProvider):
             if status == 400:
                 logger.debug(
                     "Video probe format rejected (400): %s",
-                    e,
+                    sanitize_log_value(e),
                 )
                 return None
             elapsed = time.monotonic() - start_time
-            is_kw = _is_media_keyword_error(e)
+            is_kw = getattr(e, f"status_code", None) in {
+                400,
+                422,
+            } and _is_media_keyword_error(e)
             label = "not supported" if is_kw else "inconclusive"
             logger.warning(
                 "Video probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Video {label}: {e}"
+            return (False if is_kw else None), f"Video {label}: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Video probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import OpenAICredential
@@ -383,7 +441,14 @@ class OpenAIResponseProvider(OpenAIProvider):
             context_size=self._get_context_size(model_id),
             client_kwargs=client_kwargs,
             extra_generate_kwargs=gen_kwargs or None,
+            request_policy=self.prepare_request,
             formatter=_CappingOpenAIResponseFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                enable_prompt_cache_breakpoint=bool(
+                    gen_kwargs.get(
+                        f"enable_prompt_cache_breakpoint",
+                        False,
+                    ),
+                ),
             ),
         )

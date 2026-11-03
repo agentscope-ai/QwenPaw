@@ -9,7 +9,6 @@ read_when:
 - Don't exfiltrate private data. Ever.
 - Don't run destructive commands without asking.
 - `trash` > `rm` (recoverable beats gone forever)
-- When uncertain about something, confirm with the user.
 
 ## External vs Internal
 
@@ -23,7 +22,6 @@ read_when:
 
 - Sending emails, tweets, public posts
 - Anything that leaves the machine
-- Anything you're uncertain about
 
 
 ### 😊 React Like a Human!

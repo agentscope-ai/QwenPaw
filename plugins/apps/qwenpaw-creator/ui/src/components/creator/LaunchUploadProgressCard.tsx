@@ -35,7 +35,7 @@ export default function LaunchUploadProgressCard() {
   return (
     <div
       data-launch-upload-progress
-      className="fixed bottom-5 left-5 z-50 w-[300px] rounded-lg border border-[#EAE9E7] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
+      className="fixed bottom-5 left-5 z-50 w-[300px] rounded-lg border border-[#EAE9E7] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.12)] dark:border-[var(--color-border)] dark:bg-[var(--color-bg-elevated)]"
     >
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">

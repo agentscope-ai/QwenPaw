@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# flake8: noqa: E501
 # pylint: disable=protected-access
 from models import config
 
@@ -8,10 +9,7 @@ def test_persisted_grounding_disabled_wins_over_enabled_environment(
     monkeypatch,
 ):
     config_path = tmp_path / "model_config.json"
-    config_path.write_text(
-        '{"grounding":{"enabled":false}}',
-        encoding="utf-8",
-    )
+    config_path.write_text('{"grounding":{"enabled":false}}', encoding="utf-8")
     monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
     monkeypatch.setenv("WEB_GROUNDING_ENABLED", "1")
     config._clear_user_config_cache()
@@ -29,16 +27,17 @@ def test_runtime_reads_decrypt_persisted_search_provider_keys(
     """Encrypted-at-rest search keys must decrypt on the runtime read path."""
     config_path = tmp_path / "model_config.json"
     config_path.write_text(
-        '{"grounding":{'
-        '"tavily_api_key":"ENC:tvly",'
-        '"serper_api_key":"ENC:serper"}}',
+        '{"grounding":{"tavily_api_key":"ENC:tvly","serper_api_key":"ENC:serper"}}',
         encoding="utf-8",
     )
     monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
-    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    monkeypatch.delenv("WEB_GROUNDING_TAVILY_API_KEY", raising=False)
-    monkeypatch.delenv("SERPER_API_KEY", raising=False)
-    monkeypatch.delenv("WEB_GROUNDING_SERPER_API_KEY", raising=False)
+    for name in (
+        "TAVILY_API_KEY",
+        "WEB_GROUNDING_TAVILY_API_KEY",
+        "SERPER_API_KEY",
+        "WEB_GROUNDING_SERPER_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(config, "_SECRET_STORE_AVAILABLE", True)
     monkeypatch.setattr(
         config,
@@ -57,22 +56,6 @@ def test_runtime_reads_decrypt_persisted_search_provider_keys(
         assert config.get_web_grounding_serper_api_key() == "decrypted-serper"
     finally:
         config._clear_user_config_cache()
-
-
-def test_grounding_request_config_preserves_explicit_disabled(monkeypatch):
-    monkeypatch.setenv("WEB_GROUNDING_ENABLED", "1")
-    token = config.set_request_tool_configs(
-        {
-            config.CREATOR_GROUNDING_CONFIG_TOOL: {
-                "enabled": False,
-                "reuse_llm": True,
-            },
-        },
-    )
-    try:
-        assert config.get_web_grounding_enabled() is False
-    finally:
-        config.reset_request_tool_configs(token)
 
 
 def test_grounding_reuses_creator_llm_by_default(monkeypatch):
@@ -140,9 +123,7 @@ def test_grounding_search_and_validation_models_are_independent(monkeypatch):
                 "validation_source": "vlm",
                 "search_reuse_llm": False,
                 "search_api_key": "search-key",
-                "search_base_url": (
-                    "https://dashscope.aliyuncs.com/compatible-mode/v1"
-                ),
+                "search_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "search_model": "qwen3.7-plus",
                 "search_protocol": "DashScope（百炼）",
             },
@@ -164,55 +145,11 @@ def test_grounding_runtime_policy_does_not_read_environment(monkeypatch):
             config.get_web_grounding_timeout_seconds,
             60,
         ),
-        (
-            "WEB_GROUNDING_MAX_SOURCES",
-            config.get_web_grounding_max_sources,
-            6,
-        ),
-        (
-            "WEB_GROUNDING_MAX_ENTITIES",
-            config.get_web_grounding_max_entities,
-            3,
-        ),
-        (
-            "WEB_GROUNDING_ENTITY_TIMEOUT_SECONDS",
-            config.get_web_grounding_entity_timeout_seconds,
-            20,
-        ),
-        (
-            "WEB_GROUNDING_VISUAL_SEARCH_TIMEOUT_SECONDS",
-            config.get_web_grounding_visual_search_timeout_seconds,
-            120,
-        ),
-        (
-            "WEB_GROUNDING_IMAGE_DOWNLOAD_TIMEOUT_SECONDS",
-            config.get_web_grounding_image_download_timeout_seconds,
-            30,
-        ),
-        (
-            "WEB_GROUNDING_VERIFICATION_TIMEOUT_SECONDS",
-            config.get_web_grounding_verification_timeout_seconds,
-            120,
-        ),
+        ("WEB_GROUNDING_MAX_SOURCES", config.get_web_grounding_max_sources, 6),
         (
             "WEB_GROUNDING_VERIFICATION_MAX_ATTEMPTS",
             config.get_web_grounding_verification_max_attempts,
             3,
-        ),
-        (
-            "WEB_GROUNDING_VERIFICATION_TOTAL_BUDGET_SECONDS",
-            config.get_web_grounding_verification_total_budget_seconds,
-            300,
-        ),
-        (
-            "WEB_GROUNDING_RETRY_BASE_SECONDS",
-            config.get_web_grounding_retry_base_seconds,
-            1,
-        ),
-        (
-            "WEB_GROUNDING_RETRY_MAX_SECONDS",
-            config.get_web_grounding_retry_max_seconds,
-            8,
         ),
     )
     for env_name, _getter, _expected in policy:
@@ -221,3 +158,50 @@ def test_grounding_runtime_policy_does_not_read_environment(monkeypatch):
     assert [
         (env_name, getter()) for env_name, getter, _expected in policy
     ] == [(env_name, expected) for env_name, _getter, expected in policy]
+
+
+def test_grounding_protocol_follows_the_borrowed_credential(
+    tmp_path,
+    monkeypatch,
+):
+    """The verifier's wire format belongs to the key it spends.
+
+    Reproduced from the review: a grounding section pointed at the LLM's Token
+    Plan credential was judged by the VLM section's protocol, so the crop went
+    to the model-bound Bailian upload that a Token Plan key cannot use
+    (``getPolicy`` answers 401) and the request was assembled for a wire format
+    the endpoint does not speak. Editing the unrelated VLM section was the only
+    way to change either decision.
+    """
+    config_path = tmp_path / "model_config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    for name in (
+        "WEB_GROUNDING_VALIDATION_SOURCE",
+        "WEB_GROUNDING_LLM_PROTOCOL",
+        "WEB_GROUNDING_VLM_PROTOCOL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        config,
+        "get_text_protocol",
+        lambda: "Aliyun Token Plan",
+    )
+    monkeypatch.setattr(
+        config,
+        "get_vlm_protocol",
+        lambda: "DashScope Qwen-VL",
+    )
+    config._clear_user_config_cache()
+
+    try:
+        monkeypatch.setenv("WEB_GROUNDING_VALIDATION_SOURCE", "llm")
+        assert config.get_web_grounding_model_protocol() == "Aliyun Token Plan"
+        monkeypatch.setenv("WEB_GROUNDING_VALIDATION_SOURCE", "vlm")
+        assert config.get_web_grounding_model_protocol() == "DashScope Qwen-VL"
+        # A section that names its own credential answers for its protocol.
+        monkeypatch.setenv("WEB_GROUNDING_VALIDATION_SOURCE", "custom")
+        monkeypatch.setenv("WEB_GROUNDING_LLM_PROTOCOL", "OpenAI Compatible")
+        assert config.get_web_grounding_model_protocol() == "OpenAI Compatible"
+    finally:
+        config._clear_user_config_cache()

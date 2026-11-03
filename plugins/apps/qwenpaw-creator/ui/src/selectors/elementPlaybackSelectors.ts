@@ -15,6 +15,7 @@ import {
   overlayContentKind,
 } from "@/selectors/timelineElementSelectors";
 import i18n from "@/i18n";
+import { roughCutFrameForElement } from "./blueprintSelectors";
 
 export type ElementPlaybackStatus =
   | "ready"
@@ -43,6 +44,33 @@ export interface ElementPlayback {
   element: TimelineElementDocument;
   status: ElementPlaybackStatus;
   media: ElementPlaybackMedia | null;
+}
+
+/** Preview-only substitution; never changes the element's render source. */
+export function withRoughCutFallback(
+  project: ProjectDocument,
+  layer: ElementPlayback,
+): ElementPlayback {
+  if (layer.media) return layer;
+  const frame = roughCutFrameForElement(project, layer.element);
+  if (!frame.versionId) return layer;
+  const media =
+    frame.versionKind === "source"
+      ? resolveSourceVersionRef(project, frame.versionId)
+      : resolveArtifactVersionRef(project, frame.versionId);
+  return media
+    ? {
+        ...layer,
+        status: "ready",
+        media: {
+          ...media,
+          sourceInSeconds: 0,
+          sourceOutSeconds: null,
+          playbackRate: 1,
+          loop: false,
+        },
+      }
+    : layer;
 }
 
 export const ELEMENT_PLAYBACK_STATUS_LABEL: Record<

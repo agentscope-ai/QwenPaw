@@ -9,6 +9,7 @@ import atexit
 import asyncio
 import contextlib
 import logging
+import math
 import pathlib
 import time
 from typing import Any, Callable, Mapping, cast
@@ -19,7 +20,7 @@ from ....config.context import get_current_workspace_dir
 from ....constant import WORKING_DIR
 from ....utils.io_utils import make_dirs_async
 from ...errors import BrowserError, ErrorCategory, ErrorCause, fatal as _fatal
-from ...runtime.managed_playwright import start_managed_chromium_download
+from ...runtime.managed_playwright import ensure_managed_chromium
 from ...sdk.contracts import LocatorStep
 from ...runtime.links import register_local
 from ...runtime.ports import EventSink
@@ -61,6 +62,12 @@ def _locator_from_spec(root: Any, spec: tuple[LocatorStep, ...]) -> Any:
     return locator
 
 
+def _resolved_launch_binary(params: Mapping[str, Any]) -> tuple[str, str]:
+    channel = str(params.get("channel") or "").strip()
+    executable_path = str(params.get("executable_path") or "").strip()
+    return channel, executable_path
+
+
 def _build_launch_kwargs(
     params: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -69,10 +76,11 @@ def _build_launch_kwargs(
     if engine != "chromium":
         raise _fatal(f"engine not wired yet: {engine}", engine)
     launch: dict[str, Any] = {"headless": bool(params.get("headless", True))}
-    if params.get("channel"):
-        launch["channel"] = str(params["channel"])
-    elif params.get("executable_path"):
-        launch["executable_path"] = str(params["executable_path"])
+    channel, executable_path = _resolved_launch_binary(params)
+    if channel:
+        launch["channel"] = channel
+    elif executable_path:
+        launch["executable_path"] = executable_path
     if params.get("args"):
         launch["args"] = list(params["args"])
     if params.get("proxy"):
@@ -85,6 +93,31 @@ def _build_launch_kwargs(
             "height": int(viewport[1]),
         }
     return launch, context
+
+
+def _launch_needs_managed_cache(params: Mapping[str, Any]) -> bool:
+    """Whether this launch needs the QwenPaw-managed Playwright cache."""
+    channel, executable_path = _resolved_launch_binary(params)
+    return not (channel or executable_path)
+
+
+def _managed_cache_not_ready(detail: str, retry_after: float) -> BrowserError:
+    wait_for = max(1, math.ceil(retry_after))
+    if detail:
+        reason = "Managed Playwright Chromium install failed."
+    else:
+        reason = (
+            "Managed Playwright Chromium is downloading in the background."
+        )
+    return BrowserError(
+        category=ErrorCategory.RETRYABLE,
+        cause=ErrorCause.TIMING,
+        suggested_action=(
+            f"Wait {wait_for} seconds, then retry Browser.connect()."
+        ),
+        reason=reason,
+        detail=detail,
+    )
 
 
 def teaching_from_strict_violation(exc: Exception) -> BrowserError | None:
@@ -385,20 +418,10 @@ class PlaywrightControlLink:
                     "context": context_kind,
                 }
             await self._m_close_session(params, timeout=timeout)
-        ready, detail = start_managed_chromium_download()
-        if not ready:
-            raise BrowserError(
-                category=ErrorCategory.RETRYABLE,
-                cause=ErrorCause.TIMING,
-                suggested_action=(
-                    "Wait for QwenPaw Desktop to prepare Chromium, then retry."
-                ),
-                reason=(
-                    "Managed Playwright Chromium is downloading in the "
-                    "background."
-                ),
-                detail=detail,
-            )
+        if _launch_needs_managed_cache(params):
+            ready, detail, retry_after = ensure_managed_chromium()
+            if not ready:
+                raise _managed_cache_not_ready(detail, retry_after)
         if self._pw is None:
             async with self._pw_lock:
                 if self._pw is None:

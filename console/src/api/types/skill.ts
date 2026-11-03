@@ -8,9 +8,11 @@ export type SkillSyncStatus =
 export interface SkillSpec {
   name: string;
   description?: string;
+  version_text?: string;
   source: string;
   enabled?: boolean;
   channels?: string[];
+  preload?: boolean;
   tags?: string[];
   last_updated?: string;
   emoji?: string;
@@ -20,11 +22,19 @@ export interface SkillDetail extends SkillSpec {
   content: string;
   config?: Record<string, unknown>;
   installed_from?: string;
+  requirements?: SkillRequirements;
+}
+
+export interface SkillRequirements {
+  require_bins: string[];
+  require_envs: string[];
+  require_mcps: string[];
 }
 
 export interface PoolSkillSpec {
   name: string;
   description?: string;
+  version_text?: string;
   source: string;
   external?: boolean;
   external_path?: string;
@@ -32,6 +42,7 @@ export interface PoolSkillSpec {
   tags?: string[];
   last_updated?: string;
   emoji?: string;
+  auto_sync?: boolean;
   auto_update?: boolean;
 }
 
@@ -39,9 +50,10 @@ export interface PoolSkillDetail extends PoolSkillSpec {
   content: string;
   config?: Record<string, unknown>;
   installed_from?: string;
+  requirements?: SkillRequirements;
   builtin_language?: string;
   available_builtin_languages?: string[];
-  auto_update_targets?: string[] | null;
+  auto_sync_targets?: string[] | null;
 }
 
 export interface BuiltinLanguageSpec {
@@ -88,6 +100,49 @@ export interface BuiltinUpdateNotice {
   removed: BuiltinRemovedSpec[];
 }
 
+export interface PoolAutomationUpdate {
+  skill: string;
+  language?: string;
+  from_version?: string;
+  to_version?: string;
+  reason?: string;
+  detail?: string;
+}
+
+export interface PoolAutomationSync {
+  skill: string;
+  agents?: string[];
+}
+
+export interface PoolAutomationResult {
+  pool_updated: PoolAutomationUpdate[];
+  pool_failed: PoolAutomationUpdate[];
+  synced: PoolAutomationSync[];
+  sync_failed: PoolAutomationSync[];
+  checked: {
+    auto_update: number;
+    auto_sync: number;
+  };
+}
+
+export interface SkillAutomationUpdate {
+  auto_update?: boolean;
+  auto_sync?: {
+    enabled: boolean;
+    targets?: string[] | null;
+  };
+}
+
+export interface SkillAutomationResponse {
+  updated: boolean;
+  auto_update: boolean;
+  auto_sync: {
+    enabled: boolean;
+    targets: string[] | null;
+  };
+  automation: PoolAutomationResult;
+}
+
 export interface HubSkillSpec {
   slug: string;
   name: string;
@@ -118,4 +173,28 @@ export interface HubInstallTaskResponse {
   } | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface SkillPoolDownloadRequest {
+  skill_name: string;
+  targets: Array<{ workspace_id: string }>;
+  all_workspaces?: boolean;
+  overwrite?: boolean;
+  preview_only?: boolean;
+}
+
+export type PoolDownloadState =
+  | "running"
+  | "cancelling"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface PoolDownloadJob {
+  job_id: string;
+  state: PoolDownloadState;
+  error: string | null;
+  /** Structured outcome: scan findings when rejected, downloaded workspaces
+   * when completed. */
+  result?: Record<string, unknown> | null;
 }

@@ -5,7 +5,7 @@ import {
   buildCustomLoopMode,
   hasDuplicateLoopModeName,
   reorderCustomGates,
-} from "./AgentLoopCard";
+} from "./agentLoopHelpers";
 
 describe("buildCustomLoopMode", () => {
   it("creates multiple custom modes with unique tab identity", () => {

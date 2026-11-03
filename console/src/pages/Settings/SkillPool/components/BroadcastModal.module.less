@@ -1,0 +1,66 @@
+.modal {
+  :global(.ant-modal-body),
+  :global(.qwenpaw-modal-body) {
+    max-height: min(610px, calc(100dvh - 180px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+.pickerZone {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 3px;
+}
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 36px;
+  margin: 4px 0 18px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--app-fill-faint);
+  > div {
+    display: grid;
+    gap: 4px;
+    text-align: center;
+  }
+  number-flow-react {
+    font-size: 26px;
+    font-weight: 550;
+    letter-spacing: -0.04em;
+  }
+  span,
+  svg {
+    color: var(--app-text-secondary);
+    font-size: 12px;
+  }
+}
+.fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  button[aria-pressed] {
+    appearance: none;
+    background: var(--app-surface);
+    border: 1px solid var(--app-border);
+    border-radius: 10px;
+    color: var(--app-text);
+    &[aria-pressed="true"] {
+      background: var(--app-accent-soft);
+      border-color: var(--app-accent-border);
+    }
+    &:hover {
+      border-color: var(--app-accent-border);
+    }
+
+    font: inherit;
+    text-align: start;
+    &:focus-visible {
+      outline: 2px solid var(--app-focus-ring);
+      outline-offset: 2px;
+    }
+  }
+}

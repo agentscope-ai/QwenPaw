@@ -1,5 +1,5 @@
 import React from "react";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus as PlusOutlined } from "lucide-react";
 import { Button, Tag } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type {
@@ -17,6 +17,7 @@ import { MCPAccessRuleRows } from "./MCPAccessRuleRows";
 interface MCPAccessToolPanelProps {
   groups: MCPAccessToolGroup[];
   principalOptions: MCPAccessPrincipalOption[];
+  channelSourceValues: readonly string[];
   setToolDefaultEffect: (toolName: string, effect: MCPAccessEffect) => void;
   addRule: (toolName: string) => void;
   updateRule: (
@@ -31,6 +32,7 @@ interface MCPAccessToolPanelProps {
 export const MCPAccessToolPanel: React.FC<MCPAccessToolPanelProps> = ({
   groups,
   principalOptions,
+  channelSourceValues,
   setToolDefaultEffect,
   addRule,
   updateRule,
@@ -75,7 +77,7 @@ export const MCPAccessToolPanel: React.FC<MCPAccessToolPanelProps> = ({
               </div>
               <Button
                 className={styles.accessToolAddButton}
-                icon={<PlusOutlined />}
+                icon={<PlusOutlined size="1em" />}
                 onClick={() => addRule(group.toolName)}
               >
                 {t("mcp.access.addRule")}
@@ -104,6 +106,7 @@ export const MCPAccessToolPanel: React.FC<MCPAccessToolPanelProps> = ({
             <MCPAccessRuleRows
               rules={group.rules}
               principalOptions={principalOptions}
+              channelSourceValues={channelSourceValues}
               getKey={toolRuleIdentityKey}
               updateRule={updateRule}
               setRuleEffect={setRuleEffect}

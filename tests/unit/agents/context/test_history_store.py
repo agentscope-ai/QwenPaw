@@ -9,12 +9,19 @@ durability flag, and corruption quarantine.
 
 import asyncio
 import logging
+import os
 import sqlite3
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.history import (
+    HistoryStore,
+    HistorySchemaError,
+)
 from qwenpaw.agents.context.types import LogEntry
 
 
@@ -158,14 +165,14 @@ def test_reconcile_rows_uses_exact_file_keys_and_claims_agent(
         entry=_entry("unrelated row"),
     )
 
-    moved, deduplicated, claimed = store.reconcile_session_rows(
+    moved, deduplicated = store.reconcile_session_rows(
         {"sync:shared-stem"},
         "canonical",
         {"selected"},
         agent_id="agent-1",
     )
 
-    assert (moved, deduplicated, claimed) == (1, 0, 0)
+    assert (moved, deduplicated) == (1, 0)
     selected = store._conn.execute(
         "SELECT session_id, agent_id FROM conversation_history WHERE seq = ?",
         (selected_seq,),
@@ -192,13 +199,13 @@ def test_reconcile_rows_deduplicates_source_and_fts(store: HistoryStore):
         entry=_entry("legacy duplicate token"),
     )
 
-    moved, deduplicated, claimed = store.reconcile_session_rows(
+    moved, deduplicated = store.reconcile_session_rows(
         {"sync:file"},
         "canonical",
         {"shared"},
     )
 
-    assert (moved, deduplicated, claimed) == (0, 1, 0)
+    assert (moved, deduplicated) == (0, 1)
     assert store.count("sync:file") == 0
     assert store.count("canonical") == 1
     assert duplicate != kept
@@ -434,11 +441,17 @@ def test_init_fts_degrades_and_warns_without_fts5(tmp_path: Path, caplog):
         HistoryStore._fts_unavailable_warned = False
 
 
-def test_note_write_failure_sets_degraded(store: HistoryStore):
+@pytest.mark.parametrize("code", [sqlite3.SQLITE_FULL, sqlite3.SQLITE_CORRUPT])
+def test_note_write_failure_sets_degraded(store: HistoryStore, code):
     assert store.degraded is False
-    store.note_write_failure(sqlite3.OperationalError("disk full"))
+    error = sqlite3.DatabaseError("write failed")
+    error.sqlite_errorcode = code
+    store.note_write_failure(error)
     assert store.degraded is True
     assert store.write_failures == 1
+    assert store._fts_check_pending == (
+        store._fts and code == sqlite3.SQLITE_CORRUPT
+    )
     store.note_write_failure(OSError("still bad"))
     assert store.write_failures == 2  # counted, stays degraded
 
@@ -486,16 +499,644 @@ def test_concurrent_threaded_appends_are_serialized(store: HistoryStore):
     assert store.count("s") == 25
 
 
-def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):
+def test_corrupt_db_is_reported_without_replacing_source(tmp_path: Path):
+    path = tmp_path / "history.db"
+    original = b"not a database"
+    path.write_bytes(original)
+    with pytest.raises(sqlite3.DatabaseError):
+        HistoryStore(path)
+    assert path.read_bytes() == original
+    assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+@pytest.mark.parametrize("legacy_rebuild", [False, True])
+def test_purge_recall_rows_preserves_search_exclusion(store, legacy_rebuild):
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    store.append(
+        session_id="s",
+        entry=_entry("expired", created_at="2020-01-01"),
+    )
+    for name in ("recall_history", "recall_history_python"):
+        store.append(
+            session_id="s",
+            entry=_entry("recall output", name=name, created_at="2020-01-01"),
+        )
+    recent = store.append(
+        session_id="s",
+        entry=_entry("zebra", created_at="2099-01-01"),
+    )
+    if legacy_rebuild:
+        with store._conn:
+            store._conn.execute(
+                "INSERT INTO conversation_history_fts"
+                "(conversation_history_fts) VALUES('rebuild')",
+            )
+    assert store.purge(before="2026-01-01", dry_run=True) == 3
+    assert store.count("s") == 4
+    assert store.purge(before="2026-01-01") == 3
+    assert store.count("s") == 1
+    assert _fts_hits(store, "zebra") == [recent]
+    assert _fts_hits(store, "recall") == []
+    with store._conn:
+        store._check_fts()
+
+
+def _fts_hits(store, term):
+    return [
+        row[0]
+        for row in store._conn.execute(
+            "SELECT rowid FROM conversation_history_fts "
+            "WHERE conversation_history_fts MATCH ?",
+            (term,),
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "old_name,new_name",
+    [
+        (None, "recall_history"),
+        ("recall_history", None),
+        ("recall_history_python", "recall_history"),
+    ],
+)
+def test_update_moves_into_and_out_of_search(store, old_name, new_name):
+    seq = store.append(session_id="s", entry=_entry("aardvark", name=old_name))
+    store.update_entry(
+        seq,
+        content="zebra",
+        name=new_name,
+        headline=None,
+        blocks=None,
+    )
+    assert _fts_hits(store, "aardvark") == []
+    assert _fts_hits(store, "zebra") == ([seq] if new_name is None else [])
+    assert store.count("s") == 1
+
+
+def test_reconcile_unindexed_recall_duplicate(store):
+    for session in ("canonical", "source"):
+        store.append(
+            session_id=session,
+            dedup_key="same",
+            entry=_entry("recall output", name="recall_history"),
+        )
+    assert store.reconcile_session_rows(
+        {"source"},
+        "canonical",
+        {"same"},
+    ) == (0, 1)
+    assert store.count("canonical") == 1
+    assert store.count("source") == 0
+
+
+def _damage_fts(store):
+    with store._conn:
+        store._conn.execute(
+            "UPDATE conversation_history_fts_data SET block=x'00' WHERE id>10",
+        )
+
+
+@pytest.mark.parametrize("reopen", [False, True, "fts_only"])
+def test_fts_repair_preserves_history_and_exclusions(
+    tmp_path,
+    reopen,
+    monkeypatch,
+):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    try:
+        if not store._fts:
+            pytest.skip("SQLite build lacks FTS5")
+        store.append(
+            session_id="s",
+            entry=_entry("expired", created_at="2020-01-01"),
+        )
+        recent = store.append(
+            session_id="s",
+            entry=_entry("zebra", created_at="2099-01-01"),
+        )
+        store.append(
+            session_id="s",
+            entry=_entry(
+                "aardvark",
+                name="recall_history",
+                created_at="2099-01-01",
+            ),
+        )
+        if reopen:
+            _damage_fts(store)
+            store.close()
+            if reopen == "fts_only":
+                # Emulate builds/damage where quick_check misses FTS damage.
+                original_connect = sqlite3.connect
+
+                class QuickCheckPasses(sqlite3.Connection):
+                    def execute(self, sql, *args, **kwargs):
+                        if sql == "PRAGMA quick_check":
+                            sql = "SELECT 'ok'"
+                        return super().execute(sql, *args, **kwargs)
+
+                def connect(*args, **kwargs):
+                    return original_connect(
+                        *args,
+                        factory=QuickCheckPasses,
+                        **kwargs,
+                    )
+
+                monkeypatch.setattr(sqlite3, "connect", connect)
+            store = HistoryStore(path)
+            store.check_integrity(repair=True)
+            assert store.count("s") == 3
+        else:
+            # Simulate a missing index with intact external content. FTS
+            # delete will fail even though the internal integrity check passes.
+            with store._conn:
+                store._conn.execute(
+                    "INSERT INTO conversation_history_fts"
+                    "(conversation_history_fts) VALUES('delete-all')",
+                )
+            assert store.purge(before="2026-01-01", dry_run=True) == 1
+            assert _fts_hits(store, "zebra") == []
+        assert store.purge(before="2026-01-01") == 1
+        assert store.count("s") == 2
+        assert _fts_hits(store, "zebra") == [recent]
+        assert _fts_hits(store, "aardvark") == []
+        assert _fts_hits(store, "expired") == []
+        with store._conn:
+            store._check_fts()
+        assert not list(tmp_path.glob("*.corrupt-*"))
+    finally:
+        store.close()
+
+
+def test_failed_repair_rolls_back_purge(store, monkeypatch):
+    for word in ("aardvark", "zebra"):
+        store.append(
+            session_id="s",
+            entry=_entry(word, created_at="2020-01-01"),
+        )
+    original = store._delete_fts_row
+    calls = []
+
+    def delete(row):
+        calls.append(row["seq"])
+        if len(calls) == 2:
+            error = sqlite3.DatabaseError("database disk image is malformed")
+            error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT_VTAB
+            raise error
+        original(row)
+
+    def rebuild():
+        raise sqlite3.OperationalError("disk full")
+
+    monkeypatch.setattr(store, "_delete_fts_row", delete)
+    monkeypatch.setattr(store, "_rebuild_fts", rebuild)
+    with pytest.raises(RuntimeError, match="history preserved"):
+        store.purge(before="2026-01-01")
+    assert store.count("s") == 2
+    assert len(_fts_hits(store, "aardvark")) == 1
+    assert len(_fts_hits(store, "zebra")) == 1
+    assert not store._conn.in_transaction
+
+
+def test_purge_operational_error_does_not_repair(store, monkeypatch):
+    store.append(session_id="s", entry=_entry(created_at="2020-01-01"))
+
+    def delete(row):
+        raise sqlite3.OperationalError("database is locked")
+
+    def repair():
+        pytest.fail("Must not rebuild for an operational error")
+
+    monkeypatch.setattr(store, "_delete_fts_row", delete)
+    monkeypatch.setattr(store, "_repair_fts", repair)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        store.purge(before="2026-01-01")
+    assert store.count("s") == 1
+
+
+def test_purge_retries_only_once(store, monkeypatch):
+    store.append(session_id="s", entry=_entry(created_at="2020-01-01"))
+    calls = []
+
+    def delete(row):
+        calls.append(row["seq"])
+        error = sqlite3.DatabaseError("database disk image is malformed")
+        error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT_VTAB
+        raise error
+
+    monkeypatch.setattr(store, "_delete_fts_row", delete)
+    with pytest.raises(sqlite3.DatabaseError):
+        store.purge(before="2026-01-01")
+    assert len(calls) == 2
+    assert store.count("s") == 1
+
+
+def test_startup_failed_fts_repair_preserves_file(tmp_path, monkeypatch):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    store.append(session_id="s", entry=_entry("aardvark"))
+    _damage_fts(store)
+    store.close()
+
+    def rebuild(self):
+        raise sqlite3.OperationalError("disk full")
+
+    monkeypatch.setattr(HistoryStore, "_rebuild_fts", rebuild)
+    reopened = HistoryStore(path)
+    try:
+        with pytest.raises(RuntimeError, match="history preserved"):
+            reopened.check_integrity(repair=True)
+    finally:
+        reopened.close()
+    with sqlite3.connect(path) as conn:
+        assert conn.execute(
+            "SELECT content FROM conversation_history",
+        ).fetchone() == ("aardvark",)
+    assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_initial_fts_backfill_excludes_recall(tmp_path):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    store.append(session_id="s", entry=_entry("zebra"))
+    store.append(
+        session_id="s",
+        entry=_entry("aardvark", name="recall_history"),
+    )
+    with store._conn:
+        store._conn.execute("DROP TABLE conversation_history_fts")
+    store.close()
+    store = HistoryStore(path)
+    try:
+        assert store.count("s") == 2
+        assert len(_fts_hits(store, "zebra")) == 1
+        assert _fts_hits(store, "aardvark") == []
+    finally:
+        store.close()
+
+
+def test_startup_lock_does_not_quarantine(tmp_path):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    store.append(session_id="s", entry=_entry("aardvark"))
+    store.close()
+    with sqlite3.connect(path) as conn:
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("BEGIN EXCLUSIVE")
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            HistoryStore(path)
+        assert conn.execute(
+            "SELECT content FROM conversation_history",
+        ).fetchone() == ("aardvark",)
+    assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_borrow_retries_deferred_fts_repair(tmp_path, monkeypatch):
+    path = tmp_path / "history.db"
+    initial = HistoryStore(path)
+    if not initial._fts:
+        initial.close()
+        pytest.skip("SQLite build lacks FTS5")
+    initial.append(session_id="s", entry=_entry("aardvark"))
+    initial.close()
+    writer = sqlite3.connect(path)
+    store = None
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute(
+            "UPDATE conversation_history_fts_data SET block=x'00' WHERE id>10",
+        )
+        store = HistoryStore(path)
+        connection = store._conn
+        store._conn.execute("PRAGMA busy_timeout=1234")
+        # A borrow while the writer holds its lock still proceeds immediately.
+        store.acquire()
+        store.release()
+        assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 1234
+        writer.commit()
+        with pytest.raises(sqlite3.DatabaseError) as error:
+            _fts_hits(store, "aardvark")
+        store.note_database_error(error.value)
+        store.acquire()
+        store.release()
+        assert store._conn is connection
+        assert _fts_hits(store, "aardvark")
+        assert store.count("s") == 1
+        assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 1234
+
+        def unexpected_check():
+            pytest.fail("Successful FTS checks must not repeat per request")
+
+        monkeypatch.setattr(store, "_check_fts", unexpected_check)
+        store.acquire()
+        store.release()
+    finally:
+        writer.close()
+        if store is not None:
+            store.close()
+
+
+_FTS_QUICK_CHECK_DIAGNOSTICS = [
+    "malformed inverted index for FTS5 table main.conversation_history_fts",
+    "fts5: corruption found reading blob 137438953473 "
+    'from table "conversation_history_fts"',
+]
+
+
+@pytest.mark.parametrize("diagnostic", _FTS_QUICK_CHECK_DIAGNOSTICS)
+@pytest.mark.parametrize("repair_fails", [False, True])
+def test_quick_check_fts_diagnostic_preserves_source(
+    tmp_path,
+    monkeypatch,
+    diagnostic,
+    repair_fails,
+):
+    path = tmp_path / "history.db"
+    store = HistoryStore(path)
+    store.append(session_id="s", entry=_entry("zebra"))
+    _damage_fts(store)
+    store.close()
+    original_connect = sqlite3.connect
+    original_rebuild = HistoryStore._rebuild_fts
+    checks = []
+    rebuilds = []
+
+    class DiagnosticConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql == "PRAGMA quick_check":
+                checks.append(sql)
+                if len(checks) == 1:
+                    return super().execute("SELECT ?", (diagnostic,))
+            return super().execute(sql, *args, **kwargs)
+
+    def connect(*args, **kwargs):
+        return original_connect(*args, factory=DiagnosticConnection, **kwargs)
+
+    def rebuild(history):
+        rebuilds.append(history.path)
+        if repair_fails:
+            raise sqlite3.OperationalError("disk full")
+        original_rebuild(history)
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    monkeypatch.setattr(HistoryStore, "_rebuild_fts", rebuild)
+    if repair_fails:
+        reopened = HistoryStore(path)
+        try:
+            with pytest.raises(RuntimeError, match="history preserved"):
+                reopened.check_integrity(repair=True)
+        finally:
+            reopened.close()
+    else:
+        reopened = HistoryStore(path)
+        try:
+            reopened.check_integrity(repair=True)
+            assert reopened.count("s") == 1
+            assert len(_fts_hits(reopened, "zebra")) == 1
+            assert len(checks) == 2
+        finally:
+            reopened.close()
+    assert rebuilds == [path]
+    conn = original_connect(path)
+    try:
+        assert conn.execute(
+            "SELECT content FROM conversation_history",
+        ).fetchall() == [("zebra",)]
+    finally:
+        conn.close()
+    assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+@pytest.mark.parametrize(
+    "results",
+    [
+        [],
+        ["ok"],
+        [_FTS_QUICK_CHECK_DIAGNOSTICS[1], "invalid page number 99"],
+        ['fts5: corruption found reading blob 123 from table "other_fts"'],
+        [
+            "fts5: corruption found reading blob 123 "
+            'from table "conversation_history_fts_other"',
+        ],
+    ],
+)
+def test_quick_check_does_not_misclassify_other_corruption(results):
+    assert not HistoryStore._is_fts_only_corruption(results)
+
+
+def test_quick_check_persistent_fts_damage_is_not_quarantined(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "history.db"
+    HistoryStore(path).close()
+    original_connect = sqlite3.connect
+    checks = []
+
+    class PersistentDiagnosticConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql == "PRAGMA quick_check":
+                checks.append(sql)
+                return super().execute(
+                    "SELECT ?",
+                    (_FTS_QUICK_CHECK_DIAGNOSTICS[1],),
+                )
+            return super().execute(sql, *args, **kwargs)
+
+    def connect(*args, **kwargs):
+        return original_connect(
+            *args,
+            factory=PersistentDiagnosticConnection,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    reopened = HistoryStore(path)
+    try:
+        with pytest.raises(RuntimeError, match="history preserved"):
+            reopened.check_integrity(repair=True)
+    finally:
+        reopened.close()
+    assert len(checks) == 2
+    assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_locked_database_is_not_quarantined(tmp_path: Path, monkeypatch):
+    """Contention is operational, not proof that the DB is corrupt."""
     db = tmp_path / "history.db"
-    db.write_bytes(b"this is not a sqlite database" * 50)
+    original = b"healthy database placeholder"
+    db.write_bytes(original)
+
+    def locked(_self, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(HistoryStore, "_open", locked)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        HistoryStore(db)
+
+    assert db.read_bytes() == original
+    assert not list(tmp_path.glob("history.db.corrupt-*"))
+
+
+def test_unversioned_schema_is_migrated_in_place(tmp_path: Path):
+    """Existing version-0 stores gain optional columns without losing rows."""
+    db = tmp_path / "history.db"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE conversation_history ("
+        "seq INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "session_id TEXT NOT NULL, kind TEXT NOT NULL, content TEXT)",
+    )
+    conn.execute(
+        "INSERT INTO conversation_history(session_id, kind, content) "
+        "VALUES ('legacy', 'context_msg', 'preserved')",
+    )
+    conn.commit()
+    conn.close()
+
     store = HistoryStore(db)
     try:
-        # The bad file was moved aside, a fresh store created in its place.
-        assert store.quarantined_to is not None
-        assert store.quarantined_to.exists()
-        # The fresh store is usable.
-        store.append(session_id="s", dedup_key="m1", entry=_entry("post"))
+        assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        columns = {
+            row["name"]
+            for row in store._conn.execute(
+                "PRAGMA table_info(conversation_history)",
+            )
+        }
+        assert {"agent_id", "tool_input", "metadata", "dedup_key"} <= columns
+        row = store._conn.execute(
+            "SELECT content FROM conversation_history WHERE session_id = ?",
+            ("legacy",),
+        ).fetchone()
+        assert row["content"] == "preserved"
+        store.append(
+            session_id="new",
+            dedup_key="m1",
+            entry=_entry("after migration"),
+        )
+    finally:
+        store.close()
+
+
+def test_newer_schema_is_rejected_without_quarantine(tmp_path: Path):
+    """Downgrades fail visibly and leave the newer DB exactly where it is."""
+    db = tmp_path / "history.db"
+    store = HistoryStore(db)
+    store.close()
+    conn = sqlite3.connect(db)
+    conn.execute("PRAGMA user_version=999")
+    conn.close()
+
+    with pytest.raises(HistorySchemaError, match="newer than supported"):
+        HistoryStore(db)
+
+    assert db.exists()
+    assert not list(tmp_path.glob("history.db.corrupt-*"))
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 999
+    finally:
+        conn.close()
+
+
+def test_writes_use_begin_immediate(store: HistoryStore):
+    statements: list[str] = []
+    store._conn.set_trace_callback(statements.append)
+    store.append(session_id="s", dedup_key="m1", entry=_entry("one"))
+    assert any(sql == "BEGIN IMMEDIATE" for sql in statements)
+
+
+def test_two_store_connections_coordinate_writes(store: HistoryStore):
+    """Independent runtime connections share SQLite's writer boundary."""
+    other = HistoryStore(store.path)
+
+    async def drive():
+        await asyncio.gather(
+            *(
+                asyncio.to_thread(
+                    (store if i % 2 == 0 else other).append,
+                    session_id="shared",
+                    dedup_key=f"multi-{i}",
+                    entry=_entry(f"row-{i}"),
+                )
+                for i in range(40)
+            ),
+        )
+
+    try:
+        asyncio.run(drive())
+        assert store.count("shared") == 40
+        assert other.count("shared") == 40
+    finally:
+        other.close()
+
+
+def test_writer_contention_retries_until_lock_is_released(
+    store: HistoryStore,
+):
+    blocker = sqlite3.connect(store.path)
+    blocker.execute("BEGIN IMMEDIATE")
+    outcome: dict[str, object] = {}
+
+    def append_after_lock() -> None:
+        try:
+            outcome["seq"] = store.append(
+                session_id="shared",
+                dedup_key="after-lock",
+                entry=_entry("eventually durable"),
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=append_after_lock)
+    worker.start()
+    # Exceed one SQLite busy timeout so success proves the application-level
+    # retry path ran, then release within its bounded retry deadline.
+    time.sleep(0.4)
+    blocker.commit()
+    worker.join(timeout=5)
+    blocker.close()
+
+    assert not worker.is_alive()
+    assert "error" not in outcome
+    assert isinstance(outcome["seq"], int)
+    assert outcome["seq"] > 0
+    assert store.count("shared") == 1
+
+
+def test_writes_preserve_sqlite_auto_checkpoint(
+    store: HistoryStore,
+) -> None:
+    statements: list[str] = []
+    store._conn.set_trace_callback(statements.append)
+    for index in range(50):
+        store.append(
+            session_id="checkpoint",
+            dedup_key=f"row-{index}",
+            entry=_entry(f"value-{index}"),
+        )
+
+    assert store._conn.execute("PRAGMA wal_autocheckpoint").fetchone()[0] > 0
+    assert "PRAGMA wal_checkpoint(PASSIVE)" not in statements
+
+
+def test_open_and_borrow_do_not_scan_history(tmp_path, monkeypatch):
+    path = tmp_path / "history.db"
+    HistoryStore(path).close()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Ordinary open must not scan or check history")
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", unexpected)
+    monkeypatch.setattr(HistoryStore, "_check_fts", unexpected)
+    store = HistoryStore(path)
+    try:
+        store.acquire()
+        store.release()
+        store.append(session_id="s", entry=_entry())
         assert store.count("s") == 1
     finally:
         store.close()

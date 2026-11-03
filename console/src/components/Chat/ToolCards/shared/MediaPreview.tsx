@@ -5,14 +5,16 @@
  * desktop_screenshot, send_file_to_user, and the default fallback).
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useId, useState } from "react";
 import { Attachments } from "@agentscope-ai/chat";
 import { Audio, Video } from "@agentscope-ai/design";
-import { Image, ConfigProvider, Alert } from "antd";
+import { Image, ConfigProvider, Tooltip } from "antd";
 import type { Locale } from "antd/es/locale";
+import { ChevronRight, FileX2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MediaInfo } from "./utils";
 import { filePathFromPreviewUrl } from "../../../../features/files-workspace/internalFileLinks";
+import { AudioDownload } from "../../MediaDownload";
 import styles from "./toolCards.module.less";
 
 export interface MediaPreviewProps {
@@ -37,6 +39,8 @@ async function fetchPreviewError(
 const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onFileOpen }) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
+  const [errorExpanded, setErrorExpanded] = useState(false);
+  const errorDetailsId = useId();
 
   const resolveError = useCallback(
     ({ status, code }: { status: number; code: string }) => {
@@ -65,6 +69,7 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onFileOpen }) => {
   // arrives with a resolved absolute path after a relative-path probe 404'd).
   useEffect(() => {
     setError(null);
+    setErrorExpanded(false);
   }, [media.url]);
 
   // For "file" type there is no native onError — proactively HEAD-check the URL
@@ -82,15 +87,59 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onFileOpen }) => {
   }, [media.type, media.url, resolveError]);
 
   if (error) {
-    const description = media.name ? media.name : undefined;
     return (
       <div className={styles.toolCallMediaPreview}>
-        <Alert
-          type="warning"
-          showIcon
-          message={error}
-          description={description}
-        />
+        <div className={styles.mediaErrorCard}>
+          <Tooltip
+            title={t(
+              errorExpanded ? "preview.hideDetails" : "preview.showDetails",
+            )}
+          >
+            <button
+              type="button"
+              className={styles.mediaErrorTrigger}
+              aria-expanded={errorExpanded}
+              aria-controls={errorDetailsId}
+              onClick={(event) => {
+                event.stopPropagation();
+                setErrorExpanded((expanded) => !expanded);
+              }}
+            >
+              <FileX2
+                size={24}
+                strokeWidth={1.5}
+                className={styles.mediaErrorIcon}
+                aria-hidden="true"
+              />
+              <span className={styles.mediaErrorLabel}>
+                <span className={styles.mediaErrorName}>
+                  {media.name || t("preview.unavailable")}
+                </span>
+                {media.name && (
+                  <span className={styles.mediaErrorStatus}>
+                    {t("preview.unavailable")}
+                  </span>
+                )}
+              </span>
+              <ChevronRight
+                size={14}
+                strokeWidth={1.5}
+                className={styles.mediaErrorChevron}
+                aria-hidden="true"
+              />
+            </button>
+          </Tooltip>
+          <div
+            id={errorDetailsId}
+            className={styles.mediaErrorDetails}
+            hidden={!errorExpanded}
+          >
+            {media.name && (
+              <div className={styles.mediaErrorFullName}>{media.name}</div>
+            )}
+            <div>{error}</div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -115,9 +164,11 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onFileOpen }) => {
         </div>
       )}
       {media.type === "audio" && (
-        <div className={styles.bubbleAudio}>
-          <Audio src={media.url} onError={handleMediaError} />
-        </div>
+        <AudioDownload url={media.url} filename={media.name}>
+          <div className={styles.bubbleAudio}>
+            <Audio src={media.url} onError={handleMediaError} />
+          </div>
+        </AudioDownload>
       )}
       {media.type === "file" && (
         <div

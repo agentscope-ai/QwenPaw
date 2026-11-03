@@ -34,10 +34,10 @@ class ErrorNormalizeHook(LifecycleHook):
             if ctx.agent is not None:
                 _m = getattr(ctx.agent, "model", None)
                 if _m is not None:
-                    model_name = getattr(_m, "model_name", None) or getattr(
-                        _m,
-                        "name",
-                        None,
+                    model_name = (
+                        getattr(_m, "model_name", None)
+                        or getattr(_m, "model", None)
+                        or getattr(_m, "name", None)
                     )
         except Exception:
             pass
@@ -87,9 +87,16 @@ class CancelCleanupHook(LifecycleHook):
         if not isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt)):
             return HookResult()
 
+        # Surface WHY the session was cancelled (user stop / tool timeout
+        # cascade / agent decision / shutdown). The reason travels in
+        # ``CancelledError.args`` via ``Task.cancel(reason)``; without it
+        # operators cannot tell framework reclaim from user intent (GH-8252).
+        from ...tool_calls import cancellation_reason
+
         logger.info(
-            "cancel_cleanup: cancelled (session=%s): %s",
+            "cancel_cleanup: cancelled (session=%s reason=%s): %s",
             ctx.session_id,
+            cancellation_reason(exc) or "unknown",
             type(exc).__name__,
         )
 

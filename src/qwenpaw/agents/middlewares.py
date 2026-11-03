@@ -22,9 +22,10 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
 
 from agentscope.middleware import MiddlewareBase
-from agentscope.message import Msg
-from agentscope.tool import ToolResponse
+from agentscope.message import Msg, TextBlock, ToolResultState
+from agentscope.tool import ToolChunk, ToolResponse
 
+from ..config.context import current_script_tool_call
 from .tools.utils import (
     DEFAULT_MAX_BYTES,
     ToolResultPruner,
@@ -33,6 +34,7 @@ from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -40,7 +42,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
-_AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
+_MEMORY_SKIP_SOURCES = ("cron", "heartbeat", "portability_adaptation")
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
 _MANUAL_COMPACT_MEMORY_BY_HANDLER: ContextVar[bool] = ContextVar(
     "manual_compact_memory_by_handler",
@@ -111,7 +113,9 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         current_prompt: str,
     ) -> str:
-        prompt = self._memory_manager.get_memory_prompt()
+        prompt = await run_sync_io(
+            self._memory_manager.get_memory_prompt,
+        )
         if not prompt or prompt in current_prompt:
             return current_prompt
         if current_prompt.strip():
@@ -196,7 +200,7 @@ class MemoryMiddleware(MiddlewareBase):
             seen_markers.pop(oldest_key)
         pending_markers.append(turn_marker)
 
-        interval = self._auto_memory_interval()
+        interval = await self._auto_memory_interval()
         if interval <= 0:
             pending_markers.clear()
             turn_state["snapshots"].clear()
@@ -229,7 +233,7 @@ class MemoryMiddleware(MiddlewareBase):
 
         source_context: list[Msg] = []
         pending_markers: list[str] = []
-        compression_state: tuple[Any, tuple[str, ...]] | None = None
+        compression_state: tuple[Any, tuple[str, ...], int] | None = None
         try:
             pending_markers = list(
                 self._auto_memory_turn_state(agent)["pending"],
@@ -272,7 +276,10 @@ class MemoryMiddleware(MiddlewareBase):
                         turn_markers=pending_markers,
                     )
                     if not automation_request:
-                        await self._flush_auto_memory(agent)
+                        await self._flush_auto_memory(
+                            agent,
+                            trigger="compact",
+                        )
             except Exception:
                 logger.exception(
                     "MemoryMiddleware post-compression auto-memory flush "
@@ -284,6 +291,7 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         *,
         count: int | None = None,
+        trigger: str = "periodic",
     ) -> None:
         if self._is_automation_request(agent):
             logger.debug(
@@ -327,8 +335,9 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
         try:
-            await self._memory_manager.auto_memory(
+            self._memory_manager.submit_auto_memory(
                 messages,
+                trigger=trigger,
                 session_id=self._agent_session_id(agent),
             )
         except Exception:
@@ -527,23 +536,28 @@ class MemoryMiddleware(MiddlewareBase):
         if not isinstance(request_context, dict):
             return False
         source = str(request_context.get("source") or "").strip().lower()
-        return source in _AUTOMATION_MEMORY_SKIP_SOURCES
+        return source in _MEMORY_SKIP_SOURCES
 
     @staticmethod
     def _compression_state(
         agent: "Agent",
-    ) -> tuple[Any, tuple[str, ...]]:
+    ) -> tuple[Any, tuple[str, ...], int]:
         return (
             agent.state.summary,
             tuple(msg.id for msg in agent.state.context),
+            getattr(agent, "_decision_compaction_revision", 0),
         )
 
     @classmethod
     def _did_compress_context(
         cls,
         agent: "Agent",
-        before: tuple[Any, tuple[str, ...]],
+        before: tuple[Any, tuple[str, ...], int],
     ) -> bool:
+        # Decision compaction preserves message IDs and summary.
+        # Preserve the original memory snapshots for this lighter pass too.
+        if getattr(agent, "_decision_compaction_revision", 0) != before[2]:
+            return True
         context_manager = getattr(agent, "_context_manager", None)
         stats = getattr(context_manager, "last_compress", None)
         if isinstance(stats, dict):
@@ -554,7 +568,7 @@ class MemoryMiddleware(MiddlewareBase):
     def _compression_changed(
         cls,
         agent: "Agent",
-        before: tuple[Any, tuple[str, ...]] | None,
+        before: tuple[Any, tuple[str, ...], int] | None,
     ) -> bool:
         """Best-effort compression inspection for exception cleanup paths."""
         if before is None:
@@ -590,8 +604,11 @@ class MemoryMiddleware(MiddlewareBase):
             )
         ]
 
-    def _auto_memory_interval(self) -> int:
-        return int(self._memory_manager.get_auto_memory_interval())
+    async def _auto_memory_interval(self) -> int:
+        interval = await run_sync_io(
+            self._memory_manager.get_auto_memory_interval,
+        )
+        return int(interval)
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
         return auto_memory_turn_state(agent.state)
@@ -754,6 +771,11 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],  # pylint: disable=unused-argument
         next_handler: Callable[..., AsyncGenerator[Any, None]],
     ) -> AsyncGenerator[Any, None]:
+        if current_script_tool_call.get():
+            # Python selects evidence before the model-context budget applies.
+            async for event in next_handler():
+                yield event
+            return
         events: list[Any] = []
         async for event in next_handler():
             if isinstance(event, ToolResponse):
@@ -937,6 +959,23 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         return getattr(block, "type", None)
 
 
+# Langfuse has a per-event payload limit; oversized tool output would be
+# dropped by the backend. 8 KB keeps full stack traces intact while
+# bounding the payload, following the module-level size-cap style used
+# elsewhere in this codebase (see DEFAULT_MAX_BYTES in tools/utils.py).
+_MAX_RECORDED_TEXT_CHARS = 8 * 1024
+
+
+def _truncate_for_langfuse(text: str) -> str:
+    """Truncate long text so Langfuse observation payloads stay bounded."""
+    if len(text) <= _MAX_RECORDED_TEXT_CHARS:
+        return text
+    dropped = len(text) - _MAX_RECORDED_TEXT_CHARS
+    return (
+        text[:_MAX_RECORDED_TEXT_CHARS] + f"\n... [truncated {dropped} chars]"
+    )
+
+
 class LangfuseToolSpanMiddleware(MiddlewareBase):
     """Record each tool execution as a Langfuse tool observation.
 
@@ -967,17 +1006,119 @@ class LangfuseToolSpanMiddleware(MiddlewareBase):
             input=tool_input,
             metadata={"tool_call_id": getattr(tool_call, "id", None)},
         ) as observation:
-            final_response = None
-            async for event in next_handler():
-                if isinstance(event, ToolResponse):
-                    final_response = event
-                yield event
-            if observation is not None and final_response is not None:
-                observation.update(
-                    output={
-                        "content": [
-                            getattr(b, "text", str(b))
-                            for b in (final_response.content or [])
-                        ],
-                    },
-                )
+            final_response: ToolResponse | None = None
+            terminal_chunk: ToolChunk | None = None
+            output_recorded = False
+
+            def _record_output(response: ToolResponse) -> None:
+                # Write the tool result into the Langfuse observation's
+                # output. Guaranteed not to raise: this runs inside the
+                # generator that ToolCoordinatorMiddleware._drain iterates,
+                # and observability failures must never alter tool
+                # execution results or replace the tool's own exceptions.
+                if observation is None:
+                    return
+                try:
+                    observation.update(
+                        output={
+                            "content": [
+                                _truncate_for_langfuse(
+                                    getattr(b, "text", str(b)),
+                                )
+                                for b in (response.content or [])
+                            ],
+                        },
+                    )
+                except Exception:
+                    logger.debug(
+                        "Langfuse output recording failed for tool %s",
+                        tool_name,
+                        exc_info=True,
+                    )
+
+            def _record_terminal_chunk(chunk: ToolChunk) -> None:
+                # The coordinator stops driving this generator as soon as
+                # it sees an ERROR/INTERRUPTED ToolChunk (no ToolResponse
+                # follows), so the terminal chunk itself is the only
+                # record of how the call ended. Construction is guarded
+                # for the same reason as _record_output.
+                try:
+                    _record_output(
+                        ToolResponse(
+                            content=list(chunk.content or []),
+                            id=chunk.id,
+                            state=chunk.state,
+                        ),
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to record terminal tool chunk for %s",
+                        tool_name,
+                        exc_info=True,
+                    )
+
+            try:
+                async for event in next_handler():
+                    if isinstance(event, ToolResponse):
+                        final_response = event
+                        # Must write before the yield and inside the
+                        # async with: once the outer ToolCoordinator's
+                        # _drain sees the ToolResponse it returns
+                        # immediately and never drives this generator
+                        # again, so code after the yield never runs.
+                        _record_output(event)
+                        output_recorded = True
+                    elif isinstance(event, ToolChunk):
+                        # Keep only the terminal chunk (O(1) memory);
+                        # intermediate streaming chunks carry no value
+                        # for observability.
+                        if event.state in (
+                            ToolResultState.ERROR,
+                            ToolResultState.INTERRUPTED,
+                        ):
+                            terminal_chunk = event
+                    yield event
+            except Exception as exc:
+                # A raising tool never yields an ERROR chunk: the
+                # exception unwinds through this generator and the
+                # coordinator synthesizes the ToolResponse at its own
+                # layer, so nothing would be recorded otherwise.
+                # CancelledError is a BaseException and is not caught
+                # here, so cancellation semantics are untouched.
+                if not output_recorded:
+                    try:
+                        _record_output(
+                            ToolResponse(
+                                content=[
+                                    TextBlock(
+                                        type="text",
+                                        text=f"Tool raised: {exc!r}",
+                                    ),
+                                ],
+                                id=getattr(tool_call, "id", None),
+                                state=ToolResultState.ERROR,
+                            ),
+                        )
+                        output_recorded = True
+                    except Exception:
+                        # Re-raise the ORIGINAL exception no matter what;
+                        # recording must never mask the tool failure.
+                        logger.debug(
+                            "Failed to record raised-tool error for %s",
+                            tool_name,
+                            exc_info=True,
+                        )
+                raise
+            finally:
+                # Fallbacks for paths where the loop exits without the
+                # output having been recorded. Must run inside the
+                # async with, otherwise observation.end() fires before
+                # update() and the output is lost.
+                if not output_recorded:
+                    if final_response is not None:
+                        # Generator abandoned right after a ToolResponse
+                        # was produced but before it was recorded.
+                        _record_output(final_response)
+                    elif terminal_chunk is not None:
+                        # ERROR/INTERRUPTED terminated via chunk.
+                        _record_terminal_chunk(terminal_chunk)

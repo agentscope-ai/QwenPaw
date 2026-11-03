@@ -4,13 +4,25 @@ import type {
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
 import { useTurnUsageStore } from "./turnUsageStore";
+import type { TurnUsageToken } from "./turnUsageStore";
 
 export const TURN_USAGE_META_KEY = "qwenpaw_turn_usage";
 
 export interface TurnUsage {
+  provider_id?: string;
+  model_name?: string;
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  cache_eligible_input_tokens?: number;
+  cache_observed?: boolean;
+  cache_hit_rate?: number | null;
+  session_cache_read_tokens?: number;
+  session_cache_eligible_input_tokens?: number;
+  session_cache_observed?: boolean;
+  session_cache_hit_rate?: number | null;
   estimated?: boolean;
 }
 
@@ -170,6 +182,14 @@ export function patchLastResponseCardUsage(
     prev &&
     readNumber(prev.usage, "total_tokens") ===
       readNumber(snapshot.usage, "total_tokens") &&
+    readNumber(prev.usage, "cache_read_tokens") ===
+      readNumber(snapshot.usage, "cache_read_tokens") &&
+    readNumber(prev.usage, "cache_eligible_input_tokens") ===
+      readNumber(snapshot.usage, "cache_eligible_input_tokens") &&
+    readNumber(prev.usage, "session_cache_read_tokens") ===
+      readNumber(snapshot.usage, "session_cache_read_tokens") &&
+    readNumber(prev.usage, "session_cache_eligible_input_tokens") ===
+      readNumber(snapshot.usage, "session_cache_eligible_input_tokens") &&
     readNumber(prev.context_usage, "estimated_tokens") ===
       readNumber(snapshot.context_usage, "estimated_tokens")
   ) {
@@ -197,11 +217,17 @@ const PATCH_MAX_ATTEMPTS = 40;
 export function schedulePatchLastResponseCardUsage(
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
   snapshot: TurnUsageSnapshot,
+  turn?: TurnUsageToken,
 ): void {
-  const tryPatch = () => patchLastResponseCardUsage(chatRef, snapshot);
+  const isCurrentTurn = () =>
+    !turn || useTurnUsageStore.getState().isTurnActive(turn);
+  const tryPatch = () =>
+    isCurrentTurn() && patchLastResponseCardUsage(chatRef, snapshot);
+  if (!isCurrentTurn()) return;
   if (tryPatch()) return;
   let attempt = 0;
   const retry = () => {
+    if (!isCurrentTurn()) return;
     if (tryPatch() || attempt >= PATCH_MAX_ATTEMPTS) return;
     attempt += 1;
     window.setTimeout(retry, PATCH_RETRY_MS);
@@ -309,7 +335,7 @@ function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
 }
 
 /**
- * Observe the SSE body and patch usage when the stream finishes.
+ * Observe usage during streaming and patch the final response card on close.
  *
  * Trailing `turn_usage` SSE arrives after Completed response. The chat SDK
  * may drop it via isStillActive (session id drift after realId URL resolve),
@@ -318,12 +344,45 @@ function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
 export function wrapChatResponseUsageStream(
   response: Response,
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
+  turn?: TurnUsageToken,
 ): Response {
   if (!response.body) return response;
 
   const decoder = new TextDecoder();
   let buffer = "";
   let pendingUsage: TurnUsageSnapshot | null = null;
+  const previousUsage = useTurnUsageStore.getState().snapshot?.usage;
+
+  function publishLive(snap: TurnUsageSnapshot) {
+    const usage = snap.usage;
+    if (
+      usage?.cache_observed !== undefined &&
+      usage.session_cache_observed === undefined
+    ) {
+      const read =
+        (previousUsage?.session_cache_read_tokens ?? 0) +
+        (usage.cache_read_tokens ?? 0);
+      const input =
+        (previousUsage?.session_cache_eligible_input_tokens ?? 0) +
+        (usage.cache_eligible_input_tokens ?? 0);
+      snap = {
+        ...snap,
+        usage: {
+          ...usage,
+          session_cache_read_tokens: read,
+          session_cache_eligible_input_tokens: input,
+          session_cache_observed: !!(
+            previousUsage?.session_cache_observed || usage.cache_observed
+          ),
+          session_cache_hit_rate: input > 0 ? (read / input) * 100 : null,
+        },
+      };
+    }
+    pendingUsage = snap;
+    const store = useTurnUsageStore.getState();
+    if (turn) store.setSnapshotForTurn(snap, turn);
+    else store.setSnapshot(snap);
+  }
 
   const transformed = response.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
@@ -334,7 +393,7 @@ export function wrapChatResponseUsageStream(
         buffer = parsed.rest;
         for (const raw of parsed.events) {
           const snap = snapshotFromSsePayload(raw);
-          if (snap) pendingUsage = snap;
+          if (snap) publishLive(snap);
         }
       },
       flush() {
@@ -345,8 +404,17 @@ export function wrapChatResponseUsageStream(
           if (snap) pendingUsage = snap;
         }
         if (pendingUsage) {
-          useTurnUsageStore.getState().setSnapshot(pendingUsage);
-          schedulePatchLastResponseCardUsage(chatRef, pendingUsage);
+          let accepted = true;
+          if (turn) {
+            accepted = useTurnUsageStore
+              .getState()
+              .setSnapshotForTurn(pendingUsage, turn);
+          } else {
+            useTurnUsageStore.getState().setSnapshot(pendingUsage);
+          }
+          if (accepted) {
+            schedulePatchLastResponseCardUsage(chatRef, pendingUsage, turn);
+          }
         }
       },
     }),

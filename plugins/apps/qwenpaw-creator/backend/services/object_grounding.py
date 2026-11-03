@@ -214,7 +214,6 @@ async def ground_image_objects(
         ],
         system_prompt=OBJECT_GROUNDING_SYSTEM_PROMPT,
         temperature=0.0,
-        max_tokens=2048,
         timeout=float(model_config.get_vlm_timeout_seconds()),
     )
     return {
@@ -369,7 +368,6 @@ async def crop_region_and_observe(
             },
         ],
         temperature=0.2,
-        max_tokens=2048,
         timeout=float(model_config.get_vlm_timeout_seconds()),
     )
     return {

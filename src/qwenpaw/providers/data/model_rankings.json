@@ -1,0 +1,25 @@
+{
+  "metric": "Artificial Analysis Intelligence Index",
+  "version": "4.3",
+  "minimum_score": 40,
+  "models": [
+    {
+      "model_id": "z-ai/glm-5.3-flash",
+      "metric": "Artificial Analysis Intelligence Index",
+      "version": "4.3",
+      "score": 42,
+      "estimated": false,
+      "checked_at": "2026-09-18",
+      "source": "https://artificialanalysis.ai/models/comparisons/glm-5-3-flash-vs-step-3-7-flash"
+    },
+    {
+      "model_id": "stepfun/step-3.7-flash",
+      "metric": "Artificial Analysis Intelligence Index",
+      "version": "4.3",
+      "score": 19,
+      "estimated": true,
+      "checked_at": "2026-09-18",
+      "source": "https://artificialanalysis.ai/models/comparisons/glm-5-3-flash-vs-step-3-7-flash"
+    }
+  ]
+}

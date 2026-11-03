@@ -12,6 +12,7 @@ types (``image`` / ``audio`` / ``video`` → ``DataBlock``;
 Once all on-disk sessions have been re-saved in the 2.0 format this
 whole module can be deleted together with the polyfill.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,6 +28,7 @@ from agentscope.message import (
     URLSource,
 )
 
+from ..utils.media_paths import media_basename
 
 _MODALITY_DEFAULT_MIME = {
     "image": "image/*",
@@ -175,9 +177,7 @@ def _coerce_block(block: Any) -> Any:
                 path = ""
         else:
             path = str(source) if source else ""
-        filename = (
-            filename or (path.rsplit("/", 1)[-1] if path else "") or "file"
-        )
+        filename = filename or (media_basename(path) if path else "") or "file"
         text = (
             f"File '{filename}' is available at: {path}"
             if path

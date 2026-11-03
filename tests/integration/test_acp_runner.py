@@ -41,6 +41,8 @@ _HTTP_TIMEOUT = default_http_timeout(15.0)
 _NEVER_FIRE_SCHEDULE = "0 0 1 1 *"
 _MOCK_RUNNER_NAME = "mock_runner"
 _MOCK_RUNNER_PATH = Path(__file__).parent / "fixtures" / "acp_mock_runner.py"
+# Bound for polling the runner reply out of the server log buffer.
+_REPLY_WAIT_SECS = 30.0
 
 
 # ------------------------------------------------------------------ #
@@ -188,6 +190,40 @@ def _delete_job(app_server, job_id):
         )
     except Exception:
         pass
+
+
+def _wait_for_log_marker(
+    app_server,
+    marker: str,
+    baseline: int,
+    deadline: float,
+) -> str | None:
+    """Poll the live server log buffer for ``marker`` after ``baseline``.
+
+    ``baseline`` is ``len(app_server.logs)`` captured before the run so
+    only lines produced by *this* test's execution are searched (the
+    module-scoped server's buffer also carries earlier tests' replies).
+
+    Why polling instead of a one-shot ``logs_tail`` snapshot (fork run
+    32445098533, macOS job 96676931023):
+
+    1. The reply travels through several async hops after cron reports
+       ``status=success`` in history (stream events → console channel
+       print → tee thread append), so it can land after the assertion
+       point.
+    2. The setup config writes (provider registration, ACP config PUT,
+       tool toggle) each schedule an async zero-downtime reload whose
+       workspace-rebuild logs (command registration, watchers, …) can
+       exceed any fixed tail window and push an already-printed reply
+       out of it — even though the full chain succeeded.
+    """
+    while time.time() < deadline:
+        new_lines = app_server.logs[baseline:]
+        for line in new_lines:
+            if marker in line:
+                return line
+        time.sleep(0.5)
+    return None
 
 
 # ------------------------------------------------------------------ #
@@ -365,6 +401,9 @@ def test_acp_start_spawns_mock_runner(app_server, mock_llm) -> None:
 
     spec = _agent_spec("acp_start_real")
     job_id = _create_job(app_server, spec)
+    # Baseline for scoped log polling: only lines produced from this
+    # point on belong to this test run (see _wait_for_log_marker).
+    log_baseline = len(app_server.logs)
     try:
         run_resp = app_server.api_request(
             "POST",
@@ -385,11 +424,29 @@ def test_acp_start_spawns_mock_runner(app_server, mock_llm) -> None:
         # text "mock reply" (ACP_MOCK_REPLY_TEXT). Assert it surfaces in
         # the server logs — proves the JSON-RPC reply is wired back into
         # the agent response path, not just that cron returned success.
-        logs = app_server.logs_tail(20000)
-        assert "mock reply" in logs, (
-            "ACP runner reply not surfaced to agent runtime:\n"
-            f"{logs[-3000:]}"
+        #
+        # Poll the live log buffer with a generous deadline instead of a
+        # one-shot tail snapshot: the reply is printed after cron
+        # history lands, and async zero-downtime reloads triggered by
+        # this test's own config writes flood the tail of the buffer
+        # with workspace-rebuild logs (fork run 32445098533 showed the
+        # full chain succeeding while the reply was pushed out of a
+        # fixed 20000-char window).
+        reply_line = _wait_for_log_marker(
+            app_server,
+            "mock reply",
+            log_baseline,
+            time.time() + _REPLY_WAIT_SECS,
         )
+        if reply_line is None:
+            scoped_new = "".join(app_server.logs[log_baseline:])
+            tool_called = "delegate_external_agent" in scoped_new
+            raise AssertionError(
+                "ACP runner reply not surfaced to agent runtime within "
+                f"{_REPLY_WAIT_SECS:.0f}s "
+                f"(delegate_external_agent invoked: {tool_called}):\n"
+                f"{scoped_new[-3000:]}",
+            )
     finally:
         _delete_job(app_server, job_id)
         srv.force_tool_call = False

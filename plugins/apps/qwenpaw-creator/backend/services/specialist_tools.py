@@ -20,11 +20,16 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from domain.enums import CreatorCommandType, SpecialistRole, TaskKind
 from domain.errors import PermissionDeniedError, ValidationError
-from models.config import is_s2v_configured, is_tts_configured
+from models.config import (
+    get_image_model_name,
+    is_s2v_configured,
+    is_tts_configured,
+)
+from models.image.base import image_reference_limit
 from services.runtime_files.errors import RecordNotFoundError
 from services.media.source_observation import source_observation_service
 from services.media.source_video_reader import source_video_reader_service
@@ -51,6 +56,11 @@ from services.source_analysis import (
     SourceAgentToolContext,
     source_analysis_service,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from services.runtime_files.execution_store import (
+        ProjectExecutionStore,
+    )
 
 logger = logging.getLogger("creator.specialist_tools")
 
@@ -105,6 +115,20 @@ class SpecialistToolWait(StrEnum):
 _PROJECT_ASSETS_TARGET_REF = "project:assets"
 _ASSET_TARGET_REF_PATTERN = r"^(asset|lineup):.+$"
 _SOURCE_PROJECT_TOOL_NAMES = frozenset({"read_project", "read_project_file"})
+# R2V_GENERATION_DIRECTOR is absent from the active delegation registry. Its
+# direct manifest remains readable only so durable pre-retirement SpecialistRun
+# checkpoints can replay/finish with the exact tool surface they originally
+# recorded. New image/video dispatch is owned exclusively by Work Graph.
+_LEGACY_R2V_REPLAY_ROLES = frozenset(
+    {SpecialistRole.R2V_GENERATION_DIRECTOR},
+)
+# VISUAL_DEVELOPMENT is likewise retired from the active delegation registry.
+# Its tool surface remains readable only for durable pre-retirement
+# SpecialistRun checkpoint replay; visual prompts are authored by the main
+# Agent and image dispatch is owned exclusively by Work Graph.
+_LEGACY_VISUAL_REPLAY_ROLES = frozenset(
+    {SpecialistRole.VISUAL_DEVELOPMENT},
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,7 +155,7 @@ class SpecialistToolSpec:
         """Let a visual Project-assets run address its Asset children."""
 
         return (
-            self.name in {"image_generation", "create_character_voice"}
+            self.name == "create_character_voice"
             and role is SpecialistRole.VISUAL_DEVELOPMENT
             and _PROJECT_ASSETS_TARGET_REF in admitted_target_refs
         )
@@ -147,11 +171,10 @@ class SpecialistToolSpec:
             role=role,
             admitted_target_refs=admitted_target_refs,
         ):
-            # Cast lineups are visual assets too: a Project-assets run may
-            # generate the group anchor alongside individual entity images.
-            return (
-                target_ref.startswith("asset:") and bool(target_ref[6:])
-            ) or (target_ref.startswith("lineup:") and bool(target_ref[7:]))
+            # Project-wide visual development may enroll voices for its
+            # character assets. Image generation is scheduler-owned and is
+            # intentionally absent from this role.
+            return target_ref.startswith("asset:") and bool(target_ref[6:])
         return target_ref in admitted_target_refs
 
     def manifest(
@@ -280,7 +303,6 @@ _IMAGE_ARGUMENTS = _arguments_schema(
         "referenceVersionIds": {
             "type": "array",
             "items": {"type": "string", "minLength": 1},
-            "maxItems": 5,
             "uniqueItems": True,
         },
         "variantId": {
@@ -305,7 +327,7 @@ _R2V_ARGUMENTS = _arguments_schema(
                 "视频生成模式，缺省 r2v（storyboard + 参考图，保持现状）。"
                 "t2v：纯文本生视频；i2v：首帧生视频（需 firstFrameRef）；"
                 "video_edit：按 prompt 指令编辑已有视频（需 videoRef，仅 "
-                "HappyHorse 模型）。支持的组合以当前模型的能力矩阵为准，"
+                "HappyHorse 1.0 模型）。支持的组合以当前精确模型能力为准，"
                 "不支持时会返回可读错误并提示替代。"
             ),
         },
@@ -328,18 +350,33 @@ _R2V_ARGUMENTS = _arguments_schema(
         "durationSeconds": {"type": "integer", "minimum": 1, "maximum": 60},
         "ratio": {
             "type": "string",
-            "enum": ["16:9", "9:16", "1:1", "4:3", "3:4"],
+            "enum": ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4"],
+            "description": (
+                "跨供应商候选画幅；实际可用值以当前协议 + 精确模型能力为准，" "执行层会在上传或建单前拒绝不支持的值。"
+            ),
         },
         "resolution": {
             "type": "string",
-            "enum": ["720P", "1080P", "720p", "1080p"],
+            "enum": ["480P", "720P", "1080P", "480p", "720p", "1080p"],
+            "description": (
+                "跨供应商候选分辨率；实际可用值以当前协议 + 精确模型能力" "为准，schema 枚举不代表每个模型都支持全部选项。"
+            ),
         },
         "watermark": {
             "type": "boolean",
             "default": False,
             "description": "默认 false（无水印）；仅在用户明确要求时传 true",
         },
-        "generateAudio": {"type": "boolean"},
+        "generateAudio": {
+            "type": "boolean",
+            "default": True,
+            "description": (
+                "默认 true：生成视频原生自带台词与环境音（人声的唯一来源）。"
+                "背景音乐不要写进 prompt（配乐由 Project 中独立的 "
+                "creation.type=audio Element 承载，与本工具无关）；"
+                "仅在明确需要无声画面时传 false"
+            ),
+        },
     },
     ("prompt", "durationSeconds", "ratio", "resolution"),
 )
@@ -504,8 +541,8 @@ _VOICE_ENROLLMENT_ARGUMENTS = _arguments_schema(
         "sampleSourceVersionId": {
             "type": "string",
             "description": (
-                "可选；已存在的 exact 音频 SourceAssetVersion id 作为 10–20 秒"
-                "音色样本（复刻路径）。"
+                "可选；已存在的 exact 音频或视频 SourceAssetVersion id 作为 "
+                "10–20 秒音色样本（复刻路径）；视频会自动提取音轨。"
             ),
         },
         "sampleText": {
@@ -732,6 +769,7 @@ _CHECK_OBSERVATION_ARGUMENTS = _arguments_schema(
             "description": (
                 "要收割的观察任务 id（observe_source_clip / "
                 "read_source_video 以 background=true 提交时返回）。"
+                "省略或留空=收割本 Run 已提交的全部观察任务。"
             ),
         },
         "wait": {
@@ -740,8 +778,18 @@ _CHECK_OBSERVATION_ARGUMENTS = _arguments_schema(
                 "true（默认）=并行等待全部任务到终态后返回结果；" "false=立即返回当前状态快照，不等待。"
             ),
         },
+        "harvestOffset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": (
+                "仅在省略 taskIds（收割本 Run 全部观察）时生效的分页游标："
+                "从第几个任务开始收割。一次最多收割 32 个；若还有剩余，"
+                "返回的 note 会给出下一次的 harvestOffset，回填它即可继续"
+                "收割，无需记住任何 taskId。默认 0。"
+            ),
+        },
     },
-    ("taskIds",),
+    (),
 )
 
 _REVIEW_SCENE_ARGUMENTS = _arguments_schema(
@@ -839,12 +887,7 @@ _SPECS = (
             "translate）。只传 Project 中已存在的 exact version id；"
             "生成结果由文件媒体服务写入 Asset Index 与 project.json。"
         ),
-        roles=frozenset(
-            {
-                SpecialistRole.VISUAL_DEVELOPMENT,
-                SpecialistRole.R2V_GENERATION_DIRECTOR,
-            },
-        ),
+        roles=_LEGACY_R2V_REPLAY_ROLES,
         parameters=_tool_schema(_IMAGE_ARGUMENTS),
         requires_execution_authorization=True,
         long_running=True,
@@ -858,7 +901,7 @@ _SPECS = (
             "（视当前视频模型能力矩阵而定）。Runtime 文件任务完成后结果自动"
             "写回 Asset Index 与 project.json。"
         ),
-        roles=frozenset({SpecialistRole.R2V_GENERATION_DIRECTOR}),
+        roles=_LEGACY_R2V_REPLAY_ROLES,
         parameters=_tool_schema(_R2V_ARGUMENTS),
         requires_execution_authorization=True,
         long_running=True,
@@ -873,7 +916,7 @@ _SPECS = (
             "人像检测（按成功请求计费，远低于生成费用；检测未通过不会提交"
             "生成）；audioAssetRef 直接消费 tts_generation 产出的 audio version。"
         ),
-        roles=frozenset({SpecialistRole.R2V_GENERATION_DIRECTOR}),
+        roles=_LEGACY_R2V_REPLAY_ROLES,
         parameters=_tool_schema(_S2V_ARGUMENTS),
         requires_execution_authorization=True,
         long_running=True,
@@ -897,7 +940,10 @@ _SPECS = (
             "回原片核验：按时间窗从当前 exact Source 的原始媒体抽出连续"
             "片段，由 VLM 真实观看后回答问题并附时间戳证据。"
             "query_source_memory 的 hitWindowsMs 结论在用于剪辑选段前必须"
-            "经本工具逐窗核验；窗口 0.5–120 秒。"
+            "经本工具逐窗核验；窗口 0.5–120 秒。多个互相独立的窗口"
+            "请在连续回合里全部以 background=true 提交，再用 "
+            "check_observation_tasks 一次收割；逐个同步等待会把耗时"
+            "相加。"
         ),
         roles=frozenset(
             {
@@ -918,7 +964,8 @@ _SPECS = (
             "视频按动态分辨率/帧率抽帧，帧序列带时间戳以原生图片进入你的"
             "下一条消息。典型用法：budget=small 不传时间窗扫全片建立定位，"
             "再对命中段用 budget=large + 时间窗细看；需要连续动态细节时"
-            "改用 observe_source_clip。"
+            "改用 observe_source_clip。多个互不依赖的时段/素材请以 "
+            "background=true 批量提交后一次收割。"
         ),
         roles=frozenset(
             {
@@ -937,7 +984,9 @@ _SPECS = (
             "收割以 background=true 提交的观察任务（observe_source_clip /"
             " read_source_video）：wait=true（默认）并行等待全部任务完成后"
             "返回各自结果（read 任务的帧图随之注入）；wait=false 立即返回"
-            "状态快照。提交的后台任务必须在结束工作前收割。"
+            "状态快照。taskIds 可省略：省略即收割本 Run 已提交的全部观察"
+            "任务，批量并行提交时不必记住每个 taskId。提交的后台任务必须"
+            "在结束工作前收割。"
         ),
         roles=frozenset(
             {
@@ -986,14 +1035,12 @@ _SPECS = (
             "写入 Asset Index，返回 exact version id 与 durationSeconds。长旁白"
             "按镜头/语义分段多次调用，每段对应一个独立 audio Element。传 "
             "characterRef 且该角色已绑定音色时自动使用其复刻音色；上 Timeline "
-            "需再用 jq_project 创建引用该 version 的 audio Element。"
+            "需再用 jq_project 创建引用该 version 的 audio Element。相同项目中"
+            "文本、模型、音色、语速和角色绑定完全一致时会直接复用已有版本，"
+            "即使工具调用 idempotency key 不同也不会再次请求付费 TTS。"
         ),
-        roles=frozenset(
-            {
-                SpecialistRole.VISUAL_DEVELOPMENT,
-                SpecialistRole.AI_EDITING_DIRECTOR,
-            },
-        ),
+        roles=_LEGACY_VISUAL_REPLAY_ROLES
+        | frozenset({SpecialistRole.AI_EDITING_DIRECTOR}),
         parameters=_tool_schema(_TTS_ARGUMENTS),
         requires_execution_authorization=True,
         long_running=True,
@@ -1007,7 +1054,7 @@ _SPECS = (
             "sampleSourceVersionId / sampleText 从音频样本复刻。绑定后该角色的"
             " tts_generation 自动沿用此音色，重新创建会替换旧绑定。"
         ),
-        roles=frozenset({SpecialistRole.VISUAL_DEVELOPMENT}),
+        roles=_LEGACY_VISUAL_REPLAY_ROLES,
         parameters=_tool_schema(_VOICE_ENROLLMENT_ARGUMENTS),
         requires_execution_authorization=True,
         long_running=True,
@@ -1046,6 +1093,101 @@ def _tool_available(name: str) -> bool:
     return True
 
 
+_OBSERVATION_TASK_KINDS = frozenset(
+    {
+        TaskKind.OBSERVE_SOURCE_CLIP,
+        TaskKind.READ_SOURCE_VIDEO,
+    },
+)
+# Harvest-all is bounded so one long run cannot pull an unbounded task
+# list into the model context. The overflow is reported, never dropped
+# silently: an unharvested observation is work the model already paid for.
+_MAX_HARVEST_TASKS = 32
+_MAX_REPORTED_OVERFLOW_TASKS = 16
+
+
+def _run_observation_task_ids(
+    executions: ProjectExecutionStore,
+    project_id: str,
+    specialist_run_id: str | None,
+) -> list[str]:
+    """Every observation task this specialist Run submitted.
+
+    Ordered by immutable ``created_at`` (``task_id`` breaks same-instant ties),
+    *not* by ``list_tasks``' ``updated_at``: a harvest page awaited to a
+    terminal state refreshes ``updated_at``, which would reshuffle the list
+    between paged ``harvestOffset`` calls and make the cursor repeat harvested
+    tasks while permanently skipping the rest.  This order decides which tasks
+    the harvest bound keeps and gives the pagination cursor a stable basis.
+
+    ``check_observation_tasks`` accepts an omitted ``taskIds`` so a model
+    can batch independent observations without tracking ids; ownership
+    therefore has to come from the durable records, and the lookup stays
+    read-only.  Terminal tasks are included on purpose: a background
+    observation that already finished still owes the model its result, and
+    harvesting it twice is idempotent.  The caller applies the harvest bound
+    so it can also report what the bound left out.
+    """
+
+    if not specialist_run_id:
+        return []
+    matched = [
+        record
+        for record in executions.list_tasks(project_id)
+        if record.kind in _OBSERVATION_TASK_KINDS
+        and specialist_run_id in (record.run_id, record.caused_by_request_id)
+    ]
+    matched.sort(key=lambda record: (record.created_at, record.task_id))
+    return [record.task_id for record in matched]
+
+
+def _harvest_offset(payload: Mapping[str, Any]) -> int:
+    """Validated harvest-all pagination cursor (0 when absent)."""
+
+    raw = payload.get("harvestOffset")
+    if raw is None:
+        return 0
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        raise ValidationError("harvestOffset 必须是非负整数")
+    try:
+        offset = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("harvestOffset 必须是非负整数") from exc
+    if offset < 0:
+        raise ValidationError("harvestOffset 必须是非负整数")
+    return offset
+
+
+def _harvest_overflow_note(
+    total: int,
+    rest: list[str],
+    next_offset: int,
+) -> str:
+    """Name the observations the harvest bound left out, and how to reach all.
+
+    Lists up to ``_MAX_REPORTED_OVERFLOW_TASKS`` ids for an immediate explicit
+    ``taskIds`` harvest, and always names the ``harvestOffset`` cursor that
+    pages through the remainder -- so a Run that submitted more observations
+    than one harvest (plus one id list) can still reach every task without the
+    model tracking ids.
+    """
+
+    shown = ", ".join(rest[:_MAX_REPORTED_OVERFLOW_TASKS])
+    tail = ""
+    if len(rest) > _MAX_REPORTED_OVERFLOW_TASKS:
+        tail = (
+            f" …（另有 {len(rest) - _MAX_REPORTED_OVERFLOW_TASKS} 个未在此"
+            f"列出，用 harvestOffset 翻页取全）"
+        )
+    return (
+        f"本 Run 共 {total} 个观察任务，一次最多收割 "
+        f"{_MAX_HARVEST_TASKS} 个；还有 {len(rest)} 个未收割。可用 "
+        f"taskIds 显式收割：{shown}{tail}；或省略 taskIds 并传 "
+        f"harvestOffset={next_offset} 收割下一批（无需记住 id，重复直到"
+        f"没有剩余）。"
+    )
+
+
 class FileSpecialistToolRegistry:
     """Role-scoped AgentScope tool registry for the file Project model."""
 
@@ -1074,18 +1216,41 @@ class FileSpecialistToolRegistry:
         role: SpecialistRole,
         *,
         admitted_target_refs: Sequence[str],
+        include_project_readers: bool = True,
     ) -> tuple[dict[str, Any], ...]:
         project_tools = [
             item
             for item in agent_project_tool_manifest()
             if role is not SpecialistRole.SOURCE_INTELLIGENCE
-            or item["function"]["name"] in _SOURCE_PROJECT_TOOL_NAMES
+            or (
+                include_project_readers
+                and item["function"]["name"] in _SOURCE_PROJECT_TOOL_NAMES
+            )
         ]
-        business_tools = [
-            spec.manifest(role=role, admitted_target_refs=admitted_target_refs)
-            for spec in _SPECS
-            if role in spec.roles and _tool_available(spec.name)
-        ]
+        business_tools = []
+        for spec in _SPECS:
+            if role not in spec.roles or not _tool_available(spec.name):
+                continue
+            manifest = spec.manifest(
+                role=role,
+                admitted_target_refs=admitted_target_refs,
+            )
+            if spec.name == "image_generation":
+                model_name = get_image_model_name().strip()
+                reference_limit = image_reference_limit(model_name)
+                references = manifest["function"]["parameters"]["properties"][
+                    "arguments"
+                ]["properties"]["referenceVersionIds"]
+                references["maxItems"] = reference_limit or 0
+                references["description"] = (
+                    f"当前图片模型 {model_name or '未配置'} 的输入参考图，"
+                    f"官方上限为 {reference_limit or 0} 张；只传 Project 中"
+                    "已存在的 exact version id。未知模型别名按 0 张处理，"
+                    "不会套用通用猜测上限。仅视觉资产生成可显式传入最终参考列表，"
+                    "按所列顺序使用；不传时使用项目引用。分镜图生成不接受此参数，"
+                    "请使用目标 creation.storyboard_reference_version_ids。"
+                )
+            business_tools.append(manifest)
         names = [
             item["function"]["name"]
             for item in (*project_tools, *business_tools)
@@ -1161,7 +1326,14 @@ class FileSpecialistToolRegistry:
                 )
         payload = arguments.get("arguments")
         if not isinstance(payload, Mapping):
-            raise ValidationError("Specialist tool arguments 必须是 object")
+            if name == "check_observation_tasks" and payload is None:
+                # Harvest-all mode: with taskIds optional the natural call
+                # shape carries no arguments object at all.
+                payload = {}
+            else:
+                raise ValidationError(
+                    "Specialist tool arguments 必须是 object",
+                )
 
         if name in {
             "transcribe_source_audio",
@@ -1334,8 +1506,57 @@ class FileSpecialistToolRegistry:
                 ProjectExecutionStore,
             )
 
-            task_ids = [str(item) for item in payload["taskIds"]]
+            task_ids = [str(item) for item in payload.get("taskIds") or []]
             executions = ProjectExecutionStore(self.services.root)
+            overflow_note: str | None = None
+            if not task_ids:
+                # Harvest-all: batching independent observations is the
+                # fast path, and having to remember every taskId is what
+                # keeps a model from batching. Discovery is run-scoped.
+                discovered = await asyncio.to_thread(
+                    _run_observation_task_ids,
+                    executions,
+                    project_id,
+                    (
+                        context.specialist_run_id
+                        if context is not None
+                        else None
+                    ),
+                )
+                if not discovered:
+                    return SpecialistToolResult(
+                        payload={
+                            "ok": True,
+                            "tasks": [],
+                            "note": (
+                                "本 Run 没有已提交的观察任务；先用 "
+                                "observe_source_clip / read_source_video "
+                                "以 background=true 提交。"
+                            ),
+                        },
+                    )
+                offset = _harvest_offset(payload)
+                if offset >= len(discovered):
+                    # Paged past the end: every task was already harvested.
+                    return SpecialistToolResult(
+                        payload={
+                            "ok": True,
+                            "tasks": [],
+                            "note": (
+                                f"本 Run 共 {len(discovered)} 个观察任务，"
+                                f"harvestOffset={offset} 已越过全部，无需"
+                                f"再收割。"
+                            ),
+                        },
+                    )
+                task_ids = discovered[offset : offset + _MAX_HARVEST_TASKS]
+                rest = discovered[offset + _MAX_HARVEST_TASKS :]
+                if rest:
+                    overflow_note = _harvest_overflow_note(
+                        len(discovered),
+                        rest,
+                        offset + _MAX_HARVEST_TASKS,
+                    )
             snapshot: list[dict[str, Any]] = []
             for candidate_id in task_ids:
                 try:
@@ -1364,7 +1585,11 @@ class FileSpecialistToolRegistry:
                     },
                 )
             return SpecialistToolResult(
-                payload={"ok": True, "tasks": snapshot},
+                payload={
+                    "ok": True,
+                    "tasks": snapshot,
+                    **({"note": overflow_note} if overflow_note else {}),
+                },
                 task_ids=tuple(task_ids),
             )
 
@@ -1398,12 +1623,12 @@ class FileSpecialistToolRegistry:
 
         if name == "image_generation":
             if target_ref.startswith("lineup:"):
-                # The cast lineup is the group anchor; only the visual
-                # development role may draw it, storyboard directors
-                # consume it through the reference chain instead.
+                # The cast lineup is the group anchor; its rendering is
+                # scheduler-owned, and only pre-retirement visual replay
+                # may still reach this branch.
                 if role is not SpecialistRole.VISUAL_DEVELOPMENT:
                     raise PermissionDeniedError(
-                        "只有视觉开发 Specialist 可以生成阵容图",
+                        "阵容图由工作图调度器自动生成，Specialist 不能直接生成",
                     )
                 command = CreatorCommandType.GENERATE_CAST_LINEUP_IMAGE
             elif role is SpecialistRole.VISUAL_DEVELOPMENT:
@@ -1492,26 +1717,14 @@ class FileSpecialistToolRegistry:
             )
 
         if name == "create_character_voice":
-            enrollment = await execute_file_voice_enrollment_command(
+            payload_result = await invoke_character_voice_tool(
                 self.services,
                 project_id=project_id,
                 target_ref=target_ref,
                 arguments=payload,
                 idempotency_key=idempotency_key,
             )
-            return SpecialistToolResult(
-                payload={
-                    "ok": True,
-                    "status": "SUCCEEDED",
-                    "entityId": enrollment.entity_id,
-                    "voiceBound": True,
-                    "voiceOrigin": enrollment.origin,
-                    "sampleSourceVersionId": enrollment.sample_source_version_id,
-                    "generation": enrollment.project_generation,
-                    "etag": enrollment.project_etag,
-                    "replayed": enrollment.replayed,
-                },
-            )
+            return SpecialistToolResult(payload=payload_result)
 
         if name == "design_motion_overlays":
             result = await design_motion_overlays(
@@ -1525,9 +1738,96 @@ class FileSpecialistToolRegistry:
         raise RuntimeError(f"unhandled Specialist tool: {name}")
 
 
+# ── Main-Agent character voice surface ───────────────────────────────────────
+# The retired visual development specialist used to own voice enrollment; the
+# active surface now belongs to the Creator main Agent, which authorizes and
+# invokes the same executor directly.
+
+CHARACTER_VOICE_TOOL_NAME = "create_character_voice"
+
+
+def character_voice_tool_spec() -> SpecialistToolSpec | None:
+    """The voice enrollment spec, or None while TTS is unconfigured."""
+
+    if not _tool_available(CHARACTER_VOICE_TOOL_NAME):
+        return None
+    return _SPECS_BY_NAME[CHARACTER_VOICE_TOOL_NAME]
+
+
+def character_voice_tool_manifest() -> dict[str, Any] | None:
+    """Main-Agent manifest for voice enrollment, or None when TTS is off."""
+
+    spec = character_voice_tool_spec()
+    if spec is None:
+        return None
+    value = provider_function(
+        spec.name,
+        {"description": spec.description, "parameters": spec.parameters},
+    )
+    target = value["function"]["parameters"]["properties"].get("targetRef")
+    if isinstance(target, dict):
+        target["pattern"] = r"^asset:.+$"
+        target["description"] = (
+            "目标 character 实体的 exact asset:<VisualEntity.entity_id>；"
+            "不能使用来源素材 logicalAssetId。"
+        )
+    return value
+
+
+async def invoke_character_voice_tool(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    target_ref: str,
+    arguments: Mapping[str, Any],
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Execute one voice enrollment and return the tool payload."""
+
+    if character_voice_tool_spec() is None:
+        raise ValidationError(
+            "create_character_voice 不可用：当前部署未配置 TTS",
+        )
+    if not target_ref.startswith("asset:") or not target_ref[6:]:
+        raise ValidationError(
+            "create_character_voice 需要 targetRef="
+            "asset:<VisualEntity.entity_id>",
+        )
+    enrollment = await execute_file_voice_enrollment_command(
+        services,
+        project_id=project_id,
+        target_ref=target_ref,
+        arguments=arguments,
+        idempotency_key=idempotency_key,
+    )
+    return {
+        "ok": True,
+        "status": "SUCCEEDED",
+        "entityId": enrollment.entity_id,
+        "voiceBound": True,
+        "voiceOrigin": enrollment.origin,
+        "sampleSourceVersionId": enrollment.sample_source_version_id,
+        "sampleReady": enrollment.sample_source_version_id is not None,
+        **(
+            {
+                "warning": "音色已创建，但试听样本尚未就绪；当前不能把它作为视频参考音频。请先补全试听绑定，不要重复设计已经创建的音色。",
+            }
+            if enrollment.sample_source_version_id is None
+            else {}
+        ),
+        "generation": enrollment.project_generation,
+        "etag": enrollment.project_etag,
+        "replayed": enrollment.replayed,
+    }
+
+
 __all__ = [
+    "CHARACTER_VOICE_TOOL_NAME",
     "FileSpecialistToolRegistry",
     "SpecialistToolResult",
     "SpecialistToolSpec",
     "SpecialistToolWait",
+    "character_voice_tool_manifest",
+    "character_voice_tool_spec",
+    "invoke_character_voice_tool",
 ]

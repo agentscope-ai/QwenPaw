@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 import { useOsAppMarket } from "./useOsAppMarket";
 
@@ -51,7 +51,10 @@ function makeEntry(id: string, category = "app"): MarketPluginEntry {
 }
 
 describe("useOsAppMarket", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    vi.stubGlobal("VITE_API_BASE_URL", "/qwenpaw");
     hoisted.fetchMarketPlugins.mockReset();
     hoisted.installPlugin.mockReset();
     hoisted.message.success.mockReset();
@@ -84,6 +87,10 @@ describe("useOsAppMarket", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
+    expect(fetch).toHaveBeenCalledWith(
+      "/qwenpaw/api/version",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(2);
     expect(hoisted.fetchMarketPlugins).toHaveBeenNthCalledWith(
       1,
@@ -134,5 +141,25 @@ describe("useOsAppMarket", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
+  });
+
+  it("refreshes installed apps in place after installation", async () => {
+    const entry = makeEntry("kanban");
+    const onInstalled = vi.fn();
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [entry],
+      total: 1,
+    });
+    const installResult = { id: "kanban", name: "Kanban" };
+    hoisted.installPlugin.mockResolvedValue(installResult);
+    const { result } = renderHook(() => useOsAppMarket({ onInstalled }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(() => result.current.handleInstall(entry));
+
+    expect(onInstalled).toHaveBeenCalledWith(installResult);
+    expect(hoisted.installPlugin).toHaveBeenCalledWith(expect.any(String), {
+      force: true,
+    });
   });
 });

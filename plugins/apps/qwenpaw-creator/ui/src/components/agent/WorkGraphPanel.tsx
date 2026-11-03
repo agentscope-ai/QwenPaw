@@ -1,215 +1,221 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
+import { message, Modal } from "antd";
+import {
+  Check,
+  Clock3,
+  Loader2,
+  AlertCircle,
+  Circle,
+  Pause,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
-
+import { CreatorHttpError } from "@/api/creator/client";
 import type {
   WorkGraphNode,
   WorkNodeStatus,
 } from "@/contracts/creator/workGraph";
 import { navigateToLocator } from "@/routing/locators";
+import { creatorWorkNodeLabel } from "@/lib/creatorPresentation";
+import { taskProgressPercent } from "@/lib/taskPresentation";
+import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useWorkGraphStore } from "@/store/workGraphStore";
 
-const STATUS_ICON: Record<WorkNodeStatus, string> = {
-  done: "✓",
-  running: "◐",
-  waiting_review: "⏱",
-  failed: "✕",
-  gated: "🔒",
-  ready: "○",
-  stale: "⚠",
+const stateKeys: Record<WorkNodeStatus, string> = {
+  done: "done",
+  running: "running",
+  waiting_review: "waiting_review",
+  failed: "failed",
+  gated: "waitingDeps",
+  ready: "ready",
+  stale: "stale",
 };
 
-const STATUS_COLOR: Record<WorkNodeStatus, string> = {
-  done: "var(--color-success, #22c55e)",
-  running: "var(--color-primary, #3b82f6)",
-  waiting_review: "var(--color-warning, #f59e0b)",
-  failed: "var(--color-danger, #ef4444)",
-  gated: "var(--color-text-tertiary)",
-  ready: "var(--color-text-secondary)",
-  stale: "var(--color-warning, #f59e0b)",
-};
-
-const LANE_LABEL_KEYS: Record<string, string> = {
-  visual: "workGraph.laneVisual",
-  lineup: "workGraph.laneLineup",
-  compose: "workGraph.laneCompose",
-};
-
-function laneTitle(
-  lane: string,
-  nodes: WorkGraphNode[],
-  t: (key: string) => string,
-): string {
-  if (LANE_LABEL_KEYS[lane]) return t(LANE_LABEL_KEYS[lane]);
-  // Element lanes carry the element label through their storyboard node.
-  const labelled = nodes.find((node) => node.label.includes(" · "));
-  return labelled ? labelled.label.split(" · ")[0] : lane;
+export function WorkGraphManualHoldNotice({
+  projectId,
+}: {
+  projectId: string;
+}) {
+  const { t } = useTranslation();
+  const hold = useWorkGraphStore((state) =>
+    state.projectId === projectId ? state.graph?.manualHold : undefined,
+  );
+  const resuming = useWorkGraphStore(
+    (state) => state.projectId === projectId && state.resuming,
+  );
+  const resume = useWorkGraphStore((state) => state.resume);
+  const [confirmation, setConfirmation] = useState<{
+    projectId: string;
+    revision: number;
+  } | null>(null);
+  useEffect(() => setConfirmation(null), [projectId]);
+  if (!hold?.nodeIds.length) return null;
+  return (
+    <div className="shrink-0 border-t border-[var(--color-border)] px-3 py-2 text-[11px]">
+      <div role="status" className="flex flex-wrap items-center gap-1.5">
+        <Pause aria-hidden className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1 text-[var(--color-text-secondary)]">
+          {t("workGraph.manualHoldNotice")}
+        </span>
+        <button
+          type="button"
+          className="agent-work-action disabled:cursor-wait disabled:opacity-50"
+          disabled={resuming || confirmation !== null}
+          onClick={() =>
+            setConfirmation({ projectId, revision: hold.revision })
+          }
+        >
+          {t("workGraph.resume")}
+        </button>
+      </div>
+      <Modal
+        open={confirmation?.projectId === projectId}
+        title={t("workGraph.resume")}
+        okText={t("workGraph.resume")}
+        cancelText={t("common.cancel")}
+        confirmLoading={resuming}
+        cancelButtonProps={{ disabled: resuming }}
+        closable={!resuming}
+        mask={{ closable: !resuming }}
+        keyboard={!resuming}
+        onCancel={() => !resuming && setConfirmation(null)}
+        onOk={async () => {
+          if (!confirmation || resuming) return;
+          try {
+            await resume(confirmation.projectId, confirmation.revision);
+          } catch (error) {
+            if (error instanceof CreatorHttpError && error.status === 409) {
+              message.warning(t("workGraph.resumeStale"));
+            } else {
+              message.error(t("workGraph.resumeFailed"));
+            }
+          } finally {
+            setConfirmation(null);
+          }
+        }}
+      >
+        <p>{t("workGraph.resumeConfirm")}</p>
+      </Modal>
+    </div>
+  );
 }
 
 function NodeRow({
   node,
-  depth,
   projectId,
 }: {
   node: WorkGraphNode;
-  depth: number;
   projectId: string;
 }) {
-  const dispatchNode = useWorkGraphStore((state) => state.dispatchNode);
+  const { t } = useTranslation();
+  const project = useProjectSnapshotStore((state) =>
+    state.projectId === projectId ? state.project : null,
+  );
+  const publicLabel = creatorWorkNodeLabel(node, project);
+  const dispatch = useWorkGraphStore((state) => state.dispatchNode);
   const dispatching = useWorkGraphStore((state) =>
     Boolean(state.dispatching[node.id]),
   );
-  const { t } = useTranslation();
+  const actionLabel = t(
+    `workGraph.actions.${node.kind}.${
+      node.status === "failed" ? "retry" : "generate"
+    }`,
+  );
   const showAction =
     node.dispatchable &&
-    (node.status === "failed" ||
-      node.status === "ready" ||
-      node.status === "stale");
+    node.missing.length === 0 &&
+    ["failed", "ready", "stale"].includes(node.status);
+  const percent =
+    !node.manuallyHeld &&
+    node.status === "running" &&
+    node.progress != null &&
+    Number.isFinite(node.progress) &&
+    node.progress >= 0 &&
+    node.progress <= 1
+      ? taskProgressPercent(node.progress, node.kind)
+      : null;
+  const Icon = node.manuallyHeld
+    ? Pause
+    : node.status === "running"
+    ? Loader2
+    : node.status === "done"
+    ? Check
+    : node.status === "failed"
+    ? AlertCircle
+    : node.status === "ready"
+    ? Circle
+    : Clock3;
   return (
-    <li
-      className="flex items-center gap-1.5 py-0.5 text-[11px]"
-      style={{ paddingLeft: depth * 14 }}
-      data-node-id={node.id}
-    >
-      {depth > 0 && (
-        <span
-          aria-hidden
-          className="shrink-0 text-[var(--color-text-tertiary)]"
-        >
-          └
-        </span>
-      )}
-      <span
-        aria-label={node.status}
-        className={
-          node.status === "running" ? "animate-spin shrink-0" : "shrink-0"
-        }
-        style={{ color: STATUS_COLOR[node.status] }}
-      >
-        {STATUS_ICON[node.status]}
-      </span>
+    <li data-node-id={node.id} className="agent-work-item">
+      <Icon
+        aria-hidden
+        className={`h-3.5 w-3.5 shrink-0 ${
+          node.manuallyHeld
+            ? "text-[var(--color-text-secondary)]"
+            : node.status === "running"
+            ? "animate-spin text-[var(--color-accent)]"
+            : node.status === "done"
+            ? "text-[var(--color-success)]"
+            : node.status === "failed"
+            ? "text-[var(--color-danger)]"
+            : "text-[var(--color-text-tertiary)]"
+        }`}
+      />
       <button
         type="button"
-        className="min-w-0 flex-1 truncate text-left text-[var(--color-text-secondary)] hover:underline"
+        className="min-w-0 flex-1 text-left"
         onClick={() => navigateToLocator(projectId, node.locator ?? {})}
-        title={
-          node.error ||
-          node.missing.join(t("workGraph.listSeparator")) ||
-          node.label
-        }
+        title={publicLabel}
       >
-        {node.label}
-        {node.status === "running" && node.progress != null && (
-          <span className="ml-1 text-[var(--color-text-tertiary)]">
-            {Math.round(node.progress * 100)}%
-          </span>
-        )}
-        {node.status === "failed" && node.error && (
-          <span className="ml-1 text-[var(--color-danger,#ef4444)]">
-            {node.error.slice(0, 40)}
-          </span>
-        )}
-        {node.status === "gated" && node.missing.length > 0 && (
-          <span className="ml-1 text-[var(--color-text-tertiary)]">
-            {t("workGraph.waitingDeps", { count: node.missing.length })}
-          </span>
-        )}
+        <span className="block truncate font-medium text-[var(--color-text-secondary)]">
+          {publicLabel}
+        </span>
+        <span className="text-[11px] text-[var(--color-text-tertiary)]">
+          {t(
+            node.manuallyHeld
+              ? "workGraph.manuallyHeld"
+              : `agentActivity.${stateKeys[node.status]}`,
+          )}
+          {percent != null && ` · ${percent}%`}
+        </span>
       </button>
       {showAction && (
         <button
           type="button"
           disabled={dispatching}
-          className="shrink-0 rounded border border-[var(--color-border)] px-1 text-[10px] text-[var(--color-text-secondary)] disabled:opacity-50"
-          onClick={() => void dispatchNode(projectId, node.id)}
+          aria-label={`${actionLabel} · ${publicLabel}`}
+          className="agent-work-action"
+          onClick={() =>
+            void dispatch(projectId, node.id).catch(() =>
+              message.error(t("agentActivity.failureHint")),
+            )
+          }
         >
-          {dispatching
-            ? "…"
-            : node.status === "failed"
-            ? t("workGraph.retry")
-            : t("workGraph.generate")}
+          {dispatching ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            actionLabel
+          )}
         </button>
       )}
     </li>
   );
 }
-
 export default function WorkGraphPanel({ projectId }: { projectId: string }) {
-  const { t } = useTranslation();
-  const graph = useWorkGraphStore((state) => state.graph);
+  const graph = useWorkGraphStore((state) =>
+    state.projectId === projectId ? state.graph : null,
+  );
   const refresh = useWorkGraphStore((state) => state.refresh);
-
   useEffect(() => {
     void refresh(projectId);
   }, [projectId, refresh]);
-
-  const lanes = useMemo(() => {
-    if (!graph) return [] as Array<[string, WorkGraphNode[]]>;
-    const grouped = new Map<string, WorkGraphNode[]>();
-    for (const node of graph.nodes) {
-      const bucket = grouped.get(node.lane) ?? [];
-      bucket.push(node);
-      grouped.set(node.lane, bucket);
-    }
-    // Stable production order: visual -> lineup -> element lanes -> compose.
-    const order = (lane: string) =>
-      lane === "visual"
-        ? 0
-        : lane === "lineup"
-        ? 1
-        : lane === "compose"
-        ? 3
-        : 2;
-    return [...grouped.entries()].sort(
-      (left, right) => order(left[0]) - order(right[0]),
-    );
-  }, [graph]);
-
-  if (!graph || graph.nodes.length === 0) return null;
-  const done = graph.counts.done ?? 0;
-  const total = graph.counts.total ?? 0;
-  const running = graph.counts.running ?? 0;
-
+  if (!graph || !graph.nodes.length) return null;
   return (
     <div data-testid="work-graph-panel">
-      <p className="flex items-center gap-2 font-semibold text-[var(--color-text-secondary)]">
-        {t("workGraph.productionProgress", { done, total })}
-        {running > 0 && (
-          <span className="text-[10px] font-normal text-[var(--color-primary,#3b82f6)]">
-            {t("workGraph.parallel", { count: running })}
-          </span>
-        )}
-        <span
-          className={
-            graph.mediaCalls >= graph.mediaCallBudget
-              ? "text-[10px] font-normal text-[var(--color-danger,#ef4444)]"
-              : "text-[10px] font-normal text-[var(--color-text-tertiary)]"
-          }
-          title={t("workGraph.mediaCallBudgetTitle")}
-        >
-          {t("workGraph.mediaCalls", {
-            used: graph.mediaCalls,
-            budget: graph.mediaCallBudget,
-          })}
-        </span>
-      </p>
-      <div className="mt-0.5 space-y-1">
-        {lanes.map(([lane, nodes]) => (
-          <div key={lane}>
-            <p className="text-[10px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
-              {laneTitle(lane, nodes, t)}
-            </p>
-            <ul>
-              {nodes.map((node) => (
-                <NodeRow
-                  key={node.id}
-                  node={node}
-                  depth={node.kind === "video" ? 1 : 0}
-                  projectId={projectId}
-                />
-              ))}
-            </ul>
-          </div>
+      <ul className="space-y-1">
+        {graph.nodes.map((node) => (
+          <NodeRow key={node.id} node={node} projectId={projectId} />
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

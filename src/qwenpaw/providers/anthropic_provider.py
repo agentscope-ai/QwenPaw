@@ -6,15 +6,17 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, ClassVar, Dict, List
 
-import httpx
 from agentscope.model import ChatModelBase
 import anthropic
 from pydantic import Field
 
-from qwenpaw.providers.multimodal_prober import (
+from .model_info import release_date
+from ..utils.io_utils import run_sync_io
+from .adapters.request_context import with_session_header
+from .adapters.wire_protocol import anthropic_base_url
+from .multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
     _PROBE_VIDEO_B64,
@@ -24,8 +26,18 @@ from qwenpaw.providers.multimodal_prober import (
     evaluate_image_probe_answer,
     evaluate_video_probe_answer,
 )
-from qwenpaw.providers.provider import ModelInfo, Provider
+from .provider import (
+    ModelConnectionResult,
+    ModelInfo,
+    Provider,
+)
 
+from ..utils.logging import sanitize_log_value
+from .adapters.anthropic import (
+    AnthropicModel as _AnthropicChatModelCompat,
+    strip_api_key_header,
+    resolve_parameters,
+)
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
@@ -42,38 +54,16 @@ TOKEN_PLAN_BASE_URL = (
 )
 
 
-class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
-    """Async transport that removes the x-api-key header from every request.
-
-    Used when auth_mode='auth_token' to avoid sending both x-api-key and
-    Authorization headers simultaneously, which some proxies reject.
-
-    The request is reconstructed with ``extensions`` preserved so that
-    per-request configuration such as timeouts and SSE hints set by the
-    Anthropic SDK are not lost.
-    """
-
-    async def handle_async_request(
-        self,
-        request: httpx.Request,
-    ) -> httpx.Response:
-        filtered = [
-            (k, v)
-            for k, v in request.headers.items()
-            if k.lower() != "x-api-key"
-        ]
-        new_request = httpx.Request(
-            method=request.method,
-            url=request.url,
-            headers=filtered,
-            content=request.content,
-            extensions=request.extensions,
-        )
-        return await super().handle_async_request(new_request)
-
-
 class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
+
+    wire_protocol: ClassVar[str] = f"anthropic"
+
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Anthropic wire format supports explicit cache breakpoints."""
+        if model_id.startswith(f"claude-"):
+            return frozenset({f"anthropic"})
+        return super().cache_capabilities(model_id)
 
     max_inline_media_bytes: int = Field(
         default=MAX_INLINE_MEDIA_BYTES,
@@ -90,16 +80,26 @@ class AnthropicProvider(Provider):
     # Cached AsyncClient for auth_token mode; re-created when auth_mode
     # changes so that the transport is always consistent with the current
     # provider config.
-    _strip_http_client: httpx.AsyncClient | None = None
+    _strip_http_client: Any | None = None
+
+    async def close(self) -> None:
+        """Release the cached transport after replacing configuration."""
+        client, self._strip_http_client = self._strip_http_client, None
+        if client is not None:
+            await client.aclose()
 
     def _build_default_headers(self) -> Dict[str, str]:
-        return dict(self.custom_headers) if self.custom_headers else {}
+        return with_session_header(
+            dict(self.custom_headers) if self.custom_headers else {},
+            self.session_header_name,
+            self._request_session,
+        )
 
-    def _get_strip_http_client(self) -> httpx.AsyncClient:
-        """Return a cached AsyncClient backed by _StripApiKeyTransport."""
+    def _get_strip_http_client(self) -> Any:
+        """Use the SDK's client type and strip API keys before sending."""
         if self._strip_http_client is None:
-            self._strip_http_client = httpx.AsyncClient(
-                transport=_StripApiKeyTransport(),
+            self._strip_http_client = anthropic.DefaultAsyncHttpxClient(
+                event_hooks={f"request": [strip_api_key_header]},
             )
         return self._strip_http_client
 
@@ -108,20 +108,31 @@ class AnthropicProvider(Provider):
         if self.auth_mode == "auth_token":
             return anthropic.AsyncAnthropic(
                 auth_token=self.api_key,
-                base_url=self.base_url,
+                base_url=anthropic_base_url(self.base_url),
                 default_headers=default_headers,
                 http_client=self._get_strip_http_client(),
                 timeout=timeout,
             )
         return anthropic.AsyncAnthropic(
             api_key=self.api_key,
-            base_url=self.base_url,
+            base_url=anthropic_base_url(self.base_url),
             default_headers=default_headers,
             timeout=timeout,
         )
 
-    @staticmethod
-    def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
+    async def _close_client(
+        self,
+        client: anthropic.AsyncAnthropic,
+    ) -> None:
+        """Close one SDK client without closing a shared HTTP client."""
+        if self.auth_mode == "auth_token":
+            return
+        close = getattr(client, "close", None)
+        if close is not None:
+            await close()
+
+    @classmethod
+    def _normalize_models_payload(cls, payload: Any) -> List[ModelInfo]:
         if isinstance(payload, dict):
             rows = payload.get("data", [])
         else:
@@ -138,7 +149,27 @@ class AnthropicProvider(Provider):
 
             if not model_id:
                 continue
-            models.append(ModelInfo(id=model_id, name=model_name))
+            metadata: dict[str, Any] = {
+                **cls.parse_model_pricing(row),
+                f"released_at": release_date(
+                    getattr(row, f"created_at", None),
+                ),
+            }
+            context_window = getattr(row, f"max_input_tokens", None)
+            if (
+                isinstance(context_window, (int, float))
+                and context_window >= 1000
+            ):
+                metadata[f"max_input_length_auto_detected"] = int(
+                    context_window,
+                )
+                metadata[f"input_token_limit"] = int(context_window)
+                metadata[f"input_token_limit_source"] = f"api"
+            output_limit = getattr(row, f"max_tokens", None)
+            if type(output_limit) is int and output_limit > 0:
+                metadata[f"max_output_length"] = output_limit
+                metadata[f"max_output_length_source"] = f"api"
+            models.append(ModelInfo(id=model_id, name=model_name, **metadata))
 
         deduped: List[ModelInfo] = []
         seen: set[str] = set()
@@ -157,7 +188,7 @@ class AnthropicProvider(Provider):
         call so that custom proxies that only expose the messages API still
         pass the connection test.
         """
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             await client.models.list()
             return True, ""
@@ -175,6 +206,8 @@ class AnthropicProvider(Provider):
                 False,
                 f"Unknown exception when connecting to `{self.base_url}`",
             )
+        finally:
+            await self._close_client(client)
 
     async def _check_connection_via_messages(
         self,
@@ -203,20 +236,28 @@ class AnthropicProvider(Provider):
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
-        client = self._client(timeout=timeout)
-        payload = await client.models.list()
-        models = self._normalize_models_payload(payload)
-        return models
+        client = await run_sync_io(self._client, timeout=timeout)
+        try:
+            payload = await client.models.list()
+            if hasattr(payload, "__aiter__"):
+                rows = [row async for row in payload]
+                return self._normalize_models_payload(rows)
+            return self._normalize_models_payload(payload)
+        finally:
+            await self._close_client(client)
 
     async def check_model_connection(
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> tuple[bool, str]:
+    ) -> ModelConnectionResult:
         """Check if a specific model is reachable/usable."""
         target = (model_id or "").strip()
         if not target:
-            return False, "Empty model ID"
+            return ModelConnectionResult(
+                success=False,
+                message="Empty model ID",
+            )
 
         body = {
             "model": target,
@@ -234,38 +275,59 @@ class AnthropicProvider(Provider):
             ],
             "stream": True,
         }
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
-            client = self._client(timeout=timeout)
             resp = await client.messages.create(**body)
-            # consume the stream to ensure the model is actually responsive
-            async for _ in resp:
-                break
-            return True, ""
-        except anthropic.APIError:
-            return False, f"Model '{model_id}' is not reachable or usable"
-        except Exception:
-            return (
-                False,
-                f"Unknown exception when connecting to model '{model_id}'",
+            try:
+                # Consume one event to ensure the model is responsive.
+                async for _ in resp:
+                    break
+            finally:
+                await resp.close()
+            return ModelConnectionResult(success=True)
+        except anthropic.APIError as exc:
+            status = getattr(exc, "status_code", None)
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    f"Model '{model_id}' is not reachable or usable: "
+                    f"{self.connection_error_message(exc)}"
+                ),
+                http_status=status if isinstance(status, int) else None,
+                error_kind=(
+                    "permission_denied"
+                    if status in (401, 403)
+                    else "model_not_found"
+                    if status == 404
+                    else None
+                ),
             )
+        except Exception as exc:
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    f"Unknown exception when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+            )
+        finally:
+            await self._close_client(client)
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import AnthropicCredential
-        from agentscope.model import AnthropicChatModel
 
         effective_generate_kwargs = self.get_effective_generate_kwargs(
             model_id,
         )
-        max_tokens = effective_generate_kwargs.pop("max_tokens", 16384)
-
-        params_kwargs: Dict[str, Any] = {"max_tokens": max_tokens}
-        for key in ("thinking_enable", "thinking_budget"):
-            if key in effective_generate_kwargs:
-                params_kwargs[key] = effective_generate_kwargs.pop(key)
+        output_cap = self.resolve_model_info(model_id).max_output_length
+        parameters, effective_generate_kwargs = resolve_parameters(
+            effective_generate_kwargs,
+            output_cap,
+        )
 
         credential = AnthropicCredential(
             api_key=self.api_key or "",
-            base_url=self.base_url,
+            base_url=anthropic_base_url(self.base_url),
         )
 
         merged_headers = self._build_default_headers()
@@ -287,17 +349,15 @@ class AnthropicProvider(Provider):
             merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
         return _AnthropicChatModelCompat(
+            output_capacity=output_cap,
+            request_policy=self.prepare_request,
+            extra_generate_kwargs=effective_generate_kwargs,
             credential=credential,
             model=model_id,
-            parameters=AnthropicChatModel.Parameters(**params_kwargs),
+            parameters=parameters,
             stream=True,
             default_headers=merged_headers or None,
             auth_mode=getattr(self, "auth_mode", None),
-            strip_http_client=(
-                self._get_strip_http_client()
-                if getattr(self, "auth_mode", None) == "auth_token"
-                else None
-            ),
             context_size=self._get_context_size(model_id),
             formatter=_CappingAnthropicFormatter(
                 max_bytes=self.max_inline_media_bytes,
@@ -323,8 +383,8 @@ class AnthropicProvider(Provider):
         )
         if not img_ok:
             return ProbeResult(
-                supports_image=False,
-                supports_video=False,
+                supports_image=img_ok,
+                supports_video=None,
                 image_message=img_msg,
                 video_message="Skipped: image probe failed",
             )
@@ -350,7 +410,7 @@ class AnthropicProvider(Provider):
         self,
         model_id: str,
         timeout: float = 30,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe video support via Anthropic messages API.
 
         Tries a base64 probe video first; if the provider
@@ -358,9 +418,10 @@ class AnthropicProvider(Provider):
         Official Anthropic endpoints reject ``video`` blocks
         entirely; third-party providers may accept them.
         """
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Video probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
@@ -397,7 +458,7 @@ class AnthropicProvider(Provider):
         elapsed = time.monotonic() - start_time
         logger.info(
             "Video probe: model=%s ok=False %.2fs",
-            model_id,
+            log_model,
             elapsed,
         )
         return False, f"Video not supported: {last_err}"
@@ -411,14 +472,15 @@ class AnthropicProvider(Provider):
         start_time: float,
         is_http: bool = False,
         last_400: list[str] | None = None,
-    ) -> tuple[bool, str] | None:
+    ) -> tuple[bool | None, str] | None:
         """Try one video source format. Return None to try next.
 
         If a 400 error occurs and *last_400* is provided, the
         error summary is appended to help callers log the
         actual rejection reason.
         """
-        client = self._client(timeout=timeout)
+        log_model = sanitize_log_value(model_id)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             resp = await client.messages.create(
                 model=model_id,
@@ -478,31 +540,33 @@ class AnthropicProvider(Provider):
             err_type = type(e).__name__
             logger.warning(
                 "Video probe error: model=%s %s %s %.2fs",
-                model_id,
+                log_model,
                 err_type,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
-            if _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Video not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             err_type = type(e).__name__
             logger.warning(
                 "Video probe error: model=%s %s %s %.2fs",
-                model_id,
+                log_model,
                 err_type,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
 
     async def _probe_image_support(
         self,
         model_id: str,
         timeout: float = 10,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe image support via Anthropic messages API.
 
         Uses a two-stage check (same strategy as OpenAIProvider):
@@ -514,13 +578,14 @@ class AnthropicProvider(Provider):
            processing them, so a pure API-error check would produce
            false positives.
         """
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Image probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             resp = await client.messages.create(
                 model=model_id,
@@ -558,144 +623,24 @@ class AnthropicProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             status = getattr(e, "status_code", None)
-            if status == 400 or _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
-
-
-class _AnthropicChatModelCompat:
-    """Mixin wrapper around ``AnthropicChatModel`` that injects custom headers
-    and supports ``auth_token`` mode.
-
-    Constructed lazily so the import-heavy ``AnthropicChatModel`` doesn't slow
-    module load when Anthropic is not configured.
-    """
-
-    def __new__(cls, **kwargs: Any) -> Any:
-        from agentscope.model import AnthropicChatModel
-
-        default_headers = kwargs.pop("default_headers", None)
-        auth_mode = kwargs.pop("auth_mode", None)
-        strip_http_client = kwargs.pop("strip_http_client", None)
-
-        class _Compat(AnthropicChatModel):
-            _qp_default_headers = default_headers
-            _qp_auth_mode = auth_mode
-            _qp_strip_http_client = strip_http_client
-            _qp_cached_client: Any = None
-            _qp_cached_client_key: tuple = ()
-
-            def _get_or_create_client(self) -> Any:
-                """Return a cached AsyncAnthropic client, rebuilding only when
-                credential or base_url changes."""
-                key = (
-                    self.credential.base_url,
-                    self.credential.api_key.get_secret_value(),
-                    id(self._qp_default_headers),
-                    self._qp_auth_mode,
-                )
-                if (
-                    self._qp_cached_client is not None
-                    and self._qp_cached_client_key == key
-                ):
-                    return self._qp_cached_client
-
-                client_kwargs: Dict[str, Any] = {
-                    "base_url": self.credential.base_url,
-                }
-                if self._qp_default_headers:
-                    client_kwargs["default_headers"] = self._qp_default_headers
-                if self._qp_auth_mode == "auth_token":
-                    client_kwargs[
-                        "auth_token"
-                    ] = self.credential.api_key.get_secret_value()
-                    if self._qp_strip_http_client is not None:
-                        client_kwargs[
-                            "http_client"
-                        ] = self._qp_strip_http_client
-                else:
-                    client_kwargs[
-                        "api_key"
-                    ] = self.credential.api_key.get_secret_value()
-
-                self._qp_cached_client = anthropic.AsyncAnthropic(
-                    **client_kwargs,
-                )
-                self._qp_cached_client_key = key
-                return self._qp_cached_client
-
-            async def _call_api(
-                self,
-                model_name,
-                messages,
-                tools=None,
-                tool_choice=None,
-                **generate_kwargs,
-            ):
-                client = self._get_or_create_client()
-
-                # Translate the neutral ``disable_thinking`` flag
-                if generate_kwargs.pop("disable_thinking", False):
-                    generate_kwargs["thinking"] = {"type": "disabled"}
-
-                max_tokens = self.parameters.max_tokens or 8192
-                kw: Dict[str, Any] = {
-                    "model": model_name,
-                    "max_tokens": max_tokens,
-                    "stream": self.stream,
-                    **generate_kwargs,
-                }
-                if self.parameters.thinking_enable and "thinking" not in kw:
-                    budget = self.parameters.thinking_budget or (
-                        max_tokens // 2
-                    )
-                    if budget >= max_tokens:
-                        max_tokens = budget + 1024
-                        kw["max_tokens"] = max_tokens
-                    kw["thinking"] = {
-                        "type": "enabled",
-                        "budget_tokens": budget,
-                    }
-
-                fmt_tools, fmt_tc = self._format_tools(tools, tool_choice)
-                if fmt_tools:
-                    kw["tools"] = fmt_tools
-                if fmt_tc is not None:
-                    kw["tool_choice"] = fmt_tc
-
-                formatted = await self.formatter.format(messages)
-                if formatted and formatted[0]["role"] == "system":
-                    kw["system"] = formatted[0]["content"]
-                    formatted = formatted[1:]
-                kw["messages"] = formatted
-
-                start = datetime.now()
-                response = await client.messages.create(**kw)
-
-                if self.stream:
-                    return self._parse_anthropic_stream_completion_response(
-                        start,
-                        response,
-                    )
-                return await self._parse_anthropic_completion_response(
-                    start,
-                    response,
-                )
-
-        return _Compat(**kwargs)
+            return None, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)

@@ -8,6 +8,7 @@ import {
   DOWNLOADS_PANEL_IDS,
   DOWNLOADS_TAB_IDS,
   DownloadsHeader,
+  DownloadsOpenSourceNotice,
   type DownloadsTab,
 } from "./components/DownloadsHeader";
 import { PluginsSection } from "./components/PluginsSection";
@@ -192,6 +193,7 @@ export default function Downloads() {
             <p className="text-base text-site-text-muted md:text-lg">
               {t("downloads.subtitle")}
             </p>
+            <DownloadsOpenSourceNotice className="mt-2" />
           </header>
         )}
 

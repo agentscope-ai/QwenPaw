@@ -662,30 +662,63 @@ qwenpaw chats delete <chat_id>
 
 ### qwenpaw skills
 
-| 命令                       | 说明                               |
-| -------------------------- | ---------------------------------- |
-| `qwenpaw skills install`   | 从受支持的 URL 来源安装技能        |
-| `qwenpaw skills uninstall` | 从技能池或单个智能体工作区移除技能 |
-| `qwenpaw skills list`      | 列出所有技能及启用/禁用状态        |
-| `qwenpaw skills config`    | 交互式启用/禁用技能（复选框界面）  |
-| `qwenpaw skills info`      | 查看某个 workspace 技能的本地详情  |
-
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+| 用法                                   | 位置参数                             | 选项                                                                                                                                                 |
+| -------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qwenpaw skills list`                  | 无                                   | `--agent-id ID`（默认 `default`）或 `--pool`；workspace 支持 `--status all\|enabled\|disabled`（默认 `all`），Pool 不支持状态筛选                    |
+| `qwenpaw skills config`                | 无                                   | `--agent-id ID`（默认 `default`）；仅支持 workspace                                                                                                  |
+| `qwenpaw skills enable SKILL_NAME...`  | 一个或多个精确的 workspace 技能名    | `--agent-id ID`（默认 `default`）                                                                                                                    |
+| `qwenpaw skills disable SKILL_NAME...` | 一个或多个精确的 workspace 技能名    | `--agent-id ID`（默认 `default`）                                                                                                                    |
+| `qwenpaw skills info SKILL_NAME`       | 一个精确的技能名                     | `--agent-id ID`（默认 `default`）或 `--pool`                                                                                                         |
+| `qwenpaw skills install LOCATION`      | 支持来源的技能 URL，或本地技能目录   | `--pool`（URL 默认）、`--agent-id ID` 或 `--workspace PATH`（仅本地目录）；`--enable/--no-enable` 仅支持 workspace（默认启用）；`--json`             |
+| `qwenpaw skills uninstall SKILL_NAME`  | 一个精确的技能名                     | `--pool` 从 Pool 删除；`--agent-id ID` 从该 workspace 删除；二者互斥；为兼容旧用法，两者都不传时仍操作 Pool                                          |
+| `qwenpaw skills test SKILL`            | 本地技能目录，或作用域内的精确技能名 | `--agent-id ID`（按名称查找时默认 `default`）、`--pool` 或 `--workspace PATH`；agent 命令检查可用 `--base-url URL` 指定服务；`--json` 返回结构化结果 |
 
 ```bash
-qwenpaw skills install https://skills.sh/owner/repo/skill  # 导入到本地技能池
+qwenpaw skills install https://skills.sh/owner/repo/skill --pool  # 导入到本地技能池
 qwenpaw skills install https://skills.sh/owner/repo/skill --agent-id abc123  # 直接导入到特定智能体工作区
-qwenpaw skills uninstall skill-creator  # 从本地技能池移除
+qwenpaw skills install ./my_skill --agent-id abc123  # 导入本地编写或解压好的技能
+qwenpaw skills uninstall skill-creator --pool  # 从本地技能池移除
 qwenpaw skills uninstall skill-creator --agent-id abc123  # 从特定智能体工作区移除
-qwenpaw skills list                   # 看默认智能体的技能
+qwenpaw skills list --status enabled      # 只列出默认智能体已启用的技能
+qwenpaw skills list --pool                # 列出共享 Pool（Pool 没有启用状态）
 qwenpaw skills list --agent-id abc123 # 看特定智能体的技能
-qwenpaw skills config                 # 交互式配置默认智能体
+qwenpaw skills config                 # 交互式配置已安装技能
 qwenpaw skills config --agent-id abc123 # 交互式配置特定智能体
+qwenpaw skills enable pdf docx --agent-id abc123  # 按精确名称批量启用
+qwenpaw skills disable pdf --agent-id abc123      # 禁用但不卸载
 qwenpaw skills info [skill_name]               # 看默认智能体的技能详情
+qwenpaw skills info [skill_name] --pool        # 看 Pool 中的技能详情
 qwenpaw skills info [skill_name] --agent-id abc123 # 看特定智能体的技能详情
+
+# 检查已安装的技能
+qwenpaw skills test my_skill --agent-id abc123
+
+# 检查本地目录，不默认绑定智能体
+qwenpaw skills test ./my_skill
+
+# 同时检查目标 MCP 配置和命令名称
+qwenpaw skills test ./my_skill --agent-id abc123
+
+# 使用明确的工作区，返回机器可读结果
+qwenpaw skills test ./my_skill --workspace /path/to/workspace --json
 ```
 
-交互界面中：↑/↓ 选择、空格 切换、回车 确认。确认前会预览变更。
+`install` 下载 URL 指向的技能，或将本地目录复制到工作区并登记。本地目录必须指定
+`--agent-id` 或 `--workspace`，不覆盖已有技能。`--workspace` 不能与 `--agent-id`
+或 `--pool` 同时使用。
+
+`test` 检查包格式、安全和声明的依赖，不执行技能。`test` 和 `install` 支持
+`--json`，结果包含 `ok`，失败时返回非零退出码。
+
+安全检查（包括 make-skill 发布）遵循 `security.skill_scanner.mode`：`block`
+阻止不安全结果，`warn` 告警但允许继续，`off` 不扫描。环境变量
+`QWENPAW_SKILL_SCAN_MODE` 可覆盖该设置。
+
+`skills config` 的复选框中可直接输入连续文本，即时缩小候选范围，无需用 ↑/↓
+逐条寻找；↑/↓ 仍可移动，空格切换，回车确认。
+当前已启用项始终保持勾选，搜索隐藏的选择不会丢失，确认前会预览变更。
+`config`、`enable`、`disable` 只适用于 workspace，因为共享 Pool 没有启用/禁用状态。
+支持 `--pool` 的命令中，`--pool` 与 `--agent-id` 不能同时使用。
 
 > 内置技能说明和自定义技能编写方法，请看 [技能](./skills)。
 
@@ -766,7 +799,7 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 | `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    部分需要 ¹     |
 | `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |      **是**       |
 | `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |      **是**       |
-| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `info`                                 |        否         |
+| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `enable` · `disable` · `info` · `test` |        否         |
 | `qwenpaw task`      | —                                                                                    |        否         |
 | `qwenpaw auth`      | `reset-password`                                                                     |        否         |
 | `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        否         |

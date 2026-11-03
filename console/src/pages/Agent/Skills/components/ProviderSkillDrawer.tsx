@@ -1,4 +1,5 @@
-import { Button, Drawer } from "@agentscope-ai/design";
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
+import { Button } from "@agentscope-ai/design";
 import { LockKeyhole } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { HarnessDiscoveredSkill } from "../../../../api/modules/harness";

@@ -8,10 +8,12 @@ function recordOf(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** Render the Runtime Task progress contract; always normalized to [0, 1]. */
+/** Provider video jobs expose polling milestones, not measurable completion. */
 export function taskProgressPercent(
   progress: number | null | undefined,
+  kind: string,
 ): number | null {
+  if (kind === "r2v_generation" || kind === "video") return null;
   if (progress == null || !Number.isFinite(progress)) return null;
   return Math.round(Math.max(0, Math.min(1, progress)) * 100);
 }

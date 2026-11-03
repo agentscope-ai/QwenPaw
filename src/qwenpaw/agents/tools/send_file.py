@@ -11,6 +11,7 @@ from agentscope.message import ToolResultState
 from agentscope.message import TextBlock, DataBlock, URLSource
 
 from ...runtime.tool_registry import tool_descriptor
+from ...utils.outbound_media import stage_outbound_file
 from .file_io import _resolve_file_path, _path_to_file_url
 
 
@@ -44,8 +45,18 @@ async def send_file_to_user(
     file_path = unquote(file_path)
     file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
 
-    # Resolve relative paths to absolute paths based on workspace directory
-    file_path = _resolve_file_path(file_path)
+    # Join a relative path onto the primary project dir. NOT a containment
+    # check — access is gated by the governance rules and the guard chain
+    # (see ``_resolve_file_path``). The guard is only for malformed input
+    # that ``Path`` itself rejects (e.g. an embedded NUL byte).
+    try:
+        file_path = _resolve_file_path(file_path)
+    except ValueError as e:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(text=f"Error: {e}")],
+        )
 
     if not os.path.exists(file_path):
         return ToolChunk(
@@ -76,7 +87,8 @@ async def send_file_to_user(
         mime_type = "application/octet-stream"
 
     try:
-        file_url = _path_to_file_url(file_path)
+        snapshot = await stage_outbound_file(file_path)
+        file_url = _path_to_file_url(str(snapshot))
 
         return ToolChunk(
             is_last=True,

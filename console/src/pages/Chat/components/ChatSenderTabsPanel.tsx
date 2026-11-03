@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { message, Tooltip } from "antd";
 import {
-  SparkClearLine,
-  SparkErrorCircleLine,
-  SparkPauseLine,
-  SparkPlayFill,
-  SparkStopCircleLine,
-} from "@agentscope-ai/icons";
+  Eraser as SparkClearLine,
+  CircleAlert as SparkErrorCircleLine,
+  Pause as SparkPauseLine,
+  Play as SparkPlayFill,
+  CircleStop as SparkStopCircleLine,
+} from "lucide-react";
 import { useTheme } from "../../../contexts/ThemeContext";
 import {
   selectTasksForSession,
@@ -65,6 +65,7 @@ export default function ChatSenderTabsPanel({
     (s) => s.runStates[queueSessionId] ?? "idle",
   );
   const [batchBusy, setBatchBusy] = useState(false);
+  const [showFinished, setShowFinished] = useState(false);
 
   const sessionTasks = useMemo(
     () => selectTasksForSession(tasks, bgSessionId),
@@ -72,6 +73,13 @@ export default function ChatSenderTabsPanel({
   );
   const runningTasks = useMemo(
     () => sessionTasks.filter((task) => task.status === "running"),
+    [sessionTasks],
+  );
+  const finishedTasks = useMemo(
+    () =>
+      sessionTasks.filter(
+        (task) => task.status === "done" || task.status === "cancelled",
+      ),
     [sessionTasks],
   );
 
@@ -115,26 +123,16 @@ export default function ChatSenderTabsPanel({
     }
   }, [runningTasks, batchBusy, t]);
 
-  const handleClearAll = useCallback(async () => {
-    if (sessionTasks.length === 0 || batchBusy) return;
-    setBatchBusy(true);
-    try {
-      await Promise.allSettled(
-        runningTasks.map((task) =>
-          cancelBackgroundTask(task.sessionId, task.toolCallId),
-        ),
-      );
-      for (const task of sessionTasks) {
-        stopBackgroundTaskWatcher(task.toolCallId);
-      }
-      removeTasks(sessionTasks.map((task) => task.toolCallId));
-      message.info(
-        t("tool.control.bgQueue.clearAllDone", "Cleared background task list"),
-      );
-    } finally {
-      setBatchBusy(false);
+  const handleClearFinished = useCallback(() => {
+    if (finishedTasks.length === 0 || batchBusy) return;
+    for (const task of finishedTasks) {
+      stopBackgroundTaskWatcher(task.toolCallId);
     }
-  }, [sessionTasks, runningTasks, batchBusy, removeTasks, t]);
+    removeTasks(finishedTasks.map((task) => task.toolCallId));
+    message.info(
+      t("tool.control.bgQueue.clearAllDone", "Cleared completed tasks"),
+    );
+  }, [finishedTasks, batchBusy, removeTasks, t]);
 
   if (!hasBg && !hasQueue) return null;
 
@@ -183,10 +181,16 @@ export default function ChatSenderTabsPanel({
     alignItems: "center" as const,
   };
 
+  const bgBadgeCount = hasRunningBg
+    ? runningTasks.length
+    : showFinished && finishedTasks.length > 0
+    ? finishedTasks.length
+    : null;
+
   const renderTab = (
     key: TabKey,
     label: string,
-    count: number,
+    count: number | null,
     badgeBg: string,
     badgeColor: string,
   ) => {
@@ -218,18 +222,20 @@ export default function ChatSenderTabsPanel({
         }}
       >
         <span>{label}</span>
-        <span
-          style={{
-            fontSize: 11,
-            padding: "0 6px",
-            borderRadius: 10,
-            background: badgeBg,
-            color: badgeColor,
-            lineHeight: "16px",
-          }}
-        >
-          {count}
-        </span>
+        {count != null && (
+          <span
+            style={{
+              fontSize: 11,
+              padding: "0 6px",
+              borderRadius: 10,
+              background: badgeBg,
+              color: badgeColor,
+              lineHeight: "16px",
+            }}
+          >
+            {count}
+          </span>
+        )}
       </button>
     );
   };
@@ -237,6 +243,25 @@ export default function ChatSenderTabsPanel({
   const tabActions =
     activeTab === "bg" && hasBg ? (
       <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 11,
+            color: textColor,
+            cursor: "pointer",
+            userSelect: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showFinished}
+            onChange={(e) => setShowFinished(e.target.checked)}
+          />
+          {t("tool.control.bgQueue.showFinished", "Show completed")}
+        </label>
         <button
           type="button"
           disabled={batchBusy || !hasRunningBg}
@@ -247,27 +272,33 @@ export default function ChatSenderTabsPanel({
             cursor: batchBusy || !hasRunningBg ? "not-allowed" : "pointer",
           }}
         >
-          <SparkStopCircleLine style={{ ...chipIconStyle, color: "#ff4d4f" }} />
+          <SparkStopCircleLine
+            size="1em"
+            style={{ ...chipIconStyle, color: "#ff4d4f" }}
+          />
           <span style={chipLabelStyle}>
             {t("tool.control.bgQueue.cancelAll", "Cancel all")}
           </span>
         </button>
         <button
           type="button"
-          disabled={batchBusy || sessionTasks.length === 0}
-          onClick={() => void handleClearAll()}
+          disabled={batchBusy || finishedTasks.length === 0}
+          onClick={handleClearFinished}
           style={{
             ...chipBtnStyle,
-            opacity: batchBusy || sessionTasks.length === 0 ? 0.45 : 1,
+            opacity: batchBusy || finishedTasks.length === 0 ? 0.45 : 1,
             cursor:
-              batchBusy || sessionTasks.length === 0
+              batchBusy || finishedTasks.length === 0
                 ? "not-allowed"
                 : "pointer",
           }}
         >
-          <SparkClearLine style={{ ...chipIconStyle, color: mutedColor }} />
+          <SparkClearLine
+            size="1em"
+            style={{ ...chipIconStyle, color: mutedColor }}
+          />
           <span style={chipLabelStyle}>
-            {t("tool.control.bgQueue.clearAll", "Clear all")}
+            {t("tool.control.bgQueue.clearAll", "Clear completed")}
           </span>
         </button>
       </div>
@@ -289,7 +320,10 @@ export default function ChatSenderTabsPanel({
               marginRight: 2,
             }}
           >
-            <SparkErrorCircleLine style={{ fontSize: 11, display: "block" }} />
+            <SparkErrorCircleLine
+              size="1em"
+              style={{ fontSize: 11, display: "block" }}
+            />
             {t("chat.queue.sendFailed")}
           </span>
         )}
@@ -308,9 +342,15 @@ export default function ChatSenderTabsPanel({
             }
           >
             {isPausedOrError ? (
-              <SparkPlayFill style={{ ...chipIconStyle, color: "#52c41a" }} />
+              <SparkPlayFill
+                size="1em"
+                style={{ ...chipIconStyle, color: "#52c41a" }}
+              />
             ) : (
-              <SparkPauseLine style={{ ...chipIconStyle, color: "#faad14" }} />
+              <SparkPauseLine
+                size="1em"
+                style={{ ...chipIconStyle, color: "#faad14" }}
+              />
             )}
             <span style={chipLabelStyle}>
               {isPausedOrError ? t("chat.queue.resume") : t("chat.queue.pause")}
@@ -325,7 +365,10 @@ export default function ChatSenderTabsPanel({
               style={chipBtnStyle}
               aria-label={t("chat.queue.clear")}
             >
-              <SparkClearLine style={{ ...chipIconStyle, color: mutedColor }} />
+              <SparkClearLine
+                size="1em"
+                style={{ ...chipIconStyle, color: mutedColor }}
+              />
               <span style={chipLabelStyle}>{t("chat.queue.clear")}</span>
             </button>
           </Tooltip>
@@ -370,13 +413,13 @@ export default function ChatSenderTabsPanel({
               t("chat.queue.title", "Message queue"),
               queueItems.length,
               isDark ? "rgba(24,144,255,0.2)" : "rgba(24,144,255,0.12)",
-              "#1677ff",
+              "var(--app-accent-text)",
             )}
           {hasBg &&
             renderTab(
               "bg",
               t("tool.control.bgQueue.title", "Background tasks"),
-              sessionTasks.length,
+              bgBadgeCount,
               bgBadgeBg,
               bgBadgeColor,
             )}
@@ -397,7 +440,11 @@ export default function ChatSenderTabsPanel({
 
       <div style={{ padding: "8px 12px" }}>
         {activeTab === "bg" && hasBg && (
-          <BackgroundTaskPanel sessionId={bgSessionId} embedded />
+          <BackgroundTaskPanel
+            sessionId={bgSessionId}
+            embedded
+            showFinished={showFinished}
+          />
         )}
         {activeTab === "queue" && hasQueue && (
           <MessageQueuePanel

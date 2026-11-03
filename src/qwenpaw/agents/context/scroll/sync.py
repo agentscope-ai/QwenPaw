@@ -7,8 +7,8 @@ populated live by :class:`ScrollContextManager`. Messages from before scroll
 was enabled (or that never write-through'd) exist *only* in the session file,
 invisible to recall.
 
-On startup we scan every scroll-enabled agent's ``sessions/`` directory and
-import each session's saved messages into its ``history.db``. The import is:
+During an agent's first startup we import its legacy session files. A durable
+completion record skips all subsequent scans for that agent. The import is:
 
 * **Non-destructive** — session files are read-only; we only write
   ``history.db`` and the ``.synced.json`` manifest.
@@ -16,7 +16,7 @@ import each session's saved messages into its ``history.db``. The import is:
   live writer uses (``ScrollContextManager._persist_new``), so re-runs and
   concurrent live writes collide on the DB's ``ux_dedup`` UNIQUE index and add
   nothing. The ``.synced.json`` manifest also lets re-runs skip unchanged
-  files without re-reading them.
+  files without parsing them again during an unfinished migration.
 * **Faithful** — conversion uses the live path's serializer
   (:func:`msg_to_entries`), so a synced row matches what the agent would have
   written itself.
@@ -31,6 +31,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
+import time
+from concurrent.futures import CancelledError
+from contextlib import ExitStack
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -38,8 +42,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentscope.message import Msg
+from filelock import FileLock, Timeout
 
 from .serialize import msg_to_entries
+from ....utils.io_utils import write_json_atomic
 
 if TYPE_CHECKING:
     from .history import HistoryStore
@@ -49,6 +55,8 @@ logger = logging.getLogger(__name__)
 MANIFEST_NAME = ".synced.json"
 _MANIFEST_VERSION = 2
 _SESSION_PREFIX = "sync:"
+MIGRATION_KEY = "registered-sessions-v1"
+PENDING_MIGRATION = ".scroll-migration-pending"
 
 
 @dataclass
@@ -188,10 +196,12 @@ class SyncPreflight:
     registry_error: str | None = None
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, stop: threading.Event | None = None) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
+            if stop is not None and stop.is_set():
+                raise CancelledError()
             h.update(chunk)
     return h.hexdigest()
 
@@ -215,17 +225,7 @@ def _load_manifest(manifest_path: Path) -> dict:
 
 
 def _save_manifest(manifest_path: Path, manifest: dict) -> None:
-    try:
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        logger.warning(
-            "session-sync: could not write manifest %s: %s",
-            manifest_path,
-            exc,
-        )
+    write_json_atomic(manifest_path, manifest)
 
 
 def _extract_session(
@@ -297,6 +297,7 @@ def _sync_file(
     dry_run: bool = False,
     cutoff: str | None = None,
     legacy_session_ids: set[str] | None = None,
+    stop: threading.Event | None = None,
 ) -> FileResult:
     """Import one ``sessions/*.json`` file into ``conversation_history``.
 
@@ -341,6 +342,8 @@ def _sync_file(
 
     pending_entries = []
     for row_index, msg in enumerate(messages):
+        if stop is not None and stop.is_set():
+            raise CancelledError()
         # Skip messages older than the retention window so we don't import rows
         # the same-boot purge would immediately delete. NULL timestamps are
         # kept (purge skips them too).
@@ -378,21 +381,25 @@ def _sync_file(
     res.legacy_session_ids = sorted(source_ids)
 
     if not dry_run:
-        dedup_keys = {
-            str(dedup_key)
-            for _entry, dedup_key in pending_entries
-            if dedup_key
-        }
-        (
-            res.rows_rekeyed,
-            res.rows_deduplicated,
-            res.agent_rows_claimed,
-        ) = history.reconcile_session_rows(
-            source_ids,
-            session_id,
-            dedup_keys,
-            agent_id=agent_id,
-        )
+        # Bound writer occupancy and cancellation latency for large sessions.
+        for offset in range(0, len(pending_entries), 500):
+            if stop is not None and stop.is_set():
+                raise CancelledError()
+            batch = pending_entries[offset : offset + 500]
+            dedup_keys = {str(key) for _entry, key in batch if key}
+            moved, removed = history.reconcile_session_rows(
+                source_ids,
+                session_id,
+                dedup_keys,
+                agent_id=agent_id,
+            )
+            res.rows_rekeyed += moved
+            res.rows_deduplicated += removed
+            res.rows_inserted += history.append_many(
+                session_id=session_id,
+                agent_id=agent_id,
+                entries=batch,
+            )
         if res.rows_rekeyed or res.rows_deduplicated:
             logger.info(
                 "session-sync: reconciled %s -> %s "
@@ -402,23 +409,13 @@ def _sync_file(
                 res.rows_rekeyed,
                 res.rows_deduplicated,
             )
-
-        # One transaction per source file. The old per-row append path
-        # committed every event independently, making migration time
-        # proportional to disk fsync latency.
-        res.rows_inserted = history.append_many(
-            session_id=session_id,
-            agent_id=agent_id,
-            entries=pending_entries,
-        )
     return res
 
 
 def _skip_is_safe(history: "HistoryStore", prior: dict) -> bool:
     """Whether a manifest hit can be trusted to skip re-reading the file.
 
-    The DB can be rebuilt under the manifest: ``HistoryStore`` quarantines a
-    corrupt ``history.db`` and opens a fresh empty one, while ``.synced.json``
+    An explicit recovery can rebuild the DB while ``.synced.json``
     survives. A blind hash-skip would then leave the session missing from the
     rebuilt DB. So we verify: skip is safe only if the session still has rows
     in *this* DB. A manifest with no rows is trivially safe; an empty session
@@ -585,14 +582,17 @@ def sync_sessions_to_history(
     agent_id: str | None = None,
     dry_run: bool = False,
     use_manifest: bool = True,
+    force: bool = False,
     retention_days: int = 0,
     preflight: SyncPreflight | None = None,
+    stop: threading.Event | None = None,
 ) -> SyncReport:
     """Import every ``sessions/*.json`` under *sessions_dir* into *history*.
 
     Returns a :class:`SyncReport`. Safe to call repeatedly: unchanged files are
     skipped via the manifest and the DB's UNIQUE index makes re-appends no-ops.
     Never deletes or rewrites the source session files.
+    ``force`` retains manifest provenance but ignores its completion proofs.
 
     ``retention_days`` (0 = keep forever) skips messages older than the window,
     so we don't import rows the same-boot purge would delete. A fully aged-out
@@ -632,92 +632,129 @@ def sync_sessions_to_history(
     canonical_ids = resolved.registry.mapping
     stem_counts = Counter(path.stem for path, _rel_name in session_files)
     dirty = False
+    cached_files = dict(files_meta)
+    if use_manifest and not dry_run and files_meta:
+        # Retire old completion proofs once, before any partial batch writes.
+        # Keep provenance, and restore hashes only for completed files below.
+        for name, meta in cached_files.items():
+            files_meta[name] = {**meta, "sha256": None}
+        _save_manifest(manifest_path, manifest)
 
-    for path, rel_name in session_files:
-        canonical_id = canonical_ids.get(rel_name)
-        if canonical_id is None:
-            _report_orphan(report, rel_name)
-            continue
+    try:
+        for index, (path, rel_name) in enumerate(session_files, start=1):
+            if stop is not None and stop.is_set():
+                raise CancelledError()
+            canonical_id = canonical_ids.get(rel_name)
+            if canonical_id is None:
+                _report_orphan(report, rel_name)
+                continue
 
-        try:
-            digest = _sha256(path)
-        except OSError as exc:
-            report.files.append(
-                FileResult(filename=rel_name, errored=True),
+            try:
+                digest = (
+                    _sha256(path, stop) if use_manifest and not force else ""
+                )
+            except OSError as exc:
+                report.files.append(
+                    FileResult(filename=rel_name, errored=True),
+                )
+                logger.warning("session-sync: cannot read %s: %s", path, exc)
+                continue
+
+            prior = cached_files.get(rel_name)
+            manifest_matches = bool(
+                use_manifest
+                and not force
+                and prior
+                and prior.get("sha256") == digest,
             )
-            logger.warning("session-sync: cannot read %s: %s", path, exc)
-            continue
-
-        prior = files_meta.get(rel_name)
-        manifest_matches = bool(
-            use_manifest and prior and prior.get("sha256") == digest,
-        )
-        canonical_matches = bool(
-            prior and prior.get("session_id") == canonical_id,
-        )
-        if not dry_run:
-            history.claim_session(canonical_id, agent_id)
-        should_skip = False
-        if manifest_matches and canonical_matches:
-            assert prior is not None
-            should_skip = _skip_is_safe(history, prior)
-        if should_skip:
-            assert prior is not None
-            report.files.append(
-                FileResult(
-                    filename=rel_name,
-                    session_id=prior.get("session_id", ""),
-                    rows_inserted=int(prior.get("rows_inserted", 0)),
-                    skipped=True,
-                ),
+            canonical_matches = bool(
+                prior and prior.get("session_id") == canonical_id,
             )
-            continue
+            if not dry_run:
+                claimed = history.claim_session(canonical_id, agent_id)
+            should_skip = False
+            if manifest_matches and canonical_matches:
+                assert prior is not None
+                should_skip = _skip_is_safe(history, prior)
+            if should_skip:
+                assert prior is not None
+                if not dry_run:
+                    files_meta[rel_name] = prior
+                    dirty = True
+                report.files.append(
+                    FileResult(
+                        filename=rel_name,
+                        session_id=prior.get("session_id", ""),
+                        rows_inserted=int(prior.get("rows_inserted", 0)),
+                        agent_rows_claimed=claimed if not dry_run else 0,
+                        skipped=True,
+                    ),
+                )
+                continue
 
-        legacy_session_ids: set[str] = set()
-        prior_session_id = str(prior.get("session_id") or "") if prior else ""
-        if prior_session_id and prior_session_id != canonical_id:
-            legacy_session_ids.add(prior_session_id)
-        if prior:
-            legacy_session_ids.update(
-                str(source_id)
-                for source_id in prior.get("legacy_session_ids_checked", ())
-                if source_id
+            legacy_session_ids: set[str] = set()
+            prior_session_id = (
+                str(prior.get("session_id") or "") if prior else ""
             )
-        if stem_counts[path.stem] == 1:
-            legacy_session_ids.add(f"{_SESSION_PREFIX}{path.stem}")
+            if prior_session_id and prior_session_id != canonical_id:
+                legacy_session_ids.add(prior_session_id)
+            if prior:
+                legacy_session_ids.update(
+                    str(source_id)
+                    for source_id in prior.get(
+                        "legacy_session_ids_checked",
+                        (),
+                    )
+                    if source_id
+                )
+            if stem_counts[path.stem] == 1:
+                legacy_session_ids.add(f"{_SESSION_PREFIX}{path.stem}")
 
-        res = _sync_file(
-            history,
-            path,
-            rel_name,
-            session_id=canonical_id,
-            agent_id=agent_id,
-            dry_run=dry_run,
-            cutoff=cutoff,
-            legacy_session_ids=legacy_session_ids,
-        )
-        report.files.append(res)
-        if res.errored:
-            continue
-        logger.debug(
-            "session-sync: %s -> %s (%d inserted, %d processed, %d bad)",
-            rel_name,
-            res.session_id,
-            res.rows_inserted,
-            res.rows_processed,
-            res.unparseable,
-        )
-        if use_manifest and not dry_run:
-            files_meta[rel_name] = {
-                "sha256": digest,
-                "session_id": res.session_id,
-                "messages": res.messages,
-                "aged_out": res.aged_out,
-                "rows_processed": res.rows_processed,
-                "rows_inserted": res.rows_inserted,
-                "legacy_session_ids_checked": res.legacy_session_ids,
-            }
-            dirty = True
+            res = _sync_file(
+                history,
+                path,
+                rel_name,
+                session_id=canonical_id,
+                agent_id=agent_id,
+                dry_run=dry_run,
+                cutoff=cutoff,
+                legacy_session_ids=legacy_session_ids,
+                stop=stop,
+            )
+            report.files.append(res)
+            res.agent_rows_claimed = claimed if not dry_run else 0
+            if res.errored or res.unparseable:
+                continue
+            logger.debug(
+                "session-sync: %s -> %s (%d inserted, %d processed, %d bad)",
+                rel_name,
+                res.session_id,
+                res.rows_inserted,
+                res.rows_processed,
+                res.unparseable,
+            )
+            if use_manifest and not dry_run:
+                files_meta[rel_name] = {
+                    "sha256": digest,
+                    "session_id": res.session_id,
+                    "messages": res.messages,
+                    "aged_out": res.aged_out,
+                    "rows_processed": res.rows_processed,
+                    "rows_inserted": res.rows_inserted,
+                    "legacy_session_ids_checked": res.legacy_session_ids,
+                }
+                dirty = True
+                if index % 100 == 0:
+                    _save_manifest(manifest_path, manifest)
+                    logger.info(
+                        "session-sync[%s]: processed %d/%d files",
+                        agent_id,
+                        index,
+                        len(session_files),
+                    )
+    finally:
+        if use_manifest and not dry_run and dirty:
+            _save_manifest(manifest_path, manifest)
 
     if report.orphaned_files:
         logger.warning(
@@ -728,180 +765,116 @@ def sync_sessions_to_history(
             chats_path,
         )
 
-    if use_manifest and not dry_run and dirty:
-        _save_manifest(manifest_path, manifest)
-
     return report
 
 
 # pylint: enable=too-many-branches,too-many-statements
 
 
-def _purge_old_history(
-    history: HistoryStore,
+def migrate_agent_history(
+    history: "HistoryStore",
+    workspace_dir: Path,
+    agent_id: str,
     retention_days: int,
-    agent_id: str | None = None,
+    stop: threading.Event,
 ) -> None:
-    """Drop history rows older than ``retention_days`` (0 = keep forever).
-
-    Runs on every startup so the store still shrinks even if the agent was
-    killed before its teardown purge could run. Best-effort: a failure is
-    logged and never aborts the sync.
-    """
-    if retention_days <= 0:
+    """Complete legacy migration once, before this agent accepts work."""
+    pending = workspace_dir / PENDING_MIGRATION
+    if not pending.exists() and history.migration_complete(
+        agent_id,
+        MIGRATION_KEY,
+    ):
+        logger.debug("session-sync[%s]: already complete", agent_id)
         return
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=retention_days)
-    ).isoformat()
-    try:
-        removed = history.purge(before=cutoff)
-    except Exception as exc:  # noqa: BLE001 - retention must never break boot
-        logger.warning(
-            "session-sync[%s]: retention purge failed: %s",
+
+    # Native invalidation uses only the workspace lock, even for broken or
+    # inaccessible external databases. Shared DB migrations also serialize.
+    with ExitStack() as locks:
+        for lock_path in (
+            str(workspace_dir / ".scroll-migration.lock"),
+            str(history.path) + ".migration.lock",
+        ):
+            lock = FileLock(lock_path)
+            while True:
+                if stop.is_set():
+                    raise CancelledError()
+                try:
+                    lock.acquire(timeout=0.1)
+                    locks.callback(lock.release)
+                    break
+                except Timeout:
+                    continue
+        if not pending.exists() and history.migration_complete(
             agent_id,
-            exc,
+            MIGRATION_KEY,
+        ):
+            return
+        started = time.monotonic()
+        logger.info("session-sync[%s]: migrating legacy history", agent_id)
+        report = sync_sessions_to_history(
+            history=history,
+            sessions_dir=workspace_dir / "sessions",
+            chats_path=workspace_dir / "chats.json",
+            agent_id=agent_id,
+            retention_days=retention_days,
+            force=pending.exists(),
+            stop=stop,
         )
-        return
-    if removed:
+        if stop.is_set():
+            raise CancelledError()
+        if report.registry_error or report.errored_files or report.unparseable:
+            raise RuntimeError(
+                f"History migration for {agent_id} incomplete: "
+                f"{report.summary()}",
+            )
+        history.complete_migration(agent_id, MIGRATION_KEY)
+        pending.unlink(missing_ok=True)
         logger.info(
-            "session-sync[%s]: purged %d row(s) older than %dd",
+            "session-sync[%s]: complete in %.3fs; %s",
             agent_id,
-            removed,
-            retention_days,
+            time.monotonic() - started,
+            report.summary(),
         )
 
 
-def sync_all_scroll_agents() -> None:
-    """Sync every scroll-enabled agent's ``sessions/*.json`` into its history.
-
-    Called once at server startup. Fully guarded: any failure is logged and
-    isolated so it can never block boot. Native-strategy agents are skipped —
-    their ``history.db`` is never read, so populating it would just orphan a
-    file.
-    """
-    try:
-        _sync_all_scroll_agents()
-    except Exception:  # noqa: BLE001 - sync must never break startup
-        logger.warning("session-sync: aborted unexpectedly", exc_info=True)
+def invalidate_agent_migration(workspace_dir: Path) -> None:
+    """Request backfill without opening a possibly broken Scroll database."""
+    workspace_dir = Path(workspace_dir)
+    with FileLock(str(workspace_dir / ".scroll-migration.lock")):
+        (workspace_dir / PENDING_MIGRATION).touch(exist_ok=True)
 
 
-# Keep the preflight-before-DB-open ordering visible in one startup flow.  In
-# particular, moving DB construction into a generic helper would make it much
-# easier to accidentally mutate/quarantine history before registry validation.
-# pylint: disable=too-many-statements
-def _sync_all_scroll_agents() -> None:
-    # Imported lazily to keep this module importable without the app config.
-    from ....config import load_config
-    from ....config.config import load_agent_config
-    from .history import HistoryStore
+def import_session_history(
+    history: "HistoryStore",
+    workspace_dir: Path,
+    agent_id: str,
+    session_id: str,
+    user_id: str,
+    channel: str,
+    retention_days: int,
+) -> None:
+    """Backfill an imported session without scanning its siblings."""
+    from ....app.chats.session import session_relative_paths
 
-    config = load_config()
-    total_rows = 0
-    total_sessions = 0
-    synced_agents = 0
-
-    for agent_id, agent_ref in config.agents.profiles.items():
-        try:
-            agent_config = load_agent_config(agent_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(
-                "session-sync[%s]: config load failed: %s",
-                agent_id,
-                exc,
-            )
-            continue
-
-        try:
-            lcc = agent_config.running.light_context_config
-            strategy = getattr(lcc, "strategy", "native")
-        except Exception:  # noqa: BLE001
-            continue
-        if strategy != "scroll":
-            continue
-
-        # Use the profile ref's path (each id -> its own dir), NOT
-        # ``agent_config.workspace_dir``: that field is baked into agent.json
-        # at clone time, so every clone points back at the original and they'd
-        # all collapse onto one workspace.
-        workspace_dir = Path(agent_ref.workspace_dir).expanduser()
-        sessions_dir = workspace_dir / "sessions"
-        chats_path = workspace_dir / "chats.json"
-        if not sessions_dir.is_dir():
-            logger.info("session-sync[%s]: no sessions to sync", agent_id)
-            continue
-        resolved = preflight_sessions(sessions_dir, chats_path)
-        if resolved.registry_error:
-            blocked = SyncReport(registry_error=resolved.registry_error)
-            blocked.files.extend(
-                FileResult(filename=rel_name, blocked=True)
-                for _path, rel_name in resolved.session_files
-            )
-            logger.error(
-                "session-sync[%s]: %s",
-                agent_id,
-                blocked.summary(),
-            )
-            continue
-
-        # First-run notice (no manifest yet): warn BEFORE the import so the
-        # one-time migration isn't a silent stall. Later startups have a
-        # manifest and skip straight through.
-        if not (sessions_dir / MANIFEST_NAME).exists():
-            pending = sum(
-                1
-                for _path, rel_name in resolved.session_files
-                if rel_name in resolved.registry.mapping
-            )
-            if pending:
-                logger.warning(
-                    "session-sync[%s]: first run — importing %d registered "
-                    "session "
-                    "file(s) into history.db. This one-time migration may "
-                    "take a moment; later startups skip unchanged files.",
-                    agent_id,
-                    pending,
-                )
-
-        db_path = workspace_dir / lcc.scroll_config.db_filename
-        retention_days = lcc.scroll_config.history_retention_days
-        history = HistoryStore(db_path)
-        try:
-            report = sync_sessions_to_history(
-                history=history,
-                sessions_dir=sessions_dir,
-                agent_id=agent_id,
-                retention_days=retention_days,
-                chats_path=chats_path,
-                preflight=resolved,
-            )
-            _purge_old_history(history, retention_days, agent_id)
-        except Exception as exc:  # noqa: BLE001 - isolate one agent's failure
-            logger.warning(
-                "session-sync[%s]: failed: %s",
-                agent_id,
-                exc,
-                exc_info=True,
-            )
-            continue
-        finally:
-            history.close()
-
-        logger.info("session-sync[%s]: %s", agent_id, report.summary())
-        if history.degraded:
-            logger.warning(
-                "session-sync[%s]: history store DEGRADED during sync; "
-                "durability not guaranteed",
-                agent_id,
-            )
-        synced_agents += 1
-        total_rows += report.rows_inserted
-        total_sessions += report.sessions
-
-    if synced_agents:
-        logger.info(
-            "session-sync: done — %d row(s) into %d session(s) across "
-            "%d scroll agent(s)",
-            total_rows,
-            total_sessions,
-            synced_agents,
-        )
+    sessions = workspace_dir / "sessions"
+    names = session_relative_paths(session_id, user_id, channel)
+    files = tuple(
+        (sessions / name, name)
+        for name in sorted(names)
+        if (sessions / name).is_file()
+    )
+    if not files:
+        raise FileNotFoundError(f"Imported session {session_id} is missing")
+    report = sync_sessions_to_history(
+        history=history,
+        sessions_dir=sessions,
+        agent_id=agent_id,
+        use_manifest=False,
+        retention_days=retention_days,
+        preflight=SyncPreflight(
+            session_files=files,
+            registry=ChatRegistry(mapping=dict.fromkeys(names, session_id)),
+        ),
+    )
+    if report.errored_files or report.unparseable:
+        raise RuntimeError(f"Imported history incomplete: {report.summary()}")

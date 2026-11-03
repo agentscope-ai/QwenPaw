@@ -23,6 +23,7 @@ import type {
   ChatActionSpec,
   ChatApprovalRendererItem,
   ChatCardItem,
+  ChatCodeBlockItem,
   ChatListField,
   ChatNodeItem,
   ChatRequestPayloadTransformItem,
@@ -125,6 +126,7 @@ export interface ChatListSnapshot {
   requestActions: ListEntry<ChatActionItem>[];
   cards: ListEntry<ChatCardItem>[];
   customToolRender: ListEntry<ChatToolRendererItem>[];
+  "response.codeBlocks": ListEntry<ChatCodeBlockItem>[];
   "approval.renderers": ListEntry<ChatApprovalRendererItem>[];
   "request.prepend": ListEntry<ChatSlotItem<ChatRequestSlotFn>>[];
   "request.append": ListEntry<ChatSlotItem<ChatRequestSlotFn>>[];
@@ -152,6 +154,7 @@ class ChatExtensionsRegistry {
     requestActions: [],
     cards: [],
     customToolRender: [],
+    "response.codeBlocks": [],
     "approval.renderers": [],
     "request.prepend": [],
     "request.append": [],
@@ -276,6 +279,19 @@ class ChatExtensionsRegistry {
     });
   }
 
+  addCodeBlock(
+    pluginId: string,
+    language: string,
+    render: ChatCodeBlockItem["render"],
+  ): Disposable {
+    language = language.trim().toLowerCase();
+    return this.addToList("response.codeBlocks", pluginId, {
+      id: `${pluginId}:${language}`,
+      language,
+      render,
+    });
+  }
+
   addCard(
     pluginId: string,
     cardName: string,
@@ -382,7 +398,7 @@ class ChatExtensionsRegistry {
     };
   }
 
-  // ── Bulk dispose for plugin unload (future) ───────────────────────────────
+  // ── Bulk dispose for plugin unload ────────────────────────────────────────
 
   disposeAll(pluginId: string): void {
     let mutated = false;
@@ -478,6 +494,7 @@ class ChatExtensionsRegistry {
       requestActions: this.listMaps.requestActions.slice(),
       cards: this.listMaps.cards.slice(),
       customToolRender: this.listMaps.customToolRender.slice(),
+      "response.codeBlocks": this.listMaps["response.codeBlocks"].slice(),
       "approval.renderers": this.listMaps["approval.renderers"].slice(),
       "request.prepend": this.listMaps["request.prepend"].slice(),
       "request.append": this.listMaps["request.append"].slice(),

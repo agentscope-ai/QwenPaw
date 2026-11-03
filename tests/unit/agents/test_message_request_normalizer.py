@@ -2,10 +2,12 @@
 """Tests for message_request_normalizer module."""
 
 # pylint: disable=redefined-outer-name,protected-access
+from copy import deepcopy
 import json
 
 import pytest
 from agentscope.message import (
+    Base64Source,
     DataBlock,
     Msg,
     TextBlock,
@@ -18,11 +20,19 @@ from qwenpaw.agents.utils.message_request_normalizer import (
     _clean_provider_specific_fields,
     _clone_msg,
     _clone_messages,
+    _is_document_block,
+    _is_empty_media_block,
+    _is_media_block,
+    _omit_rejected_media,
     _strip_media_blocks_in_place,
+    mark_media_omitted_after_overflow,
     normalize_messages_for_model_request,
 )
-from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
-
+from qwenpaw.constant import (
+    MEDIA_UNSUPPORTED_PLACEHOLDER,
+    QWENPAW_MESSAGE_TAG_KEY,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -33,8 +43,50 @@ def _data_block(media_type: str, url: str = "file:///tmp/test") -> DataBlock:
     return DataBlock(source=URLSource(url=url, media_type=media_type))
 
 
-def _is_media_block(block) -> bool:
+def _is_data_block(block) -> bool:
     return getattr(block, "type", None) == "data"
+
+
+@pytest.mark.parametrize("strip_audio", [False, True])
+def test_video_strip_composes_with_audio_strip(strip_audio):
+    """Cached audio and video rejections must preserve images and text."""
+    image = _data_block("image/png")
+    audio = _data_block("audio/mp3")
+    video = _data_block("video/mp4")
+    message = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="keep this"), image, audio, video],
+    )
+    original = message.model_dump()
+    expected = deepcopy(original)
+    expected["content"] = original["content"][: 2 if strip_audio else 3]
+
+    result = normalize_messages_for_model_request(
+        [message],
+        supports_multimodal=True,
+        strip_audio=strip_audio,
+        strip_video=True,
+    )
+
+    assert [msg.model_dump() for msg in result] == [expected]
+    assert message.model_dump() == original
+
+
+def test_video_only_message_uses_existing_media_placeholder():
+    message = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("video/mp4")],
+    )
+    result = normalize_messages_for_model_request(
+        [message],
+        supports_multimodal=True,
+        strip_video=True,
+    )
+    assert [(block.type, block.text) for block in result[0].content] == [
+        ("text", MEDIA_UNSUPPORTED_PLACEHOLDER),
+    ]
 
 
 # -----------------------------------------------------------------------------
@@ -210,6 +262,28 @@ def test_strip_media_blocks_preserves_non_media_content(text_message):
     assert msgs[0].content == text_message.content
 
 
+@pytest.mark.parametrize(
+    "block",
+    [
+        _data_block("application/pdf", "file:///tmp/report.pdf"),
+        {
+            "type": "data",
+            "source": {
+                "type": "url",
+                "url": "file:///tmp/report.pdf",
+                "media_type": "application/pdf",
+            },
+        },
+    ],
+)
+def test_is_media_block_recognizes_pdf_data_blocks(block):
+    assert _is_media_block(block) is True
+
+
+def test_is_media_block_preserves_plain_text_data_block():
+    assert _is_media_block(_data_block("text/plain")) is False
+
+
 def test_strip_media_blocks_handles_empty_content():
     msg = Msg(name="user", role="user", content=[])
     msgs = [msg]
@@ -257,6 +331,121 @@ def test_normalize_without_multimodal_support_strips_media(image_message):
     assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
 
 
+def test_normalize_without_multimodal_support_strips_pdf():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("application/pdf", "file:///tmp/report.pdf")],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=False,
+    )
+
+    assert _is_data_block(msg.content[0])
+    assert len(normalized[0].content) == 1
+    assert normalized[0].content[0].type == "text"
+    assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_keeps_user_pdf_for_openai_multimodal_model():
+    # User-supplied documents keep the upstream formatting path: the
+    # formatter serializes them as ``file`` parts, which first-party
+    # OpenAI chat-completions endpoints accept. Only tool-returned
+    # documents are stripped (see the next test).
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("application/pdf", "file:///tmp/report.pdf")],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+
+    assert len(normalized[0].content) == 1
+    assert _is_data_block(normalized[0].content[0])
+
+
+def test_normalize_strips_tool_pdf_for_openai_multimodal_model():
+    """Tool-returned PDFs are stripped for the OpenAI chat-completions
+    family regardless of multimodal support (Fixes #7597)."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="call_read",
+                name="read_document",
+                input='{"path":"/tmp/report.pdf"}',
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call_read",
+                name="read_document",
+                output=[
+                    _data_block(
+                        "application/pdf",
+                        "file:///tmp/report.pdf",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+
+    assert normalized[0].content[1].output == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_keeps_image_for_openai_multimodal_model():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("image/png", "file:///tmp/photo.png")],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+        target_family="openai",
+    )
+
+    assert len(normalized[0].content) == 1
+    assert _is_data_block(normalized[0].content[0])
+
+
+def test_normalize_keeps_pdf_for_anthropic_multimodal_model():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("application/pdf", "file:///tmp/report.pdf")],
+    )
+
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+        target_family="anthropic",
+    )
+
+    assert len(normalized[0].content) == 1
+    assert _is_data_block(normalized[0].content[0])
+
+
+def test_is_document_block_recognizes_pdf():
+    assert _is_document_block(_data_block("application/pdf")) is True
+
+
+def test_is_document_block_ignores_images():
+    assert _is_document_block(_data_block("image/png")) is False
+
+
 def test_normalize_preserves_original_messages(mixed_content_message):
     original_dict = mixed_content_message.to_dict()
     normalize_messages_for_model_request(
@@ -264,6 +453,46 @@ def test_normalize_preserves_original_messages(mixed_content_message):
         supports_multimodal=False,
     )
     assert mixed_content_message.to_dict() == original_dict
+
+
+def test_normalize_strip_audio_handles_nested_tool_result():
+    msgs = [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                ToolCallBlock(
+                    type="tool_call",
+                    id="call_1",
+                    name="media_tool",
+                    input="{}",
+                ),
+                ToolResultBlock(
+                    type="tool_result",
+                    id="call_1",
+                    name="media_tool",
+                    output=[
+                        TextBlock(text="Tool output"),
+                        _data_block("image/png", "file:///tmp/image.png"),
+                        _data_block("audio/mpeg", "file:///tmp/audio.mp3"),
+                        _data_block("video/mp4", "file:///tmp/video.mp4"),
+                    ],
+                ),
+            ],
+        ),
+    ]
+    original = [msg.model_dump(mode="json") for msg in msgs]
+    expected = deepcopy(original)
+    del expected[0]["content"][1]["output"][2]
+
+    normalized = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=True,
+        strip_audio=True,
+    )
+
+    assert [msg.model_dump(mode="json") for msg in msgs] == original
+    assert [msg.model_dump(mode="json") for msg in normalized] == expected
 
 
 def test_normalize_returns_new_message_instances(text_message):
@@ -451,3 +680,301 @@ def test_raw_input_used_for_repair_before_stripping():
         "raw_input",
         None,
     )
+
+
+@pytest.mark.parametrize("family", ["openai", "anthropic", "gemini"])
+def test_omission_precedes_user_merge_and_preserves_nonmedia(family):
+    old, new = _data_block("image/png"), _data_block("image/png")
+    history = [
+        Msg(name="user", role="user", content=[old]),
+        Msg(name="user", role="user", content=[new, TextBlock(text="look")]),
+    ]
+    assert mark_media_omitted_after_overflow(history) == 1
+    before = [msg.model_dump() for msg in history]
+    result = normalize_messages_for_model_request(
+        history,
+        supports_multimodal=True,
+        target_family=family,
+    )
+    assert len(result) == 1
+    assert [(block.id, block.type) for block in result[0].content] == [
+        (old.id, "text"),
+        (new.id, "data"),
+        (history[1].content[1].id, "text"),
+    ]
+    assert [block.model_dump() for block in result[0].content[1:]] == [
+        block.model_dump() for block in history[1].content
+    ]
+    assert [msg.model_dump() for msg in history] == before
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    ["image/png", "audio/wav", "video/mp4", "application/pdf"],
+)
+def test_body_recovery_handles_each_media_type(media_type):
+    media = DataBlock(
+        source=Base64Source(media_type=media_type, data="Ynl0ZXM="),
+    )
+    msg = Msg(name="user", role="user", content=[media])
+    original = media.model_dump()
+    active = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="continue")],
+    )
+    assert mark_media_omitted_after_overflow([msg, active]) == 1
+    projected = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert [(block.id, block.type) for block in projected[0].content] == [
+        (media.id, "text"),
+    ]
+    assert media.model_dump() == original
+
+
+@pytest.mark.parametrize("tag", sorted(SYNTHETIC_USER_MESSAGE_TAGS))
+def test_body_recovery_protects_real_turn_through_auto_continue(tag):
+    old = Msg(name="user", role="user", content=[_data_block("image/png")])
+    current = Msg(
+        name="user",
+        role="user",
+        content=[_data_block("image/png")],
+    )
+    result = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolResultBlock(
+                id="call",
+                name="view_image",
+                output=[_data_block("image/png")],
+            ),
+        ],
+    )
+    continuation = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="continue")],
+        metadata={QWENPAW_MESSAGE_TAG_KEY: tag},
+    )
+    history = [old, current, result, continuation]
+    protected = [msg.model_dump() for msg in history[1:]]
+    assert mark_media_omitted_after_overflow(history) == 1
+    assert old.metadata == {"qwenpaw_omitted_media_ids": [old.content[0].id]}
+    assert [msg.model_dump() for msg in history[1:]] == protected
+    assert mark_media_omitted_after_overflow(history) == 0
+
+
+@pytest.mark.parametrize("metadata", [None, "invalid", {}])
+@pytest.mark.parametrize("content_kind", ["dict", "missing_id", "null_id"])
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings:UserWarning")
+def test_normalization_tolerates_legacy_media_shapes(metadata, content_kind):
+    block = _data_block("image/png").model_dump()
+    if content_kind == "missing_id":
+        block.pop("id")
+    elif content_kind == "null_id":
+        block["id"] = None
+    msg = Msg.model_construct(
+        name="user",
+        role="user",
+        content=[block],
+        metadata=metadata,
+    )
+    active = Msg(name="user", role="user", content=[TextBlock(text="look")])
+    should_omit = metadata == {} and content_kind == "dict"
+    mark_media_omitted_after_overflow([msg, active])
+    _omit_rejected_media([msg])
+    projected = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert len(projected) == 1
+    assert len(projected[0].content) == 1
+    if should_omit:
+        assert projected[0].content[0].text == (
+            "[image/png omitted (body size limit): file:///tmp/test]"
+        )
+    else:
+        assert projected[0].content[0].source.model_dump() == block["source"]
+
+
+@pytest.mark.parametrize("content", [None, "plain text"])
+@pytest.mark.parametrize(
+    "metadata",
+    [None, {"qwenpaw_omitted_media_ids": ["image"]}],
+)
+def test_omission_ignores_nonlist_content(content, metadata):
+    msg = Msg.model_construct(
+        name="user",
+        role="user",
+        content=content,
+        metadata=metadata,
+    )
+    _omit_rejected_media([msg])
+    assert msg.content == content
+    assert msg.metadata == metadata
+
+
+def test_body_placeholder_keeps_mime_without_inventing_path():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            DataBlock(
+                id="image",
+                source=Base64Source(media_type="image/png", data="eA=="),
+            ),
+        ],
+        metadata={"qwenpaw_omitted_media_ids": [None, "image"]},
+    )
+    result = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert result[0].content[0].model_dump(
+        exclude={"created_at"},
+    ) == TextBlock(
+        id="image",
+        text="[image/png omitted (body size limit)]",
+    ).model_dump(
+        exclude={"created_at"},
+    )
+
+
+# -----------------------------------------------------------------------------
+# empty media blocks -> empty data URI (dropped before formatting)
+# -----------------------------------------------------------------------------
+
+
+def _empty_base64_block(media_type: str = "image/png") -> DataBlock:
+    return DataBlock(source=Base64Source(data="", media_type=media_type))
+
+
+def _nonempty_base64_block(media_type: str = "image/png") -> DataBlock:
+    return DataBlock(source=Base64Source(data="AAAA", media_type=media_type))
+
+
+def test_is_empty_media_block_detects_empty_base64_image():
+    assert _is_empty_media_block(_empty_base64_block()) is True
+
+
+def test_is_empty_media_block_ignores_nonempty_base64():
+    assert _is_empty_media_block(_nonempty_base64_block()) is False
+
+
+def test_is_empty_media_block_ignores_url_source():
+    assert _is_empty_media_block(_data_block("image/png")) is False
+
+
+def test_is_empty_media_block_ignores_text_block():
+    assert _is_empty_media_block(TextBlock(text="hi")) is False
+
+
+def test_is_empty_media_block_detects_dict_style_empty():
+    block = {
+        "type": "data",
+        "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "",
+        },
+    }
+    assert _is_empty_media_block(block) is True
+
+
+def test_normalize_drops_empty_media_block_but_keeps_text():
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="look:"), _empty_base64_block()],
+    )
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert len(normalized[0].content) == 1
+    assert normalized[0].content[0].type == "text"
+    assert normalized[0].content[0].text == "look:"
+
+
+def test_normalize_drops_empty_media_only_block_with_placeholder():
+    msg = Msg(name="user", role="user", content=[_empty_base64_block()])
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert len(normalized[0].content) == 1
+    assert normalized[0].content[0].type == "text"
+    assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_drops_empty_media_in_tool_result():
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="call_1",
+                name="view_image",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call_1",
+                name="view_image",
+                output=[_empty_base64_block()],
+            ),
+        ],
+    )
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert normalized[0].content[1].output == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_normalize_preserves_nonempty_media_for_multimodal():
+    msg = Msg(name="user", role="user", content=[_nonempty_base64_block()])
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+    )
+    assert normalized[0].content[0].type == "data"
+
+
+@pytest.mark.parametrize("family", ["openai", "anthropic", "gemini"])
+def test_normalize_preserves_originally_empty_tool_result(family):
+    """An empty tool result must not be reported as dropped media.
+
+    The strip pass is a no-op for a result that never carried media, so the
+    placeholder must not be substituted: the model would otherwise be told
+    that media was removed from a result whose output was empty to begin
+    with.
+    """
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="call_empty",
+                name="list_files",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call_empty",
+                name="list_files",
+                output=[],
+            ),
+        ],
+    )
+    normalized = normalize_messages_for_model_request(
+        [msg],
+        supports_multimodal=True,
+        target_family=family,
+    )
+    assert normalized[0].content[1].output == []

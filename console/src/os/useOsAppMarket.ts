@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { getApiUrl } from "@/api/config";
 import {
   buildMarketDownloadUrl,
   fetchMarketPlugins,
   isMarketPluginApp,
   type MarketPluginEntry,
 } from "@/api/modules/pluginMarket";
-import { installPlugin } from "@/api/modules/plugin";
+import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 const APP_CATEGORY = "app";
@@ -15,7 +16,7 @@ const APP_MARKET_PAGE_SIZE = 20;
 const MARKET_REQUEST_PAGE_SIZE = 100;
 
 interface UseOsAppMarketOptions {
-  onInstalled: () => void;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
 export function useOsAppMarket({ onInstalled }: UseOsAppMarketOptions) {
@@ -36,7 +37,7 @@ export function useOsAppMarket({ onInstalled }: UseOsAppMarketOptions) {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/version", { signal: controller.signal })
+    fetch(getApiUrl("/version"), { signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -148,8 +149,7 @@ export function useOsAppMarket({ onInstalled }: UseOsAppMarketOptions) {
           force: true,
         });
         message.success(`${tRef.current("os.appInstalled")}: ${result.name}`);
-        onInstalled();
-        setTimeout(() => window.location.reload(), 800);
+        await onInstalled(result);
       } catch (err) {
         message.error(
           err instanceof Error

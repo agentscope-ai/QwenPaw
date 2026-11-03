@@ -118,6 +118,38 @@ describe("isCollapsibleTraceEvent", () => {
 });
 
 describe("extractTraceText", () => {
+  it("preserves weather newlines while hiding the assistant's internal headline", () => {
+    const body = "☁️ **多云**\n🌡️ **气温：** 23℃\n💧 **湿度：** 78%";
+    const original = `${body}\n\n⟦ 杭州天气查询｜完成：天气查询成功 ⟧`;
+    const event = {
+      role: "assistant",
+      content: [{ type: "text", text: original }],
+    };
+    expect(extractTraceText(event)).toBe(body);
+    expect(event.content[0].text).toBe(original);
+  });
+
+  it("hides trace entries containing only an internal headline", () => {
+    const event = {
+      role: "assistant",
+      content: [{ type: "text", text: "⟦ 天气查询｜完成 ⟧" }],
+    };
+    expect(buildTraceDisplayItems([{ at: 1, event }])).toEqual([]);
+  });
+
+  it("preserves user text and tool output containing headline-like content", () => {
+    const text = "⟦ 用户提供的内容 ⟧";
+    expect(
+      extractTraceText({ role: "user", content: [{ type: "text", text }] }),
+    ).toBe(text);
+    expect(
+      extractTraceText({
+        role: "tool",
+        content: [{ type: "tool_result", output: [{ type: "text", text }] }],
+      }),
+    ).toBe(text);
+  });
+
   it("extracts thinking field from thinking block", () => {
     expect(
       extractTraceText({
@@ -405,6 +437,102 @@ describe("getDetailModalTitle", () => {
 });
 
 describe("buildTraceDisplayItems", () => {
+  const call = (id: string, name = "search") => ({
+    type: "tool_use",
+    id,
+    name,
+    input: { query: id },
+  });
+  const output = (id: string, text: string) => ({
+    type: "tool_result",
+    id,
+    name: "search",
+    output: [{ type: "text", text }],
+  });
+  const event = (content: unknown, role = "assistant") => ({
+    at: 1,
+    event: { role, content },
+  });
+
+  it("pairs parallel calls by ID even when same-name results arrive in reverse order", () => {
+    const items = buildTraceDisplayItems([
+      event([call("a"), call("b")]),
+      event([output("b", "result b"), output("a", "result a")], "tool"),
+      event([{ type: "text", text: "final answer" }]),
+    ]);
+    expect(items).toHaveLength(3);
+    expect(items[0].toolOutput).toContain("result a");
+    expect(items[1].toolOutput).toContain("result b");
+    expect(items[2].traceText).toBe("final answer");
+  });
+
+  it("never consumes a following final answer or a second tool call as output", () => {
+    const items = buildTraceDisplayItems([
+      event([call("a"), call("b")]),
+      event([{ type: "text", text: "final answer" }]),
+    ]);
+    expect(items).toHaveLength(3);
+    expect(
+      items.slice(0, 2).every((item) => item.toolOutput === undefined),
+    ).toBe(true);
+    expect(items[2].renderKind).toBe("normal");
+  });
+
+  it("leaves unmatched IDs separate even for the same tool name", () => {
+    const items = buildTraceDisplayItems([
+      event([call("a")]),
+      event([output("b", "result b")], "tool"),
+    ]);
+    expect(items).toHaveLength(2);
+    expect(items[0].toolOutput).toBeUndefined();
+    expect(items[1].toolOutput).toContain("result b");
+  });
+
+  it("does not pair calls across user turns", () => {
+    const items = buildTraceDisplayItems([
+      event([call("a")]),
+      event([{ type: "text", text: "next turn" }], "user"),
+      event([output("a", "late result")], "tool"),
+    ]);
+    expect(items).toHaveLength(3);
+    expect(items[0].toolOutput).toBeUndefined();
+  });
+
+  it("renders legacy string content as text and unknown blocks as raw details", () => {
+    const items = buildTraceDisplayItems([
+      event("hello\nworld"),
+      event([{ type: "future_block", payload: { x: 1 } }]),
+    ]);
+    expect(items[0].traceText).toBe("hello\nworld");
+    expect(items[1].collapsible).toBe(true);
+    expect(items[1].eventRecord.content).toEqual([
+      { type: "future_block", payload: { x: 1 } },
+    ]);
+  });
+
+  it("keeps attachment blocks hidden and excludes internal hints", () => {
+    expect(
+      buildTraceDisplayItems([
+        event(
+          ["image", "file", "video", "audio", "data", "hint"].map((type) => ({
+            type,
+            source: "example",
+          })),
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("keeps turn boundaries even when a user attachment is hidden", () => {
+    const items = buildTraceDisplayItems([
+      event([call("a")]),
+      event([{ type: "image", image_url: "example.png" }], "user"),
+      event([output("a", "another turn")], "tool"),
+    ]);
+    expect(items).toHaveLength(2);
+    expect(items[0].toolOutput).toBeUndefined();
+  });
+
   it("returns empty array for empty input", () => {
     expect(buildTraceDisplayItems([])).toEqual([]);
   });

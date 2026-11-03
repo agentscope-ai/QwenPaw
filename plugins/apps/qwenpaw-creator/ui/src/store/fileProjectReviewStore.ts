@@ -273,7 +273,12 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
           });
         } catch (error) {
           const notFound =
-            error instanceof CreatorHttpError && error.status === 404;
+            error instanceof CreatorHttpError &&
+            error.status === 404 &&
+            error.code === "NOT_FOUND";
+          // A host can return an unstructured 404 while loading the Creator
+          // plugin. Only the API's explicit missing-project response is final;
+          // keep last-good decisions and retry temporary routing failures.
           set((state) => {
             if (epoch !== projectEpoch || state.projectId !== projectId)
               return {};
@@ -344,25 +349,25 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       }
 
       const epoch = projectEpoch;
-      const decisionToken = review.decision_token;
+      let decisionToken = review.decision_token;
       const canonicalDecisions = [...decisions].sort(
         (left, right) =>
           left.operation_id.localeCompare(right.operation_id) ||
           left.decision.localeCompare(right.decision),
       );
-      const retryKey = decisionRetryKey(
+      let retryKey = decisionRetryKey(
         projectId,
         reviewId,
         decisionToken,
         canonicalDecisions,
         rejectionFeedback,
       );
-      const decisionId =
+      let decisionId =
         retryDecisionIds.get(retryKey) ?? newClientId("file-review-decision");
       retryDecisionIds.set(retryKey, decisionId);
       set({ decisionInFlight: true, syncError: null });
-      try {
-        const result = await decideFileProjectReview(
+      const submit = () =>
+        decideFileProjectReview(
           projectId,
           reviewId,
           {
@@ -373,6 +378,71 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
           },
           decisionId,
         );
+      try {
+        let result: FileProjectReviewRecord;
+        try {
+          result = await submit();
+        } catch (error) {
+          // New background results can rotate a round's token while its
+          // existing operations remain identical. Retry only explicit keeps
+          // of those exact values, never broaden "keep all" to new results.
+          if (
+            !(error instanceof CreatorHttpError) ||
+            error.status !== 409 ||
+            error.code !== "CAS_CONFLICT" ||
+            canonicalDecisions.some((item) => item.decision !== "ACCEPT") ||
+            epoch !== projectEpoch ||
+            get().projectId !== projectId
+          )
+            throw error;
+          const fresh = await getActiveFileProjectReview(projectId);
+          if (
+            fresh.kind !== "updated" ||
+            epoch !== projectEpoch ||
+            get().projectId !== projectId
+          )
+            throw error;
+          const updated = fresh.reviews.find((r) => r.review_id === reviewId);
+          set({ reviews: fresh.reviews, etag: fresh.etag });
+          if (
+            !updated ||
+            updated.status !== "PENDING" ||
+            updated.decision_token === decisionToken ||
+            !canonicalDecisions.every(({ operation_id }) => {
+              const before = review.operations.find(
+                (op) => op.operation_id === operation_id,
+              );
+              const after = updated.operations.find(
+                (op) => op.operation_id === operation_id,
+              );
+              return (
+                before &&
+                after?.decision === "PENDING" &&
+                after.kind === before.kind &&
+                after.json_pointer === before.json_pointer &&
+                after.file_id === before.file_id &&
+                after.target_ref === before.target_ref &&
+                after.before_hash === before.before_hash &&
+                after.after_hash === before.after_hash
+              );
+            })
+          )
+            throw error;
+          retryDecisionIds.delete(retryKey);
+          decisionToken = updated.decision_token;
+          retryKey = decisionRetryKey(
+            projectId,
+            reviewId,
+            decisionToken,
+            canonicalDecisions,
+            rejectionFeedback,
+          );
+          decisionId =
+            retryDecisionIds.get(retryKey) ??
+            newClientId("file-review-decision");
+          retryDecisionIds.set(retryKey, decisionId);
+          result = await submit();
+        }
         retryDecisionIds.delete(retryKey);
         set((current) => {
           if (epoch !== projectEpoch || current.projectId !== projectId)

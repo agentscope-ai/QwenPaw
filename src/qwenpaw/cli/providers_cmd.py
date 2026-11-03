@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI commands for managing LLM providers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -267,8 +268,7 @@ def _add_models_interactive(provider_id: str) -> None:
     if provider_id == "ollama":
         return
 
-    extra = list(defn.extra_models)
-    all_models = list(defn.models) + extra
+    all_models = defn.all_models()
 
     if all_models:
         click.echo(f"\nCurrent models for {defn.name}:")
@@ -326,7 +326,16 @@ def _pick_model_free_text(prompt_text: str, current_model: str = "") -> str:
 
 
 def _filter_eligible(all_providers: list[Provider]) -> list[Provider]:
-    return [d for d in all_providers if _is_configured(d)]
+    return [
+        d
+        for d in all_providers
+        if _is_configured(d)
+        and d.chat_model
+        and (
+            not d.all_models()
+            or any(m.model_type == "chat" for m in d.all_models())
+        )
+    ]
 
 
 def _select_llm_model(defn, pid, current_slot, *, use_defaults):
@@ -337,8 +346,7 @@ def _select_llm_model(defn, pid, current_slot, *, use_defaults):
         else ""
     )
 
-    extra = list(defn.extra_models)
-    all_models = list(defn.models) + extra
+    all_models = [m for m in defn.all_models() if m.model_type == "chat"]
 
     if use_defaults:
         return cur or (all_models[0].id if all_models else "")
@@ -530,11 +538,10 @@ def list_cmd() -> None:
                     f"  {'api_key_prefix':16s}: {', '.join(prefixes)}",
                 )
 
-            extra = list(defn.extra_models)
-            all_models = list(defn.models) + extra
+            all_models = defn.all_models()
             if all_models:
                 click.echo(f"  {'models':16s}:")
-                extra_ids = {m.id for m in extra}
+                extra_ids = {m.id for m in defn.extra_models}
                 for m in all_models:
                     label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")

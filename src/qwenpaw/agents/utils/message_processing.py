@@ -7,10 +7,11 @@ This module handles:
 - Message validation
 """
 import asyncio
+import json
 import logging
 import os
 import urllib.parse
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Optional
 
 from agentscope.message import Msg, TextBlock, URLSource
@@ -21,6 +22,8 @@ from .file_handling import download_file_from_base64, download_file_from_url
 from .image_freezing import freeze_local_images_async
 
 logger = logging.getLogger(__name__)
+
+_MAX_PROMPT_FILENAME_LENGTH = 200
 
 
 def _audio_text_block(block, text: str):
@@ -92,6 +95,43 @@ def _extract_source_and_filename(block: dict, block_type: str):
             filename = os.path.basename(parsed.path) or None
 
     return source, filename
+
+
+def _quote_display_filename(filename: object) -> Optional[str]:
+    """Return a bounded, quoted basename with unsafe characters escaped."""
+    if not isinstance(filename, str):
+        return None
+
+    display_name = PureWindowsPath(filename).name.strip()
+    if not display_name or display_name in {".", ".."}:
+        return None
+
+    quoted = json.dumps(
+        display_name[:_MAX_PROMPT_FILENAME_LENGTH],
+        ensure_ascii=False,
+    )
+    # JSON escapes C0 controls, but leaves C1 controls and Unicode line
+    # separators literal when ensure_ascii=False. Keep readable Unicode while
+    # escaping every remaining non-printable character.
+    return "".join(
+        json.dumps(char, ensure_ascii=True)[1:-1]
+        if not char.isprintable()
+        else char
+        for char in quoted
+    )
+
+
+def _format_uploaded_file_hint(
+    local_path: str,
+    filename: object,
+    language: str,
+) -> str:
+    """Build a localized upload hint with optional filename metadata."""
+    display_name = _quote_display_filename(filename)
+    name_suffix = f" {display_name}" if display_name else ""
+    if language == "zh":
+        return f"用户上传文件{name_suffix}，已经下载到 {local_path}"
+    return f"User uploaded a file{name_suffix}, downloaded to {local_path}"
 
 
 def _media_type_from_path(path: str) -> str:
@@ -493,7 +533,7 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
         if not isinstance(message.content, list):
             continue
 
-        downloaded_files = []
+        downloaded_files: list[tuple[int, str, object]] = []
 
         for i, block in enumerate(message.content):
             # === 2.0 Pydantic DataBlock fast-path ===
@@ -508,7 +548,9 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
                     block,
                 )
                 if local_path:
-                    downloaded_files.append((i, local_path))
+                    downloaded_files.append(
+                        (i, local_path, getattr(block, "name", None)),
+                    )
                 # Remote URL or no URL on a Pydantic block: skip silently.
                 # Adding remote-download for Pydantic DataBlock is a
                 # separate feature (would need to also convert the dict
@@ -531,15 +573,18 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
                 block_dict,
             )
             if local_path:
-                downloaded_files.append((i, local_path))
+                # Legacy storage accepts raw filenames in its download path.
+                # Keep filename display propagation scoped to typed DataBlock
+                # uploads until that separate path is hardened.
+                downloaded_files.append((i, local_path, None))
 
         if downloaded_files:
             lang = load_config().agents.language
-            for i, local_path in reversed(downloaded_files):
-                text = (
-                    f"用户上传文件，已经下载到 {local_path}"
-                    if lang == "zh"
-                    else f"User uploaded a file, downloaded to {local_path}"
+            for i, local_path, filename in reversed(downloaded_files):
+                text = _format_uploaded_file_hint(
+                    local_path,
+                    filename,
+                    lang,
                 )
                 message.content.insert(
                     i + 1,
