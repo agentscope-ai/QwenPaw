@@ -9,7 +9,6 @@ import {
   getAgentDisplayName,
 } from "../../../utils/agentDisplayName";
 import {
-  INBOX_EVENT_QUERY_LIMIT,
   INBOX_CHANGED_EVENT,
   notifyInboxChanged,
   type InboxChange,
@@ -249,7 +248,21 @@ const mapEventToPushMessage = (
   };
 };
 
-export const useInboxData = (unreadOnly = false) => {
+export interface InboxDataOptions {
+  sourceType?: string;
+  agentId?: string;
+  page?: number;
+  pageSize?: number;
+  unreadOnly?: boolean;
+}
+
+export const useInboxData = ({
+  sourceType,
+  agentId,
+  page = 1,
+  pageSize = 20,
+  unreadOnly = false,
+}: InboxDataOptions = {}) => {
   const { t } = useTranslation();
   const agents = useAgentStore((state) => state.agents);
   const agentsById = useMemo(
@@ -293,8 +306,16 @@ export const useInboxData = (unreadOnly = false) => {
   pushMessagesRef.current = pushMessages;
   const [harvests] = useState<HarvestInstance[]>(MOCK_HARVESTS);
 
+  const requestRef = useRef<AbortController | null>(null);
   const readingIds = useRef(new Set<string>());
-  const queryKey = String(unreadOnly);
+  const effectiveAgentId = sourceType === "community" ? undefined : agentId;
+  const queryKey = JSON.stringify([
+    sourceType,
+    effectiveAgentId,
+    page,
+    pageSize,
+    unreadOnly,
+  ]);
   const queryKeyRef = useRef(queryKey);
   queryKeyRef.current = queryKey;
 
@@ -303,16 +324,24 @@ export const useInboxData = (unreadOnly = false) => {
       if (!force && pushMessagesRequestRef.current) {
         return pushMessagesRequestRef.current;
       }
+      requestRef.current?.abort();
+      const controller = new AbortController();
+      requestRef.current = controller;
       const requestId = ++pushMessagesRequestIdRef.current;
       const isLatestRequest = () =>
+        !controller.signal.aborted &&
         pushMessagesRequestIdRef.current === requestId;
       setPushMessagesLoading(true);
       const request = (async () => {
         try {
           const res = await api.getInboxEvents({
-            limit: INBOX_EVENT_QUERY_LIMIT,
-            source_types: [...PUSH_MESSAGE_SOURCES],
+            limit: pageSize,
+            offset: (Math.max(1, page) - 1) * pageSize,
+            source_types: sourceType ? [sourceType] : [...PUSH_MESSAGE_SOURCES],
+            agent_id: effectiveAgentId,
+            exclude_acl_pending: true,
             unread_only: unreadOnly,
+            signal: controller.signal,
           });
           const events = [...(res?.events || [])].filter(
             (event) =>
@@ -340,7 +369,11 @@ export const useInboxData = (unreadOnly = false) => {
                 res?.unread_count ?? nextItems.filter((m) => !m.read).length,
             },
           }));
-          setPushMessagesError(null);
+          setPushMessagesError(
+            res?.source_errors?.community
+              ? new Error(res.source_errors.community)
+              : null,
+          );
         } catch (error) {
           if (!isLatestRequest()) return;
           console.error("Failed to fetch push inbox data", error);
@@ -360,7 +393,7 @@ export const useInboxData = (unreadOnly = false) => {
         }
       });
     },
-    [unreadOnly],
+    [sourceType, effectiveAgentId, page, pageSize, unreadOnly],
   );
 
   const refreshPushMessages = useCallback(
@@ -369,10 +402,11 @@ export const useInboxData = (unreadOnly = false) => {
   );
 
   useEffect(() => {
+    // A different query must not display messages from the previous account or
+    // source while it is loading. Poll failures retain the current query's data.
     setPushMessages([]);
     setPushMessagesError(null);
     void loadPushMessages(true);
-
     let timer: number | null = null;
     const startPolling = () => {
       if (timer == null)
@@ -402,6 +436,11 @@ export const useInboxData = (unreadOnly = false) => {
               !change.clearSources!.includes(item.metadata?.sourceType || ""),
           ),
         );
+        if (sourceType && change.clearSources.includes(sourceType))
+          setSummary((prev) => ({
+            ...prev,
+            pushMessages: { total: 0, unread: 0 },
+          }));
       }
       void loadPushMessages(true);
     };
@@ -409,13 +448,12 @@ export const useInboxData = (unreadOnly = false) => {
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener(INBOX_CHANGED_EVENT, onInboxChanged);
     return () => {
-      window.removeEventListener(INBOX_CHANGED_EVENT, onInboxChanged);
+      requestRef.current?.abort();
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      pushMessagesRequestIdRef.current += 1;
-      pushMessagesRequestRef.current = null;
+      window.removeEventListener(INBOX_CHANGED_EVENT, onInboxChanged);
     };
-  }, [loadPushMessages]);
+  }, [loadPushMessages, sourceType]);
 
   const markMessageAsRead = useCallback((messageId: string) => {
     const item = pushMessagesRef.current.find(
@@ -456,6 +494,8 @@ export const useInboxData = (unreadOnly = false) => {
     const unreadCount = summary.pushMessages.unread;
     const result = await api.markInboxRead({
       all: true,
+      ...(sourceType ? { source_types: [sourceType] } : {}),
+      ...(effectiveAgentId ? { agent_id: effectiveAgentId } : {}),
     });
     if (queryKeyRef.current === targetQuery) {
       setPushMessages((prev) =>
@@ -468,9 +508,11 @@ export const useInboxData = (unreadOnly = false) => {
     }
     notifyInboxChanged({
       readAll: true,
+      sourceTypes: sourceType ? [sourceType] : undefined,
+      agentId: effectiveAgentId,
     });
     return result?.updated ?? unreadCount;
-  }, [summary.pushMessages.unread]);
+  }, [sourceType, effectiveAgentId, summary.pushMessages.unread]);
 
   const deleteMessages = useCallback(async (messageIds: string[]) => {
     const targetQuery = queryKeyRef.current;

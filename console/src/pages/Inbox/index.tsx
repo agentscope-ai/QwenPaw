@@ -205,32 +205,21 @@ export default function InboxPage() {
     deleteMessage,
     deleteMessages,
     refreshPushMessages,
-  } = useInboxData(unreadOnly);
+  } = useInboxData({
+    sourceType: selectedSourceTypeFilter,
+    agentId:
+      selectedSourceTypeFilter === "community"
+        ? undefined
+        : selectedAgentFilter,
+    page: messagesPage,
+    pageSize: PUSH_MESSAGES_PAGE_SIZE,
+    unreadOnly,
+  });
   const agentDisplayNameById = useMemo(
     () =>
       new Map(agents.map((agent) => [agent.id, getAgentDisplayName(agent, t)])),
     [agents, t],
   );
-  const filteredPushMessages = useMemo(() => {
-    return pushMessages.filter((message) => {
-      if (unreadOnly && message.read) {
-        return false;
-      }
-      if (
-        selectedAgentFilter &&
-        (message.metadata?.agentId || DEFAULT_AGENT_ID) !== selectedAgentFilter
-      ) {
-        return false;
-      }
-      if (
-        selectedSourceTypeFilter &&
-        message.metadata?.sourceType !== selectedSourceTypeFilter
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [pushMessages, selectedAgentFilter, selectedSourceTypeFilter, unreadOnly]);
   const pushMessageAgentOptions = useMemo(() => {
     const ids = new Set(agents.map((agent) => agent.id));
     pushMessages.forEach((message) => {
@@ -255,10 +244,7 @@ export default function InboxPage() {
     [t],
   );
   const approvalCount = pendingApprovals.length;
-  const pagedPushMessages = useMemo(() => {
-    const start = (messagesPage - 1) * PUSH_MESSAGES_PAGE_SIZE;
-    return filteredPushMessages.slice(start, start + PUSH_MESSAGES_PAGE_SIZE);
-  }, [filteredPushMessages, messagesPage]);
+  const pagedPushMessages = pushMessages;
   const currentPageMessageIds = useMemo(
     () => pagedPushMessages.map((item) => item.id),
     [pagedPushMessages],
@@ -271,7 +257,7 @@ export default function InboxPage() {
   );
   const totalMessagePages = Math.max(
     1,
-    Math.ceil(filteredPushMessages.length / PUSH_MESSAGES_PAGE_SIZE),
+    Math.ceil(summary.pushMessages.total / PUSH_MESSAGES_PAGE_SIZE),
   );
 
   const handleApproveRequest = async (
@@ -353,13 +339,9 @@ export default function InboxPage() {
   }, [messagesPage, totalMessagePages, pushMessagesLoading]);
 
   useEffect(() => {
-    const validIdSet = new Set(
-      pushMessages
-        .filter((item) => !unreadOnly || !item.read)
-        .map((item) => item.id),
-    );
+    const validIdSet = new Set(pushMessages.map((item) => item.id));
     setSelectedMessageIds((prev) => prev.filter((id) => validIdSet.has(id)));
-  }, [pushMessages, unreadOnly]);
+  }, [pushMessages]);
 
   useEffect(() => {
     const handleOpen = (event: Event) => {
@@ -398,11 +380,6 @@ export default function InboxPage() {
     else params.delete("source");
     setSearchParams(params, { replace: true });
   };
-
-  useEffect(() => {
-    setMessagesPage(1);
-    setSelectedMessageIds([]);
-  }, [selectedAgentFilter, selectedSourceTypeFilter, unreadOnly]);
 
   const handleViewMessage = (messageId: string) => {
     const found = pushMessages.find((item) => item.id === messageId);
@@ -512,6 +489,7 @@ export default function InboxPage() {
                 className={styles.unreadFilter}
                 onChange={(event) => {
                   setUnreadOnly(event.target.checked);
+                  setMessagesPage(1);
                   setSelectedMessageIds([]);
                 }}
               >
@@ -608,8 +586,7 @@ export default function InboxPage() {
               <span>{t("common.loading")}</span>
             </div>
           ) : pushMessagesError &&
-            pushMessages.length === 0 ? null : filteredPushMessages.length >
-            0 ? (
+            pushMessages.length === 0 ? null : pushMessages.length > 0 ? (
             <div className={styles.cardList}>
               {pagedPushMessages.map((item) => (
                 <PushMessageCard
@@ -627,7 +604,7 @@ export default function InboxPage() {
               <div className={styles.paginationWrap}>
                 <Pagination
                   current={messagesPage}
-                  total={filteredPushMessages.length}
+                  total={summary.pushMessages.total}
                   pageSize={PUSH_MESSAGES_PAGE_SIZE}
                   onChange={setMessagesPage}
                   showSizeChanger={false}
@@ -637,7 +614,11 @@ export default function InboxPage() {
           ) : (
             <Empty
               description={t(
-                unreadOnly ? "inbox.emptyUnread" : "inbox.emptyPush",
+                unreadOnly
+                  ? "inbox.emptyUnread"
+                  : selectedSourceTypeFilter === "community"
+                  ? "communityInbox.empty"
+                  : "inbox.emptyPush",
               )}
             />
           )}
