@@ -34,6 +34,7 @@ from .loop_gate import LoopGate
 logger = logging.getLogger(__name__)
 
 _DECISION_TIMEOUT_SECONDS = 4.0
+_pending_decision_tasks: set[asyncio.Task[str | None]] = set()
 _TOOL_DESCRIPTION_CHARS = 120
 _CONTINUE_QUESTION = BinaryQuestion(
     instructions=(
@@ -214,6 +215,13 @@ def _is_confident(probability: object) -> bool:
     return probability > 0.5
 
 
+def _release_decision_task(task: asyncio.Task[str | None]) -> None:
+    """Release finished checks and consume results after caller cancellation."""
+    _pending_decision_tasks.discard(task)
+    if not task.cancelled():
+        task.exception()
+
+
 class QualitativeRubricGate(LoopGate):
     """Apply a qualitative rubric to text-only responses.
 
@@ -287,6 +295,23 @@ class QualitativeRubricGate(LoopGate):
         )
 
     async def _revision_reason(self, ctx: dict) -> str | None:
+        """Bound the caller's wait independently of provider cleanup."""
+        task = asyncio.create_task(self._evaluate_revision_reason(ctx))
+        _pending_decision_tasks.add(task)
+        task.add_done_callback(_release_decision_task)
+        try:
+            async with asyncio.timeout(_DECISION_TIMEOUT_SECONDS):
+                return await asyncio.shield(task)
+        except TimeoutError:
+            logger.warning("Jev self-check hint unavailable (TimeoutError)")
+            return None
+        finally:
+            # Synchronous initialization and client cleanup may defer
+            # cancellation. Retain the task until they finish, off this path.
+            if not task.done():
+                task.cancel()
+
+    async def _evaluate_revision_reason(self, ctx: dict) -> str | None:
         """Return a supported issue for the agent to verify, if available."""
         agent = ctx.get("agent")
         config = getattr(agent, "_agent_config", None)
@@ -296,21 +321,20 @@ class QualitativeRubricGate(LoopGate):
         try:
             from ...providers.typesafe_provider import resolve_decision_model
 
-            async with asyncio.timeout(_DECISION_TIMEOUT_SECONDS):
-                provider, model = await run_sync_io(
-                    resolve_decision_model,
-                    config.decision_model,
-                )
-                provider.validate_model_selection(model, "decision")
-                response = await provider.evaluate(
-                    state=await self._decision_state(agent, candidate),
-                    questions={
-                        "continue": _CONTINUE_QUESTION,
-                        "reason": _REASON_QUESTION,
-                    },
-                    model=model,
-                    timeout=_DECISION_TIMEOUT_SECONDS,
-                )
+            provider, model = await run_sync_io(
+                resolve_decision_model,
+                config.decision_model,
+            )
+            provider.validate_model_selection(model, "decision")
+            response = await provider.evaluate(
+                state=await self._decision_state(agent, candidate),
+                questions={
+                    "continue": _CONTINUE_QUESTION,
+                    "reason": _REASON_QUESTION,
+                },
+                model=model,
+                timeout=_DECISION_TIMEOUT_SECONDS,
+            )
             answer = response.content.get("continue")
             if not isinstance(answer, BinaryAnswer) or not _is_confident(
                 answer.probability,

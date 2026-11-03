@@ -3,6 +3,8 @@
 """Tests for DefaultMode gate ownership and lifecycle."""
 from __future__ import annotations
 
+import asyncio
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -23,6 +25,7 @@ from agentscope.message import (
 
 from qwenpaw.config.config import RubricGateConfig
 from qwenpaw.loop.gates import StopAction
+from qwenpaw.loop.gates import rubric as rubric_module
 from qwenpaw.loop.gates.doom_loop import DoomLoopGate
 from qwenpaw.loop.gates.iteration import IterationGate
 from qwenpaw.modes.default import DefaultMode
@@ -266,6 +269,124 @@ async def test_jev_is_opt_in_and_preserves_self_check(decision_check):
     assert request["state"]["candidate_response"] == "I will export it."
     (result,) = request["state"]["conversation"][1]["content"]
     assert result["state"] == "error" and result["output"] == "File not found"
+
+
+@pytest.mark.parametrize("phase", ["resolver", "client", "request", "cleanup"])
+@pytest.mark.parametrize(
+    "cancel",
+    [False, True],
+    ids=["timeout", "user_cancel"],
+)
+async def test_jev_deadline_does_not_wait_for_provider_cleanup(
+    decision_check,
+    monkeypatch,
+    phase,
+    cancel,
+):
+    ctx, resolve, _ = decision_check
+    provider = typesafe_provider.TypeSafeProvider(
+        id="typesafe",
+        name="TypeSafe",
+    )
+    started = asyncio.Event()
+    release_async = asyncio.Event()
+    release_sync = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def block_initialization():
+        loop.call_soon_threadsafe(started.set)
+        assert release_sync.wait(5), "Initialization was not released"
+
+    async def evaluate(*_args, **_kwargs):
+        if phase == "request":
+            started.set()
+            try:
+                await release_async.wait()
+            except asyncio.CancelledError:
+                # A late provider result must not delay fallback or cancellation.
+                await release_async.wait()
+        return SimpleNamespace(
+            content={
+                "continue": BinaryAnswer(0.9),
+                "reason": ChoiceAnswer("promised_action", 0.9, {}),
+            },
+        )
+
+    async def close():
+        if phase == "cleanup":
+            started.set()
+            await release_async.wait()
+
+    classifier = AsyncMock(side_effect=evaluate)
+    classifier.client = SimpleNamespace(aclose=AsyncMock(side_effect=close))
+
+    def create(*_args, **_kwargs):
+        if phase == "client":
+            block_initialization()
+        return classifier
+
+    def resolve_model(*_args):
+        if phase == "resolver":
+            block_initialization()
+        return provider, "jev-test"
+
+    resolve.side_effect = resolve_model
+    monkeypatch.setattr(
+        typesafe_provider.TypeSafeProvider,
+        "as_decision_model",
+        create,
+    )
+    monkeypatch.setattr(
+        typesafe_provider.TypeSafeProvider,
+        "validate_model_selection",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        rubric_module,
+        "_DECISION_TIMEOUT_SECONDS",
+        5 if cancel else 0.2,
+    )
+    config = _running_config()
+    config.loop.rubric.use_decision_model = True
+    mode = DefaultMode()
+    await mode.on_turn_start(_context(config))
+    previous_tasks = set(rubric_module._pending_decision_tasks)
+    call = asyncio.create_task(mode.handler(ctx))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        if cancel:
+            call.cancel()
+        done, _ = await asyncio.wait({call}, timeout=1)
+        assert call in done, "The caller waited for blocked provider work"
+        if cancel:
+            with pytest.raises(asyncio.CancelledError):
+                call.result()
+        else:
+            result = call.result()
+            assert result.continuation_message == config.loop.rubric.prompt
+            assert (await mode.handler(ctx)).action == StopAction.TERMINATE
+        pending = rubric_module._pending_decision_tasks - previous_tasks
+        assert len(pending) == 1
+        assert not next(iter(pending)).done()
+    finally:
+        release_sync.set()
+        release_async.set()
+        if not call.done():
+            call.cancel()
+        pending = rubric_module._pending_decision_tasks - previous_tasks
+        await asyncio.wait_for(
+            asyncio.gather(call, *pending, return_exceptions=True),
+            timeout=2,
+        )
+    assert rubric_module._pending_decision_tasks == previous_tasks
+    resolve.assert_called_once()
+    if phase == "resolver":
+        classifier.client.aclose.assert_not_awaited()
+    else:
+        classifier.client.aclose.assert_awaited_once()
+    assert classifier.await_count == (
+        1 if phase in {"request", "cleanup"} else 0
+    )
 
 
 @pytest.mark.parametrize("block_summary", [False, True])
