@@ -216,6 +216,7 @@ plugin = Plugin()
 
 async def test_old_queued_channel_payload_cannot_run_on_replacement_generation(
     tmp_path,
+    monkeypatch,
 ):
     from qwenpaw.plugins.channels import ChannelMessage
     from qwenpaw.plugins.messages import ContentBlock
@@ -273,26 +274,42 @@ plugin = Plugin()
         await host.start_channel("queued-channel")
         workspace = await host._workspace("test")
         manager = workspace.channel_manager
+        old_channel = manager._find_channel("queued-channel")
+        close_ingress = manager._close_ingress
+        ingress_closed = asyncio.Event()
+
+        def observe_close_ingress(channel):
+            close_ingress(channel)
+            if channel is old_channel:
+                ingress_closed.set()
+
+        monkeypatch.setattr(manager, "_close_ingress", observe_close_ingress)
         gate = manager._queue_manager._lock
-        await gate.acquire()
+        reloading = None
         try:
-            await host.receive_channel(
-                "queued-channel",
-                ChannelMessage(
-                    "sender",
-                    (ContentBlock(text="/queueprobe stale"),),
-                    session_id="one-queue",
-                ),
-            )
-            async with asyncio.timeout(WAIT_TIMEOUT):
-                while True:
-                    if manager._enqueue_tasks:
-                        break
-                    await asyncio.sleep(0)
-            assert manager._enqueue_tasks and all(
-                not task.done() for task in manager._enqueue_tasks
-            )
-            assert (await host.reload("extension-contract")).ok
+            await gate.acquire()
+            try:
+                await host.receive_channel(
+                    "queued-channel",
+                    ChannelMessage(
+                        "sender",
+                        (ContentBlock(text="/queueprobe stale"),),
+                        session_id="one-queue",
+                    ),
+                )
+                async with asyncio.timeout(WAIT_TIMEOUT):
+                    while not manager._enqueue_tasks:
+                        await asyncio.sleep(0)
+                assert manager._enqueue_tasks and all(
+                    not task.done() for task in manager._enqueue_tasks
+                )
+                reloading = asyncio.create_task(
+                    host.reload("extension-contract"),
+                )
+                await asyncio.wait_for(ingress_closed.wait(), WAIT_TIMEOUT)
+            finally:
+                gate.release()
+            assert (await reloading).ok
             await host.receive_channel(
                 "queued-channel",
                 ChannelMessage(
@@ -301,9 +318,9 @@ plugin = Plugin()
                     session_id="one-queue",
                 ),
             )
-            await asyncio.sleep(0)
         finally:
-            gate.release()
+            if reloading is not None:
+                await asyncio.gather(reloading, return_exceptions=True)
         ctx = host.context("extension-contract")
         async with asyncio.timeout(WAIT_TIMEOUT):
             while True:
@@ -431,14 +448,14 @@ async def test_stop_waits_for_invocation_not_long_lived_queue_worker(
         attach = tracker.attach_or_start
         waiting = asyncio.Event()
         release = asyncio.Event()
-        workers = []
+        requests = []
 
         async def attach_with_queue_gate(*args, **kwargs):
             queue, fresh = await attach(*args, **kwargs)
             get = queue.get
 
             async def gated_get():
-                workers.append(asyncio.current_task())
+                requests.append(asyncio.current_task())
                 waiting.set()
                 await release.wait()
                 return await get()
@@ -455,6 +472,8 @@ async def test_stop_waits_for_invocation_not_long_lived_queue_worker(
             ),
         )
         await asyncio.wait_for(waiting.wait(), WAIT_TIMEOUT)
+        (state,) = workspace.channel_manager._queue_manager._queues.values()
+        consumer = state.consumer_task
         try:
             await asyncio.wait_for(
                 host.stop_channel("sdk-contract-channel"),
@@ -463,8 +482,11 @@ async def test_stop_waits_for_invocation_not_long_lived_queue_worker(
             assert ctx.storage.read_json("stopped-test.json", False)
             host.assert_quiescent("extension-contract")
             # Host queue workers can survive a completed plugin invocation.
-            assert workers and all(not worker.done() for worker in workers)
-            assert all(worker.cancelling() == 0 for worker in workers)
+            assert requests and all(
+                request.cancelled() and request is not consumer
+                for request in requests
+            )
+            assert not consumer.done() and consumer.cancelling() == 0
             assert (await host.reload("extension-contract")).ok
             # A new generation reuses the same manager queue/session safely.
             monkeypatch.setattr(tracker, "attach_or_start", attach)

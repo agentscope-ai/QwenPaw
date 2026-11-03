@@ -45,6 +45,7 @@ import {
   useSessionListStore,
 } from "../../stores/sessionListStore";
 import { ApiError } from "../../api/request";
+import i18n, { i18nReady } from "../../i18n";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
 import { useCreateNewSession } from "./hooks/useCreateNewSession";
 import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
@@ -851,6 +852,7 @@ describe("installed SDK activation after route ownership resolution", () => {
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
   it("retries the real SDK loader and commits recovered history", async () => {
+    await i18nReady;
     const user = userEvent.setup();
     const consoleError = vi
       .spyOn(console, "error")
@@ -878,14 +880,18 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     expect(surface).not.toBeVisible();
     expect(host.current().sessions.currentSessionId).toBe(A);
 
-    await user.click(screen.getByRole("button", { name: "common.retry" }));
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("common.retry") }),
+    );
     await waitFor(() => expect(fixture.history).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("alert")).toBeVisible();
     surface = screen.getByTestId("sdk-loader-probe").parentElement!;
     expect(surface.inert).toBe(true);
     expect(surface).not.toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "common.retry" }));
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("common.retry") }),
+    );
     await waitFor(() =>
       expect(
         JSON.stringify(host.current().messages.getSessionMessages(A)),

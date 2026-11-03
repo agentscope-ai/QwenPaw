@@ -19,6 +19,7 @@ import { RouteDocumentTitle } from "./RouteDocumentTitle";
 import { getRouteTitle } from "./routeTitle";
 
 import { HubModeContext } from "../../contexts/HubModeContext";
+import { SettingsSearchNavigation } from "../../pages/SettingsCenter/SettingsSearchNavigation";
 
 const { Content } = Layout;
 
@@ -53,6 +54,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   return (
     <HubModeContext.Provider value={hubMode}>
       <Layout className={styles.mainLayout}>
+        <SettingsSearchNavigation />
         <RouteDocumentTitle title={pageTitle} />
         <a
           className={styles.skipLink}

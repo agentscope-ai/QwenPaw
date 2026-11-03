@@ -15,6 +15,51 @@ vi.mock("../../utils/openHtmlFile", () => ({
 }));
 
 describe("FilePreview", () => {
+  it.each([
+    '"memory_tags": [Orion, Vega]',
+    "'memory_tags': [Orion, Vega]",
+    "defaults: &defaults\n  memory_tags: [Orion, Vega]\n<<: *defaults",
+    "memory_tags: [Old]\nmemory_tags: [Orion, Vega]",
+  ])("renders one clickable tag row from resolved YAML: %s", (frontmatter) => {
+    const onTagClick = vi.fn();
+    render(
+      <FilePreview
+        filePath="memory.md"
+        content={`---\n${frontmatter}\n---\nBody`}
+        onMemoryTagClick={onTagClick}
+      />,
+    );
+    const tags = screen.getAllByRole("button");
+    expect(tags.map((tag) => tag.textContent)).toEqual(["Orion", "Vega"]);
+    fireEvent.click(tags[0]);
+    expect(onTagClick).toHaveBeenCalledExactlyOnceWith("Orion");
+  });
+  it("renders individual tags and sends the clicked tag to the workspace", () => {
+    const onTagClick = vi.fn();
+    render(
+      <FilePreview
+        filePath="memory.md"
+        content={'---\nmemory_tags: ["赵六", "Orion"]\n---\n# Memory'}
+        onMemoryTagClick={onTagClick}
+      />,
+    );
+    const tag = screen.getByText("Orion");
+    expect(tag.tagName).toBe("BUTTON");
+    fireEvent.click(tag);
+    expect(onTagClick).toHaveBeenCalledExactlyOnceWith("Orion");
+    expect(screen.getByRole("heading", { name: "Memory" })).toBeInTheDocument();
+  });
+
+  it("keeps tags readable without a memory navigation context", () => {
+    render(
+      <FilePreview
+        filePath="attachment.md"
+        content={"---\nmemory_tags: [Orion]\n---\nText"}
+      />,
+    );
+    expect(screen.getByText("Orion").tagName).toBe("SPAN");
+  });
+
   it("shows memory tags written as a YAML block list", () => {
     render(
       <FilePreview

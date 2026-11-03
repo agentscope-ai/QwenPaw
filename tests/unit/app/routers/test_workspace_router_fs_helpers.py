@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Workspace router filesystem helpers: stats, archive, upload targets.
+"""Workspace router filesystem helpers: stats and upload targets.
 
 These are the parts of ``app/routers/workspace.py`` that work purely on
 paths and bytes, so they are exercised against real temporary trees
-rather than mocks: directory accounting, in-memory archiving, the
-atomic upload-target reservation table (overwrite / skip / rename /
-reject), the zip safety gate, and the bound-project membership check
-that authorizes Files API roots.
+rather than mocks: directory accounting, the atomic upload-target
+reservation table (overwrite / skip / rename / reject), and the
+bound-project membership check that authorizes Files API roots.
 """
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 # pylint: disable=use-implicit-booleaness-not-comparison
@@ -14,7 +13,6 @@ from __future__ import annotations
 
 import io
 import os
-import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -31,14 +29,6 @@ from qwenpaw.services.project_directory import (
 
 _RESOLVE_DIRS = "qwenpaw.app.routers.workspace.get_project_dirs_for_request"
 _DIR_KEY = "qwenpaw.services.project_directory.dir_key"
-
-
-def _zip_bytes(entries: dict[str, str]) -> bytes:
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as zf:
-        for name, content in entries.items():
-            zf.writestr(name, content)
-    return buffer.getvalue()
 
 
 def _upload(filename: str, payload: bytes) -> Any:
@@ -68,45 +58,6 @@ class TestDirStats:
     def test_directories_are_not_counted_as_files(self, tmp_path):
         (tmp_path / "sub").mkdir()
         assert workspace_router._dir_stats(tmp_path) == (0, 0)
-
-
-# ---------------------------------------------------------------------------
-# _zip_directory
-# ---------------------------------------------------------------------------
-
-
-class TestZipDirectory:
-    def test_files_and_empty_dirs_are_both_included(self, tmp_path):
-        (tmp_path / "a.txt").write_text("A", encoding="utf-8")
-        (tmp_path / "empty").mkdir()
-        nested = tmp_path / "sub"
-        nested.mkdir()
-        (nested / "b.txt").write_text("BB", encoding="utf-8")
-
-        buffer = workspace_router._zip_directory(tmp_path)
-        with zipfile.ZipFile(buffer) as zf:
-            names = set(zf.namelist())
-            assert names == {"a.txt", "empty/", "sub/", "sub/b.txt"}
-            assert zf.read("a.txt") == b"A"
-            assert zf.read("sub/b.txt") == b"BB"
-
-    def test_buffer_is_rewound_to_the_start(self, tmp_path):
-        (tmp_path / "a.txt").write_text("A", encoding="utf-8")
-        buffer = workspace_router._zip_directory(tmp_path)
-        assert buffer.tell() == 0
-        assert buffer.read(4) == b"PK\x03\x04"
-
-    def test_empty_root_yields_an_empty_archive(self, tmp_path):
-        buffer = workspace_router._zip_directory(tmp_path)
-        with zipfile.ZipFile(buffer) as zf:
-            assert zf.namelist() == []
-
-    def test_hidden_files_are_included(self, tmp_path):
-        """_zip_directory archives everything; skipping is the lister's job."""
-        (tmp_path / ".env").write_text("SECRET", encoding="utf-8")
-        buffer = workspace_router._zip_directory(tmp_path)
-        with zipfile.ZipFile(buffer) as zf:
-            assert zf.namelist() == [".env"]
 
 
 # ---------------------------------------------------------------------------
@@ -376,61 +327,6 @@ class TestPrepareUploadTargets:
                 [_upload("", b"x")],
             )
         assert exc_info.value.status_code == 400
-
-
-# ---------------------------------------------------------------------------
-# _validate_zip_data / _validate_and_extract_zip
-# ---------------------------------------------------------------------------
-
-
-class TestValidateZipData:
-    def test_valid_zip_passes(self, tmp_path):
-        workspace_router._validate_zip_data(
-            _zip_bytes({"a.txt": "A", "sub/b.txt": "B"}),
-            tmp_path,
-        )
-
-    def test_non_zip_bytes_is_a_400(self, tmp_path):
-        with pytest.raises(HTTPException) as exc_info:
-            workspace_router._validate_zip_data(b"not a zip", tmp_path)
-        assert exc_info.value.status_code == 400
-        assert "not a valid zip archive" in exc_info.value.detail
-
-    def test_traversal_entry_is_a_400(self, tmp_path):
-        workspace = tmp_path / "ws"
-        workspace.mkdir()
-        data = _zip_bytes({"../escape.txt": "evil"})
-        with pytest.raises(HTTPException) as exc_info:
-            workspace_router._validate_zip_data(data, workspace)
-        assert exc_info.value.status_code == 400
-        assert "unsafe path" in exc_info.value.detail
-        assert "../escape.txt" in exc_info.value.detail
-
-    def test_absolute_entry_is_a_400(self, tmp_path):
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as zf:
-            zf.writestr("/etc/passwd", "evil")
-        with pytest.raises(HTTPException) as exc_info:
-            workspace_router._validate_zip_data(buffer.getvalue(), tmp_path)
-        assert exc_info.value.status_code == 400
-        assert "unsafe path" in exc_info.value.detail
-
-    def test_validate_and_extract_writes_the_files(self, tmp_path):
-        workspace = tmp_path / "ws"
-        workspace_router._validate_and_extract_zip(
-            _zip_bytes({"a.txt": "A"}),
-            workspace,
-        )
-        assert (workspace / "a.txt").read_text(encoding="utf-8") == "A"
-
-    def test_validate_and_extract_rejects_before_writing(self, tmp_path):
-        workspace = tmp_path / "ws"
-        with pytest.raises(HTTPException):
-            workspace_router._validate_and_extract_zip(
-                _zip_bytes({"../escape.txt": "evil"}),
-                workspace,
-            )
-        assert not workspace.exists()
 
 
 # ---------------------------------------------------------------------------

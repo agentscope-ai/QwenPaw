@@ -30,6 +30,57 @@ logger = logging.getLogger(__name__)
 # ── Live-API helpers ──────────────────────────────────────────────────────
 
 
+def _echo_install_result(body, fallback):
+    name = body.get("name", fallback)
+    if "status" in body:
+        click.echo(
+            f"Plugin '{name}' installation: {body['status']}; "
+            f"enabled={body.get('enabled', 'unknown')}.",
+        )
+    else:
+        click.echo(f"✅ Plugin '{name}' installed and loaded (hot reload).")
+    for diagnostic in body.get("diagnostics") or []:
+        click.echo(f"  {diagnostic}")
+
+
+def _echo_dependency_operation(operation):
+    click.echo(f"Dependency upgrade {operation['id']}: {operation['status']}")
+    for change in operation.get("changes") or ():
+        click.echo(
+            f"  {change['name']}: "
+            f"{change.get('current_version') or 'missing'} -> "
+            f"{change['target_version']}",
+        )
+    click.echo(operation.get("message") or "")
+    for instruction in operation.get("instructions") or ():
+        click.echo(instruction)
+    if operation["status"] == "needs_confirmation":
+        click.echo(
+            f"Review/apply: qwenpaw plugin dependency-upgrade apply {operation['id']}",
+        )
+        click.echo(
+            f"Cancel: qwenpaw plugin dependency-upgrade cancel {operation['id']}",
+        )
+
+
+def _structured_dependency_failure(detail):
+    if not isinstance(detail, dict):
+        return False
+    operation = detail.get("operation")
+    if detail.get("code") == "DEPENDENCY_UPGRADE_REQUIRED" and isinstance(
+        operation,
+        dict,
+    ):
+        _echo_dependency_operation(operation)
+        return True
+    if str(detail.get("code", "")).startswith("DEPENDENCY_"):
+        click.echo(detail.get("message") or detail["code"], err=True)
+        for instruction in detail.get("instructions") or ():
+            click.echo(instruction, err=True)
+        return True
+    return False
+
+
 def _get_api_base() -> Optional[str]:
     """Return the base URL of the running QwenPaw API, or None.
 
@@ -72,18 +123,15 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
             )
             response.raise_for_status()
             body = response.json()
-        name = body.get("name", source)
-        click.echo(
-            f"✅ Plugin '{name}' installed and loaded (hot reload).",
-        )
-        for diagnostic in body.get("diagnostics", []):
-            click.echo(diagnostic)
+        _echo_install_result(body, source)
         return True
     except httpx.HTTPStatusError as exc:
         try:
             detail = exc.response.json().get("detail", str(exc))
         except Exception:
             detail = str(exc)
+        if _structured_dependency_failure(detail):
+            return False
         click.echo(f"❌ API install failed: {detail}", err=True)
         if os.environ.get("QWENPAW_RUNTIME_ID"):
             raise click.ClickException(str(exc)) from exc
@@ -140,18 +188,15 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
             )
             response.raise_for_status()
             result = response.json()
-        name = result.get("name", zip_path.name)
-        click.echo(
-            f"✅ Plugin '{name}' installed and loaded (hot reload).",
-        )
-        for diagnostic in result.get("diagnostics", []):
-            click.echo(diagnostic)
+        _echo_install_result(result, zip_path.name)
         return True
     except httpx.HTTPStatusError as exc:
         try:
             detail = exc.response.json().get("detail", str(exc))
         except Exception:
             detail = str(exc)
+        if _structured_dependency_failure(detail):
+            return False
         click.echo(f"❌ API upload failed: {detail}", err=True)
         if os.environ.get("QWENPAW_RUNTIME_ID"):
             raise click.ClickException(str(exc)) from exc
@@ -213,6 +258,94 @@ def _is_running() -> bool:
     from ..config.utils import is_qwenpaw_running
 
     return is_qwenpaw_running()
+
+
+def _offline_channel_transaction(
+    plugin_id,
+    *,
+    source_path=None,
+    force=False,
+    temp_dir=None,
+):
+    """Publish inactive sources and retain failed preparation custody."""
+    from ..plugins.channel_bootstrap import resolve_default_channel_runtime
+    from ..plugins.lifecycle import UnloadMode
+    from ..plugins.loader import PluginLoader
+
+    async def run():
+        from ..utils.io_utils import run_sync_io
+
+        loader = await PluginLoader.create(
+            [config_utils.get_plugins_dir()],
+            channel_runtime=(
+                await run_sync_io(resolve_default_channel_runtime)
+                if source_path
+                else None
+            ),
+        )
+        try:
+            if source_path is not None:
+                try:
+                    return await loader.install_plugin_files(
+                        source_path,
+                        force=force,
+                    )
+                except RuntimeError as exc:
+                    from ..plugins.dependency_gate import SharedDependencyError
+
+                    if not isinstance(
+                        exc,
+                        SharedDependencyError,
+                    ) or exc.reason_code not in {
+                        "DEPENDENCY_RESTART_REQUIRED",
+                        "DEPENDENCY_UNSATISFIED",
+                    }:
+                        raise
+                    from ..plugins.dependency_upgrade import (
+                        dependency_upgrades,
+                    )
+
+                    return await dependency_upgrades(loader).stage(
+                        source_path,
+                        force=force,
+                    )
+            report = await loader.lifecycle.unload(
+                plugin_id,
+                UnloadMode.UNINSTALL,
+            )
+            if (
+                not report.clean
+                or not report.quiescent
+                or report.needs_restart
+            ):
+                raise RuntimeError(
+                    "; ".join(report.errors) or "Uninstall needs_restart",
+                )
+            return None
+        finally:
+            reports = await loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+            retained = temp_dir and loader.retains_preparation_source(temp_dir)
+            if temp_dir and not retained:
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except OSError as exc:
+                    logger.warning(
+                        "Failed to remove download staging: %s",
+                        exc,
+                    )
+            if retained or any(
+                not row.clean or not row.quiescent or row.needs_restart
+                for row in reports
+            ):
+                raise RuntimeError(
+                    "Channel cleanup failed; needs_restart. "
+                    "Retained source must remain until its child has stopped.",
+                )
+
+    try:
+        return asyncio.run(run())
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
@@ -280,6 +413,54 @@ def plugin():
     """Plugin management commands."""
 
 
+@plugin.group()
+def preset():
+    """Choose dormant bundled channel sources for this working directory."""
+
+
+@plugin.command("prepare-upgrade")
+def prepare_upgrade():
+    """Install and validate dependencies for saved enabled channels."""
+    from ..plugins.official_channels import prepare_channel_upgrade
+
+    try:
+        errors = asyncio.run(prepare_channel_upgrade())
+    except Exception as exc:
+        raise click.ClickException(
+            f"Channel upgrade preparation failed: {type(exc).__name__}",
+        ) from exc
+    if errors:
+        raise click.ClickException(
+            "Enabled channel preparation failed: "
+            + "; ".join(f"{key}: {reason}" for key, reason in errors.items()),
+        )
+    click.echo("Enabled channel dependencies are ready.")
+
+
+@preset.command("apply")
+@click.argument("name", type=click.Choice(["light", "channels-full"]))
+@click.option(
+    "--offline",
+    is_flag=True,
+    help="Publish local sources at next boot; never download.",
+)
+def apply_channel_preset(name, offline):
+    """Persist intent; the running host owns source publication."""
+    from ..plugins.official_channels import initialize_channel_policy
+
+    del offline
+    initialize_channel_policy()
+
+    def apply(config):
+        config.channel_plugin_state.preset = name
+
+    config_utils.mutate_config(apply)
+    click.echo(
+        f"Channel preset {name} saved. Offline source publication "
+        "and activation pending next boot.",
+    )
+
+
 @plugin.command()
 @click.argument("source")
 @click.option(
@@ -330,8 +511,6 @@ def install(source: str, force: bool):
 
     # ── Offline install (app is not running) ─────────────────────────
 
-    from ..config.utils import get_plugins_dir
-
     is_url = source.startswith(("http://", "https://"))
     temp_dir = None
 
@@ -347,22 +526,22 @@ def install(source: str, force: bool):
             click.echo(f"❌ Path not found: {source}", err=True)
             return
 
-    from ..plugins.loader import PluginLoader
-
     try:
-        loader = PluginLoader([get_plugins_dir()])
-        record = asyncio.run(
-            loader.install_plugin_files(source_path, force=force),
+        record = _offline_channel_transaction(
+            None,
+            source_path=source_path,
+            force=force,
+            temp_dir=temp_dir,
         )
     except Exception as exc:
         raise click.ClickException(f"Failed to install plugin: {exc}") from exc
-    finally:
-        if temp_dir is not None:
-            try:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            except OSError as exc:
-                logger.warning("Failed to remove download staging: %s", exc)
 
+    if (
+        isinstance(record, dict)
+        and record.get("status") == "needs_confirmation"
+    ):
+        _echo_dependency_operation(record)
+        return
     click.echo(
         f"\n✅ Plugin '{record.manifest.name}' installed successfully!",
     )
@@ -546,18 +725,8 @@ def uninstall(plugin_id: str):
         click.echo("Cancelled.")
         return
 
-    from ..plugins.lifecycle import UnloadMode
-    from ..plugins.loader import PluginLoader
-
     try:
-        loader = PluginLoader([get_plugins_dir()])
-        report = asyncio.run(
-            loader.lifecycle.unload(plugin_id, UnloadMode.UNINSTALL),
-        )
-        if not report.clean or not report.quiescent:
-            raise RuntimeError(
-                "; ".join(report.errors) or "Cleanup incomplete",
-            )
+        _offline_channel_transaction(plugin_id)
     except Exception as exc:
         raise click.ClickException(
             f"Failed to uninstall plugin: {exc}",
@@ -615,3 +784,118 @@ def validate(path: str):
         click.echo(f"❌ Invalid JSON in plugin.json: {e}", err=True)
     except Exception as e:
         click.echo(f"❌ Validation failed: {e}", err=True)
+
+
+@plugin.group("dependency-upgrade")
+def dependency_upgrade():
+    """Review and apply retained shared dependency upgrades."""
+
+
+def _dependency_operation(action, operation_id):
+    online = bool(os.environ.get("QWENPAW_RUNTIME_ID") or _is_running())
+    if online:
+        base = _get_api_base()
+        if base is None:
+            raise click.ClickException(
+                "Running backend endpoint is unavailable.",
+            )
+        try:
+            with api_client(base, timeout=300) as client:
+                path = f"plugins/dependency-upgrades/{operation_id}"
+                response = (
+                    client.get(path)
+                    if action == "status"
+                    else (
+                        client.post(path + "/apply")
+                        if action == "apply"
+                        else client.delete(path)
+                    )
+                )
+                response.raise_for_status()
+                operation = response.json()
+        except httpx.HTTPError as exc:
+            raise click.ClickException(
+                "Dependency operation failed through the running backend; "
+                "no offline write was attempted.",
+            ) from exc
+    else:
+        from ..plugins.channel_bootstrap import resolve_default_channel_runtime
+        from ..plugins.loader import PluginLoader
+        from ..plugins.dependency_upgrade import DependencyUpgradeManager
+
+        async def run():
+            from ..utils.io_utils import run_sync_io
+
+            loader = await PluginLoader.create(
+                [config_utils.get_plugins_dir()],
+                channel_runtime=await run_sync_io(
+                    resolve_default_channel_runtime,
+                ),
+            )
+            manager = DependencyUpgradeManager(loader)
+            operation = (
+                await manager.apply(operation_id)
+                if action == "apply"
+                else await run_sync_io(getattr(manager, action), operation_id)
+            )
+            return manager, operation
+
+        try:
+            manager, operation = asyncio.run(run())
+            if action == "apply" and operation["status"] == "waiting_restart":
+                import subprocess
+
+                # Offline maintenance consumes the manager's authenticated record.
+                # pylint: disable=protected-access
+                script = (
+                    manager._directory(operation_id)
+                    / "worker/dependency_worker.py"
+                )
+                worker_python = manager._read(operation_id)["worker_python"]
+                # pylint: enable=protected-access
+                options = (
+                    {"start_new_session": True}
+                    if os.name != "nt"
+                    else {
+                        "creationflags": getattr(
+                            subprocess,
+                            "CREATE_NEW_PROCESS_GROUP",
+                            0,
+                        ),
+                    }
+                )
+                with (script.parent.parent / "worker.log").open("ab") as log:
+                    # The maintenance worker waits for this CLI to exit; a
+                    # Popen context manager would wait for it and deadlock.
+                    subprocess.Popen(  # pylint: disable=consider-using-with
+                        [worker_python, "-I", "-S", str(script)],
+                        stdin=subprocess.DEVNULL,
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                        **options,
+                    )
+                operation[
+                    "message"
+                ] = "Maintenance starts when this CLI exits. Query this operation for its result."
+        except Exception as exc:
+            raise click.ClickException(str(exc)) from exc
+    _echo_dependency_operation(operation)
+    return operation
+
+
+@dependency_upgrade.command("status")
+@click.argument("operation_id")
+def dependency_upgrade_status(operation_id):
+    _dependency_operation("status", operation_id)
+
+
+@dependency_upgrade.command("apply")
+@click.argument("operation_id")
+def dependency_upgrade_apply(operation_id):
+    _dependency_operation("apply", operation_id)
+
+
+@dependency_upgrade.command("cancel")
+@click.argument("operation_id")
+def dependency_upgrade_cancel(operation_id):
+    _dependency_operation("cancel", operation_id)

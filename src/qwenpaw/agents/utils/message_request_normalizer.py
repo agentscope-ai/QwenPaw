@@ -9,12 +9,18 @@ stored conversation state.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from copy import deepcopy
 from typing import Any
 
 from agentscope.message import Msg, TextBlock
 
-from ...constant import MEDIA_UNSUPPORTED_PLACEHOLDER
+from ...constant import (
+    MEDIA_UNSUPPORTED_PLACEHOLDER,
+    QWENPAW_MESSAGE_TAG_KEY,
+    SCROLL_MEMORY_MESSAGE_TAG,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
 from .tool_message_utils import _sanitize_tool_messages
 
 # Block types stripped from copied messages during request-time
@@ -35,6 +41,131 @@ _PROVIDER_ONLY_TOOL_USE_FIELDS = frozenset({"extra_content", "raw_input"})
 
 # The subset that is preserved when the target is its native family.
 _GEMINI_NATIVE_FIELDS = frozenset({"extra_content"})
+
+_OMITTED_MEDIA_IDS = "qwenpaw_omitted_media_ids"
+
+
+def _get(value: Any, key: str, default: Any = None) -> Any:
+    return (
+        value.get(key, default)
+        if isinstance(value, dict)
+        else getattr(value, key, default)
+    )
+
+
+def _omitted_ids(msg: Msg) -> set[str]:
+    metadata = getattr(msg, "metadata", None)
+    value = (
+        metadata.get(_OMITTED_MEDIA_IDS) if isinstance(metadata, dict) else []
+    )
+    return (
+        {item for item in value if isinstance(item, str) and item}
+        if isinstance(value, list)
+        else set()
+    )
+
+
+def _media_block_lists(msg: Msg) -> Iterator[list[Any]]:
+    """Yield top-level and nested media-bearing block lists."""
+    content = _get(msg, "content")
+    if not isinstance(content, list):
+        return
+    yield content
+    for block in content:
+        block_type = _get(block, "type")
+        field = {"tool_result": "output", "hint": "hint"}.get(block_type)
+        nested = _get(block, field) if field else None
+        if isinstance(nested, list):
+            yield nested
+
+
+def _historical_media(msgs: list[Msg]) -> Iterator[tuple[Msg, Any]]:
+    """Yield eligible media before the latest real user turn, oldest first."""
+    boundary = 0
+    for index, msg in enumerate(msgs):
+        metadata = getattr(msg, "metadata", None)
+        tag = (
+            metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+            if isinstance(metadata, dict)
+            else None
+        )
+        if (
+            msg.role == "user"
+            and (
+                not isinstance(tag, str)
+                or tag not in SYNTHETIC_USER_MESSAGE_TAGS
+            )
+            and tag != SCROLL_MEMORY_MESSAGE_TAG
+        ):
+            boundary = index
+    for msg in msgs[:boundary]:
+        if not isinstance(getattr(msg, "metadata", None), dict):
+            continue
+        omitted = _omitted_ids(msg)
+        for blocks in _media_block_lists(msg):
+            for block in blocks:
+                block_id = _get(block, "id")
+                if (
+                    _is_media_block(block)
+                    and isinstance(block_id, str)
+                    and block_id
+                    and block_id not in omitted
+                ):
+                    omitted.add(block_id)
+                    yield msg, block
+
+
+def mark_media_omitted_after_overflow(msgs: list[Msg]) -> int:
+    """Mark historical omissions in memory while retaining original media.
+
+    Keep original assets and the active turn. Only mark historical media
+    after the provider has rejected the request body size. The next session
+    state save serializes these markers; this function does not write to
+    disk or update history.db.
+    """
+    count = 0
+    for msg, block in _historical_media(msgs):
+        block_id = _get(block, "id")
+        msg.metadata[_OMITTED_MEDIA_IDS] = sorted(
+            _omitted_ids(msg) | {block_id},
+        )
+        count += 1
+    return count
+
+
+def _media_placeholder(block: Any) -> str:
+    source = _get(block, "source")
+    media_type = _get(source, "media_type") or _get(block, "type", "media")
+    reference = (
+        _get(source, "path")
+        or _get(source, "url")
+        or _get(source, "name")
+        or _get(block, "name")
+    )
+    if not isinstance(reference, str) or reference.startswith("data:"):
+        reference = None
+    suffix = f": {reference}" if reference else ""
+    return f"[{media_type} omitted (body size limit){suffix}]"
+
+
+def _omit_rejected_media(msgs: list[Msg]) -> None:
+    """Replace rejected media only in request copies, before merging."""
+    for msg in msgs:
+        omitted = _omitted_ids(msg)
+        if not omitted:
+            continue
+        for blocks in _media_block_lists(msg):
+            for index, block in enumerate(blocks):
+                block_id = _get(block, "id")
+                if (
+                    _is_media_block(block)
+                    and isinstance(block_id, str)
+                    and block_id in omitted
+                ):
+                    blocks[index] = TextBlock(
+                        id=block_id,
+                        text=_media_placeholder(block),
+                    )
 
 
 def _clean_provider_specific_fields(
@@ -114,7 +245,14 @@ def _strip_unsigned_thinking_for_anthropic(msgs: list[Msg]) -> None:
 
 def _clone_msg(msg: Msg) -> Msg:
     """Return a deep copy of an AgentScope message."""
-    return Msg.model_validate(deepcopy(msg.model_dump(mode="json")))
+    payload = deepcopy(msg.model_dump(mode="json"))
+    if not isinstance(payload.get("metadata"), dict):
+        payload["metadata"] = {}
+    for blocks in _media_block_lists(payload):
+        for block in blocks:
+            if _is_media_block(block) and block.get("id") is None:
+                block.pop("id", None)
+    return Msg.model_validate(payload)
 
 
 def _clone_messages(msgs: list[Msg]) -> list[Msg]:
@@ -226,6 +364,39 @@ def _is_video_block(block: Any) -> bool:
     )
 
 
+def _is_empty_media_block(block: Any) -> bool:
+    """Check if a media block carries an empty payload.
+
+    A zero-length base64 payload is serialized by the formatters as an empty
+    data URI (``data:image/png;base64,``), which every provider rejects
+    (e.g. OpenAI's *"Image data cannot be empty"*). Such a block carries no
+    information and must be dropped before formatting. URL sources are left
+    alone: their emptiness cannot be determined without fetching them.
+    """
+    if not _is_media_block(block):
+        return False
+    source = (
+        block.get("source")
+        if isinstance(block, dict)
+        else getattr(block, "source", None)
+    )
+    if source is None:
+        return False
+    stype = (
+        source.get("type")
+        if isinstance(source, dict)
+        else getattr(source, "type", None)
+    )
+    if stype != "base64":
+        return False
+    data = (
+        source.get("data")
+        if isinstance(source, dict)
+        else getattr(source, "data", None)
+    )
+    return not data
+
+
 def _strip_media_blocks_in_place(
     msgs: list[Msg],
     *,
@@ -233,6 +404,7 @@ def _strip_media_blocks_in_place(
     video_only: bool = False,
     document_only: bool = False,
     tool_result_only: bool = False,
+    empty_only: bool = False,
 ) -> int:
     """Strip media blocks from copied messages only.
 
@@ -243,9 +415,13 @@ def _strip_media_blocks_in_place(
     (image/audio/video blocks are preserved). With ``tool_result_only``,
     stripping applies only to blocks nested inside tool results, so
     user-supplied document blocks keep their upstream formatting path.
+    With ``empty_only``, only media blocks with a zero-length payload are
+    removed (see :func:`_is_empty_media_block`).
     """
     total_stripped = 0
-    if document_only:
+    if empty_only:
+        should_strip = _is_empty_media_block
+    elif document_only:
         should_strip = _is_document_block
     elif audio_only:
         should_strip = _is_audio_block
@@ -283,14 +459,20 @@ def _strip_media_blocks_in_place(
                 stripped_count = original_len - len(filtered)
                 total_stripped += stripped_count
                 stripped_this_message += stripped_count
-                if isinstance(block, dict):
-                    block["output"] = (
-                        filtered if filtered else MEDIA_UNSUPPORTED_PLACEHOLDER
-                    )
+                if filtered:
+                    replacement: Any = filtered
+                elif stripped_count:
+                    replacement = MEDIA_UNSUPPORTED_PLACEHOLDER
                 else:
-                    block.output = (
-                        filtered if filtered else MEDIA_UNSUPPORTED_PLACEHOLDER
-                    )
+                    # Nothing was stripped: keep the original output as it is.
+                    # An already-empty tool result must stay empty, otherwise
+                    # the model is told that media was dropped from a result
+                    # that never carried any.
+                    replacement = output
+                if isinstance(block, dict):
+                    block["output"] = replacement
+                else:
+                    block.output = replacement
 
             new_content.append(block)
 
@@ -366,6 +548,7 @@ def normalize_messages_for_model_request(
         strip_video: Whether to remove video blocks before media preparation.
     """
     normalized = _clone_messages(msgs)
+    _omit_rejected_media(normalized)
     # Sanitize first: _repair_empty_tool_inputs needs raw_input to fix
     # empty input fields.  _clean_provider_specific_fields runs after so
     # that raw_input (and other provider artefacts) are stripped only once
@@ -375,6 +558,11 @@ def normalize_messages_for_model_request(
     _clean_provider_specific_fields(normalized, target_family)
     if target_family == "anthropic":
         _strip_unsigned_thinking_for_anthropic(normalized)
+    # Empty media blocks (e.g. a tool returning a zero-byte image) would be
+    # serialized as ``data:<mime>;base64,`` — an empty data URI every
+    # provider rejects. Drop them unconditionally, before the multimodal
+    # branching below, since no endpoint accepts an empty data URI.
+    _strip_media_blocks_in_place(normalized, empty_only=True)
     if not supports_multimodal:
         _strip_media_blocks_in_place(normalized)
     elif strip_audio:

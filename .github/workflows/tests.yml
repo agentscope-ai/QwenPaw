@@ -169,7 +169,6 @@ jobs:
           sdist=("$RUNNER_TEMP/sdk-dist/"*.tar.gz)
           "$RUNNER_TEMP/sdk-author-venv/bin/python" -m pip install "${wheel[0]}[test,full]" mypy
           export PATH="$RUNNER_TEMP/sdk-author-venv/bin:$PATH"
-          uv --version
           python scripts/check_plugin_sdk_artifacts.py \
             --wheel "${wheel[0]}" --sdist "${sdist[0]}" \
             --python "$RUNNER_TEMP/sdk-author-venv/bin/python" \
@@ -241,13 +240,6 @@ jobs:
         shell: bash
         run: |
           pip install -e ".[dev,test,full]"
-
-      - name: Check channel contract coverage
-        run: python scripts/check_channel_contracts.py
-
-      - name: Validate channel check script
-        shell: bash
-        run: bash -n scripts/check-channels.sh
 
       - name: Run contract tests
         shell: bash

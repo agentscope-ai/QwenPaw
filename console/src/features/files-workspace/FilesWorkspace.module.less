@@ -224,6 +224,124 @@
   display: contents;
 }
 
+.tagsNavigator {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.tagsHeader {
+  flex-shrink: 0;
+  padding: 12px;
+}
+
+.tagsHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.tagBack {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--files-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tagsCount {
+  margin: 6px 0 0;
+  color: var(--files-muted);
+}
+.tagsList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tagRow,
+.tagFileRow {
+  width: 100%;
+  display: flex;
+  padding: 10px 8px;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--files-ink);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+
+  &:hover,
+  &[aria-current="true"] {
+    background: var(--files-accent-soft);
+  }
+}
+
+.tagRow {
+  align-items: center;
+  svg {
+    flex-shrink: 0;
+  }
+  span:first-of-type {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.tagFileCount {
+  color: var(--files-muted);
+  font-variant-numeric: tabular-nums;
+}
+.tagFileRow {
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 4px;
+  time {
+    color: var(--files-muted);
+    font-size: var(--app-font-caption);
+  }
+}
+.tagDescription {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tagFilePath,
+.tagFileTags {
+  color: var(--files-muted);
+  font-size: var(--app-font-caption);
+}
+.tagsPagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+}
+
+@media (pointer: coarse) {
+  .tagBack,
+  .tagRow,
+  .tagFileRow {
+    min-height: 44px;
+  }
+}
+
 .mobilePaneSwitch {
   display: none;
 }
@@ -261,6 +379,7 @@
 .navigator {
   width: clamp(210px, 22%, 290px);
   min-width: 190px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--files-line);
@@ -736,19 +855,22 @@
 .sourceTabs {
   padding: 0 8px 9px;
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   gap: 3px;
-  overflow-x: auto;
 
   button {
     height: auto;
     min-height: max(28px, calc(28px * var(--app-font-scale)));
-    padding: 0 9px;
+    max-width: 100%;
+    padding: 5px 9px;
     border: 0;
     border-radius: 7px;
     color: var(--files-muted);
     background: transparent;
     font-size: var(--app-font-caption);
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
     cursor: pointer;
   }
 

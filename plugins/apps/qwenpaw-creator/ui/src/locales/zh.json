@@ -249,6 +249,7 @@
     "testConnection": "测试连通性",
     "connectionTestSuccess": "连接测试成功",
     "connectionTestFailed": "连接测试失败",
+    "connectionTestCredentialOnly": "凭证已验证，但本次只发出只读探测，未验证该模型的实际能力。",
     "connectionTestError": "测试连接时发生错误",
     "multimodalTesting": "多模态测试中…",
     "multimodalTestPassed": "多模态测试通过，已启用 VLM",

@@ -33,5 +33,6 @@ LangString qwenpawCliPathAdded ${LANG_SIMPCHINESE} "已将 qwenpaw 添加到用�
 LangString qwenpawCliPathSkipped ${LANG_SIMPCHINESE} "已跳过添加 qwenpaw 到用户 PATH"
 LangString qwenpawCliPathMissing ${LANG_SIMPCHINESE} "未找到 qwenpaw.exe，已跳过 PATH 更新"
 LangString qwenpawCliPathUpdateFailed ${LANG_SIMPCHINESE} "更新用户 PATH 失败"
-LangString qwenpawStopProcessesPrompt ${LANG_SIMPCHINESE} "QwenPaw 进程仍在占用安装程序需要替换的文件。$\n$\n请退出 QwenPaw 并关闭相关命令行会话，然后点击“重试”；点击“取消”将中止安装。"
+LangString qwenpawPrepareInstallFailed ${LANG_SIMPCHINESE} "QwenPaw 无法完成安装或卸载前的准备。$\n$\n请查看下方详情；如列出了进程，请关闭它们。解决问题后点击“重试”，点击“取消”将中止操作。$\n$\n返回结果：$0"
+LangString qwenpawPowerShellStartFailed ${LANG_SIMPCHINESE} "无法启动 Windows PowerShell，准备脚本未运行。"
 LangString qwenpawRestoreInstallStateFailed ${LANG_SIMPCHINESE} "无法恢复 Native Messaging 启动器；QwenPaw 将在下次启动时重试恢复"
