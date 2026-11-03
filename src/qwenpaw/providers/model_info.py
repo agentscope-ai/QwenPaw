@@ -256,10 +256,13 @@ class ModelInfo(BaseModel):
         """Require a complete, ordered [min, max] thinking budget range."""
         budget_range = self.thinking_budget_range
         if budget_range is not None and (
-            len(budget_range) != 2 or budget_range[0] > budget_range[1]
+            len(budget_range) != 2
+            or budget_range[0] > budget_range[1]
+            or budget_range[1] < 1
         ):
             raise ValueError(
-                "thinking_budget_range must be [min, max] with min <= max",
+                "thinking_budget_range must be [min, max] with min <= max "
+                "and max >= 1",
             )
         return self
 

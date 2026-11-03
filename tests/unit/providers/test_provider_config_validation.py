@@ -76,3 +76,24 @@ def test_thinking_budget_range_ordered_pair_still_works():
     assert control.kind == "budget"
     assert control.budget_min == 100
     assert control.budget_max == 9000
+
+
+@pytest.mark.parametrize("bad_range", [[0, 0], [-5, -1]])
+def test_thinking_budget_range_max_must_be_at_least_one(bad_range):
+    # Ordered pairs, but the normalized range is empty: thinking_control
+    # clamps budget_min to >= 1, so a max below 1 can never construct a
+    # valid ThinkingControl and must be rejected on the write path.
+    with pytest.raises(ValidationError, match="thinking_budget_range"):
+        ModelInfo(id="m1", name="Model 1", thinking_budget_range=bad_range)
+
+
+def test_thinking_budget_range_zero_min_keeps_supports_off():
+    provider = make_provider(
+        thinking_budget_range=[0, 9000],
+        thinking_param_style="budget",
+    )
+    control = provider.thinking_control("m1")
+    assert control.kind == "budget"
+    assert control.budget_min == 1
+    assert control.budget_max == 9000
+    assert control.supports_off is True
