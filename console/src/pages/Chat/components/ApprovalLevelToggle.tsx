@@ -7,7 +7,6 @@ import React, {
 } from "react";
 import { Dropdown, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import type { DecisionSettings } from "@/features/thinking/types";
 import {
   AlertTriangle,
   Ban,
@@ -48,9 +47,7 @@ interface ApprovalLevelToggleProps {
   /** Default level from GET /workspace/running-config */
   runningConfigApprovalLevel: ToolExecutionLevel;
   /** Undefined while the decision model configuration is loading. */
-  decisionSettings?: DecisionSettings;
-  /** Clear an explicit opt-out from the former session switch. */
-  onEnableDecisionModel?: () => Promise<boolean>;
+  decisionModelConfigured?: boolean;
   /** null = no session override, backend uses running-config */
   onChange?: (sessionOverride: ToolExecutionLevel | null) => void;
   compact?: boolean;
@@ -60,8 +57,7 @@ interface ApprovalLevelToggleProps {
 const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   sessionId,
   runningConfigApprovalLevel,
-  decisionSettings,
-  onEnableDecisionModel,
+  decisionModelConfigured,
   onChange,
   compact = false,
   className,
@@ -69,9 +65,6 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
-  const [enabling, setEnabling] = useState(false);
-  const sessionRef = useRef(sessionId);
-  sessionRef.current = sessionId;
   const [sessionLevel, setSessionLevel] = useState<ToolExecutionLevel | null>(
     null,
   );
@@ -79,7 +72,6 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   onChangeRef.current = onChange;
 
   useEffect(() => {
-    setEnabling(false);
     const saved = localStorage.getItem(storageKey(sessionId));
     if (saved && LEVELS.includes(saved as ToolExecutionLevel)) {
       setSessionLevel(saved as ToolExecutionLevel);
@@ -89,13 +81,14 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   }, [sessionId]);
 
   const requestedLevel = sessionLevel ?? runningConfigApprovalLevel;
-  const decisionUnavailable =
-    decisionSettings?.configured === false ||
-    decisionSettings?.override === false;
   const effectiveLevel =
-    requestedLevel === "JEV" && decisionUnavailable ? "STRICT" : requestedLevel;
+    requestedLevel === "JEV" && decisionModelConfigured === false
+      ? "STRICT"
+      : requestedLevel;
   const effectiveOverride =
-    requestedLevel === "JEV" && decisionUnavailable ? "STRICT" : sessionLevel;
+    requestedLevel === "JEV" && decisionModelConfigured === false
+      ? "STRICT"
+      : sessionLevel;
   const meta = LEVEL_META[effectiveLevel];
 
   useEffect(() => {
@@ -103,25 +96,14 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   }, [effectiveOverride]);
 
   const handleSelect = useCallback(
-    async (level: ToolExecutionLevel) => {
-      if (enabling) return;
-      if (level === "JEV") {
-        if (!decisionSettings?.configured) return;
-        if (decisionSettings.override === false) {
-          if (!onEnableDecisionModel) return;
-          setEnabling(true);
-          const enabled = await onEnableDecisionModel();
-          if (sessionRef.current !== sessionId) return;
-          setEnabling(false);
-          if (!enabled) return;
-        }
-      }
+    (level: ToolExecutionLevel) => {
+      if (level === "JEV" && decisionModelConfigured !== true) return;
       setSessionLevel(level);
       setOpen(false);
       localStorage.setItem(storageKey(sessionId), level);
       onChangeRef.current?.(level);
     },
-    [decisionSettings, enabling, onEnableDecisionModel, sessionId],
+    [decisionModelConfigured, sessionId],
   );
 
   const menuItems: MenuProps["items"] = useMemo(() => {
@@ -134,7 +116,7 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
         `agentConfig.toolExecutionLevel.${lv.toLowerCase()}Desc`,
         "",
       );
-      const unavailable = lv === "JEV" && !decisionSettings?.configured;
+      const unavailable = lv === "JEV" && decisionModelConfigured !== true;
       items.push({
         key: lv,
         label: (
@@ -166,12 +148,12 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
             opacity: unavailable ? 0.45 : 1,
           },
         }),
-        onClick: () => void handleSelect(lv),
+        onClick: () => handleSelect(lv),
       });
     }
 
     return items;
-  }, [decisionSettings, handleSelect, t]);
+  }, [decisionModelConfigured, handleSelect, t]);
 
   const trigger = (
     <button
@@ -181,7 +163,6 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
       aria-label={t("agentConfig.toolExecutionLevelTitle")}
       onClick={isMobile ? () => setOpen((current) => !current) : undefined}
       type="button"
-      disabled={enabling}
       style={{
         cursor: "pointer",
         userSelect: "none",
@@ -258,19 +239,19 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
                 );
                 const selected = level === effectiveLevel;
                 const unavailable =
-                  level === "JEV" && !decisionSettings?.configured;
+                  level === "JEV" && decisionModelConfigured !== true;
                 return (
                   <button
                     type="button"
                     role="option"
                     aria-selected={selected}
-                    disabled={unavailable || enabling}
+                    disabled={unavailable}
                     className={`${drawerStyles.option} ${
                       selected ? drawerStyles.optionSelected : ""
                     }`}
                     data-level={level}
                     key={level}
-                    onClick={() => void handleSelect(level)}
+                    onClick={() => handleSelect(level)}
                   >
                     <span
                       className={drawerStyles.optionIcon}

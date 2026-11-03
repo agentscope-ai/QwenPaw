@@ -11,11 +11,7 @@ import {
   sessionThinkingApi,
   setPendingThinking,
 } from "./sessionThinkingApi";
-import type {
-  DecisionSettings,
-  ThinkingPreference,
-  ThinkingView,
-} from "./types";
+import type { ThinkingPreference, ThinkingView } from "./types";
 import {
   readPendingModel,
   resetSessionModel,
@@ -35,12 +31,12 @@ export function SessionThinking({
   agentId,
   sessionId,
   chatId,
-  onDecisionSettingsChange,
+  onDecisionConfiguredChange,
 }: {
   agentId: string;
   sessionId: string;
   chatId?: string | null;
-  onDecisionSettingsChange?: (settings: DecisionSettings | undefined) => void;
+  onDecisionConfiguredChange?: (configured: boolean | undefined) => void;
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -59,7 +55,7 @@ export function SessionThinking({
   identityRef.current = identity;
   useEffect(() => {
     generation.current += 1;
-    onDecisionSettingsChange?.(undefined);
+    onDecisionConfiguredChange?.(undefined);
     setOpen(false);
     setChoosing(false);
     setView(undefined);
@@ -78,7 +74,7 @@ export function SessionThinking({
       revision.current += 1;
       window.removeEventListener("session-model-changed", refresh);
     };
-  }, [identity, onDecisionSettingsChange]);
+  }, [identity, onDecisionConfiguredChange]);
   async function load() {
     const version = ++revision.current;
     setBusy(true);
@@ -97,7 +93,7 @@ export function SessionThinking({
           readPendingThinking(agentId, sessionId, next.model_key) ?? next.value;
       setPreview(undefined);
       setView(next);
-      onDecisionSettingsChange?.(next.decision);
+      onDecisionConfiguredChange?.(next.decision_model_configured);
       useTurnUsageStore
         .getState()
         .setActiveMaxInputLength(next.effective_max_input_length ?? null);
@@ -141,7 +137,7 @@ export function SessionThinking({
       });
       if (generation.current === owner && identityRef.current === identity) {
         setView(next);
-        onDecisionSettingsChange?.(next.decision);
+        onDecisionConfiguredChange?.(next.decision_model_configured);
       }
     } catch (error) {
       if (generation.current === owner && identityRef.current === identity)

@@ -1935,10 +1935,10 @@ describe("ChatPage coverage", () => {
     await act(async () => {});
 
     const toggle = mockApprovalLevelToggle.mock.lastCall?.[0] as {
-      decisionSettings?: unknown;
+      decisionModelConfigured?: boolean;
       onChange: (level: string) => void;
     };
-    expect(toggle.decisionSettings).toBeUndefined();
+    expect(toggle.decisionModelConfigured).toBeUndefined();
     act(() => toggle.onChange("JEV"));
 
     await capturedOptions.api.fetch({

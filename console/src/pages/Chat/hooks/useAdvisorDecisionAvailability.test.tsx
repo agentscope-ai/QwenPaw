@@ -10,7 +10,7 @@ vi.mock("@/features/thinking/sessionThinkingApi", () => ({
 }));
 
 const view = (configured: boolean) =>
-  ({ decision: { configured, enabled: false, override: null } }) as Awaited<
+  ({ decision_model_configured: configured }) as Awaited<
     ReturnType<typeof sessionThinkingApi.get>
   >;
 
@@ -34,9 +34,7 @@ describe("useAdvisorDecisionAvailability", () => {
     );
 
     expect(onChange).toHaveBeenCalledWith(undefined);
-    await waitFor(() =>
-      expect(onChange).toHaveBeenLastCalledWith(view(true).decision),
-    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(true));
     expect(sessionThinkingApi.get).toHaveBeenCalledWith(
       "agent",
       "chat",
@@ -44,9 +42,7 @@ describe("useAdvisorDecisionAvailability", () => {
     );
 
     act(() => window.dispatchEvent(new Event("session-model-changed")));
-    await waitFor(() =>
-      expect(onChange).toHaveBeenLastCalledWith(view(false).decision),
-    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(false));
     unmount();
   });
 
@@ -74,13 +70,11 @@ describe("useAdvisorDecisionAvailability", () => {
     );
 
     rerender({ sessionId: "new" });
-    await waitFor(() =>
-      expect(onChange).toHaveBeenLastCalledWith(view(false).decision),
-    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(false));
     act(() => resolveFirst(view(true)));
     await act(async () => {});
-    expect(onChange).toHaveBeenLastCalledWith(view(false).decision);
-    expect(onChange).not.toHaveBeenCalledWith(view(true).decision);
+    expect(onChange).toHaveBeenLastCalledWith(false);
+    expect(onChange).not.toHaveBeenCalledWith(true);
   });
 
   it("ignores a scoped model change for another session", async () => {
@@ -95,9 +89,7 @@ describe("useAdvisorDecisionAvailability", () => {
         onChange,
       }),
     );
-    await waitFor(() =>
-      expect(onChange).toHaveBeenLastCalledWith(view(true).decision),
-    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(true));
     const calls = vi.mocked(sessionThinkingApi.get).mock.calls.length;
 
     act(() => {
@@ -127,9 +119,7 @@ describe("useAdvisorDecisionAvailability", () => {
         onChange,
       }),
     );
-    await waitFor(() =>
-      expect(onChange).toHaveBeenLastCalledWith(view(true).decision),
-    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(true));
     const calls = vi.mocked(sessionThinkingApi.get).mock.calls.length;
 
     act(() => {
@@ -140,9 +130,7 @@ describe("useAdvisorDecisionAvailability", () => {
       });
     });
 
-    await waitFor(() =>
-      expect(onChange).toHaveBeenLastCalledWith(view(false).decision),
-    );
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(false));
     expect(sessionThinkingApi.get).toHaveBeenCalledTimes(calls + 1);
     unmount();
   });

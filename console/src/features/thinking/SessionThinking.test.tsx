@@ -181,21 +181,20 @@ vi.mock("../../pages/Chat/ModelSelector/ModelPickerPopover", () => ({
 }));
 
 it("reports decision configuration without a second decision-model switch", async () => {
-  const decision = { enabled: false, configured: true, override: null };
-  const onDecisionSettingsChange = vi.fn();
+  const onDecisionConfiguredChange = vi.fn();
   vi.mocked(sessionThinkingApi.get).mockResolvedValue({
     ...effortView,
-    decision,
+    decision_model_configured: true,
   });
   renderWithProviders(
     <SessionThinking
       agentId="agent"
       sessionId="session"
-      onDecisionSettingsChange={onDecisionSettingsChange}
+      onDecisionConfiguredChange={onDecisionConfiguredChange}
     />,
   );
   await screen.findByRole("slider");
-  expect(onDecisionSettingsChange).toHaveBeenLastCalledWith(decision);
+  expect(onDecisionConfiguredChange).toHaveBeenLastCalledWith(true);
   expect(screen.queryByText("chat.sessionSettings.advanced")).toBeNull();
   expect(screen.queryByRole("switch")).toBeNull();
 });
