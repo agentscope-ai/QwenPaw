@@ -1882,6 +1882,9 @@
     "retry": "再試行"
   },
   "modelSelector": {
+    "subagentModel": "サブエージェントモデル",
+    "chooseFallback": "フォールバックモデル",
+    "enableFallback": "失敗時にフォールバックモデルを使用",
     "noFallback": "使用しない",
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
@@ -1917,6 +1920,7 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "primaryModel": "メインモデル",
     "disableBtn": "無効化",
     "modelType": "モデルタイプ",
     "modelTypeChat": "チャット",
@@ -3247,6 +3251,24 @@
     "backToApp": "アプリに戻る",
     "searchPlaceholder": "設定を検索",
     "noResults": "一致する設定はありません",
+    "searchSelectTask": "この設定を見つけるには、編集するタスクを選択するか、新しいタスクを作成してください。",
+    "searchSelectChannel": "この設定を見つけるには、チャンネルを選択してください。",
+    "searchSelectObject": "項目を選択して設定を開いてください。一部のフィールドは選択したモードによって異なります。",
+    "searchChooseLoop": "該当する Loop モードを選択してください。一部のパラメーターは関連するオプションを有効にすると表示されます。",
+    "searchConditionalSetting": "この設定を行うには、該当するモードを選択するか、関連するオプションを有効にしてください。",
+    "mcpJsonConfig": "詳細 JSON 設定",
+    "searchToolAvailability": "ツールの利用可否は、エージェント、インストール済みのプラグイン、現在のモードによって異なります。",
+    "searchNativeContextOnly": "従来の Native コンテキスト戦略を使用するプロファイルでのみ利用できます。",
+    "searchScrollContextOnly": "Scroll コンテキスト戦略で利用できます。",
+    "searchReMeOnly": "ReMe Light メモリバックエンドを選択すると利用できます。",
+    "searchBuiltinSkillLanguage": "複数の言語バージョンがある組み込みスキルを選択し、詳細を開いてください。",
+    "searchBuiltinSkillUpdate": "組み込みスキルを選択して、自動更新を設定してください。",
+    "searchBackupSecrets": "バックアップの作成または復元フォームを開き、該当する範囲を選択してシークレットを設定してください。",
+    "searchWhisperProvider": "文字起こしプロバイダーとして Whisper API を選択すると、その API プロバイダーを設定できます。",
+    "searchAgentTaskOnly": "この設定はエージェントタスクでのみ利用できます。",
+    "searchEnableFallback": "フォールバックモデルを有効にして、フォールバックリストを設定してください。",
+    "searchUnsupportedChannel": "このチャンネルはこれらのアクセス制御設定に対応していません。",
+    "searchUnsupportedBackend": "モデルルーティングは QwenPaw エージェントで利用できます。",
     "groups": {
       "application": "アプリ設定",
       "agentConfiguration": "エージェント設定",
