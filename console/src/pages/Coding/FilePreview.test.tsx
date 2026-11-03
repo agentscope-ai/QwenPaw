@@ -553,6 +553,53 @@ describe("Markdown relative images (#8528)", () => {
     vi.restoreAllMocks();
   });
 
+  it.each([
+    "![diagram](./image.png)\n\n[next](./b.md)",
+    "[![diagram](./image.png)](./b.md)",
+  ])(
+    "keeps loaded images when the link callback changes: %s",
+    async (content) => {
+      const firstOpenFile = vi.fn();
+      const nextOpenFile = vi.fn();
+      const { rerender } = render(
+        <FilePreview
+          filePath="docs/a.md"
+          content={content}
+          workspaceBacked
+          onOpenFile={firstOpenFile}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole("img", { name: "diagram" })).toHaveAttribute(
+          "src",
+          "blob:markdown-image-1",
+        ),
+      );
+      const image = screen.getByRole("img", { name: "diagram" });
+      const signal = fetchSpy.mock.calls[0][1].signal;
+
+      rerender(
+        <FilePreview
+          filePath="docs/a.md"
+          content={content}
+          workspaceBacked
+          onOpenFile={nextOpenFile}
+        />,
+      );
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(screen.getByRole("img", { name: "diagram" })).toBe(image);
+      expect(image).toHaveAttribute("src", "blob:markdown-image-1");
+      expect(signal.aborted).toBe(false);
+      expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(
+        "blob:markdown-image-1",
+      );
+      fireEvent.click(screen.getByRole("link"));
+      expect(nextOpenFile).toHaveBeenCalledExactlyOnceWith("docs/b.md");
+      expect(firstOpenFile).not.toHaveBeenCalled();
+    },
+  );
+
   it("loads relative images with the file's root and chat headers", async () => {
     render(
       <FilePreview

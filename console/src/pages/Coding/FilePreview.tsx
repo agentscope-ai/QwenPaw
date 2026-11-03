@@ -15,6 +15,7 @@ import {
   FileWarning,
   LoaderCircle,
 } from "lucide-react";
+import { useMemoizedFn } from "ahooks";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -371,6 +372,8 @@ function MarkdownPreview({
     () => parseMarkdownFrontmatter(content),
     [content],
   );
+  const canOpenFile = !!onOpenFile;
+  const handleOpenFile = useMemoizedFn((path: string) => onOpenFile?.(path));
   const components = useMemo<Components>(
     () => ({
       ...markdownComponents,
@@ -379,7 +382,7 @@ function MarkdownPreview({
         const path = workspaceBacked
           ? resolveMarkdownFilePath(filePath, href)
           : null;
-        if (!path || !onOpenFile) {
+        if (!path || !canOpenFile) {
           return <ExternalMarkdownLink {...props} href={href} />;
         }
         return (
@@ -389,7 +392,7 @@ function MarkdownPreview({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              onOpenFile(path);
+              handleOpenFile(path);
             }}
           />
         );
@@ -412,7 +415,15 @@ function MarkdownPreview({
         );
       },
     }),
-    [filePath, chatId, root, projectDirOverride, workspaceBacked, onOpenFile],
+    [
+      filePath,
+      chatId,
+      root,
+      projectDirOverride,
+      workspaceBacked,
+      canOpenFile,
+      handleOpenFile,
+    ],
   );
   // Tags come from the resolved YAML document, including merge keys and
   // quoted keys. Render one semantic tag row independently of raw metadata.

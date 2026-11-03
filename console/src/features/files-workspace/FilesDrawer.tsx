@@ -474,7 +474,7 @@ export default function FilesDrawer({
                                 path,
                                 root: target.root,
                               },
-                              trigger: null,
+                              trigger: state.trigger,
                             })
                         : undefined
                     }
