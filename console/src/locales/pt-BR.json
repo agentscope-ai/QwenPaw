@@ -1676,6 +1676,7 @@
     "streamingEnabled": "Saída em Streaming",
     "streamingEnabledDingtalkHint": "Apenas efetivo quando o tipo de mensagem é Card",
     "streamingEnabledFeishuHint": "Requer habilitar a permissão cardkit:card:write na página de gerenciamento de permissões da Plataforma Aberta Feishu",
+    "streamingEnabledQQHint": "A saída em streaming está disponível apenas em conversas privadas do QQ (C2C); mensagens de grupos e canais continuam sendo enviadas por completo",
     "autoCollapseThinking": "Recolher Thinking",
     "autoCollapseThinkingTooltip": "Recolher automaticamente o painel de Thinking após o término do streaming. O painel ainda pode ser expandido manualmente.",
     "ackMessage": "Acknowledgment Message",

@@ -503,7 +503,11 @@ describe("ChannelDrawer builtin channel rendering", () => {
     expect(screen.getByText("channels.streamingEnabled")).toBeTruthy();
     unmount();
 
-    renderDrawer({ activeKey: "qq" });
+    const qq = renderDrawer({ activeKey: "qq" });
+    expect(screen.getByText("channels.streamingEnabled")).toBeTruthy();
+    qq.unmount();
+
+    renderDrawer({ activeKey: "sip" });
     expect(screen.queryByText("channels.streamingEnabled")).toBeNull();
   });
 

@@ -3453,6 +3453,7 @@
     "sipUsername": "Tên người dùng SIP",
     "streamingEnabledDingtalkHint": "Chỉ có hiệu lực với tin nhắn dạng thẻ",
     "streamingEnabledFeishuHint": "Bật quyền cardkit:card:write trong nền tảng nhà phát triển Feishu",
+    "streamingEnabledQQHint": "Chỉ cuộc trò chuyện riêng QQ (C2C) hỗ trợ xuất streaming; tin nhắn nhóm và kênh vẫn được gửi dưới dạng tin nhắn hoàn chỉnh",
     "sttProvider": "Nhà cung cấp nhận dạng giọng nói",
     "time": "Thời gian",
     "ttsProvider": "Nhà cung cấp tổng hợp giọng nói",

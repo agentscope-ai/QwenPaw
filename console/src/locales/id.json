@@ -1983,6 +1983,7 @@
     "streamingEnabled": "Keluaran streaming",
     "streamingEnabledDingtalkHint": "Hanya berlaku untuk pesan jenis kartu",
     "streamingEnabledFeishuHint": "Aktifkan izin cardkit:card:write di platform pengembang Feishu",
+    "streamingEnabledQQHint": "Hanya obrolan pribadi QQ (C2C) yang mendukung keluaran streaming; pesan grup dan guild tetap dikirim sebagai pesan lengkap",
     "sttProvider": "Penyedia pengenalan suara",
     "ttsProvider": "Penyedia sintesis suara",
     "ttsVoice": "Suara TTS",
