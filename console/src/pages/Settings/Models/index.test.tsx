@@ -109,6 +109,8 @@ vi.mock("@agentscope-ai/design", async (importOriginal) => {
     ...original,
     Input: antd.Input,
     Button: antd.Button,
+    Form: antd.Form,
+    Select: antd.Select,
     Modal: (props: React.ComponentProps<typeof antd.Modal>) => {
       modalPropsMock(props);
       return React.createElement(antd.Modal, props);
