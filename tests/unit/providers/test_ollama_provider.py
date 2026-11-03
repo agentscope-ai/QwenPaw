@@ -209,6 +209,15 @@ def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
         == 4096
     )
     assert resolve_ollama_context_window(show_payload={}) == 4096
+    # Failed probe is not an empty successful show.
+    assert resolve_ollama_context_window(show_payload=None) is None
+    assert (
+        resolve_ollama_context_window(
+            show_payload=None,
+            served_context=8192,
+        )
+        == 8192
+    )
     assert (
         resolve_ollama_context_window(
             show_payload={},
@@ -393,7 +402,9 @@ async def test_fetch_models_ignores_gguf_context_length(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_first_use_conservative_fallback(monkeypatch) -> None:
+async def test_fetch_models_first_use_conservative_fallback(
+    monkeypatch,
+) -> None:
     """Unloaded model without num_ctx uses 4k instead of the 128k default."""
     provider = _make_provider()
 
@@ -517,3 +528,146 @@ async def test_fetch_models_native_probes_send_configured_headers(
     assert captured["post_url"].endswith("/api/show")
     assert captured["headers"]["X-Proxy-Token"] == "abc"
     assert captured["headers"]["Authorization"] == "Bearer sk-remote-secret"
+
+
+def _patch_list_and_native(monkeypatch, client_cls, models=None):
+    """Replace ``/v1/models`` and the native httpx client."""
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        del self, timeout
+        return models or [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
+        fake_super_fetch,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
+        client_cls,
+    )
+
+
+class _ShowStatusClient:
+    """``/api/ps`` is empty; ``/api/show`` returns a non-200 status."""
+
+    def __init__(self, status_code: int) -> None:
+        self._status_code = status_code
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def get(self, url: str):
+        return _FakeResponse(200, {"models": []})
+
+    async def post(self, url: str, json: dict):
+        assert url.endswith("/api/show")
+        return _FakeResponse(self._status_code, {"error": "denied"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [401, 403])
+async def test_fetch_models_show_auth_failure_leaves_context_unset(
+    monkeypatch,
+    status_code: int,
+) -> None:
+    """401/403 on /api/show must not invent the 4096 estimate."""
+    provider = _make_provider()
+
+    class FakeClient(_ShowStatusClient):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(status_code)
+
+    _patch_list_and_native(monkeypatch, FakeClient)
+
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_show_timeout_leaves_context_unset(
+    monkeypatch,
+) -> None:
+    """A timed-out /api/show leaves the 128k default in place."""
+    provider = _make_provider()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            raise TimeoutError("timed out")
+
+    _patch_list_and_native(monkeypatch, FakeClient)
+
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected is None
+
+
+@pytest.mark.asyncio
+async def test_check_model_connection_does_not_probe_show(
+    monkeypatch,
+) -> None:
+    """Connection checks list /v1/models and do not call /api/show."""
+    provider = _make_provider()
+    calls = {"list": 0, "native": 0}
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        del self
+        calls["list"] += 1
+        assert timeout == 3
+        return [
+            ModelInfo(id="qwen3:8b", name="qwen3:8b"),
+            ModelInfo(id="other:latest", name="other:latest"),
+        ]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            calls["native"] += 1
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            calls["native"] += 1
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            calls["native"] += 1
+            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
+        fake_super_fetch,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
+        FakeClient,
+    )
+
+    found = await provider.check_model_connection("qwen3:8b", timeout=3)
+    assert found.success is True
+    assert found.verification == "provider_only"
+
+    missing = await provider.check_model_connection(
+        "missing:latest",
+        timeout=3,
+    )
+    assert missing.success is False
+    assert missing.error_kind == "model_not_found"
+    assert calls["list"] == 2
+    assert calls["native"] == 0
