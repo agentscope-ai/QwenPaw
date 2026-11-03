@@ -34,6 +34,7 @@ from .loop_gate import LoopGate
 logger = logging.getLogger(__name__)
 
 _DECISION_TIMEOUT_SECONDS = 4.0
+_TOOL_DESCRIPTION_CHARS = 120
 _CONTINUE_QUESTION = BinaryQuestion(
     instructions=(
         "Should the assistant continue working instead of ending this turn? "
@@ -362,14 +363,30 @@ class QualitativeRubricGate(LoopGate):
                     "content": content,
                 },
             )
-        return {
+        schemas = await agent.toolkit.get_tool_schemas(
+            agent.state.tool_context.activated_groups,
+        )
+        tools = []
+        for schema in schemas:
+            function = schema["function"]
+            description = function.get("description") or ""
+            first_line = description.partition("\n")[0]
+            tools.append(
+                {
+                    "name": function["name"],
+                    "description": first_line[:_TOOL_DESCRIPTION_CHARS],
+                },
+            )
+        state = {
             "conversation": conversation,
             "candidate_response": candidate.get_text_content(),
             "completion_criteria": self._rubric,
-            "available_tools": await agent.toolkit.get_tool_schemas(
-                agent.state.tool_context.activated_groups,
-            ),
+            "available_tools": tools,
         }
+        summary = flatten_output(agent.state.summary)
+        if summary:
+            state["conversation_summary"] = summary
+        return state
 
     def build_continuation(self) -> str:
         """Return the configured self-check prompt."""

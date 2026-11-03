@@ -70,7 +70,7 @@ Some large language models may output text without calling any tools, causing th
 
 > **When should I enable this?** If you notice the Agent often stops after outputting text without actually finishing the task, turn this on.
 
-With completion checks enabled, **Use the decision model to assist self-checks** sends the current conversation, tool results, available tool schemas, and criteria to the selected decision model at most once per self-check. If the model flags a specific issue, the agent receives it alongside its usual self-check prompt. If it has no suggestion or is unavailable, the agent receives the original prompt.
+With completion checks enabled, **Use the decision model to assist self-checks** sends the current conversation, its compression summary when available, tool calls and results, completion criteria, and a short list of available tool names and descriptions to the selected decision model at most once per self-check. Inline media blocks are represented by their name or media type. If the model flags a specific issue, the agent receives it alongside its usual self-check prompt. If it has no suggestion or is unavailable, the agent receives the original prompt.
 
 ### Corresponding agent.json Configuration
 

@@ -13,9 +13,11 @@ from agentscope.classifier import (
 )
 from agentscope.message import (
     AssistantMsg,
+    DataBlock,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
+    URLSource,
     UserMsg,
 )
 
@@ -211,6 +213,7 @@ def decision_check(monkeypatch):
         _agent_config=SimpleNamespace(decision_model=None),
         state=SimpleNamespace(
             context=history,
+            summary="",
             tool_context=SimpleNamespace(activated_groups=set()),
         ),
         toolkit=SimpleNamespace(get_tool_schemas=AsyncMock(return_value=[])),
@@ -227,6 +230,16 @@ def decision_check(monkeypatch):
 
 async def test_jev_is_opt_in_and_preserves_self_check(decision_check):
     ctx, resolve, evaluate = decision_check
+    ctx["agent"].toolkit.get_tool_schemas.return_value = [
+        {
+            "type": "function",
+            "function": {
+                "name": "export",
+                "description": "Export the report.\nParameter details.",
+                "parameters": {"type": "object"},
+            },
+        },
+    ]
     config = _running_config()
     mode = DefaultMode()
     await mode.on_turn_start(_context(config))
@@ -247,9 +260,47 @@ async def test_jev_is_opt_in_and_preserves_self_check(decision_check):
     evaluate.assert_awaited_once()
     request = evaluate.call_args.kwargs
     assert set(request["questions"]) == {"continue", "reason"}
+    assert request["state"]["available_tools"] == [
+        {"name": "export", "description": "Export the report."},
+    ]
     assert request["state"]["candidate_response"] == "I will export it."
     (result,) = request["state"]["conversation"][1]["content"]
     assert result["state"] == "error" and result["output"] == "File not found"
+
+
+@pytest.mark.parametrize("block_summary", [False, True])
+async def test_jev_includes_summary_and_omits_inline_media(
+    decision_check,
+    block_summary,
+):
+    ctx, _, evaluate = decision_check
+    agent = ctx["agent"]
+    summary = "The user requires the report at output/final.csv."
+    image = DataBlock(
+        name="report.png",
+        source=URLSource(
+            url="data:image/png;base64,aGVsbG8=",
+            media_type="image/png",
+        ),
+    )
+    agent.state.summary = (
+        [TextBlock(text=summary), image] if block_summary else summary
+    )
+    agent.state.context[0].content.append(image)
+    agent.state.context[1].content[-1].output.append(image)
+    config = _running_config()
+    config.loop.rubric.use_decision_model = True
+    mode = DefaultMode()
+    await mode.on_turn_start(_context(config))
+    evaluate.return_value.content = {"continue": BinaryAnswer(0.1)}
+
+    await mode.handler(ctx)
+
+    state = evaluate.call_args.kwargs["state"]
+    assert summary in state["conversation_summary"]
+    assert "aGVsbG8=" not in str(state)
+    assert "report.png" in state["conversation"][0]["content"][-1]["text"]
+    assert "report.png" in state["conversation"][1]["content"][-1]["output"]
 
 
 @pytest.mark.parametrize(
