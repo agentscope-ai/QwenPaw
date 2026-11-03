@@ -350,6 +350,57 @@ class TestEditFile:
         assert f.read_bytes() == b"alpha\nBETA\r\nGAMMA\n"
 
     @pytest.mark.asyncio
+    async def test_edit_reuses_each_original_break_in_order(self, tmp_path):
+        """Same break count keeps each matched ending in position.
+
+        Replacing ``a\\n b\\n c`` must not copy the leading CRLF onto the
+        following LF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\nB\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nd"
+
+    @pytest.mark.asyncio
+    async def test_edit_reuses_endings_on_every_match(self, tmp_path):
+        """Each match reuses its own endings in one streaming pass."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nda\nb\nc\n")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\nB\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nda\nB\nc\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_folds_new_text_before_reusing_endings(
+        self,
+        tmp_path,
+    ):
+        """CRLF typed in new_text does not override original endings."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\r\nB\r\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nd"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_extra_breaks_from_the_span(self, tmp_path):
+        """Added breaks follow the span when the break count changes."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "b\nc", "B\nC\nX")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nC\nX\r\nd"
+
+    @pytest.mark.asyncio
     async def test_edit_preserves_each_distinct_line_ending(self, tmp_path):
         """LF, CRLF, and lone CR on different lines all stay put."""
         f = tmp_path / "mixed.txt"

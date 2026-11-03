@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long
 """Shared utilities for file and shell tools."""
 
+import io
 import logging
 import os
 import re
@@ -694,8 +695,8 @@ def _newline_style_for_span(original: str, start: int, end: int) -> str:
 def _restyle_newlines(new_text: str, newline: str) -> str:
     """Apply *newline* to breaks inside *new_text*.
 
-    *new_text* is LF-oriented: existing ``\\r\\n`` and lone ``\\r`` are
-    folded to ``\\n`` first so one intended break cannot become two.
+    *new_text* is LF-oriented: existing ``\r\n`` and lone ``\r`` are
+    folded to ``\n`` first so one intended break cannot become two.
     """
     return _apply_newline_style(new_text, newline)
 
@@ -713,42 +714,41 @@ def _split_line_at(text: str, start: int) -> tuple[str, str, int]:
     return text[start:carriage], "\r", carriage + 1
 
 
-def _normalized_to_original_offsets(
+def _advance_lf_offset(
     original: str,
-    norm_offsets: list[int],
-) -> dict[int, int]:
-    """Map LF-view offsets onto *original*.
+    orig_index: int,
+    norm_index: int,
+    target: int,
+) -> tuple[int, int]:
+    """Advance an LF-view cursor to *target* and return the new indexes.
 
-    ``\\r\\n`` counts as one character on the LF view. Offsets are
-    positions in ``0..len(lf_view)`` inclusive. Runs without ``\\r`` are
-    skipped in one search because those characters are one-to-one.
+    ``\\r\\n`` counts as one character on the LF view. *target* is an
+    offset in ``0..len(lf_view)`` and must not precede *norm_index*.
+    Runs without ``\\r`` are skipped in one search because those
+    characters are one-to-one. The cursor moves forward only, so one
+    replace can map each match as it is found.
     """
-    found: dict[int, int] = {}
-    orig_index = 0
-    norm_index = 0
     limit = len(original)
-    for target in sorted(set(norm_offsets)):
-        while norm_index < target and orig_index < limit:
-            if original[orig_index] != "\r":
-                budget = target - norm_index
-                window_end = orig_index + budget
-                next_cr = original.find("\r", orig_index, window_end)
-                if next_cr < 0:
-                    step = min(budget, limit - orig_index)
-                    orig_index += step
-                    norm_index += step
-                else:
-                    gap = next_cr - orig_index
-                    orig_index = next_cr
-                    norm_index += gap
-                continue
-            if orig_index + 1 < limit and original[orig_index + 1] == "\n":
-                orig_index += 2
+    while norm_index < target and orig_index < limit:
+        if original[orig_index] != "\r":
+            budget = target - norm_index
+            window_end = orig_index + budget
+            next_cr = original.find("\r", orig_index, window_end)
+            if next_cr < 0:
+                step = min(budget, limit - orig_index)
+                orig_index += step
+                norm_index += step
             else:
-                orig_index += 1
-            norm_index += 1
-        found[target] = orig_index
-    return found
+                gap = next_cr - orig_index
+                orig_index = next_cr
+                norm_index += gap
+            continue
+        if orig_index + 1 < limit and original[orig_index + 1] == "\n":
+            orig_index += 2
+        else:
+            orig_index += 1
+        norm_index += 1
+    return orig_index, norm_index
 
 
 def _join_preserving_lf_breaks(left: str, right: str) -> str:
@@ -763,28 +763,124 @@ def _join_preserving_lf_breaks(left: str, right: str) -> str:
     return left + right
 
 
+def _write_preserving_lf_breaks(
+    buffer: io.StringIO,
+    tail: str,
+    part: str,
+) -> str:
+    """Write *part* and return the last character now at the end.
+
+    Empty parts are skipped so a deleted match cannot hide a lone CR
+    from the following LF. The inserted break comes from
+    :func:`_join_preserving_lf_breaks` and is decided from the touching
+    characters only.
+    """
+    if not part:
+        return tail
+    head = part[:1]
+    boundary = _join_preserving_lf_breaks(tail, head)
+    inserted = boundary[len(tail) : len(boundary) - len(head)]
+    if inserted:
+        buffer.write(inserted)
+    buffer.write(part)
+    return part[-1]
+
+
 def _concat_preserving_lf_breaks(parts: list[str]) -> str:
     """Join *parts* in order with :func:`_join_preserving_lf_breaks`.
 
     Empty parts are skipped. Otherwise a deleted match would hide a lone
     CR from the following LF and ``"".join`` would merge them into one
-    CRLF. The helper decides the boundary from the touching characters,
-    and the original pieces are kept so a long file stays linear.
+    CRLF.
     """
-    pieces: list[str] = []
+    buffer = io.StringIO()
     tail = ""
     for part in parts:
-        if not part:
+        tail = _write_preserving_lf_breaks(buffer, tail, part)
+    text = buffer.getvalue()
+    buffer.close()
+    return text
+
+
+def _line_endings_in_span(text: str, start: int, end: int) -> list[str]:
+    """Line endings that start in ``text[start:end]``, in order.
+
+    ``\\r\\n`` is one ending. A CR at the last index stays a lone CR
+    when the following LF lies outside the span.
+    """
+    endings: list[str] = []
+    index = start
+    while index < end:
+        carriage = text.find("\r", index, end)
+        line_feed = text.find("\n", index, end)
+        if carriage < 0 and line_feed < 0:
+            break
+        if carriage < 0 or (line_feed >= 0 and line_feed < carriage):
+            endings.append("\n")
+            index = line_feed + 1
             continue
-        head = part[:1]
-        # boundary is tail + optional inserted break + head.
-        boundary = _join_preserving_lf_breaks(tail, head)
-        inserted = boundary[len(tail) : len(boundary) - len(head)]
-        if inserted:
-            pieces.append(inserted)
-        pieces.append(part)
-        tail = part[-1]
-    return "".join(pieces)
+        if carriage + 1 < end and text[carriage + 1] == "\n":
+            endings.append("\r\n")
+            index = carriage + 2
+            continue
+        endings.append("\r")
+        index = carriage + 1
+    return endings
+
+
+def _apply_positional_endings(normalized_new: str, endings: list[str]) -> str:
+    """Give each LF in *normalized_new* the ending in the same position."""
+    if all(ending == "\n" for ending in endings):
+        return normalized_new
+    pieces = normalized_new.split("\n")
+    parts: list[str] = []
+    for index, piece in enumerate(pieces):
+        if index:
+            parts.append(endings[index - 1])
+        parts.append(piece)
+    return "".join(parts)
+
+
+def _cached_restyle(
+    normalized_new: str,
+    style: str,
+    cache: dict[str, str],
+) -> str:
+    """Rewrite every break in *normalized_new* as *style*, reusing *cache*."""
+    cached = cache.get(style)
+    if cached is not None:
+        return cached
+    if style == "\n" or "\n" not in normalized_new:
+        cached = normalized_new
+    else:
+        cached = normalized_new.replace("\n", style)
+    cache[style] = cached
+    return cached
+
+
+def _restyle_mixed_replacement(
+    original: str,
+    start: int,
+    end: int,
+    normalized_new: str,
+    old_breaks: int,
+    new_breaks: int,
+    cache: dict[str, str],
+) -> str:
+    """Style *normalized_new* for the match ``original[start:end]``.
+
+    The same LF-view break count reuses that span's endings in order.
+    The first break in the replacement takes the first original ending.
+    A different count uses one style from :func:`_newline_style_for_span`.
+    """
+    if new_breaks == old_breaks:
+        if new_breaks == 0:
+            return normalized_new
+        endings = _line_endings_in_span(original, start, end)
+        if len(endings) == new_breaks:
+            return _apply_positional_endings(normalized_new, endings)
+    style = _newline_style_for_span(original, start, end)
+    return _cached_restyle(normalized_new, style, cache)
 
 
 def _replace_empty_pattern(original: str, new_text: str) -> str:
@@ -825,44 +921,73 @@ def _replace_mixed_newlines(
     old_text: str,
     new_text: str,
 ) -> str | None:
-    """Replace *old_text* without rewriting untouched line endings."""
+    """Replace *old_text* without rewriting untouched line endings.
+
+    Each LF-view match is mapped and emitted before the next one is
+    found, so the match list and offset table are not retained. A
+    replacement with the same number of breaks reuses the matched
+    span's endings in order.
+    """
     normalized = _to_lf(original)
     if old_text == "":
         return _replace_empty_pattern(original, new_text)
 
-    spans: list[int] = []
-    cursor = 0
     old_len = len(old_text)
-    while True:
-        found_at = normalized.find(old_text, cursor)
-        if found_at < 0:
-            break
-        spans.append(found_at)
-        cursor = found_at + old_len
-    if not spans:
+    found_at = normalized.find(old_text)
+    if found_at < 0:
         return None
 
-    offsets = [0, len(normalized)]
-    for found_at in spans:
-        offsets.append(found_at)
-        offsets.append(found_at + old_len)
-    mapped = _normalized_to_original_offsets(original, offsets)
-
-    parts: list[str] = []
-    norm_cursor = 0
-    for found_at in spans:
-        orig_start = mapped[found_at]
-        orig_end = mapped[found_at + old_len]
-        parts.append(original[mapped[norm_cursor] : orig_start])
-        parts.append(
-            _restyle_newlines(
-                new_text,
-                _newline_style_for_span(original, orig_start, orig_end),
+    normalized_new = _to_lf(new_text)
+    new_breaks = normalized_new.count("\n")
+    old_breaks = old_text.count("\n")
+    fallback_styles: dict[str, str] = {}
+    buffer = io.StringIO()
+    tail = ""
+    orig_index = 0
+    norm_index = 0
+    while found_at >= 0:
+        gap_start = orig_index
+        orig_index, norm_index = _advance_lf_offset(
+            original,
+            orig_index,
+            norm_index,
+            found_at,
+        )
+        orig_start = orig_index
+        match_end = found_at + old_len
+        orig_index, norm_index = _advance_lf_offset(
+            original,
+            orig_index,
+            norm_index,
+            match_end,
+        )
+        tail = _write_preserving_lf_breaks(
+            buffer,
+            tail,
+            original[gap_start:orig_start],
+        )
+        tail = _write_preserving_lf_breaks(
+            buffer,
+            tail,
+            _restyle_mixed_replacement(
+                original,
+                orig_start,
+                orig_index,
+                normalized_new,
+                old_breaks,
+                new_breaks,
+                fallback_styles,
             ),
         )
-        norm_cursor = found_at + old_len
-    parts.append(original[mapped[norm_cursor] :])
-    return _concat_preserving_lf_breaks(parts)
+        found_at = normalized.find(old_text, match_end)
+    _write_preserving_lf_breaks(
+        buffer,
+        tail,
+        original[orig_index:],
+    )
+    text = buffer.getvalue()
+    buffer.close()
+    return text
 
 
 def replace_text_preserving_newlines(
@@ -878,7 +1003,9 @@ def replace_text_preserving_newlines(
 
     A file that already uses a single ending (or none) is rewritten with
     that ending, including breaks inside *new_text*. A mixed file keeps
-    each original ending and styles *new_text* from the replaced span.
+    each original ending. When *new_text* has the same number of LF-view
+    breaks as the match, those endings are reused in order. A different
+    count styles every new break from the replaced span.
     """
     style = _single_newline_style(original)
     if style is None:
