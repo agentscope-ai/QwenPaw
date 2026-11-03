@@ -266,6 +266,10 @@ def package(target, build_dir, source, output, cuda=None):
                 ):
                     shutil.copy2(path, bundle / path.name)
         shutil.copy2(source / "LICENSE", bundle / "LICENSE-llama.cpp")
+        shutil.copy2(
+            source / "licenses/LICENSE-FlexDM",
+            bundle / "LICENSE-FlexDM",
+        )
         executable = bundle / (
             "llama-server.exe" if config["os"] == "windows" else "llama-server"
         )
