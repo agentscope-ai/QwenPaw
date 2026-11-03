@@ -19,9 +19,11 @@ from qwenpaw.providers.provider import ModelConnectionResult
 
 # Accept any positive context; ModelInfo allows ge=1 on auto_detected.
 _MIN_CONTEXT_TOKENS = 1
-# Ollama's smallest default window (<24 GiB VRAM) when neither /api/ps nor
-# an explicit Modelfile num_ctx is available. Prefer under-estimating over
-# the 128k placeholder so first-session compaction stays safe.
+# Conservative estimate used only after a successful /api/show that omitted
+# num_ctx and the model is not loaded. This is not a value Ollama reports.
+# 4096 is Ollama's smallest documented default (<24 GiB VRAM); under-
+# estimating is safer than the 128k placeholder. A failed probe must not
+# apply this number.
 # Ref: https://docs.ollama.com/context-length
 _CONSERVATIVE_CONTEXT_TOKENS = 4096
 # Bound concurrent /api/show probes when many models are installed.
@@ -55,23 +57,28 @@ def resolve_ollama_context_window(
 
     1. ``/api/ps`` ``context_length`` when the model is currently loaded —
        this reflects ``OLLAMA_CONTEXT_LENGTH`` and the load-time window;
-    2. explicit Modelfile ``num_ctx`` from ``/api/show`` ``parameters``;
-    3. ``_CONSERVATIVE_CONTEXT_TOKENS`` (4k) when neither signal is present
-       and *use_conservative_fallback* is true — Ollama's smallest default
-       for low-VRAM hosts, safer than the 128k placeholder on first use.
+    2. explicit Modelfile ``num_ctx`` from a successful ``/api/show``;
+    3. ``_CONSERVATIVE_CONTEXT_TOKENS`` (4k) only when ``show_payload`` is
+       a dict that omitted ``num_ctx`` and *use_conservative_fallback* is
+       true. That 4k figure is a conservative estimate, not a value Ollama
+       reported.
+
+    ``show_payload is None`` means the probe failed (timeout, 401/403, or
+    an invalid body). That is not an empty successful show: this returns
+    ``None`` so the caller leaves the model unchanged.
 
     GGUF ``*.context_length`` is the model's maximum supported context, not
-    the window Ollama is serving (often a much smaller default). It is not
-    used. Returns ``None`` only when fallback is disabled and neither
-    signal is present.
+    the window Ollama is serving. It is not used.
     """
     if (
         isinstance(served_context, int)
         and served_context >= _MIN_CONTEXT_TOKENS
     ):
         return served_context
-    payload = show_payload or {}
-    explicit = parse_ollama_num_ctx(payload.get("parameters"))
+    # Do not coerce None to {} — a failed probe must not invent 4096.
+    if not isinstance(show_payload, dict):
+        return None
+    explicit = parse_ollama_num_ctx(show_payload.get("parameters"))
     if explicit is not None:
         return explicit
     if use_conservative_fallback:
@@ -143,8 +150,12 @@ class OllamaProvider(OpenAIProvider):
         model_id: str,
         timeout: float = 5,
     ) -> ModelConnectionResult:
-        """Check if a specific model is reachable/usable"""
-        models = await self.fetch_models(timeout=timeout)
+        """Confirm the model id is listed via ``/v1/models`` only.
+
+        ``fetch_models`` also probes ``/api/show`` for every unloaded
+        model. A connection check must not do that.
+        """
+        models = await super().fetch_models(timeout=timeout)
         if any(model.id == model_id for model in models):
             return ModelConnectionResult(
                 success=True,
@@ -195,6 +206,10 @@ class OllamaProvider(OpenAIProvider):
         The OpenAI-compatible ``/v1/models`` rows do not carry context
         metadata, so without this step every Ollama model stays at the
         128k placeholder and compaction never aligns with ``num_ctx``.
+
+        A failed ``/api/show`` leaves that model unchanged. The 4k
+        estimate applies only after a successful show that omitted
+        ``num_ctx``.
         """
         models = await super().fetch_models(timeout=timeout)
         if not models:
@@ -299,6 +314,9 @@ class OllamaProvider(OpenAIProvider):
         detected = resolve_ollama_context_window(
             show_payload=show_payload,
             served_context=None,
+            # None is a failed probe. 4096 applies only when show returned
+            # a payload that simply omitted num_ctx.
+            use_conservative_fallback=show_payload is not None,
         )
         if detected is None:
             return model
