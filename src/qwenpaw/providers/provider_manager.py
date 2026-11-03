@@ -491,7 +491,7 @@ class ProviderManager(
         return self.get_provider(provider_id) is provider
 
     @staticmethod
-    def _reset_model_availability(provider: Provider) -> None:
+    def _reset_model_availability(provider: ProviderInfo) -> None:
         """Invalidate probe results after connection settings change."""
         for model in provider.models + provider.extra_models:
             model.availability_status = "unverified"

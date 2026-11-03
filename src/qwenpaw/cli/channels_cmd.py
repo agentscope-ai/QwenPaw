@@ -638,6 +638,11 @@ _CLI_CHANNEL_PLUGINS_LOADED = False
 
 def _load_channel_plugins_for_cli() -> None:
     """Load installed channel plugins before building the CLI menu."""
+    if click.get_current_context(silent=True) is not None:
+        from .plugin_resources import ensure_resources
+
+        ensure_resources("channels")
+        return
     global _CLI_CHANNEL_PLUGINS_LOADED
     if _CLI_CHANNEL_PLUGINS_LOADED:
         return
@@ -902,7 +907,11 @@ def list_cmd(agent_id: str) -> None:
         extra = (
             getattr(agent_config.channels, "__pydantic_extra__", None) or {}
         )
-        for key, name in _get_channel_names().items():
+        names = _get_channel_names()
+        unavailable = set(extra) - names.keys()
+        for key in unavailable:
+            names[key] = key
+        for key, name in names.items():
             ch = getattr(agent_config.channels, key, None)
             if ch is None:
                 ch = extra.get(key)
@@ -914,7 +923,10 @@ def list_cmd(agent_id: str) -> None:
                 else click.style("disabled", fg="red")
             )
             click.echo(f"\n{'─' * 40}")
-            click.echo(f"  {name}  [{status}]")
+            availability = (
+                " [plugin unavailable]" if key in unavailable else ""
+            )
+            click.echo(f"  {name}  [{status}]{availability}")
             click.echo(f"{'─' * 40}")
 
             for field_name, value in _channel_config_fields(ch):

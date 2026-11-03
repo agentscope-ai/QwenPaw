@@ -8,10 +8,14 @@ import logging
 
 from fastapi import APIRouter
 
+from .doctor import DOCTOR
+from .extensions import ExtensionPoint
+
 if TYPE_CHECKING:
     from .channel_adapter import ChannelDescription
 
 logger = logging.getLogger(__name__)
+_BUILTIN_EXTENSION_POINTS = (DOCTOR,)
 
 # Registered on the console SPA catch-all in ``_app.py`` so plugin HTTP
 # routes can be inserted *before* it (routes appended later would lose).
@@ -69,13 +73,17 @@ class ProviderRegistration:
 
 @dataclass
 class HookRegistration:
-    """Hook registration record."""
+    """Owned hook, including host setup that may write persistent state."""
 
     plugin_id: str
     hook_name: str
     callback: Callable
     priority: int = 100
     reload_safe: bool = False
+    # TODO: Separate host preparation/commit from runtime activation.
+    # installation currently classifies mixed Tool/Skill setup callbacks.
+    # See docs/plugin-cli-review-todo.md for findings and the target flow.
+    installation: bool = False
 
 
 @dataclass
@@ -163,6 +171,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             return
 
         self._providers: Dict[str, ProviderRegistration] = {}
+        self.cli_contributions = {}
+        self.extension_points: Dict[str, "ExtensionPoint[Any]"] = {
+            point.id: point for point in _BUILTIN_EXTENSION_POINTS
+        }
+        self.extensions = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._uninstall_hooks: List[HookRegistration] = []
@@ -517,6 +530,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         hook_name: str,
         callback: Callable,
         priority: int = 100,
+        installation: bool = False,
     ):
         """Register a startup hook.
 
@@ -525,12 +539,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             hook_name: Hook name
             callback: Callback function
             priority: Priority (lower = earlier execution)
+            installation: Host setup that may write persistent state.
         """
         hook = HookRegistration(
             plugin_id=plugin_id,
             hook_name=hook_name,
             callback=callback,
             priority=priority,
+            installation=installation,
         )
         self._startup_hooks.append(hook)
         # Sort by priority (lower = earlier)
@@ -1182,9 +1198,25 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._prompt_section_names.discard(name)
 
+    def get_extensions(self, point):
+        """Return revocable host references for one supported contract."""
+        from ._contributions import get_extensions
+
+        return get_extensions(self, point)
+
     def leftover_registrations(self, plugin_id: str) -> List[str]:
         """Ledgered rows that are still present after teardown."""
         leftovers: List[str] = []
+        leftovers.extend(
+            f"cli:{name}"
+            for owner, name in self.cli_contributions
+            if owner == plugin_id
+        )
+        leftovers.extend(
+            f"extension:{point}:{name}"
+            for point, owner, name in self.extensions
+            if owner == plugin_id
+        )
         leftovers.extend(
             f"http:{reg.prefix}"
             for reg in self._http_router_registrations
@@ -1285,9 +1317,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
     def unregister_plugin(self, plugin_id: str) -> None:
         """Remove all in-memory registrations for a plugin.
 
-        Clears manifest, providers, hooks, channels, and control commands
-        that were registered under the given plugin_id.  Does not
-        touch disk or agent configurations.
+        Revokes owned contributions and removes manifest, providers, hooks,
+        channels, and control commands. Does not touch disk or agent
+        configurations.
 
         Args:
             plugin_id: Plugin identifier to remove
@@ -1328,6 +1360,13 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             )
 
         self._plugin_manifests.pop(plugin_id, None)
+
+        for key in tuple(self.cli_contributions):
+            if key[0] == plugin_id:
+                del self.cli_contributions[key]
+        for key in tuple(self.extensions):
+            if key[1] == plugin_id:
+                del self.extensions[key]
 
         providers_to_remove = [
             pid

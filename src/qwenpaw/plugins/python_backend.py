@@ -31,6 +31,10 @@ from .module_isolation import (
     sweep_bare_tree_modules,
     unregister_namespace,
 )
+from .dependency_requirements import (
+    host_requirements,
+    resolve_optional_dependencies,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,22 +58,34 @@ def _read_source_identity(description):
     import json
 
     manifest_path = description.source_path / "plugin.json"
+    has_manifest = manifest_path.is_file()
     if (
-        manifest_path.is_file()
+        has_manifest
         and PluginManifest.model_validate(
             json.loads(manifest_path.read_text(encoding="utf-8")),
         )
         != description.manifest
     ):
         raise dependency_error("DEPENDENCY_ORIGIN_INVALID")
-    if description.requirements_path is not None:
-        parsed = parse_requirements_file(description.requirements_path)
+    # Metadata-only audit descriptions have no source declarations to compare.
+    if description.requirements_path is not None or has_manifest:
+        file_requirements = []
+        if description.requirements_path is not None:
+            parsed = parse_requirements_file(description.requirements_path)
+            file_requirements = [
+                str(item) for item in parsed.requirements
+            ] + parsed.unsupported
         current = tuple(
             dict.fromkeys(
-                [str(item) for item in parsed.requirements]
-                + parsed.unsupported
+                file_requirements
                 + manifest_requirements(
                     description.manifest.model_dump(mode="json"),
+                )
+                + list(
+                    resolve_optional_dependencies(
+                        description.manifest.optional_dependencies,
+                        description.required_extras,
+                    ),
                 ),
             ),
         )
@@ -951,10 +967,21 @@ class PythonBackend:
         from .dependency_gate import (
             manifest_requirements,
             parse_requirements_file,
+            ParsedRequirements,
         )
 
-        requirements_path = Path(source_path) / "requirements.txt"
-        parsed = parse_requirements_file(requirements_path)
+        # A descriptor's legacy requirements file belongs to its worker.
+        # Common Python registration has its own manifest dependencies.
+        requirements_path = (
+            None
+            if manifest.entry.descriptor
+            else Path(source_path) / "requirements.txt"
+        )
+        parsed = (
+            parse_requirements_file(requirements_path)
+            if requirements_path is not None
+            else ParsedRequirements()
+        )
         return PluginDescription(
             manifest,
             Path(source_path),
@@ -967,6 +994,21 @@ class PythonBackend:
                     + manifest_requirements(manifest.model_dump(mode="json")),
                 ),
             ),
+        )
+
+    def describe_requirements(self, source_path, manifest, requires):
+        """Select optional requirements without importing their consumers."""
+        description = self.describe(source_path, manifest)
+        optional = resolve_optional_dependencies(
+            manifest.optional_dependencies,
+            requires,
+        )
+        return replace(
+            description,
+            requirements=tuple(
+                dict.fromkeys((*description.requirements, *optional)),
+            ),
+            required_extras=tuple(requires),
         )
 
     @staticmethod
@@ -1026,11 +1068,29 @@ class PythonBackend:
         if owns_dependency_env:
             from .dependency_gate import SharedDependencyError
 
+            additional = (
+                host_requirements(description.manifest.model_dump(mode="json"))
+                if allow_install
+                and getattr(
+                    description.manifest,
+                    "optional_dependencies",
+                    None,
+                )
+                else ()
+            )
+            requirements = (
+                description.requirements
+                if description.requirements_path is None
+                else None
+            )
+
             try:
                 decision = await self.services.ensure_dependencies(
                     description.source_path,
                     description.manifest.id,
                     allow_install=allow_install,
+                    requirements=requirements,
+                    additional_requirements=additional,
                 )
             except SharedDependencyError as exc:
                 if (

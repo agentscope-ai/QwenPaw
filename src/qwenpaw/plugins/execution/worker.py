@@ -270,6 +270,9 @@ async def _prepare_component(boot, packet, runtime, identity, peer):
         require_dependencies,
     )
 
+    resolve_requirements = getattr(runtime, "requirements", None)
+    if resolve_requirements is not None:
+        packet["_requirements"] = resolve_requirements(boot, packet)
     snapshot = observe_dependencies(packet)
     accepted = await peer.call(
         "execution.dependencies",

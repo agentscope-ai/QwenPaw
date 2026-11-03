@@ -9,7 +9,7 @@ import uuid
 from dataclasses import fields, replace
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from typing import Protocol, Callable, Awaitable, TYPE_CHECKING
+from typing import Protocol, Callable, Awaitable, TYPE_CHECKING, TypeVar
 
 from .errors import SDKError, StaleContextError, ToolInputError, ResourceError
 from .resources import Registration, ResourceOwner, ResourceScope
@@ -28,8 +28,12 @@ from .events import EventSubscription
 from .apps import PawApp
 
 if TYPE_CHECKING:
+    from .cli import CliSpec
+    from .extensions import ExtensionPoint
     from .logging import PluginLogger
 
+
+_ExtensionSpec = TypeVar("_ExtensionSpec")
 
 _activation_owners = ContextVar("sdk_activation_owners", default=frozenset())
 # An App run owns only the SDK stream producers spawned in its call chain.
@@ -888,6 +892,22 @@ class PluginContext:  # pylint: disable=protected-access
             help_text=adapted.help_text,
         )
         return self._with_admission(handle, adapted.handler)
+
+    def register_cli(self, spec: "CliSpec") -> Registration:
+        """Bind a declared terminal command to its Click factory."""
+        from ._contributions import register_cli
+
+        return register_cli(self, spec)
+
+    def register_extension(
+        self,
+        point: ExtensionPoint[_ExtensionSpec],
+        spec: _ExtensionSpec,
+    ) -> Registration:
+        """Publish a declared typed contribution with plugin-owned teardown."""
+        from ._contributions import register_extension
+
+        return register_extension(self, point, spec)
 
     def _hook_adapter(self, spec):
         from .hooks import HookContext, HookPhase, HookResult
