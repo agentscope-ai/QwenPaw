@@ -646,17 +646,26 @@ def _apply_newline_style(text: str, newline: str) -> str:
     return normalized.replace("\n", newline)
 
 
-def _first_line_ending(text: str, start: int, end: int) -> str | None:
-    """First line ending that starts in ``text[start:end]``."""
-    carriage = text.find("\r", start, end)
-    line_feed = text.find("\n", start, end)
+def _next_line_ending(text: str, start: int) -> tuple[int, str] | None:
+    """First line ending at or after *start*, as ``(index, ending)``."""
+    limit = len(text)
+    carriage = text.find("\r", start)
+    line_feed = text.find("\n", start)
     if carriage < 0 and line_feed < 0:
         return None
     if carriage < 0 or (line_feed >= 0 and line_feed < carriage):
-        return "\n"
-    if carriage + 1 < len(text) and text[carriage + 1] == "\n":
-        return "\r\n"
-    return "\r"
+        return line_feed, "\n"
+    if carriage + 1 < limit and text[carriage + 1] == "\n":
+        return carriage, "\r\n"
+    return carriage, "\r"
+
+
+def _first_line_ending(text: str, start: int, end: int) -> str | None:
+    """First line ending that starts in ``text[start:end]``."""
+    found = _next_line_ending(text, start)
+    if found is None or found[0] >= end:
+        return None
+    return found[1]
 
 
 def _last_line_ending(text: str, end: int) -> str | None:
@@ -690,6 +699,38 @@ def _newline_style_for_span(original: str, start: int, end: int) -> str:
     if found:
         return found
     return _last_line_ending(original, start) or "\n"
+
+
+class _LineEndingCursor:
+    """Remember the next line ending while spans move left to right.
+
+    :meth:`style_for` matches :func:`_newline_style_for_span`. The first
+    ending at or after a span start decides the style, and that answer
+    stays valid through the ending's index. Matches on one line then
+    reuse it instead of scanning the suffix again.
+    """
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+        self._limit = len(text)
+        self._from = 0
+        self._pos = -1
+        self._style = "\n"
+        self._cached = False
+
+    def style_for(self, start: int, end: int) -> str:
+        """Return the line ending to use for ``text[start:end]``."""
+        if self._cached and self._from <= start <= self._pos:
+            return self._style
+        self._style = _newline_style_for_span(self._text, start, end)
+        found = _next_line_ending(self._text, start)
+        if found is None:
+            self._pos = self._limit
+        else:
+            self._pos = found[0]
+        self._from = start
+        self._cached = True
+        return self._style
 
 
 def _restyle_newlines(new_text: str, newline: str) -> str:
@@ -829,7 +870,13 @@ def _line_endings_in_span(text: str, start: int, end: int) -> list[str]:
 
 
 def _apply_positional_endings(normalized_new: str, endings: list[str]) -> str:
-    """Give each LF in *normalized_new* the ending in the same position."""
+    """Give each LF in *normalized_new* the ending in the same position.
+
+    A lone CR must not join the next LF into one CRLF. That happens
+    when an ending is ``\\r`` and the next piece starts with ``\\n``,
+    including consecutive endings ``\\r`` then ``\\n``. The same
+    boundary rule as :func:`_join_preserving_lf_breaks` keeps both.
+    """
     if all(ending == "\n" for ending in endings):
         return normalized_new
     pieces = normalized_new.split("\n")
@@ -838,7 +885,7 @@ def _apply_positional_endings(normalized_new: str, endings: list[str]) -> str:
         if index:
             parts.append(endings[index - 1])
         parts.append(piece)
-    return "".join(parts)
+    return _concat_preserving_lf_breaks(parts)
 
 
 def _cached_restyle(
@@ -866,12 +913,15 @@ def _restyle_mixed_replacement(
     old_breaks: int,
     new_breaks: int,
     cache: dict[str, str],
+    styles: _LineEndingCursor,
 ) -> str:
     """Style *normalized_new* for the match ``original[start:end]``.
 
     The same LF-view break count reuses that span's endings in order.
     The first break in the replacement takes the first original ending.
-    A different count uses one style from :func:`_newline_style_for_span`.
+    A different count uses one style from *styles*. That lookup matches
+    :func:`_newline_style_for_span` and keeps the current line's ending
+    so later matches on the line do not scan the suffix again.
     """
     if new_breaks == old_breaks:
         if new_breaks == 0:
@@ -879,7 +929,7 @@ def _restyle_mixed_replacement(
         endings = _line_endings_in_span(original, start, end)
         if len(endings) == new_breaks:
             return _apply_positional_endings(normalized_new, endings)
-    style = _newline_style_for_span(original, start, end)
+    style = styles.style_for(start, end)
     return _cached_restyle(normalized_new, style, cache)
 
 
@@ -926,7 +976,8 @@ def _replace_mixed_newlines(
     Each LF-view match is mapped and emitted before the next one is
     found, so the match list and offset table are not retained. A
     replacement with the same number of breaks reuses the matched
-    span's endings in order.
+    span's endings in order. A different count looks up the line's
+    ending once per line instead of rescanning the suffix per match.
     """
     normalized = _to_lf(original)
     if old_text == "":
@@ -941,6 +992,7 @@ def _replace_mixed_newlines(
     new_breaks = normalized_new.count("\n")
     old_breaks = old_text.count("\n")
     fallback_styles: dict[str, str] = {}
+    styles = _LineEndingCursor(original)
     buffer = io.StringIO()
     tail = ""
     orig_index = 0
@@ -977,6 +1029,7 @@ def _replace_mixed_newlines(
                 old_breaks,
                 new_breaks,
                 fallback_styles,
+                styles,
             ),
         )
         found_at = normalized.find(old_text, match_end)

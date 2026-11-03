@@ -459,6 +459,44 @@ class TestEditFile:
         assert updated == b"\r\n\nb"
 
     @pytest.mark.asyncio
+    async def test_edit_keeps_positional_lone_cr_then_lf(self, tmp_path):
+        """Reusing a lone CR and the next LF must stay two breaks.
+
+        Positional endings used to join ``\\r`` directly to ``\\n`` and
+        collapse ``\\ra\\n`` edited as ``\\na\\n`` -> ``\\n\\n`` into one
+        CRLF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"\ra\n")
+
+        result = await edit_file(str(f), "\na\n", "\n\n")
+
+        assert "Successfully replaced" in result.content[0].text
+        updated = f.read_bytes()
+        lf_view = updated.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        assert lf_view == b"\n\n"
+        assert updated == b"\r\n\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_repeated_matches_from_one_line_ending(
+        self,
+        tmp_path,
+    ):
+        """Matches on one line share that line's ending.
+
+        Each ``a`` has no break, and ``new_text`` adds one, so every
+        replacement takes the CRLF that ends the run. A later match past
+        that CRLF takes the following LF, not the cached CRLF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"aaa\r\nx\na")
+
+        result = await edit_file(str(f), "a", "b\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"b\r\ncb\r\ncb\r\nc\r\nx\nb\nc"
+
+    @pytest.mark.asyncio
     async def test_edit_normalizes_trailing_lone_cr_in_new_text(
         self,
         tmp_path,
