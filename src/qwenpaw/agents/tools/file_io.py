@@ -110,13 +110,12 @@ def _write_bytes_atomic(path: Path, data: bytes) -> None:
             # change who can read the file it edits. copymode() copies the
             # source's mode rather than re-applying a 0o777-masked value.
             shutil.copymode(target, temp_path)
+        else:
+            # A new file gets the same mode the async write path applies.
+            # The temp file stays 0o600 while it holds a partial write and
+            # only becomes readable once the content is complete.
+            os.chmod(temp_path, _USER_FILE_MODE)
         os.replace(temp_path, target)
-        if not has_target:
-            # New files follow the editor default (the same mode the async
-            # write path uses), but only after the atomic swap: the temp file
-            # stays 0o600 while it holds a partial write, so it is never
-            # readable by other users mid-write.
-            os.chmod(target, _USER_FILE_MODE)
         temp_path = None
     finally:
         if temp_path is not None:
