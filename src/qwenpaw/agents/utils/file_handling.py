@@ -39,30 +39,58 @@ def single_line_log_value(value: object) -> str:
     return str(value).replace("\r", "\\r").replace("\n", "\\n")
 
 
+def _normalize_newlines(content: str) -> str:
+    """Fold ``\\r\\n`` and lone ``\\r`` to ``\\n``."""
+    return content.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _decode_mostly_utf8_lossy(data: bytes) -> str | None:
+    """Return lossy UTF-8 when the file is mostly valid UTF-8.
+
+    A single invalid byte (for example trailing ``\\xff``) must not send an
+    otherwise UTF-8 Chinese note through GBK and mojibake the whole file.
+    Pure GBK text produces many replacement characters and is rejected.
+    """
+    text = data.decode("utf-8", errors="replace")
+    bad = text.count("\ufffd")
+    good = len(text) - bad
+    if good == 0:
+        return None
+    # Allow a few corrupt bytes; reject encodings that are mostly invalid.
+    if bad > max(2, good // 50):
+        return None
+    return _normalize_newlines(text)
+
+
 def decode_text_bytes_with_encoding_fallback(
     data: bytes,
     *,
     file_name: object = "<bytes>",
 ) -> str:
     """Decode bytes with the historical fallback and newline behavior."""
-    encodings_to_try = [
-        "utf-8-sig",
-        "utf-8",
-        "gbk",
-        "cp936",
-        "cp1252",
-        "latin-1",
-    ]
-    for encoding in encodings_to_try:
+    for encoding in ("utf-8-sig", "utf-8"):
+        try:
+            return _normalize_newlines(data.decode(encoding))
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    lossy = _decode_mostly_utf8_lossy(data)
+    if lossy is not None:
+        logger.debug(
+            "File %s read with lossy UTF-8 (mostly valid)",
+            single_line_log_value(file_name),
+        )
+        return lossy
+
+    for encoding in ("gbk", "cp936", "cp1252", "latin-1"):
         try:
             content = data.decode(encoding)
-            if encoding not in ("utf-8", "utf-8-sig"):
-                logger.debug(
-                    "File %s read with encoding: %s",
-                    single_line_log_value(file_name),
-                    encoding,
-                )
-            return content.replace("\r\n", "\n").replace("\r", "\n")
+            logger.debug(
+                "File %s read with encoding: %s",
+                single_line_log_value(file_name),
+                encoding,
+            )
+            return _normalize_newlines(content)
         except (UnicodeDecodeError, LookupError):
             continue
 
@@ -73,7 +101,8 @@ def decode_text_bytes_with_encoding_fallback(
         "some characters may be corrupted",
         single_line_log_value(file_name),
     )
-    return content.replace("\r\n", "\n").replace("\r", "\n")
+    return _normalize_newlines(content)
+
 
 
 def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:

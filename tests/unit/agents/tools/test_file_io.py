@@ -202,19 +202,47 @@ class TestReadFile:
         tmp_path,
         prefix,
     ):
-        """Incomplete UTF-8 BOM bytes follow the strict encoding ladder."""
+        """Full incomplete BOM follows the ladder; capped keeps empty prefix."""
         expected = decode_text_bytes_with_encoding_fallback(prefix)
 
         whole = tmp_path / "whole.txt"
         whole.write_bytes(prefix)
         assert await read_file_safe(str(whole)) == expected
 
+        # Cap inside the BOM / first multibyte must not fall through to GBK.
         capped = tmp_path / "capped.txt"
         capped.write_bytes(prefix + b"TAIL")
-        assert (
-            await read_file_safe(str(capped), max_bytes=len(prefix))
-            == expected
-        )
+        assert await read_file_safe(str(capped), max_bytes=len(prefix)) == ""
+
+    @pytest.mark.asyncio
+    async def test_safe_read_mostly_utf8_keeps_chinese_on_dirty_byte(
+        self,
+        tmp_path,
+    ):
+        """One invalid byte must not send a UTF-8 Chinese note through GBK."""
+        path = tmp_path / "dirty.txt"
+        path.write_bytes("姓名: 张三\n".encode("utf-8") + b"\xff")
+
+        result = await read_file_safe(str(path))
+
+        assert "张三" in result
+        assert "\N{REPLACEMENT CHARACTER}" in result
+        assert not result.startswith("å")
+
+    @pytest.mark.asyncio
+    async def test_safe_read_cap_inside_first_multibyte_is_empty(
+        self,
+        tmp_path,
+    ):
+        """max_bytes inside the first UTF-8 character yields an empty prefix."""
+        raw = "张三".encode("utf-8")
+        path = tmp_path / "first.txt"
+        path.write_bytes(raw + b"TAIL")
+
+        assert await read_file_safe(str(path), max_bytes=1) == ""
+        assert await read_file_safe(str(path), max_bytes=2) == ""
+        assert await read_file_safe(str(path), max_bytes=3) == "张"
+
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):

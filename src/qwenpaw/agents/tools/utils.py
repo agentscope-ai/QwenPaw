@@ -15,21 +15,13 @@ from typing import Any
 from ...constant import TRUNCATION_NOTICE_MARKER
 from ...utils.io_utils import run_sync_io
 from ..utils.file_handling import (
+    _decode_mostly_utf8_lossy,
     decode_text_bytes_with_encoding_fallback,
     single_line_log_value,
 )
 
 logger = logging.getLogger(__name__)
 
-# Keep in step with decode_text_bytes_with_encoding_fallback.
-_CAPPED_SNAPSHOT_ENCODINGS = (
-    "utf-8-sig",
-    "utf-8",
-    "gbk",
-    "cp936",
-    "cp1252",
-    "latin-1",
-)
 
 
 # Default truncation limit
@@ -565,10 +557,11 @@ def _incremental_decode_capped_prefix(
     """Decode a truncated snapshot with *encoding*.
 
     ``final=False`` drops a multibyte character cut by the byte cap.
-    ``None`` skips this encoding: the decoder raised, or it emitted no text
-    while undecoded bytes remain (incomplete BOM or incomplete first
-    character). A pending CR is a decoded newline, not that leftover, and
-    becomes ``\\n``.
+    An empty string with bytes still buffered is a valid prefix when the
+    cap lands inside the first character (or an incomplete BOM); returning
+    ``None`` here used to fall through to GBK/CP1252 and mojibake the
+    snapshot. ``None`` is reserved for a hard decode error. A pending CR
+    is a decoded newline, not leftover payload, and becomes a newline.
     """
     decoder = io.IncrementalNewlineDecoder(
         codecs.getincrementaldecoder(encoding)(),
@@ -579,15 +572,13 @@ def _incremental_decode_capped_prefix(
     except UnicodeDecodeError:
         return None
 
-    buffered, flag = decoder.getstate()
-    # Bit 0 is IncrementalNewlineDecoder's pending-CR flag. It does not
-    # occupy the byte buffer. Reject only when nothing complete was produced.
+    _buffered, flag = decoder.getstate()
     pending_cr = bool(flag & 1)
-    if text == "" and buffered and not pending_cr:
-        return None
     if pending_cr:
         text += "\n"
+    # Empty + buffered is still a successful capped prefix.
     return text
+
 
 
 def _decode_capped_text_snapshot(
@@ -610,16 +601,31 @@ def _decode_capped_text_snapshot(
             file_name=file_name,
         )
 
-    for encoding in _CAPPED_SNAPSHOT_ENCODINGS:
+    # Prefer UTF-8 prefixes (including empty when the cap lands inside the
+    # first character). Only then try lossy UTF-8 so a single dirty byte
+    # does not send an otherwise UTF-8 snapshot through GBK.
+    for encoding in ("utf-8-sig", "utf-8"):
+        text = _incremental_decode_capped_prefix(content, encoding)
+        if text is not None:
+            return text
+
+    lossy = _decode_mostly_utf8_lossy(content)
+    if lossy is not None:
+        logger.debug(
+            "File %s read with lossy UTF-8 (mostly valid)",
+            single_line_log_value(file_name),
+        )
+        return lossy
+
+    for encoding in ("gbk", "cp936", "cp1252", "latin-1"):
         text = _incremental_decode_capped_prefix(content, encoding)
         if text is None:
             continue
-        if encoding not in ("utf-8", "utf-8-sig"):
-            logger.debug(
-                "File %s read with encoding: %s",
-                single_line_log_value(file_name),
-                encoding,
-            )
+        logger.debug(
+            "File %s read with encoding: %s",
+            single_line_log_value(file_name),
+            encoding,
+        )
         return text
 
     # latin-1 accepts every byte, so this is defensive only.

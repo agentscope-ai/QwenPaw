@@ -403,11 +403,12 @@ class _GrepCancelled(Exception):
 
 
 def _file_exceeds_grep_limit(path: Path) -> bool:
-    """Return True when *path* must not be read.
+    """Return True when *path* is larger than the grep byte budget.
 
-    Directory walks already skip files above ``_MAX_FILE_SIZE`` via
-    ``_is_text_file``. Single-file search used to bypass that guard and
-    ``read()`` the whole file. Unreadable paths are skipped the same way.
+    Directory walks skip these via ``_is_text_file``. Explicit single-file
+    searches still stream the leading ``_MAX_FILE_SIZE`` bytes and report
+    a truncated status instead of silently returning no matches.
+    Unreadable paths are treated as oversize.
     """
     try:
         return path.stat().st_size > _MAX_FILE_SIZE
@@ -508,6 +509,83 @@ def _iter_decoded_grep_lines(
         yield pending
 
 
+def _mostly_utf8_lossy_ok(path: Path, cancel: threading.Event) -> bool:
+    """True when a strict UTF-8 failure is still mostly valid UTF-8."""
+    bad = 0
+    good = 0
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    with open(path, "rb") as raw:
+        read_total = 0
+        while read_total < _MAX_FILE_SIZE:
+            if cancel.is_set():
+                raise _GrepCancelled()
+            want = min(_GREP_READ_CHUNK, _MAX_FILE_SIZE - read_total)
+            chunk = raw.read(want)
+            if not chunk:
+                break
+            read_total += len(chunk)
+            text = decoder.decode(chunk, final=False)
+            replaced = text.count("\ufffd")
+            bad += replaced
+            good += len(text) - replaced
+            if len(chunk) < want:
+                break
+        text = decoder.decode(b"", final=True)
+        replaced = text.count("\ufffd")
+        bad += replaced
+        good += len(text) - replaced
+    if good == 0:
+        return False
+    return bad <= max(2, good // 50)
+
+
+def _iter_decoded_grep_lines_lossy(
+    raw: BinaryIO,
+    cancel: threading.Event,
+) -> Iterator[str]:
+    """Yield lines with UTF-8 ``errors='replace'`` under the size cap."""
+    decoder = io.IncrementalNewlineDecoder(
+        codecs.getincrementaldecoder("utf-8")(errors="replace"),
+        translate=True,
+    )
+    pending = ""
+    read_total = 0
+    hit_eof = False
+    while read_total < _MAX_FILE_SIZE:
+        if cancel.is_set():
+            raise _GrepCancelled()
+        want = min(_GREP_READ_CHUNK, _MAX_FILE_SIZE - read_total)
+        chunk = raw.read(want)
+        if not chunk:
+            hit_eof = True
+            break
+        read_total += len(chunk)
+        lines, pending = _split_normalized_text(
+            pending,
+            decoder.decode(chunk, final=False),
+        )
+        yield from lines
+        if len(chunk) < want:
+            hit_eof = True
+            break
+    else:
+        if cancel.is_set():
+            raise _GrepCancelled()
+        if not raw.read(1):
+            hit_eof = True
+
+    lines, pending = _split_normalized_text(
+        pending,
+        decoder.decode(b"", final=hit_eof),
+    )
+    yield from lines
+    _buffered, flag = decoder.getstate()
+    if (not hit_eof) and (flag & 1):
+        pending += "\n"
+    if pending:
+        yield pending
+
+
 def _iter_grep_lines(
     path: Path,
     cancel: threading.Event,
@@ -516,9 +594,11 @@ def _iter_grep_lines(
 
     The file is scanned once per encoding until one accepts every byte, then
     scanned again to yield lines. Both passes stream; neither builds a
-    second copy of the whole file.
+    second copy of the whole file. A mostly-UTF-8 file with a few dirty
+    bytes uses lossy UTF-8 instead of falling through to GBK.
     """
     chosen = "latin-1"
+    utf8_failed = False
     with open(path, "rb") as raw:
         for encoding in _GREP_TEXT_ENCODINGS:
             if cancel.is_set():
@@ -528,17 +608,35 @@ def _iter_grep_lines(
                 for _line in _iter_decoded_grep_lines(raw, encoding, cancel):
                     pass
             except UnicodeDecodeError:
+                if encoding in ("utf-8", "utf-8-sig"):
+                    utf8_failed = True
                 continue
             chosen = encoding
             break
-        if chosen not in ("utf-8", "utf-8-sig"):
-            logger.debug(
-                "File %s read with encoding: %s",
-                single_line_log_value(path),
-                chosen,
-            )
-        raw.seek(0)
-        yield from _iter_decoded_grep_lines(raw, chosen, cancel)
+
+    lossy_utf8 = False
+    if chosen not in ("utf-8", "utf-8-sig") and utf8_failed:
+        if _mostly_utf8_lossy_ok(path, cancel):
+            lossy_utf8 = True
+            chosen = "utf-8"
+
+    if lossy_utf8:
+        logger.debug(
+            "File %s read with lossy UTF-8 (mostly valid)",
+            single_line_log_value(path),
+        )
+    elif chosen not in ("utf-8", "utf-8-sig"):
+        logger.debug(
+            "File %s read with encoding: %s",
+            single_line_log_value(path),
+            chosen,
+        )
+
+    with open(path, "rb") as raw:
+        if lossy_utf8:
+            yield from _iter_decoded_grep_lines_lossy(raw, cancel)
+        else:
+            yield from _iter_decoded_grep_lines(raw, chosen, cancel)
 
 
 def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-locals,too-many-statements
@@ -612,10 +710,12 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         hit_indices: list[int] = []
 
         try:
-            # Same 2 MB ceiling as directory walks. Streaming below still
-            # checks cancel between chunks so a normal-sized file is not
-            # decoded in one blocking read.
-            if _file_exceeds_grep_limit(file_path):
+            # Directory walks skip files above 2 MB via _is_text_file.
+            # Explicit single-file searches still stream the leading bytes so
+            # a hit near the start is not silently missed; the streamer
+            # already stops at _MAX_FILE_SIZE and we mark truncated below.
+            oversize = _file_exceeds_grep_limit(file_path)
+            if oversize and not single_file:
                 continue
             line_no = 0
             for line in _iter_grep_lines(file_path, cancel):
@@ -710,6 +810,17 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
                     )
                     break
+
+            if (
+                status == "ok"
+                and single_file
+                and oversize
+            ):
+                if _MAX_FILE_SIZE >= 1024 * 1024:
+                    limit_label = f"{_MAX_FILE_SIZE // (1024 * 1024)}MB"
+                else:
+                    limit_label = f"{_MAX_FILE_SIZE}B"
+                status = f"truncated: file size limit ({limit_label})"
 
         except _GrepCancelled:
             status = "timeout"

@@ -924,16 +924,17 @@ def test_walk_and_grep_vertical_tab_does_not_split_lines(temp_dir):
     assert matches == ["vt.txt:1:> alpha\vbeta needle"]
 
 
-def test_walk_and_grep_single_file_over_max_size_is_not_read(
+def test_walk_and_grep_single_file_over_max_size_streams_prefix(
     temp_dir,
     monkeypatch,
 ):
-    """Oversize single-file grep is skipped and the file is never opened."""
+    """Oversize single-file grep streams the leading bytes and reports truncation."""
     target = temp_dir / "big.txt"
     target.write_bytes(b"needle-in-large-file\n" + b"x" * 128)
     import qwenpaw.agents.tools.file_search as fs
 
     monkeypatch.setattr(fs, "_MAX_FILE_SIZE", 32)
+    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 8)
     opened: list[Path] = []
     real_open = open
 
@@ -949,9 +950,27 @@ def test_walk_and_grep_single_file_over_max_size_is_not_read(
         FakeCancel(),
         None,
     )
+    assert status.startswith("truncated: file size limit")
+    assert any("needle-in-large-file" in line for line in matches)
+    assert opened  # must open and stream, not silent-skip
+
+
+def test_walk_and_grep_mostly_utf8_dirty_byte_keeps_chinese(
+    temp_dir,
+):
+    """One invalid byte must not prevent grep from finding UTF-8 Chinese."""
+    target = temp_dir / "dirty.txt"
+    target.write_bytes("姓名: 张三\n".encode("utf-8") + b"\xff\n")
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("张三"),
+        0,
+        FakeCancel(),
+        None,
+    )
     assert status == "ok"
-    assert matches == []
-    assert opened == []
+    assert matches
+    assert all("张三" in line for line in matches)
 
 
 def test_walk_and_grep_streams_bounded_reads_and_keeps_gbk(
