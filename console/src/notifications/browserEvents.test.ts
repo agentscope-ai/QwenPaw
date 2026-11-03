@@ -10,9 +10,14 @@ const shown: {
 }[] = [];
 class TestNotification {
   static permission = "granted";
+  static failNext = false;
   close = vi.fn();
   title: string;
   constructor(title: string) {
+    if (TestNotification.failNext) {
+      TestNotification.failNext = false;
+      throw new Error("Temporary notification delivery failure");
+    }
     this.title = title;
     shown.push(this);
   }
@@ -34,6 +39,7 @@ describe("browser event delivery", () => {
   beforeEach(() => {
     localStorage.clear();
     shown.length = 0;
+    TestNotification.failNext = false;
     vi.stubGlobal("Notification", TestNotification);
     vi.spyOn(document, "hasFocus").mockReturnValue(false);
     updateNotificationPreferences({ enabled: true, cron: true });
@@ -67,6 +73,47 @@ describe("browser event delivery", () => {
     notifier.update([event("disabled")]);
     await flush();
     expect(shown).toHaveLength(0);
+    notifier.dispose();
+  });
+
+  it("retries a failed notification on the next snapshot and then deduplicates", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const notifier = new BrowserEventNotifier(() => "Done", vi.fn());
+    const result = event("retry");
+    notifier.update([]);
+    TestNotification.failNext = true;
+    notifier.update([result]);
+    await flush();
+    expect(shown).toHaveLength(0);
+    expect(warning).toHaveBeenCalledOnce();
+
+    notifier.update([result]);
+    await flush();
+    expect(shown.map((item) => item.title)).toEqual(["retry"]);
+    notifier.update([result]);
+    await flush();
+    expect(shown).toHaveLength(1);
+    notifier.dispose();
+  });
+
+  it("retries when the browser notification lock fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Temporary lock failure"))
+      .mockImplementation(async (_name: string, send: () => void) => send());
+    vi.stubGlobal("navigator", { locks: { request } });
+    const notifier = new BrowserEventNotifier(() => "Done", vi.fn());
+    const result = event("lock-retry");
+    notifier.update([]);
+    notifier.update([result]);
+    await flush();
+    expect(shown).toHaveLength(0);
+
+    notifier.update([result]);
+    await flush();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(shown.map((item) => item.title)).toEqual(["lock-retry"]);
     notifier.dispose();
   });
 

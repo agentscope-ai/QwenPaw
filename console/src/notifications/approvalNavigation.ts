@@ -18,5 +18,5 @@ export function buildApprovalNavigationPath(
   const agentId = target?.agentId?.trim();
   if (agentId) params.set("agent", agentId);
   const query = params.toString() ? `?${params.toString()}` : "";
-  return `${buildChatPath(rootSessionId)}${query}`;
+  return `${buildChatPath(encodeURIComponent(rootSessionId))}${query}`;
 }

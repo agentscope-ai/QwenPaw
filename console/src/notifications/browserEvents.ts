@@ -44,9 +44,10 @@ export class BrowserEventNotifier {
         navigator.locks
           ? navigator.locks.request(LOCK, send)
           : Promise.resolve().then(send)
-      ).catch((error: unknown) =>
-        console.warn("Could not show system notification", error),
-      );
+      ).catch((error: unknown) => {
+        this.known.delete(event.id);
+        console.warn("Could not show system notification", error);
+      });
     }
   }
 

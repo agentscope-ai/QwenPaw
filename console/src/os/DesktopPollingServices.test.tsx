@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import type { PendingApproval } from "../api/modules/console";
 import { ApprovalProvider } from "../contexts/ApprovalContext";
 import type { ApprovalNotificationTarget } from "../notifications/approvalNavigation";
@@ -90,6 +91,7 @@ describe("DesktopPollingServices", () => {
     vi.useFakeTimers();
     setVisibility("visible");
     mocks.native = false;
+    vi.mocked(invoke).mockReset().mockResolvedValue(null);
     mocks.listeners.clear();
     mocks.subscribeDesktop.mockReset().mockResolvedValue(() => undefined);
     mocks.getPushMessages.mockReset();
@@ -182,8 +184,12 @@ describe("DesktopPollingServices", () => {
       rootSessionId: "session-1",
       agentId: "agent-1",
     };
-    act(() => {
+    vi.mocked(invoke).mockResolvedValueOnce({ kind: "approval", target });
+    await act(async () => {
       mocks.listeners.get("qwenpaw:open-approval")?.({ payload: target });
+    });
+    expect(invoke).toHaveBeenLastCalledWith("take_notification_target", {
+      kind: "approval",
     });
     expect(useOsRoute.getState().targets["core.chat"]).toEqual({
       path: "/chat/session-1?approval=approval%2F1&agent=agent-1",
@@ -192,7 +198,8 @@ describe("DesktopPollingServices", () => {
     expect(useOsWindows.getState().activeId).toBe("core.chat");
     expect(useOsWindows.getState().windows["core.chat"].minimized).toBe(false);
 
-    act(() => {
+    vi.mocked(invoke).mockResolvedValueOnce({ kind: "approval", target });
+    await act(async () => {
       mocks.listeners.get("qwenpaw:open-approval")?.({ payload: target });
     });
     expect(useOsRoute.getState().targets["core.chat"].nonce).toBe(2);
@@ -214,7 +221,10 @@ describe("DesktopPollingServices", () => {
       );
       await advance(0);
 
-      act(() => {
+      if (target) {
+        vi.mocked(invoke).mockResolvedValueOnce({ kind: "approval", target });
+      }
+      await act(async () => {
         mocks.listeners.get(name)?.({ payload: target });
       });
       expect(useOsRoute.getState().targets["core.inbox"]?.path).toBe(
