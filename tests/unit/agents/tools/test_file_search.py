@@ -973,6 +973,38 @@ def test_walk_and_grep_mostly_utf8_dirty_byte_keeps_chinese(
     assert all("张三" in line for line in matches)
 
 
+def test_walk_and_grep_short_gbk_finds_character(temp_dir):
+    """Pattern 张 matches a short GBK ``A张`` file."""
+    target = temp_dir / "short-gbk.txt"
+    target.write_bytes("A张".encode("gbk"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("张"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("张" in line for line in matches)
+
+
+def test_walk_and_grep_short_cp1252_finds_accent(temp_dir):
+    """Pattern Café matches a short CP1252 file."""
+    target = temp_dir / "cafe.txt"
+    target.write_bytes("Café".encode("cp1252"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("Café"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("Café" in line for line in matches)
+
+
 def test_walk_and_grep_streams_bounded_reads_and_keeps_gbk(
     temp_dir,
     monkeypatch,

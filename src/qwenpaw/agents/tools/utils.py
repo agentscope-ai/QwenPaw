@@ -23,7 +23,6 @@ from ..utils.file_handling import (
 logger = logging.getLogger(__name__)
 
 
-
 # Default truncation limit
 DEFAULT_MAX_BYTES = 50 * 1024
 
@@ -578,7 +577,6 @@ def _incremental_decode_capped_prefix(
         text += "\n"
     # Empty + buffered is still a successful capped prefix.
     return text
-
 
 
 def _decode_capped_text_snapshot(

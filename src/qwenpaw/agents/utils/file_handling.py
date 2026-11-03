@@ -44,20 +44,31 @@ def _normalize_newlines(content: str) -> str:
     return content.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _mostly_utf8_replacement_ok(bad: int, good: int) -> bool:
+    """True when lossy UTF-8 replacements are sparse enough to keep.
+
+    No floor of two replacements: that mislabels short GBK (``A张``) and
+    CP1252 (``Café``) as mostly UTF-8. Require at least four valid
+    characters, and at most one replacement unless the text is long enough
+    for a sparse ratio.
+    """
+    if good < 4:
+        return False
+    return bad <= max(1, good // 50)
+
+
 def _decode_mostly_utf8_lossy(data: bytes) -> str | None:
     """Return lossy UTF-8 when the file is mostly valid UTF-8.
 
     A single invalid byte (for example trailing ``\\xff``) must not send an
     otherwise UTF-8 Chinese note through GBK and mojibake the whole file.
-    Pure GBK text produces many replacement characters and is rejected.
+    Short legacy strings and pure GBK/CP1252 text are rejected so the
+    encoding ladder can recover them.
     """
     text = data.decode("utf-8", errors="replace")
     bad = text.count("\ufffd")
     good = len(text) - bad
-    if good == 0:
-        return None
-    # Allow a few corrupt bytes; reject encodings that are mostly invalid.
-    if bad > max(2, good // 50):
+    if not _mostly_utf8_replacement_ok(bad, good):
         return None
     return _normalize_newlines(text)
 
@@ -102,7 +113,6 @@ def decode_text_bytes_with_encoding_fallback(
         single_line_log_value(file_name),
     )
     return _normalize_newlines(content)
-
 
 
 def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:

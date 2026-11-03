@@ -230,6 +230,26 @@ class TestReadFile:
         assert not result.startswith("å")
 
     @pytest.mark.asyncio
+    async def test_safe_read_short_gbk_keeps_character(self, tmp_path):
+        """Short GBK falls through instead of a lossy UTF-8 decode."""
+        path = tmp_path / "short-gbk.txt"
+        path.write_bytes("A张".encode("gbk"))
+
+        result = await read_file_safe(str(path))
+
+        assert "张" in result
+
+    @pytest.mark.asyncio
+    async def test_safe_read_short_cp1252_keeps_accent(self, tmp_path):
+        """Short CP1252 keeps the accented character."""
+        path = tmp_path / "cafe.txt"
+        path.write_bytes("Café".encode("cp1252"))
+
+        result = await read_file_safe(str(path))
+
+        assert result == "Café"
+
+    @pytest.mark.asyncio
     async def test_safe_read_cap_inside_first_multibyte_is_empty(
         self,
         tmp_path,
@@ -242,7 +262,6 @@ class TestReadFile:
         assert await read_file_safe(str(path), max_bytes=1) == ""
         assert await read_file_safe(str(path), max_bytes=2) == ""
         assert await read_file_safe(str(path), max_bytes=3) == "张"
-
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):
@@ -379,6 +398,31 @@ class TestEditFile:
         result = await edit_file(str(f), "张三", "李四")
         assert "Successfully replaced" in result.content[0].text
         assert f.read_text(encoding="utf-8-sig") == "姓名: 李四" + chr(10)
+
+    @pytest.mark.asyncio
+    async def test_edit_short_gbk_writes_utf8(self, tmp_path):
+        """Short GBK ``A张`` is replaced and rewritten as UTF-8."""
+        f = tmp_path / "short-gbk.txt"
+        f.write_bytes("A张".encode("gbk"))
+
+        result = await edit_file(str(f), "张", "李")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_text(encoding="utf-8") == "A李"
+        assert "\ufffd" not in f.read_text(encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_edit_short_cp1252_does_not_truncate(self, tmp_path):
+        """Short CP1252 ``Café`` is replaced, not saved truncated."""
+        f = tmp_path / "cafe.txt"
+        f.write_bytes("Café".encode("cp1252"))
+
+        result = await edit_file(str(f), "Café", "Cafe")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="utf-8")
+        assert written == "Cafe"
+        assert "\ufffd" not in written
 
     @pytest.mark.parametrize(f"ext", [f".txt", f".csv", f".py"])
     @pytest.mark.parametrize(f"encoding", [f"utf-8", f"utf-8-sig"])

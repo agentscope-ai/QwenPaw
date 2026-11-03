@@ -22,7 +22,10 @@ from agentscope.message import ToolResultState
 from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
-from ..utils.file_handling import single_line_log_value
+from ..utils.file_handling import (
+    _mostly_utf8_replacement_ok,
+    single_line_log_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -534,9 +537,7 @@ def _mostly_utf8_lossy_ok(path: Path, cancel: threading.Event) -> bool:
         replaced = text.count("\ufffd")
         bad += replaced
         good += len(text) - replaced
-    if good == 0:
-        return False
-    return bad <= max(2, good // 50)
+    return _mostly_utf8_replacement_ok(bad, good)
 
 
 def _iter_decoded_grep_lines_lossy(
@@ -811,11 +812,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                     )
                     break
 
-            if (
-                status == "ok"
-                and single_file
-                and oversize
-            ):
+            if status == "ok" and single_file and oversize:
                 if _MAX_FILE_SIZE >= 1024 * 1024:
                     limit_label = f"{_MAX_FILE_SIZE // (1024 * 1024)}MB"
                 else:
