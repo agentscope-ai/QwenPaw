@@ -20,10 +20,11 @@ from qwenpaw.providers.provider import ModelConnectionResult
 # Accept any positive context; ModelInfo allows ge=1 on auto_detected.
 _MIN_CONTEXT_TOKENS = 1
 # Conservative estimate used only after a successful /api/show that omitted
-# num_ctx and the model is not loaded. This is not a value Ollama reports.
-# 4096 is Ollama's smallest documented default (<24 GiB VRAM); under-
-# estimating is safer than the 128k placeholder. A failed probe must not
-# apply this number.
+# num_ctx for a local model that is not loaded. This is not a value Ollama
+# reports. 4096 is Ollama's smallest documented default (<24 GiB VRAM);
+# under-estimating is safer than the 128k placeholder. A failed probe must
+# not apply this number. Cloud models are excluded: Ollama serves them at
+# their maximum context by default, so inventing 4096 compacts too early.
 # Ref: https://docs.ollama.com/context-length
 _CONSERVATIVE_CONTEXT_TOKENS = 4096
 # Bound concurrent /api/show probes when many models are installed.
@@ -45,11 +46,51 @@ def parse_ollama_num_ctx(parameters: str | None) -> int | None:
     return value if value >= _MIN_CONTEXT_TOKENS else None
 
 
+def _nonempty_text(value: Any) -> bool:
+    """True when *value* is a string that contains non-whitespace text."""
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _model_id_suggests_cloud(model_id: str | None) -> bool:
+    """Secondary hint: the id ends with ``:cloud`` or ``-cloud``.
+
+    ``remote_host`` / ``remote_model`` on ``/api/show`` are authoritative.
+    This covers names such as ``kimi-k3:cloud`` and ``gpt-oss:120b-cloud``
+    when those fields were omitted, including a ``-cloud`` model name
+    paired with another tag (``foo-cloud:latest``).
+    """
+    name = (model_id or "").strip().lower()
+    if not name:
+        return False
+    if name.endswith(":cloud") or name.endswith("-cloud"):
+        return True
+    base = name.split(":", 1)[0]
+    return base.endswith("-cloud")
+
+
+def _is_ollama_cloud_model(
+    show_payload: dict[str, Any] | None,
+    model_id: str | None = None,
+) -> bool:
+    """Return whether Ollama is serving this model from the cloud.
+
+    A non-empty ``remote_host`` or ``remote_model`` is Ollama's marker.
+    The model-id suffix is only a hint when the payload lacks both.
+    """
+    if isinstance(show_payload, dict) and (
+        _nonempty_text(show_payload.get("remote_host"))
+        or _nonempty_text(show_payload.get("remote_model"))
+    ):
+        return True
+    return _model_id_suggests_cloud(model_id)
+
+
 def resolve_ollama_context_window(
     *,
     show_payload: dict[str, Any] | None = None,
     served_context: int | None = None,
     use_conservative_fallback: bool = True,
+    model_id: str | None = None,
 ) -> int | None:
     """Pick the active Ollama context window for compaction.
 
@@ -59,9 +100,14 @@ def resolve_ollama_context_window(
        this reflects ``OLLAMA_CONTEXT_LENGTH`` and the load-time window;
     2. explicit Modelfile ``num_ctx`` from a successful ``/api/show``;
     3. ``_CONSERVATIVE_CONTEXT_TOKENS`` (4k) only when ``show_payload`` is
-       a dict that omitted ``num_ctx`` and *use_conservative_fallback* is
-       true. That 4k figure is a conservative estimate, not a value Ollama
-       reported.
+       a dict that omitted ``num_ctx``, *use_conservative_fallback* is
+       true, and the model is local. That 4k figure is a conservative
+       estimate, not a value Ollama reported.
+
+    Cloud/remote models do not use step 3. Ollama serves them at their
+    maximum context by default, so a missing ``num_ctx`` stays unset.
+    Detection prefers non-empty ``remote_host`` / ``remote_model`` and
+    otherwise a ``:cloud`` or ``-cloud`` model id (*model_id*).
 
     ``show_payload is None`` means the probe failed (timeout, 401/403, or
     an invalid body). That is not an empty successful show: this returns
@@ -81,7 +127,10 @@ def resolve_ollama_context_window(
     explicit = parse_ollama_num_ctx(show_payload.get("parameters"))
     if explicit is not None:
         return explicit
-    if use_conservative_fallback:
+    if use_conservative_fallback and not _is_ollama_cloud_model(
+        show_payload,
+        model_id,
+    ):
         return _CONSERVATIVE_CONTEXT_TOKENS
     return None
 
@@ -209,7 +258,12 @@ class OllamaProvider(OpenAIProvider):
 
         A failed ``/api/show`` leaves that model unchanged. The 4k
         estimate applies only after a successful show that omitted
-        ``num_ctx``.
+        ``num_ctx`` on a local model. Cloud models stay unchanged when
+        ``num_ctx`` is absent: Ollama serves them at their maximum.
+
+        ``timeout`` bounds each native HTTP call and the whole native
+        probing stage. Past that deadline the original list is returned
+        so a large unloaded catalog cannot stall discovery.
         """
         models = await super().fetch_models(timeout=timeout)
         if not models:
@@ -219,23 +273,40 @@ class OllamaProvider(OpenAIProvider):
                 timeout=timeout,
                 headers=self._native_probe_headers(),
             ) as client:
-                served = await self._fetch_served_contexts(client)
-                semaphore = asyncio.Semaphore(_SHOW_PROBE_CONCURRENCY)
-                enriched = await asyncio.gather(
-                    *[
-                        self._enrich_model_context(
-                            client,
-                            model,
-                            served,
-                            semaphore,
-                        )
-                        for model in models
-                    ],
+                # Per-request timeout is the client timeout above. This
+                # wait_for is the overall deadline for /api/ps plus every
+                # /api/show. On expiry the inner probes are cancelled.
+                enriched = await asyncio.wait_for(
+                    self._enrich_listed_models(client, models),
+                    timeout=timeout,
                 )
             return list(enriched)
+        except TimeoutError:
+            return models
         except Exception:
             # Discovery must still return the model list if native probes fail.
             return models
+
+    async def _enrich_listed_models(
+        self,
+        client: httpx.AsyncClient,
+        models: List[ModelInfo],
+    ) -> List[ModelInfo]:
+        """Attach context from ``/api/ps`` and bounded ``/api/show`` probes."""
+        served = await self._fetch_served_contexts(client)
+        semaphore = asyncio.Semaphore(_SHOW_PROBE_CONCURRENCY)
+        enriched = await asyncio.gather(
+            *[
+                self._enrich_model_context(
+                    client,
+                    model,
+                    served,
+                    semaphore,
+                )
+                for model in models
+            ],
+        )
+        return list(enriched)
 
     async def _fetch_served_contexts(
         self,
@@ -315,8 +386,10 @@ class OllamaProvider(OpenAIProvider):
             show_payload=show_payload,
             served_context=None,
             # None is a failed probe. 4096 applies only when show returned
-            # a payload that simply omitted num_ctx.
+            # a payload that simply omitted num_ctx on a local model.
+            # Cloud models leave the value unset in that case.
             use_conservative_fallback=show_payload is not None,
+            model_id=model.id,
         )
         if detected is None:
             return model

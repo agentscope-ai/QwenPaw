@@ -2,6 +2,9 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import asyncio
+import time
+
 from agentscope.model import OpenAIChatModel
 import pytest
 
@@ -227,6 +230,81 @@ def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
     )
 
 
+def test_resolve_cloud_show_without_num_ctx_skips_4096() -> None:
+    """Cloud models keep the default window when show omits num_ctx."""
+    remote = {
+        "remote_host": "https://ollama.com",
+        "remote_model": "gpt-oss:120b",
+        "model_info": {"gptoss.context_length": 131072},
+    }
+    assert resolve_ollama_context_window(show_payload=remote) is None
+    assert (
+        resolve_ollama_context_window(
+            show_payload={"remote_host": "https://ollama.com"},
+        )
+        is None
+    )
+    assert (
+        resolve_ollama_context_window(
+            show_payload={"remote_model": "gemma4"},
+        )
+        is None
+    )
+    # Blank markers are not the cloud flag. A local show still uses 4k.
+    assert (
+        resolve_ollama_context_window(
+            show_payload={"remote_host": "  ", "remote_model": ""},
+        )
+        == 4096
+    )
+    # Name suffix is only a hint when the payload omitted remote fields.
+    assert (
+        resolve_ollama_context_window(
+            show_payload={},
+            model_id="kimi-k3:cloud",
+        )
+        is None
+    )
+    assert (
+        resolve_ollama_context_window(
+            show_payload={"parameters": "temperature 0.7\n"},
+            model_id="gpt-oss:120b-cloud",
+        )
+        is None
+    )
+    assert (
+        resolve_ollama_context_window(
+            show_payload={},
+            model_id="foo-cloud:latest",
+        )
+        is None
+    )
+    assert (
+        resolve_ollama_context_window(
+            show_payload={},
+            model_id="cloud-qwen:latest",
+        )
+        == 4096
+    )
+    # Explicit num_ctx and a loaded window still win for cloud models.
+    assert (
+        resolve_ollama_context_window(
+            show_payload={
+                "remote_host": "https://ollama.com",
+                "parameters": "num_ctx 16384\n",
+            },
+        )
+        == 16384
+    )
+    assert (
+        resolve_ollama_context_window(
+            show_payload=remote,
+            served_context=32768,
+        )
+        == 32768
+    )
+
+
 def test_native_probe_headers_add_bearer_without_overriding() -> None:
     provider = OllamaProvider(
         id="ollama",
@@ -441,6 +519,65 @@ async def test_fetch_models_first_use_conservative_fallback(
 
 
 @pytest.mark.asyncio
+async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
+    monkeypatch,
+) -> None:
+    """Unloaded cloud models must not pick up the local 4k fallback."""
+    provider = _make_provider()
+    listed = [
+        ModelInfo(id="gpt-oss:120b", name="gpt-oss:120b"),
+        ModelInfo(id="kimi-k3:cloud", name="kimi-k3:cloud"),
+        ModelInfo(id="gemma4:cloud", name="gemma4:cloud"),
+        ModelInfo(id="qwen3:8b", name="qwen3:8b"),
+    ]
+
+    payloads = {
+        "gpt-oss:120b": {
+            "remote_host": "https://ollama.com",
+            "remote_model": "gpt-oss:120b",
+            "model_info": {"gptoss.context_length": 131072},
+        },
+        "kimi-k3:cloud": {"parameters": "temperature 0.7\n"},
+        "gemma4:cloud": {
+            "remote_host": "https://ollama.com",
+            "remote_model": "gemma4",
+            "parameters": "num_ctx 16384\n",
+        },
+        "qwen3:8b": {"parameters": "temperature 0.7\n"},
+    }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            return _FakeResponse(200, payloads[json["model"]])
+
+    _patch_list_and_native(monkeypatch, FakeClient, listed)
+
+    models = await provider.fetch_models()
+    by_id = {model.id: model for model in models}
+    # remote_* is authoritative; GGUF context_length is not a window.
+    assert by_id["gpt-oss:120b"].max_input_length_auto_detected is None
+    # :cloud suffix when show omitted remote_* and num_ctx.
+    assert by_id["kimi-k3:cloud"].max_input_length_auto_detected is None
+    # Explicit num_ctx still wins on a cloud model.
+    assert by_id["gemma4:cloud"].max_input_length_auto_detected == 16384
+    # Local unloaded model without num_ctx keeps the 4k estimate.
+    assert by_id["qwen3:8b"].max_input_length_auto_detected == 4096
+
+
+@pytest.mark.asyncio
 async def test_fetch_models_accepts_small_num_ctx(monkeypatch) -> None:
     provider = _make_provider()
 
@@ -613,6 +750,63 @@ async def test_fetch_models_show_timeout_leaves_context_unset(
 
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_native_probe_deadline_returns_originals(
+    monkeypatch,
+) -> None:
+    """Slow /api/show probes stop at the overall deadline.
+
+    Per-request timeout stays on the client. The batch must not wait out
+    every unloaded model.
+    """
+    provider = _make_provider()
+    ids = [f"model-{index}:latest" for index in range(16)]
+    listed = [ModelInfo(id=model_id, name=model_id) for model_id in ids]
+    started = 0
+    finished = 0
+    captured: dict = {}
+    probe_timeout = 0.5
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args
+            captured["timeout"] = kwargs.get("timeout")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            nonlocal started, finished
+            del url, json
+            started += 1
+            await asyncio.sleep(5)
+            finished += 1
+            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
+
+    _patch_list_and_native(monkeypatch, FakeClient, listed)
+
+    started_at = time.monotonic()
+    models = await provider.fetch_models(timeout=probe_timeout)
+    elapsed = time.monotonic() - started_at
+
+    assert models is listed
+    assert elapsed < 2.5
+    # In-flight /api/show calls are cancelled; none of the slow probes finish.
+    assert finished == 0
+    assert started > 0
+    assert captured["timeout"] == probe_timeout
+    assert all(
+        model.max_input_length_auto_detected is None for model in models
+    )
 
 
 @pytest.mark.asyncio
