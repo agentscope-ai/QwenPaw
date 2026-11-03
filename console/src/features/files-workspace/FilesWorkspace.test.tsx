@@ -49,6 +49,7 @@ const lifecycle = vi.hoisted(() => ({
   activeTabPath: "",
   editorProps: null as {
     onMemoryTagClick?: (tag: string) => void;
+    onOpenFile?: (target: FileTarget) => void;
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
     onTabClose: (path: string) => void;
@@ -149,6 +150,7 @@ vi.mock("./MemoryGraphView", () => ({
 vi.mock("../../pages/Coding/TabbedEditor", () => ({
   default: function MockTabbedEditor(props: {
     onMemoryTagClick?: (tag: string) => void;
+    onOpenFile?: (target: FileTarget) => void;
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
     onTabClose: (path: string) => void;
@@ -195,6 +197,40 @@ describe("FilesWorkspace directory changes", () => {
     lifecycle.loadFileText.mockResolvedValue({ content: "", etag: "v1" });
     lifecycle.loadMemoryFile.mockResolvedValue({ content: "" });
     lifecycle.loadDailyMemory.mockResolvedValue({ content: "" });
+  });
+
+  it("opens preview links with their selected root and session context", async () => {
+    render(
+      <FilesWorkspace
+        scope={{
+          kind: "session",
+          agentId: "agent-a",
+          sessionId: "session-a",
+          chatId: "chat-a",
+        }}
+      />,
+    );
+    await act(
+      async () =>
+        lifecycle.editorProps?.onOpenFile?.({
+          source: "workspace",
+          path: "docs/b.md",
+          root: "project:C:/Projects/secondary",
+        }),
+    );
+    expect(lifecycle.loadFileText).toHaveBeenCalledWith(
+      "docs/b.md",
+      "chat-a",
+      "project:C:/Projects/secondary",
+      undefined,
+    );
+    expect(lifecycle.openTab).toHaveBeenCalledWith(
+      "session:agent-a:session-a",
+      expect.objectContaining({
+        displayPath: "docs/b.md",
+        workspaceRoot: "project:C:/Projects/secondary",
+      }),
+    );
   });
 
   it.each(["adbpg", "powercontext"])(

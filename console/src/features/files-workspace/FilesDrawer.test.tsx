@@ -71,6 +71,40 @@ describe("FilesDrawer", () => {
     localStorage.clear();
   });
 
+  it("opens Markdown relatives in the same preview root", async () => {
+    vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
+      content: "[next](./b.md)",
+      etag: "v1",
+    });
+    const dispatch = vi.fn();
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: {
+            source: "workspace",
+            root: "workspace",
+            path: "docs/a.md",
+          },
+          trigger: null,
+        }}
+        dispatch={dispatch}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+          chatId: "chat-1",
+        }}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("link", { name: "next" }));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "OPEN_PREVIEW",
+      target: { source: "workspace", root: "workspace", path: "docs/b.md" },
+      trigger: null,
+    });
+  });
+
   it.each(["adbpg", "powercontext"])(
     "keeps preview tags as text for %s",
     async (backend) => {

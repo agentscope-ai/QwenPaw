@@ -739,6 +739,7 @@ export default function FilesWorkspace({
             projectDirOverride={projectDirOverride}
             navigation={editorNavigation}
             onMemoryTagClick={memoryTagsSupported ? showMemoryTag : undefined}
+            onOpenFile={openTarget}
             onFileSaved={() => setMemoryTagsRevision((value) => value + 1)}
             onDownloadFile={async (path) => {
               const tab = tabsRef.current.find((item) => item.path === path);
