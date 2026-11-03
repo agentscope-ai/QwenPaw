@@ -20,6 +20,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from packaging.requirements import Requirement
 
+from ..memory.registry import memory_registry
 from ..utils.runtime_environment import CERTIFI_REQUIREMENT, require_pip
 
 from .architecture import PluginManifest, PluginRecord, PluginType
@@ -414,6 +415,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         from .dependency_context import DependencyEnvironmentContext
         from .execution.environment import shared_dependency_paths
 
+        # TODO: Install dependency updates into a new directory. New processes
+        # use it; running processes keep using the old directory. Delete the old
+        # directory only after its last process exits. Define when the App must
+        # restart to use an update, and preserve desktop builds and user-managed
+        # Python environments when changing this installation policy.
         if _is_frozen():
             from .channel_bootstrap import resolve_default_channel_runtime
 
@@ -4449,7 +4455,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         interrupt_tasks: bool = False,
     ) -> UnloadReport:
         """Unload a plugin and release a failed unload reservation."""
-        from qwenpaw.memory import memory_registry
         from qwenpaw.market import market_registry
 
         async with self.lifecycle.activity(plugin_id).mutation(
@@ -4524,8 +4529,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
         if instance is None:
             instance = self.lifecycle.ensure_instance(plugin_id)
-
-        from qwenpaw.memory import memory_registry
 
         if mode is not UnloadMode.SHUTDOWN:
             self.registry.assert_memory_backends_not_in_use(plugin_id)

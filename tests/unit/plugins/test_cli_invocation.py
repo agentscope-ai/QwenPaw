@@ -383,6 +383,107 @@ plugin = Plugin()
     assert runner.invoke(cli, ["models", "local", "--help"]).exit_code == 0
 
 
+def test_cli_cleanup_keeps_memory_implementations_unloaded(tmp_path):
+    """A fresh process must clean CLI ownership without loading backends."""
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    import qwenpaw
+
+    from .timing import WAIT_TIMEOUT
+
+    plugin = tmp_path / "plugins" / "import-boundary"
+    plugin.mkdir(parents=True)
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    (plugin / "plugin.json").write_text(
+        json.dumps(
+            {
+                "id": plugin.name,
+                "version": "1.0.0",
+                "entry": {"backend": "main.py"},
+                "sdk": {"version": "1.1.0", "capabilities": ["cli"]},
+                "cli": [{"id": "status", "path": ["example"]}],
+            },
+        ),
+        encoding="utf-8",
+    )
+    (plugin / "main.py").write_text(
+        """
+import click
+from qwenpaw.plugins.cli import CliSpec
+
+def build(call):
+    @click.command()
+    @click.option('--fail', is_flag=True)
+    def status(fail):
+        click.echo('ready')
+        if fail:
+            raise click.ClickException('requested failure')
+    return status
+
+class Plugin:
+    def register(self, ctx):
+        ctx.register_cli(CliSpec('status', build))
+
+plugin = Plugin()
+""",
+        encoding="utf-8",
+    )
+    code = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import threading
+from click.testing import CliRunner
+from qwenpaw.cli.main import cli
+from qwenpaw.plugins.registry import PluginRegistry
+
+threads = set(threading.enumerate())
+for args, expected in (
+    (['--help'], 0),
+    (['example', '--help'], 0),
+    (['example'], 0),
+    (['example', '--fail'], 1),
+):
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == expected, (result.output, result.exception)
+    if '--help' not in args:
+        assert 'ready' in result.output
+    assert not any(n.startswith('qwenpaw.agents.memory') for n in sys.modules)
+    assert 'qwenpaw.agents.model_factory' not in sys.modules
+    assert not PluginRegistry().cli_contributions
+    assert set(threading.enumerate()) <= threads
+
+from qwenpaw.memory.registry import memory_registry as internal
+import qwenpaw.memory as public
+assert public.memory_registry is internal
+from qwenpaw.agents.memory import base_memory_manager as legacy
+for name in public.__all__:
+    assert getattr(public, name) is getattr(legacy, name), name
+assert set(public.__all__) <= set(dir(public))
+assert not hasattr(public, 'unknown_memory_contract')
+for backend in ('none', 'remelight'):
+    assert public.get_memory_manager_backend(backend) is internal.get(backend)
+"""
+    source = Path(qwenpaw.__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", code, str(source)],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "QWENPAW_WORKING_DIR": str(tmp_path),
+            "QWENPAW_SECRET_DIR": str(tmp_path / "secrets"),
+            "QWENPAW_TELEMETRY_DISABLED": "true",
+        },
+        capture_output=True,
+        text=True,
+        timeout=WAIT_TIMEOUT,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_interrupt_waits_for_async_cleanup_before_session_close(tmp_path):
     """A real SIGINT must finish async finally before the loop is closed."""
     from pathlib import Path
