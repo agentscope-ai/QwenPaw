@@ -576,3 +576,39 @@ async def read_file_safe(
         File content as string (up to max_bytes).
     """
     return await run_sync_io(_read_file_safe_sync, file_path, max_bytes)
+
+
+async def read_file_bytes_safe(
+    file_path: str,
+    max_bytes: int = MAX_FILE_READ_BYTES,
+) -> bytes:
+    """Read one raw byte snapshot without blocking the event loop.
+
+    Unlike :func:`read_file_safe` this performs no decoding and no newline
+    normalization, so callers that write the content back (``edit_file``)
+    can preserve the file's encoding and line endings byte for byte
+    (#8414, #8415).
+
+    Args:
+        file_path: Path to the file.
+        max_bytes: Maximum bytes to read into memory (default 1GB).
+
+    Returns:
+        File content as raw bytes (up to max_bytes).
+    """
+    return await run_sync_io(_read_file_bytes_safe_sync, file_path, max_bytes)
+
+
+def _read_file_bytes_safe_sync(
+    file_path: str,
+    max_bytes: int,
+) -> bytes:
+    """Read one raw byte snapshot from a single opened file handle."""
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(file_path)
+    if not path.is_file():
+        raise IsADirectoryError(file_path)
+    with path.open("rb") as file:
+        read_size = min(os.fstat(file.fileno()).st_size, max_bytes)
+        return file.read(read_size)
