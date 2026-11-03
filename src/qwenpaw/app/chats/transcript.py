@@ -1407,6 +1407,18 @@ class TranscriptStore:
                     )
                     payload["history_session_id"] = history_session_id
                     value["session_id"] = history_session_id
+                    metadata = json.loads(value.get("metadata") or "{}")
+                    conflict = metadata.get("recall_conflict")
+                    if conflict:
+                        for identity in conflict["identities"]:
+                            identity[
+                                "session_id"
+                            ] = self._fork_history_session_id(
+                                identity["session_id"],
+                                source_session_id=source_session_id,
+                                target_session_id=target_session_id,
+                            )
+                        value["metadata"] = _canonical_json(metadata)
                 target_ref = self._write_fact_object(
                     codec=str(source_object["codec"]),
                     value=value,
