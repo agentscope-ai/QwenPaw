@@ -70,9 +70,12 @@ class QQDriver(SharedResponseDriver):
         attrs = self._route_attrs(response_handle)
         return ResponsePolicy(
             # The official stream API covers single chat only, so group,
-            # guild and dm routes keep the completed-message path.
+            # guild and dm routes keep the completed-message path. A C2C
+            # stream is a passive reply and needs the inbound ``msg_id`` as
+            # its anchor, so routes without one are not streamed either.
             streaming=bool(self._config.get("streaming_enabled"))
-            and attrs.get("message_type") == "c2c",
+            and attrs.get("message_type") == "c2c"
+            and bool(attrs.get("message_id")),
             send_format=SendFormatPolicy(False, False, False, False, True),
         )
 
@@ -230,18 +233,23 @@ class QQDriver(SharedResponseDriver):
         )
         stream_type = params.stream_type.value
         text = self._text(params)
-        if params.operation.value == "stream.start":
-            resource = await platform.start_stream(route, text, markdown)
-            resource.update(
-                sequence="0",
-                final="false",
-                markdown="true" if markdown else "false",
-                stream_type=stream_type,
-            )
+        operation = params.operation.value
+        if operation == "stream.start":
+            # The native stream is opened by the first slice that carries real
+            # text, not by ``stream.start``. QQ ``replace`` slices must start
+            # with the prefix QQ already delivered (``40007`` otherwise), and
+            # the host opens every stream with a placeholder, which no answer
+            # extends. Opening lazily also keeps a response that produces no
+            # slice from creating an empty message on QQ.
             return ResponseResourceRef.create(
                 "qq.delivery",
                 params.delivery_id,
-                resource,
+                {
+                    "stream_type": stream_type,
+                    "markdown": "true" if markdown else "false",
+                    "sequence": "0",
+                    "final": "false",
+                },
             )
         ref = self._delivery_resource(
             params.to_handle,
@@ -267,7 +275,35 @@ class QQDriver(SharedResponseDriver):
                 "STREAM_SEQUENCE_STALE",
                 side_effect_possible=False,
             )
-        final = params.operation.value == "stream.end"
+        final = operation == "stream.end"
+        if not resource.get("stream_msg_id"):
+            if not text and not final:
+                # Nothing to show yet: opening now would deliver a slice the
+                # answer cannot extend.
+                return ResponseResourceRef.create(
+                    "qq.delivery",
+                    params.target_delivery_id,
+                    resource,
+                )
+            # The opening slice is the first text QQ ever receives, so it is
+            # never a placeholder the later slices would have to rewrite.
+            created = await platform.start_stream(route, text, markdown)
+            resource.update(created)
+            resource.update(sequence=str(sequence), final="false")
+            await self._reserve_slice(
+                params.to_handle,
+                params.target_delivery_id,
+                resource,
+            )
+            if not final:
+                return ResponseResourceRef.create(
+                    "qq.delivery",
+                    params.target_delivery_id,
+                    resource,
+                )
+        if final and not text:
+            # QQ rejects an empty closing slice, so keep the delivered text.
+            text = str(resource.get("text") or "...")
         # QQ rejects a repeated slice index for one stream. The index is
         # therefore reserved durably before the native call, so a slice whose
         # result is lost locally still consumes it. Replace mode resends the

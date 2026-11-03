@@ -22,6 +22,10 @@ class Gateway:
     def __init__(self):
         self.calls, self.frames, self.connections = [], [], []
         self.drop_next = 0
+        # QQ answers ``40007`` when a ``replace`` slice does not start with the
+        # content it already delivered, so a test can opt into that contract.
+        self.reject_prefix_rewrites = False
+        self.delivered = {}
 
     def rows(self, path):
         return [r for r in self.calls if r["path"] == path]
@@ -30,6 +34,17 @@ class Gateway:
         return [
             r for r in self.calls if r["path"] not in {"/token", "/gateway"}
         ]
+
+    def prefix_conflict(self, payload):
+        if not self.reject_prefix_rewrites or not isinstance(payload, dict):
+            return False
+        text = str(payload.get("content_raw") or "")
+        key = str(
+            payload.get("stream_msg_id") or payload.get("msg_id") or "",
+        )
+        previous = self.delivered.get(key)
+        self.delivered[key] = text
+        return previous is not None and not text.startswith(previous)
 
     def start(self):
         owner = self
@@ -42,10 +57,11 @@ class Gateway:
                 raw = self.rfile.read(
                     int(self.headers.get("Content-Length", 0)),
                 )
+                payload = json.loads(raw) if raw else None
                 owner.calls.append(
                     {
                         "path": self.path,
-                        "body": json.loads(raw) if raw else None,
+                        "body": payload,
                         "raw": raw,
                         "auth": self.headers.get("Authorization"),
                         "method": self.command,
@@ -57,6 +73,12 @@ class Gateway:
                     # side has already applied it while the worker cannot know.
                     owner.drop_next -= 1
                     self.close_connection = True
+                    return
+                if owner.prefix_conflict(payload):
+                    self.respond(
+                        400,
+                        {"code": 40007, "message": "prefix rewritten"},
+                    )
                     return
                 value = (
                     {"access_token": "native-token", "expires_in": 7200}
@@ -71,8 +93,11 @@ class Gateway:
                         )
                     )
                 )
+                self.respond(200, value)
+
+            def respond(self, status, value):
                 body = json.dumps(value).encode()
-                self.send_response(200)
+                self.send_response(status)
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -370,9 +395,10 @@ async def send_stream(
     return await peer.methods["channel.send"](params, None)
 
 
-async def test_stream_slices_replace_full_text(native_driver):
+async def test_stream_slices_extend_the_delivered_prefix(native_driver):
     driver, peer, identity, server = native_driver
     driver._config["streaming_enabled"] = True
+    server.reject_prefix_rewrites = True
     handle = await open_route(
         peer,
         identity,
@@ -385,10 +411,15 @@ async def test_stream_slices_replace_full_text(native_driver):
         handle,
         operation="stream.start",
         sequence=0,
-        accumulated_text="first",
+        accumulated_text="...",
     )
     assert start["state"] == "acknowledged"
-    delta = await send_stream(
+    # The host opens every stream with a placeholder slice. QQ rejects a later
+    # ``replace`` slice that does not start with what it already delivered, so
+    # the placeholder must never reach the wire: the stream opens with real
+    # text instead.
+    assert server.api_rows() == []
+    first = await send_stream(
         peer,
         identity,
         handle,
@@ -396,18 +427,29 @@ async def test_stream_slices_replace_full_text(native_driver):
         operation="stream.delta",
         sequence=1,
         target_delivery_id="delivery-A",
-        accumulated_text="first more",
+        accumulated_text="first",
     )
-    assert delta["state"] == "acknowledged"
-    end = await send_stream(
+    assert first["state"] == "acknowledged"
+    second = await send_stream(
         peer,
         identity,
         handle,
         delivery="delivery-C",
-        operation="stream.end",
+        operation="stream.delta",
         sequence=2,
         target_delivery_id="delivery-A",
-        accumulated_text="final answer",
+        accumulated_text="first more",
+    )
+    assert second["state"] == "acknowledged"
+    end = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-D",
+        operation="stream.end",
+        sequence=3,
+        target_delivery_id="delivery-A",
+        accumulated_text="first more now",
     )
     assert end["state"] == "acknowledged"
 
@@ -416,8 +458,8 @@ async def test_stream_slices_replace_full_text(native_driver):
         "/v2/users/user-A/stream_messages",
     ] * 3
     assert [row["auth"] for row in rows] == ["QQBot native-token"] * 3
-    first, middle, last = (row["body"] for row in rows)
-    assert first == {
+    first_row, middle, last = (row["body"] for row in rows)
+    assert first_row == {
         "input_mode": "replace",
         "input_state": 1,
         "index": 0,
@@ -441,7 +483,7 @@ async def test_stream_slices_replace_full_text(native_driver):
         "input_state": 10,
         "index": 2,
         "content_type": "markdown",
-        "content_raw": "final answer",
+        "content_raw": "first more now",
         "msg_id": "original-msg",
         "msg_seq": 1,
         "stream_msg_id": "sent",
@@ -450,12 +492,26 @@ async def test_stream_slices_replace_full_text(native_driver):
 
 async def test_stream_policy_is_c2c_only(native_driver):
     driver, peer, identity, _ = native_driver
-    c2c = await open_route(peer, identity, "qq:c2c:user-A")
-    group = await open_route(peer, identity, "qq:group:group-A")
-    assert driver.response_policy(c2c).streaming is False
+    anchored = await open_route(
+        peer,
+        identity,
+        "qq:c2c:user-A",
+        message_id="original-msg",
+    )
+    group = await open_route(
+        peer,
+        identity,
+        "qq:group:group-A",
+        message_id="original-msg",
+    )
+    assert driver.response_policy(anchored).streaming is False
     driver._config["streaming_enabled"] = True
-    assert driver.response_policy(c2c).streaming is True
+    assert driver.response_policy(anchored).streaming is True
     assert driver.response_policy(group).streaming is False
+    # A stream is a passive reply: without the inbound ``msg_id`` anchor QQ
+    # would reject every slice, so such routes stay on the message path.
+    unanchored = await open_route(peer, identity, "qq:c2c:user-B")
+    assert driver.response_policy(unanchored).streaming is False
 
 
 async def test_stream_start_rejects_non_c2c_route(native_driver):
@@ -487,6 +543,18 @@ async def test_lost_slice_response_keeps_index_monotonic(native_driver):
             handle,
             operation="stream.start",
             sequence=0,
+            accumulated_text="...",
+        )
+    )["state"] == "acknowledged"
+    assert (
+        await send_stream(
+            peer,
+            identity,
+            handle,
+            delivery="delivery-B",
+            operation="stream.delta",
+            sequence=1,
+            target_delivery_id="delivery-A",
             accumulated_text="first",
         )
     )["state"] == "acknowledged"
@@ -495,9 +563,9 @@ async def test_lost_slice_response_keeps_index_monotonic(native_driver):
         peer,
         identity,
         handle,
-        delivery="delivery-B",
+        delivery="delivery-C",
         operation="stream.delta",
-        sequence=1,
+        sequence=2,
         target_delivery_id="delivery-A",
         accumulated_text="first more",
     )
@@ -506,9 +574,9 @@ async def test_lost_slice_response_keeps_index_monotonic(native_driver):
         peer,
         identity,
         handle,
-        delivery="delivery-C",
+        delivery="delivery-D",
         operation="stream.delta",
-        sequence=2,
+        sequence=3,
         target_delivery_id="delivery-A",
         accumulated_text="first more still",
     )
@@ -529,7 +597,7 @@ async def test_stream_type_is_preserved_and_validated(native_driver):
         handle,
         operation="stream.start",
         sequence=0,
-        accumulated_text="thinking",
+        accumulated_text="...",
         stream_type="reasoning",
     )
     assert start["state"] == "acknowledged"
@@ -558,7 +626,6 @@ async def test_stream_type_is_preserved_and_validated(native_driver):
     assert mismatch["state"] == "failed"
     assert mismatch["reason_code"] == "STREAM_TYPE_MISMATCH"
     assert [row["body"]["content_raw"] for row in server.api_rows()] == [
-        "thinking",
         "thinking more",
     ]
 
@@ -579,7 +646,7 @@ async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
         handle,
         operation="stream.start",
         sequence=0,
-        accumulated_text="first",
+        accumulated_text="...",
     )
     await send_stream(
         peer,
@@ -596,12 +663,12 @@ async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
     )
     await peer.methods["channel.response.finish"](finish, None)
     rows = server.api_rows()
-    assert len(rows) == 3
+    assert len(rows) == 2
     closing = rows[-1]["body"]
     assert closing == {
         "input_mode": "replace",
         "input_state": 10,
-        "index": 2,
+        "index": 1,
         "content_type": "markdown",
         "content_raw": "first more",
         "msg_id": "original-msg",
@@ -626,6 +693,16 @@ async def test_lost_end_slice_is_not_closed_twice(native_driver):
         handle,
         operation="stream.start",
         sequence=0,
+        accumulated_text="...",
+    )
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.delta",
+        sequence=1,
+        target_delivery_id="delivery-A",
         accumulated_text="first",
     )
     server.drop_next = 1
@@ -633,11 +710,11 @@ async def test_lost_end_slice_is_not_closed_twice(native_driver):
         peer,
         identity,
         handle,
-        delivery="delivery-B",
+        delivery="delivery-C",
         operation="stream.end",
-        sequence=1,
+        sequence=2,
         target_delivery_id="delivery-A",
-        accumulated_text="final answer",
+        accumulated_text="first final",
     )
     assert lost["state"] == "unknown"
     finish = ResponseFinishParams.from_mapping(
@@ -684,7 +761,7 @@ async def test_cleanup_skips_already_ended_stream(native_driver):
     ]
 
 
-async def test_cleanup_closes_stream_with_placeholder_text(native_driver):
+async def test_empty_stream_closes_with_placeholder_text(native_driver):
     driver, peer, identity, server = native_driver
     driver._config["streaming_enabled"] = True
     handle = await open_route(peer, identity, "qq:c2c:user-A")
@@ -694,15 +771,22 @@ async def test_cleanup_closes_stream_with_placeholder_text(native_driver):
         handle,
         operation="stream.start",
         sequence=0,
+        accumulated_text="...",
+    )
+    # A response that produces no text still has to open and close its stream,
+    # and QQ rejects an empty ``content_raw``.
+    ended = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-B",
+        operation="stream.end",
+        sequence=1,
+        target_delivery_id="delivery-A",
         accumulated_text="",
     )
-    finish = ResponseFinishParams.from_mapping(
-        {**identity, "response_handle": handle, "outcome": "cancelled"},
-    )
-    await peer.methods["channel.response.finish"](finish, None)
+    assert ended["state"] == "acknowledged"
     rows = [row["body"] for row in server.api_rows()]
-    # An empty first slice uses the native placeholder, and the closing slice
-    # reuses it instead of sending an empty ``content_raw``.
     assert [row["content_raw"] for row in rows] == ["...", "..."]
     assert [row["input_state"] for row in rows] == [1, 10]
 
@@ -717,7 +801,7 @@ async def test_cleanup_closes_each_unfinished_stream(native_driver):
         handle,
         operation="stream.start",
         sequence=0,
-        accumulated_text="thinking",
+        accumulated_text="...",
         stream_type="reasoning",
     )
     await send_stream(
@@ -725,8 +809,29 @@ async def test_cleanup_closes_each_unfinished_stream(native_driver):
         identity,
         handle,
         delivery="delivery-B",
+        operation="stream.delta",
+        sequence=1,
+        target_delivery_id="delivery-A",
+        accumulated_text="thinking",
+        stream_type="reasoning",
+    )
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-C",
         operation="stream.start",
         sequence=0,
+        accumulated_text="...",
+    )
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-D",
+        operation="stream.delta",
+        sequence=1,
+        target_delivery_id="delivery-C",
         accumulated_text="answer",
     )
     finish = ResponseFinishParams.from_mapping(
@@ -787,4 +892,4 @@ async def test_slice_without_recorded_stream_type_still_streams(native_driver):
         stream_type="reasoning",
     )
     assert delta["state"] == "acknowledged"
-    assert [row["body"]["index"] for row in server.api_rows()] == [0, 1]
+    assert [row["body"]["index"] for row in server.api_rows()] == [0]
