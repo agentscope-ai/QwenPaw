@@ -15,6 +15,7 @@ import {
   reloadAfterChunkError,
 } from "../utils/chunkRecovery";
 import type { ErrorLike } from "../utils/chunkRecovery";
+import { waitForChunkServerReady } from "../utils/chunkServerReadiness";
 import { copyText } from "../utils/clipboard";
 
 export interface StartupMessages {
@@ -30,6 +31,7 @@ export interface StartupMessages {
   copied: string;
   copyFailed: string;
   checking: string;
+  serverReadiness: { checking: string; timeout: string };
   recheckNote: string;
   observations: Record<ResourceOutcome, string>;
 }
@@ -65,6 +67,7 @@ export function installStartupMonitor(
   let rendered = false;
   let pre: HTMLPreElement;
   let observation: HTMLParagraphElement;
+  const readinessController = new AbortController();
   const placeholder = () => document.querySelector("#root .qwenpaw-boot");
   const diagnosticText = () =>
     JSON.stringify(
@@ -102,7 +105,10 @@ export function installStartupMonitor(
     const reload = element("button", messages.reload);
     copy.type = reload.type = "button";
     reload.className = "qwenpaw-boot__reload";
-    reload.addEventListener("click", () => window.location.reload());
+    reload.addEventListener("click", () => {
+      stop();
+      window.location.reload();
+    });
     const feedback = element("p");
     feedback.setAttribute("role", "status");
     feedback.hidden = true;
@@ -149,9 +155,28 @@ export function installStartupMonitor(
     diagnostic.recheck = recheck;
     saveChunkDiagnostic(diagnostic);
     if (rendered) {
-      observation.textContent = messages.observations[recheck.outcome];
+      observation.textContent = messages.serverReadiness.checking;
       pre.textContent = diagnosticText();
     }
+    const serverReadiness = await waitForChunkServerReady(
+      resourceUrl,
+      readinessController.signal,
+    );
+    if (stopped || (document.getElementById("root") && !placeholder())) return;
+    diagnostic.serverReadiness = serverReadiness;
+    saveChunkDiagnostic(diagnostic);
+    if (rendered) {
+      observation.textContent =
+        serverReadiness.outcome === "timeout"
+          ? messages.serverReadiness.timeout
+          : messages.observations[recheck.outcome];
+      pre.textContent = diagnosticText();
+    }
+    if (
+      serverReadiness.outcome !== "ready" &&
+      serverReadiness.outcome !== "not-applicable"
+    )
+      return;
     reloadAfterChunkError((decision) => {
       diagnostic!.automaticReloadAttempted = decision.reason === "reload";
       diagnostic!.automaticReload = decision;
@@ -194,6 +219,7 @@ export function installStartupMonitor(
 
   function stop() {
     stopped = true;
+    readinessController.abort();
     clearTimeout(timer);
     observer.disconnect();
     window.removeEventListener("error", onError, true);

@@ -74,6 +74,49 @@ def _tool_text_response(text: str) -> ToolChunk:
     )
 
 
+def _cooperative_cancel_response(tool_name: str) -> ToolChunk | None:
+    """Return an ERROR result for a coordinator-owned single-tool cancel.
+
+    A parent task cancellation means the whole agent turn is stopping and
+    must keep propagating ``CancelledError``.  A cooperative cancellation
+    raised by ``cancellable_wait`` has no pending task cancellation, so it is
+    safe to expose it as a normal tool error and let the agent loop continue.
+    """
+    from ...tool_calls import (
+        CancelReason,
+        format_cancel_message,
+        get_call_context,
+    )
+
+    ctx = get_call_context()
+    current_task = asyncio.current_task()
+    if (
+        ctx is None
+        or not ctx.cancel_event.is_set()
+        or (current_task is not None and current_task.cancelling())
+    ):
+        return None
+
+    if ctx.cancel_reason not in (
+        CancelReason.USER,
+        CancelReason.TIMEOUT,
+        CancelReason.AGENT,
+    ):
+        return None
+    reason = ctx.cancel_reason.value
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.ERROR,
+        content=[
+            TextBlock(
+                type="text",
+                text=format_cancel_message(tool_name, ctx.cancel_reason),
+            ),
+        ],
+        metadata={"cancel_reason": reason},
+    )
+
+
 def _json_text(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -368,21 +411,31 @@ async def stop_agent_chat_async(
     session_id: str,
     to_agent: str,
     timeout: float = AGENT_CHAT_STOP_TIMEOUT,
+    cancel_reason: Optional[str] = None,
+    initiator: Optional[str] = None,
 ) -> bool:
     """Stop an inter-agent chat running on the target agent.
 
     The console chat stream continues after its HTTP subscriber disconnects.
     Cancelling ``chat_with_agent`` must therefore call the target agent's
     explicit Stop endpoint instead of only closing the collection stream.
+
+    ``initiator`` carries the caller session that gave up so the target's
+    logs can attribute the stop (GH-8252).
     """
     normalized = _normalize_api_base_url(base_url)
     async with async_api_client(
         base_url=normalized,
         timeout=httpx.Timeout(timeout),
     ) as client:
+        params = {"chat_id": session_id}
+        if cancel_reason:
+            params["cancel_reason"] = cancel_reason
+        if initiator:
+            params["initiator"] = initiator
         response = await client.post(
             "/console/chat/stop",
-            params={"chat_id": session_id},
+            params=params,
             headers=_request_headers(to_agent),
         )
         response.raise_for_status()
@@ -396,9 +449,24 @@ async def _stop_cancelled_agent_chat(
     tool_name: str = "chat_with_agent",
 ) -> None:
     """Best-effort stop of a target chat after caller cancellation."""
+    from ...tool_calls import get_call_context
+
+    ctx = get_call_context()
+    cancel_reason = (
+        ctx.cancel_reason.value
+        if ctx is not None and ctx.cancel_reason is not None
+        else None
+    )
+    initiator = ctx.session_id if ctx is not None else None
     try:
         stopped = await asyncio.shield(
-            stop_agent_chat_async(None, session_id, to_agent),
+            stop_agent_chat_async(
+                None,
+                session_id,
+                to_agent,
+                cancel_reason=cancel_reason,
+                initiator=initiator,
+            ),
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(
@@ -602,6 +670,14 @@ async def chat_with_agent(
     consultation where the caller expects an immediate reply rather than a
     background task handle.
 
+    Cancellation semantics: when this call is cancelled (timeout, user stop,
+    or shutdown), the target agent's session is explicitly stopped as well,
+    cascading to the target's own in-flight sub-calls (its
+    ``chat_with_agent`` / ``spawn_subagent`` foreground children). A whole
+    call chain therefore ends within the same second, and the cancelled
+    target keeps only its persisted partial turn. This is intentional so a
+    given-up consultation does not leave orphaned downstream work.
+
     Args:
         to_agent (`str`):
             The target agent ID to send the message to. This must be an agent
@@ -612,9 +688,11 @@ async def chat_with_agent(
             Existing session ID to continue a previous conversation. If not
             provided, a new session ID is generated automatically.
         timeout (`int`, optional):
-            Foreground wait timeout in seconds. Callers should estimate how
-            long the target agent may need to finish to reduce avoidable
-            timeout failures.
+            Foreground wait timeout in seconds (default 300). When it
+            expires the target session is stopped (see above), so callers
+            should estimate how long the target agent may need. For
+            long-running work prefer ``submit_to_agent`` (background, no
+            foreground cap) or pass a larger explicit timeout.
 
     Returns:
         `ToolChunk`:
@@ -657,13 +735,19 @@ async def chat_with_agent(
         root_session_id=final_root_session,
     )
 
-    response_data = await _collect_foreground_agent_chat(
-        request_payload,
-        normalized_to_agent,
-        final_session_id,
-        timeout,
-        tool_name="chat_with_agent",
-    )
+    try:
+        response_data = await _collect_foreground_agent_chat(
+            request_payload,
+            normalized_to_agent,
+            final_session_id,
+            timeout,
+            tool_name="chat_with_agent",
+        )
+    except asyncio.CancelledError:
+        cancel_response = _cooperative_cancel_response("chat_with_agent")
+        if cancel_response is None:
+            raise
+        return cancel_response
     if not response_data:
         return _tool_text_response("(No response received)")
 

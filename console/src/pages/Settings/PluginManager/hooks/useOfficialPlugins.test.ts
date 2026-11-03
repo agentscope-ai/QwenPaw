@@ -22,6 +22,7 @@ vi.mock("@/api/modules/plugin", () => ({
 }));
 
 import { useOfficialPlugins } from "./useOfficialPlugins";
+import { notifyPluginChange } from "@/utils/pluginChangeEvents";
 
 const ENTRY = {
   id: "e1",
@@ -51,7 +52,10 @@ const RESULT = {
 beforeEach(() => {
   vi.clearAllMocks();
   h.fetchPluginCatalog.mockResolvedValue(CATALOG);
-  h.installPlugin.mockResolvedValue(RESULT);
+  h.installPlugin.mockImplementation(async () => {
+    notifyPluginChange();
+    return RESULT;
+  });
 });
 
 describe("useOfficialPlugins catalog load", () => {
@@ -81,7 +85,7 @@ describe("useOfficialPlugins catalog load", () => {
     expect(result.current.catalogError).toBeNull();
   });
 
-  it("surfaces a catalog error payload and empties the list", async () => {
+  it("shows available bundled plugins alongside a remote catalog error", async () => {
     h.fetchPluginCatalog.mockResolvedValue({
       updated_at: null,
       plugins: [ENTRY],
@@ -92,20 +96,18 @@ describe("useOfficialPlugins catalog load", () => {
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.catalogError).toBe("backend unavailable");
-    expect(result.current.plugins).toEqual([]);
+    expect(result.current.plugins).toEqual([ENTRY]);
   });
 
   it("clears a previously loaded list when a reload returns an error payload", async () => {
-    // First load succeeds with one entry; the reload then carries an `error`.
-    // Without the `setPlugins([])` in the error branch the stale entry would
-    // survive, which a fresh-mount test cannot detect (plugins starts as []).
+    // An empty response must replace the previously loaded catalog.
     const { result } = renderHook(() =>
       useOfficialPlugins({ onInstalled: vi.fn() }),
     );
     await waitFor(() => expect(result.current.plugins).toEqual([ENTRY]));
     h.fetchPluginCatalog.mockResolvedValue({
       updated_at: null,
-      plugins: [ENTRY],
+      plugins: [],
       error: "now broken",
     });
     await act(async () => {
@@ -237,7 +239,7 @@ describe("useOfficialPlugins handleInstall", () => {
     expect(result.current.installingId).toBeNull();
   });
 
-  it("awaits an async onInstalled callback before reloading", async () => {
+  it("awaits onInstalled and refreshes once through the install event", async () => {
     const order: string[] = [];
     const onInstalled = vi.fn(async () => {
       await Promise.resolve();
@@ -253,7 +255,7 @@ describe("useOfficialPlugins handleInstall", () => {
     await act(async () => {
       await result.current.handleInstall(ENTRY);
     });
-    expect(order).toEqual(["onInstalled", "reload"]);
+    expect(order).toEqual(["reload", "onInstalled"]);
   });
 
   it("reports an Error message when the install fails and does not reload", async () => {

@@ -130,3 +130,82 @@ def resolve_thinking(
         else control.efforts[0]
     )
     return ThinkingPreference(level=effort), f"adapted"
+
+
+def model_default_thinking(
+    params: dict,
+    control: ThinkingControl,
+    *,
+    default_enabled: bool | None = None,
+    default_effort: str | None = None,
+    default_budget: int | None = None,
+    native_anthropic: bool = False,
+) -> ThinkingPreference:
+    """Read configured request values before model metadata defaults.
+
+    Shared by the display and provider construction paths. Provider adapters
+    normalize their native parameters before calling this resolver.
+    """
+    params = {**params, **(params.get(f"extra_body") or {})}
+    params = {**params, **(params.get(f"chat_template_kwargs") or {})}
+    thinking = params.get(f"thinking") or {}
+    reasoning = params.get(f"reasoning") or {}
+    config = params.get(f"thinking_config") or {}
+    enabled = params.get(
+        f"enable_thinking",
+        params.get(f"thinking_enable"),
+    )
+    if params.get(f"disable_thinking") is True:
+        enabled = False
+    effort = params.get(
+        f"reasoning_effort",
+        reasoning.get(
+            f"effort",
+            (params.get(f"output_config") or {}).get(
+                f"effort",
+                config.get(f"thinking_level"),
+            ),
+        ),
+    )
+    budget = params.get(
+        f"thinking_budget",
+        thinking.get(
+            f"budget_tokens",
+            config.get(f"thinking_budget"),
+        ),
+    )
+    if budget is None and effort is None and not native_anthropic:
+        if enabled is None:
+            enabled = default_enabled
+        effort = default_effort
+        budget = default_budget
+    if (
+        enabled is False
+        or thinking.get(f"type") == f"disabled"
+        or reasoning.get(f"enabled") is False
+        or effort in {f"none", f"off"}
+        or budget == 0
+    ):
+        return ThinkingPreference(level=f"off")
+    if budget is None and effort in {
+        f"minimal",
+        f"low",
+        f"medium",
+        f"high",
+        f"xhigh",
+        f"max",
+    }:
+        if control.kind == f"effort" and effort in control.efforts:
+            return ThinkingPreference(level=effort)
+        return ThinkingPreference()
+    if control.kind == f"budget":
+        if budget is None and not native_anthropic:
+            budget = control.budget_default
+        if (
+            budget is not None
+            and control.budget_min is not None
+            and control.budget_max is not None
+            and control.budget_min <= budget <= control.budget_max
+        ):
+            return ThinkingPreference(level=f"budget", budget_tokens=budget)
+    return ThinkingPreference()

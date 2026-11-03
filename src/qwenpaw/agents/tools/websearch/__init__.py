@@ -12,6 +12,7 @@ from .anysearch import (
     _parse_auto_registered_credentials,
 )
 from .base import SearchProvider, format_search_results
+from .firecrawl import FirecrawlProvider
 from .factory import get_search_provider
 from .tavily import TavilyProvider
 
@@ -19,6 +20,7 @@ __all__ = [
     "SearchProvider",
     "TavilyProvider",
     "AnySearchProvider",
+    "FirecrawlProvider",
     "get_search_provider",
     "format_search_results",
     "_current_agent_anysearch_key",

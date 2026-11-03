@@ -85,6 +85,12 @@ class UsageStream:
     async def __aexit__(self, *args):
         return await self.stream.__aexit__(*args)
 
+    @property
+    def response(self):
+        """Expose the transport response expected by AgentScope."""
+        target = self.active if self.active is not None else self.stream
+        return target.response
+
     def __aiter__(self):
         return self
 

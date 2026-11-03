@@ -1,22 +1,22 @@
-import {
-  act,
-  fireEvent,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Grid } from "antd";
-import type { ComponentType } from "react";
-import { useLocation } from "react-router-dom";
+import { useContext, type ComponentType } from "react";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/common_setup";
 import { themeApi } from "@/api/modules/theme";
+import { channelApi } from "@/api/modules/channel";
+import * as apiRequest from "@/api/request";
+import type { AgentsRunningConfig } from "@/api/types";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import type { MenuItem } from "@/plugins/registry/types";
 import { DEFAULT_FOCUS_ITEM_IDS, useSidebarStore } from "@/stores/sidebarStore";
 import { useAgentStore } from "@/stores/agentStore";
+import { settingsSearchRegistry } from "@/plugins/settingsSearch";
+import { SettingsSearchNavigation } from "./SettingsSearchNavigation";
+import { SettingsRuntimeConfigContext } from "./SettingsSearchRequest";
 
 // JSDOM cannot run NumberFlow's custom-element animation lifecycle.
 vi.mock("@number-flow/react", () => ({
@@ -100,6 +100,181 @@ describe("SettingsCenter", () => {
     });
   });
 
+  it("opens model configuration when searching the legacy maximum-input-length name", async () => {
+    registry.routes = [
+      {
+        id: "core.agent-config",
+        path: "/agent-config",
+        Component: () => <div>Runtime settings</div>,
+      },
+      {
+        id: "core.models",
+        path: "/models",
+        Component: () => <div>Model settings</div>,
+      },
+    ];
+    renderWithProviders(
+      <>
+        <SettingsCenter />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/settings/general"] },
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "Max Input Length",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Max Context Length/ }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/settings/models",
+    );
+    expect(screen.getByText("Model settings")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("Choose an item");
+  });
+
+  it("refreshes result availability after config changes without remounting", async () => {
+    vi.spyOn(apiRequest, "request").mockResolvedValue({
+      memory_manager_backend: "none",
+    });
+    function RuntimeSettings() {
+      const updateSearch = useContext(SettingsRuntimeConfigContext);
+      return (
+        <>
+          <button
+            onClick={() =>
+              updateSearch("native", {
+                memory_manager_backend: "remelight",
+              } as AgentsRunningConfig)
+            }
+          >
+            Enable memory
+          </button>
+          <button
+            onClick={() =>
+              updateSearch("native", {
+                memory_manager_backend: "none",
+              } as AgentsRunningConfig)
+            }
+          >
+            Disable memory
+          </button>
+          <button
+            onClick={() =>
+              updateSearch("other-agent", {
+                memory_manager_backend: "remelight",
+              } as AgentsRunningConfig)
+            }
+          >
+            Other agent saved
+          </button>
+        </>
+      );
+    }
+    registry.routes = [
+      {
+        id: "core.agent-config",
+        path: "/agent-config",
+        Component: RuntimeSettings,
+      },
+    ];
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/agent-config"],
+    });
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "Model Name",
+    );
+    const result = screen.getByRole("button", { name: /^Model Name/ });
+    await waitFor(() => expect(result).toBeDisabled());
+    await userEvent.click(
+      screen.getByRole("button", { name: "Enable memory" }),
+    );
+    expect(result).toBeEnabled();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Disable memory" }),
+    );
+    expect(result).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Other agent saved" }),
+    );
+    expect(result).toBeDisabled();
+  });
+
+  it("keeps a saved config newer than an outstanding availability request", async () => {
+    let resolveRequest!: (config: AgentsRunningConfig) => void;
+    vi.spyOn(apiRequest, "request").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    function RuntimeSettings() {
+      const updateSearch = useContext(SettingsRuntimeConfigContext);
+      return (
+        <button
+          onClick={() =>
+            updateSearch("native", {
+              memory_manager_backend: "remelight",
+            } as AgentsRunningConfig)
+          }
+        >
+          Enable memory
+        </button>
+      );
+    }
+    registry.routes = [
+      {
+        id: "core.agent-config",
+        path: "/agent-config",
+        Component: RuntimeSettings,
+      },
+    ];
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/agent-config"],
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Enable memory" }),
+    );
+    await act(async () => {
+      resolveRequest({ memory_manager_backend: "none" } as AgentsRunningConfig);
+    });
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "Model Name",
+    );
+    expect(screen.getByRole("button", { name: /^Model Name/ })).toBeEnabled();
+  });
+
+  it("opens the plugin section and requested subtab from a search result", async () => {
+    function PluginProbe() {
+      const location = useLocation();
+      const query = new URLSearchParams(location.search);
+      return (
+        <output data-testid="plugin-query">
+          {query.get("tab")}:{query.get("view")}
+        </output>
+      );
+    }
+    registry.routes = [
+      { id: "core.marketplace", path: "/market", Component: PluginProbe },
+    ];
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "Official Plugins",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Official Plugins" }),
+    );
+    expect(screen.getByTestId("plugin-query")).toHaveTextContent(
+      "plugins:official",
+    );
+  });
+
   it("uses dark preset swatches when dark theme is active", async () => {
     localStorage.setItem("qwenpaw-theme", "dark");
 
@@ -147,10 +322,9 @@ describe("SettingsCenter", () => {
       expect(screen.getByTestId("theme-preview")).toHaveTextContent("8px"),
     );
     await userEvent.click(screen.getByRole("button", { name: "Custom theme" }));
-    fireEvent.keyDown(screen.getByRole("slider"), {
-      key: "ArrowRight",
-      keyCode: 39,
-    });
+    const radius = screen.getByRole("spinbutton", { name: "Corner radius" });
+    await userEvent.clear(radius);
+    await userEvent.type(radius, "9");
     expect(screen.getByTestId("theme-preview")).toHaveTextContent("9px");
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() =>
@@ -654,6 +828,82 @@ describe("SettingsCenter", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("searches late plugin registrations and locates fields at their registered route", async () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    });
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([
+      {},
+    ] as unknown as DOMRectList);
+    const PluginSettings = () => (
+      <section
+        data-testid="plugin-timeout"
+        data-settings-target="example.timeout"
+      >
+        Timeout editor
+      </section>
+    );
+    registry.routes = [
+      {
+        id: "example.settings",
+        path: "/example-settings",
+        Component: PluginSettings,
+      },
+    ];
+    registry.settingsMenu = [
+      {
+        id: "example.menu",
+        label: "Example extension",
+        route: "example.settings",
+        location: "primary.settings",
+      },
+    ];
+    renderWithProviders(
+      <>
+        <SettingsSearchNavigation />
+        <LocationProbe />
+        <Routes>
+          <Route path="/settings/*" element={<SettingsCenter />} />
+          <Route path="/example-settings" element={<PluginSettings />} />
+        </Routes>
+      </>,
+      { initialEntries: ["/settings/general"] },
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "Example timeout",
+    );
+    expect(screen.getByText("No matching settings")).toBeVisible();
+    let registration: { dispose(): void };
+    act(() => {
+      registration = settingsSearchRegistry.register("example", [
+        {
+          id: "timeout",
+          routeId: "example.settings",
+          label: "Request timeout",
+          groupPath: ["Connection"],
+          keywords: ["timeout"],
+          target: { targetId: "example.timeout" },
+        },
+      ]);
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Request timeout/ }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/example-settings",
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("plugin-timeout")).toHaveAttribute(
+        "data-search-highlight",
+        "true",
+      ),
+    );
+    act(() => registration.dispose());
+  });
+
   it("preserves href-only plugin settings", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     registry.settingsMenu = [
@@ -677,6 +927,46 @@ describe("SettingsCenter", () => {
       "_blank",
       "noopener,noreferrer",
     );
+  });
+
+  it("shows plugin availability and removes field results when their route disappears", async () => {
+    registry.routes = [
+      {
+        id: "example.settings",
+        path: "/example-settings",
+        Component: () => null,
+      },
+    ];
+    const registration = settingsSearchRegistry.register("example", [
+      {
+        id: "horizon",
+        routeId: "example.settings",
+        label: "Recall horizon",
+        groupPath: ["Recall"],
+        target: { targetId: "example.horizon" },
+        availability: {
+          available: false,
+          reason: "Memory backend is disabled",
+        },
+      },
+    ]);
+    const view = renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "horizon",
+    );
+    expect(
+      screen.getByRole("button", { name: /Recall horizon/ }),
+    ).toBeDisabled();
+    expect(screen.getByText("Memory backend is disabled")).toBeVisible();
+    registry.routes = [];
+    view.rerender(<SettingsCenter />);
+    expect(
+      screen.queryByRole("button", { name: /Recall horizon/ }),
+    ).not.toBeInTheDocument();
+    act(() => registration.dispose());
   });
 
   it("allows a plugin shortcut to be selected for the sidebar", async () => {
@@ -784,6 +1074,34 @@ describe("SettingsCenter", () => {
     expect(
       screen.getByRole("heading", { name: "Sidebar" }),
     ).toBeInTheDocument();
+  });
+
+  it("indexes custom channel labels from metadata and drops the previous agent's names", async () => {
+    vi.spyOn(channelApi, "listChannelSchemas").mockResolvedValue({
+      custom_bus: {
+        label: "Team bus",
+        description: "",
+        plugin_id: "bus",
+        config_fields: [],
+      },
+    });
+    registry.routes = [
+      { id: "core.channels", path: "/channels", Component: () => null },
+    ];
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+    await userEvent.type(
+      screen.getByPlaceholderText("Search settings"),
+      "Team bus",
+    );
+    expect(
+      await screen.findByRole("button", { name: /Team bus/ }),
+    ).toBeVisible();
+    act(() => useAgentStore.setState({ selectedAgent: "codex" }));
+    expect(
+      screen.queryByRole("button", { name: /Team bus/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("controls built-in and plugin shortcuts independently by section", async () => {

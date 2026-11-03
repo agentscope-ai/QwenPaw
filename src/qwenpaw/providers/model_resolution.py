@@ -202,12 +202,14 @@ def resolve_model_info(
         result.supports_video,
     )
     if f"supports_multimodal" not in result.config_overrides:
+        # Partial modality metadata must not erase an existing capability:
+        # request formatters treat unknown support as permission to send media.
         result.supports_multimodal = (
             True
             if True in modalities
             else False
             if all(value is False for value in modalities)
-            else None
+            else result.supports_multimodal
         )
     if result.input_token_limit is not None:
         result.automatic_max_input_length = min(

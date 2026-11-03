@@ -53,6 +53,8 @@ describe("SDK session hydration boundary", () => {
 
     expect(adapter.isReady("runtime-uuid")).toBe(true);
     expect(adapter.isReady("chat-uuid")).toBe(true);
+    expect(adapter.getMessageCacheId("runtime-uuid")).toBe("runtime-uuid");
+    expect(adapter.getMessageCacheId("chat-uuid")).toBe("runtime-uuid");
   });
   it("does not let an older history load release a newer reload", async () => {
     const old = deferred<ReturnType<typeof session>>(),

@@ -1,3 +1,5 @@
+@import (reference) "../../styles/controlIcons.less";
+
 .wrap {
   height: 100%;
   font-size: var(--app-font-body);
@@ -638,7 +640,8 @@
   }
 
   .openFilesBtn {
-    width: 34px;
+    width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
     padding: 0;
   }
 
@@ -665,23 +668,22 @@
   .toolbar {
     justify-content: flex-end;
   }
+
+  .tabBar {
+    min-height: var(--app-hit-touch);
+  }
+
+  .closeBtn,
+  .tabControlBtn,
+  .iconBtn,
+  .modeSwitch button {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+  }
 }
 
 .iconBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--app-icon-button);
-  height: var(--app-icon-button);
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
-  color: var(--app-text-secondary);
-  padding: 0;
-  transition:
-    background 0.12s,
-    color 0.12s;
+  .icon-action(var(--app-icon-button); 4px; 0.12s);
 
   &:hover:not(:disabled) {
     background: var(--app-fill-subtle);

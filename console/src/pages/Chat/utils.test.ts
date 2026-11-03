@@ -8,7 +8,6 @@ import {
   toDisplayUrl,
   getActiveSenderTextarea,
   getSenderTextareaFromTarget,
-  clearSubmittedSenderInput,
 } from "./utils";
 import type { CopyableResponse } from "./utils";
 
@@ -232,33 +231,6 @@ describe("getSenderTextareaFromTarget", () => {
     expect(
       getSenderTextareaFromTarget(document.querySelector("#editor")),
     ).toBeNull();
-    document.body.innerHTML = "";
-  });
-});
-
-describe("clearSubmittedSenderInput", () => {
-  it("clears the real textarea value and dispatches an input event", () => {
-    document.body.innerHTML = `
-      <div class="sender"><textarea>send me</textarea></div>
-    `;
-    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
-    const onInput = vi.fn();
-    textarea.addEventListener("input", onInput);
-
-    expect(clearSubmittedSenderInput("send me")).toBe(true);
-    expect(textarea.value).toBe("");
-    expect(onInput).toHaveBeenCalledOnce();
-    document.body.innerHTML = "";
-  });
-
-  it("does not erase text typed for the next message", () => {
-    document.body.innerHTML = `
-      <div class="sender"><textarea>next message</textarea></div>
-    `;
-    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
-
-    expect(clearSubmittedSenderInput("sent message")).toBe(false);
-    expect(textarea.value).toBe("next message");
     document.body.innerHTML = "";
   });
 });

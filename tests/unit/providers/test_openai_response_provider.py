@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -11,7 +12,7 @@ import httpx
 import pytest
 from agentscope.model import OpenAIResponseModel
 from agentscope.tool import ToolChoice
-from openai import BadRequestError
+from openai import APIError, BadRequestError
 
 from qwenpaw.providers.multimodal_prober import _PROBE_VIDEO_URL
 from qwenpaw.providers.openai_response_provider import (
@@ -65,6 +66,82 @@ def _make_response_model() -> OpenAIResponseModelCompat:
     model = _make_provider().get_chat_model_instance("gpt-5")
     assert isinstance(model, OpenAIResponseModelCompat)
     return model
+
+
+@pytest.mark.parametrize(
+    f"event_type",
+    [f"error", f"response.failed"],
+)
+async def test_stream_error_preserves_openai_api_error(
+    event_type: str,
+) -> None:
+    class FakeError:
+        type = f"error"
+        message = f"upstream failed"
+
+        def model_dump(self) -> dict[str, str]:
+            return {
+                f"type": self.type,
+                f"message": self.message,
+            }
+
+    error = FakeError()
+    event = (
+        error
+        if event_type == f"error"
+        else SimpleNamespace(
+            type=event_type,
+            response=SimpleNamespace(error=error),
+        )
+    )
+    request = httpx.Request(
+        f"POST",
+        f"https://example.test/v1/responses",
+    )
+
+    class FakeStream:
+        def __init__(self) -> None:
+            self.response = SimpleNamespace(
+                request=request,
+                headers={},
+            )
+            self._event = event
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._event is None:
+                raise StopAsyncIteration
+            item = self._event
+            self._event = None
+            return item
+
+    with pytest.raises(APIError) as exc_info:
+        async for _ in _make_response_model()._parse_stream_response(
+            datetime.now(),
+            FakeStream(),
+        ):
+            pass
+
+    assert {
+        f"message": exc_info.value.message,
+        f"request": exc_info.value.request,
+        f"body": exc_info.value.body,
+    } == {
+        f"message": f"upstream failed",
+        f"request": request,
+        f"body": {
+            f"type": f"error",
+            f"message": f"upstream failed",
+        },
+    }
 
 
 def test_format_tools_defaults_to_non_strict_after_sanitizing() -> None:

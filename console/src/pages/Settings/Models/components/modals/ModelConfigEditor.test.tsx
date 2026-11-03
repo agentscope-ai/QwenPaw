@@ -191,3 +191,124 @@ describe("ModelConfigEditor automatic context", () => {
     ).toBeNull();
   });
 });
+
+describe("ModelConfigEditor thinking capability linkage", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("updates the thinking control when the advanced declaration changes", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        thinking_control: {
+          kind: "budget",
+          efforts: [],
+          supports_off: true,
+          budget_min: 1,
+          budget_max: 8192,
+        },
+        thinking_enabled: true,
+        thinking_budget: 4096,
+      }),
+    );
+
+    expect(
+      screen.getByRole("slider", { name: "thinkingControl.title" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByText("common.advancedSettings"));
+    await user.click(screen.getByText("thinkingControl.declaration"));
+    await user.click(
+      screen.getByRole("combobox", { name: "thinkingControl.controlType" }),
+    );
+    await user.click(screen.getByText("thinkingControl.type.unsupported"));
+
+    expect(
+      screen.queryByRole("slider", { name: "thinkingControl.title" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "thinkingControl.unsupported" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    expect(api.configureModel).toHaveBeenCalledWith(
+      "openai",
+      "test-model",
+      expect.objectContaining({
+        thinking_control: expect.objectContaining({ kind: "unsupported" }),
+        thinking_enabled: null,
+        thinking_budget: null,
+        reasoning_effort: null,
+      }),
+    );
+  });
+
+  it("clears stale thinking settings when restoring automatic capability", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        thinking_control: {
+          kind: "budget",
+          efforts: [],
+          supports_off: true,
+          budget_min: 1,
+          budget_max: 8192,
+        },
+        thinking_enabled: true,
+        thinking_budget: 4096,
+      }),
+    );
+
+    await user.click(screen.getByText("common.advancedSettings"));
+    await user.click(screen.getByText("thinkingControl.declaration"));
+    await user.click(
+      screen.getByRole("combobox", { name: "thinkingControl.controlType" }),
+    );
+    await user.click(screen.getByText("thinkingControl.type.unknown"));
+
+    expect(
+      screen.queryByRole("slider", { name: "thinkingControl.title" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    expect(api.configureModel).toHaveBeenCalledWith(
+      "openai",
+      "test-model",
+      expect.objectContaining({
+        thinking_control: null,
+        thinking_enabled: null,
+        thinking_budget: null,
+        reasoning_effort: null,
+      }),
+    );
+  });
+
+  it("applies edited budget bounds to the thinking slider", async () => {
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        thinking_control: {
+          kind: "budget",
+          efforts: [],
+          supports_off: true,
+          budget_min: 1,
+          budget_max: 8192,
+        },
+      }),
+    );
+
+    await user.click(screen.getByText("common.advancedSettings"));
+    await user.click(screen.getByText("thinkingControl.declaration"));
+    const maximum = screen.getByRole("spinbutton", {
+      name: /thinkingControl.maximum/,
+    });
+    await user.clear(maximum);
+    await user.type(maximum, "2048");
+
+    expect(
+      screen.getByRole("slider", { name: "thinkingControl.title" }),
+    ).toHaveAttribute("aria-valuemax", "2048");
+  });
+});

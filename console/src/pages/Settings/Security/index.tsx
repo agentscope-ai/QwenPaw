@@ -32,6 +32,7 @@ function SecurityPage() {
     denyPathsPlatformSupported,
     toggleDenyPaths,
     toolOptions,
+    saving,
     scheduleSave,
     flushSave,
     mergedRules,
@@ -210,6 +211,7 @@ function SecurityPage() {
           ...builtinRules.map((r) => r.id),
           ...customRules.map((r) => r.id),
         ]}
+        saving={saving}
         onOk={handleEditSave}
         onCancel={() => setEditModal(false)}
         form={editForm}

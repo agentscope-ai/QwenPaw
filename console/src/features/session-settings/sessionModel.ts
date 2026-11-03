@@ -1,7 +1,7 @@
 import { clearPendingThinking } from "./pendingThinking";
 import { request } from "@/api/request";
 import type { ActiveModelsInfo } from "@/api/types";
-import type { ThinkingView } from "../thinking/types";
+import type { DecisionSettings, ThinkingView } from "../thinking/types";
 
 export interface SessionModelScope {
   sessionId: string;
@@ -13,15 +13,40 @@ export interface SessionModel {
 }
 const key = (agent: string, session: string) =>
   `qwenpaw-session-model:${agent}:${session}`;
+type PendingModelSettings = Partial<SessionModel> & {
+  decision_enabled?: boolean;
+};
+function readPendingSettings(
+  agent: string,
+  session: string,
+): PendingModelSettings {
+  return JSON.parse(sessionStorage.getItem(key(agent, session)) || "{}");
+}
+function updatePendingSettings(
+  agent: string,
+  session: string,
+  changes: PendingModelSettings,
+) {
+  sessionStorage.setItem(
+    key(agent, session),
+    JSON.stringify({ ...readPendingSettings(agent, session), ...changes }),
+  );
+}
 export function readPendingModel(
   agent: string,
   session: string,
 ): SessionModel | null {
-  const raw = sessionStorage.getItem(key(agent, session));
-  return raw ? JSON.parse(raw) : null;
+  const { provider_id, model } = readPendingSettings(agent, session);
+  return provider_id && model ? { provider_id, model } : null;
 }
 export function clearPendingModel(agent: string, session: string) {
   sessionStorage.removeItem(key(agent, session));
+}
+function clearPendingChatModel(agent: string, session: string) {
+  updatePendingSettings(agent, session, {
+    provider_id: undefined,
+    model: undefined,
+  });
 }
 export function migratePendingModel(agent: string, from: string, to: string) {
   if (from === to) return;
@@ -37,12 +62,16 @@ export function withPendingModel(
   session: string,
 ) {
   const model = readPendingModel(agent, session);
-  if (!model) return body;
+  const { decision_enabled } = readPendingSettings(agent, session);
+  if (!model && decision_enabled === undefined) return body;
   return {
     ...body,
     request_context: {
       ...((body.request_context as Record<string, unknown>) || {}),
-      session_model: model,
+      ...(model ? { session_model: model } : {}),
+      ...(decision_enabled !== undefined
+        ? { session_decision_enabled: decision_enabled }
+        : {}),
     },
   };
 }
@@ -74,6 +103,19 @@ export async function loadSessionThinkingView(
   const view = await request<ThinkingView>(modelViewUrl(agent, scope), {
     headers: { "X-Agent-Id": agent },
   });
+  const decision = readPendingSettings(agent, scope.sessionId).decision_enabled;
+  if (view.decision && decision !== undefined) {
+    if (scope.chatId && view.decision.override === decision)
+      updatePendingSettings(agent, scope.sessionId, {
+        decision_enabled: undefined,
+      });
+    else
+      view.decision = {
+        ...view.decision,
+        override: decision,
+        enabled: view.decision.configured && decision,
+      };
+  }
   if (!scope.chatId || !pending) return view;
   // A newly allocated chat can be read before the first turn saves its model.
   // Keep the submitted choice until the server acknowledges that exact model.
@@ -87,7 +129,7 @@ export async function loadSessionThinkingView(
       current?.model === pending.model &&
       current.provider_id === pending.provider_id
     ) {
-      clearPendingModel(agent, scope.sessionId);
+      clearPendingChatModel(agent, scope.sessionId);
     }
     return view;
   }
@@ -95,7 +137,7 @@ export async function loadSessionThinkingView(
     `/chats/thinking-default?${new URLSearchParams({ ...pending })}`,
     { headers: { "X-Agent-Id": agent } },
   );
-  return { ...preview, model_source: "session" };
+  return { ...preview, model_source: "session", decision: view.decision };
 }
 
 export async function loadSessionModel(
@@ -107,16 +149,20 @@ export async function loadSessionModel(
 export async function saveSessionModel(
   agent: string,
   scope: SessionModelScope,
-  model: SessionModel,
+  model: SessionModel | null,
 ) {
   if (!scope.chatId) {
+    if (!model) {
+      clearPendingChatModel(agent, scope.sessionId);
+      return loadSessionModel(agent, scope);
+    }
     const view = await request<ThinkingView>(
       `/chats/thinking-default?${new URLSearchParams({ ...model })}`,
       {
         headers: { "X-Agent-Id": agent },
       },
     );
-    sessionStorage.setItem(key(agent, scope.sessionId), JSON.stringify(model));
+    updatePendingSettings(agent, scope.sessionId, model);
     return activeModels(view);
   }
   const view = await request<ThinkingView>(
@@ -127,7 +173,7 @@ export async function saveSessionModel(
       body: JSON.stringify(model),
     },
   );
-  clearPendingModel(agent, scope.sessionId);
+  clearPendingChatModel(agent, scope.sessionId);
   return activeModels(view);
 }
 
@@ -135,20 +181,32 @@ export async function resetSessionModel(
   agent: string,
   scope: SessionModelScope,
 ) {
+  const models = await saveSessionModel(agent, scope, null);
+  clearPendingThinking(agent, scope.sessionId);
+  return models;
+}
+
+export async function saveDecisionSettings(
+  agent: string,
+  scope: SessionModelScope,
+  settings: DecisionSettings,
+) {
   if (!scope.chatId) {
-    clearPendingModel(agent, scope.sessionId);
-    clearPendingThinking(agent, scope.sessionId);
-    return loadSessionModel(agent, scope);
+    updatePendingSettings(agent, scope.sessionId, {
+      decision_enabled: settings.enabled,
+    });
+    return settings;
   }
-  const view = await request<ThinkingView>(
-    `/chats/${encodeURIComponent(scope.chatId)}/model`,
+  const saved = await request<DecisionSettings>(
+    `/chats/${encodeURIComponent(scope.chatId)}/decision-settings`,
     {
       method: "PUT",
       headers: { "X-Agent-Id": agent },
-      body: "null",
+      body: JSON.stringify(settings.enabled),
     },
   );
-  clearPendingModel(agent, scope.sessionId);
-  clearPendingThinking(agent, scope.sessionId);
-  return activeModels(view);
+  updatePendingSettings(agent, scope.sessionId, {
+    decision_enabled: undefined,
+  });
+  return saved;
 }

@@ -32,6 +32,7 @@ const LEVEL_META: Record<
 > = {
   STRICT: { color: "#ff4d4f", icon: <Ban size={12} /> },
   SMART: { color: "#faad14", icon: <AlertTriangle size={12} /> },
+  JEV: { color: "#722ed1", icon: <AlertTriangle size={12} /> },
   AUTO: { color: "var(--app-accent-text)", icon: <Shield size={12} /> },
   OFF: { color: "#52c41a", icon: <CheckCircle size={12} /> },
 };
@@ -45,6 +46,8 @@ interface ApprovalLevelToggleProps {
   sessionId: string;
   /** Default level from GET /workspace/running-config */
   runningConfigApprovalLevel: ToolExecutionLevel;
+  /** Undefined while the session decision setting is loading. */
+  decisionModelEnabled?: boolean;
   /** null = no session override, backend uses running-config */
   onChange?: (sessionOverride: ToolExecutionLevel | null) => void;
   compact?: boolean;
@@ -54,6 +57,7 @@ interface ApprovalLevelToggleProps {
 const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   sessionId,
   runningConfigApprovalLevel,
+  decisionModelEnabled,
   onChange,
   compact = false,
   className,
@@ -76,21 +80,40 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
     }
   }, [sessionId]);
 
-  const effectiveLevel = sessionLevel ?? runningConfigApprovalLevel;
+  useEffect(() => {
+    if (
+      decisionModelEnabled === false &&
+      localStorage.getItem(storageKey(sessionId)) === "JEV"
+    ) {
+      localStorage.setItem(storageKey(sessionId), "AUTO");
+      setSessionLevel("AUTO");
+    }
+  }, [decisionModelEnabled, sessionId]);
+
+  const requestedLevel = sessionLevel ?? runningConfigApprovalLevel;
+  const effectiveLevel =
+    requestedLevel === "JEV" && decisionModelEnabled === false
+      ? "AUTO"
+      : requestedLevel;
+  const effectiveOverride =
+    requestedLevel === "JEV" && decisionModelEnabled === false
+      ? "AUTO"
+      : sessionLevel;
   const meta = LEVEL_META[effectiveLevel];
 
   useEffect(() => {
-    onChangeRef.current?.(sessionLevel);
-  }, [sessionLevel]);
+    onChangeRef.current?.(effectiveOverride);
+  }, [effectiveOverride]);
 
   const handleSelect = useCallback(
     (level: ToolExecutionLevel) => {
+      if (level === "JEV" && decisionModelEnabled !== true) return;
       setSessionLevel(level);
       setOpen(false);
       localStorage.setItem(storageKey(sessionId), level);
       onChangeRef.current?.(level);
     },
-    [sessionId],
+    [decisionModelEnabled, sessionId],
   );
 
   const menuItems: MenuProps["items"] = useMemo(() => {
@@ -103,27 +126,44 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
         `agentConfig.toolExecutionLevel.${lv.toLowerCase()}Desc`,
         "",
       );
+      const unavailable = lv === "JEV" && decisionModelEnabled !== true;
       items.push({
         key: lv,
         label: (
-          <div>
-            <div>{name}</div>
-            {desc && (
-              <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>
-                {desc}
-              </div>
-            )}
-          </div>
+          <Tooltip
+            title={
+              unavailable
+                ? t("agentConfig.toolExecutionLevel.jevRequiresDecision")
+                : undefined
+            }
+            placement="right"
+          >
+            <div
+              aria-disabled={unavailable}
+              style={{ opacity: unavailable ? 0.45 : 1 }}
+            >
+              <div>{name}</div>
+              {desc && (
+                <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>
+                  {desc}
+                </div>
+              )}
+            </div>
+          </Tooltip>
         ),
         icon: React.cloneElement(m.icon as React.ReactElement, {
-          style: { color: m.color, marginTop: desc ? 4 : 0 },
+          style: {
+            color: m.color,
+            marginTop: desc ? 4 : 0,
+            opacity: unavailable ? 0.45 : 1,
+          },
         }),
         onClick: () => handleSelect(lv),
       });
     }
 
     return items;
-  }, [handleSelect, t]);
+  }, [decisionModelEnabled, handleSelect, t]);
 
   const trigger = (
     <button
@@ -208,11 +248,14 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
                   "",
                 );
                 const selected = level === effectiveLevel;
+                const unavailable =
+                  level === "JEV" && decisionModelEnabled !== true;
                 return (
                   <button
                     type="button"
                     role="option"
                     aria-selected={selected}
+                    disabled={unavailable}
                     className={`${drawerStyles.option} ${
                       selected ? drawerStyles.optionSelected : ""
                     }`}
@@ -229,6 +272,13 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
                     <span className={drawerStyles.optionCopy}>
                       <strong>{name}</strong>
                       {description && <small>{description}</small>}
+                      {unavailable && (
+                        <small>
+                          {t(
+                            "agentConfig.toolExecutionLevel.jevRequiresDecision",
+                          )}
+                        </small>
+                      )}
                     </span>
                     {selected && <Check size={16} />}
                   </button>

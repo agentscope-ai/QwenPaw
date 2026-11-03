@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from ..config.config import ModelType
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .model_ranking import RankingEvidence
 from .thinking import ThinkingControl
@@ -34,6 +35,7 @@ def release_date(value: Any) -> str | None:
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
+    model_type: ModelType = "chat"
     released_at: str | None = Field(
         default=None,
         description=f"Documented model release or creation date.",

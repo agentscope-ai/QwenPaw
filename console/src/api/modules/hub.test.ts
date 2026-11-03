@@ -7,6 +7,7 @@ vi.mock("../config", () => ({
 }));
 
 import { hubApi } from "./hub";
+import { clearAuthToken } from "../config";
 
 function mockJsonResponse(body: unknown): void {
   global.fetch = vi.fn().mockResolvedValue({
@@ -118,4 +119,41 @@ describe("hubApi pagination", () => {
       }),
     );
   });
+});
+
+describe("hubApi authentication", () => {
+  const originalLocation = Object.getOwnPropertyDescriptor(window, "location")!;
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", originalLocation);
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    [undefined, "/hub", "/login"],
+    [undefined, "/console/hub", "/console/login"],
+    ["/qwenpaw", "/qwenpaw/hub", "/qwenpaw/login"],
+    ["/apps/qwenpaw/", "/apps/qwenpaw/hub", "/apps/qwenpaw/login"],
+  ])(
+    "redirects an expired session at %s:%s to %s",
+    async (basename, pathname, target) => {
+      vi.stubEnv("VITE_CONSOLE_BASENAME", basename);
+      vi.resetModules();
+      const { hubApi: api } = await import("./hub");
+      const assign = vi.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { pathname, assign },
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 401 }));
+
+      await expect(api.me()).rejects.toThrow("Authentication expired");
+
+      expect(clearAuthToken).toHaveBeenCalledOnce();
+      expect(assign).toHaveBeenCalledWith(target);
+    },
+  );
 });

@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
+# The two host predicates are private to their modules on purpose, and these
+# tests call them directly to pin which transport each host is classified
+# into, which is the decision the review asked to see covered.
+# pylint: disable=protected-access
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +13,10 @@ import io
 import pytest
 from PIL import Image
 
+from models import config as model_config
+from models import image as image_backend
 from models import media_transport
+from models import vlm_model
 from models.media_transport import (
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
     _fetch_dashscope_upload_policy,
@@ -266,3 +273,104 @@ def test_creator_oss_readiness_has_explicit_three_states(
     readiness = media_transport.creator_oss_readiness()
 
     assert readiness["status"] == expected_status
+
+
+MAAS_HOST_CASES = {
+    # A regional MaaS deployment serves the DashScope API under its own host.
+    "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1": True,
+    "https://maas.aliyuncs.com": True,
+    # The bare host is what config stores for some endpoints.
+    "maas.aliyuncs.com": True,
+    "https://dashscope.aliyuncs.com/compatible-mode/v1": False,
+    # Lookalikes must not select the DashScope transport: doing so would hand
+    # the bearer key to whoever owns the real host of the request.
+    "https://evil.example/.maas.aliyuncs.com": False,
+    "https://maas.aliyuncs.com.evil.com/api/v1": False,
+    "https://user:maas.aliyuncs.com@evil.com/v1": False,
+    "not a url at all": False,
+    "": False,
+}
+
+
+def test_maas_endpoint_predicate_is_one_hostname_decision() -> None:
+    """The MaaS match reads the host, and reads it the same way everywhere.
+
+    It lives in ``model_config`` because the media transport and the image
+    backend both have to agree on which endpoint owns the temporary upload;
+    two private substring matches is how they started disagreeing.
+    """
+
+    for base_url, expected in MAAS_HOST_CASES.items():
+        assert model_config.is_maas_endpoint(base_url) is expected, base_url
+        assert image_backend._is_maas_endpoint(base_url) is expected, base_url
+
+
+def test_dashscope_transport_covers_maas_without_trusting_lookalikes() -> None:
+    """MaaS media travels by the temporary upload; lookalikes do not."""
+
+    dashscope_transport_cases = {
+        "https://dashscope.aliyuncs.com/compatible-mode/v1": True,
+        "https://dashscope-intl.aliyuncs.com/api/v1": True,
+        "https://api.openai.example/v1": False,
+        "https://evil.example/.maas.aliyuncs.com": False,
+        "https://maas.aliyuncs.com.evil.com/api/v1": False,
+        "": False,
+    }
+    for base_url, expected in dashscope_transport_cases.items():
+        selected = vlm_model._is_dashscope_provider(base_url, "DashScope")
+        assert selected is expected, base_url
+
+    # A MaaS host proves the wire format, not the upload identity, so the
+    # protocol label has to be able to take the ``oss://`` route back away.
+    maas = "https://ws-1.cn-beijing.maas.aliyuncs.com/api/v1"
+    assert vlm_model._is_dashscope_provider(maas, "DashScope") is True
+    assert vlm_model._is_dashscope_provider(maas, "Aliyun Token Plan") is False
+
+
+def test_token_plan_media_stays_on_the_inline_budget(tmp_path, monkeypatch):
+    """Token Plan credentials must never be offered the Bailian upload API.
+
+    Reproduced from the review: a small PNG under a Token Plan MaaS
+    configuration used to travel inline and reach the model. Treating every
+    ``maas.aliyuncs.com`` host as upload-capable sent it to
+    ``dashscope.aliyuncs.com/api/v1/uploads`` instead, which answers that key
+    401 and turns a working configuration into a ModelError.
+    """
+
+    async def refuse_upload(path, **kwargs):
+        del path, kwargs
+        raise AssertionError("a Token Plan key reached the upload API")
+
+    maas = "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
+    monkeypatch.setattr(
+        vlm_model.model_config,
+        "get_vlm_base_url",
+        lambda: maas,
+    )
+    monkeypatch.setattr(
+        vlm_model.model_config,
+        "get_vlm_protocol",
+        lambda: "Aliyun Token Plan",
+    )
+    monkeypatch.setattr(
+        media_transport,
+        "upload_local_file_to_dashscope_temp",
+        refuse_upload,
+    )
+    monkeypatch.setattr(
+        vlm_model,
+        "upload_local_file_to_dashscope_temp",
+        refuse_upload,
+    )
+    image = tmp_path / "frame.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+
+    url = asyncio.run(
+        vlm_model.transport_local_media_url(
+            image,
+            api_key="sk-token-plan",
+            model_name="qwen3-vl-plus",
+        ),
+    )
+
+    assert str(url).startswith("data:image/png;base64,")

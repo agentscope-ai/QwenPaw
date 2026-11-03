@@ -1,10 +1,14 @@
+import { normalizeConsoleBasename } from "./consoleBasename";
+
 interface LocationLike {
   pathname: string;
   search?: string;
   hash?: string;
 }
 
-const CONSOLE_BASENAME = "/console";
+const CONSOLE_BASENAME = normalizeConsoleBasename(
+  import.meta.env.VITE_CONSOLE_BASENAME,
+);
 const OS_PAW_APP_STATE_KEY = "osPawAppId";
 
 function historyStateRecord(state: unknown): Record<string, unknown> {
@@ -17,7 +21,11 @@ function pathnameOnly(path: string): string {
 }
 
 export function getRouterBasename(pathname: string): string | undefined {
-  return /^\/console(?:\/|$)/.test(pathname) ? CONSOLE_BASENAME : undefined;
+  return CONSOLE_BASENAME &&
+    (pathname === CONSOLE_BASENAME ||
+      pathname.startsWith(`${CONSOLE_BASENAME}/`))
+    ? CONSOLE_BASENAME
+    : undefined;
 }
 
 export function stripRouterBasename(pathname: string): string {

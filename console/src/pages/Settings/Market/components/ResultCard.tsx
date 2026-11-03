@@ -81,7 +81,9 @@ export const ResultCard = memo(function ResultCard({
     >
       <div className={styles.cardTopRow}>
         <SkillIcon url={item.icon_url} alt={item.name} source={item.source} />
-        <span className={styles.sourceBadge}>{sourceLabel(item.source)}</span>
+        <span className={styles.sourceBadge}>
+          {sourceLabel(item.source, item.source_label)}
+        </span>
       </div>
 
       <div className={styles.titleRow}>

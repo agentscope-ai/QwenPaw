@@ -1,5 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Suspense } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { StrictMode, Suspense } from "react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createForeignError } from "../test/foreignError";
@@ -21,9 +28,24 @@ vi.mock("../utils/chunkRecovery", async (importOriginal) => ({
   reloadAfterChunkError: vi.fn(() => false),
 }));
 
+vi.mock("../utils/chunkServerReadiness", () => ({
+  waitForChunkServerReady: vi.fn().mockResolvedValue({
+    outcome: "not-applicable",
+    attempts: 0,
+    consecutiveSuccesses: 0,
+    elapsedMs: 0,
+    lastStatus: null,
+  }),
+}));
+
 import { hubApi } from "../api/modules/hub";
 import { ChunkErrorBoundary } from "./ChunkErrorBoundary";
-import { reloadAfterChunkError } from "../utils/chunkRecovery";
+import { ChunkRecoverySuspense } from "./ChunkRecoverySuspense";
+import { waitForChunkServerReady } from "../utils/chunkServerReadiness";
+import {
+  getFrontendBuildId,
+  reloadAfterChunkError,
+} from "../utils/chunkRecovery";
 import { lazyWithRetry } from "../utils/lazyWithRetry";
 import { copyText } from "../utils/clipboard";
 import {
@@ -199,6 +221,29 @@ describe("ChunkErrorBoundary runtime recovery", () => {
     });
   });
 
+  it("offers manual recovery if readiness rejects instead of loading forever", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(waitForChunkServerReady).mockRejectedValueOnce(
+      new Error("readiness failed"),
+    );
+    const Page = lazyWithRetry(() =>
+      Promise.reject(new TypeError("Importing a module script failed.")),
+    );
+    render(
+      <ChunkErrorBoundary>
+        <Suspense fallback="loading">
+          <Page />
+        </Suspense>
+      </ChunkErrorBoundary>,
+    );
+    await screen.findByText("chunkError.title");
+    expect(screen.queryByText("common.loading")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "chunkError.reload" }),
+    ).toBeVisible();
+    expect(reloadAfterChunkError).not.toHaveBeenCalled();
+  });
+
   it("preserves a diagnostic before automatic refresh and includes the earlier report", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const error = new TypeError("Importing a module script failed.");
@@ -359,5 +404,91 @@ describe("ChunkErrorBoundary runtime recovery", () => {
       screen.queryByRole("button", { name: "account.runtimeRestart" }),
     ).not.toBeInTheDocument();
     expect(reloadAfterChunkError).not.toHaveBeenCalled();
+  });
+});
+
+describe("reload allowance with an error view", () => {
+  const reloadKey = "qwenpaw:chunk-reload-build";
+  let guard: string;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    sessionStorage.clear();
+    guard = JSON.stringify({ build: getFrontendBuildId(), attempts: 2 });
+    sessionStorage.setItem(reloadKey, guard);
+    vi.mocked(reloadAfterChunkError).mockImplementation((persist) => {
+      persist?.({ reason: "limit-reached", attempts: 2, maxAttempts: 2 });
+      return false;
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ["Importing a module script failed.", "chunkError.title"],
+    ["render failed", "chunkError.genericTitle"],
+  ])(
+    "keeps recovery blocked for %s until navigation succeeds",
+    async (message, title) => {
+      function FailedPage(): ReactElement {
+        throw new TypeError(message);
+      }
+      const view = (failed: boolean) => (
+        <StrictMode>
+          <ChunkRecoverySuspense fallback="loading desktop">
+            <div>healthy window</div>
+            <ChunkErrorBoundary resetKey={failed ? "failed" : "recovered"}>
+              <ChunkRecoverySuspense fallback="loading page">
+                {failed ? <FailedPage /> : <div>recovered page</div>}
+              </ChunkRecoverySuspense>
+            </ChunkErrorBoundary>
+          </ChunkRecoverySuspense>
+        </StrictMode>
+      );
+      let rerender!: ReturnType<typeof render>["rerender"];
+      await act(async () => {
+        ({ rerender } = render(view(true)));
+      });
+      expect(screen.getByText(title)).toBeVisible();
+      expect(screen.getByText("healthy window")).toBeVisible();
+      act(() => vi.advanceTimersByTime(120_000));
+      expect(sessionStorage.getItem(reloadKey)).toBe(guard);
+
+      rerender(view(false));
+      expect(screen.getByText("recovered page")).toBeVisible();
+      act(() => vi.advanceTimersByTime(59_999));
+      expect(sessionStorage.getItem(reloadKey)).toBe(guard);
+      act(() => vi.advanceTimersByTime(1));
+      expect(sessionStorage.getItem(reloadKey)).toBeNull();
+    },
+  );
+
+  it("starts a fresh interval when a failed desktop window closes", () => {
+    const view = (failed: boolean) => (
+      <ChunkRecoverySuspense fallback="loading desktop">
+        <div>healthy window</div>
+        {failed && (
+          <ChunkErrorBoundary>
+            <BrokenPage />
+          </ChunkErrorBoundary>
+        )}
+      </ChunkRecoverySuspense>
+    );
+    const { rerender } = render(view(true));
+    act(() => vi.advanceTimersByTime(120_000));
+    expect(sessionStorage.getItem(reloadKey)).toBe(guard);
+    rerender(view(false));
+    act(() => vi.advanceTimersByTime(59_999));
+    expect(sessionStorage.getItem(reloadKey)).toBe(guard);
+    act(() => vi.advanceTimersByTime(1));
+    expect(sessionStorage.getItem(reloadKey)).toBeNull();
   });
 });

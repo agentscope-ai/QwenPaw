@@ -52,7 +52,7 @@ export const QueueItem = memo(function QueueItem({
         </span>
       </div>
       <div className={styles.queueItemMeta}>
-        {sourceLabel(item.result.source)}
+        {sourceLabel(item.result.source, item.result.source_label)}
       </div>
       {displayMessage && (
         <div className={styles.queueItemMessage}>{displayMessage}</div>

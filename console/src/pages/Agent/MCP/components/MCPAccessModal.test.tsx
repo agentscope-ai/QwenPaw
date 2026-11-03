@@ -37,7 +37,10 @@ const messageMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../hooks/useAppMessage", () => ({
-  useAppMessage: () => ({ message: messageMocks }),
+  useAppMessage: () => ({
+    message: messageMocks,
+    modal: { confirm: confirmSpy },
+  }),
 }));
 
 // The t function must be a stable reference: MCPAccessModal lists it in a

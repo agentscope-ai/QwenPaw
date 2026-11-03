@@ -44,7 +44,7 @@ export default function ThemeToggleButton() {
     <Dropdown
       menu={{ items, selectedKeys: [themeMode] }}
       placement="bottomRight"
-      overlayClassName={styles.themeDropdown}
+      rootClassName={styles.themeDropdown}
     >
       <Button
         aria-label={t("sidebar.settings.theme")}

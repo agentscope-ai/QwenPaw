@@ -86,7 +86,7 @@ export function ACPDrawer({
   onDelete,
 }: ACPDrawerProps) {
   const { t, i18n } = useTranslation();
-  const { schedule, flush } = useAutoSave(async () => {
+  const { schedule, requestClose } = useAutoSave(async () => {
     if (isCreateMode) return;
     const values = form.getFieldsValue(true);
     try {
@@ -108,11 +108,7 @@ export function ACPDrawer({
           : t("acp.editTitle")
       }
       open={open}
-      onClose={() => {
-        void flush().then((saved) => {
-          if (saved) onClose();
-        });
-      }}
+      onClose={() => void requestClose(onClose)}
       width={640}
       footer={
         canDelete || isCreateMode ? (

@@ -11,6 +11,11 @@ vi.mock("./ToolCallSessionContext", () => ({
 }));
 
 const hookState = vi.hoisted(() => ({ lastIsCalling: false }));
+const rawDisplayMocks = vi.hoisted(() => ({
+  formatRawToolValue: vi.fn((value: unknown) => JSON.stringify(value)),
+}));
+
+vi.mock("./rawToolDisplay", () => rawDisplayMocks);
 
 vi.mock("../../../../hooks/useToolCallControl", () => ({
   useToolCallControl: (
@@ -67,6 +72,7 @@ describe("ToolCardShell lazy body", () => {
   beforeEach(() => {
     localStorage.removeItem("qwenpaw_tool_calls_default_expanded");
     localStorage.removeItem("qwenpaw_tool_display_mode");
+    rawDisplayMocks.formatRawToolValue.mockClear();
   });
 
   it("opens file-facing results by default when requested", () => {
@@ -123,6 +129,43 @@ describe("ToolCardShell lazy body", () => {
     expect(screen.getByText(/command/)).toBeInTheDocument();
     expect(screen.getByText(/workspace/)).toBeInTheDocument();
     expect(screen.queryByText("processed output")).not.toBeInTheDocument();
+  });
+
+  it("does not format raw values until the collapsed body is mounted", () => {
+    localStorage.setItem("qwenpaw_tool_display_mode", "raw-input-output");
+    const rawContent: ToolCallContent = {
+      ...content,
+      rawInput: { command: "pwd" },
+      result: { stdout: "/workspace" },
+    };
+
+    const { container, rerender } = render(
+      <ToolCardShell content={rawContent} icon={<span />} title="Raw tool" />,
+    );
+
+    expect(rawDisplayMocks.formatRawToolValue).not.toHaveBeenCalled();
+
+    const details = container.querySelector("details");
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+
+    expect(rawDisplayMocks.formatRawToolValue).toHaveBeenCalledTimes(2);
+
+    rawDisplayMocks.formatRawToolValue.mockClear();
+    details!.open = false;
+    fireEvent(details!, new Event("toggle"));
+    rerender(
+      <ToolCardShell
+        content={{ ...rawContent, result: { stdout: "/updated" } }}
+        icon={<span />}
+        title="Raw tool"
+      />,
+    );
+    expect(rawDisplayMocks.formatRawToolValue).not.toHaveBeenCalled();
+
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+    expect(rawDisplayMocks.formatRawToolValue).toHaveBeenCalledTimes(2);
   });
 
   it("does not auto-open media cards in raw mode", () => {

@@ -197,6 +197,9 @@ fn recreate(app: &AppHandle, label: &str) -> Result<(), String> {
 
     let mut last_error = String::new();
     for attempt in 1..=MAX_ATTEMPTS {
+        if crate::tray::is_quitting(app) {
+            return Ok(());
+        }
         match recreate_window(app, label, &config, state) {
             Ok(()) => {
                 log::info!("[webview] rebuilt {label} after browser-process failure");
@@ -237,6 +240,9 @@ fn recreate_window(
         .fullscreen(false)
         .build()
         .map_err(|err| err.to_string())?;
+    if crate::tray::is_quitting(app) {
+        return window.destroy().map_err(|err| err.to_string());
+    }
     install(&window)?;
     restore_state(&window, state)?;
     Ok(())

@@ -2,8 +2,17 @@
 import logging
 import os
 import time
-from . import _compat as _compat_bootstrap
-from .utils.logging import setup_logger
+
+# Acquire environment custody before compatibility shims or third-party imports.
+# The lazy plugins package and this module are stdlib-only and PYZ compatible.
+from .plugins import dependency_maintenance as _environment_custody
+
+_environment_custody.state_root()
+_environment_custody.lease_environment(_environment_custody.host_sites())
+
+# These imports must follow environment custody acquisition.
+from . import _compat as _compat_bootstrap  # noqa: E402
+from .utils.logging import setup_logger  # noqa: E402
 
 # Fallback before we can safely read canonical constant definitions.
 LOG_LEVEL_ENV = "QWENPAW_LOG_LEVEL"

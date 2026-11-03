@@ -219,14 +219,12 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     }
   };
 
-  const { schedule, flush } = useAutoSave(handleSave);
+  const { schedule, requestClose } = useAutoSave(handleSave);
   useEffect(() => {
     if (open && !loading && isDirty) schedule();
   }, [open, loading, isDirty, policy, schedule]);
   const handleClose = () => {
-    void flush().then((saved) => {
-      if (saved) onClose();
-    });
+    void requestClose(onClose);
   };
 
   return (

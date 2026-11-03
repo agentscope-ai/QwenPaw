@@ -236,7 +236,9 @@ describe("useChatGroups state surface", () => {
 
   it("defaults the active flag to true", async () => {
     const { result } = renderHook(() => useChatGroups());
-    await waitFor(() => expect(h.listGroups).toHaveBeenCalledTimes(1));
-    expect(result.current.loading).toBe(false);
+    // Wait for the initial fetch to settle — listGroups being called alone
+    // races loading which flips false only in .finally().
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(h.listGroups).toHaveBeenCalledTimes(1);
   });
 });

@@ -42,7 +42,7 @@ class TestBackupPageDisplay:
 
     Covers:
     1. /backups page navigation and load
-    2. Breadcrumb verification (Settings / Backups)
+    2. Page header verification (Backups)
     3. Create-backup and import button display
     4. Backup list table display or empty state
     """
@@ -60,19 +60,28 @@ class TestBackupPageDisplay:
             page.wait_for_timeout(1500)
             logger.info("Backups page loaded")
 
-            # 2. Verify breadcrumb
-            log_test_step("2. Verify breadcrumb")
-            breadcrumb = page.locator('[class*="breadcrumb"], [class*="Breadcrumb"]').first
-            if breadcrumb.is_visible(timeout=3000):
-                breadcrumb_text = breadcrumb.inner_text().strip()
-                logger.info(f"Breadcrumb text: {breadcrumb_text}")
-                assert ("Settings" in breadcrumb_text or "设置" in breadcrumb_text), \
-                    "Breadcrumb should contain Settings"
-                assert ("Backups" in breadcrumb_text or "备份" in breadcrumb_text), \
-                    "Breadcrumb should contain Backups"
-                logger.info("Breadcrumb verification passed")
-            else:
-                logger.warning("Breadcrumb element not found, skipping verification")
+            # 2. Verify the page header.
+            # Upstream #8130 ("keep only the page title in settings
+            # headers", merged 2026-10-09) deliberately dropped the
+            # "Settings /" parent crumb from settings page headers, so the
+            # breadcrumb now holds only the page title (backup.title =
+            # "Backups" / "备份"). The product is correct by design; the
+            # old "must contain Settings" assertion was stale (nightly
+            # 2026-10). Assert the title instead and never silently skip
+            # when the header is missing. Anchor on the breadcrumbCurrent
+            # span (#8247) -- the generic [class*="breadcrumb"] match also
+            # hits the wrapper.
+            log_test_step("2. Verify page header")
+            page_title = page.locator(
+                'span[class*="breadcrumbCurrent"]'
+            ).first
+            expect(page_title).to_be_visible(timeout=5000)
+            breadcrumb_text = page_title.inner_text().strip()
+            logger.info(f"Header text: {breadcrumb_text}")
+            assert (
+                "Backups" in breadcrumb_text or "备份" in breadcrumb_text
+            ), f"Page header should carry the Backups title, got: {breadcrumb_text!r}"
+            logger.info("Page header verification passed")
 
             # 3. Verify action buttons
             log_test_step("3. Verify action buttons")

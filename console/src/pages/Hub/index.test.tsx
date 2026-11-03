@@ -7,7 +7,15 @@ import {
 } from "@testing-library/react";
 import { App, Grid } from "antd";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import HubPage from ".";
 import { hubApi } from "../../api/modules/hub";
@@ -20,6 +28,9 @@ import {
   page,
   runtime,
 } from "../../test/hubFixtures";
+
+vi.hoisted(() => vi.stubEnv("VITE_CONSOLE_BASENAME", "/qwenpaw"));
+afterAll(() => vi.unstubAllEnvs());
 
 vi.mock("../../api/modules/hubGovernance", () => ({
   governanceRequest: vi.fn(async (path: string) =>
@@ -108,6 +119,39 @@ describe("HubPage", () => {
     vi.mocked(hubApi.listDockerImagePulls).mockResolvedValue([]);
     vi.mocked(hubApi.listCredentials).mockResolvedValue(page());
     vi.mocked(hubApi.listAuditEvents).mockResolvedValue(page());
+  });
+
+  describe("logout navigation", () => {
+    const originalLocation = Object.getOwnPropertyDescriptor(
+      window,
+      "location",
+    )!;
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", originalLocation);
+    });
+
+    it.each([
+      ["/hub", "/login"],
+      ["/qwenpaw/hub", "/qwenpaw/login"],
+    ])(
+      "logs out from %s without losing the deployment prefix",
+      async (pathname, target) => {
+        const assign = vi.fn();
+        Object.defineProperty(window, "location", {
+          configurable: true,
+          value: { pathname, assign },
+        });
+        localStorage.setItem("qwenpaw_auth_token", "hub-token");
+        renderHubPage();
+        await screen.findByText("hub.overview.title");
+
+        fireEvent.click(screen.getByRole("button", { name: "login.logout" }));
+
+        expect(localStorage.getItem("qwenpaw_auth_token")).toBeNull();
+        expect(assign).toHaveBeenCalledWith(target);
+      },
+    );
   });
 
   it("loads the real operations overview for administrators", async () => {

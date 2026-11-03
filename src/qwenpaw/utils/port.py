@@ -84,7 +84,8 @@ def try_bind_port(host: str, port: int) -> socket.socket | None:
         else:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, port))
-        sock.listen(1)
+        # Match Uvicorn: Windows ignores backlog changes after first listen.
+        sock.listen(2048)
         return sock
     except OSError:
         if sock is not None:

@@ -21,7 +21,10 @@ const mockMessage = vi.hoisted(() => ({
 const mockConfirm = vi.hoisted(() => vi.fn());
 vi.mock("../../../api", () => ({ default: mockApi }));
 vi.mock("../../../hooks/useAppMessage", () => ({
-  useAppMessage: () => ({ message: mockMessage }),
+  useAppMessage: () => ({
+    message: mockMessage,
+    modal: { confirm: mockConfirm },
+  }),
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -202,6 +205,36 @@ describe("EnvironmentsPage", () => {
     await screen.findByText("QWENPAW_WORKING_DIR");
     expect(screen.getByText("environments.startupOnly")).toBeTruthy();
     expect(screen.queryByLabelText("common.edit")).toBeNull();
+  });
+
+  it("opens the selected row editor without changing its neighbor", async () => {
+    mockApi.listEnvCatalog.mockResolvedValue([
+      {
+        ...timeoutSpec,
+        key: "FIRST_SETTING",
+        effective_value: "first-value",
+      },
+      {
+        ...timeoutSpec,
+        key: "SECOND_SETTING",
+        effective_value: "second-value",
+      },
+    ]);
+    renderWithProviders(<EnvironmentsPage />);
+
+    expect(await screen.findByText("FIRST_SETTING")).toBeVisible();
+    expect(screen.getByText("SECOND_SETTING")).toBeVisible();
+    fireEvent.click(screen.getAllByLabelText("common.edit")[1]);
+
+    expect(screen.getByPlaceholderText("VARIABLE_NAME")).toHaveValue(
+      "SECOND_SETTING",
+    );
+    expect(
+      screen.getByPlaceholderText("environments.valuePlaceholder"),
+    ).toHaveValue("second-value");
+    expect(screen.getByText("FIRST_SETTING")).toBeVisible();
+    expect(screen.getByText("first-value")).toBeVisible();
+    expect(mockApi.patchEnvs).not.toHaveBeenCalled();
   });
 
   it("resets a user-configured known value through the reset API", async () => {

@@ -3,7 +3,7 @@ import { formatCompact } from "@/utils/formatNumber";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import { Button, Form, Modal, Tag, Tooltip } from "@agentscope-ai/design";
-import { Pagination, Spin, Switch } from "antd";
+import { Pagination, Select, Spin, Switch } from "antd";
 import {
   ListChecks,
   ListX,
@@ -65,10 +65,12 @@ export function RemoteModelManageModal({
   const [templateId, setTemplateId] = useState<string>();
   const [form] = Form.useForm();
   const enteredModelId = Form.useWatch("id", form);
+  const enteredModelType = Form.useWatch("model_type", form) ?? "chat";
   const seen = useRef(new Set(provider.seen_model_ids ?? []));
   const [seenIds, setSeenIds] = useState(seen.current);
   const hoverTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const managed = provider.id === "hub-managed";
+  const subscription = provider.id === "openai-chatgpt";
 
   useEffect(() => {
     setCurrent(provider);
@@ -259,6 +261,7 @@ export function RemoteModelManageModal({
       await api.addModel(provider.id, {
         id,
         name: values.name?.trim() || id,
+        model_type: values.model_type ?? "chat",
         template_id: templateId,
       });
       await onSaved();
@@ -446,18 +449,52 @@ export function RemoteModelManageModal({
                         {model.remote_missing && (
                           <Tag color="warning">{t("models.remoteMissing")}</Tag>
                         )}
-                        <BillingTag model={model} />
-                        <span>
-                          {t("models.pool.context")}:{" "}
-                          {number(
-                            model.effective_max_input_length ??
-                              model.max_input_length,
-                          )}
-                        </span>
-                        <span>
-                          {t("models.pool.output")}:{" "}
-                          {number(model.max_output_length)}
-                        </span>
+                        {subscription ? (
+                          <Tooltip
+                            title={t("models.chatgpt.modelHelp")}
+                            trigger={["hover", "focus"]}
+                          >
+                            <Tag tabIndex={0}>
+                              {t("models.providerVariants.chatgpt")}
+                            </Tag>
+                          </Tooltip>
+                        ) : (
+                          <BillingTag
+                            model={model}
+                            priceDetails={
+                              provider.id === "openai" ||
+                              provider.id === "openai-response"
+                            }
+                          />
+                        )}
+                        <Tooltip
+                          title={
+                            subscription && model.max_input_length_auto_detected
+                              ? t("models.chatgpt.contextHelp", {
+                                  maximum:
+                                    model.max_input_length_auto_detected.toLocaleString(),
+                                  default:
+                                    model.max_input_length.toLocaleString(),
+                                })
+                              : undefined
+                          }
+                        >
+                          <span tabIndex={subscription ? 0 : undefined}>
+                            {t("models.pool.context")}:{" "}
+                            {number(
+                              subscription
+                                ? model.max_input_length_auto_detected
+                                : model.effective_max_input_length ??
+                                    model.max_input_length,
+                            )}
+                          </span>
+                        </Tooltip>
+                        {!subscription && (
+                          <span>
+                            {t("models.pool.output")}:{" "}
+                            {number(model.max_output_length)}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className={styles.actions}>
@@ -491,23 +528,25 @@ export function RemoteModelManageModal({
                               onClick={() => test(model)}
                             />
                           </Tooltip>
-                          <Tooltip title={t("models.modelConfigLabel")}>
-                            <Button
-                              disabled={loading}
-                              type="text"
-                              icon={
-                                expanded ? (
-                                  <ChevronDown size={17} />
-                                ) : (
-                                  <Settings size={17} />
-                                )
-                              }
-                              aria-label={t("models.modelConfigLabel")}
-                              onClick={() =>
-                                setConfigId(expanded ? null : model.id)
-                              }
-                            />
-                          </Tooltip>
+                          {!subscription && (
+                            <Tooltip title={t("models.modelConfigLabel")}>
+                              <Button
+                                disabled={loading}
+                                type="text"
+                                icon={
+                                  expanded ? (
+                                    <ChevronDown size={17} />
+                                  ) : (
+                                    <Settings size={17} />
+                                  )
+                                }
+                                aria-label={t("models.modelConfigLabel")}
+                                onClick={() =>
+                                  setConfigId(expanded ? null : model.id)
+                                }
+                              />
+                            </Tooltip>
+                          )}
                         </>
                       )}
                       <label className={styles.selectionToggle}>
@@ -556,7 +595,7 @@ export function RemoteModelManageModal({
             />
           )}
         </div>
-        {!managed && (
+        {!managed && !subscription && (
           <div className={styles.footer}>
             <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>
               {t("models.addModel")}
@@ -574,15 +613,17 @@ export function RemoteModelManageModal({
               onClick={() => setConfigId(null)}
             />
             <strong>{configuredModel.name || configuredModel.id}</strong>
-            <Tooltip title={t("models.probeMultimodal")}>
-              <Button
-                type="text"
-                aria-label={t("models.probeMultimodal")}
-                icon={<FlaskConical size={16} />}
-                disabled={busy !== null}
-                onClick={() => test(configuredModel, true)}
-              />
-            </Tooltip>
+            {configuredModel.model_type !== "decision" && (
+              <Tooltip title={t("models.probeMultimodal")}>
+                <Button
+                  type="text"
+                  aria-label={t("models.probeMultimodal")}
+                  icon={<FlaskConical size={16} />}
+                  disabled={busy !== null}
+                  onClick={() => test(configuredModel, true)}
+                />
+              </Tooltip>
+            )}
           </div>
           <div className={styles.detailScroll}>
             <ModelConfigEditor
@@ -621,19 +662,44 @@ export function RemoteModelManageModal({
         confirmLoading={busy === "manual"}
         destroyOnHidden
       >
-        <Form form={form} layout="vertical">
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{
+            model_type: current.chat_model ? "chat" : "decision",
+          }}
+        >
           <ModelIdentityFields
             options={rows
               .filter((model) => !selectedIds.has(model.id))
               .map((model) => ({ value: model.id, label: model.name }))}
             loading={false}
+            onSelect={(id) => {
+              const model = rows.find((row) => row.id === id);
+              if (model)
+                form.setFieldsValue({
+                  model_type: model.model_type ?? "chat",
+                });
+            }}
           />
-          <ModelInfoPreview
-            providerId={current.id}
-            modelId={enteredModelId}
-            templateId={templateId}
-            onTemplateChange={setTemplateId}
-          />
+          <Form.Item name="model_type" label={t("models.modelType")}>
+            <Select
+              options={[
+                { value: "chat", label: t("models.modelTypeChat") },
+                { value: "decision", label: t("models.modelTypeDecision") },
+              ]}
+            />
+          </Form.Item>
+          {enteredModelType === "decision" ? (
+            <p>{t("models.decisionModelHint")}</p>
+          ) : (
+            <ModelInfoPreview
+              providerId={current.id}
+              modelId={enteredModelId}
+              templateId={templateId}
+              onTemplateChange={setTemplateId}
+            />
+          )}
         </Form>
       </Modal>
     </SharedModal>

@@ -12,6 +12,7 @@ import {
   Tooltip,
   Button,
   Form,
+  InputNumber,
   Switch,
   Tabs,
   Skeleton,
@@ -23,6 +24,8 @@ import {
   Boxes,
   Plug,
   ArrowRight,
+  ChevronUp,
+  ChevronDown,
   X,
 } from "lucide-react";
 import {
@@ -67,6 +70,8 @@ export default function OrganizationModels({
   const [error, setError] = useState("");
   const [form] = Form.useForm();
   const [policyForm] = Form.useForm();
+  const policySaving = useRef(false);
+  const policyDraft = useRef<Record<string, unknown>>({});
   const load = useCallback(async () => {
     try {
       const [p, c, m, u, presets] = await Promise.all([
@@ -82,7 +87,7 @@ export default function OrganizationModels({
       setConnections(c);
       setModels(m);
       setUsers(u.members);
-      if (m.length) policyForm.setFieldsValue(p);
+      policyForm.setFieldsValue({ ...p, ...policyDraft.current });
     } catch (e) {
       setError((e as Error).message);
     }
@@ -273,37 +278,45 @@ export default function OrganizationModels({
                 label: t("hub.governance.models.availableModels"),
                 children: (
                   <div className={styles.panel}>
-                    {!!models.length && (
-                      <article className={modelStyles.defaults}>
-                        <Form
-                          form={policyForm}
-                          layout="inline"
-                          className={styles.defaultModelForm}
-                          onFinish={async (values) => {
-                            setBusy(true);
-                            try {
-                              const next = await request<ModelPolicy>(
-                                "admin/model-policy",
-                                "PUT",
-                                {
-                                  ...policy,
-                                  ...values,
-                                  default_model_id:
-                                    values.default_model_id ?? null,
-                                },
-                              );
-                              setPolicy(next);
-                              policyForm.setFieldsValue(next);
-                              message.success(
-                                t("hub.governance.models.settingsSaved"),
-                              );
-                            } catch (e) {
-                              message.error(governanceErrorMessage(e, t));
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                        >
+                    <article className={modelStyles.defaults}>
+                      <Form
+                        form={policyForm}
+                        layout="inline"
+                        disabled={busy}
+                        className={styles.defaultModelForm}
+                        onValuesChange={(changedValues) => {
+                          Object.assign(policyDraft.current, changedValues);
+                        }}
+                        onFinish={async (values) => {
+                          if (policySaving.current) return;
+                          policySaving.current = true;
+                          setBusy(true);
+                          try {
+                            const next = await request<ModelPolicy>(
+                              "admin/model-policy",
+                              "PUT",
+                              {
+                                ...policy,
+                                ...values,
+                                default_model_id:
+                                  values.default_model_id ?? null,
+                              },
+                            );
+                            setPolicy(next);
+                            policyDraft.current = {};
+                            policyForm.setFieldsValue(next);
+                            message.success(
+                              t("hub.governance.models.settingsSaved"),
+                            );
+                          } catch (e) {
+                            message.error(governanceErrorMessage(e, t));
+                          } finally {
+                            policySaving.current = false;
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        {!!models.length && (
                           <Form.Item
                             name="default_model_id"
                             label={t("hub.governance.models.defaultModel")}
@@ -320,12 +333,51 @@ export default function OrganizationModels({
                                 }))}
                             />
                           </Form.Item>
-                          <Button htmlType="submit" loading={busy}>
-                            {t("common.save")}
-                          </Button>
-                        </Form>
-                      </article>
-                    )}
+                        )}
+                        <Form.Item
+                          name="gateway_timeout_seconds"
+                          label={
+                            <span className={modelStyles.timeoutLabel}>
+                              {t("hub.governance.models.gatewayTimeout")}
+                              <InlineHelp
+                                inline
+                                subject={t(
+                                  "hub.governance.models.gatewayTimeout",
+                                )}
+                              >
+                                {t("hub.governance.models.gatewayTimeoutHelp")}
+                              </InlineHelp>
+                            </span>
+                          }
+                          rules={[
+                            {
+                              required: true,
+                              type: "integer",
+                              min: 60,
+                              message: t(
+                                "hub.governance.models.gatewayTimeoutInvalid",
+                              ),
+                            },
+                          ]}
+                        >
+                          <InputNumber
+                            min={60}
+                            step={1}
+                            changeOnWheel={false}
+                            controls={{
+                              upIcon: <ChevronUp size={12} aria-hidden />,
+                              downIcon: <ChevronDown size={12} aria-hidden />,
+                            }}
+                            aria-label={t(
+                              "hub.governance.models.gatewayTimeout",
+                            )}
+                          />
+                        </Form.Item>
+                        <Button htmlType="submit" loading={busy}>
+                          {t("common.save")}
+                        </Button>
+                      </Form>
+                    </article>
                     {!models.length ? (
                       <div className={styles.onboarding}>
                         <Boxes size={32} />

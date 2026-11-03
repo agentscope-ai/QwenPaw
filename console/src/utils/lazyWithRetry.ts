@@ -116,7 +116,7 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
       const key = moduleKeyOrPath.startsWith(".")
         ? pathToModuleKey(moduleKeyOrPath)
         : moduleKeyOrPath;
-      const patched = moduleRegistry.get(key, "default");
+      const patched = moduleRegistry.getOptional(key, "default");
       if (patched) return Promise.resolve({ default: patched as T });
     }
     return loadImport(factory);
@@ -160,7 +160,7 @@ export function lazyImportWithRetry(path: string): ComponentType<unknown> {
   }
   const key = pathToModuleKey(path);
   return recoverableLazy(() => {
-    const patched = moduleRegistry.get(key, "default");
+    const patched = moduleRegistry.getOptional(key, "default");
     if (patched) {
       return Promise.resolve({
         default: patched as ComponentType<unknown>,

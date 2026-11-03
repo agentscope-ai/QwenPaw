@@ -79,6 +79,8 @@ flowchart LR
 
 如果当前 SQLite 支持 FTS5，QwenPaw 会维护 `conversation_history_fts` 全文索引；否则 `ms.search` 会降级为较慢的 `LIKE` 扫描。
 
+整机备份可以在服务运行期间安全保存历史库，详见[备份与恢复](./backup)。
+
 ## 工作记忆（Working Memory）
 
 **工作记忆** 就是实时的提示词窗口——模型此刻能看到的内容。窗口写满时，scroll 先持久化并驱逐较早轮次，再保留一份紧凑的任务状态摘要和可展开索引；摘要永远不会替代精确原文。每个有实质任务信息的轮次还会为检索和导航提供一行 **headline（检索标题）**。
@@ -296,18 +298,20 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 重要字段：
 
-| 字段                                             | 默认值         | 含义                                                                              |
-| ------------------------------------------------ | -------------- | --------------------------------------------------------------------------------- |
-| `strategy`                                       | `"scroll"`     | 选择 Scroll 的持久历史协议；旧版 Native 值仅为兼容和安全降级而保留。              |
-| `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                              |
-| `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                        |
-| `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                                      |
-| `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃且会被忽略；显式配置会输出 warning。请改用 `pruning_recent_msg_max_bytes`。 |
-| `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                        |
-| `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                               |
-| `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。                 |
+| 字段                                             | 默认值         | 含义                                                                                                                                                                                                          |
+| ------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `strategy`                                       | `"scroll"`     | 选择 Scroll 的持久历史协议；旧版 Native 值仅为兼容和安全降级而保留。                                                                                                                                          |
+| `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                                                                                                                                                          |
+| `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                                                                                                                                                    |
+| `scroll_config.db_filename`                      | `"history.db"` | SQLite 文件路径：相对 agent 工作区，或绝对路径（可以在工作区外）。支持 `..`、`~` 和符号链接；反斜杠统一转换为 `/`。升级不移动数据库。备份包含 SQLite 快照；恢复时将数据库放入目标工作区，并更新恢复后的配置。 |
+| `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃且会被忽略；显式配置会输出 warning。请改用 `pruning_recent_msg_max_bytes`。                                                                                                                             |
+| `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                                                                                                                                                    |
+| `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                                                                                                                                                           |
+| `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。                                                                                                                                             |
 
 ## 手动压缩
+
+Scroll 和 native 两种策略下，手动 `/compact` 都与普通消息使用相同的模型选择优先级：请求显式覆盖 → 会话模型 → Agent 默认模型 → 全局默认模型。切换会话模型后会立即对手动压缩生效，无需先发送一条普通消息。Scroll 的摘要调用仍会请求关闭 thinking。独立的长期记忆任务继续使用其自身配置的模型策略。
 
 `/compact` 仍然存在。在 Scroll 策略下，它会把符合条件的较早轮次归档到持久历史，同时保留配置指定的近期尾部和活动轮次。真正归档轮次时，Scroll 也会更新 continuation summary。命令回复只报告本次发生的变化，不会在聊天记录中暴露内部驱逐索引、检索 headline 或 continuation state。可以使用 `/compact_str` 查看当前 continuation summary；归档原文仍可通过 Scroll 历史取回。
 
@@ -385,3 +389,46 @@ Visual Compact 更适合长时间持续的对话、频繁使用工具的任务�
 如果发现某个精确值可能有误，可以要求 Agent 使用 `recall_context` 回读原文后再回答；如果回答质量仍不稳定，请切换到**低**强度或关闭该功能。
 
 > **致谢：** Visual Compact 的工程实现参考了 [pxpipe](https://github.com/teamchong/pxpipe)。
+
+## 可选的决策模型压缩
+
+在 **智能体 → 配置 → 上下文管理 → 决策模型压缩** 中开启并设置参数。在模型设置中选择智能体决策模型，
+或配置全局默认决策模型。目前支持 TypeSafe 决策供应商。
+
+QwenPaw 复用已有的供应商模型工厂、凭据和请求头，将同一个决策模型实例借给 ReMe 使用，
+无需额外配置 ReMe API Key。需要 ReMe 0.4.2.0。
+
+默认关闭，支持 `scroll` 和 `native`，独立于长期记忆及聊天决策开关，需要开启自动上下文压缩。
+仅在超过正常自动触发阈值时执行；手动 `/compact` 和紧急溢出恢复保持原有行为。
+
+Scroll 先确认工具原文已写入 `history.db`，原生策略先将候选输出归档至 `tool_results/`。
+ReMe 基于有界证据判断已完成且成功的文本工具结果的相关性，保护当前完整轮次、近期消息、不确定结果、
+多媒体及工具调用／结果配对。低相关性输出变为短预览，附带 `recall_history`（Scroll）或 `read_file`
+（原生）的恢复指令。源文件仍遵循原有保留期，原文尚未过期时才能恢复。有界对话证据会发送至配置的决策供应商。
+
+QwenPaw 验证提案仅修改允许的输出，并确认实际模型输入 token 减少，计数包含系统提示和工具定义。
+达到触发预算后可避免淘汰；否则保留验证通过的收益并继续现有压缩。归档／供应商失败、超时、非法提案或无收益时
+继续现有流程；取消正常传播，不提交不完整提案。ReMe 等待调用结束后，由 QwenPaw 关闭决策模型客户端。
+
+在智能体的 `running.light_context_config` 下配置：
+
+```json
+{
+  "decision_compact_config": {
+    "enabled": false,
+    "drop_threshold": 0.1,
+    "preserve_recent_messages": 6,
+    "preview_chars": 300,
+    "total_timeout_seconds": 30,
+    "max_state_tokens": 25000,
+    "max_request_tokens": 30000,
+    "evidence_chars": 2000,
+    "max_concurrency": 4
+  }
+}
+```
+
+`drop_threshold` 为 `[0, 1]` 的概率，越低越保守。`preserve_recent_messages` 为非负消息数，不会削弱当前轮次保护。
+`preview_chars` 为非负预览字符上限，不含恢复指令。`total_timeout_seconds` 大于 0 且不超过 300 秒。
+高级状态／请求预算为正数，使用 ReMe 的 token 估算，与聊天模型实际计数独立。
+`evidence_chars` 为每条结果的正数证据字符上限；`max_concurrency` 范围为 1 至 32。

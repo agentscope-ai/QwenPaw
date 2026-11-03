@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ..catalog import LoopModeInfo
 from ..base import AgentMode
 from ...loop.gates import (
     StopGate,
@@ -37,6 +38,16 @@ class DefaultMode(AgentMode):
     """Own the fallback gate policy used outside explicit loop modes."""
 
     name = "default"
+
+    def describe_loop(self, workspace: object) -> LoopModeInfo | None:
+        """Expose this mode through the shared loop catalog."""
+        return LoopModeInfo(
+            id=self.name,
+            name=self.name,
+            slash_command=f"",
+            description=f"The standard guarded agent loop.",
+            source=f"builtin",
+        )
 
     def __init__(self) -> None:
         self._handler = StopHandler()
