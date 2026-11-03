@@ -162,6 +162,20 @@ def reset_seen_media_scope() -> None:
         seen.clear()
 
 
+def _base64_payload_size(data: str) -> int:
+    """Raw byte size of a base64 payload, excluding its ``=`` padding.
+
+    The base64 encoding of *n* bytes has ``4 * ceil(n / 3)`` characters,
+    the last one or two of which are padding rather than payload.
+    Counting the padding as payload overstates the size by up to two
+    bytes, which is enough to push a file that is exactly at the limit
+    over it — so the padding is excluded for every base64 payload, the
+    ``Base64Source`` data and the base64 ``data:`` URL alike.
+    """
+    padding = int(data.endswith("=")) + int(data.endswith("=="))
+    return max(0, len(data) * 3 // 4 - padding)
+
+
 def _data_url_size(url: str) -> int | None:
     """Byte size of the payload carried by a ``data:`` URL.
 
@@ -177,8 +191,8 @@ def _data_url_size(url: str) -> int | None:
         return None
     if ";base64" in header:
         # base64 length -> approximate raw byte count, matching the
-        # Base64Source approximation.
-        return len(payload.strip()) * 3 // 4
+        # Base64Source approximation (padding excluded).
+        return _base64_payload_size(payload.strip())
     return len(unquote_to_bytes(payload))
 
 
@@ -193,9 +207,7 @@ def inline_media_size(source: Any) -> int | None:
     if isinstance(source, URLSource):
         return _data_url_size(str(source.url or ""))
     if isinstance(source, Base64Source):
-        data = source.data or ""
-        padding = int(data.endswith("=")) + int(data.endswith("=="))
-        return len(data) * 3 // 4 - padding
+        return _base64_payload_size(source.data or "")
     return None
 
 

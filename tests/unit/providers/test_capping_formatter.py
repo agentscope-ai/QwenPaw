@@ -14,6 +14,7 @@ directly; the provider-level wiring (the field reaching
 from __future__ import annotations
 
 import asyncio
+import base64
 
 import pytest
 
@@ -122,13 +123,48 @@ def test_unknown_source_returns_none() -> None:
 
 @pytest.mark.parametrize("data", [b"a", b"ab", b"abc"])
 def test_base64_size_excludes_padding(data):
-    import base64
-
     source = Base64Source(
         data=base64.b64encode(data).decode("ascii"),
         media_type="image/png",
     )
     assert inline_media_size(source) == len(data)
+
+
+@pytest.mark.parametrize("size", [1, 2, 3, 255, 511, 512, 513])
+def test_data_url_size_matches_the_equivalent_base64_source(size):
+    """A base64 ``data:`` URL is sized exactly like the Base64Source.
+
+    The ``=`` padding of the encoding is not payload, so the two forms
+    of the same bytes must measure the same: a 512-byte payload encodes
+    to 684 characters, one of which is padding, so it is 512 bytes —
+    not 513, which was enough to push a file sitting exactly on the
+    per-file cap over it.
+    """
+    payload = base64.b64encode(b"\0" * size).decode("ascii")
+    url_source = URLSource(
+        url=f"data:image/png;base64,{payload}",
+        media_type="image/png",
+    )
+    base64_source = Base64Source(data=payload, media_type="image/png")
+    assert inline_media_size(url_source) == size
+    assert inline_media_size(base64_source) == size
+
+
+def test_data_url_image_at_the_per_file_cap_is_kept() -> None:
+    """A ``data:`` URL exactly at the cap is inlined, like a Base64Source."""
+    payload = base64.b64encode(b"\0" * 512).decode("ascii")
+    source = URLSource(
+        url=f"data:image/png;base64,{payload}",
+        media_type="image/png",
+    )
+    assert (
+        _CappingOpenAIFormatter(max_bytes=512)._maybe_cap(source, "image")
+        is None
+    )
+    assert (
+        _CappingOpenAIFormatter(max_bytes=511)._maybe_cap(source, "image")
+        is not None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -478,6 +514,29 @@ def _pdf_msg(index: int) -> Msg:
             TextBlock(text=f"read this {index}"),
             DataBlock(
                 source=_base64_source(_EACH_IMAGE_BYTES, "application/pdf"),
+                name=f"doc{index}.pdf",
+            ),
+        ],
+    )
+
+
+def _write_pdf(tmp_path, index: int, size: int = _EACH_IMAGE_BYTES) -> str:
+    """Write a local PDF with distinct content and return its file URI."""
+    path = tmp_path / f"doc{index}.pdf"
+    header = b"%PDF-1.4\n"
+    path.write_bytes(header + bytes([index]) * (size - len(header)))
+    return path.as_uri()
+
+
+def _local_pdf_msg(index: int, url: str) -> Msg:
+    """A user message carrying one local PDF attachment by URL."""
+    return Msg(
+        name="user",
+        role="user",
+        content=[
+            TextBlock(text=f"read this {index}"),
+            DataBlock(
+                source=URLSource(url=url, media_type="application/pdf"),
                 name=f"doc{index}.pdf",
             ),
         ],
@@ -1426,3 +1485,104 @@ class TestVideoUnderThePerRequestBudget:
         )
         assert len(_duplicate_placeholders(parts)) == 1
         assert not _total_limit_placeholders(parts)
+
+
+class TestLocalPdfAttachmentsSpendTheBudget:
+    """A local PDF must be measurable by the per-request media budget.
+
+    A ``file://`` PDF used to stay a ``URLSource``: the asynchronous
+    media preparation did not read it, so the formatter could not
+    measure it and the base formatter inlined the whole file — three
+    512-byte PDFs fitted a 900-byte budget without a single budget
+    placeholder.  The preparation stage now reads local PDFs as well,
+    so they reach the budget like every other media.
+    """
+
+    @pytest.mark.asyncio
+    async def test_openai_wrapper_caps_local_pdf_attachments(
+        self,
+        tmp_path,
+    ) -> None:
+        """Three 512-byte PDFs at a 900-byte budget keep the newest one."""
+        from qwenpaw.agents import model_factory
+
+        formatter_cls = model_factory._create_file_block_support_formatter(
+            _CappingOpenAIFormatter,
+        )
+        formatter = formatter_cls(max_bytes=1024, max_total_bytes=900)
+        messages = [
+            _local_pdf_msg(i, _write_pdf(tmp_path, i)) for i in range(3)
+        ]
+
+        parts = _wire_parts(await formatter.format(messages))
+
+        kept = _media_parts(parts)
+        assert len(kept) == 1
+        assert kept[0]["file"]["filename"] == "doc2.pdf"
+        assert len(_total_limit_placeholders(parts)) == 2
+
+    @pytest.mark.asyncio
+    async def test_responses_wrapper_caps_local_pdf_attachments(
+        self,
+        tmp_path,
+    ) -> None:
+        """The Responses API path bounds local PDF attachments as well."""
+        from qwenpaw.agents import model_factory
+
+        formatter_cls = model_factory._create_file_block_support_formatter(
+            _CappingOpenAIResponseFormatter,
+        )
+        formatter = formatter_cls(max_bytes=1024, max_total_bytes=900)
+        messages = [
+            _local_pdf_msg(i, _write_pdf(tmp_path, i)) for i in range(3)
+        ]
+
+        parts = _wire_parts(await formatter.format(messages))
+
+        kept = _media_parts(parts)
+        assert len(kept) == 1
+        assert kept[0]["filename"] == "doc2.pdf"
+        assert len(_total_limit_placeholders(parts)) == 2
+
+    @pytest.mark.asyncio
+    async def test_local_pdf_under_the_budget_reaches_the_wire(
+        self,
+        tmp_path,
+    ) -> None:
+        """A PDF the budget allows is inlined, not replaced."""
+        from qwenpaw.agents import model_factory
+
+        formatter_cls = model_factory._create_file_block_support_formatter(
+            _CappingOpenAIFormatter,
+        )
+        formatter = formatter_cls(max_bytes=1024, max_total_bytes=4096)
+        url = _write_pdf(tmp_path, 0)
+
+        parts = _wire_parts(await formatter.format([_local_pdf_msg(0, url)]))
+
+        kept = _media_parts(parts)
+        assert len(kept) == 1
+        assert kept[0]["file"]["filename"] == "doc0.pdf"
+        assert not _total_limit_placeholders(parts)
+
+    @pytest.mark.asyncio
+    async def test_local_pdf_over_the_per_file_cap_is_dropped(
+        self,
+        tmp_path,
+    ) -> None:
+        """A local PDF obeys the per-file cap, like every other media."""
+        from qwenpaw.agents import model_factory
+
+        formatter_cls = model_factory._create_file_block_support_formatter(
+            _CappingOpenAIFormatter,
+        )
+        formatter = formatter_cls(max_bytes=1024, max_total_bytes=4096)
+        url = _write_pdf(tmp_path, 0, size=2048)
+
+        parts = _wire_parts(await formatter.format([_local_pdf_msg(0, url)]))
+
+        assert not _media_parts(parts)
+        assert any(
+            "exceeds inline limit" in (part.get("text") or "")
+            for part in parts
+        )

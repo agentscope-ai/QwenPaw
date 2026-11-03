@@ -205,6 +205,16 @@ def _media_source_value(source: Any, key: str, default: Any = None) -> Any:
     return getattr(source, key, default)
 
 
+# PDF attachments reach the formatters as ``DataBlock`` blocks whose
+# ``media_type`` is ``application/pdf``.  They are not one of the
+# ``_MEDIA_BLOCK_TYPES`` block types, but they carry media payload like
+# images and audio, so the asynchronous preparation stage reads them
+# too: a local PDF that stays a ``URLSource`` cannot be measured by the
+# per-request inline-media budget, and the base formatter would read it
+# from disk — blocking the event loop — while formatting.
+_PDF_MEDIA_TYPE = "application/pdf"
+
+
 def _media_kind(block: Any) -> str | None:
     """Return the logical media kind represented by a content block."""
     block_type = (
@@ -222,6 +232,12 @@ def _media_kind(block: Any) -> str | None:
         else getattr(block, "source", None)
     )
     media_type = str(_media_source_value(source, "media_type", "") or "")
+    if media_type == _PDF_MEDIA_TYPE:
+        # A PDF attachment is media payload too: the asynchronous
+        # preparation stage has to read it, otherwise it stays a
+        # ``URLSource`` the per-request inline-media budget cannot
+        # measure and the base formatter reads from disk inline.
+        return "file"
     kind = media_type.split("/", 1)[0]
     return kind if kind in _MEDIA_BLOCK_TYPES else None
 
@@ -291,6 +307,9 @@ def _remote_media_requires_download(
         base_formatter_class,
         AnthropicChatFormatter,
     ):
+        # A PDF attachment is not downloaded for Anthropic: the wrapper
+        # narrows its input types to image and video, so the formatter
+        # drops the block before it would download anything.
         return kind == "image"
     if GeminiChatFormatter is not None and issubclass(
         base_formatter_class,
@@ -299,7 +318,9 @@ def _remote_media_requires_download(
         return True
     if issubclass(base_formatter_class, DashScopeChatFormatter):
         return False
-    return kind == "audio" and issubclass(
+    # The OpenAI chat / Responses formatters inline a PDF attachment as a
+    # data URL, so they download it while formatting as well.
+    return kind in ("audio", "file") and issubclass(
         base_formatter_class,
         (OpenAIChatFormatter, OpenAIResponseFormatter),
     )
