@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import html as _html_lib
 import json as _json
-from typing import Optional
+from typing import Optional, Literal
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -54,6 +54,9 @@ class OAuthStatusResponse(BaseModel):
     authorized: bool
     expires_at: float
     scope: str
+    attempt_status: Optional[
+        Literal["pending", "succeeded", "failed", "expired"]
+    ] = None
 
 
 def _redirect_uri(request: Request) -> str:
@@ -207,12 +210,14 @@ async def oauth_callback(
 @router.get(
     "/oauth/status/{client_key:path}",
     response_model=OAuthStatusResponse,
+    response_model_exclude_none=True,
 )
 async def oauth_status(
     client_key: str,
     request: Request,
+    session_id: Optional[str] = None,
 ) -> OAuthStatusResponse:
-    result = await saved_status(request, client_key)
+    result = await saved_status(request, client_key, session_id)
     return OAuthStatusResponse(**result)
 
 

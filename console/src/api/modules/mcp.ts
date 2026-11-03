@@ -113,9 +113,11 @@ export const mcpApi = {
   /**
    * Get current OAuth token status for an MCP client.
    */
-  getOAuthStatus: (clientKey: string) =>
+  getOAuthStatus: (clientKey: string, sessionId?: string) =>
     request<MCPOAuthStatusResponse>(
-      `/mcp/oauth/status/${encodeURIComponent(clientKey)}`,
+      `/mcp/oauth/status/${encodeURIComponent(clientKey)}${
+        sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""
+      }`,
     ),
 
   /**

@@ -776,6 +776,7 @@ async def test_default_failure_skips_custom_agent_phase(monkeypatch) -> None:
 
 class _WorkspaceStub:
     def __init__(self, start_event: asyncio.Event, release: asyncio.Event):
+        self.agent_id = "custom"
         self._start_event = start_event
         self._release = release
 
@@ -784,6 +785,9 @@ class _WorkspaceStub:
         await self._release.wait()
 
     def set_manager(self, _manager) -> None:
+        return None
+
+    async def stop(self, **_kwargs) -> None:
         return None
 
 

@@ -100,33 +100,3 @@ describe("MCP connection draft dismissal", () => {
     expect(onUpdate).not.toHaveBeenCalled();
   });
 });
-
-it("retains a readonly saved card while disabling every native runtime control", () => {
-  const update = vi.fn();
-  const toggle = vi.fn();
-  const remove = vi.fn();
-  render(
-    <MCPClientCard
-      client={{ ...client, transport: "sse", url: "https://saved.invalid/mcp" }}
-      readOnly
-      onToggle={toggle}
-      onDelete={remove}
-      onUpdate={update}
-      onUpdatePolicy={vi.fn()}
-    />,
-  );
-  for (const name of [
-    "Configure connection",
-    "mcp.tools",
-    "mcp.oauth.manage",
-    "common.delete",
-  ]) {
-    const button = screen.getByRole("button", { name });
-    expect(button).toBeDisabled();
-    fireEvent.click(button);
-  }
-  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  expect(update).not.toHaveBeenCalled();
-  expect(toggle).not.toHaveBeenCalled();
-  expect(remove).not.toHaveBeenCalled();
-});

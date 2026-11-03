@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Real local MCP peer and OAuth provider used by cold-process acceptance."""
+"""Local MCP peer and OAuth provider for the two plugin acceptance flows."""
 
 import json
 import os

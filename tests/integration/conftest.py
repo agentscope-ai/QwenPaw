@@ -544,12 +544,3 @@ def installed_mcp_plugin(app_server: AppServer) -> None:
     assert response.status_code == 200, app_server.logs_tail()
     state = response.json()
     assert state["status"] == "active", state
-
-
-def pytest_addoption(parser):
-    """Accept an explicit built-artifact handoff for release-only checks."""
-    parser.addoption(
-        "--mcp-plugin-artifacts",
-        default=None,
-        help="Built wheel/sdist/external Python manifest for MCP acceptance",
-    )

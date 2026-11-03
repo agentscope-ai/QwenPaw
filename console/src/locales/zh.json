@@ -1532,6 +1532,7 @@
       "reauthorize": "重新授权",
       "revoke": "撤销授权",
       "startFailed": "启动 OAuth 流程失败",
+      "attemptFailed": "本次授权未完成，原认证配置未更改。你可以重新授权。",
       "authFailed": "OAuth 授权失败",
       "popupBlocked": "弹窗被浏览器拦截，请允许弹窗后重试",
       "windowClosed": "授权窗口已关闭，请重试",

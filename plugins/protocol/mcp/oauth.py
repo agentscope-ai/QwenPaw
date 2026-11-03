@@ -34,6 +34,8 @@ class OAuthSession:
     redirect_uri: str
     scope: str
     created_at: float = field(default_factory=time.monotonic)
+    credential_revision: int = 0
+    management_token: str = field(default="", repr=False)
 
     def is_expired(self):
         return time.monotonic() - self.created_at > _TTL_SECONDS
@@ -145,6 +147,8 @@ class OAuthManagement:
                 token,
                 redirect,
                 scope,
+                credential_revision=existing.revision,
+                management_token=str(body.get("_management_token") or ""),
             )
         params = {
             "response_type": "code",
@@ -162,16 +166,30 @@ class OAuthManagement:
             "session_id": state,
         }
 
+    # Preserve the distinct protocol failure responses in this single handler.
+    # pylint: disable-next=too-many-return-statements
     async def callback(self, context, request):
         self._purge()
         body = request.json()
-        # Claim before the first await, including provider failures/replays.
-        session = self._states.pop(str(body.get("state") or ""), None)
+        state = str(body.get("state") or "")
+        session = self._states.get(state)
         if session is None or session.is_expired():
             return HttpResponse(
                 {"detail": "OAuth session expired or not found"},
                 status=400,
             )
+        # A host-managed attempt may only be claimed through its initiating
+        # host transaction. The private token grants no SDK credential access.
+        if session.management_token and not secrets.compare_digest(
+            session.management_token.encode(),
+            str(body.get("_management_token") or "").encode(),
+        ):
+            return HttpResponse(
+                {"detail": "OAuth management scope mismatch"},
+                status=403,
+            )
+        # Claim before the first await, including provider failures/replays.
+        self._states.pop(state)
         if session.workspace_id != context.workspace_id:
             return HttpResponse(
                 {"detail": "OAuth workspace mismatch"},
@@ -198,6 +216,11 @@ class OAuthManagement:
                     status=409,
                 )
             record = await source.credentials.resolve("oauth")
+            if record.revision != session.credential_revision:
+                return HttpResponse(
+                    {"detail": "OAuth credential changed"},
+                    status=409,
+                )
             try:
                 tokens = await _exchange_code_for_tokens(
                     session,

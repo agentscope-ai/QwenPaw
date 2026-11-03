@@ -1693,6 +1693,7 @@
       "reauthorize": "Re-authorize",
       "revoke": "Revoke",
       "startFailed": "Failed to start OAuth flow",
+      "attemptFailed": "This authorization did not complete. Your previous authentication configuration is unchanged. You can try again.",
       "authFailed": "OAuth authorization failed",
       "popupBlocked": "Popup was blocked by the browser. Please allow popups and try again.",
       "windowClosed": "Authorization window was closed. Please try again.",

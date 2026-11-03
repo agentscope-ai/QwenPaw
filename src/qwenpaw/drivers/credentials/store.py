@@ -81,18 +81,18 @@ class AsyncCredentialStore:
 
     async def get_versioned(self, ref: str) -> tuple[CredentialRecord, int]:
         """Read the record and its revision under the writers' shared lock."""
+        return await asyncio.to_thread(self.get_versioned_sync, ref)
 
-        def read():
-            with self._lock:
-                record = self.get_sync(ref)
-                revision = (
-                    0
-                    if ref.startswith("env:")
-                    else int(self._read_credentials()[ref].get("revision", 0))
-                )
-                return record, revision
-
-        return await asyncio.to_thread(read)
+    def get_versioned_sync(self, ref: str) -> tuple[CredentialRecord, int]:
+        """Read within a composed storage transaction using the same lock."""
+        with self._lock:
+            record = self.get_sync(ref)
+            revision = (
+                0
+                if ref.startswith("env:")
+                else int(self._read_credentials()[ref].get("revision", 0))
+            )
+            return record, revision
 
     async def compare_and_put(
         self,

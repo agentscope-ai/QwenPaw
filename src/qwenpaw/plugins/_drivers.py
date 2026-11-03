@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from uuid import uuid4
 from weakref import WeakValueDictionary
 
@@ -35,8 +35,12 @@ from ..drivers.capabilities import (
     mcp_tool_is_enabled,
     mcp_tool_whitelist,
 )
-from ..drivers.contracts import PolicyTarget, validate_card
-from ..drivers.errors import ApprovalRequiredError, DriverPermissionDeniedError
+from ..drivers.contracts import CredentialRef, PolicyTarget, validate_card
+from ..drivers.errors import (
+    ApprovalRequiredError,
+    DriverCardError,
+    DriverPermissionDeniedError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -805,10 +809,13 @@ class SDKDriverHandler(DriverHandler):
 
 
 @asynccontextmanager
+# Keep authorization and cleanup in the same context-manager lifetime.
+# pylint: disable-next=too-many-statements
 async def management_source(services, protocol, source_id):
     """Authorize persistent management without creating runtime services."""
     from ..drivers.storage import AsyncDriverCardStore
     from ..drivers.credentials.store import AsyncCredentialStore
+    from ._driver_management import CredentialOverlayGrant
 
     services.guard()
     plugin = services.plugin
@@ -829,12 +836,42 @@ async def management_source(services, protocol, source_id):
         ) from exc
     if card.protocol != protocol:
         raise SDKAccessError("Driver source belongs to another protocol")
+    overlay = getattr(services.legacy, "_driver_management_grant", None)
+    credential_card = card
+    credentials = AsyncCredentialStore(
+        workspace.workspace_dir / "credentials.yaml",
+    )
+    if overlay is not None:
+        if not isinstance(overlay, CredentialOverlayGrant):
+            raise SDKAccessError("Invalid Driver management grant")
+        if card != overlay.card:
+            raise StaleContextError("Driver management source changed")
+        credential_card = replace(
+            card,
+            credentials={
+                **card.credentials,
+                overlay.alias: CredentialRef(
+                    overlay.record.kind,
+                    overlay.record.ref,
+                ),
+            },
+        )
+        credentials = overlay.store
     live = True
 
     def guard():
         services.guard()
         descriptor.guard()
         _workspace_guard(registry, workspace)
+        if overlay is not None:
+            overlay.check(
+                plugin_id=plugin.plugin_id,
+                generation=plugin.generation,
+                workspace_id=workspace.agent_id,
+                workspace_instance_id=_instance_id(workspace),
+                user_id=services.legacy.user_id,
+                channel=services.legacy.channel,
+            )
         if not live:
             raise StaleContextError("Driver management scope has ended")
 
@@ -844,7 +881,12 @@ async def management_source(services, protocol, source_id):
         _workspace_guard(registry, workspace)
         if not live:
             raise StaleContextError("Driver management scope has ended")
-        current = await store.load(source_id, protocol=protocol)
+        try:
+            current = await store.load(source_id, protocol=protocol)
+        except DriverCardError as exc:
+            raise StaleContextError(
+                "Driver management source is unavailable",
+            ) from exc
         services.guard()
         if not live or current != card:
             raise StaleContextError("Driver management source changed")
@@ -869,10 +911,8 @@ async def management_source(services, protocol, source_id):
             scope,
             plugin.logger,
             CredentialAccess(
-                card,
-                AsyncCredentialStore(
-                    workspace.workspace_dir / "credentials.yaml",
-                ),
+                credential_card,
+                credentials,
                 check,
                 guard,
                 plugin,
