@@ -440,6 +440,14 @@ export default function InboxPage() {
     }
   };
 
+  const pushMessagesEmptyDescription = (() => {
+    if (unreadOnly) return t("inbox.emptyUnread");
+    if (selectedSourceTypeFilter === "community") {
+      return t("communityInbox.empty");
+    }
+    return t("inbox.emptyPush");
+  })();
+
   const tabItems = [
     {
       key: "messages",
@@ -612,15 +620,7 @@ export default function InboxPage() {
               </div>
             </div>
           ) : (
-            <Empty
-              description={t(
-                unreadOnly
-                  ? "inbox.emptyUnread"
-                  : selectedSourceTypeFilter === "community"
-                  ? "communityInbox.empty"
-                  : "inbox.emptyPush",
-              )}
-            />
+            <Empty description={pushMessagesEmptyDescription} />
           )}
           {selectedSourceTypeFilter === "community" && <CommunityInboxState />}
         </div>
