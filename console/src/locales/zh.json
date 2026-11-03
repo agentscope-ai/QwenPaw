@@ -3729,7 +3729,7 @@
       "smartDesc": "低风险工具调用和外部文件访问操作自动执行，中高风险需审批",
       "jev": "决策模型模式",
       "jevDesc": "先执行本地安全规则，规则外操作由决策模型评估风险",
-      "jevRequiresDecision": "请先打开「使用决策模型」",
+      "jevRequiresDecision": "请先在模型设置中配置决策模型",
       "decisionModelPrivacy": "工具名、操作、目标和参数名可能发送给决策模型提供商；不会发送聊天记录或文件正文。",
       "decisionModelConnected": "已配置决策模型提供商",
       "decisionModelNotConnected": "尚未配置决策模型。可在模型页面配置本地 Piccolo 或 TypeSafe 决策模型。",
@@ -3835,7 +3835,7 @@
     "contextStrategyNative": "Native",
     "decisionCompactLabel": "决策模型压缩",
     "decisionCompactEnabled": "启用决策模型压缩",
-    "decisionCompactDescription": "默认关闭，复用智能体的决策模型，未选择时使用全局默认决策模型，请在模型设置中配置。自动触发上下文压缩时，ReMe 先将低相关性工具结果替换为带恢复引用的短预览，再继续现有压缩流程。支持 Scroll 和原生策略，独立于长期记忆及聊天决策开关，需要开启自动上下文压缩。决策请求会将有界的对话证据发送至配置的供应商。",
+    "decisionCompactDescription": "默认关闭，复用智能体的决策模型，未选择时使用全局默认决策模型，请在模型设置中配置。自动触发上下文压缩时，ReMe 先将低相关性工具结果替换为带恢复引用的短预览，再继续现有压缩流程。支持 Scroll 和原生策略，独立于长期记忆及聊天的工具审批模式，需要开启自动上下文压缩。决策请求会将有界的对话证据发送至配置的供应商。",
     "decisionCompactAdvanced": "请求限制",
     "decisionCompact_drop_threshold": "低相关性阈值",
     "decisionCompact_drop_thresholdHelp": "仅缩短相关性概率不高于该值的结果；数值越低，保留原文越多。",
@@ -4069,10 +4069,6 @@
     "system": "跟随系统"
   },
   "chat": {
-    "sessionSettings": {
-      "advanced": "高级选项",
-      "decisionEnabled": "使用决策模型"
-    },
     "longTextPaste": {
       "title": "粘贴长文本",
       "asText": "粘贴为文本",

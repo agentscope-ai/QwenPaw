@@ -3872,7 +3872,7 @@
       "smartDesc": "Low-risk tool calls and external file access run automatically; medium- and high-risk operations require approval",
       "jev": "Decision Model Mode",
       "jevDesc": "Apply local safety rules first; the decision model assesses operations outside those rules",
-      "jevRequiresDecision": "Turn on Use decision model first",
+      "jevRequiresDecision": "Configure a decision model in Model settings first",
       "decisionModelPrivacy": "Tool name, operation, target and parameter names may be sent to the Decision Model Provider. No conversation or file contents are sent.",
       "decisionModelConnected": "Decision model provider configured",
       "decisionModelNotConnected": "No decision model configured. Configure a local Piccolo or TypeSafe decision model in Model settings.",
@@ -3978,7 +3978,7 @@
     "contextStrategyNative": "Native",
     "decisionCompactLabel": "Decision model compaction",
     "decisionCompactEnabled": "Enable decision model compaction",
-    "decisionCompactDescription": "Off by default. Reuses the agent decision model, or the global default decision model. Configure it in Model settings. Under automatic context pressure, ReMe shortens low-relevance tool results with recovery references before normal compaction. Works with Scroll and native, independently of long-term memory and the chat decision toggle. Requires automatic context compaction. Decision requests send bounded conversation evidence to the configured provider.",
+    "decisionCompactDescription": "Off by default. Reuses the agent decision model, or the global default decision model. Configure it in Model settings. Under automatic context pressure, ReMe shortens low-relevance tool results with recovery references before normal compaction. Works with Scroll and native, independently of long-term memory and the chat's tool approval mode. Requires automatic context compaction. Decision requests send bounded conversation evidence to the configured provider.",
     "decisionCompactAdvanced": "Request limits",
     "decisionCompact_drop_threshold": "Low-relevance threshold",
     "decisionCompact_drop_thresholdHelp": "Only results at or below this probability may be shortened. Lower values preserve more originals.",
@@ -4212,10 +4212,6 @@
     "system": "System"
   },
   "chat": {
-    "sessionSettings": {
-      "advanced": "Advanced options",
-      "decisionEnabled": "Use decision model"
-    },
     "longTextPaste": {
       "title": "Paste long text",
       "asText": "Paste as text",
