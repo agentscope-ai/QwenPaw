@@ -22,9 +22,13 @@ export function QuickAddModelModal({
   const { message } = useAppMessage();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  const [selectedProviderId, setSelectedProviderId] = useState<string | undefined>(undefined);
+  const [selectedProviderId, setSelectedProviderId] = useState<
+    string | undefined
+  >(undefined);
 
-  const configuredProviders = providers.filter((p) => p.api_key || p.require_api_key === false || p.supports_oauth);
+  const configuredProviders = providers.filter(
+    (p) => p.api_key || p.require_api_key === false || p.supports_oauth,
+  );
 
   const handleAdd = async () => {
     try {
@@ -38,8 +42,10 @@ export function QuickAddModelModal({
       }
 
       const existing = [
-        ...(configuredProviders.find((p) => p.id === selectedProviderId)?.models ?? []),
-        ...(configuredProviders.find((p) => p.id === selectedProviderId)?.extra_models ?? []),
+        ...(configuredProviders.find((p) => p.id === selectedProviderId)
+          ?.models ?? []),
+        ...(configuredProviders.find((p) => p.id === selectedProviderId)
+          ?.extra_models ?? []),
       ];
       if (existing.some((m) => m.id === id)) {
         message.warning(t("models.quickAddModelExists", { id }));
@@ -72,10 +78,16 @@ export function QuickAddModelModal({
         <Form.Item
           name="providerId"
           label={t("models.quickAddSelectProvider")}
-          rules={[{ required: true, message: t("models.quickAddSelectProvider") }]}
+          rules={[
+            { required: true, message: t("models.quickAddSelectProvider") },
+          ]}
         >
           <Select
-            placeholder={configuredProviders.length > 0 ? t("models.quickAddSelectProvider") : t("models.quickAddNoProvider")}
+            placeholder={
+              configuredProviders.length > 0
+                ? t("models.quickAddSelectProvider")
+                : t("models.quickAddNoProvider")
+            }
             options={configuredProviders.map((p) => ({
               value: p.id,
               label: p.name,
