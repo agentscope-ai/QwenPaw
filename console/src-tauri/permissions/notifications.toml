@@ -9,4 +9,5 @@ commands.allow = [
   "request_notification_permission",
   "configure_system_notifications",
   "open_notification_settings",
+  "take_notification_target",
 ]

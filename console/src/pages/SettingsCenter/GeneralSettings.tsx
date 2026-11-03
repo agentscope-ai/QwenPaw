@@ -747,10 +747,6 @@ export default function GeneralSettings() {
                       },
                       {
                         value: "minimize-to-tray",
-                        label: t("desktop.closeWindow.minimizeToTray"),
-                      },
-                      {
-                        value: "quit",
                         label: t("desktop.closeWindow.keepRunning"),
                       },
                       {

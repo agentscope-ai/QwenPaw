@@ -65,6 +65,7 @@ pub fn run() {
             notifications::request_notification_permission,
             notifications::configure_system_notifications,
             notifications::open_notification_settings,
+            notification_delivery::take_notification_target,
             backend_download::download_backend_file,
             backend::agent_host_state,
             backend::restart_backend,
@@ -90,10 +91,15 @@ pub fn run() {
         .manage(computer_use_runtime::ComputerUseRuntimeState::default())
         .manage(tray::TrayState::default())
         .manage(notifications::NotificationState::default())
+        .manage(notification_delivery::ActivationState::default())
         .setup(|app| {
             updates::coordination::setup(app.handle())?;
             backend::setup(app)?;
             tray::setup(app)?;
+            #[cfg(windows)]
+            if let Err(error) = notification_delivery::setup(app.handle()) {
+                log::error!("Could not register desktop notification activation: {error}");
+            }
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(err) = webview_recovery::install(&window) {

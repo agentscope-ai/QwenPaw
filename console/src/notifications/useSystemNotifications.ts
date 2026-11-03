@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { listen } from "@tauri-apps/api/event";
 import { isDesktopApp } from "../tauri/backendRuntime";
 import { configureDesktopSystemNotifications } from "../tauri/consoleNotifications";
 import { useNotificationPreferences } from "./preferences";
 import { BrowserEventNotifier } from "./browserEvents";
+import { subscribeNativeActivation } from "./nativeActivation";
 import {
   notificationEventPath,
   type SystemNotificationEvent,
@@ -41,10 +41,11 @@ export function useSystemNotifications(openPath: (path: string) => void) {
     if (!isDesktopApp()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<SystemNotificationEvent>(
+    void subscribeNativeActivation<SystemNotificationEvent>(
+      "event",
       "qwenpaw:open-notification",
-      ({ payload }) => {
-        latest.current.openPath(notificationEventPath(payload));
+      (target) => {
+        latest.current.openPath(notificationEventPath(target));
       },
     )
       .then((cleanup) => {

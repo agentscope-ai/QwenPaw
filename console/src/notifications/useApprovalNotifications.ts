@@ -7,6 +7,7 @@ import { configureDesktopApprovalNotifications } from "../tauri/consoleNotificat
 import { BrowserApprovalNotifier } from "./browserApprovals";
 import { useNotificationPreferences } from "./preferences";
 import type { ApprovalNotificationTarget } from "./approvalNavigation";
+import { subscribeNativeActivation } from "./nativeActivation";
 
 export function useApprovalNotifications(
   openApproval: (target?: ApprovalNotificationTarget) => void,
@@ -67,8 +68,10 @@ export function useApprovalNotifications(
       })
       .catch(console.warn);
     let approvalUnlisten: (() => void) | undefined;
-    void listen<ApprovalNotificationTarget>("qwenpaw:open-approval", (event) =>
-      latest.current.openApproval(event.payload),
+    void subscribeNativeActivation<ApprovalNotificationTarget>(
+      "approval",
+      "qwenpaw:open-approval",
+      (target) => latest.current.openApproval(target),
     )
       .then((cleanup) => {
         if (disposed) cleanup();

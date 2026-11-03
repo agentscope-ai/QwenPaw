@@ -1,36 +1,23 @@
 //! Platform notification authorization and delivery acknowledgement.
 
-use std::time::Duration;
+use std::{collections::HashMap, sync::Mutex, time::Duration};
 
-use serde::Serialize;
-use tauri::Emitter;
+use serde::{Deserialize, Serialize};
+use tauri::{Emitter, Manager};
+
 #[cfg(target_os = "windows")]
-use tauri::Manager;
+#[path = "notification_delivery/windows.rs"]
+mod windows;
+#[cfg(target_os = "windows")]
+pub(crate) use windows::setup;
 
 #[cfg(all(unix, not(target_os = "macos")))]
 use {
     notify_rust::{Notification, NotificationHandle, NotificationResponse, Timeout},
-    std::{
-        collections::HashMap,
-        sync::{Arc, Mutex, OnceLock},
-    },
+    std::sync::{Arc, OnceLock},
 };
 
-#[cfg(target_os = "windows")]
-use windows::{
-    core::HSTRING,
-    Data::Xml::Dom::XmlDocument,
-    Foundation::TypedEventHandler,
-    UI::Notifications::{ToastNotification, ToastNotificationManager, ToastNotifier},
-};
-
-#[cfg(target_os = "windows")]
-use std::{
-    collections::HashMap,
-    sync::{Mutex, OnceLock},
-};
-
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ApprovalNotificationTarget {
     pub(crate) request_id: String,
@@ -38,44 +25,55 @@ pub(crate) struct ApprovalNotificationTarget {
     pub(crate) agent_id: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", content = "target", rename_all = "lowercase")]
 pub(crate) enum NotificationTarget {
     Approval(ApprovalNotificationTarget),
     Event(crate::notifications::NotificationEvent),
 }
 
-#[cfg(target_os = "windows")]
-const WINDOWS_POWERSHELL_APP_ID: &str = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\
-     \\WindowsPowerShell\\v1.0\\powershell.exe";
+#[derive(Default)]
+pub(crate) struct ActivationState(Mutex<HashMap<String, NotificationTarget>>);
 
-#[cfg(target_os = "windows")]
-struct WindowsNotification {
-    notification: ToastNotification,
-    notifier: ToastNotifier,
-    app_id: HSTRING,
-    activated_token: Option<i64>,
+impl ActivationState {
+    fn record(&self, target: NotificationTarget) {
+        self.0
+            .lock()
+            .expect("notification activation poisoned")
+            .insert(target.kind().to_owned(), target);
+    }
+
+    fn take(&self, kind: &str) -> Option<NotificationTarget> {
+        self.0
+            .lock()
+            .expect("notification activation poisoned")
+            .remove(kind)
+    }
 }
 
-#[cfg(target_os = "windows")]
-impl WindowsNotification {
-    fn unregister(&mut self) {
-        if let Some(token) = self.activated_token.take() {
-            let _ = self.notification.RemoveActivated(token);
+impl NotificationTarget {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Approval(_) => "approval",
+            Self::Event(_) => "event",
         }
     }
 }
 
-#[cfg(target_os = "windows")]
-impl Drop for WindowsNotification {
-    fn drop(&mut self) {
-        self.unregister();
-    }
+// A COM activation can arrive before the console has mounted its listeners.
+#[tauri::command]
+pub(crate) fn take_notification_target(
+    state: tauri::State<'_, ActivationState>,
+    kind: String,
+) -> Option<NotificationTarget> {
+    state.take(&kind)
 }
 
-#[cfg(target_os = "windows")]
-fn active_windows_notifications() -> &'static Mutex<HashMap<String, WindowsNotification>> {
-    static ACTIVE: OnceLock<Mutex<HashMap<String, WindowsNotification>>> = OnceLock::new();
-    ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
+#[cfg(any(target_os = "windows", test))]
+#[derive(Deserialize, Serialize)]
+struct WindowsActivation {
+    identifier: String,
+    target: Option<NotificationTarget>,
 }
 
 fn open_target(app: &tauri::AppHandle, target: Option<&NotificationTarget>) {
@@ -84,6 +82,9 @@ fn open_target(app: &tauri::AppHandle, target: Option<&NotificationTarget>) {
     let main_app = app.clone();
     let _ = app.run_on_main_thread(move || {
         crate::tray::show_main_window(&main_app);
+        if let Some(target) = &target {
+            main_app.state::<ActivationState>().record(target.clone());
+        }
         match target {
             Some(NotificationTarget::Approval(target)) => {
                 let _ = main_app.emit("qwenpaw:open-approval", target);
@@ -178,10 +179,11 @@ fn xml(value: &str) -> String {
 }
 
 #[cfg(any(target_os = "windows", test))]
-fn toast_xml(title: &str, body: &str) -> String {
+fn toast_xml(title: &str, body: &str, launch: &str) -> String {
     format!(
-        "<toast><visual><binding template=\"ToastGeneric\">\
+        "<toast launch=\"{}\"><visual><binding template=\"ToastGeneric\">\
          <text>{}</text><text>{}</text></binding></visual></toast>",
+        xml(launch),
         xml(title),
         xml(body)
     )
@@ -193,87 +195,6 @@ fn windows_tag(identifier: &str) -> String {
 
     let digest = format!("{:x}", Sha256::digest(identifier.as_bytes()));
     digest[..16].to_owned()
-}
-
-#[cfg(target_os = "windows")]
-fn close_windows(identifier: &str) {
-    let active = active_windows_notifications()
-        .lock()
-        .expect("Windows notifications poisoned")
-        .remove(identifier);
-    if let Some(mut active) = active {
-        active.unregister();
-        let _ = active.notifier.Hide(&active.notification);
-        let removed = ToastNotificationManager::History().and_then(|history| {
-            history.RemoveGroupedTagWithId(
-                &HSTRING::from(windows_tag(identifier)),
-                &HSTRING::new(),
-                &active.app_id,
-            )
-        });
-        if let Err(error) = removed {
-            log::warn!("Could not remove Windows notification: {error}");
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn show_windows(
-    app: &tauri::AppHandle,
-    identifier: &str,
-    title: &str,
-    body: &str,
-    click_target: Option<NotificationTarget>,
-) -> Result<(), String> {
-    let document = XmlDocument::new().map_err(|error| error.to_string())?;
-    document
-        .LoadXml(&HSTRING::from(toast_xml(title, body)))
-        .map_err(|error| error.to_string())?;
-    let notification =
-        ToastNotification::CreateToastNotification(&document).map_err(|error| error.to_string())?;
-    notification
-        .SetTag(&HSTRING::from(windows_tag(identifier)))
-        .map_err(|error| error.to_string())?;
-
-    let activated_app = app.clone();
-    let activated_target = click_target;
-    let activated_identifier = identifier.to_owned();
-    let activated = TypedEventHandler::new(move |_, _args| {
-        close_windows(&activated_identifier);
-        open_target(&activated_app, activated_target.as_ref());
-        Ok(())
-    });
-    let activated_token = notification
-        .Activated(&activated)
-        .map_err(|error| error.to_string())?;
-
-    let app_id = if tauri::is_dev() {
-        WINDOWS_POWERSHELL_APP_ID.to_owned()
-    } else {
-        app.config().identifier.clone()
-    };
-    let app_id = HSTRING::from(app_id);
-    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&app_id)
-        .map_err(|error| error.to_string())?;
-    // WinRT must keep the toast and its handler alive after Show returns.
-    let previous = active_windows_notifications()
-        .lock()
-        .expect("Windows notifications poisoned")
-        .insert(
-            identifier.to_owned(),
-            WindowsNotification {
-                notification: notification.clone(),
-                notifier: notifier.clone(),
-                app_id,
-                activated_token: Some(activated_token),
-            },
-        );
-    drop(previous);
-    if let Err(error) = notifier.Show(&notification) {
-        close_windows(identifier);
-        return Err(error.to_string());
-    }
-    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -341,7 +262,7 @@ pub(crate) async fn close(identifier: &str) {
     #[cfg(target_os = "macos")]
     mac_usernotifications::close_delivered(identifier).await;
     #[cfg(target_os = "windows")]
-    close_windows(identifier);
+    windows::close(identifier).await;
     #[cfg(all(unix, not(target_os = "macos")))]
     close_linux(identifier).await;
 }
@@ -381,7 +302,22 @@ pub(crate) async fn send(
     }
     #[cfg(target_os = "windows")]
     {
-        show_windows(app, identifier, title, body, click_target)?;
+        let app_id = app.config().identifier.clone();
+        let identifier_owned = identifier.to_owned();
+        let title = title.to_owned();
+        let body = body.to_owned();
+        tauri::async_runtime::spawn_blocking(move || {
+            windows::show(
+                &app_id,
+                &identifier_owned,
+                &title,
+                &body,
+                lifetime,
+                click_target,
+            )
+        })
+        .await
+        .map_err(|error| error.to_string())??;
         schedule_expiry(identifier, lifetime);
         Ok(())
     }
@@ -419,7 +355,48 @@ mod tests {
 
 #[cfg(test)]
 mod cross_platform_tests {
-    use super::{toast_xml, windows_tag, ApprovalNotificationTarget};
+    use super::{
+        toast_xml, windows_tag, ActivationState, ApprovalNotificationTarget, NotificationTarget,
+        WindowsActivation,
+    };
+
+    #[test]
+    fn windows_activation_preserves_unicode_and_the_complete_click_target() {
+        let activation = WindowsActivation {
+            identifier: "qwenpaw-approval:request-1".into(),
+            target: Some(NotificationTarget::Approval(ApprovalNotificationTarget {
+                request_id: "审批<&\"1".into(),
+                root_session_id: Some("会话 /?&1".into()),
+                agent_id: Some("agent-2".into()),
+            })),
+        };
+        let json = serde_json::to_string(&activation).unwrap();
+        let decoded: WindowsActivation = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.identifier, activation.identifier);
+        let Some(NotificationTarget::Approval(target)) = decoded.target else {
+            panic!("approval activation lost its target");
+        };
+        assert_eq!(target.request_id, "审批<&\"1");
+        assert_eq!(target.root_session_id.as_deref(), Some("会话 /?&1"));
+        assert_eq!(target.agent_id.as_deref(), Some("agent-2"));
+        assert!(toast_xml("Title", "Body", &json).contains("&quot;"));
+    }
+
+    #[test]
+    fn activation_waits_for_its_listener_and_is_consumed_only_once() {
+        let state = ActivationState::default();
+        state.record(NotificationTarget::Approval(ApprovalNotificationTarget {
+            request_id: "request-1".into(),
+            root_session_id: None,
+            agent_id: None,
+        }));
+        assert!(state.take("event").is_none());
+        let Some(NotificationTarget::Approval(target)) = state.take("approval") else {
+            panic!("startup activation was lost");
+        };
+        assert_eq!(target.request_id, "request-1");
+        assert!(state.take("approval").is_none());
+    }
 
     #[test]
     fn approval_click_target_matches_frontend_event_fields() {
@@ -440,9 +417,10 @@ mod cross_platform_tests {
 
     #[test]
     fn windows_toast_text_is_escaped() {
-        let xml = toast_xml("Qwen & Paw", "<approval>");
+        let xml = toast_xml("Qwen & Paw", "<approval>", "a&b\"c");
         assert!(xml.contains("Qwen &amp; Paw"));
         assert!(xml.contains("&lt;approval&gt;"));
+        assert!(xml.contains("launch=\"a&amp;b&quot;c\""));
     }
 
     #[test]

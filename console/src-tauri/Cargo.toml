@@ -48,6 +48,8 @@ dirs = "5"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
+windows-core = "0.61.2"
+winreg = "0.55"
 windows = { version = "0.61.3", features = [
     "Foundation",
     "Foundation_Collections",
@@ -78,6 +80,8 @@ windows = { version = "0.61.3", features = [
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_UI_HiDpi",
+    "Win32_UI_Notifications",
+    "Win32_UI_Shell",
     "Win32_UI_Accessibility",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",

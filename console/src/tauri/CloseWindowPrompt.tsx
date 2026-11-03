@@ -107,13 +107,9 @@ export default function CloseWindowPrompt() {
           data-press
           className={styles.keepRunning}
           disabled={submitting !== null}
-          onClick={() => void choose("quit")}
+          onClick={() => void choose("minimize-to-tray")}
         >
-          {t(
-            submitting === "quit"
-              ? "desktop.closeWindow.quitting"
-              : "desktop.closeWindow.keepRunning",
-          )}
+          {t("desktop.closeWindow.keepRunning")}
         </button>
         <button
           data-press
