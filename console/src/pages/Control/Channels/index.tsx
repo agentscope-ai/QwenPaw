@@ -36,11 +36,14 @@ import {
 } from "./components/channelConfig";
 import type { ChannelSaveJob } from "../../../api/modules/channel";
 import styles from "./index.module.less";
+import { useSettingsSearchRequest } from "@/pages/SettingsCenter/SettingsSearchRequest";
 
 type FilterType = "all" | "builtin" | "custom";
 
 function ChannelsPage() {
   const { t } = useTranslation();
+  const searchRequest = useSettingsSearchRequest("channels");
+  const handledSearch = useRef<typeof searchRequest>(null);
   const { modal } = useAppMessage();
   const {
     agentId,
@@ -308,6 +311,21 @@ function ChannelsPage() {
   };
 
   const activeLabel = activeKey ? getChannelLabel(activeKey, t) : "";
+  useEffect(() => {
+    if (!ready || !searchRequest || handledSearch.current === searchRequest)
+      return;
+    if (searchRequest.surface === "channel-acl") {
+      handledSearch.current = searchRequest;
+      setAclDrawerAgentId(agentId);
+      setAclDrawerOpen(true);
+    } else if (
+      searchRequest.channelKey &&
+      orderedKeys.includes(searchRequest.channelKey)
+    ) {
+      handledSearch.current = searchRequest;
+      handleCardClick(searchRequest.channelKey);
+    }
+  }, [ready, searchRequest, agentId, orderedKeys, handleCardClick]);
   const activeValues = useMemo(
     () =>
       activeKey

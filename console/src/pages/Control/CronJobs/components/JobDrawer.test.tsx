@@ -26,6 +26,8 @@ import React from "react";
 import dayjs from "dayjs";
 import { Form } from "antd";
 import type { FormInstance } from "antd";
+import { SettingsSearchRequest } from "@/pages/SettingsCenter/SettingsSearchRequest";
+import type { SettingsSearchTarget } from "@/plugins/settingsSearch";
 import type {
   CronJobSpecOutput,
   CronDispatchTargetItem,
@@ -225,6 +227,7 @@ const TARGET_ITEMS: CronDispatchTargetItem[] = [
 ] as unknown as CronDispatchTargetItem[];
 
 interface DrawerOverrides {
+  searchTarget?: SettingsSearchTarget;
   editingJob?: CronJobSpecOutput | null;
   targetItems?: CronDispatchTargetItem[];
   targetChannels?: string[];
@@ -268,12 +271,14 @@ function renderDrawer(overrides: DrawerOverrides = {}) {
     overrides.onReloadTargets ?? vi.fn().mockResolvedValue(undefined);
   let formRef: FormInstance | undefined;
   const view = render(
-    <Harness
-      overrides={{ ...overrides, onClose, onSubmit, onReloadTargets }}
-      onReady={(f) => {
-        formRef = f;
-      }}
-    />,
+    <SettingsSearchRequest.Provider value={overrides.searchTarget ?? null}>
+      <Harness
+        overrides={{ ...overrides, onClose, onSubmit, onReloadTargets }}
+        onReady={(f) => {
+          formRef = f;
+        }}
+      />
+    </SettingsSearchRequest.Provider>,
   );
   const getForm = () => formRef as FormInstance;
   return { view, getForm, onClose, onSubmit, onReloadTargets };
@@ -282,6 +287,29 @@ function renderDrawer(overrides: DrawerOverrides = {}) {
 // ---- Tests -----------------------------------------------------------------
 
 describe("JobDrawer open lifecycle", () => {
+  it("opens the requested task tab without submitting or changing its type", async () => {
+    const { getForm, onSubmit } = renderDrawer({
+      searchTarget: {
+        page: "cron-jobs",
+        label: "cronJobs.executionModel",
+        targetId: "cronJobs.executionModel",
+        tabId: "delivery",
+        surface: "cron-job",
+      },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("tab", { name: "heartbeat.target" }),
+      ).toHaveAttribute("aria-selected", "true"),
+    );
+    act(() => getForm().setFieldValue("task_type", "text"));
+    expect(
+      await screen.findByText("settingsCenter.searchAgentTaskOnly"),
+    ).toBeVisible();
+    expect(getForm().getFieldValue("task_type")).toBe("text");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("renders the create title, base fields and reloads targets on open", async () => {
     const { onReloadTargets } = renderDrawer();
     expect(await screen.findByText("cronJobs.createJob")).toBeInTheDocument();

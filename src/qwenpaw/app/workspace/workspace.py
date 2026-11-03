@@ -32,6 +32,7 @@ from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
     create_history_service,
+    prepare_history_service,
     history_service_reuse_compatible,
     create_driver_service,
     create_driver_config_watcher,
@@ -191,6 +192,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self._config = None  # Loaded before start()
         self._config_mtime: float | None = None
         self.cron_start_paused = False
+        self._history_retention_days = 0
         self._started = False
         self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
@@ -573,12 +575,12 @@ class Workspace:  # pylint: disable=too-many-public-methods
             ServiceDescriptor(
                 name="history_store",
                 create_service=create_history_service,
+                post_init=prepare_history_service,
                 stop_method="shutdown",
                 reusable=True,
                 reuse_compatibility=history_service_reuse_compatible,
                 require_clean_stop=True,
                 priority=15,
-                optional=True,
             ),
         )
 
@@ -741,6 +743,13 @@ class Workspace:  # pylint: disable=too-many-public-methods
         for name, component in components.items():
             await self._service_manager.set_reusable(name, component)
 
+    async def start_history_retention(self) -> None:
+        """Apply maintenance only after this workspace owns the agent."""
+        if self.history_store is not None:
+            await self.history_store.start_retention(
+                self._history_retention_days,
+            )
+
     async def start(self):
         """Start workspace and initialize all components."""
         if self._started:
@@ -774,6 +783,10 @@ class Workspace:  # pylint: disable=too-many-public-methods
         try:
             # 1. Load agent configuration
             self._config = load_agent_config(self.agent_id)
+            lcc = self._config.running.light_context_config
+            self._history_retention_days = (
+                lcc.scroll_config.history_retention_days
+            )
             logger.debug(
                 "Loaded config for agent: "
                 f"{sanitize_log_value(self.agent_id)}",
@@ -787,6 +800,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
             await self._service_manager.start_all()
 
             self._started = True
+            # Reload candidates activate maintenance after ownership commits.
+            if not self.cron_start_paused:
+                await self.start_history_retention()
             logger.info(
                 "Workspace started successfully: "
                 f"{sanitize_log_value(self.agent_id)}",
