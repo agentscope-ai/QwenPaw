@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Verify transient notification events and successful console completion."""
 
 from __future__ import annotations
@@ -97,7 +98,8 @@ async def test_saved_inbox_event_is_forwarded_and_can_be_found_by_id(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    f"ending", [f"success", f"cancel", f"error", f"failed"]
+    f"ending",
+    [f"success", f"cancel", f"error", f"failed"],
 )
 async def test_only_successful_console_turns_publish(ending, monkeypatch):
     channel = ConsoleChannel(
@@ -136,11 +138,15 @@ async def test_only_successful_console_turns_publish(ending, monkeypatch):
 
     monkeypatch.setattr(channel, f"_process", process)
     monkeypatch.setattr(
-        channel, f"_serialize_event_for_sse", lambda *_: f"{{}}"
+        channel,
+        f"_serialize_event_for_sse",
+        lambda *_: f"{{}}",
     )
     monkeypatch.setattr(channel, f"_clear_session_turn_usage", MagicMock())
     monkeypatch.setattr(
-        channel, f"_commit_turn_usage", AsyncMock(return_value=[])
+        channel,
+        f"_commit_turn_usage",
+        AsyncMock(return_value=[]),
     )
     monkeypatch.setattr(channel, f"_on_response_cycle_end", AsyncMock())
     monkeypatch.setattr(channel, f"_print_error", MagicMock())

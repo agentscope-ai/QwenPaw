@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Bounded, non-consuming events for desktop notification polling."""
 
 from __future__ import annotations
