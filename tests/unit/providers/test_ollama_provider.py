@@ -185,7 +185,7 @@ def test_get_chat_model_instance_uses_single_v1_suffix(
 def test_parse_ollama_num_ctx_from_parameters() -> None:
     assert parse_ollama_num_ctx("temperature 0.7\nnum_ctx 8192\n") == 8192
     assert parse_ollama_num_ctx("temperature 0.7") is None
-    assert parse_ollama_num_ctx("num_ctx 512") is None  # below ModelInfo floor
+    assert parse_ollama_num_ctx("num_ctx 512") == 512
 
 
 def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
@@ -206,9 +206,16 @@ def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
         resolve_ollama_context_window(
             show_payload={"model_info": {"qwen3.context_length": 65536}},
         )
+        == 4096
+    )
+    assert resolve_ollama_context_window(show_payload={}) == 4096
+    assert (
+        resolve_ollama_context_window(
+            show_payload={},
+            use_conservative_fallback=False,
+        )
         is None
     )
-    assert resolve_ollama_context_window(show_payload={}) is None
 
 
 def test_native_probe_headers_add_bearer_without_overriding() -> None:
@@ -286,15 +293,7 @@ async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
             )
 
         async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            assert json == {"model": "qwen3:8b"}
-            return _FakeResponse(
-                200,
-                {
-                    "parameters": "num_ctx 8192\n",
-                    "model_info": {"qwen3.context_length": 131072},
-                },
-            )
+            raise AssertionError("/api/show must be skipped when /api/ps wins")
 
     monkeypatch.setattr(
         "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
@@ -307,7 +306,7 @@ async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
 
     models = await provider.fetch_models()
     assert len(models) == 1
-    # Loaded /api/ps window wins over Modelfile num_ctx.
+    # Loaded /api/ps window is final; /api/show is not called.
     assert models[0].max_input_length_auto_detected == 4096
 
 
@@ -389,7 +388,81 @@ async def test_fetch_models_ignores_gguf_context_length(monkeypatch) -> None:
     )
 
     models = await provider.fetch_models()
-    assert models[0].max_input_length_auto_detected is None
+    # No served window and no num_ctx → conservative 4k, not 128k.
+    assert models[0].max_input_length_auto_detected == 4096
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_first_use_conservative_fallback(monkeypatch) -> None:
+    """Unloaded model without num_ctx uses 4k instead of the 128k default."""
+    provider = _make_provider()
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        return [ModelInfo(id="fresh:latest", name="fresh:latest")]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            return _FakeResponse(200, {"parameters": "temperature 0.7\n"})
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
+        fake_super_fetch,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
+        FakeClient,
+    )
+
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 4096
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_accepts_small_num_ctx(monkeypatch) -> None:
+    provider = _make_provider()
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        return [ModelInfo(id="tiny:latest", name="tiny:latest")]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            return _FakeResponse(200, {"parameters": "num_ctx 512\n"})
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
+        fake_super_fetch,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
+        FakeClient,
+    )
+
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 512
 
 
 @pytest.mark.asyncio

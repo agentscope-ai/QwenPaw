@@ -17,8 +17,15 @@ from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
 
-# ModelInfo.max_input_length_auto_detected requires >= 1000.
-_MIN_CONTEXT_TOKENS = 1000
+# Accept any positive context; ModelInfo allows ge=1 on auto_detected.
+_MIN_CONTEXT_TOKENS = 1
+# Ollama's smallest default window (<24 GiB VRAM) when neither /api/ps nor
+# an explicit Modelfile num_ctx is available. Prefer under-estimating over
+# the 128k placeholder so first-session compaction stays safe.
+# Ref: https://docs.ollama.com/context-length
+_CONSERVATIVE_CONTEXT_TOKENS = 4096
+# Bound concurrent /api/show probes when many models are installed.
+_SHOW_PROBE_CONCURRENCY = 8
 
 _NUM_CTX_RE = re.compile(
     r"(?m)^\s*num_ctx\s+(\d+)\s*$",
@@ -40,6 +47,7 @@ def resolve_ollama_context_window(
     *,
     show_payload: dict[str, Any] | None = None,
     served_context: int | None = None,
+    use_conservative_fallback: bool = True,
 ) -> int | None:
     """Pick the active Ollama context window for compaction.
 
@@ -47,12 +55,15 @@ def resolve_ollama_context_window(
 
     1. ``/api/ps`` ``context_length`` when the model is currently loaded —
        this reflects ``OLLAMA_CONTEXT_LENGTH`` and the load-time window;
-    2. explicit Modelfile ``num_ctx`` from ``/api/show`` ``parameters``.
+    2. explicit Modelfile ``num_ctx`` from ``/api/show`` ``parameters``;
+    3. ``_CONSERVATIVE_CONTEXT_TOKENS`` (4k) when neither signal is present
+       and *use_conservative_fallback* is true — Ollama's smallest default
+       for low-VRAM hosts, safer than the 128k placeholder on first use.
 
     GGUF ``*.context_length`` is the model's maximum supported context, not
     the window Ollama is serving (often a much smaller default). It is not
-    used. Returns ``None`` when neither signal is present so the caller
-    keeps the 128k default rather than inventing a window.
+    used. Returns ``None`` only when fallback is disabled and neither
+    signal is present.
     """
     if (
         isinstance(served_context, int)
@@ -60,7 +71,12 @@ def resolve_ollama_context_window(
     ):
         return served_context
     payload = show_payload or {}
-    return parse_ollama_num_ctx(payload.get("parameters"))
+    explicit = parse_ollama_num_ctx(payload.get("parameters"))
+    if explicit is not None:
+        return explicit
+    if use_conservative_fallback:
+        return _CONSERVATIVE_CONTEXT_TOKENS
+    return None
 
 
 def _ollama_model_aliases(model_id: str) -> set[str]:
@@ -189,9 +205,15 @@ class OllamaProvider(OpenAIProvider):
                 headers=self._native_probe_headers(),
             ) as client:
                 served = await self._fetch_served_contexts(client)
+                semaphore = asyncio.Semaphore(_SHOW_PROBE_CONCURRENCY)
                 enriched = await asyncio.gather(
                     *[
-                        self._enrich_model_context(client, model, served)
+                        self._enrich_model_context(
+                            client,
+                            model,
+                            served,
+                            semaphore,
+                        )
                         for model in models
                     ],
                 )
@@ -236,27 +258,47 @@ class OllamaProvider(OpenAIProvider):
         client: httpx.AsyncClient,
         model: ModelInfo,
         served: dict[str, int],
+        semaphore: asyncio.Semaphore | None = None,
     ) -> ModelInfo:
         served_context = None
         for alias in _ollama_model_aliases(model.id):
             if alias in served:
                 served_context = served[alias]
                 break
-        show_payload: dict[str, Any] | None = None
-        try:
-            response = await client.post(
-                f"{self.base_url}/api/show",
-                json={"model": model.id},
+        # /api/ps already has the final window; skip /api/show.
+        if (
+            isinstance(served_context, int)
+            and served_context >= _MIN_CONTEXT_TOKENS
+        ):
+            return model.model_copy(
+                update={"max_input_length_auto_detected": served_context},
             )
-            if response.status_code == 200:
-                payload = response.json()
-                if isinstance(payload, dict):
-                    show_payload = payload
-        except Exception:
-            show_payload = None
+
+        show_payload: dict[str, Any] | None = None
+
+        async def _show() -> dict[str, Any] | None:
+            try:
+                response = await client.post(
+                    f"{self.base_url}/api/show",
+                    json={"model": model.id},
+                )
+                if response.status_code == 200:
+                    payload = response.json()
+                    if isinstance(payload, dict):
+                        return payload
+            except Exception:
+                return None
+            return None
+
+        if semaphore is None:
+            show_payload = await _show()
+        else:
+            async with semaphore:
+                show_payload = await _show()
+
         detected = resolve_ollama_context_window(
             show_payload=show_payload,
-            served_context=served_context,
+            served_context=None,
         )
         if detected is None:
             return model
