@@ -259,16 +259,3 @@ export function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   const event = new Event("input", { bubbles: true });
   textarea.dispatchEvent(event);
 }
-
-/**
- * Clear the submitted sender value without erasing text typed for the next
- * message while the request was being prepared.
- */
-export function clearSubmittedSenderInput(submittedValue: string): boolean {
-  const textarea = getActiveSenderTextarea();
-  if (!textarea || textarea.value !== submittedValue) {
-    return false;
-  }
-  setTextareaValue(textarea, "");
-  return true;
-}

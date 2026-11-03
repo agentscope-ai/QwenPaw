@@ -144,6 +144,11 @@ async def post_approval_approve(
         scope=scope,
         actor=_console_admin_actor(request, pending),
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Approval request already resolved or expired",
+        )
 
     logger.info(
         "Approval approved: request_id=%s session=%s tool=%s",
@@ -215,6 +220,11 @@ async def post_approval_deny(
         ApprovalDecision.DENIED,
         actor=_console_admin_actor(request, pending),
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Approval request already resolved or expired",
+        )
 
     logger.info(
         "Approval denied: request_id=%s session=%s tool=%s",

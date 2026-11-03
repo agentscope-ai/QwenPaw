@@ -60,7 +60,11 @@ from .models import (
     SessionEventRecord,
     utc_now,
 )
-from .path_safety import require_safe_runtime_segment
+from .path_safety import (
+    is_link_path,
+    is_link_stat,
+    require_safe_runtime_segment,
+)
 
 logger = logging.getLogger("qwenpaw.creator.runtime_files.session_store")
 
@@ -329,19 +333,19 @@ class ProjectRuntimeSessionStore:
         staged_root = Path(project_root)
         if (
             not staged_root.is_absolute()
-            or staged_root.is_symlink()
+            or is_link_path(staged_root)
             or not staged_root.is_dir()
         ):
             raise UnsafeSessionPath(
                 "staged Project root must be an absolute, real directory",
             )
         project_file = staged_root / "project.json"
-        if project_file.is_symlink() or not project_file.is_file():
+        if is_link_path(project_file) or not project_file.is_file():
             raise SessionStoreIntegrityError(
                 "staged Project must contain a regular project.json",
             )
         runtime_root = staged_root / "runtime"
-        if runtime_root.is_symlink() or not runtime_root.is_dir():
+        if is_link_path(runtime_root) or not runtime_root.is_dir():
             raise SessionStoreIntegrityError(
                 "staged Project must contain a real runtime directory",
             )
@@ -2083,7 +2087,7 @@ class ProjectRuntimeSessionStore:
             return None
         session_files: list[Path] = []
         for child in sessions_root.iterdir():
-            if child.is_symlink():
+            if is_link_path(child):
                 raise SessionStoreIntegrityError(
                     f"Session directory cannot be a symlink: {child}",
                 )
@@ -2206,7 +2210,7 @@ class ProjectRuntimeSessionStore:
             return []
         records: list[CreatorConversationRecord] = []
         for path in sorted(root.glob("*.json")):
-            if path.is_symlink() or not path.is_file():
+            if is_link_path(path) or not path.is_file():
                 raise SessionStoreIntegrityError(
                     f"Conversation must be a regular file: {path}",
                 )
@@ -2290,13 +2294,13 @@ class ProjectRuntimeSessionStore:
             raise RuntimeSessionNotFound(
                 f"Project does not exist: {project_id}",
             ) from exc
-        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(root_stat) or not stat.S_ISDIR(
             root_stat.st_mode,
         ):
             raise UnsafeSessionPath(
                 "Project root must be a regular, non-symlink directory",
             )
-        if stat.S_ISLNK(project_stat.st_mode) or not stat.S_ISREG(
+        if is_link_stat(project_stat) or not stat.S_ISREG(
             project_stat.st_mode,
         ):
             raise UnsafeSessionPath(

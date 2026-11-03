@@ -8,9 +8,12 @@ can be applied at project creation time.
 Follows the same immutable-dataclass + registry-dict pattern as
 ``motion_blueprints.py``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Literal
 
 from services.project_files.models import (
@@ -61,7 +64,32 @@ class VideoTemplate:
     icon_emoji: str
 
 
+def _informal_launch_template() -> VideoTemplate:
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "templates"
+        / "cat-launch"
+        / "template.json"
+    )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    floor = {
+        key: data.pop(f"design_floor_{key}")
+        for key in ("opening", "transitions", "body", "ending")
+    }
+    data["caption_blueprint_order"] = tuple(data["caption_blueprint_order"])
+    return VideoTemplate(
+        **data,
+        design_floor=VideoTemplateDesignFloor(**floor),
+        decoration_catalog=(),
+        frame_blueprint="",
+    )
+
+
+LEGACY_TEMPLATE_IDS = {"user:cat_launch_v1": "informal_launch"}
+
+
 _VIDEO_TEMPLATES: dict[str, VideoTemplate] = {
+    "informal_launch": _informal_launch_template(),
     "vlog_daily": VideoTemplate(
         template_id="vlog_daily",
         name="日常Vlog",
@@ -259,6 +287,7 @@ _VIDEO_TEMPLATES: dict[str, VideoTemplate] = {
 }
 
 _DISPLAY_ORDER = (
+    "informal_launch",
     "vlog_daily",
     "short_drama_cinematic",
     "tutorial_clean",
@@ -278,7 +307,9 @@ def list_video_templates() -> list[VideoTemplate]:
 
 
 def get_video_template(template_id: str) -> VideoTemplate | None:
-    return _VIDEO_TEMPLATES.get(template_id)
+    return _VIDEO_TEMPLATES.get(
+        LEGACY_TEMPLATE_IDS.get(template_id, template_id),
+    )
 
 
 def apply_video_template_to_project(

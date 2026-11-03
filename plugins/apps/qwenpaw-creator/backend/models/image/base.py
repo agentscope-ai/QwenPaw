@@ -291,6 +291,28 @@ _REFERENCE_CAPABILITIES = (
             "api-reference/generate-v4",
         ),
     ),
+    # MiniMax image-01 accepts exactly one character subject_reference image
+    # (the official docs cap it at one per request). image-01-live is a style
+    # model whose documented request has no reference field, so it is
+    # text-to-image only.
+    (
+        re.compile(r"^image-01$", re.IGNORECASE),
+        ImageReferenceCapability(
+            "minimax-image-01",
+            1,
+            "https://platform.minimaxi.com/docs/api-reference/"
+            "image-generation-t2i",
+        ),
+    ),
+    (
+        re.compile(r"^image-01-live$", re.IGNORECASE),
+        ImageReferenceCapability(
+            "minimax-image-01-live",
+            0,
+            "https://platform.minimaxi.com/docs/api-reference/"
+            "image-generation-t2i",
+        ),
+    ),
 )
 
 

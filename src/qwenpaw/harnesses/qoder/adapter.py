@@ -551,7 +551,7 @@ class QoderAdapter(HarnessAdapter):
             summary=summary,
         )
         decision = await service.wait_for_approval(
-            pending.request_id,
+            pending,
             pending.timeout_seconds,
         )
         if decision == ApprovalDecision.APPROVED:

@@ -537,7 +537,7 @@ async def test_activate_provider_does_not_block_event_loop(
 ) -> None:
     manager = ProviderManager()
 
-    def slow_save(_active_model):
+    def slow_save(_active_model, model_type="chat"):
         time.sleep(0.1)
 
     monkeypatch.setattr(manager, "save_active_model", slow_save)
@@ -564,10 +564,10 @@ async def test_cancelled_active_model_save_holds_lock_until_io_finishes(
     release = threading.Event()
     original_save = manager.save_active_model
 
-    def slow_save(active_model):
+    def slow_save(active_model, model_type="chat"):
         started.set()
         release.wait(timeout=5)
-        original_save(active_model)
+        original_save(active_model, model_type)
 
     monkeypatch.setattr(manager, "save_active_model", slow_save)
     save_task = asyncio.create_task(
@@ -603,10 +603,10 @@ async def test_cancelled_active_model_save_commits_memory_after_write(
     release = threading.Event()
     original_save = manager.save_active_model
 
-    def slow_save(active_model):
+    def slow_save(active_model, model_type="chat"):
         started.set()
         release.wait(timeout=5)
-        original_save(active_model)
+        original_save(active_model, model_type)
 
     monkeypatch.setattr(manager, "save_active_model", slow_save)
     save_task = asyncio.create_task(

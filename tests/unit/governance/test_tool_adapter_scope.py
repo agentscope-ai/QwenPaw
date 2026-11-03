@@ -6,6 +6,7 @@ chosen scope: SIMILAR → the generalized pattern, EXACT/None → the literal
 target. This exercises that decision with a fake ApprovalService + governor
 so no real model / HTTP / agentscope runtime is needed.
 """
+
 from __future__ import annotations
 
 # pylint: disable=protected-access
@@ -85,7 +86,11 @@ def _tc(target: str = "git status") -> ToolCallSpec:
     )
 
 
-async def _run_approval(scope: ApprovalScope | None, monkeypatch):
+async def _run_approval(
+    scope: ApprovalScope | None,
+    monkeypatch,
+    source="No rule hit",
+):
     """Drive ``_ask_user_approval`` with fakes; return (governor, pending)."""
     from qwenpaw.governance import tool_adapter
 
@@ -140,7 +145,7 @@ async def _run_approval(scope: ApprovalScope | None, monkeypatch):
             "root_agent_id": "agent-1",
             "tool_call_id": "tc-1",
         },
-        source="No rule hit",
+        source=source,
     )
     return governor, fake_svc._pending
 
@@ -159,6 +164,15 @@ class TestApprovalScopeConsumer:
         # Audit reason carries the scope label.
         _spec, decision = governor.audits[-1]
         assert "similar" in decision.reason
+
+    async def test_jev_approval_is_one_time(self, monkeypatch):
+        governor, _pending = await _run_approval(
+            ApprovalScope.SIMILAR,
+            monkeypatch,
+            source="jev",
+        )
+        assert governor.added == []
+        assert governor.audits[-1][1].action.value == "allow"
 
     async def test_exact_records_literal(self, monkeypatch):
         governor, _pending = await _run_approval(

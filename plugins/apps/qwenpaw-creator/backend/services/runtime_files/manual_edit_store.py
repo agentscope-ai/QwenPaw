@@ -35,7 +35,11 @@ from .models import (
     StrictRuntimeModel,
     utc_now,
 )
-from .path_safety import hashed_runtime_segment, require_safe_runtime_segment
+from .path_safety import (
+    hashed_runtime_segment,
+    is_link_stat,
+    require_safe_runtime_segment,
+)
 
 
 class ManualEditStoreError(RuntimeFileError):
@@ -371,13 +375,13 @@ class ManualEditBufferStore:
             raise ManualEditProjectNotFound(
                 f"Project does not exist: {project_id}",
             ) from exc
-        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(root_stat) or not stat.S_ISDIR(
             root_stat.st_mode,
         ):
             raise UnsafeManualEditPath(
                 "Project root must be a regular, non-symlink directory",
             )
-        if stat.S_ISLNK(project_stat.st_mode) or not stat.S_ISREG(
+        if is_link_stat(project_stat) or not stat.S_ISREG(
             project_stat.st_mode,
         ):
             raise UnsafeManualEditPath(

@@ -72,4 +72,23 @@ describe("ThinkingControl", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
   });
+
+  it("labels unsupported controls instead of presenting them as defaults", () => {
+    render(
+      <ThinkingControl
+        control={{
+          kind: "unsupported",
+          efforts: [],
+          supports_off: false,
+        }}
+        value={{ level: "inherit" }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("thinkingControl.unsupported")).toBeInTheDocument();
+    expect(
+      screen.queryByText("thinkingControl.default"),
+    ).not.toBeInTheDocument();
+  });
 });

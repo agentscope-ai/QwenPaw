@@ -79,6 +79,9 @@ Index tiers roll up only when they reach their 10-block capacity; pressure does 
 
 If SQLite FTS5 is available, QwenPaw also keeps a `conversation_history_fts` index over `content`. Without FTS5, recall search degrades to a slower `LIKE` scan.
 
+Instance backups preserve the history store while the service is running. See
+[Backup & Restore](./backup).
+
 ## Working Memory
 
 **Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by persisting and evicting older turns, then retaining a compact task-state summary and an expandable index. The summary never replaces the exact rows. Each substantive task turn also supplies a one-line **headline** for retrieval and navigation.
@@ -297,18 +300,20 @@ The legacy `pruning_recent_n` and `pruning_old_msg_max_bytes` tier settings are 
 
 Important fields:
 
-| Field                                            | Default        | Meaning                                                                                                           |
-| ------------------------------------------------ | -------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `strategy`                                       | `"scroll"`     | Selects Scroll's durable-history protocol. Legacy Native values are accepted only for compatibility and fallback. |
-| `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                                   |
-| `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                                           |
-| `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                                        |
-| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.                        |
-| `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                                     |
-| `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                                               |
-| `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.                             |
+| Field                                            | Default        | Meaning                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `strategy`                                       | `"scroll"`     | Selects Scroll's durable-history protocol. Legacy Native values are accepted only for compatibility and fallback.                                                                                                                                                                                                                       |
+| `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                                                                                                                                                                                                                                                         |
+| `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                                                                                                                                                                                                                                                                 |
+| `scroll_config.db_filename`                      | `"history.db"` | SQLite file path: relative to the agent workspace, or absolute (including outside the workspace). Supports `..`, `~`, and symlinks. Backslashes are normalized to `/`. Upgrades do not move the database. Backups include a SQLite snapshot; restore places it inside the destination workspace and updates the restored configuration. |
+| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.                                                                                                                                                                                                                                              |
+| `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                                                                                                                                                                                                                                                           |
+| `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                                                                                                                                                                                                                                                                     |
+| `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.                                                                                                                                                                                                                                                   |
 
 ## Manual Compaction
+
+Manual `/compact` uses the same effective model selection as ordinary messages under both Scroll and native strategies: explicit request override → conversation model → agent default → global default. Changing the conversation model takes effect immediately for manual compaction; sending a normal message first is unnecessary. Scroll continues to request thinking off for its summary call. Separate long-term-memory jobs retain their own configured model policy.
 
 `/compact` still exists. Under Scroll it forces eligible older turns into durable history while preserving the configured recent tail and active turn. When turns are actually archived, Scroll also updates the continuation summary. The command response reports what changed, but does not expose the internal eviction index, retrieval headlines, or continuation state in the chat transcript. Use `/compact_str` to inspect the current continuation summary; archived originals remain recoverable through Scroll history.
 
@@ -388,3 +393,53 @@ For tasks that require exact wording, such as checking an ID, hash, or version n
 If an exact value appears incorrect, ask the Agent to use `recall_context` to re-read the original source before answering. If answer quality remains unstable, switch to **Low** intensity or disable the feature.
 
 > **Acknowledgment:** The engineering implementation of Visual Compact was informed by [pxpipe](https://github.com/teamchong/pxpipe).
+
+## Optional decision model compaction
+
+In **Agent → Configuration → Context management → Decision model compaction**, enable the feature and set its
+limits. Select an agent decision model in Model settings, or configure a global default decision model.
+The current implementation supports the TypeSafe decision provider.
+
+QwenPaw reuses its provider model factory, saved credentials and request headers, and lends the same
+decision model instance to ReMe. No separate ReMe API key is needed. Requires ReMe 0.4.2.0.
+
+Disabled by default, this enhancement supports both `scroll` and `native`, independently of long-term memory
+and the chat decision toggle. Automatic context compaction must be enabled. This pass runs only above the normal
+automatic trigger; manual `/compact` and emergency overflow recovery retain their existing behavior.
+
+Scroll confirms originals are durable in `history.db`; native mode archives candidate outputs under
+`tool_results/`. ReMe evaluates bounded evidence from successful completed text tool results. The complete
+active turn, recent messages, uncertain results, media and tool pairing remain protected. Low-relevance outputs
+become previews with `recall_history` (Scroll) or `read_file` (native) recovery instructions. Sources retain their
+existing retention periods: recovery is available while the originals remain. Bounded conversation evidence is
+sent to the configured decision provider.
+
+QwenPaw verifies that only permitted outputs change and that actual model input tokens decrease, including
+system prompt and tools. If the context reaches its trigger budget, eviction is avoided; otherwise normal
+compaction continues with any verified savings. Archive/provider failure, timeout, invalid proposals or no
+savings continue normal compaction. Cancellation propagates without committing an incomplete proposal.
+QwenPaw closes its decision model client after ReMe drains calls.
+
+Set `decision_compact_config` under the agent's `running.light_context_config`:
+
+```json
+{
+  "decision_compact_config": {
+    "enabled": false,
+    "drop_threshold": 0.1,
+    "preserve_recent_messages": 6,
+    "preview_chars": 300,
+    "total_timeout_seconds": 30,
+    "max_state_tokens": 25000,
+    "max_request_tokens": 30000,
+    "evidence_chars": 2000,
+    "max_concurrency": 4
+  }
+}
+```
+
+`drop_threshold` is a probability in `[0, 1]`; lower values preserve more originals. `preserve_recent_messages`
+is a nonnegative count and never weakens active-turn protection. `preview_chars` is a nonnegative character
+limit excluding recovery instructions. `total_timeout_seconds` is greater than zero and at most 300 seconds.
+Advanced state/request limits are positive ReMe token estimates, separate from the chat model's actual counter.
+`evidence_chars` is a positive per-result excerpt limit; `max_concurrency` is between 1 and 32.

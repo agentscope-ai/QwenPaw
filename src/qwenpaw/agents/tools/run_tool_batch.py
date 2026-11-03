@@ -622,12 +622,12 @@ async def _call_tool(
         response: ToolChunk | None = None
         tool_stream = toolkit.call_tool(tool_call, agent_state)
         async for chunk in tool_stream:
+            # Preserve interruption while draining the toolkit's final
+            # response. Closing at its interrupted yield makes AgentScope
+            # yield from finally during GeneratorExit.
+            if getattr(response, "state", None) == ToolResultState.INTERRUPTED:
+                continue
             response = chunk
-            # An INTERRUPTED chunk is terminal: keep it as the response and
-            # stop consuming so a later chunk can't overwrite the signal.
-            # (Post-loop callers detect interruption via ``response.state``.)
-            if getattr(chunk, "state", None) == ToolResultState.INTERRUPTED:
-                break
         if response is None:
             return _json_tool_response(
                 {
@@ -641,6 +641,12 @@ async def _call_tool(
             await tool_stream.aclose()
         raise
     except Exception as exc:  # pylint: disable=broad-except
+        if getattr(response, "state", None) == ToolResultState.INTERRUPTED:
+            logger.warning(
+                f"Tool stream cleanup failed after interruption: {tool_name}",
+                exc_info=True,
+            )
+            return response
         return _json_tool_response(
             {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
         )

@@ -205,7 +205,10 @@ def test_fake_provider_publishes_one_canonical_index_and_read_apis(
     assert {item.kind for item in query.items} >= {"shot", "semantic"}
 
 
-def test_materialize_rejects_symlinked_source_temp_directory(tmp_path) -> None:
+def test_materialize_rejects_symlinked_source_temp_directory(
+    tmp_path,
+    directory_link,
+) -> None:
     services, asset_id, _ = _services_with_source(tmp_path)
     service = SourceMediaAnalysisService(services, analyzer=FakeAnalyzer())
     dispatch = asyncio.run(_dispatch(service, asset_id, "symlinked-copy"))
@@ -217,7 +220,7 @@ def test_materialize_rejects_symlinked_source_temp_directory(tmp_path) -> None:
         / "temp"
         / "source-analysis"
     )
-    temp_parent.symlink_to(external, target_is_directory=True)
+    directory_link(external, temp_parent)
 
     with pytest.raises(StorageIntegrityError, match="symlink"):
         service._materialize_verified_input_sync(dispatch.job)

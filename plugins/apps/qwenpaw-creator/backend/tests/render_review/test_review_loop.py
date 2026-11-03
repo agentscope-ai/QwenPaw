@@ -76,6 +76,14 @@ def services(tmp_path: Path, monkeypatch) -> CreatorFileServices:
 
 @pytest.fixture()
 def stubbed_evidence(tmp_path: Path, monkeypatch):
+    # These tests stub the primary VLM and use an invalid four-byte video.
+    # Do not let the optional challenge pass make a real text-model request
+    # (its 120s timeout also exhausts the Windows CI test budget). The overlap
+    # test below explicitly enables and stubs that pass itself.
+    monkeypatch.setattr(
+        "models.config.is_render_challenge_enabled",
+        lambda: False,
+    )
     frame_path = tmp_path / "stub-frame.jpg"
     frame_path.write_bytes(b"\xff\xd8\xff\xd9")
 

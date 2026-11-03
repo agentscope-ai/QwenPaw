@@ -33,13 +33,14 @@ import "dayjs/locale/ru";
 import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
-import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import { useTheme } from "./contexts/ThemeContext";
 import { FontSizeProvider } from "./contexts/FontSizeContext";
 import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
 import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { UpdateTakeoverGate } from "./components/UpdateTakeoverPage";
-import { Suspense, lazy } from "react";
+import { lazy } from "react";
+import { ChunkRecoverySuspense } from "./components/ChunkRecoverySuspense";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 import {
   addRouterBasename,
@@ -56,7 +57,6 @@ const HubPage = lazyImportWithRetry("./pages/Hub/index");
 const DesktopOSPage = lazy(() => import("./os/DesktopOS"));
 import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
-import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
 import BackendLoadingPage from "./tauri/BackendLoadingPage";
 import {
   resolveAuthGate,
@@ -98,8 +98,8 @@ export function getAppThemeToken(
   fontSize: number = UI_FONT_SIZE_DEFAULT,
 ): NonNullable<AntThemeConfig["token"]> {
   // Grow control heights with the font size so text never outgrows its
-  // control box. Clamp the multiplier at 1 so smaller sizes keep the default
-  // click targets (antd defaults: 32 / 24 / 40).
+  // control box. Clamp the multiplier at 1 so smaller sizes keep the shared
+  // semantic control ladder (medium / small / large: 36 / 32 / 44).
   const controlScale = Math.max(1, fontSize / UI_FONT_SIZE_DEFAULT);
   return {
     colorPrimary:
@@ -111,9 +111,9 @@ export function getAppThemeToken(
     fontFamily:
       "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
     fontSize,
-    controlHeight: Math.round(32 * controlScale),
-    controlHeightSM: Math.round(24 * controlScale),
-    controlHeightLG: Math.round(40 * controlScale),
+    controlHeight: Math.round(36 * controlScale),
+    controlHeightSM: Math.round(32 * controlScale),
+    controlHeightLG: Math.round(44 * controlScale),
     ...(userTheme.radius
       ? { borderRadius: Number.parseFloat(userTheme.radius) }
       : {}),
@@ -161,10 +161,12 @@ function AuthGuard({
   children,
   authStatus,
   useHardRedirect = false,
+  loadingFallback,
 }: {
   children: React.ReactNode;
   authStatus: AuthStatusResponse;
   useHardRedirect?: boolean;
+  loadingFallback?: React.ReactNode;
 }) {
   const [status, setStatus] = useState<
     "loading" | "auth-required" | "ok" | "error"
@@ -193,7 +195,7 @@ function AuthGuard({
   }, [authStatus, retryKey]);
 
   if (status === "loading") {
-    return null;
+    return <>{loadingFallback}</>;
   }
   if (status === "error") {
     return (
@@ -379,7 +381,13 @@ export function RuntimeAvailabilityGuard({
   );
 }
 
-function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
+function AppInner({
+  backendInfo,
+  loadingFallback,
+}: {
+  backendInfo: BackendInfo;
+  loadingFallback?: React.ReactNode;
+}) {
   const hubMode = backendInfo.mode === "hub";
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
@@ -486,11 +494,15 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   // own MemoryRouter (WindowRouter.tsx) and React Router forbids nesting a
   // <Router> inside another. The classic browser layout keeps its BrowserRouter.
   const routedContent = osActive ? (
-    <AuthGuard authStatus={backendInfo.authStatus} useHardRedirect>
+    <AuthGuard
+      loadingFallback={loadingFallback}
+      authStatus={backendInfo.authStatus}
+      useHardRedirect
+    >
       <RuntimeAvailabilityGuard enabled={hubMode}>
-        <Suspense fallback={null}>
+        <ChunkRecoverySuspense fallback={null}>
           <DesktopOSPage />
-        </Suspense>
+        </ChunkRecoverySuspense>
       </RuntimeAvailabilityGuard>
     </AuthGuard>
   ) : (
@@ -499,19 +511,22 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
         <Route
           path="/login"
           element={
-            <Suspense fallback={null}>
+            <ChunkRecoverySuspense fallback={null}>
               <LoginPage />
-            </Suspense>
+            </ChunkRecoverySuspense>
           }
         />
         <Route
           path="/hub/admin"
           element={
             hubMode ? (
-              <AuthGuard authStatus={backendInfo.authStatus}>
-                <Suspense fallback={null}>
+              <AuthGuard
+                loadingFallback={loadingFallback}
+                authStatus={backendInfo.authStatus}
+              >
+                <ChunkRecoverySuspense fallback={null}>
                   <HubPage />
-                </Suspense>
+                </ChunkRecoverySuspense>
               </AuthGuard>
             ) : (
               <Navigate to="/" replace />
@@ -521,7 +536,10 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
         <Route
           path="/*"
           element={
-            <AuthGuard authStatus={backendInfo.authStatus}>
+            <AuthGuard
+              loadingFallback={loadingFallback}
+              authStatus={backendInfo.authStatus}
+            >
               <RuntimeAvailabilityGuard enabled={hubMode}>
                 <MainLayout hubMode={hubMode} />
               </RuntimeAvailabilityGuard>
@@ -557,7 +575,6 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
       >
         <AntdConfigProvider locale={antdLocale}>
           <AntdApp>
-            <CloseWindowPrompt />
             <DesktopUpdateProvider>
               <UpdateTakeoverGate>
                 <ApprovalProvider>
@@ -574,15 +591,11 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   );
 }
 
-function App() {
-  return (
-    <ThemeProvider>
-      <BackendModeRouter />
-    </ThemeProvider>
-  );
-}
-
-function BackendModeRouter() {
+function App({
+  loadingFallback = null,
+}: {
+  loadingFallback?: React.ReactNode;
+}) {
   const [backendInfo, setBackendInfo] = useState<
     "loading" | "error" | BackendInfo
   >("loading");
@@ -610,7 +623,7 @@ function BackendModeRouter() {
   }, [retryKey]);
 
   if (backendInfo === "loading") {
-    return null;
+    return <>{loadingFallback}</>;
   }
   if (backendInfo === "error") {
     return (
@@ -625,7 +638,7 @@ function BackendModeRouter() {
   }
   return (
     <PluginProvider>
-      <AppInner backendInfo={backendInfo} />
+      <AppInner backendInfo={backendInfo} loadingFallback={loadingFallback} />
     </PluginProvider>
   );
 }

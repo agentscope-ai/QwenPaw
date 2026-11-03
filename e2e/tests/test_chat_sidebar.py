@@ -84,11 +84,11 @@ class TestSidebarDateGroups:
 
         log_test_step("1. Mock the sidebar list with 5 crafted-timestamp sessions")
         sidebar_sessions.register(page)
-        # SidebarSessionList only mounts in the sidebar's *simple* mode
-        # (Sidebar.tsx: isSimpleExpanded branch); the default is "full"
-        # nav mode, so pin simple mode before the app boots.
+        # SidebarSessionList defaults to source grouping. Pin date grouping
+        # before the app boots so the date buckets under test are rendered.
         page.add_init_script(
-            "try { localStorage.setItem('qwenpaw_sidebar_mode', 'simple'); }"
+            "try { localStorage.setItem("
+            "'qwenpaw_session_group_mode', 'date'); }"
             " catch (e) {}"
         )
         chat = ChatPage(page)

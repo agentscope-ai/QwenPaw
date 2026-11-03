@@ -98,6 +98,8 @@ const appCenterStyles = readSource("src/pages/AppCenter/index.module.less");
 const channelStyles = readSource(
   "src/pages/Control/Channels/index.module.less",
 );
+const channelSource = readSource("src/pages/Control/Channels/index.tsx");
+const skillPresentationStyles = readSource("src/styles/skillPresentation.less");
 const skillStyles = readSource("src/pages/Agent/Skills/index.module.less");
 const toolStyles = readSource("src/pages/Agent/Tools/index.module.less");
 const skillPoolStyles = readSource(
@@ -165,30 +167,17 @@ describe("console font-size coverage", () => {
     expect(rule).toContain("var(--app-font-scale)");
   });
 
-  it("wraps sender actions below the model row when files reduce chat width", () => {
-    const marker = ".filesPreviewOpen,";
-    const markerIndex = chatStyles.indexOf(marker);
-    const rule = chatStyles.slice(
-      markerIndex,
-      chatStyles.indexOf(".compactSenderAffix", markerIndex),
-    );
-
-    expect(markerIndex).toBeGreaterThanOrEqual(0);
-    expect(rule).toContain('[class$="-sender-content-bottom"]');
-    expect(rule).toMatch(/flex-wrap:\s*wrap/);
-    expect(rule).toContain('[class$="-sender-prefix"]');
-    expect(rule).toContain('[class$="-sender-actions-list"]');
-    expect(rule).toMatch(/flex:\s*1 1 100%/);
-  });
-
-  it("scales user bubbles and keeps the ordinary sender on one row", () => {
+  it("scales user bubbles and wraps the sender only when space runs out", () => {
     expect(chatStyles).toContain('[data-role="user"] [class$="-markdown"]');
     expect(chatStyles).toContain("font-size: var(--app-font-body) !important");
     const root = chatStyles.slice(0, chatStyles.indexOf(".filesPreviewOpen"));
-    expect(root).toMatch(/-sender-content-bottom[\s\S]*flex-wrap:\s*nowrap/);
-    expect(root).toMatch(/-sender-prefix[\s\S]*flex:\s*1 1 auto/);
+    expect(root).toMatch(/-sender-content-bottom[\s\S]*flex-wrap:\s*wrap/);
+    expect(root).toMatch(/-sender-prefix[\s\S]*flex:\s*1 1 max-content/);
     expect(root).toMatch(/> div \{\s*flex-wrap:\s*nowrap;/);
-    expect(root).toMatch(/-sender-actions-list[\s\S]*flex-wrap:\s*nowrap/);
+    expect(root).toMatch(
+      /-sender-actions-list[\s\S]*flex:\s*0 0 auto;[\s\S]*flex-wrap:\s*nowrap/,
+    );
+    expect(chatStyles).not.toMatch(/flex:\s*1 1 100%/);
     expect(chatStyles).toContain(".senderProjectControl");
     expect(chatStyles).toContain(".senderApprovalControl");
     expect(chatStyles).toContain("white-space: nowrap !important;");
@@ -223,12 +212,9 @@ describe("console font-size coverage", () => {
     const pageRule = readRule(channelStyles, ".channelsPage");
     expect(pageRule).toContain(".scaled-control-typography();");
     expect(pageRule).toContain("font-size: var(--app-font-body)");
-    expect(readRule(channelStyles, ".breadcrumbHeader")).toContain(
-      "font-size: var(--app-font-subtitle)",
-    );
-    expect(readRule(channelStyles, ".breadcrumbCurrent")).toContain(
-      "font-size: var(--app-font-title)",
-    );
+    expect(channelSource).toContain("<PageHeader");
+    expect(readRule(channelStyles, ".breadcrumbHeader")).toBe("");
+    expect(readRule(channelStyles, ".breadcrumbCurrent")).toBe("");
     expect(readRule(channelStyles, ".filterTab")).toContain(
       "font-size: var(--app-font-secondary)",
     );
@@ -250,7 +236,8 @@ describe("console font-size coverage", () => {
     const pageRule = readRule(skillStyles, ".skillsPage");
     expect(pageRule).toContain(".scaled-control-typography();");
     expect(pageRule).toContain("font-size: var(--app-font-body)");
-    expect(readRule(skillStyles, ".skillTitle")).toContain(
+    expect(readRule(skillStyles, ".skillTitle")).toContain(".skill-title();");
+    expect(skillPresentationStyles).toContain(
       "font-size: var(--app-font-subtitle)",
     );
     expect(readRule(skillStyles, ".descriptionText")).toContain(
@@ -297,6 +284,9 @@ describe("console font-size coverage", () => {
     expect(pageRule).toContain(".scaled-control-typography();");
     expect(pageRule).toContain("font-size: var(--app-font-body)");
     expect(readRule(skillPoolStyles, ".skillTitle")).toContain(
+      ".skill-title();",
+    );
+    expect(skillPresentationStyles).toContain(
       "font-size: var(--app-font-subtitle)",
     );
     expect(readRule(skillPoolStyles, ".descriptionText")).toContain(

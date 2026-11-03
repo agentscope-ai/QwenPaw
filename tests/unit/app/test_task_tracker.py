@@ -12,6 +12,7 @@ Covers:
 - wait_all_done() returns True when idle, False on timeout
 - global status counters update via run lifecycle
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -21,7 +22,6 @@ import json
 import pytest
 
 from qwenpaw.app.task_tracker import TaskTracker
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -210,10 +210,15 @@ async def test_attach_or_start_existing_run_returns_buffer_replay():
 async def test_request_stop_cancels_live_run():
     tracker = TaskTracker()
     started = asyncio.Event()
+    cancel_reasons = []
 
     async def long_stream(_payload):
         started.set()
-        await asyncio.sleep(60)
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError as exc:
+            cancel_reasons.append(exc.args)
+            raise
         yield "never"
 
     await tracker.attach_or_start(
@@ -225,8 +230,9 @@ async def test_request_stop_cancels_live_run():
 
     assert await tracker.get_status("run-cancel") == "running"
 
-    stopped = await tracker.request_stop("run-cancel")
+    stopped = await tracker.request_stop("run-cancel", reason="timeout")
     assert stopped is True
+    assert cancel_reasons == [("timeout",)]
 
     # Give the task loop time to process cancellation and cleanup.
     await asyncio.sleep(0.05)
@@ -329,6 +335,123 @@ async def test_stream_from_queue_yields_until_sentinel_and_detaches():
     assert collected == events
     # After streaming, run is cleaned up, so detach should be a no-op.
     assert await tracker.get_status("run-stream") == "idle"
+
+
+@pytest.mark.parametrize("owns_run", [False, True])
+async def test_cancel_stream_only_stops_owned_producer_after_cleanup(owns_run):
+    tracker = TaskTracker()
+    started, release, cleaning, finish, interrupted = (
+        asyncio.Event() for _ in range(5)
+    )
+    cancelled = []
+
+    async def producer(_payload):
+        started.set()
+        try:
+            await release.wait()
+            yield "done"
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+        finally:
+            cleaning.set()
+            try:
+                await finish.wait()
+            except asyncio.CancelledError:
+                interrupted.set()
+                raise
+
+    queue, _ = await tracker.attach_or_start("owned", None, producer)
+    task = tracker._runs["owned"].task
+
+    async def consume():
+        options = {"cancel_run": True} if owns_run else {}
+        async for _ in tracker.stream_from_queue(queue, "owned", **options):
+            pass
+
+    consumer = asyncio.create_task(consume())
+    await asyncio.wait_for(started.wait(), 1)
+    await asyncio.sleep(0)
+    consumer.cancel()
+    try:
+        if owns_run:
+            await asyncio.wait_for(cleaning.wait(), 1)
+            consumer.cancel()
+            done, _ = await asyncio.wait({consumer}, timeout=0.01)
+            assert not done and not interrupted.is_set()
+        else:
+            await consumer
+            assert not consumer.cancelled()
+            assert not task.done() and not task.cancelling()
+            assert not cleaning.is_set()
+            assert queue not in tracker._runs["owned"].queues
+        release.set()
+        finish.set()
+        if owns_run:
+            with pytest.raises(asyncio.CancelledError):
+                await consumer
+        await asyncio.gather(task, return_exceptions=True)
+        assert cancelled == ([True] if owns_run else [])
+        assert task.done()
+        assert not interrupted.is_set()
+        assert await tracker.get_status("owned") == "idle"
+    finally:
+        release.set()
+        finish.set()
+        await asyncio.gather(consumer, task, return_exceptions=True)
+
+
+async def test_owned_stream_cancellation_never_stops_successor_run(
+    monkeypatch,
+):
+    tracker = TaskTracker()
+    release_old, release_new, reading, release_read = (
+        asyncio.Event() for _ in range(4)
+    )
+
+    async def producer(release):
+        await release.wait()
+        yield "done"
+
+    queue, _ = await tracker.attach_or_start("same-key", release_old, producer)
+    old_task = tracker._runs["same-key"].task
+    get = queue.get
+
+    async def held_get():
+        reading.set()
+        await release_read.wait()
+        return await get()
+
+    monkeypatch.setattr(queue, "get", held_get)
+
+    async def consume():
+        async for _ in tracker.stream_from_queue(
+            queue,
+            "same-key",
+            cancel_run=True,
+        ):
+            pass
+
+    consumer = asyncio.create_task(consume())
+    await asyncio.wait_for(reading.wait(), 1)
+    release_old.set()
+    await old_task
+    _, is_new = await tracker.attach_or_start(
+        "same-key",
+        release_new,
+        producer,
+    )
+    assert is_new
+    successor = tracker._runs["same-key"].task
+    try:
+        consumer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await consumer
+        assert not successor.done() and not successor.cancelling()
+    finally:
+        release_read.set()
+        release_new.set()
+        await asyncio.gather(consumer, successor, return_exceptions=True)
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +598,42 @@ async def test_concurrent_attach_or_start_only_one_producer():
             item = await asyncio.wait_for(q.get(), timeout=1)
             if item is None:
                 break
+
+
+@pytest.mark.asyncio
+async def test_failed_task_creation_leaves_no_zombie_run(monkeypatch):
+    """A failed task creation must not leak a permanent "running" entry.
+
+    Defensive path: ``attach_or_start`` registers the run only *after*
+    the producer task exists, so a failure to create it leaves nothing
+    behind. This is not reachable in production -- the register/create
+    window is synchronous and a running loop cannot be closed -- so the
+    failure is injected through the module-level ``_create_task`` seam,
+    leaving the process-wide ``asyncio`` module untouched.
+    """
+    from qwenpaw.app import task_tracker as tracker_mod
+
+    tracker = TaskTracker()
+
+    def _boom(coro):
+        coro.close()
+        raise RuntimeError("create_task failed")
+
+    monkeypatch.setattr(tracker_mod, "_create_task", _boom)
+
+    with pytest.raises(RuntimeError):
+        await tracker.attach_or_start(
+            "run-fail",
+            None,
+            _make_stream(["data: x\n\n"]),
+        )
+
+    assert "run-fail" not in tracker._runs
+    assert await tracker.list_active_tasks() == []
+    assert await tracker.has_active_tasks() is False
+    status = await tracker.get_global_status()
+    assert status["running_task_count"] == 0
+    assert status["status"] == "idle"
 
 
 # ---------------------------------------------------------------------------

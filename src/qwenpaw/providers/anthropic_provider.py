@@ -14,6 +14,7 @@ from pydantic import Field
 
 from .model_info import release_date
 from ..utils.io_utils import run_sync_io
+from .adapters.request_context import with_session_header
 from .adapters.wire_protocol import anthropic_base_url
 from .multimodal_prober import (
     ProbeResult,
@@ -88,7 +89,11 @@ class AnthropicProvider(Provider):
             await client.aclose()
 
     def _build_default_headers(self) -> Dict[str, str]:
-        return dict(self.custom_headers) if self.custom_headers else {}
+        return with_session_header(
+            dict(self.custom_headers) if self.custom_headers else {},
+            self.session_header_name,
+            self._request_session,
+        )
 
     def _get_strip_http_client(self) -> Any:
         """Use the SDK's client type and strip API keys before sending."""

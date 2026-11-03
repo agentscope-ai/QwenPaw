@@ -37,10 +37,15 @@ Before your first project, open **Model Configuration** at the lower right of th
 | Scenario                            | Required capabilities                     | Role in the workflow                                             |
 | ----------------------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
 | Every scenario                      | LLM (required)                            | The brain for creative planning, storyboards, and Agent dialogue |
-| Short drama / general generation    | Image generation + video generation + VLM | Generate frames and video; use VLM for visual quality review     |
+| Script-only short drama             | LLM                                       | Draft and revise the script before configuring media models       |
+| Short drama media production / general generation | Image generation + video generation + VLM | Generate frames and video; use VLM for visual quality review |
 | Editing / uploaded sources          | VLM                                       | Understand uploaded image and video content                      |
 | Sources with speech / transcription | ASR                                       | Turn speech into text for editing and subtitles                  |
 | Voice-over / digital-human delivery | TTS + digital human                       | Synthesize narration and dialogue; drive talking-video segments  |
+
+New short dramas default to **Write the script first**. Images and videos stay paused in every execution mode until you choose **Confirm script and enable production** in the blueprint. Confirmation applies to the saved script version; later edits to the script itself (episode title, synopsis, description or the script draft) pause media again, while shot breakdown and per-shot direction after confirmation do not. You can opt into full production at project creation by clearing this choice. Existing projects retain their previous behavior and can use **Return to script stage**.
+
+Manually regenerating an image or video pauses its downstream work. Regenerate the next node explicitly or use **Continue production** when you want the rest of the workflow to resume. A queued video blocked before submission is retried with current inputs instead of sending an old frozen storyboard.
 
 The current model matrix is grouped by capability:
 

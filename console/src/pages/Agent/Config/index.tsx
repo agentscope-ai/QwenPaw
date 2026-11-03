@@ -338,7 +338,7 @@ function AgentConfigPage() {
 
   return (
     <div className={styles.configPage}>
-      <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
+      <PageHeader current={t("agentConfig.title")} />
 
       <div className={styles.content}>
         <MemoryMaintenanceContext.Provider

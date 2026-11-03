@@ -29,6 +29,9 @@ from services.prompt_text import (
     video_prompt_time_error,
 )
 from services.project_files.prompt_sync import prompt_sync_status
+from services.project_files.media_selection import (
+    accepted_video_selection_is_current,
+)
 from services.project_files.blueprint_readiness import (
     STORY_BEFORE_VISUAL_MESSAGE,
     visual_story_missing,
@@ -378,7 +381,9 @@ def _gate_visual_anchors(nodes: list[WorkNode]) -> list[WorkNode]:
 def _task_error_summary(task: Any) -> str | None:
     error = getattr(task, "error", None)
     if isinstance(error, Mapping) and error.get("message"):
-        return str(error["message"])[:200]
+        # Provider context often precedes the actionable repair instructions.
+        # Truncating at 200 characters hid instructions from the Agent.
+        return str(error["message"])[:2000]
     return None
 
 
@@ -577,6 +582,7 @@ def _dispatch_inputs_changed(
     return identity not in {ledger, dispatch_slot(ledger), legacy_slot}
 
 
+# pylint: disable-next=too-many-return-statements
 def _artifact_is_stale(
     project: Project,
     version_id: str | None,
@@ -608,6 +614,9 @@ def _artifact_is_stale(
         # STALE is intentionally excluded from ready_media_nodes(). This is a
         # visible review signal, never permission to regenerate manual media.
         return True
+    accepted = accepted_video_selection_is_current(project, artifact)
+    if accepted is not None:
+        return not accepted
     if artifact.provenance_refs:
         provenance = {
             ref.removeprefix("artifact-version:").removeprefix(
@@ -676,6 +685,21 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
     statuses: dict[str, WorkNodeStatus] = {}
 
     def add(node: WorkNode) -> None:
+        if (
+            project.settings.production_stage == "script"
+            and node.kind
+            in {"visual", "lineup", "storyboard", "video", "compose"}
+            and node.status is not WorkNodeStatus.RUNNING
+        ):
+            from services.project_files.production_stage import (
+                SCRIPT_ONLY_MESSAGE,
+            )
+
+            node = replace(
+                node,
+                status=WorkNodeStatus.GATED,
+                missing=(*node.missing, SCRIPT_ONLY_MESSAGE),
+            )
         nodes.append(node)
         statuses[node.node_id] = node.status
 
@@ -990,6 +1014,9 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 command="GENERATE_TIMELINE_SCRIPT",
                 target_ref=f"timeline:{timeline_id}",
                 dispatch_fingerprint=fingerprint,
+                regeneration_of=(
+                    selected if status is WorkNodeStatus.STALE else None
+                ),
             ),
         )
         script_node_by_timeline[timeline_id] = node_id

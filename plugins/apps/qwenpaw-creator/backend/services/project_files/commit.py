@@ -37,7 +37,11 @@ from services.runtime_files.atomic_store import (
 from services.runtime_files.field_blocks import FieldBlockStore
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.manual_edit_store import ManualEditBufferStore
-from services.runtime_files.path_safety import hashed_runtime_segment
+from services.runtime_files.path_safety import (
+    hashed_runtime_segment,
+    is_link_path,
+    is_link_stat,
+)
 from services.runtime_files.models import (
     ChangeOrigin,
     ChangeRoundRecord,
@@ -65,7 +69,7 @@ from .json_pointer import (
     value_at,
 )
 from .locator_map import derive_ui_locator
-from .models import Project
+from .models import CURRENT_PROJECT_SCHEMA_VERSION, Project
 from .serialization import project_etag
 from .review_bookkeeping import is_human_review_change
 from .store import ProjectSnapshot, ProjectStore
@@ -101,6 +105,20 @@ class CommitJournalState(StrEnum):
     ABORTED = "ABORTED"
 
 
+# Document representation a journal's ``touched_pointers`` and snapshots were
+# diffed against.  Recovery recomputes both and MUST replay the same
+# representation the committing boundary used, or a legitimate transaction is
+# misread as tampered.  ``SOURCE`` (the default, so journals persisted before
+# this field existed keep recovering) diffs the raw ``base.json`` /
+# ``candidate.json`` / ``latest.json`` verbatim.  ``MIGRATED`` diffs the
+# migrated ``model_dump`` on both sides so system normalization (defaulted
+# fields, timestamp canonicalisation, load-time repairs such as muting an older
+# overlapping narration) never surfaces as a phantom user edit.  New commits
+# stamp ``MIGRATED``.
+DIFF_SEMANTICS_SOURCE = 1
+DIFF_SEMANTICS_MIGRATED = 2
+
+
 class ProjectCommitJournal(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -117,6 +135,11 @@ class ProjectCommitJournal(BaseModel):
     final_etag: str | None = None
     temp_path: str
     touched_pointers: list[str]
+    # Representation ``touched_pointers`` was diffed against; see
+    # DIFF_SEMANTICS_*.  Defaults to the legacy source semantics so a journal
+    # written before this field existed still recovers against the exact
+    # documents it recorded.
+    diff_semantics: int = DIFF_SEMANTICS_SOURCE
     created_at: datetime
     updated_at: datetime
     error: str | None = None
@@ -221,6 +244,55 @@ def _now() -> datetime:
 
 def _json(project: Project) -> dict[str, Any]:
     return project.model_dump(mode="json")
+
+
+def _snapshot_document(snapshot: ProjectSnapshot) -> dict[str, Any]:
+    """The persisted recovery ETag anchor for one snapshot.
+
+    ``ProjectStore.read`` hashes the persisted *source* document
+    (:func:`project_document_etag`). Recovery re-hashes the two persisted
+    transaction snapshots against those source ETags: ``base.json`` must
+    equal ``journal.base_etag`` and ``latest.json`` must equal
+    ``journal.publish_base_etag`` (``latest.etag``), so those two files stay
+    the source document verbatim.
+
+    The source is deliberately *not* the diff base. User-edit diffs,
+    protected-pointer checks and the three-way merge run on the migrated
+    ``model_dump`` (``_json``), the same representation the candidate is
+    built from: diffing the raw source against the candidate would report
+    every model-defaulted field, timestamp canonicalisation and generation
+    fill as a user edit and reject legitimate saves of older documents.
+    Recovery recomputes ``touched_pointers`` the same way -- it normalizes
+    ``base.json`` before diffing it against ``candidate.json``.
+
+    Only a source already at ``CURRENT_PROJECT_SCHEMA_VERSION`` is used
+    verbatim; a legacy source below it is not guaranteed to re-hash to its
+    stored ETag once migrated, so those keep the migrated ``model_dump``.
+    Snapshots built in memory (``source_document is None``) also keep the
+    ``model_dump`` -- their model already is the authority ``project_etag``
+    hashed.
+    """
+
+    source = snapshot.source_document
+    if (
+        source is not None
+        and source.get("schema_version") == CURRENT_PROJECT_SCHEMA_VERSION
+    ):
+        return copy.deepcopy(dict(source))
+    return _json(snapshot.project)
+
+
+def _snapshot_store(path: Path) -> AtomicJsonRecordStore[dict[str, Any]]:
+    """Open one transaction snapshot for compressed storage.
+
+    A snapshot repeats nearly the whole Project, so it compresses by an order
+    of magnitude.  Only the container changes: a journal etag is the checksum
+    of the canonical value, and readers sniff the gzip header, so the plain
+    snapshots already on disk stay readable and verifiable.  What goes inside
+    stays :func:`_snapshot_document`, which recovery re-hashes.
+    """
+
+    return AtomicJsonRecordStore(path, compress_payload=True)
 
 
 def _candidate_hash(candidate: Mapping[str, Any]) -> str:
@@ -348,7 +420,10 @@ class ProjectCommitBoundary:
         advance_accepted_baseline: bool = True,
         block_token: str | None = None,
         reconcile_exclude_round_id: str | None = None,
-        prompt_sync_confirmation: tuple[str, str, str] | None = None,
+        prompt_sync_confirmation: (
+            tuple[str, str, str] | tuple[str, str, str, str] | None
+        ) = None,
+        production_stage_confirmation: str | None = None,
         prompt_sync_expected_etag: str | None = None,
         prompt_sync_context_validator: Callable[[dict[str, Any]], None]
         | None = None,
@@ -366,6 +441,11 @@ class ProjectCommitBoundary:
         round_id = _runtime_path_segment(round_id or transaction_id)
         origin_value = ChangeOrigin(origin)
         policy_value = ReviewPolicy(review_policy)
+        base_doc = _snapshot_document(base)
+        # Diffs, protection checks and the three-way merge run on the
+        # migrated model_dump so system normalization never surfaces as a
+        # user edit; base_doc is only the recovery ETag anchor persisted
+        # as base.json below.
         base_data = _json(base.project)
         candidate_data = copy.deepcopy(dict(candidate))
         candidate_etag = _candidate_hash(candidate_data)
@@ -379,6 +459,25 @@ class ProjectCommitBoundary:
         )
         if protected:
             raise ProtectedFieldError(protected)
+        from .production_stage import (
+            PRODUCTION_STAGE_POINTER,
+            SCRIPT_APPROVAL_POINTER,
+        )
+
+        user_only = [
+            item.pointer
+            for item in requested
+            if item.pointer == SCRIPT_APPROVAL_POINTER
+            or (
+                item.pointer == PRODUCTION_STAGE_POINTER
+                and (
+                    origin_value is not ChangeOrigin.FRONTEND_EDIT
+                    or production_stage_confirmation is None
+                )
+            )
+        ]
+        if user_only:
+            raise ProtectedFieldError(user_only)
         if origin_value is not ChangeOrigin.RUNTIME_TASK:
             runtime_only = sorted(
                 {
@@ -413,7 +512,7 @@ class ProjectCommitBoundary:
             self.store.read(project_id)
             runtime_root = self.store.project_root(project_id) / "runtime"
             transaction_root = runtime_root / "transactions" / transaction_id
-            if transaction_root.exists() or transaction_root.is_symlink():
+            if transaction_root.exists() or is_link_path(transaction_root):
                 self._archive_matching_aborted_transaction(
                     transaction_root=transaction_root,
                     runtime_root=runtime_root,
@@ -443,6 +542,7 @@ class ProjectCommitBoundary:
                 candidate_etag=candidate_etag,
                 temp_path=f"runtime/temp/project.json.{transaction_id}.tmp",
                 touched_pointers=[item.pointer for item in requested],
+                diff_semantics=DIFF_SEMANTICS_MIGRATED,
                 created_at=timestamp,
                 updated_at=timestamp,
             )
@@ -457,7 +557,7 @@ class ProjectCommitBoundary:
             transactions_root.mkdir(parents=True, exist_ok=True)
             staging_root = runtime_root / "temp" / "transactions"
             staging_root.mkdir(mode=0o700, exist_ok=True)
-            if staging_root.is_symlink() or not staging_root.is_dir():
+            if is_link_path(staging_root) or not staging_root.is_dir():
                 raise ProjectCommitError(
                     "Project transaction staging path must be a real directory",
                 )
@@ -470,10 +570,10 @@ class ProjectCommitBoundary:
                     staged_transaction / "round.json",
                     ChangeRoundRecord,
                 ).write(round_record)
-                AtomicJsonRecordStore(staged_transaction / "base.json").write(
-                    base_data,
+                _snapshot_store(staged_transaction / "base.json").write(
+                    base_doc,
                 )
-                AtomicJsonRecordStore(
+                _snapshot_store(
                     staged_transaction / "candidate.json",
                 ).write(candidate_data)
                 AtomicJsonRecordStore(
@@ -484,9 +584,8 @@ class ProjectCommitBoundary:
                 try:
                     os.rename(staged_transaction, transaction_root)
                 except OSError as exc:
-                    if (
-                        transaction_root.exists()
-                        or transaction_root.is_symlink()
+                    if transaction_root.exists() or is_link_path(
+                        transaction_root,
                     ):
                         raise ProjectCommitError(
                             f"Project transaction already exists: {transaction_id}",
@@ -565,12 +664,20 @@ class ProjectCommitBoundary:
             ):
                 latest = self.store.read(project_id)
                 if (
+                    production_stage_confirmation is not None
+                    and latest.etag != production_stage_confirmation
+                ):
+                    from domain.errors import ConflictError
+
+                    raise ConflictError("剧本已更新，请查看最新内容后重新确认。")
+                if (
                     prompt_sync_expected_etag is not None
                     and latest.etag != prompt_sync_expected_etag
                 ):
                     from domain.errors import ConflictError
 
                     raise ConflictError("项目在保存同步结果时已更新，请按最新内容重新生成")
+                latest_doc = _snapshot_document(latest)
                 latest_data = _json(latest.project)
                 if prompt_sync_context_validator is not None:
                     prompt_sync_context_validator(latest_data)
@@ -579,6 +686,9 @@ class ProjectCommitBoundary:
                     candidate=candidate_data,
                     latest=latest_data,
                 )
+                from .production_stage import derive_production_stage
+
+                derive_production_stage(latest_data, merged)
                 from .prompt_sync import derive_prompt_sync_changes
 
                 derive_prompt_sync_changes(
@@ -638,12 +748,12 @@ class ProjectCommitBoundary:
                     final_data = _json(final_project)
                     pre_publish_etag = latest.etag
                     expected_final_etag = project_etag(final_project)
-                    AtomicJsonRecordStore(
+                    _snapshot_store(
                         transaction_root / "latest.json",
                     ).write(
-                        latest_data,
+                        latest_doc,
                     )
-                    AtomicJsonRecordStore(
+                    _snapshot_store(
                         transaction_root / "final.json",
                     ).write(
                         final_data,
@@ -762,7 +872,7 @@ class ProjectCommitBoundary:
                 earliest_created = review.created_at
                 if reviews_root.is_dir():
                     for child in reviews_root.iterdir():
-                        if child.is_symlink() or not child.is_dir():
+                        if is_link_path(child) or not child.is_dir():
                             continue
                         pending_review = AtomicJsonRecordStore(
                             child / "review.json",
@@ -930,7 +1040,7 @@ class ProjectCommitBoundary:
         advance_accepted_baseline: bool,
     ) -> None:
         entry_stat = transaction_root.lstat()
-        if stat.S_ISLNK(entry_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(entry_stat) or not stat.S_ISDIR(
             entry_stat.st_mode,
         ):
             raise ProjectCommitError(
@@ -1118,15 +1228,19 @@ class ProjectCommitBoundary:
         journal: ProjectCommitJournal,
         advance_accepted_baseline: bool,
     ) -> RuntimeChangeSet:
-        latest_data = _json(latest.project)
+        # Same authoritative source as the publish ETags below: recovery
+        # re-hashes latest.json/final.json against publish_base_etag/final_etag
+        # (both ``latest.etag``, a source hash), so the snapshots must be that
+        # source too -- see _snapshot_document.
+        latest_data = _snapshot_document(latest)
         # Persist the exact response snapshot even when this transaction did
         # not advance Project generation.  An HTTP idempotency retry may occur
         # after unrelated later commits, so consulting the then-current
         # authority would not be enough to reconstruct the original result.
-        AtomicJsonRecordStore(transaction_root / "latest.json").write(
+        _snapshot_store(transaction_root / "latest.json").write(
             latest_data,
         )
-        AtomicJsonRecordStore(transaction_root / "final.json").write(
+        _snapshot_store(transaction_root / "final.json").write(
             latest_data,
         )
         journal = journal.model_copy(
@@ -1375,7 +1489,7 @@ class ProjectCommitBoundary:
             reviews_root.iterdir(),
             key=lambda item: item.name,
         ):
-            if review_root.is_symlink() or not review_root.is_dir():
+            if is_link_path(review_root) or not review_root.is_dir():
                 continue
             review_store = AtomicJsonRecordStore(
                 review_root / "review.json",

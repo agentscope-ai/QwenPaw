@@ -13,6 +13,7 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel, Field
 
 from domain.errors import NotFoundError, ValidationError
 from models.config import (
@@ -20,6 +21,7 @@ from models.config import (
     get_image_model_name,
     get_video_model_name,
 )
+from services.file_agent_runtime import manual_regeneration_hold
 from services.file_agent_runtime.work_graph import derive_work_graph
 from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
 from services.media_files.call_budget import media_call_count
@@ -47,8 +49,12 @@ def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:
         tasks=tasks,
         media_models=(get_image_model_name(), get_video_model_name()),
     )
+    hold = manual_regeneration_hold.ManualRegenerationHoldStore(
+        services.root,
+    ).read(project_id)
     return {
         "projectId": project_id,
+        "manualHold": hold.payload(),
         "generation": graph.generation,
         "counts": graph.counts(),
         # Honest spend metric: billable provider calls, never estimated money.
@@ -57,6 +63,7 @@ def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:
         "nodes": [
             {
                 "id": node.node_id,
+                "manuallyHeld": node.node_id in hold.node_ids,
                 "kind": node.kind,
                 "label": node.label,
                 "status": node.status.value,
@@ -112,6 +119,32 @@ async def get_work_graph(
     return payload
 
 
+class ResumeWorkGraphBody(BaseModel):
+    revision: int = Field(ge=0, strict=True)
+
+
+@router.post("/work-graph/resume")
+async def resume_work_graph(
+    project_id: str,
+    body: ResumeWorkGraphBody,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> dict[str, Any]:
+    await asyncio.to_thread(_read_project, project_id, services)
+    await asyncio.to_thread(
+        manual_regeneration_hold.ManualRegenerationHoldStore(
+            services.root,
+        ).resume,
+        project_id,
+        body.revision,
+    )
+    from services.file_agent_runtime.registry import get_creator_agent_runtime
+
+    runtime = get_creator_agent_runtime()
+    if runtime is not None and runtime.services.root == services.root:
+        runtime.work_scheduler.wake(project_id)
+    return {"ok": True}
+
+
 @router.post("/work-graph/nodes/{node_id:path}/dispatch")
 async def dispatch_work_graph_node(
     project_id: str,
@@ -119,6 +152,14 @@ async def dispatch_work_graph_node(
     services: CreatorFileServices = Depends(project_file_services),
 ) -> dict[str, Any]:
     snapshot = await asyncio.to_thread(_read_project, project_id, services)
+    holds = manual_regeneration_hold.ManualRegenerationHoldStore(services.root)
+    hold_state = await asyncio.to_thread(holds.read, project_id)
+    if not hold_state.project_identity.endswith(
+        ":" + snapshot.project.model_dump(mode="json")["created_at"],
+    ):
+        raise manual_regeneration_hold.ManualHoldConflict(
+            "Project lifetime changed",
+        )
     tasks = await asyncio.to_thread(
         ProjectExecutionStore(services.root).list_tasks,
         project_id,
@@ -147,12 +188,54 @@ async def dispatch_work_graph_node(
             f"节点 {node_id} 的依赖未就绪：" + "、".join(node.missing[:5]),
         )
     scheduler = WorkGraphScheduler(services)
-    await scheduler.dispatch_node(
+    operation = await asyncio.to_thread(
+        holds.begin,
         project_id,
         node,
-        scheduler.manual_retry_fingerprint(node, tasks),
-        expected_object_versions=(f"project:{snapshot.etag}:work-graph",),
+        graph.nodes,
+        expected_identity=hold_state.project_identity,
+        existing_output=bool(
+            node.kind == "compose"
+            and (
+                slot := snapshot.project.assets.artifact_slots_by_id.get(
+                    f"{node.target_ref}:render",
+                )
+            )
+            and slot.selected_version_id,
+        ),
     )
+    fingerprint = scheduler.manual_retry_fingerprint(node, tasks)
+    admission = manual_regeneration_hold.ManualAdmission(
+        holds,
+        operation,
+        project_id,
+        # Admission must use the scheduler's exact durable request key.
+        # pylint: disable-next=protected-access
+        f"dag-{node.node_id}-{scheduler._dispatch_slot(fingerprint)}",
+        node_id=node.node_id,
+    )
+    with manual_regeneration_hold.manual_admission(admission):
+        try:
+            await scheduler.dispatch_node(
+                project_id,
+                node,
+                fingerprint,
+                expected_object_versions=(
+                    f"project:{snapshot.etag}:work-graph",
+                ),
+            )
+        except Exception:
+            try:
+                await asyncio.to_thread(
+                    holds.finish,
+                    admission,
+                    succeeded=False,
+                )
+            except Exception:
+                # An unreadable admission ledger is not proof of rejection.
+                pass
+            raise
+        await asyncio.to_thread(holds.finish, admission, succeeded=True)
     return {
         "ok": True,
         "nodeId": node_id,

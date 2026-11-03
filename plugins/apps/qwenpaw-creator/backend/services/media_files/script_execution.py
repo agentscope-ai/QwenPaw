@@ -192,6 +192,11 @@ def _build_script_prompt(
         "整体结构：\n" + _narrative_context(project, timeline.timeline_id),
         genre_hint,
     ]
+    if timeline.description.strip():
+        sections.append(
+            "本节点已保存的剧本正文（保留其剧情、人物行动与分支约束，"
+            "根据当前创作依据和修改意见修订，不要忽略已写好的内容）：\n" + timeline.description,
+        )
     if intelligence_digest:
         sections.append(intelligence_digest)
     sections.append("请为本集撰写完整剧本 markdown。")
@@ -227,6 +232,7 @@ def _request_fingerprint(
                 timeline.timeline_id,
                 timeline.title,
                 timeline.synopsis,
+                timeline.description,
                 str(timeline.planned_duration_seconds or ""),
                 project.strategy.creative_brief,
                 project.strategy.audience,
@@ -420,6 +426,15 @@ async def execute_file_script_command(
     prompt = _build_script_prompt(project, timeline, intelligence_digest)
     if guidance:
         prompt += f"\n\n额外修改意见（必须遵循）：{guidance}"
+    from services.file_agent_runtime.manual_regeneration_hold import (
+        mark_untracked_admission,
+    )
+
+    await asyncio.to_thread(
+        mark_untracked_admission,
+        services.root,
+        project_id,
+    )
     raw = await text_model.chat_completion(
         prompt,
         system_prompt=_SCRIPT_SYSTEM_PROMPT,

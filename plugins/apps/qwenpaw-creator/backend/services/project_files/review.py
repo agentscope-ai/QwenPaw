@@ -9,6 +9,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+import logging
 from pathlib import Path
 import secrets
 from typing import Any, Literal, Mapping
@@ -28,6 +29,7 @@ from services.runtime_files.models import (
 from services.runtime_files.errors import RuntimeFileValidationError
 from services.runtime_files.path_safety import (
     hashed_runtime_segment,
+    is_link_path,
     require_safe_runtime_segment,
 )
 
@@ -48,6 +50,8 @@ from .store import ProjectSnapshot, ProjectStore
 from .models import Project
 from .serialization import project_etag
 from .review_bookkeeping import is_human_review_change
+
+logger = logging.getLogger("qwenpaw.creator.project_files.review")
 
 ReviewDecisionValue = Literal["ACCEPT", "REJECT"]
 
@@ -446,7 +450,7 @@ class ProjectReviewService:
             return []
         candidates: list[ReviewRecord] = []
         for child in reviews_root.iterdir():
-            if child.is_symlink() or not child.is_dir():
+            if is_link_path(child) or not child.is_dir():
                 continue
             review = AtomicJsonRecordStore(
                 child / "review.json",
@@ -791,9 +795,9 @@ class ProjectReviewService:
             ]
         ] = []
         outcomes: list[ReviewDecisionRecoveryOutcome] = []
-        if not reviews_root.exists() and not reviews_root.is_symlink():
+        if not reviews_root.exists() and not is_link_path(reviews_root):
             return journals, outcomes
-        if reviews_root.is_symlink() or not reviews_root.is_dir():
+        if is_link_path(reviews_root) or not reviews_root.is_dir():
             outcomes.append(
                 self._review_recovery_integrity_error(
                     project_id=project_id,
@@ -810,7 +814,7 @@ class ProjectReviewService:
         ):
             if review_root.name.startswith("."):
                 continue
-            if review_root.is_symlink() or not review_root.is_dir():
+            if is_link_path(review_root) or not review_root.is_dir():
                 outcomes.append(
                     self._review_recovery_integrity_error(
                         project_id=project_id,
@@ -821,13 +825,12 @@ class ProjectReviewService:
                 )
                 continue
             transactions_root = review_root / "decision-transactions"
-            if (
-                not transactions_root.exists()
-                and not transactions_root.is_symlink()
+            if not transactions_root.exists() and not is_link_path(
+                transactions_root,
             ):
                 continue
             if (
-                transactions_root.is_symlink()
+                is_link_path(transactions_root)
                 or not transactions_root.is_dir()
             ):
                 outcomes.append(
@@ -845,7 +848,7 @@ class ProjectReviewService:
             ):
                 if decision_root.name.startswith("."):
                     continue
-                if decision_root.is_symlink() or not decision_root.is_dir():
+                if is_link_path(decision_root) or not decision_root.is_dir():
                     outcomes.append(
                         self._review_recovery_integrity_error(
                             project_id=project_id,
@@ -1169,12 +1172,11 @@ class ProjectReviewService:
         transactions_root = (
             runtime_root / "reviews" / review_id / "decision-transactions"
         )
-        if (
-            not transactions_root.exists()
-            and not transactions_root.is_symlink()
+        if not transactions_root.exists() and not is_link_path(
+            transactions_root,
         ):
             return
-        if transactions_root.is_symlink() or not transactions_root.is_dir():
+        if is_link_path(transactions_root) or not transactions_root.is_dir():
             raise ReviewDecisionConflict(
                 "Review decision transaction store is not a real directory",
             )
@@ -1187,7 +1189,7 @@ class ProjectReviewService:
                 continue
             if decision_root.name == requested_key:
                 continue
-            if decision_root.is_symlink() or not decision_root.is_dir():
+            if is_link_path(decision_root) or not decision_root.is_dir():
                 raise ReviewDecisionConflict(
                     "Review decision transaction entry is not a real directory",
                 )
@@ -1196,11 +1198,23 @@ class ProjectReviewService:
                     decision_root / "journal.json",
                     ReviewDecisionJournal,
                 )
-                journal = other_store.read()
+                journal = other_store.read_or_none()
             except Exception as exc:
                 raise ReviewDecisionConflict(
                     "Review decision journal set is inconsistent",
                 ) from exc
+            if journal is None:
+                # ``atomic_create_bytes`` creates the decision directory
+                # before it stages the journal, so an unpublished attempt
+                # (e.g. a staging failure) leaves an empty ``decision-*``
+                # directory behind.  It holds no decision, and the Review
+                # decision lock rules out a concurrent writer mid-publish
+                # here, so it must not block every later attempt (#8163).
+                logger.warning(
+                    "ignoring decision directory without a journal: %s",
+                    decision_root,
+                )
+                continue
             if (
                 journal.project_id != project_id
                 or journal.review_id != review_id
@@ -2050,7 +2064,7 @@ class ProjectReviewService:
             return None
         candidates: list[ReviewRecord] = []
         for child in reviews_root.iterdir():
-            if child.is_symlink() or not child.is_dir():
+            if is_link_path(child) or not child.is_dir():
                 continue
             review = AtomicJsonRecordStore(
                 child / "review.json",

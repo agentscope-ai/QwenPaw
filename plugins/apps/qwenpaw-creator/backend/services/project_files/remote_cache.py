@@ -25,6 +25,7 @@ from services.runtime_files.atomic_store import (
     fsync_directory,
 )
 from services.runtime_files.execution_models import TaskRecord
+from services.runtime_files.path_safety import is_link_stat
 
 from .assets import StagedAsset
 from .models import SourceAssetVersion
@@ -92,7 +93,7 @@ def _ensure_real_directory(path: Path) -> None:
         except FileExistsError:
             pass
         value = path.lstat()
-    if stat.S_ISLNK(value.st_mode) or not stat.S_ISDIR(value.st_mode):
+    if is_link_stat(value) or not stat.S_ISDIR(value.st_mode):
         raise StorageIntegrityError(f"Runtime cache path is unsafe: {path}")
 
 
@@ -127,7 +128,7 @@ def publish_remote_cache(
         atomic_replace_path(staged.path, target)
         fsync_directory(cache_root)
     else:
-        if stat.S_ISLNK(value.st_mode) or not stat.S_ISREG(value.st_mode):
+        if is_link_stat(value) or not stat.S_ISREG(value.st_mode):
             raise StorageIntegrityError(
                 "Runtime cache target is not a regular file",
             )
@@ -186,7 +187,7 @@ def resolve_remote_cache(
             value = target.lstat()
         except FileNotFoundError:
             return None
-        if stat.S_ISLNK(value.st_mode) or not stat.S_ISREG(value.st_mode):
+        if is_link_stat(value) or not stat.S_ISREG(value.st_mode):
             raise StorageIntegrityError(
                 "Remote Asset cache is not a regular file",
             )

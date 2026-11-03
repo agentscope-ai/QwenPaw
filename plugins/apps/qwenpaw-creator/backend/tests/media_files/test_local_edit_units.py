@@ -365,13 +365,70 @@ def test_materialize_keyframe_persists_and_reuses_deterministic_jpeg(
     assert calls[0][5:7] == ["-ss", "4.500"]
 
 
-def test_materialize_keyframe_rejects_symlink_source(tmp_path: Path) -> None:
+def test_materialize_keyframe_rejects_symlink_source(
+    tmp_path: Path,
+    file_symlink,
+) -> None:
     project_root = tmp_path / "project-1"
     project_root.mkdir()
     real_source = project_root / "real.mp4"
     real_source.write_bytes(b"source-video")
     symlink = project_root / "source.mp4"
-    symlink.symlink_to(real_source)
+    file_symlink(real_source, symlink)
 
     with pytest.raises(StorageIntegrityError, match="安全的普通文件"):
         _materialize_keyframe(project_root, symlink, 1)
+
+
+@pytest.mark.skipif(_FFMPEG is None, reason="ffmpeg is not installed")
+def test_real_keyframe_is_published_and_reused(tmp_path: Path) -> None:
+    from PIL import Image
+
+    project_root = tmp_path / "中文 project"
+    project_root.mkdir()
+    source = project_root / "源视频.mp4"
+    subprocess.run(
+        [
+            _FFMPEG,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=orange:s=640x360:d=1",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    kwargs = {
+        "source_path": source,
+        "source_identity": "test-source-v1",
+        "timestamp_seconds": 0.5,
+        "width": 320,
+        "ffmpeg_path": _FFMPEG,
+    }
+    first = keyframe_cache.materialize_keyframe(project_root, **kwargs)
+    with Image.open(first.path) as frame:
+        assert frame.format == "JPEG"
+        assert frame.size == (320, 180)
+        frame.load()
+    published_at = first.path.stat().st_mtime_ns
+    assert keyframe_cache.materialize_keyframe(project_root, **kwargs) == first
+    assert first.path.stat().st_mtime_ns == published_at
+    assert not list(first.path.parent.glob("*.part"))
+
+
+def test_keyframe_cache_rejects_directory_redirect(tmp_path, directory_link):
+    project_root = tmp_path / "project-1"
+    (project_root / "runtime").mkdir(parents=True)
+    source = project_root / "source.mp4"
+    source.write_bytes(b"source-video")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    directory_link(outside, project_root / "runtime" / "keyframe-cache")
+    with pytest.raises(StorageIntegrityError, match="安全的真实目录"):
+        _materialize_keyframe(project_root, source, 1)
+    assert not list(outside.iterdir())

@@ -143,13 +143,6 @@ export function HubModelIdentityFields({
     model?.max_input_length_auto_detected ?? resolved?.input_token_limit;
   const outputDefault =
     model?.max_output_length ?? resolved?.output_token_limit ?? null;
-  const knownInput =
-    model?.effective_max_input_length ??
-    model?.max_input_length_auto_detected ??
-    (resolved?.input_limit_known ? inputDefault : undefined);
-  const knownOutput =
-    model?.max_output_length ??
-    (resolved?.output_limit_known ? outputDefault ?? undefined : undefined);
   const automatic = useRef<{
     identity: string;
     input?: number;
@@ -261,14 +254,12 @@ export function HubModelIdentityFields({
       )}
       <Form.Item
         name="input_token_limit"
+        label={t("models.maxInputLengthLabel")}
         hidden
         rules={[
           {
-            required: true,
-            type: "number",
+            type: "integer",
             min: 1000,
-            max: knownInput ?? 10000000,
-            message: t("hub.governance.models.completeCapabilities"),
           },
         ]}
       >
@@ -276,13 +267,12 @@ export function HubModelIdentityFields({
       </Form.Item>
       <Form.Item
         name="output_token_limit"
+        label={t("models.maxTokensLabel")}
         hidden
         rules={[
           {
-            type: "number",
+            type: "integer",
             min: 1,
-            max: knownOutput ?? 1000000,
-            message: t("hub.governance.models.completeCapabilities"),
           },
         ]}
       >

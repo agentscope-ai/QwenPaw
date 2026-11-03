@@ -40,8 +40,12 @@ class TestSkillHubDeep:
     ):
         test_name = request.node.name
         skill_name = "e2e_cov_skill"
+        request.addfinalizer(
+            lambda: SkillPoolPage.delete_pool_skill(api_context, skill_name)
+        )
 
         log_test_step("1. Seed a pool skill via API")
+        SkillPoolPage.delete_pool_skill(api_context, skill_name)
         seeded = SkillPoolPage.seed_pool_skill(
             api_context,
             skill_name,

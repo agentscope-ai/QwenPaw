@@ -159,3 +159,46 @@ def test_required_authorization_mode_never_auto_starts(
     )
 
     assert not dispatched
+
+
+def test_accepting_regenerated_storyboard_does_not_auto_start_held_video(
+    tmp_path,
+    monkeypatch,
+):
+    from services.file_agent_runtime.manual_regeneration_hold import (
+        ManualRegenerationHoldStore,
+    )
+    from services.file_agent_runtime.work_graph import derive_work_graph
+
+    services = _services_with_pending_review(tmp_path, monkeypatch)
+    review_id = _accept_pending_review(services, "decision-held")
+    graph = derive_work_graph(services.projects.read(PROJECT_ID).project)
+    holds = ManualRegenerationHoldStore(services.root)
+    node = graph.by_id[f"storyboard:{ELEMENT_ID}"]
+    operation = holds.begin(
+        PROJECT_ID,
+        node,
+        graph.nodes,
+        existing_output=True,
+    )
+    holds.admitted(operation)
+    monkeypatch.setattr(
+        creator_config,
+        "get_execution_authorization_mode",
+        lambda: "allow_all",
+    )
+    dispatched = []
+
+    async def execute(*_args, **kwargs):
+        dispatched.append(kwargs)
+
+    monkeypatch.setattr(r2v_execution, "execute_file_r2v_command", execute)
+    asyncio.run(
+        services.publish_review_followup(
+            project_id=PROJECT_ID,
+            review_id=review_id,
+            decision_id="decision-held",
+        ),
+    )
+    assert not dispatched
+    assert holds.is_held(PROJECT_ID, f"video:{ELEMENT_ID}")

@@ -4,6 +4,7 @@
 from typing import List
 
 from .anthropic_provider import AnthropicProvider
+from .chatgpt_provider import ChatGPTProvider
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
 from .lmstudio_provider import LMStudioProvider
@@ -19,6 +20,7 @@ from .model_catalog import models_for_catalog_key
 from .openai_response_provider import OpenAIResponseProvider
 from .openrouter_provider import OpenRouterProvider
 from .provider import ModelInfo, Provider
+from .typesafe_provider import TypeSafeProvider
 from .services.agentscope_platform import AgentScopePlatformProvider
 from .services.deepseek import DeepSeekProvider
 from .services.kimi import KimiProvider
@@ -101,6 +103,20 @@ PROVIDER_DASHSCOPE = DashScopeProvider(
             },
         ],
     },
+)
+
+PROVIDER_TYPESAFE = TypeSafeProvider(
+    id="typesafe",
+    name="TypeSafe",
+    base_url="https://api.typesafe.ai",
+    models=[
+        ModelInfo(
+            id="jev-latest",
+            name="Jev Latest",
+            model_type="decision",
+        ),
+    ],
+    meta={"api_key_url": "https://console.typesafe.ai/"},
 )
 
 PROVIDER_ALIYUN_CODINGPLAN = AliyunPlanProvider(
@@ -238,6 +254,19 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_CHATGPT = ChatGPTProvider(
+    id=f"openai-chatgpt",
+    name=f"ChatGPT Subscription",
+    base_url=f"https://api.openai.com/v1",
+    chat_model=f"OpenAIResponseModel",
+    require_api_key=False,
+    merge_with_catalog=False,
+    freeze_url=True,
+    provider_group=f"openai",
+    provider_group_name=f"OpenAI",
+    provider_variant=f"chatgpt",
+)
+
 PROVIDER_OPENAI_RESPONSE = OpenAIResponseProvider(
     id="openai-response",
     name="OpenAI (Response API)",
@@ -302,7 +331,7 @@ PROVIDER_MINIMAX = MiniMaxProvider(
 PROVIDER_MINIMAX_CN = MiniMaxProvider(
     id="minimax-cn",
     name="MiniMax (China)",
-    base_url="https://api.minimaxi.com/anthropic",
+    base_url="https://api.minimax.cn/anthropic",
     models=_models("minimax-cn"),
     chat_model="AnthropicChatModel",
     freeze_url=True,
@@ -515,6 +544,7 @@ PROVIDER_MIMO = MiMoProvider(
 
 
 BUILTIN_PROVIDERS: tuple[Provider, ...] = (
+    PROVIDER_TYPESAFE,
     PROVIDER_QWENPAW,
     PROVIDER_OLLAMA,
     PROVIDER_LMSTUDIO,
@@ -530,6 +560,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_KILO,
     PROVIDER_OPENAI,
     PROVIDER_OPENAI_RESPONSE,
+    PROVIDER_CHATGPT,
     PROVIDER_AZURE_OPENAI,
     PROVIDER_ANTHROPIC,
     PROVIDER_GEMINI,
@@ -555,7 +586,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
 BUILTIN_PROVIDER_CATALOG_KEYS = {
     provider.id: provider.id
     for provider in BUILTIN_PROVIDERS
-    if not provider.is_local
+    if not provider.is_local and provider.id != f"openai-chatgpt"
 }
 
 

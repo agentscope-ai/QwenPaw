@@ -408,8 +408,17 @@ function ThinkingDisclosure({
   );
 }
 
-function simplifyErrorMessage(_text: string): string {
-  // Provider/runtime errors may contain prompts, local paths and protocol data.
+// ``invalid`` must sit right beside ``temperature``: OpenAI-compatible
+// gateways wrap unrelated 400s as ``invalid_request_error`` that merely echo
+// the word. Mirrors ``models.config.is_temperature_unsupported_error``.
+const UNSUPPORTED_TEMPERATURE_RE =
+  /not supported|unsupported|invalid[\s:]+temperature|temperature[\s:]+invalid/i;
+
+export function simplifyErrorMessage(text: string): string {
+  // Classify known failures without exposing raw provider payloads or secrets.
+  if (/temperature/i.test(text) && UNSUPPORTED_TEMPERATURE_RE.test(text)) {
+    return i18n.t("agentActivity.unsupportedTemperature");
+  }
   return i18n.t("agentActivity.failureHint");
 }
 
@@ -1316,6 +1325,7 @@ export default function AgentDock({
   const stickBottom = useRef(true);
   const previousPendingAuthorizationCount = useRef(0);
   const lastOpenedFileReviewToken = useRef<string | null>(null);
+  const lastOpenedExecutionPause = useRef<string | null>(null);
   const resizeRef = useRef<{
     startX: number;
     startY: number;
@@ -1582,6 +1592,21 @@ export default function AgentDock({
     // pending badge and tray summary are visible without navigation.
     setOpen(true);
   }, [fileReviews, pendingFileReviewCount, setOpen]);
+
+  useEffect(() => {
+    const notice = messages.at(-1);
+    if (
+      session?.projectId !== projectId ||
+      notice?.source !== "creator_execution_notice" ||
+      !notice.metadata.executionPause
+    )
+      return;
+    const token = `${projectId}:${notice.messageId}`;
+    if (lastOpenedExecutionPause.current === token) return;
+    lastOpenedExecutionPause.current = token;
+    stickBottom.current = true;
+    setOpen(true);
+  }, [messages, projectId, session?.projectId, setOpen]);
 
   useEffect(() => {
     const stored = loadDockSize(sidebar);
@@ -2374,7 +2399,7 @@ export default function AgentDock({
                         </Button>
                       </div>
                     ) : (
-                      t("agentActivity.failureHint")
+                      simplifyErrorMessage(session.error.message)
                     )}
                   </div>
                 )}

@@ -6,7 +6,7 @@
  * reused verbatim — no changes to the settings pages themselves. Items whose
  * route is not currently registered are hidden automatically.
  */
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Spin } from "antd";
 import {
@@ -20,10 +20,12 @@ import {
   Mic,
   Bug,
   SlidersHorizontal,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
+import { ChunkRecoverySuspense } from "../components/ChunkRecoverySuspense";
 import { useOsRoute } from "./osRouteStore";
 import { SETTINGS_APP_ID, baseFromRoutePath } from "./osRouteMap";
 import WindowRouter from "./WindowRouter";
@@ -67,6 +69,12 @@ const SETTINGS_ITEMS: SettingsItem[] = [
     labelKey: "nav.security",
     fallback: "Security",
     Icon: ShieldCheck,
+  },
+  {
+    routeId: "core.offload-policy",
+    labelKey: "nav.offloadPolicy",
+    fallback: "Tool Offload",
+    Icon: Wrench,
   },
   {
     routeId: "core.token-usage",
@@ -136,7 +144,8 @@ export default function SettingsApp() {
         {items.map((i) => {
           const Icon = i.Icon;
           return (
-            <div
+            <button
+              type="button"
               key={i.routeId}
               className={cx(
                 styles.settingsNavItem,
@@ -146,7 +155,7 @@ export default function SettingsApp() {
             >
               <Icon size={16} />
               <span>{t(i.labelKey, i.fallback)}</span>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -154,7 +163,7 @@ export default function SettingsApp() {
       <div className={styles.settingsPane}>
         {Active ? (
           <ChunkErrorBoundary resetKey={current}>
-            <Suspense
+            <ChunkRecoverySuspense
               fallback={
                 <div className={styles.loading}>
                   <Spin tip={t("common.loading")} />
@@ -167,7 +176,7 @@ export default function SettingsApp() {
                 base={baseFromRoutePath(routePathById.get(current))}
                 element={<Active />}
               />
-            </Suspense>
+            </ChunkRecoverySuspense>
           </ChunkErrorBoundary>
         ) : (
           <div className={styles.ncEmpty}>

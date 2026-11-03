@@ -350,7 +350,7 @@ function AgentStatsPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader parent={t("nav.settings")} current={t("agentStats.title")} />
+      <PageHeader current={t("agentStats.title")} />
       <div className={styles.content}>
         {error && !data ? (
           <div className={styles.error}>

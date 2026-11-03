@@ -12,7 +12,7 @@
   display: flex;
   flex-direction: column;
   max-height: 94dvh;
-  border-radius: 24px 24px 0 0;
+  border-radius: var(--app-radius-panel) var(--app-radius-panel) 0 0;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
   color: var(--app-text);
@@ -20,15 +20,16 @@
   outline: none;
 }
 .handle {
-  margin: 12px auto 0;
+  margin: var(--app-space-3) auto 0;
   flex-shrink: 0;
 }
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 12px 4px 20px;
-  gap: 12px;
+  padding: var(--app-space-1) var(--app-space-3) var(--app-space-1)
+    var(--app-space-5);
+  gap: var(--app-space-3);
   h2 {
     font-size: 14px;
     font-weight: 600;
@@ -37,8 +38,8 @@
   button {
     display: grid;
     place-items: center;
-    width: 44px;
-    height: 44px;
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
     border: 0;
     border-radius: 50%;
     background: transparent;
@@ -57,7 +58,8 @@
 }
 .footer {
   flex-shrink: 0;
-  padding: 14px 16px max(20px, env(safe-area-inset-bottom));
+  padding: 14px var(--app-space-4)
+    max(var(--app-space-5), env(safe-area-inset-bottom));
   border-top: 1px solid var(--app-border-subtle);
   background: var(--app-surface);
 }
@@ -65,7 +67,8 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 16px max(20px, env(safe-area-inset-bottom));
+  padding: 0 var(--app-space-4)
+    max(var(--app-space-5), env(safe-area-inset-bottom));
 }
 @media (prefers-reduced-motion: reduce) {
   .sheet,

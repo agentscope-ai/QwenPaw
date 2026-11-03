@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
 from .models import ApprovalRequestSummary
+from ...plugins._events import approval_changed as _sdk_approval_changed
 
 if TYPE_CHECKING:
     from ...security.tool_guard.models import ToolGuardResult
@@ -224,6 +225,7 @@ class ApprovalService:
         async with self._lock:
             self._pending[request_id] = pending
             self._gc_pending_locked()
+            _sdk_approval_changed(pending)
 
         logger.info(
             "Approval pending created: request_id=%s agent_id=%s tool=%s "
@@ -295,6 +297,7 @@ class ApprovalService:
         async with self._lock:
             self._pending[request_id] = pending
             self._gc_pending_locked()
+            _sdk_approval_changed(pending)
         logger.info(
             "Generic approval pending created: request_id=%s agent_id=%s "
             "name=%s source=%s session=%s root=%s",
@@ -339,6 +342,9 @@ class ApprovalService:
             actor: caller identity used by policies stricter than ``AGENT``.
                 Exact-requester approvals reject missing or mismatched actors.
                 Automatic timeout resolution is the only actor-free exception.
+
+        Returns None if another resolver won or the request expired.
+        Expired requests resolve to TIMEOUT even when an approval arrives.
         """
         async with self._lock:
             pending = self._pending.get(request_id)
@@ -359,6 +365,13 @@ class ApprovalService:
                     "approval caller does not match the original requester",
                 )
 
+            expired = (
+                time.time() >= pending.created_at + pending.timeout_seconds
+            )
+            if expired:
+                decision = ApprovalDecision.TIMEOUT
+                scope = None
+
             self._pending.pop(request_id)
             pending.status = decision.value
             pending.resolved_at = time.time()
@@ -367,6 +380,7 @@ class ApprovalService:
         # Set Future result outside lock
         if not pending.future.done():
             pending.future.set_result(decision)
+        _sdk_approval_changed(pending)
 
         logger.info(
             "Approval request %s resolved: decision=%s scope=%s tool=%s",
@@ -376,7 +390,7 @@ class ApprovalService:
             pending.tool_name,
         )
 
-        return pending
+        return None if expired else pending
 
     @staticmethod
     def actor_can_resolve(
@@ -505,13 +519,13 @@ class ApprovalService:
 
     async def wait_for_approval(
         self,
-        request_id: str,
+        request_id: str | PendingApproval,
         timeout_seconds: float,
     ) -> ApprovalDecision:
         """Block and wait for approval decision with timeout.
 
         Args:
-            request_id: Approval request ID
+            request_id: Request ID or the record returned when created.
             timeout_seconds: Maximum wait time in seconds
 
         Returns:
@@ -520,20 +534,36 @@ class ApprovalService:
         Raises:
             ValueError: If request_id not found
         """
-        async with self._lock:
-            pending = self._pending.get(request_id)
+        if isinstance(request_id, PendingApproval):
+            # Retain decisions resolved before the consumer starts waiting.
+            pending = request_id
+        else:
+            async with self._lock:
+                pending = self._pending.get(request_id)
 
         if pending is None:
             raise ValueError(f"Approval request {request_id} not found")
 
         try:
             decision = await asyncio.wait_for(
-                pending.future,
-                timeout=timeout_seconds,
+                asyncio.shield(pending.future),
+                timeout=max(
+                    0.0,
+                    min(
+                        timeout_seconds,
+                        pending.created_at
+                        + pending.timeout_seconds
+                        - time.time(),
+                    ),
+                ),
             )
         except asyncio.TimeoutError:
-            decision = ApprovalDecision.TIMEOUT
-            await self.resolve_request(request_id, decision)
+            await self.resolve_request(
+                pending.request_id,
+                ApprovalDecision.TIMEOUT,
+            )
+            # A response may have won the race with this waiter's timeout.
+            decision = pending.future.result()
 
         return decision
 
@@ -568,6 +598,7 @@ class ApprovalService:
                     pending.future.set_result(ApprovalDecision.TIMEOUT)
                 pending.status = "superseded"
                 pending.resolved_at = now
+                _sdk_approval_changed(pending)
                 cancelled += 1
         if cancelled:
             logger.info(
@@ -578,6 +609,29 @@ class ApprovalService:
                 session_id[:8],
             )
         return cancelled
+
+    async def cancel_request(
+        self,
+        request_id: str,
+        *,
+        actor: ApprovalActor,
+    ) -> bool:
+        """Cancel one owned pending request without affecting sibling calls."""
+        async with self._lock:
+            pending = self._pending.get(request_id)
+            if pending is None or pending.status != "pending":
+                return False
+            if not self.actor_can_resolve(pending, actor):
+                raise ApprovalIdentityMismatchError(
+                    "approval caller does not match the original requester",
+                )
+            self._pending.pop(request_id)
+            if not pending.future.done():
+                pending.future.set_result(ApprovalDecision.DENIED)
+            pending.status = "cancelled"
+            pending.resolved_at = time.time()
+            _sdk_approval_changed(pending)
+            return True
 
     async def cancel_all_pending_by_root_session(
         self,
@@ -610,6 +664,7 @@ class ApprovalService:
                     pending.future.set_result(ApprovalDecision.DENIED)
                 pending.status = "cancelled"
                 pending.resolved_at = now
+                _sdk_approval_changed(pending)
                 cancelled += 1
         if cancelled:
             logger.info(
@@ -642,6 +697,7 @@ class ApprovalService:
                 pending.future.set_result(ApprovalDecision.TIMEOUT)
             pending.status = "timeout"
             pending.resolved_at = now
+            _sdk_approval_changed(pending)
 
         overflow = len(self._pending) - _GC_MAX_PENDING
         if overflow <= 0:
@@ -656,6 +712,7 @@ class ApprovalService:
                 pending.future.set_result(ApprovalDecision.TIMEOUT)
             pending.status = "timeout"
             pending.resolved_at = now
+            _sdk_approval_changed(pending)
 
 
 # ------------------------------------------------------------------

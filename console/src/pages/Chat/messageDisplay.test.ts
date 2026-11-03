@@ -19,11 +19,14 @@ function message(
   id: string,
   type: AgentScopeRuntimeMessageType,
   status: AgentScopeRuntimeRunStatus = AgentScopeRuntimeRunStatus.Completed,
+  content: unknown[] = type === AgentScopeRuntimeMessageType.MESSAGE
+    ? [{ type: "text", text: id }]
+    : [],
 ) {
   return {
     id,
     type,
-    content: [],
+    content,
     role: "assistant",
     status,
   } as never;
@@ -74,6 +77,72 @@ describe("message display mode", () => {
         block.kind === "message" ? [block.message.id] : [],
       ),
     ).toEqual(["approval", "last", "error"]);
+  });
+
+  it("skips an empty final text message when selecting the result", () => {
+    const messages = [
+      message("answer", AgentScopeRuntimeMessageType.MESSAGE, undefined, [
+        { type: "text", text: "The answer" },
+      ]),
+      message("call", AgentScopeRuntimeMessageType.PLUGIN_CALL),
+      message("call-output", AgentScopeRuntimeMessageType.PLUGIN_CALL_OUTPUT),
+      message("empty-final", AgentScopeRuntimeMessageType.MESSAGE, undefined, [
+        { type: "text", text: "" },
+      ]),
+      message(
+        "whitespace-final",
+        AgentScopeRuntimeMessageType.MESSAGE,
+        undefined,
+        [{ type: "text", text: " \n\t " }],
+      ),
+    ];
+
+    const blocks = groupResponseMessages(messages, "result-only");
+    expect(
+      blocks.map((block) =>
+        block.kind === "message"
+          ? `message:${block.message.id}`
+          : `steps:${block.messages.map((item) => item.id).join(",")}`,
+      ),
+    ).toEqual(["message:answer", "steps:call,call-output"]);
+    expect(
+      groupResponseMessages(messages, "all").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["answer", "call", "call-output"]);
+    expect(
+      groupResponseMessages(messages, "text-only").flatMap((block) =>
+        block.kind === "message" ? [block.message.id] : [],
+      ),
+    ).toEqual(["answer"]);
+  });
+
+  it("keeps visible media when filtering empty text messages", () => {
+    const messages = [
+      message("media", AgentScopeRuntimeMessageType.MESSAGE, undefined, [
+        { type: "image", image_url: "image.png" },
+      ]),
+      message("mixed-media", AgentScopeRuntimeMessageType.MESSAGE, undefined, [
+        { type: "text", text: "" },
+        { type: "image", image_url: "image.png" },
+      ]),
+    ];
+
+    expect(
+      groupResponseMessages(messages, "all").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["media", "mixed-media"]);
+    expect(
+      groupResponseMessages([messages[0]], "result-only").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["media"]);
+    expect(
+      groupResponseMessages([messages[1]], "result-only").map((block) =>
+        block.kind === "message" ? block.message.id : "steps",
+      ),
+    ).toEqual(["mixed-media"]);
   });
 
   it("derives the display mode only from the response SSE status", () => {

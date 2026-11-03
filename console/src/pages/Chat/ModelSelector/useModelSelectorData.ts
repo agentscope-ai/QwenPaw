@@ -32,6 +32,11 @@ export function useModelSelectorData({
     [onActiveModels],
   );
 
+  const updateActiveModels = useCallback((value: ActiveModelsInfo) => {
+    activeRequestRef.current += 1;
+    setActiveModels(value);
+  }, []);
+
   const fetchData = useCallback(async () => {
     const providersRequestId = ++providersRequestRef.current;
     const activeRequestId = ++activeRequestRef.current;
@@ -42,12 +47,17 @@ export function useModelSelectorData({
         agentId,
         undefined,
         session,
+        (value) => {
+          if (providersRequestId !== providersRequestRef.current) return;
+          setProviders(value);
+          setLoading(false);
+        },
+        (value) => {
+          if (activeRequestId !== activeRequestRef.current) return;
+          applyActiveModels(value);
+        },
       );
       if (providersRequestId !== providersRequestRef.current) return;
-      if (result.providers) setProviders(result.providers);
-      if (result.activeModels && activeRequestId === activeRequestRef.current) {
-        applyActiveModels(result.activeModels);
-      }
       setLoadError(result.loadError);
       return result;
     } finally {
@@ -79,7 +89,7 @@ export function useModelSelectorData({
     loadError,
     providers,
     refreshActiveModels,
-    setActiveModels,
+    setActiveModels: updateActiveModels,
     setProviders,
   };
 }

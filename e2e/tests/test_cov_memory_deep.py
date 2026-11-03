@@ -83,12 +83,12 @@ class TestMemoryDailyDeep:
                 f"Recall hit: {keyword in text or '7331' in text}"
             )
 
-        log_test_step("5. Open memory config tab and save unchanged")
+        log_test_step("5. Open memory config tab")
         memory_page.open_agent_config()
         memory_page.click_memory_tab()
-        memory_page.page.wait_for_timeout(1500)
-        memory_page.click_save()
-        memory_page.page.wait_for_timeout(1500)
+        memory_page.page.locator(
+            memory_page.MEMORY_CARD_HEADING
+        ).first.wait_for(state="visible", timeout=memory_page.timeout)
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")

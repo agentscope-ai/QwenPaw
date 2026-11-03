@@ -21,6 +21,7 @@ export interface WorkGraphNode {
   missing: string[];
   locator: Record<string, string>;
   dispatchable: boolean;
+  manuallyHeld?: boolean;
   promptSyncRequired?: boolean;
   preparationState?: "waiting" | "running" | "failed" | null;
 }
@@ -31,5 +32,6 @@ export interface WorkGraphView {
   counts: Record<string, number>;
   mediaCalls: number;
   mediaCallBudget: number;
+  manualHold?: { revision: number; nodeIds: string[] };
   nodes: WorkGraphNode[];
 }

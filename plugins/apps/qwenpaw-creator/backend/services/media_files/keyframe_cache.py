@@ -19,6 +19,7 @@ from services.project_files.assets import AssetFileStore
 from services.project_files.models import IndexedFile
 from services.runtime_files.atomic_store import fsync_directory
 from services.runtime_files.atomic_store import atomic_replace_path
+from services.runtime_files.path_safety import is_link_stat
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +54,7 @@ def _require_real_directory(path: Path, *, parent: Path, label: str) -> None:
         value = path.lstat()
     except OSError as error:
         raise StorageIntegrityError(f"{label} 不可用: {path}") from error
-    if stat.S_ISLNK(value.st_mode) or not stat.S_ISDIR(value.st_mode):
+    if is_link_stat(value) or not stat.S_ISDIR(value.st_mode):
         raise StorageIntegrityError(f"{label} 必须是安全的真实目录")
     try:
         path.resolve(strict=True).relative_to(parent.resolve(strict=True))
@@ -66,7 +67,7 @@ def _regular_file_stat(path: Path, *, label: str) -> os.stat_result:
         value = path.lstat()
     except FileNotFoundError as error:
         raise StorageIntegrityError(f"{label} 不存在: {path}") from error
-    if stat.S_ISLNK(value.st_mode) or not stat.S_ISREG(value.st_mode):
+    if is_link_stat(value) or not stat.S_ISREG(value.st_mode):
         raise StorageIntegrityError(f"{label} 必须是安全的普通文件")
     return value
 
@@ -128,7 +129,7 @@ def _cached_entry(
         value = target.lstat()
     except FileNotFoundError:
         return None
-    if stat.S_ISLNK(value.st_mode) or not stat.S_ISREG(value.st_mode):
+    if is_link_stat(value) or not stat.S_ISREG(value.st_mode):
         raise StorageIntegrityError("关键帧缓存目标不是安全的普通文件")
     if value.st_size <= 0:
         raise StorageIntegrityError("关键帧缓存为空")
@@ -233,11 +234,10 @@ def materialize_keyframe(
             temporary.unlink(missing_ok=True)
             raise StorageIntegrityError("新生成关键帧为空")
         os.chmod(temporary, 0o600)
-        descriptor = os.open(temporary, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+        # Windows FlushFileBuffers requires a writable handle even though
+        # ffmpeg has already finished writing the JPEG.
+        with temporary.open("r+b") as stream:
+            os.fsync(stream.fileno())
         atomic_replace_path(temporary, target)
         fsync_directory(cache_root)
         cached = _cached_entry(

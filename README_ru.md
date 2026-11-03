@@ -34,7 +34,7 @@
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Никогда не забывает**                   | Трёхуровневая память — рабочий контекст в реальном времени, полная дословная история и саморазвивающаяся персональная база знаний на базе [ReMe](https://github.com/agentscope-ai/ReMe). Диалоги и материалы непрерывно преобразуются в читаемые, редактируемые, доступные для поиска и связанные между собой записи Markdown. |
-| **Локально или в облаке, бесплатно**      | Модели QwenPaw-Flash (2B / 4B / 9B), обученные для агентных задач. Встроенный рантайм QwenPaw Local — без API-ключа, без зависимости от облака. Также работает с Ollama, LM Studio и 14+ облачными провайдерами.   |
+| **Локально или в облаке, бесплатно**      | Модели QwenPaw-Flash (2B / 4B / 9B / 35B-A3B / 27B), обученные для агентных задач. Встроенный рантайм QwenPaw Local — без API-ключа, без зависимости от облака. Также работает с Ollama, LM Studio и 14+ облачными провайдерами.   |
 | **Безопасность из коробки**               | Песочница на уровне ядра, Tool Guard, File Guard и Skill Scanner. Опасные команды блокируются до выполнения.                                            |
 | **Мультиагентность и параллелизм**        | Создавайте независимых агентов со своей памятью и навыками. Субагенты во время выполнения. Agent Communication Protocol (ACP) для кросс-системной оркестрации.                               |
 | **Файловое рабочее пространство**         | Единые навигация, просмотр, редактирование, diff, загрузка и скачивание файлов проекта и агента.                                                                                           |
@@ -60,6 +60,8 @@
 
 ## Новости
 
+- [2026-10-15] **v2.2.2** | Обновления Console, новые модели QwenPaw-Flash 9B/27B/35B-A3B, PawPort для переноса данных из Codex/Qoder, Creator 2.0.1 и Data 0.3.0. [Release Notes v2.2.2 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
+
 - [2026-09-10] **v2.2.1** | Рабочее пространство Blueprint в Creator 1.2, маршрутизация моделей для отдельных агентов и единое управление средой. [Release Notes v2.2.1 →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
 
 - [2026-09-03] **v2.2.0** | Самостоятельно размещаемый многопользовательский QwenPaw Hub, QwenPaw Mail, нативный QwenPaw Data, единая маршрутизация моделей, Creator 1.1 и крупные улучшения Market, Console, Skills, каналов и надежности. [Release Notes v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
@@ -67,19 +69,6 @@
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, единое файловое пространство, QwenPaw Creator, интеграция агентов Codex/Qoder, Browser-use, Computer-use, контрольные точки и продолжение длительных задач в диалоге. [Release Notes v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | Платформа мини-приложений PawApp, редактируемые Agent Mode, Oh-My-Paw plugins, улучшения памяти [ReMe](https://github.com/agentscope-ai/ReMe), улучшения UX десктопа и др. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
-
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Полностью переписанный на основе AgentScope 2.0: архитектура Agent OS, Loop Engineering, Scroll Context, саморазвивающаяся персональная база знаний [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 и встроенный TUI.
-
-  | Основное | Что нового |
-  |----------|-----------|
-  | **Agent OS — Workspace** | Три столпа на агента: **Resources** (прозрачно на диске), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
-  | **Agent OS — Drivers** | Протокол-нейтральный слой коннекторов MCP / A2A / ACP с шифрованием учётных данных и политикой на вызов. |
-  | **Loop Engineering** | Продвинутые шаблоны циклов агента (Coding Mode, Mission Mode, далее — больше) с компонуемыми вентилями одобрения. |
-  | **Scroll Context** | Каждый ход сохраняется; вытесненные ходы индексируются с recall по запросу — ничего не суммаризуется. |
-  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 — саморазвивающаяся персональная база знаний** | Непрерывно преобразует диалоги и материалы в читаемые, редактируемые, доступные для поиска и связанные между собой записи Markdown. |
-  | **Terminal UI (TUI)** | Полноэкранный терминальный чат — тот же агент, память и сессии, что в Console и каналах. |
-
-  На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 [Все release notes →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -372,7 +361,7 @@ qwenpaw .                   # начать в текущем репозитор�
 
 QwenPaw может полностью запускать LLM на вашей машине — без API-ключей и облачных сервисов. Подробности см. в [официальной документации](https://qwenpaw.agentscope.io/docs/models).
 
-QwenPaw также предоставляет серию **QwenPaw-Flash** — специально обученные модели 2B / 4B / 9B для агентных сценариев с квантизациями Q4 и Q8. Доступны на [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) и [Hugging Face](https://huggingface.co/agentscope-ai/models).
+QwenPaw также предоставляет серию **QwenPaw-Flash** — специально обученные модели 2B / 4B / 9B / 35B-A3B / 27B для агентных сценариев с квантизациями Q4 и Q8. Доступны на [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) и [Hugging Face](https://huggingface.co/agentscope-ai/models).
 
 | Бэкенд              | Подходит для                             | Установка                                                                 |
 | ------------------- | ---------------------------------------- | ------------------------------------------------------------------------- |

@@ -87,6 +87,13 @@ def model_provider(model: dict, connection: dict):
         provider.models.append(ModelInfo(id=model_id, name=model_id))
     card = provider.get_model_info(model_id)
     card.template_id = model.get(f"template_id")
+    # Administrator overrides use the same model-card fields as personal use.
+    if model.get(f"input_token_limit") is not None:
+        card.max_input_length = model[f"input_token_limit"]
+        card.max_input_length_configured = True
+    if model.get(f"output_token_limit") is not None:
+        card.max_output_length = model[f"output_token_limit"]
+        card.max_output_length_source = f"user"
     for field in (
         f"supports_image",
         f"supports_video",

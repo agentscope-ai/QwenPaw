@@ -15,6 +15,7 @@ from qwenpaw.providers.openai_provider import (
     OpenAIProvider,
 )
 from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.thinking import ThinkingControl
 
 
 def _make_provider(is_custom: bool = False) -> OpenAIProvider:
@@ -26,6 +27,98 @@ def _make_provider(is_custom: bool = False) -> OpenAIProvider:
         is_custom=is_custom,
         chat_model="OpenAIChatModel",
     )
+
+
+@pytest.mark.parametrize(
+    ("control", "expected"),
+    [
+        (None, {}),
+        (
+            ThinkingControl(
+                kind="budget",
+                budget_min=1,
+                budget_max=8192,
+                supports_off=True,
+                wire="compat_budget",
+            ),
+            {"extra_body": {"enable_thinking": False}},
+        ),
+        (
+            ThinkingControl(
+                kind="effort",
+                efforts=["low", "high"],
+                supports_off=True,
+                wire="compat_effort",
+            ),
+            {"extra_body": {"thinking": {"type": "disabled"}}},
+        ),
+    ],
+)
+async def test_chat_model_uses_declared_disable_thinking_wire(
+    monkeypatch,
+    control,
+    expected,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="strict-compat-model",
+            name="Strict compat model",
+            thinking_control=control,
+        ),
+    ]
+
+    captured: dict = {}
+
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("strict-compat-model")
+    result = await model._call_api(
+        "strict-compat-model",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured == expected
+
+
+@pytest.mark.parametrize("thinking_enabled", [False, True])
+async def test_gpt52_disable_signal_never_reaches_sdk(
+    monkeypatch,
+    thinking_enabled,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="gpt-5.2",
+            name="GPT-5.2",
+            thinking_enabled=thinking_enabled,
+            config_overrides=["thinking_enabled"],
+        ),
+    ]
+    captured: dict = {}
+
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("gpt-5.2")
+    result = await model._call_api(
+        "gpt-5.2",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert "disable_thinking" not in captured
+    assert captured.get("reasoning_effort") in {None, "none"}
 
 
 async def test_check_connection_success(monkeypatch) -> None:
@@ -336,8 +429,13 @@ async def test_multimodal_probes_close_clients_on_success_and_error(
     video_close.assert_awaited_once()
 
 
-async def test_check_gpt5_model_uses_max_completion_tokens(
+@pytest.mark.parametrize(
+    "model_id",
+    ["gpt-5.2", "gpt-6.1-sol", "openai/gpt-6.1-sol", "gpt-10-mini"],
+)
+async def test_check_modern_gpt_model_uses_max_completion_tokens(
     monkeypatch,
+    model_id,
 ) -> None:
     provider = _make_provider()
     captured: list[dict] = []
@@ -371,7 +469,7 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    ok, msg = await provider.check_model_connection("gpt-5.2", timeout=4)
+    ok, msg = await provider.check_model_connection(model_id, timeout=4)
 
     assert ok is True
     assert msg == ""
@@ -379,6 +477,27 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     assert captured[0]["max_completion_tokens"] == 20
     assert "max_tokens" not in captured[0]
     assert stream.closed is True
+
+
+@pytest.mark.parametrize(
+    ("model_id", "expected_param"),
+    [
+        ("gpt-6.1-sol", "max_completion_tokens"),
+        (" OpenAI/GPT-6.1-SOL ", "max_completion_tokens"),
+        ("gpt-10-mini", "max_completion_tokens"),
+        ("gpt-4.1", "max_tokens"),
+        ("gpt-3.5-turbo", "max_tokens"),
+        ("gpt-custom", "max_tokens"),
+    ],
+)
+def test_token_limit_kwargs_handles_gpt_versions(
+    model_id,
+    expected_param,
+) -> None:
+    assert openai_provider_module.token_limit_kwargs(
+        model_id,
+        200,
+    ) == {expected_param: 200}
 
 
 def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:

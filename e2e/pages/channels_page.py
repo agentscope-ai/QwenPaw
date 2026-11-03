@@ -46,7 +46,9 @@ class ChannelsPage(BasePage):
     # `[class*=availableItem]` would match one tile three times. The tile
     # container is a <div>; the name/action are <span>. Anchor on
     # `div[class*=availableItem]` to count each tile exactly once.
-    PAGE_LOAD_INDICATOR = '[class*=channelCard], div[class*=availableItem]'
+    PAGE_LOAD_INDICATOR = (
+        '[class*=channelCard], button[class*=availableItem]'
+    )
 
     # Filter buttons (UI text is Chinese; use button[class*=filterTab] to match the button rather than the parent container)
     FILTER_ALL_BTN = 'button[class*=filterTab]:has-text("全部"), button:has-text("All")'
@@ -60,9 +62,12 @@ class ChannelsPage(BasePage):
     # `find_channel_card` / `get_channel_card_count` operate on the union.
     # `div[class*=availableItem]` (not the bare substring) avoids triple
     # matching on the item's name/action spans.
-    CHANNEL_CARD = '[class*=channelCard], div[class*=availableItem]'
-    CHANNEL_CARD_ENABLED = '[class*=channelCard][class*=enabled]'
-    CHANNEL_CARD_DISABLED = 'div[class*=availableItem]'
+    CHANNEL_CARD = (
+        'div.qwenpaw-card[class*=channelCard], '
+        'button[class*=availableItem]'
+    )
+    CHANNEL_CARD_ENABLED = 'div.qwenpaw-card[class*=channelCard]'
+    CHANNEL_CARD_DISABLED = 'button[class*=availableItem]'
 
     # Channel card content
     CHANNEL_ICON = '[class*=channelCard] [class*=icon]'
@@ -74,9 +79,9 @@ class ChannelsPage(BasePage):
     CHANNEL_BOT_PREFIX = '[class*=channelCard] [class*=botPrefix]'
 
     # Edit drawer (match only the visible drawer to avoid strict mode violations)
-    CHANNEL_DRAWER = '.qwenpaw-drawer:visible, .ant-drawer:visible'
-    DRAWER_TITLE = '.qwenpaw-drawer-title, .ant-drawer-title'
-    DRAWER_CLOSE_BTN = '.qwenpaw-drawer-close, .ant-drawer-close'
+    CHANNEL_DRAWER = '[role="dialog"]:visible'
+    DRAWER_TITLE = '[role="dialog"] .qwenpaw-modal-title'
+    DRAWER_CLOSE_BTN = '[role="dialog"] .qwenpaw-modal-close'
 
     # Form fields
     FORM_ITEM = '.ant-form-item, .qwenpaw-form-item'
@@ -285,34 +290,10 @@ class ChannelsPage(BasePage):
         except Exception:
             return ""
 
-    # Built-in channel labels (aligned with console/src/pages/Control/Channels/
-    # components/constants.ts::CHANNEL_LABELS and the backend
-    # src/qwenpaw/app/channels/registry.py::_BUILTIN_SPECS).
-    #
-    # In v2.0.0 (PR #5504) built-in channels rendered in the Available section
-    # use <ChannelAvailableItem> and no longer show a "内置 / Built-in" tag,
-    # so DOM-based detection is not reliable. We match on channel label
-    # instead — this matches the source of truth (frontend + backend).
-    _BUILTIN_LABELS = frozenset({
-        "iMessage", "Discord", "DingTalk", "Feishu", "QQ", "Telegram",
-        "Slack", "MQTT", "Mattermost", "Matrix", "Console", "Twilio",
-        "SIP", "WeCom", "XiaoYi", "WeChat", "OneBot", "Yuanbao",
-    })
-
     def is_builtin_channel(self, channel_name: str) -> bool:
-        """
-        Return whether the channel is a built-in channel.
-
-        v2.0.0 note: since PR #5504 the Available section uses
-        <ChannelAvailableItem>, which does not render a Built-in tag.
-        We resolve built-in vs custom via the frontend/backend label
-        list rather than DOM inspection. This also removes false
-        negatives caused by aliases (e.g. "钉钉" vs "DingTalk").
-        """
-        for candidate in self._resolve_channel_aliases(channel_name):
-            if candidate in self._BUILTIN_LABELS:
-                return True
-        return False
+        """Read the built-in tag of an enabled channel card."""
+        card = self.find_channel_card(channel_name)
+        return card is not None and card.locator('[class*=builtinTag]').count() > 0
 
     # ========== Edit dialog/drawer operations ==========
 
@@ -321,7 +302,9 @@ class ChannelsPage(BasePage):
         timeout = timeout or self.timeout
         logger.info("Waiting for drawer to open")
         try:
-            self.page.locator('.qwenpaw-drawer, .ant-drawer').first.wait_for(state="visible", timeout=timeout)
+            self.page.locator(self.CHANNEL_DRAWER).first.wait_for(
+                state="visible", timeout=timeout
+            )
             return True
         except Exception:
             return False
@@ -374,7 +357,7 @@ class ChannelsPage(BasePage):
         """
         logger.info(f"Toggling enable to: {enable}")
         # Locate the switch inside the drawer
-        drawer = self.page.locator('.qwenpaw-drawer, .ant-drawer')
+        drawer = self.page.locator(self.CHANNEL_DRAWER)
         switch = drawer.locator('.qwenpaw-switch, .ant-switch').first
 
         # Read the current state
@@ -407,24 +390,9 @@ class ChannelsPage(BasePage):
         return self
 
     def save_channel_config(self) -> "ChannelsPage":
-        """Save the channel configuration (the drawer does not close automatically after saving)."""
-        logger.info("Saving channel configuration")
-        submit_btn = self.page.locator(self.FORM_SUBMIT_BTN).first
-        # Wait for the save API request to complete via expect_response
-        try:
-            with self.page.expect_response(
-                lambda resp: '/api/config/channel' in resp.url and resp.request.method in ('PUT', 'POST', 'PATCH'),
-                timeout=10000
-            ) as response_info:
-                submit_btn.click()
-            response = response_info.value
-            logger.info(f"Save API response: status={response.status}")
-            if not response.ok:
-                logger.warning(f"Save API returned non-OK status: {response.status}")
-        except Exception:
-            # No save API response observed — likely blocked by client-side validation
-            logger.warning("Save API response not captured; possible client-side validation error")
-            self.page.wait_for_timeout(2000)
+        """Wait for the redesigned editor's debounced auto-save."""
+        logger.info("Waiting for channel configuration auto-save")
+        self.page.wait_for_timeout(1500)
         return self
 
     def has_form_validation_errors(self) -> bool:
@@ -439,9 +407,9 @@ class ChannelsPage(BasePage):
         return count > 0
 
     def cancel_channel_config(self) -> "ChannelsPage":
-        """Cancel the channel configuration."""
-        logger.info("Canceling channel configuration")
-        self.page.locator(self.FORM_CANCEL_BTN).first.click()
+        """Close the auto-saving channel editor."""
+        logger.info("Closing channel configuration")
+        self.close_drawer()
         self.wait_for_drawer_close()
         return self
 
@@ -459,26 +427,15 @@ class ChannelsPage(BasePage):
         return actual_count == expected_count
 
     def _card_label_matches_builtin(self, card: Locator) -> Optional[bool]:
-        """
-        Inspect a card/available item and decide whether its channel label
-        maps to a built-in channel.
+        """Only Console is built in; official platform channels are plugins.
 
-        Returns:
-            True  — built-in label was found in the card text
-            False — the card carries a recognizable non-built-in label
-            None  — could not determine (empty text / unreadable)
+        Available tiles have no type tag, so read their exact name instead
+        of matching arbitrary card text such as a user-provided bot prefix.
         """
-        try:
-            text = card.inner_text()
-        except Exception:
-            return None
-        for label in self._BUILTIN_LABELS:
-            if label in text:
-                return True
-        # No built-in label matched. If the text is non-empty, treat as
-        # custom (there is a visible label but it is not on the built-in
-        # list). Empty text stays as "unknown" (None).
-        return False if text.strip() else None
+        label = card.get_attribute("aria-label")
+        if label is None:
+            label = card.locator('[class*=availableItemName]').inner_text()
+        return label.strip() in {"Console", "控制台"} if label.strip() else None
 
     def verify_filter_result(self, filter_type: str) -> bool:
         """
@@ -492,12 +449,12 @@ class ChannelsPage(BasePage):
             return len(cards) > 0
         if filter_type == 'builtin':
             for card in cards:
-                if self._card_label_matches_builtin(card) is False:
+                if self._card_label_matches_builtin(card) is not True:
                     return False
             return len(cards) > 0
         if filter_type == 'custom':
             for card in cards:
-                if self._card_label_matches_builtin(card) is True:
+                if self._card_label_matches_builtin(card) is not False:
                     return False
             return len(cards) > 0
         return False

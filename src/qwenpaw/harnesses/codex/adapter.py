@@ -688,7 +688,7 @@ class CodexAdapter(HarnessAdapter):
             summary=summary,
         )
         decision = await service.wait_for_approval(
-            pending.request_id,
+            pending,
             pending.timeout_seconds,
         )
         if is_permissions:

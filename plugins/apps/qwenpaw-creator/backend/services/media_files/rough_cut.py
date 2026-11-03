@@ -250,10 +250,7 @@ def render_rough_cut(
                 ]
                 # Honor the planned span: freeze the last frame when the
                 # generated clip runs short, hard-cap when it runs long.
-                pad = (
-                    f"setpts=(PTS-STARTPTS)/{clip.playback_rate},"
-                    f"tpad=stop_mode=clone:stop_duration={duration},"
-                )
+                pad = f"setpts=(PTS-STARTPTS)/{clip.playback_rate},"
             else:
                 command = [
                     ffmpeg_binary,
@@ -274,7 +271,11 @@ def render_rough_cut(
                     "force_original_aspect_ratio=decrease,"
                     f"pad={width}:{_DRAFT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,"
                     f"setsar=1,fps={_DRAFT_FPS},"
-                    f"{pad}format=yuv420p"
+                    f"{pad}format=yuv420p,"
+                    # fps can discard a finite source's last frame at EOF.
+                    # Pad every kind, including stills and placeholders;
+                    # the output -t below still caps it to the planned span.
+                    f"tpad=stop_mode=clone:stop_duration={duration}"
                 ),
                 "-t",
                 duration,

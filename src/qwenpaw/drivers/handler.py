@@ -43,6 +43,28 @@ if TYPE_CHECKING:
     from ..security.tool_guard.execution_level import ToolExecutionLevel
 
 
+def _resolve_driver_agent_id(request_context: dict[str, Any]) -> str:
+    """Use the request Agent, or the same active-Agent fallback as policy."""
+    agent_id = str(
+        request_context.get("agent_id")
+        or request_context.get("root_agent_id")
+        or "",
+    ).strip()
+    if agent_id:
+        return agent_id
+    try:
+        from ..config.utils import load_config
+
+        config = load_config()
+        return str(config.agents.active_agent or "default")
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning(
+            "Failed to resolve active agent for Driver approval level: %s",
+            exc,
+        )
+        return "default"
+
+
 def _resolve_driver_execution_level(
     request_context: dict[str, Any],
 ) -> "ToolExecutionLevel":
@@ -68,23 +90,7 @@ def _resolve_driver_execution_level(
     if raw:
         return ToolExecutionLevel.from_config(str(raw))
 
-    agent_id = str(
-        request_context.get("agent_id")
-        or request_context.get("root_agent_id")
-        or "",
-    ).strip()
-    if not agent_id:
-        try:
-            from ..config.utils import load_config
-
-            config = load_config()
-            agent_id = str(config.agents.active_agent or "default")
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            logger.warning(
-                "Failed to resolve active agent for Driver approval level: %s",
-                exc,
-            )
-            agent_id = "default"
+    agent_id = _resolve_driver_agent_id(request_context)
 
     try:
         from ..config.config import load_agent_config
@@ -200,6 +206,17 @@ class DriverHandler(ABC):
             effect == POLICY_EFFECT_ALLOW
             and execution_level.requires_approval_for_all_tools()
         )
+        if effect == POLICY_EFFECT_ALLOW and execution_level.value == "jev":
+            from ..security.decision_model import assess_tool_call
+
+            assessment = await assess_tool_call(
+                context.driver_name,
+                context.target.name,
+                operation=context.operation,
+                params={"subject": context.subject},
+                agent_id=_resolve_driver_agent_id(context.request_context),
+            )
+            needs_approval = needs_approval or assessment.needs_approval
         if needs_approval:
             await self._request_approval(context)
         return context

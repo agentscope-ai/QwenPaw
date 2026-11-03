@@ -96,6 +96,20 @@ def custom_provider(**model_fields):
     )
 
 
+def test_partial_modalities_preserve_text_only_capability(metadata):
+    provider = custom_provider(
+        supports_multimodal=False,
+        supports_image=False,
+        supports_video=False,
+    )
+
+    info = provider.resolve_model_info("qwen3.8-max")
+
+    assert info.supports_audio is None
+    assert info.config_overrides == []
+    assert info.supports_multimodal is False
+
+
 async def test_custom_endpoint_uses_named_template(metadata):
     provider = custom_provider()
     assert provider.get_context_size(f"qwen3.8-max") == 1_000_000

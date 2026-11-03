@@ -8,10 +8,7 @@ export default function OffloadPolicyPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader
-        parent={t("nav.settings")}
-        current={t("nav.offloadPolicy", "Tool Offload")}
-      />
+      <PageHeader current={t("nav.offloadPolicy", "Tool Offload")} />
       <OffloadPolicyCard />
     </div>
   );

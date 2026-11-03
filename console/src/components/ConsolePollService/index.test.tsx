@@ -23,6 +23,7 @@ import ConsolePollService from "./index";
 import type { PendingApproval, PushMessage } from "../../api/modules/console";
 
 const POLL_INTERVAL_MS = 2500;
+const BACKGROUND_POLL_INTERVAL_MS = 30000;
 const AUTO_DISMISS_MS = 8000;
 const TITLE_BLINK_PREFIX = "\u2022 ";
 
@@ -49,6 +50,14 @@ const respond = (
   messages,
   ...(pending_approvals ? { pending_approvals } : {}),
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 /** Advance the poll interval and let the request settle. */
 const poll = async (ms = POLL_INTERVAL_MS) => {
@@ -121,6 +130,99 @@ describe("ConsolePollService", () => {
     await poll(10000);
 
     expect(mocks.getPushMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the background interval while the tab is hidden", async () => {
+    render(<ConsolePollService />);
+    await poll(0);
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(1);
+
+    setHidden(true);
+    fireVisibility("hidden");
+    await poll(POLL_INTERVAL_MS);
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(1);
+
+    await poll(30000 - POLL_INTERVAL_MS);
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes immediately when the tab becomes visible", async () => {
+    render(<ConsolePollService />);
+    await poll(0);
+
+    setHidden(true);
+    fireVisibility("hidden");
+    await poll(POLL_INTERVAL_MS);
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(1);
+
+    setHidden(false);
+    fireVisibility("visible");
+    await poll(0);
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not create duplicate timers across visibility changes", async () => {
+    render(<ConsolePollService />);
+    await poll(0);
+
+    setHidden(true);
+    fireVisibility("hidden");
+    fireVisibility("hidden");
+    await poll(30000);
+
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not overlap polling requests", async () => {
+    const pending = deferred<ReturnType<typeof respond>>();
+    mocks.getPushMessages
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(respond([]));
+    render(<ConsolePollService />);
+    await poll(0);
+
+    await poll(POLL_INTERVAL_MS * 4);
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(1);
+
+    pending.resolve(respond([]));
+    await poll(0);
+    await poll(POLL_INTERVAL_MS);
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it("queues only one immediate refresh when visibility returns in-flight", async () => {
+    const pending = deferred<ReturnType<typeof respond>>();
+    mocks.getPushMessages
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(respond([]));
+    render(<ConsolePollService />);
+    await poll(0);
+
+    setHidden(true);
+    fireVisibility("hidden");
+    setHidden(false);
+    fireVisibility("visible");
+    fireVisibility("visible");
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(1);
+
+    pending.resolve(respond([]));
+    await poll(0);
+
+    expect(mocks.getPushMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not update state after unmounting an in-flight request", async () => {
+    const pending = deferred<ReturnType<typeof respond>>();
+    mocks.getPushMessages.mockReturnValueOnce(pending.promise);
+    const { unmount } = render(<ConsolePollService />);
+    await poll(0);
+
+    unmount();
+    pending.resolve(respond([msg("late")], [approval({ request_id: "late" })]));
+    await poll(0);
+
+    expect(mocks.setApprovals).not.toHaveBeenCalled();
+    expect(screen.queryByText("text late")).not.toBeInTheDocument();
   });
 
   it("keeps polling after a request rejects", async () => {
@@ -467,14 +569,15 @@ describe("ConsolePollService", () => {
     await poll(0);
 
     mocks.getPushMessages.mockResolvedValue(respond([msg("m2")]));
-    await poll();
+    await poll(BACKGROUND_POLL_INTERVAL_MS);
 
+    const titleBeforeNextBlink = document.title;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(800);
     });
 
     // A doubled loop would flip the prefix twice and land back on the plain title.
-    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw`);
+    expect(document.title).not.toBe(titleBeforeNextBlink);
   });
 
   it("restores the title on unmount while blinking", async () => {
@@ -505,5 +608,48 @@ describe("ConsolePollService", () => {
     });
 
     expect(document.title).toBe(`${TITLE_BLINK_PREFIX}Original Page`);
+  });
+
+  it("blinks the latest route title after navigation", async () => {
+    mocks.getPushMessages.mockResolvedValue(respond([]));
+    render(<ConsolePollService />);
+    await poll(0);
+
+    act(() => {
+      document.title = "Models · QwenPaw";
+      document.dispatchEvent(
+        new CustomEvent("qwenpaw:document-title-change", {
+          detail: document.title,
+        }),
+      );
+    });
+    setHidden(true);
+    fireVisibility("hidden");
+    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+    await poll(BACKGROUND_POLL_INTERVAL_MS);
+    await poll(800);
+
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}Models · QwenPaw`);
+  });
+
+  it("adopts a new route title while blinking is already active", async () => {
+    setHidden(true);
+    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+    render(<ConsolePollService />);
+    await poll(0);
+    await poll(800);
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw`);
+
+    act(() => {
+      document.title = "Models · QwenPaw";
+      document.dispatchEvent(
+        new CustomEvent("qwenpaw:document-title-change", {
+          detail: document.title,
+        }),
+      );
+    });
+    await poll(1600);
+
+    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}Models · QwenPaw`);
   });
 });

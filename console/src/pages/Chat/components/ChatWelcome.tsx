@@ -25,7 +25,9 @@ export function ChatWelcome({
       ) : (
         avatar
       )}
-      <h1>{greeting}</h1>
+      <div className={styles.greeting} role="heading" aria-level={2}>
+        {greeting}
+      </div>
       {description && <p>{description}</p>}
       {!!prompts?.length && (
         <div className={styles.prompts}>

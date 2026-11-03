@@ -27,6 +27,7 @@ import asyncio
 import json
 import tempfile
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1446,7 +1447,11 @@ class TestUploadWorkspaceSkillToPool:
 
 
 def _target(workspace_id: str = "default"):
-    return skills_module.PoolDownloadTarget(workspace_id=workspace_id)
+    """A download target as the router pins it: id plus resolved directory."""
+    return skills_module._ResolvedDownloadTarget(
+        workspace_id=workspace_id,
+        workspace_dir=Path(f"/tmp/{workspace_id}"),
+    )
 
 
 class TestPreflightDownloadConflicts:
@@ -1455,17 +1460,12 @@ class TestPreflightDownloadConflicts:
         service.preflight_download_to_workspace.return_value = {
             "success": True,
         }
-        with patch.object(
-            skills_module,
-            "_workspace_dir_for_agent",
-            side_effect=lambda agent_id: Path(f"/tmp/{agent_id}"),
-        ):
-            conflicts = skills_module._preflight_download_conflicts(
-                service,
-                [_target("a"), _target("b")],
-                "demo",
-                False,
-            )
+        conflicts = skills_module._preflight_download_conflicts(
+            service,
+            [_target("a"), _target("b")],
+            "demo",
+            False,
+        )
         assert conflicts == []
         assert service.preflight_download_to_workspace.call_count == 2
         kwargs = service.preflight_download_to_workspace.call_args.kwargs
@@ -1478,17 +1478,12 @@ class TestPreflightDownloadConflicts:
             {"success": True},
             {"success": False, "reason": "conflict", "skill_name": "demo"},
         ]
-        with patch.object(
-            skills_module,
-            "_workspace_dir_for_agent",
-            side_effect=lambda agent_id: Path(f"/tmp/{agent_id}"),
-        ):
-            conflicts = skills_module._preflight_download_conflicts(
-                service,
-                [_target("a"), _target("b")],
-                "demo",
-                True,
-            )
+        conflicts = skills_module._preflight_download_conflicts(
+            service,
+            [_target("a"), _target("b")],
+            "demo",
+            True,
+        )
         assert conflicts == [
             {"success": False, "reason": "conflict", "skill_name": "demo"},
         ]
@@ -1502,18 +1497,13 @@ class TestPreflightDownloadConflicts:
             "success": False,
             "reason": "not_found",
         }
-        with patch.object(
-            skills_module,
-            "_workspace_dir_for_agent",
-            return_value=Path("/tmp/a"),
-        ):
-            with pytest.raises(HTTPException) as excinfo:
-                skills_module._preflight_download_conflicts(
-                    service,
-                    [_target("a")],
-                    "ghost",
-                    False,
-                )
+        with pytest.raises(HTTPException) as excinfo:
+            skills_module._preflight_download_conflicts(
+                service,
+                [_target("a")],
+                "ghost",
+                False,
+            )
         assert excinfo.value.status_code == 404
 
     def test_empty_targets_returns_no_conflicts(self):
@@ -1528,7 +1518,9 @@ class TestPreflightDownloadConflicts:
         service.preflight_download_to_workspace.assert_not_called()
 
 
-class TestResolveAndPreflight:
+class _DownloadBodyBuilder:
+    """Shared request factory for the resolve/preflight/execute helpers."""
+
     @staticmethod
     def _body(**overrides: Any) -> skills_module.DownloadFromPoolRequest:
         payload: dict[str, Any] = {
@@ -1538,6 +1530,51 @@ class TestResolveAndPreflight:
         payload.update(overrides)
         return skills_module.DownloadFromPoolRequest(**payload)
 
+
+class TestResolveDownloadTargets(_DownloadBodyBuilder):
+    def test_explicit_targets_get_their_directory_pinned(self):
+        with patch.object(
+            skills_module,
+            "_workspace_dir_for_agent",
+            side_effect=lambda agent_id: Path(f"/tmp/{agent_id}"),
+        ) as resolve_mock:
+            targets = skills_module._resolve_download_targets(
+                self._body(targets=[{"workspace_id": "a"}]),
+            )
+
+        assert [
+            (item.workspace_id, item.workspace_dir) for item in targets
+        ] == [("a", Path("/tmp/a"))]
+        resolve_mock.assert_called_once_with("a")
+
+    def test_all_workspaces_replaces_explicit_targets(self):
+        with patch.object(
+            skills_module,
+            "list_workspaces",
+            return_value=[
+                {"agent_id": "a", "workspace_dir": "/tmp/a"},
+                {"agent_id": "b", "workspace_dir": "/tmp/b"},
+            ],
+        ):
+            targets = skills_module._resolve_download_targets(
+                self._body(
+                    targets=[{"workspace_id": "ignored"}],
+                    all_workspaces=True,
+                ),
+            )
+
+        assert [
+            (item.workspace_id, item.workspace_dir) for item in targets
+        ] == [("a", Path("/tmp/a")), ("b", Path("/tmp/b"))]
+
+    def test_empty_request_resolves_to_nothing(self):
+        assert (
+            skills_module._resolve_download_targets(self._body(targets=[]))
+            == []
+        )
+
+
+class TestPreflightDownload(_DownloadBodyBuilder):
     @pytest.mark.parametrize(
         "exc,expected_detail",
         [
@@ -1556,7 +1593,7 @@ class TestResolveAndPreflight:
             side_effect=exc,
         ):
             with pytest.raises(HTTPException) as excinfo:
-                skills_module._resolve_and_preflight(self._body())
+                skills_module._preflight_download(self._body(), [_target("a")])
         assert excinfo.value.status_code == 400
         assert excinfo.value.detail == expected_detail
 
@@ -1572,44 +1609,91 @@ class TestResolveAndPreflight:
             return_value=[conflict],
         ):
             with pytest.raises(HTTPException) as excinfo:
-                skills_module._resolve_and_preflight(self._body())
+                skills_module._preflight_download(self._body(), [_target("a")])
         assert excinfo.value.status_code == 409
         assert excinfo.value.detail == {
             "downloaded": [],
             "conflicts": [conflict],
         }
 
-    def test_all_workspaces_replaces_explicit_targets(self):
+    def test_preflights_the_targets_it_was_given(self):
+        """Preflight must not re-resolve: it runs with the locks held."""
+        service = MagicMock(name="ServiceStub")
+        targets = [_target("a"), _target("b")]
         with patch.object(
             skills_module,
-            "list_workspaces",
-            return_value=[
-                {"agent_id": "a", "workspace_dir": "/tmp/a"},
-                {"agent_id": "b", "workspace_dir": "/tmp/b"},
-            ],
-        ), patch.object(
-            skills_module,
             "SkillPoolService",
-            return_value=MagicMock(name="ServiceStub"),
+            return_value=service,
         ), patch.object(
             skills_module,
             "_preflight_download_conflicts",
             return_value=[],
-        ) as preflight_mock:
-            targets, _service = skills_module._resolve_and_preflight(
-                self._body(
-                    targets=[{"workspace_id": "ignored"}],
-                    all_workspaces=True,
-                ),
+        ) as preflight_mock, patch.object(
+            skills_module,
+            "_resolve_download_targets",
+        ) as resolve_mock:
+            resolved_service = skills_module._preflight_download(
+                self._body(),
+                targets,
             )
 
-        assert [item.workspace_id for item in targets] == ["a", "b"]
-        assert preflight_mock.call_args[0][1] == targets
+        assert resolved_service is service
+        preflight_mock.assert_called_once_with(service, targets, "demo", False)
+        resolve_mock.assert_not_called()
+
+
+class TestDownloadPoolSkillLocks(_DownloadBodyBuilder):
+    def test_targets_are_resolved_once_for_locking_and_execution(self):
+        """A workspace appearing after the locks are taken cannot be executed.
+
+        Locking and execution used to resolve ``all_workspaces`` separately,
+        so a workspace created in between entered the plan with no lock.
+        """
+        late = {"agent_id": "late", "workspace_dir": "/tmp/late"}
+        calls: list[int] = []
+
+        def _list_workspaces() -> list[dict[str, str]]:
+            calls.append(1)
+            if len(calls) == 1:
+                return [{"agent_id": "early", "workspace_dir": "/tmp/early"}]
+            return [late]
+
+        locked: list[str] = []
+        executed: list[list[str]] = []
+
+        def _fake_locked(body: Any, targets: Any) -> dict[str, Any]:
+            executed.append([item.workspace_id for item in targets])
+            return {"downloaded": []}
+
+        with patch.object(
+            skills_module,
+            "list_workspaces",
+            side_effect=_list_workspaces,
+        ), patch.object(
+            skills_module,
+            "_pool_download_lock",
+            side_effect=lambda key: locked.append(key) or threading.Lock(),
+        ), patch.object(
+            skills_module,
+            "_download_pool_skill_locked",
+            side_effect=_fake_locked,
+        ):
+            skills_module._download_pool_skill(self._body(all_workspaces=True))
+
+        assert (
+            len(calls) == 1
+        ), "the workspace list was resolved more than once"
+        assert locked == ["early"]
+        assert executed == [["early"]]
 
     def test_no_targets_becomes_400(self):
-        with patch.object(skills_module, "list_workspaces", return_value=[]):
+        with patch.object(
+            skills_module,
+            "_resolve_download_targets",
+            return_value=[],
+        ):
             with pytest.raises(HTTPException) as excinfo:
-                skills_module._resolve_and_preflight(self._body(targets=[]))
+                skills_module._download_pool_skill(self._body(targets=[]))
         assert excinfo.value.status_code == 400
         assert "No workspace targets" in excinfo.value.detail
 
@@ -1626,15 +1710,16 @@ class TestBuildDownloadPlan:
         }
         with patch.object(
             skills_module,
-            "_workspace_dir_for_agent",
-            return_value=workspace_dir,
-        ), patch.object(
-            skills_module,
             "_snapshot_workspace_skill",
             return_value=snapshot,
         ) as snapshot_mock:
             plan = skills_module._build_download_plan(
-                [_target("default")],
+                [
+                    skills_module._ResolvedDownloadTarget(
+                        workspace_id="default",
+                        workspace_dir=workspace_dir,
+                    ),
+                ],
                 "demo",
             )
 
@@ -1781,8 +1866,13 @@ class TestDownloadPoolSkillRoute:
             [
                 patch.object(
                     skills_module,
-                    "_resolve_and_preflight",
-                    return_value=([_target("default")], service),
+                    "_resolve_download_targets",
+                    return_value=[_target("default")],
+                ),
+                patch.object(
+                    skills_module,
+                    "_preflight_download",
+                    return_value=service,
                 ),
                 patch.object(
                     skills_module,
@@ -1806,7 +1896,7 @@ class TestDownloadPoolSkillRoute:
                 "name": "demo",
             },
         )
-        with patches[0], patches[1], patches[2]:
+        with patches[0], patches[1], patches[2], patches[3]:
             response = client.post(
                 "/api/skills/pool/download",
                 json={
@@ -1838,8 +1928,12 @@ class TestDownloadPoolSkillRoute:
         plan = self._plan(tmp_path, backup_dir=backup_dir)
         with patch.object(
             skills_module,
-            "_resolve_and_preflight",
-            return_value=([_target("default")], service),
+            "_resolve_download_targets",
+            return_value=[_target("default")],
+        ), patch.object(
+            skills_module,
+            "_preflight_download",
+            return_value=service,
         ), patch.object(
             skills_module,
             "_build_download_plan",
@@ -1867,7 +1961,7 @@ class TestDownloadPoolSkillRoute:
         tmp_path: Path,
     ):
         plan, patches = self._patched(tmp_path, _scan_error())
-        with patches[0], patches[1], patches[2], patch.object(
+        with patches[0], patches[1], patches[2], patches[3], patch.object(
             skills_module,
             "_restore_workspace_skill",
         ) as restore_mock:
@@ -1889,7 +1983,7 @@ class TestDownloadPoolSkillRoute:
         tmp_path: Path,
     ):
         plan, patches = self._patched(tmp_path, RuntimeError("disk full"))
-        with patches[0], patches[1], patches[2], patch.object(
+        with patches[0], patches[1], patches[2], patches[3], patch.object(
             skills_module,
             "_restore_workspace_skill",
         ) as restore_mock:
@@ -2597,3 +2691,106 @@ class TestWriteRouteFailureLegs:
             "success": False,
             "reason": "delete_failed",
         }
+
+
+def test_pool_download_runs_the_copy_off_the_event_loop(monkeypatch):
+    """The blocking copy must run in a worker thread, not on the event loop.
+
+    Doing it inline froze the event loop for the whole download, which made the
+    desktop app look dead and left the skill half-copied (QwenPaw #8013).
+    """
+    worker_threads: list[int] = []
+
+    def fake_download(body):
+        worker_threads.append(threading.get_ident())
+        return {"downloaded": []}
+
+    monkeypatch.setattr(skills_module, "_download_pool_skill", fake_download)
+    body = skills_module.DownloadFromPoolRequest(
+        skill_name="demo",
+        targets=[skills_module.PoolDownloadTarget(workspace_id="ws-1")],
+    )
+    loop_threads: list[int] = []
+
+    async def call_route():
+        loop_threads.append(threading.get_ident())
+        return await skills_module.download_pool_skill_to_workspaces(body)
+
+    assert asyncio.run(call_route()) == {"downloaded": []}
+    assert worker_threads
+    assert worker_threads[0] != loop_threads[0]
+
+
+def test_pool_download_serializes_overlapping_requests(monkeypatch):
+    """Two overlapping downloads into one workspace must not interleave.
+
+    Offloading the copy off the event loop lets two requests run at once.
+    Preflight + install is a check-then-write, so without a lock the second
+    request could pass preflight against the pre-install state and then
+    roll back the first request's finished install. The lock must wrap the
+    whole thing, preflight included.
+    """
+    monkeypatch.setattr(
+        skills_module,
+        "_resolve_download_targets",
+        lambda body: [_target("ws-1")],
+    )
+    monkeypatch.setattr(
+        skills_module,
+        "_pool_download_lock_keys",
+        lambda targets: ["ws-1"],
+    )
+    events: list[str] = []
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    order: list[str] = []
+
+    def fake_locked(body, targets):
+        tag = body.skill_name
+        events.append(f"{tag}:enter")
+        order.append(tag)
+        if tag == "first":
+            first_entered.set()
+            release_first.wait(5)
+        events.append(f"{tag}:exit")
+        return {"downloaded": []}
+
+    monkeypatch.setattr(
+        skills_module,
+        "_download_pool_skill_locked",
+        fake_locked,
+    )
+    body = lambda name: skills_module.DownloadFromPoolRequest(  # noqa: E731
+        skill_name=name,
+        targets=[skills_module.PoolDownloadTarget(workspace_id="ws-1")],
+    )
+    results: dict[str, Any] = {}
+
+    def run(name):
+        results[name] = skills_module._download_pool_skill(body(name))
+
+    first = threading.Thread(target=run, args=("first",))
+    second = threading.Thread(target=run, args=("second",))
+    first.start()
+    assert first_entered.wait(5)
+    second.start()
+    # Give the second thread a chance to (wrongly) slip past the lock.
+    time.sleep(0.2)
+    assert events == [
+        "first:enter",
+    ], f"second entered while first held it: {events}"
+    release_first.set()
+    first.join(5)
+    second.join(5)
+
+    assert order == ["first", "second"]
+    assert events == [
+        "first:enter",
+        "first:exit",
+        "second:enter",
+        "second:exit",
+    ]
+    assert results == {
+        "first": {"downloaded": []},
+        "second": {"downloaded": []},
+    }

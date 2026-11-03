@@ -1,13 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { GlobalOutlined, SoundOutlined, UserOutlined } from "@ant-design/icons";
+import { Tooltip } from "antd";
 import type { ModelConfigItem } from "@/contracts/creator";
 import { useModelConfigStore } from "@/store/modelConfigStore";
-import modelLlmIcon from "@/assets/design/model-llm.svg";
-import modelVlmIcon from "@/assets/design/model-vlm.svg";
-import modelAsrIcon from "@/assets/design/model-asr.svg";
-import modelImageIcon from "@/assets/design/model-image.svg";
-import modelVideoIcon from "@/assets/design/model-video.svg";
 import ModelConfigModal, { supportsQwenNativeSearch } from "./ModelConfigModal";
 
 type ModelType =
@@ -22,40 +17,17 @@ type ModelType =
 type ModelStatus = "on" | "off" | "none" | "incomplete";
 
 const READY_COLOR = "#14B8A6";
-const READY_HALO = "#C8F4E9";
-const IDLE_COLOR = "#8E8C99";
-const IDLE_HALO = "#EFF0F3";
+const IDLE_COLOR = "var(--color-text-tertiary)";
 
-const BADGE_META: {
-  type: ModelType;
-  icon: string | null;
-  labelKey: string;
-  // Rendered when no masked SVG glyph exists for the type.
-  fallbackIcon?: React.ComponentType<{ style?: React.CSSProperties }>;
-}[] = [
-  { type: "llm", icon: modelLlmIcon, labelKey: "modelBadges.textModel" },
-  { type: "vlm", icon: modelVlmIcon, labelKey: "modelBadges.visionModel" },
-  {
-    type: "grounding",
-    icon: null,
-    labelKey: "Grounding",
-    fallbackIcon: GlobalOutlined,
-  },
-  { type: "asr", icon: modelAsrIcon, labelKey: "modelBadges.asrModel" },
-  {
-    type: "tts",
-    icon: null,
-    labelKey: "modelBadges.ttsModel",
-    fallbackIcon: SoundOutlined,
-  },
-  {
-    type: "s2v",
-    icon: null,
-    labelKey: "modelBadges.s2vModel",
-    fallbackIcon: UserOutlined,
-  },
-  { type: "image", icon: modelImageIcon, labelKey: "modelBadges.imageModel" },
-  { type: "video", icon: modelVideoIcon, labelKey: "modelBadges.videoModel" },
+const BADGE_META: { type: ModelType; labelKey: string }[] = [
+  { type: "llm", labelKey: "modelBadges.textModel" },
+  { type: "vlm", labelKey: "modelBadges.visionModel" },
+  { type: "grounding", labelKey: "Grounding" },
+  { type: "asr", labelKey: "modelBadges.asrModel" },
+  { type: "tts", labelKey: "modelBadges.ttsModel" },
+  { type: "s2v", labelKey: "modelBadges.s2vModel" },
+  { type: "image", labelKey: "modelBadges.imageModel" },
+  { type: "video", labelKey: "modelBadges.videoModel" },
 ];
 
 const STATUS_TEXT_KEYS: Record<ModelStatus, string> = {
@@ -65,15 +37,8 @@ const STATUS_TEXT_KEYS: Record<ModelStatus, string> = {
   incomplete: "modelBadges.configurationIncomplete",
 };
 
-/**
- * Model readiness indicator from the draft header: a fill-tertiary pill with
- * one 8px status dot plus one 20px glyph per model type, tinted by state via
- * a CSS mask. Clicking the pill opens the model configuration.
- */
 export default function ModelBadges() {
   const { t } = useTranslation();
-  // Shared snapshot: badges follow config saves made from any home-page
-  // modal, not just the one opened from here.
   const config = useModelConfigStore((state) => state.config);
   const refresh = useModelConfigStore((state) => state.refresh);
   const [modalOpen, setModalOpen] = useState(false);
@@ -132,105 +97,94 @@ export default function ModelBadges() {
     return item.enabled ? "on" : "off";
   };
 
-  const readyCount = BADGE_META.filter(
-    (meta) => status(meta.type) === "on",
-  ).length;
-  const compactTitle = BADGE_META.map((meta) =>
-    t("modelBadges.badgeTitle", {
-      name: t(meta.labelKey),
-      status: t(STATUS_TEXT_KEYS[status(meta.type)]),
-    }),
-  ).join("\n");
+  const badges = BADGE_META.map((meta) => ({
+    ...meta,
+    state: status(meta.type),
+  }));
+  const readyCount = badges.filter((badge) => badge.state === "on").length;
+  const summary = t("modelBadges.compactSummary", {
+    ready: readyCount,
+    total: badges.length,
+  });
 
   return (
     <>
-      <button
-        type="button"
-        data-onboarding-id="model-badges"
-        onClick={() => setModalOpen(true)}
-        title={t("modelBadges.modelConfig")}
-        aria-label={t("modelBadges.modelConfig")}
-        className="mr-[92px] flex cursor-pointer items-center rounded-full bg-[rgba(43,27,0,0.04)] px-3 py-1 transition-colors hover:bg-[rgba(43,27,0,0.07)]"
-      >
-        <span className="hidden items-center gap-3 xl:flex">
-          {BADGE_META.map((meta) => {
-            const state = status(meta.type);
-            const ready = state === "on";
-            const tint = ready ? READY_COLOR : IDLE_COLOR;
-            return (
-              <span
-                key={meta.type}
-                className="flex h-5 items-center gap-2"
-                title={t("modelBadges.badgeTitle", {
-                  name: t(meta.labelKey),
-                  status: t(STATUS_TEXT_KEYS[state]),
-                })}
-                aria-label={t("modelBadges.badgeTitle", {
-                  name: t(meta.labelKey),
-                  status: t(STATUS_TEXT_KEYS[state]),
-                })}
-                data-model-badge={meta.type}
-                data-status={state}
-              >
+      <Tooltip
+        trigger={["hover", "focus"]}
+        title={
+          <div className="flex flex-col gap-1 py-1">
+            <span className="mb-1 font-semibold">{summary}</span>
+            {badges.map((badge) => {
+              const label = t("modelBadges.badgeTitle", {
+                name: t(badge.labelKey),
+                status: t(STATUS_TEXT_KEYS[badge.state]),
+              });
+              return (
                 <span
-                  className="flex h-2 w-2 shrink-0 items-center justify-center rounded-full"
-                  style={{ background: ready ? READY_HALO : IDLE_HALO }}
+                  key={badge.type}
+                  data-model-badge={badge.type}
+                  data-status={badge.state}
+                  aria-label={label}
+                  className="flex items-center gap-2"
                 >
                   <span
-                    className="h-1 w-1 rounded-full"
-                    style={{ background: tint }}
-                  />
-                </span>
-                {meta.icon ? (
-                  <span
-                    className="h-5 w-5 shrink-0"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
                     style={{
-                      backgroundColor: tint,
-                      // Quoted so inlined `data:` glyphs keep working: an
-                      // unquoted url() would break on their `#` fill colours.
-                      maskImage: `url("${meta.icon}")`,
-                      WebkitMaskImage: `url("${meta.icon}")`,
-                      maskSize: "100% 100%",
-                      WebkitMaskSize: "100% 100%",
-                      maskRepeat: "no-repeat",
-                      WebkitMaskRepeat: "no-repeat",
+                      background:
+                        badge.state === "on" ? READY_COLOR : IDLE_COLOR,
                     }}
                   />
-                ) : meta.fallbackIcon ? (
-                  <meta.fallbackIcon style={{ fontSize: 18, color: tint }} />
-                ) : null}
-              </span>
-            );
-          })}
-        </span>
-        {/* Narrow viewports collapse the eight glyphs into one readiness
-            summary pill; the per-model statuses stay reachable via title. */}
-        <span
-          data-model-badges-compact
-          className="flex h-5 items-center gap-2 whitespace-nowrap text-xs font-semibold text-[var(--color-text-secondary)] xl:hidden"
-          title={compactTitle}
+                  {label}
+                </span>
+              );
+            })}
+          </div>
+        }
+      >
+        <button
+          type="button"
+          data-onboarding-id="model-badges"
+          onClick={() => setModalOpen(true)}
+          aria-label={t("modelBadges.modelConfig")}
+          className="relative mr-[92px] flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
         >
-          <span
-            className="flex h-2 w-2 shrink-0 items-center justify-center rounded-full"
-            style={{
-              background:
-                readyCount === BADGE_META.length ? READY_HALO : IDLE_HALO,
-            }}
+          <svg
+            data-model-badges-ring
+            viewBox="0 0 36 36"
+            className="absolute inset-0 h-full w-full -rotate-90"
+            aria-hidden="true"
           >
-            <span
-              className="h-1 w-1 rounded-full"
-              style={{
-                background:
-                  readyCount === BADGE_META.length ? READY_COLOR : IDLE_COLOR,
-              }}
+            <circle
+              cx="18"
+              cy="18"
+              r="15"
+              fill="none"
+              stroke="var(--color-border)"
+              strokeWidth="3"
             />
+            {readyCount > 0 && (
+              <circle
+                cx="18"
+                cy="18"
+                r="15"
+                fill="none"
+                stroke={READY_COLOR}
+                strokeWidth="3"
+                strokeLinecap="round"
+                pathLength="100"
+                strokeDasharray={`${(readyCount / badges.length) * 100} 100`}
+              />
+            )}
+          </svg>
+          <span
+            data-model-badges-compact
+            className="text-[10px] font-semibold tabular-nums"
+            aria-label={summary}
+          >
+            {readyCount}/{badges.length}
           </span>
-          {t("modelBadges.compactSummary", {
-            ready: readyCount,
-            total: BADGE_META.length,
-          })}
-        </span>
-      </button>
+        </button>
+      </Tooltip>
       <ModelConfigModal open={modalOpen} onClose={modalClose} />
     </>
   );

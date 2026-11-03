@@ -27,9 +27,7 @@ _CHECKPOINT_SUMMARIES = {
     CHECKPOINT_STRUCTURE: (
         "结构检查点：确认分集结构（各集标题与梗概）之后再" "起草剧本与生成媒体。通过后本项目不再重复询问。"
     ),
-    CHECKPOINT_SCRIPT: (
-        "剧本检查点：确认各集剧本草稿之后再进入设计与分镜，" "文本阶段修改的成本远低于媒体阶段。通过后本项目不再重复询问。"
-    ),
+    CHECKPOINT_SCRIPT: ("剧本检查点：确认当前剧本草稿之后再进入设计与分镜。" "剧本修改后需要重新确认，媒体生成仍需单独授权。"),
     CHECKPOINT_PLAN: (
         "计划检查点：确认分镜切分、镜头与各 Element 的 prompt 之后再开始生成。" "通过后本项目不再重复询问。"
     ),
@@ -56,10 +54,9 @@ def required_checkpoint_phases(  # pylint: disable=too-many-return-statements  #
 ) -> tuple[str, ...]:
     """Return reviews of actual deliverables; billing is a separate gate.
 
-    Design images cannot wait for their own review. Multi-episode visual
-    design retains structure review in co_creation and fine_tuning;
-    storyboard/video retain structure/script/design only in co_creation.
-    Delegated execution has no creation checkpoints.
+    Co-creation confirms the script before design or storyboard spending.
+    Design images cannot wait for their own review. Delegated execution has
+    no creation checkpoints; the user-owned script-only stage still applies.
     """
 
     from models.config import (
@@ -74,10 +71,13 @@ def required_checkpoint_phases(  # pylint: disable=too-many-return-statements  #
     script_flow = timeline_count is not None and timeline_count > 1
     if tool_name == "image_generation":
         if role is SpecialistRole.VISUAL_DEVELOPMENT:
+            if execution_mode != EXECUTION_MODE_FINE_TUNING:
+                return (
+                    (CHECKPOINT_STRUCTURE, CHECKPOINT_SCRIPT)
+                    if script_flow
+                    else (CHECKPOINT_SCRIPT,)
+                )
             if script_flow:
-                # 多集项目的角色/场景设计基于已确认的结构；剧本检查点
-                # 在分镜/视频（storyboard 消费方）之前生效即可，设计图
-                # 可与剧本审阅并行推进。
                 return (CHECKPOINT_STRUCTURE,)
             return ()
     elif tool_name != "r2v_generation":
@@ -91,7 +91,7 @@ def required_checkpoint_phases(  # pylint: disable=too-many-return-statements  #
             CHECKPOINT_SCRIPT,
             CHECKPOINT_DESIGN,
         )
-    return (CHECKPOINT_DESIGN,)
+    return (CHECKPOINT_SCRIPT, CHECKPOINT_DESIGN)
 
 
 def retire_legacy_plan_checkpoints(executions, project_id: str) -> int:

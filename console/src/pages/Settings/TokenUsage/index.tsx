@@ -223,9 +223,7 @@ function TokenUsagePage() {
 
   const tablesEmpty = byModelData.length === 0 && byDateData.length === 0;
 
-  const pageHeader = (
-    <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
-  );
+  const pageHeader = <PageHeader current={t("tokenUsage.title")} />;
 
   return (
     <div className={styles.container}>
@@ -262,6 +260,9 @@ function TokenUsagePage() {
             />
           ) : (
             <DatePicker.RangePicker
+              classNames={{
+                popup: { root: styles.mobileRangePopup },
+              }}
               presets={[30, 90, 365].map((days) => ({
                 label: t("tokenUsage.lastDays", {
                   count: days,

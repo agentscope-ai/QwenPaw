@@ -48,6 +48,7 @@ from urllib.parse import quote
 
 import httpx
 
+from models.minimax_errors import minimax_base_resp_error
 from models.video_capabilities import (
     MINIMAX_H3_MAX_MODEL_RESOLUTIONS,
     MINIMAX_H3_MAX_PROMPT_CHARS,
@@ -353,19 +354,14 @@ def build_submit_request(
 
 
 def raise_on_base_resp(payload: dict, model_name: str) -> None:
-    """Surface a MiniMax base_resp rejection wrapped in an HTTP 200."""
-    base_resp = (
-        payload.get("base_resp")
-        if isinstance(payload.get("base_resp"), dict)
-        else {}
-    )
-    status_code = base_resp.get("status_code")
-    if status_code not in (None, 0):
-        raise ModelError(
-            f"MiniMax request rejected: {status_code}: "
-            f"{base_resp.get('status_msg')}",
-            model_name=model_name,
-        )
+    """Surface a MiniMax base_resp rejection wrapped in an HTTP 200.
+
+    Uses the shared error-code table so video and image report the same
+    human-readable message for a given ``base_resp.status_code``.
+    """
+    message = minimax_base_resp_error(payload)
+    if message is not None:
+        raise ModelError(message, model_name=model_name)
 
 
 def extract_task_id(payload: dict) -> str:

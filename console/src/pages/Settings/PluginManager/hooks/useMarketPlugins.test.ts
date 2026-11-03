@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 
@@ -46,7 +46,10 @@ function makeEntry(id: string): MarketPluginEntry {
 }
 
 describe("useMarketPlugins", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    vi.stubGlobal("VITE_API_BASE_URL", "/qwenpaw");
     hoisted.fetchMarketPlugins.mockReset();
     hoisted.installPlugin.mockReset();
     vi.stubGlobal(
@@ -75,6 +78,10 @@ describe("useMarketPlugins", () => {
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetch).toHaveBeenCalledWith(
+      "/qwenpaw/api/version",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(hoisted.fetchMarketPlugins).toHaveBeenCalledWith(
       expect.objectContaining({ page_number: 1, page_size: 20 }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),

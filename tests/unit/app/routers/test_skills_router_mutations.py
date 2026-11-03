@@ -1057,11 +1057,14 @@ class TestDownloadPoolSkill:
     ):
         with patch(
             "qwenpaw.app.routers.skills.list_workspaces",
-            return_value=[{"agent_id": "default"}, {"agent_id": "work"}],
+            return_value=[
+                {"agent_id": "default", "workspace_dir": "/tmp/ws-default"},
+                {"agent_id": "work", "workspace_dir": "/tmp/ws-work"},
+            ],
         ), patch(
             "qwenpaw.app.routers.skills._preflight_download_conflicts",
             return_value=[],
-        ), patch(
+        ) as preflight_mock, patch(
             "qwenpaw.app.routers.skills._build_download_plan",
             return_value=[],
         ):
@@ -1071,3 +1074,10 @@ class TestDownloadPoolSkill:
             )
         assert response.status_code == 200
         assert response.json() == {"downloaded": []}
+        # the flag expands to every workspace, directories already pinned
+        resolved = preflight_mock.call_args[0][1]
+        assert [item.workspace_id for item in resolved] == ["default", "work"]
+        assert [item.workspace_dir.name for item in resolved] == [
+            "ws-default",
+            "ws-work",
+        ]

@@ -47,6 +47,38 @@ function Harness() {
 }
 
 describe("VideoTemplatePicker", () => {
+  it("keeps default first and the official launch cover second without a delete action", async () => {
+    installMockFetch([
+      {
+        match: "/video-templates",
+        response: {
+          json: {
+            items: [
+              ...TEMPLATES,
+              template({ templateId: "informal_launch", name: "非正式发布会" }),
+            ],
+          },
+        },
+      },
+    ]);
+    const { container } = render(<Harness />);
+    await userEvent.click(container.querySelector("[data-style-entry]")!);
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-style-card="informal_launch"]'),
+      ).toBeTruthy(),
+    );
+    const cards = Array.from(document.querySelectorAll("[data-style-card]"));
+    expect(cards[0]).toHaveAttribute("data-style-card", "default");
+    expect(cards[1]).toHaveAttribute("data-style-card", "informal_launch");
+    expect(cards[1].querySelector("img")).toBeTruthy();
+    expect(cards[1].querySelector("[data-style-card-delete]")).toBeNull();
+    await userEvent.click(cards[1]);
+    expect(container.querySelector("[data-style-entry]")).toHaveTextContent(
+      "非正式发布会",
+    );
+  });
+
   it("walks the style pill lifecycle: default label, card grid, select, reselect default", async () => {
     installMockFetch([
       { match: "/video-templates", response: { json: { items: TEMPLATES } } },

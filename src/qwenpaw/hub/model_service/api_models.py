@@ -17,6 +17,7 @@ from pydantic import (
 
 from ...providers.context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider_setup import supported_presets
+from .storage import DEFAULT_GATEWAY_TIMEOUT_SECONDS
 
 
 class StrictBody(BaseModel):
@@ -31,6 +32,11 @@ class PolicyBody(StrictBody):
     revision: int = Field(ge=1)
     default_model_id: str | None = None
     member_token_limit: int | None = Field(default=None, ge=0)
+    gateway_timeout_seconds: int = Field(
+        default=DEFAULT_GATEWAY_TIMEOUT_SECONDS,
+        ge=60,
+        strict=True,
+    )
     timezone: str = "UTC"
 
     @field_validator("timezone")
@@ -108,12 +114,10 @@ class ModelBody(StrictBody):
     input_token_limit: int = Field(
         default=DEFAULT_CONTEXT_WINDOW,
         ge=1000,
-        le=10000000,
     )
     output_token_limit: int | None = Field(
         default=None,
         ge=1,
-        le=1000000,
     )
     output_limit_field: Literal[
         "max_tokens",

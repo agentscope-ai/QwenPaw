@@ -51,7 +51,7 @@ function SkillPoolPage() {
     <LayoutGroup id={transferId}>
       <div className={styles.skillsPage}>
         <PageHeader
-          items={[{ title: t("nav.settings") }, { title: t("nav.skillPool") }]}
+          current={t("nav.skillPool")}
           extra={
             <div className={styles.headerRight}>
               <input
@@ -258,7 +258,9 @@ function SkillPoolPage() {
           skills={pool.skills}
           workspaces={pool.workspaces}
           initialSkillNames={pool.broadcastInitialNames}
+          downloadState={pool.downloadState}
           onCancel={pool.closeModal}
+          onCancelDownload={pool.cancelDownload}
           onConfirm={pool.handleBroadcast}
         />
 

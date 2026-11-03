@@ -11,6 +11,7 @@ import thumbInterviewPro from "@/assets/design/style-thumbs/interview_pro.jpg";
 import thumbGamingNeon from "@/assets/design/style-thumbs/gaming_neon.jpg";
 import thumbTravelWarm from "@/assets/design/style-thumbs/travel_warm.jpg";
 import thumbProductShowcase from "@/assets/design/style-thumbs/product_showcase.jpg";
+import { informalLaunchPresentation } from "../../../../templates/cat-launch/presentation";
 
 const BUILTIN_THUMBS: Record<string, string> = {
   vlog_daily: thumbVlogDaily,
@@ -53,6 +54,12 @@ export default function VideoTemplatePicker({
     (tpl) => tpl.templateId === selectedTemplateId,
   );
   const pillValue = selected ? selected.name : t("home.styleDefault");
+  const featuredTemplate = templates.find(
+    (tpl) => tpl.templateId === informalLaunchPresentation.templateId,
+  );
+  const remainingTemplates = templates.filter(
+    (tpl) => tpl !== featuredTemplate,
+  );
 
   function choose(templateId: string | null) {
     onTemplateSelect(templateId);
@@ -81,7 +88,11 @@ export default function VideoTemplatePicker({
   function renderTemplateCard(tpl: VideoTemplateSummary) {
     const isSelected = selectedTemplateId === tpl.templateId;
     const thumb =
-      tpl.source === "builtin" ? BUILTIN_THUMBS[tpl.templateId] : undefined;
+      tpl.templateId === informalLaunchPresentation.templateId
+        ? informalLaunchPresentation.cover
+        : tpl.source === "builtin"
+        ? BUILTIN_THUMBS[tpl.templateId]
+        : undefined;
     return (
       <button
         key={tpl.templateId}
@@ -157,7 +168,8 @@ export default function VideoTemplatePicker({
             {t("home.styleDefault")}
           </span>
         </button>
-        {templates.map(renderTemplateCard)}
+        {featuredTemplate && renderTemplateCard(featuredTemplate)}
+        {remainingTemplates.map(renderTemplateCard)}
       </div>
     </div>
   );

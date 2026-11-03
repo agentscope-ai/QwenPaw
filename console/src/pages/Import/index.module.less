@@ -158,15 +158,23 @@
   border: 1px solid var(--app-border-subtle);
 }
 @media (max-width: 600px) {
-  .content {
-    padding-inline: 0;
-  }
   .actions {
     flex-wrap: wrap;
+
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
+      min-height: var(--app-hit-touch);
+    }
   }
   .row,
   .assetRow {
     flex-wrap: wrap;
+  }
+
+  .groups :global(.ant-collapse-header),
+  .groups :global(.qwenpaw-collapse-header) {
+    min-height: var(--app-hit-touch);
+    align-items: center !important;
   }
 }
 

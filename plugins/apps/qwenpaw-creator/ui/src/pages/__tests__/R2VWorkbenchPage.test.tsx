@@ -1,10 +1,4 @@
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 import R2VWorkbenchPage from "@/pages/R2VWorkbenchPage";
@@ -257,34 +251,57 @@ describe("R2V Workbench page", () => {
     );
   });
 
-  it("hides 保留现有内容并生成 while the sync is current", () => {
-    // No prompt-sync gate: keep-current would only duplicate 重新生成图片, so
-    // it stays hidden (#7720 CR P2.1).
-    seedWorkGraph(syncNode("storyboard", false), syncNode("video", false));
+  it("regenerates the storyboard node directly with no choice dialog", async () => {
+    // Regeneration is node-scoped now: the click re-renders only this stage
+    // from current content — no keep-vs-rewrite dialog, no AI proposal.
+    const { calls } = installMockFetch([
+      ...modelRoutes("wan2.7-r2v"),
+      { match: "/specialist-runs", response: { json: { items: [] } } },
+      { match: "/projects/p1/tasks", response: { json: { items: [] } } },
+      {
+        match: "/work-graph/nodes/storyboard%3Ar2v-window/dispatch",
+        method: "POST",
+        response: {
+          json: { ok: true, nodeId: "storyboard:r2v-window", dispatched: true },
+        },
+      },
+    ]);
     const { container } = renderWorkbench();
-    // The storyboard stage did render (its regenerate control is present).
-    expect(
+    fireEvent.click(
       container.querySelector(
         '[data-prompt-regenerate="element:r2v-window/creation/storyboard_prompt"]',
-      ),
+      )!,
+    );
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.method === "POST" &&
+            call.url.includes(
+              "/work-graph/nodes/storyboard%3Ar2v-window/dispatch",
+            ),
+        ),
+      ).toBe(true),
+    );
+    expect(screen.queryByText("保留当前内容并生成")).toBeNull();
+    expect(screen.queryByText("全部重新生成")).toBeNull();
+    expect(calls.some((call) => call.url.includes("/prompt-proposals"))).toBe(
+      false,
+    );
+  });
+
+  it("marks the video pending regeneration when its node goes stale", async () => {
+    // A manual storyboard re-render leaves the downstream video stale instead
+    // of cascading; the video card surfaces it as a pending-regeneration hint.
+    seedWorkGraph(syncNode("storyboard", false), {
+      ...syncNode("video", false),
+      status: "stale",
+    });
+    const { container } = renderWorkbench();
+    fireEvent.click(container.querySelector('[data-stage-tab="vd"]')!);
+    expect(
+      await screen.findByText("分镜图已更新，视频待重新生成"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("保留现有内容并生成")).toBeNull();
-  });
-
-  it("shows 保留现有内容并生成 on the storyboard stage when gated", () => {
-    seedWorkGraph(syncNode("storyboard", true), syncNode("video", false));
-    const { container } = renderWorkbench();
-    const sb = container.querySelector<HTMLElement>('[data-stage-panel="sb"]')!;
-    expect(within(sb).getByText("保留现有内容并生成")).toBeInTheDocument();
-  });
-
-  it("shows 保留现有内容并生成 on the video stage when gated", () => {
-    // The video node carries prompt_sync_required too (#7720 CR P2.2); the
-    // recovery action must exist there, not only on the storyboard stage.
-    seedWorkGraph(syncNode("storyboard", false), syncNode("video", true));
-    const { container } = renderWorkbench();
-    const vd = container.querySelector<HTMLElement>('[data-stage-panel="vd"]')!;
-    expect(within(vd).getByText("保留现有内容并生成")).toBeInTheDocument();
   });
 
   it("round-trips between the Plan detail CTA and the workbench", async () => {
@@ -435,6 +452,7 @@ describe("R2V Workbench page", () => {
         '[data-prompt-regenerate="element:r2v-window/creation/video_prompt"]',
       )!,
     );
+    // Node-scoped: the regenerate click dispatches this node directly.
     await waitFor(() =>
       expect(
         calls.some(
@@ -493,6 +511,7 @@ describe("R2V Workbench page", () => {
         '[data-prompt-regenerate="element:r2v-window/creation/storyboard_prompt"]',
       )!,
     );
+    // Node-scoped: the click applies the dirty draft then re-renders directly.
     await waitFor(() =>
       expect(
         calls.some(

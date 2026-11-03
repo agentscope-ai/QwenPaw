@@ -1,4 +1,5 @@
 import type { ThinkingControlSpec } from "@/features/thinking/types";
+export type ModelType = "chat" | "decision";
 export type ModelAvailabilityStatus =
   | "available"
   | "permission_denied"
@@ -9,6 +10,7 @@ export type ModelAvailabilityStatus =
   | "unverified";
 
 export interface ModelInfo {
+  model_type?: ModelType;
   thinking_control?: ThinkingControlSpec | null;
   released_at?: string | null;
   config_overrides?: string[];
@@ -46,6 +48,8 @@ export interface ModelInfo {
   template_id?: string | null;
   input_token_limit?: number | null;
   billing?: "free" | "paid" | "unknown";
+  pricing?: Record<string, string>;
+  capability_provenance?: Record<string, Record<string, unknown>>;
   auto_enabled?: boolean;
   requires_paid_confirmation?: boolean;
   remote_missing?: boolean;
@@ -160,6 +164,7 @@ export interface ModelSlotConfig {
 
 export interface ActiveModelsInfo {
   active_llm: ModelSlotConfig | null;
+  default_models?: Partial<Record<ModelType, ModelSlotConfig | null>>;
   effective_max_input_length?: number | null;
 }
 
@@ -171,8 +176,9 @@ export interface GetActiveModelsRequest {
 }
 
 export interface ModelSlotRequest {
-  provider_id: string;
-  model: string;
+  provider_id: string | null;
+  model: string | null;
+  model_type?: ModelType;
   scope: Exclude<ActiveModelScope, "effective">;
   agent_id?: string;
 }
@@ -190,6 +196,7 @@ export interface CreateCustomProviderRequest {
 }
 
 export interface AddModelRequest {
+  model_type?: ModelType;
   template_id?: string | null;
   id: string;
   name: string;
@@ -201,6 +208,7 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
+  model_type?: ModelType;
   thinking_control?: ThinkingControlSpec | null;
   supports_image?: boolean | null;
   supports_video?: boolean | null;

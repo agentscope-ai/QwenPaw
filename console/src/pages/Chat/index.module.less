@@ -25,7 +25,7 @@
 
     [class$="-sender-content-bottom"] {
       align-items: center;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       row-gap: 8px;
       column-gap: 6px;
       font-size: var(--app-font-caption);
@@ -74,7 +74,7 @@
       column-gap: 6px;
       min-width: 0;
       max-width: 100%;
-      flex: 0 1 auto;
+      flex: 0 0 auto;
       flex-wrap: nowrap;
       row-gap: 8px;
     }
@@ -82,7 +82,7 @@
     // Use the prefix's content width when deciding whether actions fit.
     [class$="-sender-prefix"] {
       width: auto;
-      flex: 1 1 auto;
+      flex: 1 1 max-content;
       min-width: 0;
       max-width: 100%;
       overflow: visible;
@@ -104,6 +104,13 @@
     [class$="-sender-actions-btn"] svg {
       width: var(--app-icon-default);
       height: var(--app-icon-default);
+    }
+
+    // The SDK stop square occupies only a quarter of its SVG canvas.
+    [class$="-sender-actions-btn-loading-icon"] rect {
+      transform-box: fill-box;
+      transform-origin: center;
+      transform: scale(2);
     }
 
     [class$="-sender-prefix"] button [data-spark-icon],
@@ -132,26 +139,6 @@
     transition:
       width 330ms cubic-bezier(0.22, 0.78, 0.24, 1),
       opacity 220ms ease;
-
-    :global {
-      /* The files panel narrows the chat column. Let the sender bottom row
-         wrap so the model/mode entry stays fully visible on its own line
-         instead of being pushed out of the visible area. */
-      [class$="-sender-content-bottom"] {
-        flex-wrap: wrap;
-        row-gap: 8px;
-      }
-
-      [class$="-sender-prefix"] {
-        flex: 1 1 100%;
-        min-width: 0;
-      }
-
-      [class$="-sender-actions-list"] {
-        min-width: 0;
-        flex-wrap: wrap;
-      }
-    }
   }
 }
 
@@ -233,6 +220,25 @@
 
 .senderApprovalControl {
   flex: 0 0 auto !important;
+}
+
+@media (min-width: 1000px) {
+  .chatMessagesArea.advisorComposer :global {
+    [class$="-sender-content-bottom"] {
+      flex-wrap: nowrap;
+    }
+
+    [class$="-sender-prefix"] {
+      flex: 1 1 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
+  }
 }
 
 @media (max-width: 1024px) {
@@ -452,9 +458,10 @@
 
     [class$="-sender-content-bottom"] {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
       align-items: center;
       column-gap: 8px;
+      row-gap: 4px;
       margin-top: 8px;
     }
 
@@ -500,7 +507,7 @@
       flex: 0 0 auto;
     }
 
-    [class$="-sender-actions-btn"] {
+    [data-qwenpaw-composer-submit="true"] {
       width: 44px !important;
       min-width: 44px !important;
       height: 44px !important;

@@ -20,6 +20,7 @@ import BlueprintStructureArea from "@/components/blueprint/BlueprintStructureAre
 import BlueprintScriptPanel from "@/components/blueprint/BlueprintScriptPanel";
 import BlueprintRoughCutStrip from "@/components/blueprint/BlueprintRoughCutStrip";
 import ProjectExportActions from "@/components/creator/ProjectExportActions";
+import ProductionStageControl from "@/components/creator/ProductionStageControl";
 import BlueprintPrepDrawer, {
   type PrepFocus,
   type PreproductionTab,
@@ -206,6 +207,7 @@ export default function BlueprintPage() {
           </button>
           {/* 下载/导出 + 导出互动包 (design 84:30317) live on the blueprint
               header, not the plan page. */}
+          <ProductionStageControl projectId={id} />
           <ProjectExportActions project={project} />
         </span>
       </header>

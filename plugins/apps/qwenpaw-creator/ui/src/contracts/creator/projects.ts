@@ -3,6 +3,7 @@ import type { CreatorSessionStatus } from "./sessions";
 export type CreatorScenario = "short_drama" | "video_edit" | "general";
 
 export interface ProjectCreateRequest {
+  productionStage?: "script" | "media";
   clientRequestId: string;
   name: string;
   description?: string;

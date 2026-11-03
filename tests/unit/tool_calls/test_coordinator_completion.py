@@ -120,6 +120,7 @@ async def test_parent_cancel_cooperatively_stops_background_tool():
     assert entry.status.value == "completed"
     assert entry.end_state == "interrupted"
     assert entry.final_response.state == ToolResultState.INTERRUPTED
+    assert "cancelled by the user" in entry.final_response.content[0].text
 
 
 @pytest.mark.asyncio
@@ -495,11 +496,120 @@ async def test_kill_deadline_terminates_execution():
     final = events[-1]
     assert isinstance(final, ToolResponse)
     assert "should not reach" not in final.content[0].text
+    assert final.state == ToolResultState.ERROR
+    assert final.metadata["cancel_reason"] == "timeout"
+    assert "cancelled due to timeout" in final.content[0].text
+    assert "by the user" not in final.content[0].text
 
     entry = coordinator.get("call-kill")
     if entry is not None:
         assert entry.ctx.cancel_event.is_set()
         assert entry.ctx.cancel_reason == CancelReason.TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_timeout_persists_reason_without_streaming_cancel_text():
+    """Timeout reason is persisted without adding a live output chunk."""
+    coordinator = ToolCoordinator(
+        default_timeout_secs=0.01,
+        offload_on_deadline=False,
+        cancel_grace_period_secs=0.2,
+    )
+    tool_call = _ToolCall(id="call-wrapper-timeout", name="chat_with_agent")
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        from qwenpaw.tool_calls import cancellable_wait
+
+        tool_response = ToolResponse(id=tool_call.id)
+        try:
+            await cancellable_wait(
+                asyncio.sleep(10),
+                fallback_secs=0.04,
+                as_kill_deadline=True,
+            )
+        except asyncio.CancelledError:
+            chunk = ToolChunk(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "<system-reminder>The tool call has been "
+                            "interrupted by the user.</system-reminder>"
+                        ),
+                    ),
+                ],
+                state=ToolResultState.INTERRUPTED,
+                id=tool_call.id,
+            )
+            tool_response.append_chunk(chunk)
+            yield chunk
+        finally:
+            yield tool_response
+
+    events = await asyncio.wait_for(
+        _collect(
+            coordinator.execute(
+                tool_call=tool_call,
+                next_handler=next_handler,
+                session_id="session-wrapper-timeout",
+                agent_id="agent-1",
+                root_session_id="root-1",
+            ),
+        ),
+        timeout=2,
+    )
+
+    final = events[-1]
+    assert isinstance(final, ToolResponse)
+    assert final.state == ToolResultState.ERROR
+    assert final.metadata["cancel_reason"] == "timeout"
+    assert "cancelled due to timeout" in final.content[-1].text
+    assert all("by the user" not in block.text for block in final.content)
+    assert not any(isinstance(item, ToolChunk) for item in events)
+
+
+@pytest.mark.asyncio
+async def test_error_chunk_drains_final_response_without_generator_exit():
+    coordinator = ToolCoordinator(offload_on_deadline=False)
+    tool_call = _ToolCall(id="call-error-final", name="error_tool")
+    closed_at_error_chunk = asyncio.Event()
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        tool_response = ToolResponse(id=tool_call.id)
+        chunk = ToolChunk(
+            content=[TextBlock(type="text", text="expected error")],
+            state=ToolResultState.ERROR,
+            is_last=True,
+            id=tool_call.id,
+        )
+        tool_response.append_chunk(chunk)
+        try:
+            try:
+                yield chunk
+            except GeneratorExit:
+                closed_at_error_chunk.set()
+                raise
+        finally:
+            yield tool_response
+
+    events = await _collect(
+        coordinator.execute(
+            tool_call=tool_call,
+            next_handler=next_handler,
+            session_id="session-error-final",
+            agent_id="agent-1",
+            root_session_id="root-1",
+        ),
+    )
+
+    assert not closed_at_error_chunk.is_set()
+    assert isinstance(events[-1], ToolResponse)
+    assert events[-1].state == ToolResultState.ERROR
+    assert events[-1].content[0].text == "expected error"
 
 
 @pytest.mark.asyncio

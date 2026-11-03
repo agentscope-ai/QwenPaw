@@ -34,7 +34,7 @@
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **不遗忘对话**                         | 三层记忆 — 实时工作上下文、完整逐字历史，以及由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动的自进化个人知识库。对话与资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。 |
-| **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
+| **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B / 35B-A3B / 27B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
 | **安全机制**                         | 内核级 Sandbox、Tool Guard、File Guard 与 Skill Scanner。危险命令在执行前即被拦截。                                        |
 | **多智能体与并行**                        | 创建拥有独立记忆与技能的 Agent；运行时生成子 Agent；通过 Agent Communication Protocol（ACP）实现跨系统编排。                                                                         |
 | **通用文件工作区**                    | 在项目文件与 Agent 文件中统一提供文件导航、预览、编辑、Diff、上传和下载。                                                                                                           |
@@ -60,6 +60,8 @@
 
 ## 新闻
 
+- [2026-10-15] **v2.2.2** | 控制台更新、新的 QwenPaw-Flash 模型覆盖 9B/27B/35B-A3B、新增可迁移 Codex/Qoder 数据的 PawPort，以及 Creator 2.0.1 和 Data 0.3.0。 [v2.2.2 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
+
 - [2026-09-10] **v2.2.1** | Creator 1.2 蓝图工作台、按智能体配置的模型路由和统一环境管理。[v2.2.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
 
 - [2026-09-03] **v2.2.0** | 新增可自托管的多用户 QwenPaw Hub、QwenPaw Mail、原生 QwenPaw Data、统一模型路由和 Creator 1.1，并全面改进应用市场、控制台、Skills、频道与运行可靠性。[v2.2.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
@@ -67,19 +69,6 @@
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 智能体接入、Browser-use、Computer-use、工作区检查点和长对话任务续接等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
-
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，带来 Agent OS 架构、Loop Engineering、Scroll 上下文、[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库与内置终端界面。
-
-  | 亮点 | 更新内容 |
-  |------|----------|
-  | **Agent OS — 工作区** | 每个智能体三大支柱：**资源**（透明落盘）、**治理**（allow/deny/ask/sandbox）、**沙箱**（macOS / Linux / Windows）。 |
-  | **Agent OS — 驱动** | 协议中立的 MCP / A2A / ACP 连接器层，带加密凭据与逐次调用策略门控。 |
-  | **Loop Engineering** | 高级智能体循环模板（Coding Mode、Mission Mode，更多模板持续推出），配合可组合审批门控。 |
-  | **Scroll 上下文** | 每一轮都持久化；滚出窗口的轮次带索引，按需回放——不摘要、不丢失。 |
-  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库** | 持续将对话与资料转化为可读、可编辑、可检索、相互链接的 Markdown 记忆。 |
-  | **终端界面（TUI）** | 全屏终端对话——与控制台和频道共享同一智能体、记忆与会话。 |
-
-  基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。 [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 [全部发布说明 →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -372,7 +361,7 @@ qwenpaw .                   # 在当前代码仓库中启动（Coding 模式）
 
 QwenPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见 [官方文档](https://qwenpaw.agentscope.io/docs/models)。
 
-QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练的 2B / 4B / 9B 模型，提供 Q4 与 Q8 量化版本。可在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 与 [Hugging Face](https://huggingface.co/agentscope-ai/models) 获取。
+QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练的 2B / 4B / 9B / 35B-A3B / 27B 模型，提供 Q4 与 Q8 量化版本。可在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 与 [Hugging Face](https://huggingface.co/agentscope-ai/models) 获取。
 
 | 后端                              | 适用场景                                 | 安装                                                                 |
 | --------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
@@ -440,33 +429,20 @@ QwenPaw 内置五层核心安全防护：
 
 ## 路线图
 
-| 方向                     | 事项                                      | 状态   |
-| ------------------------ | ----------------------------------------- | ------ |
-| **横向拓展**             | 更多频道、模型、技能、MCP                 | 征集中 |
-| **已有功能扩展与完善**   | 展示、下载与 Windows 兼容优化             | 征集中 |
-| **模型**                 | 多模型切换                                | 进行中 |
-| **安全与审批**           | 批量预览与批准                            | 进行中 |
-| **自动化**               | 自动化任务                                | 进行中 |
-| **智能体交互**           | 智能体任务交接                            | 进行中 |
-|                          | 运行中任务调整                            | 进行中 |
-| **工作区**               | 多工作区                                  | 进行中 |
-| **上下文**               | 系统提示压缩                              | 进行中 |
-| **工具系统**             | 多位置文件修改                            | 进行中 |
-|                          | 持久终端与后台任务                        | 进行中 |
-| **Computer-use**         | 屏幕目标定位与操作                        | 进行中 |
-| **语音交互**             | 实时语音任务                              | 进行中 |
-| **上下文管理与记忆**     | 向量模型与存储热切换                      | 进行中 |
-|                          | 个人知识库                                | 进行中 |
-| **QwenPaw 应用**         | QwenPaw Insight                           | 进行中 |
-|                          | QwenPaw Mail                              | 进行中 |
+| 方向               | 事项                                                               | 状态   |
+| ------------------ | ------------------------------------------------------------------ | ------ |
+| **发版榜单机制**   | 随版本发布自动评测并更新公开榜单。                                 | 进行中 |
+| **代码轻量化**     | 拆分非核心组件，以插件形式按需安装和启用能力，降低安装与运行开销。 | 进行中 |
+| **融合决策模型**   | 支持 Jev 等决策模型接入与协同决策。                                | 进行中 |
+| **UI/UX 深度优化** | 优化导航、交互与视觉，统一多端体验。                               | 进行中 |
 
-_状态说明：**进行中** — 正在积极开发；**征集中** — 我们强烈鼓励社区参与。_
+_状态说明：**进行中** — 正在积极开发。_
 
 ---
 
 ## 参与贡献
 
-QwenPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始。我们特别欢迎：
+QwenPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始。我们特别欢迎：
 
 - **横向拓展** — 新频道、模型提供商、Skills、MCP。
 - **已有功能扩展与完善** — 展示与交互优化、下载提示、Windows 路径兼容等。

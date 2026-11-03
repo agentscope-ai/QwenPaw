@@ -885,7 +885,6 @@ async def review_media_artifact(
             # questions on top of the six protocol rows; a truncated
             # reply is unparsable and both retries would resend the same
             # prompt, so the ceiling has to fit the whole array.
-            max_tokens=4600 if probe_sections else 1800,
         )
         try:
             report = parse_media_report(

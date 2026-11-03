@@ -24,7 +24,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict
 
-from ..config.config import ModelSlotConfig
+from ..config.config import ModelSlotConfig, ModelType
 from .capability_baseline import ExpectedCapabilityRegistry
 from .provider import Provider
 from .provider_update_fields import PluginUpdateKind
@@ -40,6 +40,7 @@ class ProviderManagerHost:
     custom_providers: Dict[str, Provider]
     plugin_providers: Dict[str, Dict]
     active_model: ModelSlotConfig | None
+    default_models: dict[ModelType, ModelSlotConfig | None]
 
     root_path: Path
     builtin_path: Path

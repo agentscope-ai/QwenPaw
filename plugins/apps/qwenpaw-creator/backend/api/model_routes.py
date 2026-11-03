@@ -9,13 +9,17 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import ipaddress
 import json
 import os
 import re
+import tempfile
 import time
+import wave
 from pathlib import Path
-from typing import Any, Callable
-from urllib.parse import urlparse
+from typing import Any, Callable, Mapping, Sequence
+from urllib.parse import urlparse, urlsplit
 
 import httpx
 from fastapi import APIRouter, Body, Header, Query, Request, Response, status
@@ -23,6 +27,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from domain.errors import ConflictError, StorageIntegrityError, ValidationError
 from models import config as model_config
+from models.minimax_errors import minimax_probe_base_resp_error
 from schemas.models import (
     AsrConfig,
     EmbeddingConfig,
@@ -51,7 +56,10 @@ from services.runtime_files.errors import (
 from services.runtime_files.idempotency_store import IdempotencyRecordStore
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.models import IdempotencyStatus
-from services.storage_root import require_creator_data_root
+from services.storage_root import (
+    CreatorDataRootError,
+    require_creator_data_root,
+)
 
 # QwenPaw secret store for reading encrypted provider API keys
 try:
@@ -461,7 +469,8 @@ def _assemble_model_config(
         field = ".".join(str(part) for part in loc) if loc else "unknown field"
         message = first_error.get("msg", str(exc))
         raise ValidationError(
-            f"模型配置文件不可用: {field} {message}；" "请修正 model_config.json 或重新保存模型配置",
+            f"模型配置文件不可用: {field} {message}；"
+            "请先备份并修正 model_config.json，再重新加载配置",
         ) from exc
 
 
@@ -762,27 +771,22 @@ def _ensure_grounding_model_configured(
 
 
 def _image_backend_for_protocol(protocol: str) -> str:
-    """Map the persisted image protocol label onto a provider switch."""
+    """Map the persisted image protocol label onto a provider switch.
 
-    lowered = protocol.casefold()
-    if (
-        "dashscope" in lowered
-        or "百炼" in protocol
-        or "token plan" in lowered
-        or "tokenplan" in lowered
-    ):
-        return "DASHSCOPE"
-    if "gemini" in lowered:
-        return "GEMINI"
-    if "volcano" in lowered or "火山" in protocol or "ark" in lowered:
-        return "ARK"
-    if "flux" in lowered or "black forest" in lowered or "bfl" in lowered:
-        return "BFL"
-    if "ideogram" in lowered:
-        return "IDEOGRAM"
-    if "openai" in lowered:
-        return "OPENAI"
-    return ""
+    Delegates to :func:`models.image.image_backend_for_protocol`, the
+    same single source the persisted fallback uses, mirroring how
+    ``_video_backend_for_protocol`` defers to ``models.config``. The
+    inline copy kept here is what let MiniMax ship mapped in the
+    connection probe and in the lowest-priority fallback while this --
+    the writer behind the highest-priority input -- still returned
+    nothing, so an ``IMAGE_MODEL`` env var sent a MiniMax key and model
+    to OpenAI's ``/v1/images/generations`` and generation failed even
+    though the connection test had passed.
+    """
+
+    from models.image import image_backend_for_protocol
+
+    return image_backend_for_protocol(protocol) or ""
 
 
 def _video_backend_for_protocol(protocol: str) -> str:
@@ -1018,14 +1022,16 @@ async def _validate_section_connectivity(
         provider=item.get("provider"),
     )
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(
+        timeout=30,
+        # A probe must reach the configured endpoint, not wherever it is
+        # waved on to: following a redirect would let a public host bounce
+        # the bearer credential into the internal network.
+        follow_redirects=False,
+    ) as client:
         try:
-            url, headers, payload = _probe_payload(probe)
-            if payload.pop("_get_probe", False):
-                headers.pop("Content-Type", None)
-                resp = await client.get(url, headers=headers, params=payload)
-            else:
-                resp = await client.post(url, headers=headers, json=payload)
+            probe_request = await _prepare_probe_payload(probe)
+            resp = await _send_probe(client, *probe_request)
             if not resp.is_success:
                 try:
                     body = resp.json()
@@ -1054,6 +1060,12 @@ async def _validate_section_connectivity(
                 f"{section}: 连接超时，请检查网络或 Base URL",
             )
         except httpx.HTTPError as exc:
+            raise ValidationError(f"{section}: {exc}")
+        except RuntimeError as exc:
+            # The ASR probe uploads its silent sample before it can ask
+            # anything, and the uploader reports a refused credential or a
+            # malformed policy as a RuntimeError. That is a connection
+            # finding about this section, not a fault of the config route.
             raise ValidationError(f"{section}: {exc}")
 
 
@@ -1261,7 +1273,9 @@ async def patch_creation_checkpoints(
             first_error = exc.errors()[0] if exc.errors() else {}
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
             message = first_error.get("msg", str(exc))
-            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+            raise ValidationError(
+                f"模型配置校验失败: {field} {message}",
+            ) from exc
 
     await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
@@ -1315,7 +1329,9 @@ async def patch_permission_mode(
             first_error = exc.errors()[0] if exc.errors() else {}
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
             message = first_error.get("msg", str(exc))
-            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+            raise ValidationError(
+                f"模型配置校验失败: {field} {message}",
+            ) from exc
 
     await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
@@ -1338,7 +1354,9 @@ async def patch_media_review(
             first_error = exc.errors()[0] if exc.errors() else {}
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
             message = first_error.get("msg", str(exc))
-            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+            raise ValidationError(
+                f"模型配置校验失败: {field} {message}",
+            ) from exc
 
     await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
@@ -1361,7 +1379,9 @@ async def patch_execution_authorization(
             first_error = exc.errors()[0] if exc.errors() else {}
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
             message = first_error.get("msg", str(exc))
-            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+            raise ValidationError(
+                f"模型配置校验失败: {field} {message}",
+            ) from exc
 
     await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
@@ -1441,7 +1461,9 @@ async def patch_self_review(
             first_error = exc.errors()[0] if exc.errors() else {}
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
             message = first_error.get("msg", str(exc))
-            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+            raise ValidationError(
+                f"模型配置校验失败: {field} {message}",
+            ) from exc
 
     await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
@@ -1485,7 +1507,9 @@ async def patch_model_config_section(
             first_error = exc.errors()[0] if exc.errors() else {}
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
             message = first_error.get("msg", str(exc))
-            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+            raise ValidationError(
+                f"模型配置校验失败: {field} {message}",
+            ) from exc
         _ensure_grounding_model_configured(
             resolved,
             previous=current if _config_paths().is_file() else None,
@@ -1583,6 +1607,41 @@ def _openai_model_probe(
     )
 
 
+def _minimax_image_probe(
+    body: ModelConnectionTestRequest,
+    headers: dict[str, str],
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Zero-cost MiniMax image probe.
+
+    MiniMax has no model-retrieve ``GET /models/{id}``; the OpenAI-style
+    fall-through would hit a non-existent path and surface an nginx HTML 404.
+    The task-query endpoint is free, reachable with the same Bearer key on the
+    same host, and answers with a MiniMax JSON envelope instead of raw HTML.
+    """
+    base = body.base_url.rstrip("/")
+    return (
+        f"{base}/v1/query/video_generation",
+        headers,
+        {
+            "_get_probe": True,
+            "task_id": "creator-connection-probe",
+        },
+    )
+
+
+def _minimax_base_resp_error(response: httpx.Response) -> str | None:
+    """Message when a MiniMax 2xx probe body carries a non-zero ``base_resp``.
+
+    The code table and formatting live in :mod:`models.minimax_errors` so the
+    probe and the real image/video generation paths share one definition.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return minimax_probe_base_resp_error(body)
+
+
 def _token_plan_models_probe(
     body: ModelConnectionTestRequest,
     headers: dict[str, str],
@@ -1630,8 +1689,8 @@ def _anthropic_llm_probe(
         f"{base}/v1/messages",
         headers,
         {
+            "_attests": _ATTEST_HANDLED,
             "model": body.model_name,
-            "max_tokens": 8,
             "messages": [{"role": "user", "content": content}],
         },
     )
@@ -1667,30 +1726,935 @@ def _gemini_llm_probe(
     else:
         parts = [{"text": "Reply with pong only."}]
     payload: dict[str, Any] = {
+        "_attests": _ATTEST_HANDLED,
         "contents": [{"parts": parts}],
-        "generationConfig": {"maxOutputTokens": 8},
     }
     return url, headers, payload
+
+
+# One second of silence exercises a transcription route for a fraction of a
+# cent. It is built in-process rather than shelled out to ffmpeg so the probe
+# also works in a container that has no ffmpeg installed.
+_ASR_PROBE_SAMPLE_SECONDS = 1.0
+_ASR_PROBE_SAMPLE_RATE = 16_000
+
+
+def _silent_wav_bytes() -> bytes:
+    """A silent mono 16 kHz WAV payload for the ASR capability probe.
+
+    Silence transcribes to an empty string, so this asserts that the route
+    accepts and processes real audio, not that any words came back.
+    """
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(_ASR_PROBE_SAMPLE_RATE)
+        frames = int(_ASR_PROBE_SAMPLE_RATE * _ASR_PROBE_SAMPLE_SECONDS)
+        handle.writeframes(b"\x00\x00" * frames)
+    return buffer.getvalue()
+
+
+def _asr_provider(body: ModelConnectionTestRequest) -> str:
+    """Which route ``asr_model.transcribe`` will actually take.
+
+    Mirrors that dispatch exactly: the stored provider decides whisper,
+    then a ``qwen3-asr*`` model name, then Fun-ASR. ``protocol`` is
+    deliberately not consulted, because ``get_asr_provider()`` does not
+    read it either: a config whose protocol says Whisper while its
+    provider says Fun-ASR runs the Fun-ASR route, and probing the whisper
+    one would green-light an endpoint production never calls. Probing a
+    different route than the one production runs is how a dead endpoint
+    stayed green, and the previous probe never produced ``qwen3-asr`` at
+    all — a qwen3-asr config was validated against the Fun-ASR
+    upload-policy call.
+    """
+    if (body.provider or "").casefold() == "whisper":
+        return "whisper"
+    if (body.model_name or "").casefold().startswith("qwen3-asr"):
+        return "qwen3-asr"
+    return "fun-asr"
+
+
+async def _upload_asr_probe_sample(
+    body: ModelConnectionTestRequest,
+) -> str:
+    """Upload the silent sample; return the URL the ASR route will fetch.
+
+    Uses the same model-bound temporary OSS upload production uses, so a
+    probe that passes has exercised the upload half of the real chain too,
+    and one that fails has failed for a reason production would also hit.
+    """
+    from models.media_transport import upload_local_file_to_dashscope_temp
+
+    with tempfile.TemporaryDirectory(prefix="creator-asr-probe-") as raw:
+        sample = Path(raw) / "creator-probe.wav"
+        await asyncio.to_thread(sample.write_bytes, _silent_wav_bytes())
+        return await upload_local_file_to_dashscope_temp(
+            sample,
+            api_key=body.api_key,
+            model_name=body.model_name,
+            media_type="audio/wav",
+        )
+
+
+async def _asr_probe(
+    body: ModelConnectionTestRequest,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Transcribe one second of silence through the production ASR route.
+
+    ASR was the only tier whose connection test measured something other
+    than what it green-lit: ``GET /models/{id}`` proves the key and the
+    registry entry, and the DashScope upload-policy call proves neither, so a
+    platform answering 500 on ``audio/transcriptions``, 404 on
+    ``asr/transcription`` and 502 on ``multimodal-generation`` still showed a
+    green test while every real transcription failed. llm/vlm, tts and
+    embedding already pay for a real request; this brings ASR in line.
+    """
+    # Route derivation is imported rather than restated so the probe cannot
+    # drift from the endpoints production actually calls.
+    from models.asr_model import (
+        _FUN_ASR_TRANSCRIPTION_SUFFIX,
+        _fun_asr_base,
+        _qwen3_endpoint,
+    )
+
+    headers = _probe_headers(body)
+    provider = _asr_provider(body)
+    if provider == "whisper":
+        # Same multipart shape as asr_model._whisper. Content-Type stays in
+        # the returned headers for _send_probe to drop, as with _get_probe.
+        base = body.base_url.rstrip("/")
+        return (
+            f"{base}/audio/transcriptions",
+            headers,
+            {
+                "_attests": _ATTEST_ASR_WHISPER,
+                "_multipart_probe": {
+                    "data": {
+                        "model": body.model_name,
+                        "response_format": "verbose_json",
+                    },
+                    "files": {
+                        "file": (
+                            "creator-probe.wav",
+                            _silent_wav_bytes(),
+                            "audio/wav",
+                        ),
+                    },
+                },
+            },
+        )
+    # Staging the sample is a network side effect of its own: it posts the
+    # configured bearer to the provider's upload API. So the destination
+    # policy runs on the endpoint this probe is about to test BEFORE the
+    # first packet leaves, not only inside ``_send_probe`` — a Base URL that
+    # points at the metadata service has to fail without uploading anything.
+    if provider == "qwen3-asr":
+        url = _qwen3_endpoint(body.base_url)
+    else:
+        url = (
+            f"{_fun_asr_base(body.base_url)}"
+            f"/{_FUN_ASR_TRANSCRIPTION_SUFFIX}"
+        )
+    _assert_probe_destination(url)
+    file_url = await _upload_asr_probe_sample(body)
+    if provider == "qwen3-asr":
+        return (
+            url,
+            {**headers, "X-DashScope-OssResourceResolve": "enable"},
+            {
+                "_attests": _ATTEST_ASR_QWEN3,
+                "model": body.model_name,
+                "input": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"audio": file_url}],
+                        },
+                    ],
+                },
+                "parameters": {"result_format": "message"},
+            },
+        )
+    # Fun-ASR: the real async submit, with the headers production sends —
+    # omitting X-DashScope-Async is what made an earlier attempt at this
+    # probe come back 403 "does not support asynchronous calls". The probe
+    # deliberately does not poll the task, because a UI button needs bounded
+    # latency, so what it can assert is that the transcription route exists,
+    # accepts the key and took the work — not that a transcript will appear.
+    return (
+        url,
+        {
+            **headers,
+            "X-DashScope-Async": "enable",
+            "X-DashScope-OssResourceResolve": "enable",
+        },
+        {
+            "_attests": _ATTEST_ASR_FUN,
+            "model": body.model_name,
+            "input": {"file_urls": [file_url]},
+            "parameters": {},
+        },
+    )
+
+
+def _operator_written_base_url(section: str) -> str:
+    """Return a section's Base URL only when the operator actually wrote one.
+
+    ``load_model_config()`` starts from ``_defaults()``, which pre-fills the
+    DashScope address for ASR and Embedding and turns their key-reuse switches
+    on. A non-empty ``base_url`` on a section nobody configured is therefore a
+    product default, not proof that the operator authorised a stored credential
+    for that host. Reading defaults as authorization would let any client of
+    ``/models/test`` make the server send a key saved for another provider to
+    the built-in endpoint, so only values written to ``model_config.json`` or
+    the environment are treated as explicit.
+    """
+    try:
+        raw = _read_raw_config(_config_paths()).get(section)
+    except (CreatorDataRootError, ValidationError, OSError, TimeoutError):
+        # A config we cannot read proves no authorization: refuse through the
+        # empty-home path rather than inventing a trusted host or turning the
+        # connection test into an unhandled error.
+        return ""
+    value = (
+        str(raw.get("base_url") or "").strip() if isinstance(raw, dict) else ""
+    )
+    if not value:
+        for name in _ENV_MAPPING.get(section, {}).get("base_url", ()):
+            if os.environ.get(name):
+                value = os.environ[name].strip()
+                break
+    return value
+
+
+def _credential_owner_section(loaded: ModelConfigData, section: str) -> str:
+    """Return the section that really owns the credential ``section`` sends.
+
+    ``_assemble_model_config`` copies values, not provenance: a VLM saved with
+    ``use_llm`` holds the LLM credential in its own fields, and an embedding
+    reusing the VLM key inherits that same credential one step further.
+    Asking whether the borrowing field is non-empty would attribute the key to
+    the borrower - whose Base URL the operator never wrote for it - and refuse
+    the one origin the key genuinely belongs to.
+    """
+    if section == "vlm":
+        return "llm" if loaded.vlm.use_llm else "vlm"
+    if section == "embedding":
+        if loaded.vlm.use_llm or not loaded.vlm.api_key:
+            # A keyless VLM, or one that borrows the LLM itself, never owns
+            # the credential this switch asks to reuse.
+            return "llm"
+        return "vlm"
+    return section
+
+
+def _normalized_origin(base_url: str) -> str:
+    """Return the ``scheme://host:port`` HTTPX itself would connect to.
+
+    The guard only has to agree with the client that actually sends the
+    credential, so the origin is taken from HTTPX's own parser rather than a
+    hand-rolled one. That choice is what makes the comparison safe in both
+    directions: HTTPX normalizes case, treats an explicit default port as the
+    scheme default, decodes punycode (``xn--aistant-0va`` and ``aßistant`` are
+    one host), and *rejects* what a looser mapping would fold together - a
+    fullwidth ``ｍ`` maps onto ``example.com`` under UTS-46 while HTTPX raises
+    InvalidURL for it, and casefolding turns ``ß`` into ``ss``.
+
+    Two spellings HTTPX renders to the same host are the same endpoint; a host
+    HTTPX refuses returns ``""``, so the guard answers with a config error
+    instead of letting InvalidURL escape as HTTP 500. Path differences stay
+    allowed - DashScope's ``api`` and ``compatible-mode`` roots share a key.
+    """
+    try:
+        url = httpx.URL(base_url)
+    except (httpx.InvalidURL, ValueError, UnicodeError):
+        return ""
+    scheme = url.scheme.casefold()
+    # No casefold() here: it folds "ß" into "ss", which is the exact collision
+    # this guard exists to catch. HTTPX has already normalized ASCII case.
+    host = url.host
+    if scheme not in {"http", "https"} or not host:
+        return ""
+    port = url.port or (443 if scheme == "https" else 80)
+    if ":" in host:  # IPv6 literal keeps its brackets in the comparison key
+        return f"{scheme}://[{host}]:{port}"
+    return f"{scheme}://{host}:{port}"
+
+
+def _origin_scheme_text(base_url: str) -> str:
+    """Best-effort scheme used only to word a refusal, never to decide one."""
+    try:
+        return urlparse(base_url).scheme.casefold()
+    except ValueError:
+        return ""
+
+
+def _probe_target_refusal(
+    probed_base_url: str,
+    model_type: str,
+    *,
+    supplied_key: str,
+    stored_key: str,
+    trusted_base_urls: Sequence[str],
+    unconfigured_target: bool = False,
+) -> str:
+    """Return a user-facing refusal when the probe target must not be used.
+
+    ``/models/test`` deliberately accepts an unsaved ``base_url`` so an
+    operator can check an edited config before persisting it.  That is safe
+    while the credential also comes from the request - the caller already
+    holds it - and unsafe the moment the route reaches into its own stored
+    configuration: the caller would then be steering a *saved* secret to any
+    host it picked (CWE-522).  Three separate cases follow from that:
+
+    * a request that carries its own key may test any http(s) address;
+    * a probe that will send **no** credential is a plain URL check, so
+      binding its origin would only break keyless local endpoints;
+    * once a non-empty stored credential is in play, it may only travel to an
+      origin the operator explicitly saved it for, and when no such origin is
+      recorded the target must not be completed from the request itself.
+    """
+    target_origin = _normalized_origin(probed_base_url)
+    if not target_origin:
+        scheme = _origin_scheme_text(probed_base_url)
+        if scheme in {"http", "https"}:
+            # The scheme is fine but HTTPX will not build a request for this
+            # host at all (homograph, stray control character, half-written
+            # IPv6 literal). Report the address instead of a protocol hint.
+            return (
+                f"配置不完整：{model_type} 的 Base URL 无法解析"
+                f"（当前: {probed_base_url}）。请在配置弹窗中核对协议、主机与端口。"
+            )
+        return (
+            f"配置不完整：{model_type} 的 Base URL 必须使用 http 或 https 协议"
+            f"（当前: {scheme or '未指定'}）。"
+        )
+    if supplied_key:
+        return ""
+    if not stored_key:
+        return ""
+    homes = {
+        origin
+        for origin in (_normalized_origin(url) for url in trusted_base_urls)
+        if origin
+    }
+    if not homes:
+        return (
+            "安全限制：本次探测会使用已保存的 API Key，但该 Key 没有记录归属地址，"
+            f"无法确认它属于本次请求的目标（本次请求: {target_origin}）。"
+            "请先在配置弹窗中保存该地址的 Base URL，或为新地址直接填写 API Key。"
+        )
+    if target_origin not in homes:
+        default_note = (
+            "本次目标来自内置默认地址，该分项尚未保存 Base URL。" if unconfigured_target else ""
+        )
+        return (
+            "安全限制：本次探测会使用已保存的 API Key，但目标地址与该 Key 保存时的"
+            f"归属地址不一致（已保存: {'、'.join(sorted(homes))}，本次请求: "
+            f"{target_origin}）。{default_note}"
+            "请先保存该分项的 Base URL 后再测试，或在配置弹窗中为新地址填写 API Key。"
+        )
+    return ""
+
+
+def _non_secret_probe_params(
+    payload: dict[str, Any],
+    api_key: str,
+) -> dict[str, Any]:
+    """Keep the credential out of query strings.
+
+    A GET probe sends its payload as URL parameters, and query strings end up
+    in provider access logs, intermediaries and browser history.  No builder
+    puts the key in the parameters today; this drops any value that *carries*
+    the key - bare or wrapped in a scheme such as ``Bearer`` - so a future
+    builder cannot regress it.
+    """
+    if not api_key:
+        return payload
+    return {
+        key: value
+        for key, value in payload.items()
+        if api_key not in str(value)
+    }
+
+
+async def _prepare_probe_payload(
+    body: ModelConnectionTestRequest,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    if body.type == "asr":
+        return await _asr_probe(body)
+    url, headers, payload = _probe_payload(body)
+    if body.type in {"llm", "vlm"} and model_config.is_anthropic_protocol(
+        body.protocol,
+    ):
+        from models.output_budget import anthropic_output_limit
+
+        payload["max_tokens"] = await anthropic_output_limit(
+            body.model_name,
+            base_url=body.base_url,
+            api_key=body.api_key,
+        )
+    return url, headers, payload
+
+
+class ProbeDestinationError(ValueError):
+    """A probe target violated the destination policy.
+
+    Subclasses ``ValueError`` on purpose: ``test_model_connection`` catches
+    ``(httpx.HTTPError, ValueError, RuntimeError)`` and renders the message
+    as an ``ok=False`` diagnostic. ``domain.errors.ValidationError`` is not
+    a ``ValueError``, so raising that instead would make the endpoint whose
+    job is explaining a broken configuration answer with a 500.
+    """
+
+
+# Cloud metadata services hand instance credentials to anything that asks.
+# Most answer from the link-local range (169.254.169.254, fe80::/10), but
+# two sit outside it: AWS answers IPv6 on the ULA fd00:ec2::254, and
+# Alibaba Cloud on 100.100.100.200 in the shared-address space. Neither
+# ``is_link_local`` nor ``is_private`` covers all of them, so they are
+# listed. No model endpoint is ever served from any of these, so a probe
+# refuses them. Loopback and RFC1918 stay allowed on purpose: a
+# self-hosted gateway on localhost or on the operator's LAN is a
+# first-class Creator setup. That makes this policy narrower than
+# safe_remote_download.require_public_ip, which rejects every non-global
+# address because it guards URLs a provider handed us, while these are
+# URLs the operator typed into the model form.
+_PROBE_ALLOWED_SCHEMES = frozenset({"http", "https"})
+_PROBE_METADATA_ADDRESSES = frozenset(
+    ipaddress.ip_address(address)
+    for address in (
+        "169.254.169.254",
+        "fd00:ec2::254",
+        "100.100.100.200",
+    )
+)
+
+
+def _reject_metadata_address(address: Any) -> None:
+    """Refuse an address that can only be a cloud metadata service.
+
+    The IPv4-mapped IPv6 spelling names the same host, so it is judged as
+    that address: a policy comparing parsed values would otherwise read
+    ``::ffff:100.100.100.200`` as an ordinary IPv6 and hand the bearer key
+    to the Alibaba metadata endpoint written a second way. The link-local
+    range already came through this notation, which is why only the
+    explicitly listed endpoints were reachable by the alternate spelling.
+    """
+    spellings = [address]
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        spellings.append(mapped)
+    for spelling in spellings:
+        if spelling.is_link_local or spelling in _PROBE_METADATA_ADDRESSES:
+            raise ProbeDestinationError(
+                "模型 Base URL 不允许指向云元数据服务地址",
+            )
+
+
+def _reject_metadata_host(host: str) -> None:
+    """Refuse a literal metadata target before a request is built.
+
+    Only literal addresses are checked here. A hostname is judged by the
+    address its socket actually connected to (``_assert_probe_peer``),
+    which cannot be beaten by answering a pre-flight lookup with a public
+    address and the real one with a metadata address.
+    """
+    try:
+        address = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return
+    _reject_metadata_address(address)
+
+
+def _assert_probe_destination(url: str) -> None:
+    """Constrain where a probe may go, before it leaves the process.
+
+    A probe sends the configured API key as a bearer credential and
+    reports the response to whoever called it, so an unconstrained
+    ``base_url`` is a credential leak and an internal-network oracle at
+    the same time. An invalid port is left to httpx: it cannot turn a
+    probe inwards, and how an unusable Base URL fails is not this
+    policy's concern.
+    """
+    parsed = urlsplit(str(url or "").strip())
+    scheme = parsed.scheme.casefold()
+    if scheme not in _PROBE_ALLOWED_SCHEMES:
+        raise ProbeDestinationError(
+            f"模型 Base URL 必须是 http(s)，当前为 {scheme or '空'}",
+        )
+    host = parsed.hostname
+    if not host:
+        raise ProbeDestinationError("模型 Base URL 缺少主机名")
+    if parsed.username is not None or parsed.password is not None:
+        # Embedded credentials duplicate the bearer header, and a URL
+        # like "https://dashscope.aliyuncs.com@evil.example" reads as a
+        # trusted host to anyone skimming the probe log.
+        raise ProbeDestinationError("模型 Base URL 不允许携带用户名或密码")
+    _reject_metadata_host(host)
+
+
+def _assert_probe_peer(response: Any) -> None:
+    """Refuse a probe whose socket actually reached a metadata service.
+
+    The pre-flight check sees the URL, not the address DNS returned for
+    it, so a hostname can point at a public address while the connection
+    lands on the metadata service. The connected peer cannot lie about
+    that. A transport with no network stream (a test double, in-process
+    ASGI) exposes no peer and is skipped, as there is nothing to verify.
+
+    Known limit: when httpx reaches the endpoint through an HTTP proxy the
+    peer is the proxy, so this attests to the proxy's address rather than
+    the final host's. Switching the client to ``trust_env=False`` is not
+    the remedy, because a deployment that only reaches its gateway through
+    a configured proxy would then fail its connection test outright, and
+    the probed Base URL is operator-entered configuration rather than
+    user input.
+    """
+    extensions = getattr(response, "extensions", None)
+    if not isinstance(extensions, dict):
+        return
+    stream = extensions.get("network_stream")
+    get_extra_info = getattr(stream, "get_extra_info", None)
+    if get_extra_info is None:
+        return
+    peer = get_extra_info("server_addr")
+    if not isinstance(peer, tuple) or not peer:
+        return
+    try:
+        address = ipaddress.ip_address(str(peer[0]).split("%", 1)[0])
+    except ValueError:
+        return
+    _reject_metadata_address(address)
+
+
+# What a probe's 2xx answer is allowed to prove, declared by the probe that
+# builds it and graded by ``_grade_attestation`` before the route reports a
+# verdict.  Absent means the probe never asked the model to do its work: a
+# GET against a registry, a credit balance, or the read-only voice listing —
+# which posts to a management surface without synthesizing a single sample —
+# all prove the credential and nothing more.  Inferring the level from the
+# verb is what let that listing claim a verified voice.
+_ATTEST_HANDLED = "handled"
+_ATTEST_ASR_WHISPER = "asr-whisper"
+_ATTEST_ASR_QWEN3 = "asr-qwen3"
+_ATTEST_ASR_FUN = "asr-fun"
+
+# A 2xx on an ASR probe is graded by walking the body the way the production
+# reader does, not by whether some field name appears.  ``asr_model`` calls
+# ``response.json()`` and then indexes ``segments``, ``output.choices`` or
+# ``output.task_id``, so a body it cannot walk is not an unfamiliar answer —
+# it is the exception the next real request would raise.  These graders mirror
+# those readers rather than what a mock finds convenient.
+
+# Fun-ASR is the one async route and gets its own grading below: a 2xx submit
+# only says a task was taken, while ``asr_model._fun_asr`` polls until
+# ``task_status`` is ``SUCCEEDED`` and refuses anything else.  A task id on
+# its own cannot be promoted to "transcription works".
+_ASR_TASK_SUCCEEDED = "SUCCEEDED"
+# Only a state known to be terminal-and-negative is a refusal. Anything else
+# the provider invented stays a credential-only verdict: guessing at an
+# unlisted status would report a working route as broken.
+_ASR_TASK_FAILED = ("FAILED", "CANCEL", "CANCELED", "CANCELLED")
+
+
+def _grade_fun_asr_submit(document: Mapping[str, Any]) -> tuple[bool, str]:
+    """Grade an asynchronous submit, which cannot have proved a transcript.
+
+    The probe posts and deliberately does not poll, so the only positive
+    claim available is that the route accepted the work.  A submit that came
+    back with a terminal failure is refused outright, and one that is still
+    queued leaves ``capability_verified`` false: the test button reports a
+    credential and an accepted task, not a transcription.
+    """
+    output = document.get("output")
+    if not isinstance(output, Mapping):
+        # ``_fun_asr`` reads ``output.task_id`` before it polls, so an
+        # ``output`` holding a string — or no ``output`` at all — is the
+        # exception the real request would raise, not an unfamiliar shape.
+        return False, (
+            "转写提交响应的 output 不是对象"
+            + (f"（{type(output).__name__}）" if output is not None else "")
+            + "，生产读取 output.task_id 会失败"
+        )
+    if not output.get("task_id"):
+        return False, "转写任务未被受理（异步提交未返回 task_id）"
+    # Imported where production decides, so the probe cannot drift from it.
+    from models.asr_model import _no_speech_output
+
+    no_speech = bool(_no_speech_output(output))
+    outcome = str(output.get("task_status") or "").strip().upper()
+    if outcome == _ASR_TASK_SUCCEEDED:
+        return _grade_fun_asr_terminal(output, no_speech)
+    if outcome in _ASR_TASK_FAILED:
+        if no_speech:
+            # ``_fun_asr`` answers an empty transcript for a no-speech verdict
+            # even when the task itself ended FAILED, so the silence this
+            # probe deliberately asked for is not a breakage.
+            return True, ""
+        detail = str(output.get("message") or output.get("code") or "")
+        return (
+            False,
+            f"转写任务以 {outcome} 结束" + (f"：{detail}" if detail else ""),
+        )
+    return False, ""
+
+
+def _grade_fun_asr_terminal(
+    output: Mapping[str, Any],
+    no_speech: bool,
+) -> tuple[bool, str]:
+    """Walk a finished Fun-ASR task the way the poll handler does.
+
+    ``asr_model._fun_asr`` takes the first ``results`` entry whose
+    ``subtask_status`` is SUCCEEDED and indexes its ``transcription_url``, so a
+    document that claims the task finished without such an entry is the
+    ``RuntimeError`` (or ``KeyError``) the next real request would raise, not an
+    unfamiliar answer to be believed. A submit that says nothing at all about
+    the subtasks stays unproven rather than failing: this probe deliberately
+    does not poll, so it must not invent a verdict the poll has not confirmed.
+    """
+    if no_speech:
+        return True, ""
+    results = output.get("results")
+    if results is None:
+        return False, ""
+    if not _walkable_entries(results):
+        return False, (
+            f"转写任务的 results 不是列表（{type(results).__name__}），" "生产遍历子任务会失败"
+        )
+    succeeded = next(
+        (
+            item
+            for item in results
+            if isinstance(item, Mapping)
+            and str(item.get("subtask_status") or "").upper()
+            == _ASR_TASK_SUCCEEDED
+        ),
+        None,
+    )
+    if succeeded is None:
+        failures = "; ".join(
+            str(item.get("message") or item.get("code") or "").strip()
+            for item in results
+            if isinstance(item, Mapping)
+        ).strip("; ")
+        return False, (
+            "转写任务没有成功的子任务，生产会抛 Fun-ASR failed"
+            + (f"：{failures[:160]}" if failures else "")
+        )
+    if not str(succeeded.get("transcription_url") or ""):
+        return False, "转写子任务已成功但未返回 transcription_url，生产下载转写结果时会失败"
+    return True, ""
+
+
+def _error_wrapped_in_2xx(document: Mapping[str, Any]) -> str:
+    """Return the provider's own wording when a 2xx body is an error.
+
+    Some gateways answer 200 and put the refusal in the body, which is why a
+    status code alone cannot attest to a capability.  DashScope nests the same
+    pair inside ``output`` on its asynchronous routes, so one level down is
+    read as well — an accepted submit carrying a failed task is a refusal, not
+    an unfamiliar shape.
+    """
+    nodes: list[Mapping[str, Any]] = [document]
+    nested = document.get("output")
+    if isinstance(nested, Mapping):
+        nodes.append(nested)
+    for node in nodes:
+        error = node.get("error")
+        if isinstance(error, Mapping):
+            return str(error.get("message") or error.get("type") or error)
+        if error:
+            return str(error)
+        if node.get("code") and node.get("message"):
+            return f"{node['code']}: {node['message']}"
+    return ""
+
+
+def _body_sample(body: str) -> str:
+    """Return the leading slice of *body* an operator has to recognise."""
+    return " ".join((body or "").strip()[:120].split())
+
+
+def _non_json_transcript_refusal(body: str, content_type: str) -> str:
+    """Word a 2xx production cannot parse as the failure it is.
+
+    Every ASR reader starts with ``response.json()``, so a streaming frame or
+    a login interstitial is a ``JSONDecodeError`` on the next real request.
+    The content type is quoted rather than trusted: gateways serve HTML under
+    ``text/plain`` often enough that the bytes, not the label, decide what the
+    caller was handed.
+    """
+    sample = _body_sample(body)
+    lowered = sample.casefold()
+    if lowered.startswith("<"):
+        return f"转写探测收到 HTML 页面（可能是登录拦截），不是转写结果：{sample}"
+    if lowered.startswith("event:") or lowered.startswith("data:"):
+        return (
+            f"转写探测收到流式响应（{content_type or '未知类型'}），"
+            f"生产按 JSON 解析该响应会失败：{sample}"
+        )
+    return (
+        f"转写探测的 2xx 响应不是 JSON（{content_type or '未知类型'}），"
+        f"生产按 JSON 解析该响应会失败：{sample}"
+    )
+
+
+def _walkable_entries(value: object) -> bool:
+    """True when production's ``for … in`` / ``[0]`` / ``.get`` walk survives.
+
+    ``json.loads`` only yields dict/list/str/number/bool/None, so a list is the
+    sole shape those readers tolerate: a string iterates into single characters
+    whose ``.get`` raises, and a mapping indexed at ``[0]`` raises ``KeyError``.
+    """
+    return value is None or isinstance(value, (list, tuple))
+
+
+def _grade_whisper_document(document: Mapping[str, Any]) -> tuple[bool, str]:
+    """Grade the answer ``asr_model._whisper`` iterates.
+
+    The reader walks ``segments`` — the field check keyed on ``text`` instead,
+    so a real segment document stayed uncredited — and does ``raw.get`` plus
+    ``float(raw.get("start"))`` on every entry.  A silent clip legitimately
+    yields no segments, which does certify the route; an unreadable
+    ``segments`` is the crash production would hit.
+    """
+    if "segments" in document:
+        segments = document["segments"]
+        if not isinstance(segments, (list, tuple)):
+            return False, (
+                "转写结果的 segments 不是列表" f"（{type(segments).__name__}），生产逐项读取会失败"
+            )
+        for raw in segments:
+            if not isinstance(raw, Mapping):
+                return (
+                    False,
+                    "转写结果的 segments 条目不是对象，生产逐项读取会失败",
+                )
+            for key in ("start", "end"):
+                value = raw.get(key)
+                if value is None:
+                    continue
+                try:
+                    float(value)
+                except (TypeError, ValueError):
+                    return False, ("转写结果的 segments 时间戳不是数值，生产转换会失败")
+        return True, ""
+    if "text" in document:
+        # Without ``verbose_json`` the answer is a bare ``text``; the reader
+        # parses it and walks no segments at all, which is a working route.
+        return True, ""
+    return False, ""
+
+
+def _grade_qwen3_document(document: Mapping[str, Any]) -> tuple[bool, str]:
+    """Grade the answer ``asr_model._qwen3_sentences`` walks.
+
+    The reader opens with ``body["output"].get("choices")``, so an ``output``
+    holding a string — what a gateway writes there when it pastes its own
+    failure into the field — used to certify a capability production would
+    meet with ``AttributeError``.  A readable ``output`` carrying no transcript
+    still proves nothing beyond the credential.
+    """
+    output = document.get("output")
+    if output is not None and not isinstance(output, Mapping):
+        return False, (
+            f"转写结果的 output 不是对象（{type(output).__name__}），"
+            "生产读取 output.choices 会失败"
+        )
+    readable = output if isinstance(output, Mapping) else {}
+    choices = readable.get("choices")
+    if choices:
+        if not _walkable_entries(choices):
+            return False, "转写结果的 choices 不是列表，生产取值会失败"
+        first = choices[0]
+        if not isinstance(first, Mapping):
+            return False, "转写结果的 choices 条目不是对象，生产取值会失败"
+        message = first.get("message")
+        if message is not None and not isinstance(message, Mapping):
+            return False, "转写结果的 message 不是对象，生产取值会失败"
+        content = (message or {}).get("content")
+        if content and not isinstance(
+            content,
+            (list, tuple, Mapping, str),
+        ):
+            return False, "转写结果的 content 无法逐项读取，生产会失败"
+        return True, ""
+    sentence = readable.get("sentence")
+    if isinstance(sentence, Mapping) or (
+        _walkable_entries(sentence) and sentence
+    ):
+        # ``qwen-audio-*-asr-*`` answers through ``output.sentence`` rather
+        # than ``choices``; either shape the reader walks is the working route.
+        return True, ""
+    if "text" in document:
+        return True, ""
+    return False, ""
+
+
+_ASR_DOCUMENT_GRADERS: dict[
+    str,
+    Callable[[Mapping[str, Any]], tuple[bool, str]],
+] = {
+    _ATTEST_ASR_WHISPER: _grade_whisper_document,
+    _ATTEST_ASR_QWEN3: _grade_qwen3_document,
+    _ATTEST_ASR_FUN: _grade_fun_asr_submit,
+}
+
+
+def _grade_attestation(
+    attests: str,
+    response: httpx.Response,
+) -> tuple[bool, str]:
+    """Split a 2xx probe into a verification level, or a refusal.
+
+    Returns ``(capability_verified, refusal_reason)``.  A non-empty reason
+    means the answer is positive evidence that the endpoint did not do the
+    work — an HTML interstitial, an empty body, a body production cannot
+    parse, or an error wrapped in a 200 — so the test reports a failure.  A
+    body that is merely unfamiliar leaves ``ok`` true with a credential-only
+    verdict: being unable to prove a capability is not the same as proving a
+    breakage.  Each transcription answer is graded by the reader production
+    actually uses, and the asynchronous submit on its task state, because a
+    queued task is by definition not yet a result.
+    """
+    if not attests:
+        return False, ""
+    grader = _ASR_DOCUMENT_GRADERS.get(attests)
+    if grader is None:
+        return True, ""
+    body = response.text or ""
+    if not body.strip():
+        return False, "转写探测收到空响应，无法确认转写路由可用"
+    content_type = (response.headers.get("content-type") or "").casefold()
+    try:
+        document = json.loads(body)
+    except ValueError:
+        return False, _non_json_transcript_refusal(body, content_type)
+    if not isinstance(document, Mapping):
+        return False, (
+            "转写探测返回的 JSON 顶层不是对象，生产按字段读取会失败：" f"{_body_sample(body)}"
+        )
+    wrapped = _error_wrapped_in_2xx(document)
+    if wrapped:
+        return False, f"转写探测在 2xx 响应中返回错误：{wrapped}"
+    return grader(document)
+
+
+_PROBE_CREDENTIAL_HEADERS = (
+    "authorization",
+    "x-api-key",
+    "x-goog-api-key",
+)
+_PROBE_CREDENTIAL_PREFIXES = ("Bearer ", "Token ")
+
+
+def _probe_credential(headers: dict[str, str]) -> str:
+    """Return the bare secret ``headers`` will carry on the wire.
+
+    By the time a probe is sent the credential only exists inside its auth
+    header, and it arrives under several spellings (``Bearer``, ``Token``,
+    ``x-api-key``, ``x-goog-api-key``). Reading it back from the request,
+    rather than passing it down from each caller, is what keeps the filtering
+    with the transport: a caller that forgets to filter can no longer leak.
+    Each builder sets exactly one of those headers, so the first match is the
+    credential this probe sends.
+    """
+    for name, value in headers.items():
+        if name.lower() not in _PROBE_CREDENTIAL_HEADERS:
+            continue
+        secret = value.strip()
+        for prefix in _PROBE_CREDENTIAL_PREFIXES:
+            if secret.startswith(prefix):
+                secret = secret[len(prefix) :].strip()
+                break
+        return secret
+    return ""
+
+
+async def _send_probe(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+) -> httpx.Response:
+    """Send one probe in whichever shape the probe asked for.
+
+    ``_get_probe`` selects a GET with query params, ``_multipart_probe``
+    selects a multipart/form-data POST (the shape OpenAI-compatible ASR
+    transcribes with), and anything else posts JSON. ``Content-Type`` is
+    dropped for the first two: a GET carries no body, and httpx has to write
+    the multipart boundary itself.  ``_attests`` is the probe's own claim
+    about what its 2xx would prove; the caller reads it before sending and it
+    is stripped here so it never reaches the wire.
+
+    The destination is validated on the way out and the connected peer on
+    the way back, so every probe shape carries the same policy and a new
+    shape cannot forget it. A GET also drops any query value that contains
+    the credential it is about to send: a query string is echoed into access
+    logs, proxy logs and error pages, none of which the operator authorised
+    to hold the key. Only the GET shape is filtered - a body is what the
+    endpoint was configured to receive, and some policy endpoints need the
+    credential in it to answer at all.
+    """
+    _assert_probe_destination(url)
+    # These markers are this function's to consume: copy first so a caller
+    # that keeps its payload — a retry, a log line — never finds it stripped.
+    payload = dict(payload)
+    multipart = payload.pop("_multipart_probe", None)
+    payload.pop("_attests", None)
+    if payload.pop("_get_probe", False):
+        headers.pop("Content-Type", None)
+        response = await client.get(
+            url,
+            headers=headers,
+            params=_non_secret_probe_params(
+                payload,
+                _probe_credential(headers),
+            ),
+        )
+    elif multipart is not None:
+        headers.pop("Content-Type", None)
+        response = await client.post(
+            url,
+            headers=headers,
+            data=multipart.get("data") or {},
+            files=multipart.get("files") or {},
+        )
+    else:
+        response = await client.post(url, headers=headers, json=payload)
+    _assert_probe_peer(response)
+    return response
+
+
+def _probe_headers(body: ModelConnectionTestRequest) -> dict[str, str]:
+    """Auth headers shared by every probe shape.
+
+    Send the credential whenever one is present so paid models behind a
+    free-tier-capable provider still authenticate; ``require_api_key``
+    only controls whether an *absent* key is tolerated (validated by the
+    route before probing).
+    """
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if body.api_key:
+        headers["Authorization"] = f"Bearer {body.api_key}"
+    return headers
 
 
 def _probe_payload(
     body: ModelConnectionTestRequest,
 ) -> tuple[str, dict[str, str], dict[str, Any]]:
-    base = body.base_url.rstrip("/")
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    # Send the credential whenever one is present so paid models behind a
-    # free-tier-capable provider still authenticate; ``require_api_key``
-    # only controls whether an *absent* key is tolerated (validated by the
-    # route before probing).
-    if body.api_key:
-        headers["Authorization"] = f"Bearer {body.api_key}"
     if body.type == "asr":
-        provider = body.provider or (
-            "whisper" if "whisper" in body.protocol.casefold() else "fun-asr"
-        )
-        if provider == "whisper":
-            return _openai_model_probe(body, headers)
-        return _dashscope_policy_probe(body, headers)
+        # ASR is dispatched to the async _asr_probe, which uploads a sample
+        # first. Falling through here would silently return the generic
+        # upload-policy default — a route production never calls — and a test
+        # asserting on it would pass while measuring nothing.
+        raise ValueError("ASR probes must go through _prepare_probe_payload")
+    base = body.base_url.rstrip("/")
+    headers = _probe_headers(body)
     if body.type == "tts":
         # The upload-policy probe accepts any model string, so it cannot catch a
         # mistyped model name. Synthesizing one character costs a fraction of a
@@ -1722,6 +2686,7 @@ def _probe_payload(
             "/api/v1/services/aigc/multimodal-generation/generation",
             headers,
             {
+                "_attests": _ATTEST_HANDLED,
                 "model": body.model_name,
                 "input": {
                     "text": "嗨",
@@ -1741,6 +2706,7 @@ def _probe_payload(
             endpoint,
             headers,
             {
+                "_attests": _ATTEST_HANDLED,
                 "model": body.model_name,
                 "input": {"contents": [{"text": "ping"}]},
                 "parameters": {"dimension": 2560},
@@ -1766,9 +2732,9 @@ def _probe_payload(
             f"{base}/chat/completions",
             headers,
             {
+                "_attests": _ATTEST_HANDLED,
                 "model": body.model_name,
                 "messages": [{"role": "user", "content": content}],
-                "max_tokens": 8,
             },
         )
     if body.type == "image":
@@ -1776,6 +2742,8 @@ def _probe_payload(
             return _token_plan_models_probe(body, headers)
         if "dashscope" in body.protocol.casefold() or "百炼" in body.protocol:
             return _dashscope_policy_probe(body, headers)
+        if "minimax" in body.protocol.casefold() or "海螺" in body.protocol:
+            return _minimax_image_probe(body, headers)
         return _openai_model_probe(body, headers)
     if body.type == "video":
         from models.video_capabilities import video_model_capability
@@ -1865,12 +2833,40 @@ async def test_model_connection(
     loaded = await asyncio.to_thread(load_model_config)
     item = getattr(loaded, body.type)
     fallback_api_key = item.api_key
+    # The addresses this credential may reach: only Base URLs the operator
+    # actually wrote (model_config.json or env), never the ones _defaults()
+    # pre-fills - see _operator_written_base_url.
+    section_home = _operator_written_base_url(body.type)
+    trusted_base_urls = [section_home]
     if (
         body.type in ("asr", "tts", "s2v", "image", "video")
         and getattr(item, "reuse_llm_key", False)
         and not fallback_api_key
     ):
         fallback_api_key = loaded.llm.api_key
+        # A reused LLM key belongs to the LLM endpoint, and a section host the
+        # operator saved next to the reuse switch was authorised by that
+        # switch; a default-filled address was not.
+        trusted_base_urls.append(_operator_written_base_url("llm"))
+    if body.type == "vlm" and getattr(item, "use_llm", False):
+        # "Reuse the text model" is an explicit decision to send the LLM
+        # credential, and assembly overwrites whatever address the VLM
+        # section still holds, so the VLM's own stale host is not an
+        # authorization either - only the LLM's written origin is.
+        if loaded.llm.api_key:
+            fallback_api_key = loaded.llm.api_key
+            trusted_base_urls = [_operator_written_base_url("llm")]
+    if (
+        body.type == "embedding"
+        and getattr(item, "reuse_vlm_key", False)
+        and not fallback_api_key
+    ):
+        # Trust the origin of the key that is really selected: a VLM that
+        # borrows the LLM credential cannot be named its owner, and the
+        # embedding's own saved address stays authorised by its switch.
+        key_owner = _credential_owner_section(loaded, "embedding")
+        fallback_api_key = getattr(loaded, key_owner).api_key
+        trusted_base_urls.append(_operator_written_base_url(key_owner))
     request_api_key = "" if body.api_key == SECRET_MASK else body.api_key
     selected = body.model_copy(
         update={
@@ -1899,29 +2895,67 @@ async def test_model_connection(
                 "请在模型配置弹窗中补齐后重试。"
             ),
         )
+    refusal = _probe_target_refusal(
+        selected.base_url,
+        body.type,
+        supplied_key=request_api_key,
+        stored_key=fallback_api_key,
+        trusted_base_urls=trusted_base_urls,
+        unconfigured_target=bool(
+            not section_home and not (body.base_url or "").strip(),
+        ),
+    )
+    if refusal:
+        return ConnectionTestResponse(ok=False, ms=0, error=refusal)
     start = time.monotonic()
     try:
-        url, headers, payload = _probe_payload(selected)
-        async with httpx.AsyncClient(timeout=30) as client:
-            if payload.pop("_get_probe", False):
-                headers.pop("Content-Type", None)
-                response = await client.get(
-                    url,
-                    headers=headers,
-                    params=payload,
-                )
-            else:
-                response = await client.post(
-                    url,
-                    headers=headers,
-                    json=payload,
-                )
+        url, headers, payload = await _prepare_probe_payload(selected)
+        # Read the claim before sending: ``_send_probe`` strips it, and the
+        # probe declares its own verification level rather than the route
+        # guessing one from the HTTP verb — a read-only management POST is a
+        # POST, and it attests to the credential exactly like a GET does.
+        attests = str(payload.get("_attests") or "")
+        # Explicit although already httpx's default: a redirect off the
+        # configured endpoint would carry the bearer key with it, and the
+        # probe would report a host the operator never named.
+        async with httpx.AsyncClient(
+            timeout=30,
+            follow_redirects=False,
+        ) as client:
+            response = await _send_probe(client, url, headers, payload)
         elapsed = round((time.monotonic() - start) * 1000)
+        if response.is_success and "minimax" in selected.protocol.casefold():
+            # MiniMax hides auth/balance failures inside an HTTP 200; without
+            # this the connection test green-lights a key the provider rejects.
+            base_resp_error = _minimax_base_resp_error(response)
+            if base_resp_error is not None:
+                return ConnectionTestResponse(
+                    ok=False,
+                    ms=elapsed,
+                    error=(
+                        f"{base_resp_error} "
+                        f"[探测端点: {redact_url(url)}，协议: {selected.protocol}]"
+                    ),
+                )
         if response.is_success:
+            capability_verified, refusal = _grade_attestation(
+                attests,
+                response,
+            )
+            if refusal:
+                return ConnectionTestResponse(
+                    ok=False,
+                    ms=elapsed,
+                    error=(
+                        f"{refusal} "
+                        f"[探测端点: {redact_url(url)}，协议: {selected.protocol}]"
+                    ),
+                )
             return ConnectionTestResponse(
                 ok=True,
                 ms=elapsed,
                 detail="provider accepted the probe",
+                capability_verified=capability_verified,
             )
         try:
             provider_body = response.json()
@@ -1942,7 +2976,17 @@ async def test_model_connection(
             else:
                 provider_error = str(provider_body)
         except ValueError:
-            provider_error = response.text[:300]
+            # A gateway/nginx error page is HTML, not a provider message; echo
+            # ing it leaks markup into the UI and hides the real cause. Fall
+            # back to the status line only when the body is not JSON.
+            raw = response.text.strip()
+            if raw[:1] == "<" or "<html" in raw[:200].casefold():
+                provider_error = (
+                    f"服务返回了非 JSON 错误页（{response.reason_phrase}），"
+                    "通常是 Base URL 或路径不受该 provider 支持"
+                )
+            else:
+                provider_error = raw[:300]
         hint = upstream_status_hint(response.status_code)
         return ConnectionTestResponse(
             ok=False,
@@ -1971,7 +3015,14 @@ async def test_model_connection(
                 f"连接超时，请检查网络或 Base URL" f"（当前 Base URL: {selected.base_url}）"
             ),
         )
-    except (httpx.HTTPError, ValueError) as exc:
+    except (
+        httpx.InvalidURL,
+        httpx.HTTPError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        # RuntimeError covers the ASR probe's sample upload, which refuses an
+        # absent credential or a malformed policy before any probe is sent.
         return ConnectionTestResponse(
             ok=False,
             ms=round((time.monotonic() - start) * 1000),

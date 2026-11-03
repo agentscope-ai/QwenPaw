@@ -27,6 +27,13 @@ from .models import (
     ChatHistory,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from .resolver import (
+    ChatResolution,
+    find_chat_matches,
+    is_app_owned_chat as _is_app_owned_chat,
+)
+from ...config.utils import load_config
+from ...utils.io_utils import run_sync_io
 from ...services.project_directory import (
     agent_project_dirs_from_config,
     resolve_effective_project_dirs,
@@ -44,12 +51,6 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
-
-
-def _is_app_owned_chat(chat: ChatSpec) -> bool:
-    """Return whether a chat belongs to a PawApp-owned dialogue surface."""
-    owner = chat.meta.get("pawapp") if isinstance(chat.meta, dict) else None
-    return isinstance(owner, dict) and bool(owner.get("app_id"))
 
 
 async def get_workspace(request: Request):
@@ -287,6 +288,21 @@ async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
     return await asyncio.to_thread(_build)
 
 
+@router.get(f"/resolve", response_model=ChatResolution)
+async def resolve_chat(
+    chat_id: str = Query(..., min_length=1),
+    current_agent_id: Optional[str] = Query(None),
+):
+    """Resolve a Console deep link using only persisted Chat metadata."""
+    config = await run_sync_io(load_config)
+    matches = await find_chat_matches(config, chat_id, current_agent_id)
+    if not matches:
+        raise HTTPException(404, f"Chat not found: {chat_id}")
+    if len(matches) != 1:
+        raise HTTPException(409, f"Chat reference is ambiguous: {chat_id}")
+    return matches[0]
+
+
 @router.get("", response_model=list[ChatSpec])
 async def list_chats(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
@@ -451,6 +467,10 @@ async def batch_delete_chats(
 
     """
     chats = {chat.id: chat for chat in await mgr.list_chats(archived=None)}
+    # Stop any live run first: a deleted chat must not leave a run behind
+    # in the tracker, or it inflates the aggregate running count forever.
+    for chat_id in chat_ids:
+        await workspace.task_tracker.request_stop(chat_id)
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
     if deleted:
         await CHECKPOINT_RUNTIME.delete_session_checkpoints(
@@ -710,6 +730,31 @@ async def clear_chat_project_dirs(
     return await _project_dirs_response(updated, workspace)
 
 
+@router.put("/{chat_id}/decision-settings")
+async def set_decision_settings(
+    chat_id: str,
+    enabled: bool = Body(..., strict=True),
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Save a decision preference for an existing session."""
+    from ...config.config import load_agent_config
+    from ...services.session_thinking import decision_settings
+
+    if await mgr.get_chat(chat_id) is None:
+        raise HTTPException(404, "Chat not found")
+    config = await asyncio.to_thread(load_agent_config, workspace.agent_id)
+    settings = await asyncio.to_thread(decision_settings, config, enabled)
+    if enabled and not settings["configured"]:
+        raise HTTPException(
+            422,
+            "No agent or global decision model configured",
+        )
+    if await mgr.set_session_decision(chat_id, enabled) is None:
+        raise HTTPException(404, "Chat not found")
+    return settings
+
+
 @router.get(f"/thinking-default")
 async def get_default_thinking(
     provider_id: str | None = None,
@@ -904,7 +949,10 @@ async def get_chat(
         if memory_raw:
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
-    messages = agentscope_msg_to_message(memories)
+    messages = agentscope_msg_to_message(
+        memories,
+        truncate_oversized_outputs=True,
+    )
     return ChatHistory(messages=messages, status=status)
 
 
@@ -961,6 +1009,9 @@ async def delete_chat(
         HTTPException: If chat not found (404)
     """
     chat = await mgr.get_chat(chat_id)
+    # Stop any live run first: a deleted chat must not leave a run behind
+    # in the tracker, or it inflates the aggregate running count forever.
+    await workspace.task_tracker.request_stop(chat_id)
     deleted = await mgr.delete_chats(chat_ids=[chat_id])
     if not deleted:
         raise HTTPException(

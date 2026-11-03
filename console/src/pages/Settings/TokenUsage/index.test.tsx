@@ -66,12 +66,8 @@ vi.mock("../../../stores/agentStore", () => ({
 }));
 
 vi.mock("@/components/PageHeader", () => ({
-  PageHeader: ({ parent, current }: { parent: string; current: string }) =>
-    React.createElement(
-      "div",
-      { "data-testid": "page-header" },
-      `${parent}/${current}`,
-    ),
+  PageHeader: ({ current }: { current: string }) =>
+    React.createElement("div", { "data-testid": "page-header" }, current),
 }));
 
 const capturedProps = vi.hoisted(() => ({
@@ -143,13 +139,16 @@ vi.mock("@agentscope-ai/design", () => ({
 const datePickerMock = vi.hoisted(() => ({
   onChange: null as DateChange | null,
   yearChange: null as ((value: Dayjs) => void) | null,
+  rangeProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("antd", () => {
   const Tooltip = ({ children }: { children?: React.ReactNode }) =>
     React.createElement("span", null, children);
-  const RangePicker = ({ onChange }: { onChange: DateChange }) => {
+  const RangePicker = (props: Record<string, unknown>) => {
+    const { onChange } = props as { onChange: DateChange };
     datePickerMock.onChange = onChange;
+    datePickerMock.rangeProps = props;
     return React.createElement("input", {
       "data-testid": "range-picker",
       readOnly: true,
@@ -220,7 +219,18 @@ describe("TokenUsagePage", () => {
     capturedProps.modelTrend = null;
     capturedProps.tokenType = null;
     capturedProps.line = null;
+    datePickerMock.rangeProps = null;
     setupDefaultMocks();
+  });
+
+  it("scopes the responsive calendar layout to this range picker", async () => {
+    render(<TokenUsagePage />);
+    await screen.findByTestId("summary-cards");
+
+    const classNames = datePickerMock.rangeProps?.classNames as {
+      popup?: { root?: string };
+    };
+    expect(classNames.popup?.root).toContain("mobileRangePopup");
   });
 
   it("loads a complete year when switching to activity and expands model ranking", async () => {

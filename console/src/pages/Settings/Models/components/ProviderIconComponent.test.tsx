@@ -20,4 +20,21 @@ describe("ProviderIcon", () => {
       expect(fallbackStyle.height).toBe(`${size}px`);
     },
   );
+
+  it("supports decorative lazy-loaded icons without duplicate names", () => {
+    const { container } = render(
+      <ProviderIcon
+        providerId="openrouter"
+        size={24}
+        decorative
+        loading="lazy"
+      />,
+    );
+
+    const image = container.querySelector("img");
+    expect(image).toHaveAttribute("alt", "");
+    expect(image).toHaveAttribute("aria-hidden", "true");
+    expect(image).toHaveAttribute("loading", "lazy");
+    expect(image).toHaveAttribute("decoding", "async");
+  });
 });

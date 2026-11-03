@@ -32,6 +32,7 @@ function SecurityPage() {
     denyPathsPlatformSupported,
     toggleDenyPaths,
     toolOptions,
+    saving,
     scheduleSave,
     flushSave,
     mergedRules,
@@ -87,10 +88,7 @@ function SecurityPage() {
 
   return (
     <div className={styles.securityPage}>
-      <PageHeader
-        parent={t("security.parent")}
-        current={t("security.security")}
-      />
+      <PageHeader current={t("security.security")} />
 
       <div className={styles.content}>
         <Tabs
@@ -213,6 +211,7 @@ function SecurityPage() {
           ...builtinRules.map((r) => r.id),
           ...customRules.map((r) => r.id),
         ]}
+        saving={saving}
         onOk={handleEditSave}
         onCancel={() => setEditModal(false)}
         form={editForm}

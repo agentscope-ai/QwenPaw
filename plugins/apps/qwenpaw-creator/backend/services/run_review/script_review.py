@@ -151,7 +151,6 @@ async def run_script_check(
             user_text,
             system_prompt=build_script_check_system_prompt(),
             temperature=0.2,
-            max_tokens=1800,
             timeout=_TEXT_MODEL_TIMEOUT_SECONDS,
         )
         return parse_script_check(response)

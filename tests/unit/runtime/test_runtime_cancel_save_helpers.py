@@ -181,6 +181,37 @@ class TestCloseDanglingToolCalls:
         assert isinstance(appended, ToolResultBlock)
         assert appended.id == "c1"
         assert "interrupted" in appended.output
+        assert "by the user" not in appended.output
+
+    def test_dangling_call_records_timeout_reason(self):
+        call = ToolCallBlock(id="c1", name="tool", input="{}")
+        context = [_assistant_msg("TestAgent", [call])]
+        agent = _agent(context=context)
+
+        closed = Runtime._close_dangling_tool_calls(
+            agent,
+            _envelope(),
+            cancel_reason="timeout",
+        )
+
+        assert closed == 1
+        appended = context[0].content[-1]
+        assert "cancelled due to timeout" in appended.output
+        assert "by the user" not in appended.output
+
+    def test_dangling_call_records_user_reason(self):
+        call = ToolCallBlock(id="c1", name="tool", input="{}")
+        context = [_assistant_msg("TestAgent", [call])]
+        agent = _agent(context=context)
+
+        Runtime._close_dangling_tool_calls(
+            agent,
+            _envelope(),
+            cancel_reason="user",
+        )
+
+        appended = context[0].content[-1]
+        assert "cancelled by the user" in appended.output
 
     def test_envelope_output_included_before_interruption(self):
         call = ToolCallBlock(id="c1", name="tool", input="{}")

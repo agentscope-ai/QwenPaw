@@ -5,6 +5,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+DECISION_COMPACTED = "qwenpaw_decision_compacted"
+
+
+@dataclass(frozen=True)
+class DecisionCompactionResult:
+    """Host commit status and the last validated model-input token count.
+
+    If no preview was committed, ``tokens_after`` keeps the supplied input
+    count; callers must recount if the live context may have changed.
+    """
+
+    changed: bool
+    tokens_after: int
+
 
 class ContextWindowUnfitError(RuntimeError):
     """Raised when context compaction cannot fit the model input window."""

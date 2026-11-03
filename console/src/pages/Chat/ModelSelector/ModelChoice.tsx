@@ -1,23 +1,27 @@
 import { ModelPickerPopover } from "./ModelPickerPopover";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import { lazy, Suspense, useState } from "react";
-import { Spin } from "antd";
+import { Button, Spin } from "antd";
 import { ChevronRight } from "lucide-react";
-import type { ModelSlotConfig } from "@/api/types";
+import type { ModelSlotConfig, ModelType } from "@/api/types";
 import styles from "./index.module.less";
 const ModelSelector = lazy(() => import("./index"));
 export function ModelChoice({
   value,
+  modelType = "chat",
   ariaLabel,
   label,
+  resetOption,
   onChange,
   disabled,
   open: controlledOpen,
   onOpenChange,
 }: {
+  modelType?: ModelType;
   ariaLabel?: string;
   value?: ModelSlotConfig | null;
   label: string;
+  resetOption?: { label: string; onReset: () => void };
   onChange: (value: ModelSlotConfig) => void;
   disabled?: boolean;
   open?: boolean;
@@ -35,10 +39,24 @@ export function ModelChoice({
       onOpenChange={(next) => !disabled && setOpen(next)}
       content={
         <>
+          {open && resetOption && (
+            <Button
+              type="text"
+              block
+              style={{ textAlign: "left" }}
+              onClick={() => {
+                resetOption.onReset();
+                setOpen(false);
+              }}
+            >
+              {resetOption.label}
+            </Button>
+          )}
           {open && (
             <Suspense fallback={<Spin />}>
               <ModelSelector
                 embedded
+                modelType={modelType}
                 selectedSlot={value}
                 onPick={(provider_id, model) => {
                   onChange({ provider_id, model });
@@ -58,7 +76,7 @@ export function ModelChoice({
         aria-expanded={open}
       >
         {value && <ProviderIcon providerId={value.provider_id} size={16} />}
-        <span>{label}</span>
+        <span title={label}>{label}</span>
         <ChevronRight size={15} />
       </button>
     </ModelPickerPopover>

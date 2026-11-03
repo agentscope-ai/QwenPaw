@@ -15,6 +15,7 @@ import {
   calculateReserveThreshold,
   usesTieredToolResultSettings,
 } from "./toolResultSettings";
+import { DecisionCompactSettings } from "./DecisionCompactSettings";
 import { VisualCompactSettings } from "./VisualCompactSettings";
 import styles from "../index.module.less";
 
@@ -179,6 +180,7 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
           {
             key: "toolResultPruning",
             label: t("agentConfig.toolResultPruningCollapseLabel"),
+            forceRender: true,
             children: (
               <>
                 <SettingsField
@@ -347,8 +349,15 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
             ),
           },
           {
+            key: "decisionCompact",
+            label: t("agentConfig.decisionCompactLabel"),
+            forceRender: true,
+            children: <DecisionCompactSettings />,
+          },
+          {
             key: "visualCompact",
             label: t("agentConfig.visualCompactCollapseLabel"),
+            forceRender: true,
             children: <VisualCompactSettings />,
           },
         ]}
