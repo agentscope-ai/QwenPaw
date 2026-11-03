@@ -24,14 +24,10 @@ def distribution(root, name, version):
     return info
 
 
-@pytest.mark.parametrize(
-    ("installer", "host_has_pip"),
-    [("pip", True), ("pip", False), ("uv", True)],
-)
-def test_installer_environment_exposes_exactly_one_pip_or_none(
+@pytest.mark.parametrize("host_has_pip", [True, False])
+def test_installer_environment_exposes_exactly_one_pip(
     tmp_path,
     monkeypatch,
-    installer,
     host_has_pip,
 ):
     from . import sdk_dependency_fixture
@@ -51,26 +47,19 @@ def test_installer_environment_exposes_exactly_one_pip_or_none(
     )
     python, library = sdk_dependency_fixture.dependency_python(
         tmp_path / "venv",
-        installer=installer,
     )
-    if installer == "pip":
-        result = subprocess.check_output(
-            [
-                str(python),
-                "-I",
-                "-c",
-                "import pip; print(pip.__version__); print(pip.__file__)",
-            ],
-            text=True,
-        ).splitlines()
-        if host_has_pip:
-            assert result[0] == "99.0"
-        assert (
-            Path(result[1]).resolve()
-            == (library / "pip/__init__.py").resolve()
-        )
-    else:
-        assert not (library / "pip").exists()
+    result = subprocess.check_output(
+        [
+            str(python),
+            "-I",
+            "-c",
+            "import pip; print(pip.__version__); print(pip.__file__)",
+        ],
+        text=True,
+    ).splitlines()
+    if host_has_pip:
+        assert result[0] == "99.0"
+    assert Path(result[1]).resolve() == (library / "pip/__init__.py").resolve()
 
 
 def test_installer_fixture_supports_filesystems_without_symlinks(

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -190,13 +191,23 @@ class TokenBudgetService:
             )
         return request_id, model, connection, cap
 
-    def dispatch(self, request_id):
-        """Persist dispatch before sending bytes upstream."""
+    def dispatch(self, request_id, timeout):
+        """Persist dispatch and its recovery deadline before sending bytes."""
         with self.store.connect() as db:
+            db.execute(f"BEGIN IMMEDIATE")
             db.execute(
-                "UPDATE hub_model_requests SET status = 'dispatched' "
-                "WHERE id = ? AND status = 'reserved'",
+                f"UPDATE hub_model_requests SET status = 'dispatched' "
+                f"WHERE id = ? AND status = 'reserved'",
                 (request_id,),
+            )
+            db.execute(
+                f"INSERT INTO hub_settings(key, value_json, updated_at) "
+                f"VALUES ('model_gateway_recovery_until', ?, ?) "
+                f"ON CONFLICT(key) DO UPDATE SET value_json = "
+                f"CAST(MAX(CAST(hub_settings.value_json AS REAL), "
+                f"CAST(excluded.value_json AS REAL)) AS TEXT), "
+                f"updated_at = excluded.updated_at",
+                (f"{time.time() + 2 * timeout}", utc_now()),
             )
 
     def settle(self, request_id, actual=None, error=None):
@@ -220,6 +231,17 @@ class TokenBudgetService:
                 "status = ?, error = ?, completed_at = ? WHERE id = ?",
                 (charged, actual, status, error, utc_now(), request_id),
             )
+            if (
+                row[f"status"] == f"dispatched"
+                and not db.execute(
+                    f"SELECT 1 FROM hub_model_requests "
+                    f"WHERE status = 'dispatched' LIMIT 1",
+                ).fetchone()
+            ):
+                db.execute(
+                    f"DELETE FROM hub_settings "
+                    f"WHERE key = 'model_gateway_recovery_until'",
+                )
             if actual is not None and actual > row["reserved"]:
                 db.execute(
                     "UPDATE hub_managed_models SET value_json = "

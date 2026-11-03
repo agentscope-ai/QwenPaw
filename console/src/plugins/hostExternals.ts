@@ -17,7 +17,7 @@ import i18n from "../i18n";
 import ReactDOM from "react-dom";
 import * as antd from "antd";
 import * as antdIcons from "@ant-design/icons";
-import { getApiUrl, getApiToken } from "../api/config";
+import { getApiUrl, getApiToken, getApiBaseUrl } from "../api/config";
 import {
   buildAuditNamespace,
   buildMenuNamespace,
@@ -42,8 +42,10 @@ import {
   memoryBackendNamespace,
   type MemoryBackendNamespace,
 } from "./memoryBackends";
-
-declare const VITE_API_BASE_URL: string;
+import {
+  settingsSearchNamespace,
+  type SettingsSearchNamespace,
+} from "./settingsSearch";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -212,6 +214,8 @@ export interface WindowNamespace {
   paw?: PawSdkFactory;
   /** Memory backend configuration UI contributed by memory plugins. */
   memoryBackends?: MemoryBackendNamespace;
+  /** Searchable settings metadata contributed by plugins. */
+  settingsSearch?: SettingsSearchNamespace;
 }
 
 declare global {
@@ -248,9 +252,6 @@ function ensurePluginsGroup(): void {
 }
 
 export function installHostExternals(): void {
-  const apiBaseUrl =
-    typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
-
   if (!window.QwenPaw) {
     (window as any).QwenPaw = {} as WindowNamespace;
   }
@@ -261,7 +262,9 @@ export function installHostExternals(): void {
       ReactDOM,
       antd,
       antdIcons,
-      apiBaseUrl,
+      get apiBaseUrl() {
+        return getApiBaseUrl();
+      },
       getApiUrl,
       getApiToken,
       prepareBrowserSession,
@@ -277,6 +280,9 @@ export function installHostExternals(): void {
   if (!window.QwenPaw.paw) window.QwenPaw.paw = pawSdkFactory;
   if (!window.QwenPaw.memoryBackends) {
     window.QwenPaw.memoryBackends = memoryBackendNamespace;
+  }
+  if (!window.QwenPaw.settingsSearch) {
+    window.QwenPaw.settingsSearch = settingsSearchNamespace;
   }
 
   // ── Back-compat shim ───────────────────────────────────────────────────

@@ -60,13 +60,26 @@
     "cliAuthenticated": "{{type}} CLI 認証済み"
   },
   "desktop": {
+    "update": {
+      "title": "QwenPaw を更新しますか？",
+      "otherWindows": "他に {{count}} 個のウィンドウが開いています。",
+      "otherWindows_one": "他に {{count}} 個のウィンドウが開いています。",
+      "otherWindows_other": "他に {{count}} 個のウィンドウが開いています。",
+      "description": "更新すると、すべての QwenPaw ウィンドウが閉じられ、実行中のタスクが中断されます。",
+      "confirm": "閉じて更新",
+      "preparing": "ウィンドウを閉じています…"
+    },
     "closeWindow": {
-      "title": "ウィンドウを閉じる",
-      "description": "ウィンドウを閉じるときに実行する操作を選択してください。アプリを終了すると、実行中のすべてのタスクとスケジュール済みタスクが停止します。",
+      "title": "QwenPaw を閉じますか？",
+      "description": "バックグラウンドではタスクが続行されます。完全に終了すると、実行中のタスクも終了します。",
       "remember": "選択を記憶する",
       "showWindow": "ウィンドウを表示",
       "minimizeToTray": "トレイに最小化",
       "quitApp": "アプリを終了",
+      "keepRunning": "バックグラウンドで続行",
+      "quitting": "終了中…",
+      "stopService": "完全に終了",
+      "stopBlocked": "QwenPaw は他のウィンドウやアプリで使用中です。完全に終了する前に、それらを閉じてください。",
       "preference": "ウィンドウを閉じる",
       "askEveryTime": "毎回確認する"
     }
@@ -518,7 +531,6 @@
     "selectBuiltin": "組み込み",
     "selectNone": "クリア",
     "noPoolSkills": "プールに利用可能なスキルがありません",
-    "addSkillsToAgent": "スキルを追加",
     "copyTooltip": "エージェント設定をコピー",
     "copyDefaultTooltip": "デフォルトエージェントをテンプレートとしてコピー",
     "copyTitle": "エージェント設定をコピー",
@@ -1382,6 +1394,10 @@
     "selectAtLeastOneDay": "曜日を少なくとも1つ選択してください。"
   },
   "channels": {
+    "qrcodeInstallRequired": "QR コードをスキャンするには、プラグインをインストールしてください",
+    "runtime": {
+      "missing_code": "プラグインがインストールされていません"
+    },
     "title": "チャンネル",
     "description": "メッセージチャンネルの管理と設定",
     "loading": "チャンネルを読み込み中...",
@@ -1866,6 +1882,9 @@
     "retry": "再試行"
   },
   "modelSelector": {
+    "subagentModel": "サブエージェントモデル",
+    "chooseFallback": "フォールバックモデル",
+    "enableFallback": "失敗時にフォールバックモデルを使用",
     "noFallback": "使用しない",
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
@@ -1901,6 +1920,7 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "primaryModel": "メインモデル",
     "disableBtn": "無効化",
     "modelType": "モデルタイプ",
     "modelTypeChat": "チャット",
@@ -2268,6 +2288,27 @@
     },
     "billing": {
       "free": "無料"
+    },
+    "chatgpt": {
+      "contextHelp": "アカウントの上限：{{maximum}} トークン、セッションの既定値：{{default}} トークン。",
+      "localHelp": "OpenAI のポリシーとローカル OAuth コールバックの制限により、QwenPaw とブラウザを同じコンピューターで実行する必要があります。",
+      "account": "ChatGPT アカウント",
+      "connected": "ChatGPT サブスクリプションに接続済み",
+      "disconnected": "未接続",
+      "permissionMissing": "プラン利用が未承認です",
+      "failed": "ログインが完了しませんでした。もう一度お試しください。",
+      "usage": "使用量を管理",
+      "reconnect": "再ログイン",
+      "changeAccount": "アカウントを切り替え",
+      "accountActions": "ChatGPT アカウントの操作",
+      "connectedShort": "接続済み",
+      "signOut": "ログアウト",
+      "revokeWarning": "ローカルでログアウトしました。認可の取り消しを確認できませんでした。ChatGPT の設定で QwenPaw の接続を解除してください。",
+      "modelHelp": "モデルは現在の ChatGPT アカウントから取得します。プランの利用枠またはクレジットを消費します。この接続ではサンプリングと出力トークン制限を設定できません。",
+      "oauthDescription": "ブラウザを開いて ChatGPT プランの利用を承認します。完了後、QwenPaw に戻ってください。"
+    },
+    "providerVariants": {
+      "chatgpt": "ChatGPT サブスクリプション"
     }
   },
   "files": {
@@ -2403,9 +2444,6 @@
     "changeProjectDirectory": "管理",
     "manageDefaultFolders": "既定のワークスペース",
     "projectDirectoryWorkspaceFallback": "Agent の設定ディレクトリを使用中",
-    "enhancedCodeCapability": "コード能力を強化",
-    "enhancedCodeCapabilityTooltip": "プロジェクトディレクトリを変更せずにコードツールを追加します。",
-    "enhancedCodeCapabilityDescription": "AST、LSP、コードプロンプト、Gitコンテキスト、ソース管理を有効にします。",
     "description": "エージェントのランタイムパラメーターを設定します",
     "reactAgentTitle": "ReActエージェント",
     "llmRetryTitle": "LLM自動再試行",
@@ -3017,10 +3055,6 @@
         "name": "ファイルを探す",
         "description": "名前やパスのパターンでファイルを探します。"
       },
-      "ast_search": {
-        "name": "コード構造を検索",
-        "description": "構文を考慮してコードのパターンを検索します。"
-      },
       "desktop_screenshot": {
         "name": "デスクトップを撮影",
         "description": "エージェントが確認できるよう画面を撮影します。"
@@ -3217,6 +3251,24 @@
     "backToApp": "アプリに戻る",
     "searchPlaceholder": "設定を検索",
     "noResults": "一致する設定はありません",
+    "searchSelectTask": "この設定を見つけるには、編集するタスクを選択するか、新しいタスクを作成してください。",
+    "searchSelectChannel": "この設定を見つけるには、チャンネルを選択してください。",
+    "searchSelectObject": "項目を選択して設定を開いてください。一部のフィールドは選択したモードによって異なります。",
+    "searchChooseLoop": "該当する Loop モードを選択してください。一部のパラメーターは関連するオプションを有効にすると表示されます。",
+    "searchConditionalSetting": "この設定を行うには、該当するモードを選択するか、関連するオプションを有効にしてください。",
+    "mcpJsonConfig": "詳細 JSON 設定",
+    "searchToolAvailability": "ツールの利用可否は、エージェント、インストール済みのプラグイン、現在のモードによって異なります。",
+    "searchNativeContextOnly": "従来の Native コンテキスト戦略を使用するプロファイルでのみ利用できます。",
+    "searchScrollContextOnly": "Scroll コンテキスト戦略で利用できます。",
+    "searchReMeOnly": "ReMe Light メモリバックエンドを選択すると利用できます。",
+    "searchBuiltinSkillLanguage": "複数の言語バージョンがある組み込みスキルを選択し、詳細を開いてください。",
+    "searchBuiltinSkillUpdate": "組み込みスキルを選択して、自動更新を設定してください。",
+    "searchBackupSecrets": "バックアップの作成または復元フォームを開き、該当する範囲を選択してシークレットを設定してください。",
+    "searchWhisperProvider": "文字起こしプロバイダーとして Whisper API を選択すると、その API プロバイダーを設定できます。",
+    "searchAgentTaskOnly": "この設定はエージェントタスクでのみ利用できます。",
+    "searchEnableFallback": "フォールバックモデルを有効にして、フォールバックリストを設定してください。",
+    "searchUnsupportedChannel": "このチャンネルはこれらのアクセス制御設定に対応していません。",
+    "searchUnsupportedBackend": "モデルルーティングは QwenPaw エージェントで利用できます。",
     "groups": {
       "application": "アプリ設定",
       "agentConfiguration": "エージェント設定",
@@ -4094,6 +4146,9 @@
         "memberDefaultsHint": "新しい会話はこのモデルで開始します。メンバーは許可された他のモデルに切り替えられます。",
         "settingsSaved": "モデル設定を保存しました",
         "defaultModel": "既定モデル",
+        "gatewayTimeout": "ゲートウェイのタイムアウト（秒）",
+        "gatewayTimeoutHelp": "既定値は600秒、最小値は60秒です。保存後の新しいリクエストとストリーミング応答に適用されます。接続タイムアウトは10秒のままです。",
+        "gatewayTimeoutInvalid": "60秒以上の整数を入力してください。",
         "chooseDefault": "全メンバーが利用できるモデルを選択",
         "saveSettings": "モデル設定を保存",
         "providers": "プロバイダー",
@@ -4713,6 +4768,8 @@
     "from": "送信元：",
     "requestedBy": "リクエスト元",
     "markRead": "既読にする",
+    "unreadOnly": "未読のみ",
+    "emptyUnread": "現在の絞り込み条件に一致する未読メッセージはありません",
     "markAllRead": "すべて既読",
     "markAllReadNoUnread": "未読メッセージはありません",
     "markAllReadSuccess": "{{count}} 件を既読にしました",
@@ -4915,6 +4972,9 @@
     "retry": "再試行"
   },
   "preview": {
+    "unavailable": "プレビューできません",
+    "showDetails": "原因を表示",
+    "hideDetails": "詳細を閉じる",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "このファイルはファイルガードによりブロックされています（機密ファイル保護）。",
       "OUTSIDE_WORKSPACE": "このファイルはワークスペースの範囲外です。設定 → セキュリティ → ファイルガード で「コンソールでワークスペース外ファイルのプレビューを許可」を有効にしてください。",

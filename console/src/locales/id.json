@@ -62,13 +62,26 @@
     "cliAuthenticated": "{{type}} CLI telah diautentikasi"
   },
   "desktop": {
+    "update": {
+      "title": "Perbarui QwenPaw?",
+      "otherWindows": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_one": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_other": "Ada {{count}} jendela lain yang terbuka.",
+      "description": "Pembaruan akan menutup semua jendela QwenPaw dan menghentikan tugas yang sedang berjalan.",
+      "confirm": "Tutup dan perbarui",
+      "preparing": "Menutup jendela…"
+    },
     "closeWindow": {
-      "title": "Tutup Jendela",
-      "description": "Apa yang ingin Anda lakukan saat menutup jendela? Keluar dari aplikasi akan menghentikan semua tugas yang sedang berjalan dan tugas terjadwal.",
+      "title": "Tutup QwenPaw?",
+      "description": "Tetap berjalan di latar belakang untuk melanjutkan tugas. Keluar sepenuhnya akan mengakhiri tugas yang sedang berjalan.",
       "remember": "Ingat pilihan saya",
       "showWindow": "Tampilkan Jendela",
       "minimizeToTray": "Minimalkan ke baki sistem",
       "quitApp": "Keluar dari Aplikasi",
+      "keepRunning": "Jalankan di latar belakang",
+      "quitting": "Keluar…",
+      "stopService": "Keluar sepenuhnya",
+      "stopBlocked": "QwenPaw masih digunakan di jendela atau aplikasi lain. Tutup semuanya sebelum keluar sepenuhnya.",
       "preference": "Tutup Jendela",
       "askEveryTime": "Tanya setiap saat"
     }
@@ -391,6 +404,24 @@
     "backToApp": "Kembali ke aplikasi",
     "searchPlaceholder": "Cari pengaturan",
     "noResults": "Tidak ada pengaturan yang cocok",
+    "searchSelectTask": "Pilih tugas untuk diedit, atau buat tugas baru, untuk menemukan pengaturan ini.",
+    "searchSelectChannel": "Pilih kanal untuk menemukan pengaturan ini.",
+    "searchSelectObject": "Pilih item dan buka pengaturannya. Beberapa kolom bergantung pada mode yang dipilih.",
+    "searchChooseLoop": "Pilih mode Loop yang sesuai. Beberapa parameter muncul setelah opsi terkait diaktifkan.",
+    "searchConditionalSetting": "Pilih mode yang sesuai atau aktifkan opsi terkait untuk mengonfigurasi pengaturan ini.",
+    "mcpJsonConfig": "Konfigurasi JSON lanjutan",
+    "searchToolAvailability": "Ketersediaan alat bergantung pada agen, plugin yang terpasang, dan mode saat ini.",
+    "searchNativeContextOnly": "Hanya tersedia untuk profil yang menggunakan strategi konteks Native versi lama.",
+    "searchScrollContextOnly": "Tersedia untuk strategi konteks Scroll.",
+    "searchReMeOnly": "Tersedia saat backend memori ReMe Light dipilih.",
+    "searchBuiltinSkillLanguage": "Pilih keterampilan bawaan dengan beberapa versi bahasa, lalu buka detailnya.",
+    "searchBuiltinSkillUpdate": "Pilih keterampilan bawaan untuk mengonfigurasi pembaruan otomatisnya.",
+    "searchBackupSecrets": "Buka formulir pembuatan atau pemulihan cadangan dan pilih cakupan yang sesuai untuk mengonfigurasi rahasia.",
+    "searchWhisperProvider": "Pilih Whisper API sebagai penyedia transkripsi untuk mengonfigurasi penyedia API-nya.",
+    "searchAgentTaskOnly": "Pengaturan ini hanya tersedia untuk tugas agen.",
+    "searchEnableFallback": "Aktifkan model cadangan untuk mengonfigurasi daftar model cadangan.",
+    "searchUnsupportedChannel": "Kanal ini tidak mendukung pengaturan kontrol akses ini.",
+    "searchUnsupportedBackend": "Perutean model tersedia untuk agen QwenPaw.",
     "groups": {
       "application": "Pengaturan aplikasi",
       "agentConfiguration": "Konfigurasi agen",
@@ -901,6 +932,9 @@
         "memberDefaultsHint": "Percakapan baru dimulai dengan model ini. Anggota dapat beralih ke model lain yang diizinkan.",
         "settingsSaved": "Pengaturan model disimpan",
         "defaultModel": "Model default",
+        "gatewayTimeout": "Batas waktu gateway (detik)",
+        "gatewayTimeoutHelp": "Default 600 detik; minimum 60. Berlaku untuk permintaan baru setelah disimpan, termasuk respons streaming. Batas waktu koneksi tetap 10 detik.",
+        "gatewayTimeoutInvalid": "Masukkan bilangan bulat minimal 60 detik.",
         "chooseDefault": "Pilih model yang tersedia untuk semua anggota",
         "saveSettings": "Simpan pengaturan model",
         "providers": "Penyedia",
@@ -1300,6 +1334,9 @@
     "turnCanceled": "Dihentikan"
   },
   "modelSelector": {
+    "subagentModel": "Model subagen",
+    "chooseFallback": "Model cadangan",
+    "enableFallback": "Gunakan model cadangan saat gagal",
     "noFallback": "Tidak digunakan",
     "selectModel": "Pilih model",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
@@ -1766,6 +1803,10 @@
     "updateFailed": "Pembaruan gagal"
   },
   "channels": {
+    "qrcodeInstallRequired": "Instal plugin untuk memindai kode QR",
+    "runtime": {
+      "missing_code": "Plugin belum diinstal"
+    },
     "title": "Saluran",
     "description": "Kelola dan konfigurasi saluran pesan",
     "loading": "Memuat saluran...",
@@ -2128,10 +2169,6 @@
       "glob_search": {
         "name": "Temukan berkas",
         "description": "Temukan berkas berdasarkan nama atau pola jalur."
-      },
-      "ast_search": {
-        "name": "Cari struktur kode",
-        "description": "Cari pola kode dengan memahami sintaks."
       },
       "desktop_screenshot": {
         "name": "Ambil tangkapan layar",
@@ -2887,6 +2924,9 @@
     "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP."
   },
   "preview": {
+    "unavailable": "Pratinjau tidak tersedia",
+    "showDetails": "Lihat penyebab",
+    "hideDetails": "Sembunyikan detail",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "File diblokir oleh File Guard (perlindungan file sensitif).",
       "OUTSIDE_WORKSPACE": "File berada di luar cakupan workspace. Aktifkan \"Izinkan Pratinjau Konsol di Luar Workspace\" di Pengaturan → Keamanan → File Guard.",
@@ -3104,6 +3144,8 @@
     "from": "Dari:",
     "requestedBy": "Oleh",
     "markRead": "Tandai Dibaca",
+    "unreadOnly": "Hanya yang belum dibaca",
+    "emptyUnread": "Tidak ada pesan belum dibaca yang sesuai dengan filter saat ini",
     "markAllRead": "Tandai Semua Dibaca",
     "markAllReadNoUnread": "Tidak ada pesan yang belum dibaca",
     "markAllReadSuccess": "{{count}} pesan ditandai dibaca",
@@ -3698,6 +3740,7 @@
     "executeDefault": "Jalankan alat"
   },
   "models": {
+    "primaryModel": "Model utama",
     "discoveryOriginApi": "Terdeteksi via API",
     "discoveryOriginCatalog": "Katalog resmi",
     "discoveryOriginBoth": "API + katalog",
@@ -4091,6 +4134,27 @@
     },
     "billing": {
       "free": "Gratis"
+    },
+    "chatgpt": {
+      "contextHelp": "Batas akun: {{maximum}} token; anggaran sesi default: {{default}} token.",
+      "localHelp": "Karena kebijakan OpenAI dan callback OAuth lokal, QwenPaw dan browser harus berjalan di komputer yang sama.",
+      "account": "Akun ChatGPT",
+      "connected": "Langganan ChatGPT terhubung",
+      "disconnected": "Belum terhubung",
+      "permissionMissing": "Penggunaan langganan belum diizinkan",
+      "failed": "Login belum selesai. Silakan coba lagi.",
+      "usage": "Kelola penggunaan",
+      "reconnect": "Login ulang",
+      "changeAccount": "Ganti akun",
+      "accountActions": "Tindakan akun ChatGPT",
+      "connectedShort": "Terhubung",
+      "signOut": "Keluar",
+      "revokeWarning": "Anda telah keluar secara lokal. Pencabutan izin belum dikonfirmasi; putuskan QwenPaw di pengaturan ChatGPT.",
+      "modelHelp": "Model berasal dari akun ChatGPT saat ini. Penggunaan mengurangi kuota langganan atau kredit. Pengaturan sampling dan batas token keluaran tidak didukung melalui akses ini.",
+      "oauthDescription": "Browser akan terbuka untuk mengizinkan penggunaan langganan ChatGPT Anda. Kembali ke QwenPaw setelah selesai."
+    },
+    "providerVariants": {
+      "chatgpt": "Langganan ChatGPT"
     }
   },
   "files": {
@@ -4226,9 +4290,6 @@
     "changeProjectDirectory": "Kelola",
     "manageDefaultFolders": "Workspace bawaan",
     "projectDirectoryWorkspaceFallback": "Menggunakan direktori konfigurasi Agent",
-    "enhancedCodeCapability": "Kemampuan kode lanjutan",
-    "enhancedCodeCapabilityTooltip": "Menambahkan alat kode tanpa mengubah direktori proyek.",
-    "enhancedCodeCapabilityDescription": "Aktifkan AST, LSP, prompt kode, konteks Git, dan kontrol sumber.",
     "description": "Konfigurasi parameter runtime agen",
     "reactAgentTitle": "Agen ReAct",
     "llmRetryTitle": "Coba Ulang LLM Otomatis",

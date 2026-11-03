@@ -31,7 +31,7 @@ def test_codex_and_qoder_sdks_are_optional_and_in_full() -> None:
         if requirement.name.lower() == project["name"].lower()
         for extra in requirement.extras
     }
-    assert {"codex", "qoder"} <= full_extras
+    assert {"channels", "codex", "qoder"} <= full_extras
 
 
 @pytest.mark.asyncio

@@ -37,6 +37,8 @@ import {
   render,
 } from "@testing-library/react";
 import React from "react";
+import { SettingsSearchRequest } from "@/pages/SettingsCenter/SettingsSearchRequest";
+import type { SettingsSearchTarget } from "@/plugins/settingsSearch";
 
 const mocks = vi.hoisted(() => ({
   getAclAll: vi.fn(),
@@ -382,6 +384,7 @@ function makeAclAll() {
 function renderDrawer(
   open = true,
   options: {
+    searchTarget?: SettingsSearchTarget;
     canMutate?: (ownerAgentId: string) => boolean;
     onStale?: () => void;
   } = {},
@@ -389,18 +392,44 @@ function renderDrawer(
   const onClose = vi.fn();
   const onStale = options.onStale ?? vi.fn();
   render(
-    <AccessControlDrawer
-      open={open}
-      ownerAgentId="agent-a"
-      canMutate={options.canMutate ?? (() => true)}
-      onStale={onStale}
-      onClose={onClose}
-    />,
+    <SettingsSearchRequest.Provider value={options.searchTarget ?? null}>
+      <AccessControlDrawer
+        open={open}
+        ownerAgentId="agent-a"
+        canMutate={options.canMutate ?? (() => true)}
+        onStale={onStale}
+        onClose={onClose}
+      />
+    </SettingsSearchRequest.Provider>,
   );
   return { onClose, onStale };
 }
 
 describe("AccessControlDrawer", () => {
+  it("opens the requested list and asks for a channel without selecting the first one", async () => {
+    mocks.getAclAll.mockResolvedValue(makeAclAll());
+    renderDrawer(true, {
+      searchTarget: {
+        page: "channels",
+        label: "Blacklist",
+        targetId: "channels.blacklist",
+        tabId: "blacklist",
+        surface: "channel-acl",
+      },
+    });
+    await waitFor(() => expect(mocks.getAclAll).toHaveBeenCalled());
+    expect(screen.getByTestId("tab-blacklist")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(
+      screen.getByText(/settingsCenter.searchSelectChannel/),
+    ).toBeVisible();
+    expect(screen.getByTestId("acl-select")).toHaveValue("");
+    expect(screen.queryByText("b-1")).not.toBeInTheDocument();
+    expect(mocks.addAclBlacklist).not.toHaveBeenCalled();
+    expect(mocks.removeAclBlacklist).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getAclAll.mockResolvedValue(makeAclAll());

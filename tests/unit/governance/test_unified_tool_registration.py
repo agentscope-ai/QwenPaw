@@ -158,12 +158,6 @@ class TestBuiltinDescriptorGovernance:
             gaps = _collect_governance_gaps(registry)
         assert "missing_gov_tool" in gaps
 
-    def test_ast_search_registered(self):
-        assert DEFAULT_REGISTRY.get_type("AstSearch") == "file"
-        assert (
-            DEFAULT_REGISTRY.python_to_policy_name("ast_search") == "AstSearch"
-        )
-
     def test_core_builtins_registered(self):
         expected = {
             "Read": "file",
@@ -177,6 +171,7 @@ class TestBuiltinDescriptorGovernance:
             "RecallHistory": "internal",
             "RecallHistoryPython": "shell",
             "MemorySearch": "internal",
+            "MemoryListTags": "internal",
             "MemoryRemember": "network",
         }
         for name, tool_type in expected.items():
@@ -191,6 +186,7 @@ class TestBuiltinDescriptorGovernance:
         """
         expected_mappings = {
             "memory_search": "MemorySearch",
+            "memory_list_tags": "MemoryListTags",
             "memory_remember": "MemoryRemember",
         }
         for python_name, policy_name in expected_mappings.items():

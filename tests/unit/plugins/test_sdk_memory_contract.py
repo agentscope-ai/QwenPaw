@@ -7,6 +7,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 SOURCE = """
 from pathlib import Path
 from qwenpaw.plugins.memory import MemorySpec
@@ -90,15 +92,20 @@ async def test_memory_search_remember_queue_and_workspace_instances(tmp_path):
             == "stored:important"
         )
         task_id = await host.submit_memory(messages, workspace_id="two")
-        for _ in range(100):
-            tasks = await host.memory_tasks(workspace_id="two")
-            task = next(
-                (item for item in tasks if item.task_id == task_id),
-                None,
-            )
-            if task and task.status in {"completed", "failed", "cancelled"}:
-                break
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(WAIT_TIMEOUT):
+            while True:
+                tasks = await host.memory_tasks(workspace_id="two")
+                task = next(
+                    (item for item in tasks if item.task_id == task_id),
+                    None,
+                )
+                if task and task.status in {
+                    "completed",
+                    "failed",
+                    "cancelled",
+                }:
+                    break
+                await asyncio.sleep(0.01)
         assert task.status == "completed" and task.result == "stored:important"
         assert await host.memory_tasks(workspace_id="one") == ()
         for workspace in ("one", "two"):
@@ -242,13 +249,14 @@ plugin = Plugin()
         )
         query = asyncio.create_task(host.search_memory("cancel this search"))
         try:
-            for _ in range(200):
-                if (tmp_path / "search-entered").exists():
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    if (tmp_path / "search-entered").exists():
+                        break
+                    await asyncio.sleep(0.01)
             assert (tmp_path / "search-entered").exists()
             query.cancel()
-            done, _ = await asyncio.wait({query}, timeout=2)
+            done, _ = await asyncio.wait({query}, timeout=WAIT_TIMEOUT)
             assert (
                 query in done
             ), "Sync memory worker retained the start task cancellation state"

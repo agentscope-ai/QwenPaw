@@ -79,6 +79,146 @@ afterEach(() => {
 });
 
 describe("useInboxData", () => {
+  it("fetches older unread events outside the latest 200 messages", async () => {
+    const recentReadEvents = Array.from({ length: 200 }, (_, index) =>
+      event({ id: `recent-${index}`, read: true, created_at: 2000 + index }),
+    );
+    mocks.getInboxEvents.mockImplementation(
+      ({ unread_only }: { unread_only: boolean }) =>
+        Promise.resolve({
+          events: unread_only
+            ? [event({ id: "older-unread", created_at: 1000 })]
+            : recentReadEvents,
+          total: unread_only ? 1 : 201,
+          unread_count: 1,
+        }),
+    );
+    const { result, rerender } = renderHook(
+      ({ unreadOnly }) => useInboxData(unreadOnly),
+      { initialProps: { unreadOnly: false } },
+    );
+    await waitFor(() => {
+      expect(result.current.pushMessages).toHaveLength(200);
+    });
+    expect(result.current.pushMessages.some((item) => !item.read)).toBe(false);
+
+    rerender({ unreadOnly: true });
+    await waitFor(() => {
+      expect(result.current.pushMessages.map((item) => item.id)).toEqual([
+        "older-unread",
+      ]);
+    });
+    expect(mocks.getInboxEvents).toHaveBeenLastCalledWith(
+      expect.objectContaining({ unread_only: true }),
+    );
+    expect(result.current.summary.pushMessages.unread).toBe(1);
+
+    rerender({ unreadOnly: false });
+    await waitFor(() => {
+      expect(result.current.pushMessages).toHaveLength(200);
+    });
+    expect(mocks.getInboxEvents).toHaveBeenLastCalledWith(
+      expect.objectContaining({ unread_only: false }),
+    );
+  });
+
+  it("starts an unread query while the previous filter is still loading", async () => {
+    const older = deferred<{ events: ReturnType<typeof event>[] }>();
+    const newer = deferred<{ events: ReturnType<typeof event>[] }>();
+    mocks.getInboxEvents
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result, rerender } = renderHook(
+      ({ unreadOnly }) => useInboxData(unreadOnly),
+      { initialProps: { unreadOnly: false } },
+    );
+
+    rerender({ unreadOnly: true });
+    expect(mocks.getInboxEvents).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      newer.resolve({ events: [event({ id: "unread" })] });
+      await newer.promise;
+    });
+    await act(async () => {
+      older.resolve({ events: [event({ id: "read", read: true })] });
+      await older.promise;
+    });
+    expect(result.current.pushMessages.map((item) => item.id)).toEqual([
+      "unread",
+    ]);
+    expect(result.current.pushMessagesLoading).toBe(false);
+  });
+
+  it("ignores unread results after quickly switching back to all messages", async () => {
+    const unreadRequest = deferred<{ events: ReturnType<typeof event>[] }>();
+    mocks.getInboxEvents
+      .mockResolvedValueOnce({ events: [event({ id: "initial" })] })
+      .mockReturnValueOnce(unreadRequest.promise)
+      .mockResolvedValueOnce({ events: [event({ id: "all", read: true })] });
+    const { result, rerender } = renderHook(
+      ({ unreadOnly }) => useInboxData(unreadOnly),
+      { initialProps: { unreadOnly: false } },
+    );
+    await waitFor(() => expect(result.current.pushMessagesLoading).toBe(false));
+    rerender({ unreadOnly: true });
+    expect(result.current.pushMessagesLoading).toBe(true);
+    expect(result.current.pushMessages).toEqual([]);
+
+    rerender({ unreadOnly: false });
+    await waitFor(() => expect(result.current.pushMessagesLoading).toBe(false));
+    await act(async () => {
+      unreadRequest.resolve({ events: [event({ id: "late-unread" })] });
+      await unreadRequest.promise;
+    });
+    expect(result.current.pushMessages.map((item) => item.id)).toEqual(["all"]);
+  });
+
+  it("clears the previous filter's error while loading the unread view", async () => {
+    const unreadRequest = deferred<{ events: ReturnType<typeof event>[] }>();
+    mocks.getInboxEvents
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockReturnValueOnce(unreadRequest.promise);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result, rerender } = renderHook(
+      ({ unreadOnly }) => useInboxData(unreadOnly),
+      { initialProps: { unreadOnly: false } },
+    );
+    await waitFor(() =>
+      expect(result.current.pushMessagesError).not.toBeNull(),
+    );
+    rerender({ unreadOnly: true });
+    expect(result.current.pushMessagesError).toBeNull();
+    expect(result.current.pushMessagesLoading).toBe(true);
+    await act(async () => {
+      unreadRequest.resolve({ events: [] });
+      await unreadRequest.promise;
+    });
+    expect(result.current.pushMessagesLoading).toBe(false);
+    errSpy.mockRestore();
+  });
+
+  it("keeps the unread filter when polling and retrying", async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useInboxData(true));
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(6000);
+      });
+      await act(async () => {
+        await result.current.refreshPushMessages();
+      });
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(3);
+      expect(
+        mocks.getInboxEvents.mock.calls.every(([params]) => params.unread_only),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("loads push messages on mount and sorts newest first", async () => {
     mocks.getInboxEvents.mockResolvedValue({
       events: [

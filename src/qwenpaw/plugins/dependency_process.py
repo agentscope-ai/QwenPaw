@@ -9,12 +9,23 @@ import subprocess
 import threading
 import time
 from contextlib import suppress
+from contextvars import ContextVar
 
 import psutil
 
 from ..utils.command_runner import windows_hidden_subprocess_kwargs
 
 logger = logging.getLogger(__name__)
+
+# Thread offloads inherit these values; unrelated tasks retain their defaults.
+install_cancel: ContextVar[threading.Event | None] = ContextVar(
+    "dependency_install_cancel",
+    default=None,
+)
+install_timeout: ContextVar[int] = ContextVar(
+    "dependency_install_timeout",
+    default=300,
+)
 
 
 def check_cancelled(cancel: threading.Event | None) -> None:
@@ -125,8 +136,10 @@ def run_install_command(
                     raise subprocess.TimeoutExpired(cmd, timeout)
                 reader.join(timeout=0.1)
             check_cancelled(cancel)
-        except BaseException:
+        except BaseException as exc:
             _stop_process_tree(proc)
+            if isinstance(exc, subprocess.TimeoutExpired):
+                exc.output = "\n".join(output)
             raise
         finally:
             # Keep draining while stopping: closing a pipe from another

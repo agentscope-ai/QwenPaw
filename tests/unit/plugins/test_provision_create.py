@@ -155,6 +155,7 @@ def test_publish_does_not_replace_a_target_created_after_the_check(
             target.write_text("user", encoding="utf-8")
         else:
             target.symlink_to(target.with_name("missing-user-file"))
+            competitor["link"] = target.readlink()
         competitor["identity"] = target.lstat().st_ino
         return original_publish(staging, destination)
 
@@ -172,6 +173,6 @@ def test_publish_does_not_replace_a_target_created_after_the_check(
         assert target.read_text(encoding="utf-8") == "user"
     else:
         assert target.is_symlink()
-        assert target.readlink() == target.with_name("missing-user-file")
+        assert target.readlink() == competitor["link"]
     assert not provision.load_inventory("create-publish")["locations"]
     assert not list(target.parent.glob(".target.prov-*"))

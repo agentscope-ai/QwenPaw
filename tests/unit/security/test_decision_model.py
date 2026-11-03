@@ -18,6 +18,7 @@ from agentscope.classifier import (
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.typesafe_provider import TypeSafeProvider
 from qwenpaw.security.decision_model import (
+    _MAX_CODE_CHARS,
     _decision_provider,
     _interpret,
     _is_read_only_shell_listing,
@@ -57,6 +58,104 @@ def _probabilities(choice):
 
 
 _RISK_QUESTIONS = ("destructive", "secret_exposure", "privilege_change")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["RunCode", "run_code"])
+@pytest.mark.parametrize(
+    "code",
+    [
+        "token_count = 1\nsecret_exposure = False\nprint(token_count)\n",
+        "access_key_count = 0\nsecret_key_length = 32\nprint(secret_key_length)",
+        "for n in range(2):\r\n\tprint(n)\r\n",
+        "# harmless padding\n" * 40 + "print(1)",
+        "#" + "x" * (_MAX_CODE_CHARS - 1),
+        "await tools.read_file(file_path='notes.txt')",
+    ],
+)
+async def test_code_mode_submits_complete_python(monkeypatch, tool_name, code):
+    seen = []
+
+    async def evaluate(_provider, **request):
+        seen.append(request["state"])
+        return _response()
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    result = await assess_tool_call(
+        tool_name,
+        code,
+        params={"code": code},
+        sandboxed=True,
+    )
+    assert not result.needs_approval
+    assert len(seen) == 1
+    assert seen[0]["code"] == code
+    assert "target" not in seen[0]
+    assert seen[0]["input_kind"] == "python_script"
+    assert seen[0]["sandboxed"] is True
+    assert seen[0]["inner_tool_governance"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        "#" + "x" * _MAX_CODE_CHARS,
+        "print(1)\x00",
+        "if broken syntax",
+        "password = 'arbitrary-private-value'",
+        "my_password = 'arbitrary-private-value'",
+        "send(api_key='arbitrary-private-value')",
+        "print('sk-1234567890abcdefghijkl')",
+        "print('\\x73k-1234567890abcdefghijkl')",
+        "print(open('/home/user/.ssh/id_rsa').read())",
+        "# Authorization: Bearer private-value\nprint(1)",
+    ],
+)
+async def test_code_preflight_never_resolves_provider(monkeypatch, code):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("preflight must not resolve or call provider")
+
+    monkeypatch.setattr(
+        "qwenpaw.security.decision_model._decision_provider",
+        unexpected,
+    )
+    result = await assess_tool_call("RunCode", code, params={"code": code})
+    assert result.needs_approval
+    assert "model not called" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_code_model_risk_and_failure_require_approval(monkeypatch):
+    code = "import os\nos.remove('report.txt')"
+
+    async def risky(_provider, **request):
+        assert request["state"]["code"] == code
+        return _response(choice="risky", risk=0.99)
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", risky)
+    assert (await assess_tool_call("RunCode", code)).needs_approval
+
+    async def unavailable(*args, **kwargs):
+        raise ValueError("invalid service response")
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", unavailable)
+    result = await assess_tool_call("RunCode", code)
+    assert result.needs_approval
+    assert "service/response unavailable" in result.reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["echo a\necho b", "x" * 601, "echo token"])
+async def test_shell_preflight_is_unchanged(monkeypatch, target):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("shell disclosure filter must remain active")
+
+    monkeypatch.setattr(
+        "qwenpaw.security.decision_model._decision_provider",
+        unexpected,
+    )
+    assert (await assess_tool_call("Bash", target)).needs_approval
 
 
 def _response(*, choice="routine", confidence=0.95, risk=0.01):
@@ -116,6 +215,10 @@ def test_selected_decision_model_comes_from_provider_manager(
     )
     monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
     assert _decision_provider() == (typesafe_provider, "jev-2")
+
+
+def test_unselected_approval_model_retains_default(typesafe_provider):
+    assert _decision_provider() == (typesafe_provider, "jev-latest")
 
 
 def test_agent_decision_model_takes_priority_over_global(
@@ -195,7 +298,7 @@ def test_narrow_read_only_shell_listing():
 async def test_read_only_listing_skips_model_but_not_existing_ask(
     monkeypatch,
 ):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError(
             "verified read-only listing should not call decision model",
         )
@@ -237,7 +340,7 @@ async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
         is True
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("target-free read must not call decision model")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -262,6 +365,22 @@ async def test_target_free_builtin_read_skips_model_but_not_existing_ask(
             tool_func=make_recall_context_tool(),
         )
     ).needs_approval
+    assert not (
+        await assess_tool_call(
+            "MemoryListTags",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_list_tags,
+        )
+    ).needs_approval
+    assert (
+        await assess_tool_call(
+            "MemoryListTags",
+            "",
+            tool_func=ReMeLightMemoryManager.memory_list_tags,
+            baseline_ask=True,
+        )
+    ).needs_approval
+    assert (await assess_tool_call("MemoryListTags", "")).needs_approval
     assert (
         await assess_tool_call(
             "GetCurrentTime",
@@ -302,7 +421,7 @@ async def test_declared_local_media_read_skips_decision_model(
         is True
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("local media read should not call decision model")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -339,11 +458,16 @@ async def test_sips_existing_output_requires_approval_without_decision_model(
 ):
     output = tmp_path / "small.jpg"
     output.write_bytes(b"existing")
+    # as_posix() keeps the rendered command platform-neutral: shlex.split()
+    # runs in POSIX mode, so a Windows-style backslash path is eaten as an
+    # escape sequence and the --out token loses every separator, which makes
+    # os.path.isabs() reject it and the preflight silently return None.
     command = (
-        f"sips -Z 1600 -s format jpeg {tmp_path}/input.png --out {output}"
+        f"sips -Z 1600 -s format jpeg {tmp_path.as_posix()}/input.png"
+        f" --out {output.as_posix()}"
     )
 
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError(
             "verified overwrite should not call decision model",
         )
@@ -361,8 +485,13 @@ async def test_sips_existing_output_requires_approval_without_decision_model(
 @pytest.mark.asyncio
 async def test_sips_new_output_supplies_verified_fact(monkeypatch, tmp_path):
     output = tmp_path / "small.jpg"
+    # as_posix() keeps the rendered command platform-neutral: shlex.split()
+    # runs in POSIX mode, so a Windows-style backslash path is eaten as an
+    # escape sequence and the --out token loses every separator, which makes
+    # os.path.isabs() reject it and the preflight silently return None.
     command = (
-        f"sips -Z 1600 -s format jpeg {tmp_path}/input.png --out {output}"
+        f"sips -Z 1600 -s format jpeg {tmp_path.as_posix()}/input.png"
+        f" --out {output.as_posix()}"
     )
     seen = []
 
@@ -485,7 +614,7 @@ async def test_shell_write_is_available_to_decision_model(
 
 @pytest.mark.asyncio
 async def test_literal_secret_is_not_sent_to_decision_model(monkeypatch):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("secret must not reach service")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)
@@ -495,7 +624,7 @@ async def test_literal_secret_is_not_sent_to_decision_model(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sensitive_target_never_reaches_service(monkeypatch):
-    async def unexpected(*args):
+    async def unexpected(*args, **kwargs):
         raise AssertionError("service should not be contacted")
 
     monkeypatch.setattr(TypeSafeProvider, "evaluate", unexpected)

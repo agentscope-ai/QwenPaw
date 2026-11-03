@@ -282,7 +282,7 @@ function ModelsPage() {
       cloudAvailableGroups: cloudAvailGroups.filter(
         (g) =>
           g.name.toLowerCase().includes(query) ||
-          g.firstProvider.name.toLowerCase().includes(query),
+          g.providers.some(matchProvider),
       ),
     };
   }, [providers, deferredSearchQuery]);
@@ -405,6 +405,7 @@ function ModelsPage() {
                   type="button"
                   role="tab"
                   aria-selected={activeTab === "cloud"}
+                  data-settings-tab="cloud"
                   className={[
                     styles.tabItem,
                     activeTab === "cloud" ? styles.tabItemActive : "",
@@ -427,6 +428,8 @@ function ModelsPage() {
                   type="button"
                   role="tab"
                   aria-selected={activeTab === "local"}
+                  data-settings-tab="local"
+                  data-settings-target="models.localCustomGroup"
                   className={[
                     styles.tabItem,
                     activeTab === "local" ? styles.tabItemActive : "",
@@ -621,7 +624,10 @@ function ModelsPage() {
             {/* Shared Modal instances — one each for the entire page */}
             {configModalProvider && (
               <ProviderConfigModal
-                provider={configModalProvider}
+                provider={
+                  providers.find((p) => p.id === configModalProvider.id) ??
+                  configModalProvider
+                }
                 activeModels={activeModels}
                 open={configOpen}
                 onClose={() => setConfigOpen(false)}
@@ -659,7 +665,11 @@ function ModelsPage() {
                     }}
                   >
                     <ProviderIcon providerId={p.id} size={24} decorative />
-                    <span className={styles.variantItemName}>{p.name}</span>
+                    <span className={styles.variantItemName}>
+                      {p.id === "openai-chatgpt"
+                        ? t("models.providerVariants.chatgpt")
+                        : p.name}
+                    </span>
                     {p.is_free_tier && (
                       <span className={styles.freeTag}>FREE</span>
                     )}

@@ -3,9 +3,6 @@
 
 from pathlib import Path
 
-import pytest
-
-from qwenpaw.config.config import migrate_project_directory_config
 from qwenpaw.services.project_directory import (
     normalize_project_dir,
     resolve_effective_project_dir,
@@ -78,35 +75,3 @@ def test_session_project_dir_uses_controlled_namespace() -> None:
     assert session_project_dir(
         {"runtime_context": {"project_dir": "/project"}},
     ) == str(normalize_project_dir("/project"))
-
-
-@pytest.mark.parametrize(
-    ("top_level", "legacy", "expected"),
-    [
-        (None, "/legacy", "/legacy"),
-        ("/top", "/legacy", "/top"),
-        (None, None, None),
-        (None, r"C:\Users\Alice\Project", r"C:\Users\Alice\Project"),
-        (None, r"\\server\share\Project", r"\\server\share\Project"),
-        (None, "~/Project", "~/Project"),
-    ],
-)
-def test_legacy_project_directory_migration(
-    top_level: str | None,
-    legacy: str | None,
-    expected: str | None,
-) -> None:
-    """Migration preserves a top-level value and removes the old field."""
-    data = {
-        "coding_mode": {
-            "enabled": False,
-            "project_dir": legacy,
-        },
-    }
-    if top_level is not None:
-        data["project_dir"] = top_level
-
-    assert migrate_project_directory_config(data) is True
-    assert data["project_dir"] == expected
-    assert "project_dir" not in data["coding_mode"]
-    assert migrate_project_directory_config(data) is False

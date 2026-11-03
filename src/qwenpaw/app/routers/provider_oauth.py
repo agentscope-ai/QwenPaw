@@ -18,7 +18,11 @@ from ...providers.oauth import (
 from ...providers.oauth.base import OAuthFlow
 from ...providers.provider_manager import ProviderManager
 from ...utils.logging import sanitize_log_value
-from ...utils.oauth_callback import managed_oauth_callback_url
+from ...utils.oauth_callback import (
+    managed_oauth_callback_url,
+    oauth_error_html as _error_html,
+    oauth_success_html as _success_html,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -247,39 +251,3 @@ async def oauth_status(
         status=session.status,
         error=session.error,
     )
-
-
-# ----- HTML templates for popup -----
-
-
-def _success_html(provider_id: str) -> str:
-    """HTML that notifies opener and closes the popup."""
-    return f"""<!DOCTYPE html>
-<html><head><title>Authorization Successful</title></head>
-<body style="font-family:system-ui;text-align:center;padding:60px">
-<h2>Connected!</h2>
-<p>You can close this window.</p>
-<script>
-if (window.opener) {{
-  window.opener.postMessage(
-    {{type: "oauth_complete", provider: "{provider_id}"}},
-    window.location.origin
-  );
-}}
-setTimeout(function() {{ window.close(); }}, 1500);
-</script>
-</body></html>"""
-
-
-def _error_html(message: str) -> str:
-    """HTML for error display in popup."""
-    import html
-
-    safe_msg = html.escape(message)
-    return f"""<!DOCTYPE html>
-<html><head><title>Authorization Failed</title></head>
-<body style="font-family:system-ui;text-align:center;padding:60px">
-<h2>Authorization Failed</h2>
-<p>{safe_msg}</p>
-<p><a href="javascript:window.close()">Close this window</a></p>
-</body></html>"""

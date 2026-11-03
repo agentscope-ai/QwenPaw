@@ -2,18 +2,19 @@ name: Frontend Tests
 
 on:
   push:
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
     paths:
       - 'console/**'
       - 'src/qwenpaw/plugins/frontend/**'
       - 'scripts/check_plugin_sdk_frontend.py'
+      - '.nvmrc'
       - '.github/workflows/frontend-tests.yml'
   pull_request:
     # Default types plus ready_for_review: converting a draft PR to
     # ready must re-trigger this workflow so vitest really runs right
     # after the author leaves draft state.
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main, master, dev, develop]
+    branches: [main, master, dev, develop, "release/**"]
 
 jobs:
   spam-gate:
@@ -44,6 +45,7 @@ jobs:
               - 'console/**'
               - 'src/qwenpaw/plugins/frontend/**'
               - 'scripts/check_plugin_sdk_frontend.py'
+              - '.nvmrc'
               - '.github/workflows/frontend-tests.yml'
 
   vitest:
@@ -72,7 +74,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: console/package-lock.json
 

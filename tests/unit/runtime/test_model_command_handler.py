@@ -6,6 +6,7 @@ _switch_model and _show_model_info, _show_current_model (agent-specific
 vs global fallback vs none), _list_models configured-provider
 filtering, and _reset_model, with ProviderManager patched.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -210,8 +211,8 @@ class TestShowCurrentModel:
 
 
 class TestListModels:
+    @staticmethod
     def _provider_info(
-        self,
         name="openai",
         require_api_key=True,
         api_key="k",
@@ -334,3 +335,118 @@ class TestResetModel:
             await handler._reset_model(ctx)
         assert ctx.workspace.config.active_model is None
         assert applied["active_model"] is None
+
+
+class TestConversationOverrides:
+    @pytest.fixture
+    def context(self):
+        from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+
+        ctx = _context()
+        ctx.workspace.config = AgentProfileConfig(
+            id="default",
+            name="Agent",
+            active_model=ModelSlotConfig(
+                provider_id="openai",
+                model="default",
+            ),
+        )
+        ctx.workspace.chat_manager = SimpleNamespace(
+            get_chat_id_by_session=AsyncMock(return_value="chat"),
+            get_chat=AsyncMock(
+                return_value=SimpleNamespace(
+                    meta={
+                        "runtime_context": {
+                            "model": {
+                                "provider_id": "openai",
+                                "model": "selected",
+                            },
+                        },
+                    },
+                ),
+            ),
+        )
+        return ctx
+
+    async def test_show_and_list_mark_the_session_model(
+        self,
+        handler,
+        context,
+    ):
+        result = await handler._show_current_model(context)
+        assert "session override" in result
+        assert "Model: `selected`" in result
+        info = TestListModels._provider_info(models=("default", "selected"))
+        manager = SimpleNamespace(
+            list_provider_info=AsyncMock(return_value=[info]),
+        )
+        with patch(
+            "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
+            return_value=manager,
+        ):
+            listed = await handler._list_models(context)
+        assert "`selected` **[ACTIVE]**" in listed
+        assert "`default` **[ACTIVE]**" not in listed
+
+    async def test_request_override_wins_in_model_display(
+        self,
+        handler,
+        context,
+    ):
+        context.payload = {
+            "request_context": {
+                "model_slot_override": "other:explicit",
+            },
+        }
+        result = await handler._show_current_model(context)
+        assert "request override" in result
+        assert "`explicit`" in result
+        assert "`selected`" not in result
+
+    @pytest.mark.parametrize("reset", [False, True])
+    async def test_default_updates_preserve_and_explain_session_override(
+        self,
+        handler,
+        context,
+        reset,
+    ):
+        from qwenpaw.config.config import ModelSlotConfig
+
+        persisted = context.workspace.config.model_copy(deep=True)
+
+        async def update(_agent_id, mutator):
+            mutator(persisted)
+
+        manager = SimpleNamespace(
+            get_active_model=lambda: ModelSlotConfig(
+                provider_id="global",
+                model="global",
+            ),
+        )
+        with (
+            patch.object(
+                handler,
+                "_validate_model",
+                AsyncMock(return_value=(True, "")),
+            ),
+            patch("qwenpaw.config.config.update_agent_config_async", update),
+            patch(
+                "qwenpaw.providers.provider_manager"
+                ".ProviderManager.get_instance",
+                return_value=manager,
+            ),
+        ):
+            result = (
+                await handler._reset_model(context)
+                if reset
+                else await handler._switch_model(context, "openai:new-default")
+            )
+        assert "keeps its session override" in result
+        assert "openai:selected" in result
+        assert persisted.active_model == (
+            None
+            if reset
+            else ModelSlotConfig(provider_id="openai", model="new-default")
+        )
+        current = await handler._show_current_model(context)
+        assert "Model: `selected`" in current

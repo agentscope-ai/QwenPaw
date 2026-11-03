@@ -197,7 +197,7 @@ def _warn_on_second_backend(root: Path) -> bool:
     if pid and pid != os.getpid():
         try:
             os.kill(pid, 0)
-        except OSError:
+        except (OSError, SystemError):
             pass
         else:
             peer_alive = True

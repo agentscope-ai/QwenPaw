@@ -2178,28 +2178,27 @@ the check or dependency resolution. Prefer maintaining each dependency in one
 place to avoid duplicate declarations. These are Python package dependencies,
 not other plugin IDs or runtime service dependencies.
 
-SDK and legacy plugins use this same framework flow. Requirements whose environment
-markers do not apply are excluded; when all applicable requirements are already
-satisfied, the check returns without network access. Boot only checks dependencies;
-missing dependencies fail that plugin's load. Only explicit installation, updates,
-and repairs may install dependencies. Call
+SDK and legacy plugins share the framework's dependency checks, installation, and
+post-install verification; the `sdk` declaration does not select a separate installer.
+Satisfied requirements and inapplicable environment markers need no network access.
+Boot only checks dependencies; missing dependencies fail that plugin's load. Only
+explicit installation, updates, and repairs may install dependencies. Call
 `POST /api/plugins/{plugin_id}/repair-dependencies` to repair them; disabled plugins
 stay disabled. Administrator-managed local runtimes require the administrator to
 install dependencies.
 
-Directly declared requirements that conflict with protected host packages are refused,
-with a message to restart the backend and prepare the dependency environment. For SDK
-plugins, this is reported as the public `SDKRestartRequiredError` exception.
-After acquiring the installation lock, the framework rechecks requirements and host
-conflicts. If the lock cannot be acquired, installation stops and must be retried.
-Approved installations use the shared pip / uv flow. Desktop builds use the bundled
-Python interpreter to install into the shared plugin dependency directory. Requirements
-are checked again after installation; the plugin loads only if they are satisfied.
+Directly declared requirements that conflict with protected host packages are refused;
+restart the backend and prepare the dependency environment first. SDK plugins report
+this as `SDKRestartRequiredError`. After acquiring the installation lock, the framework
+rechecks whether requirements are satisfied. Missing dependencies are prepared as
+wheels with pip, constrained by the observed installed versions, then validated
+and published through the shared dependency gate. Desktop builds use the bundled
+Python interpreter and shared plugin dependency directory.
+The plugin loads only after its requirements pass post-install verification.
 
-The framework does not audit the entire environment for duplicate package versions,
-pin all installed versions, or preview the complete installation plan. It does not
-guarantee that replacements caused by transitive dependencies will be blocked, and
-does not provide atomic rollback of the shared dependency environment.
+The shared gate audits dependency evidence and permits validated additions;
+incompatible replacements require explicit environment maintenance. This does not
+provide general atomic rollback of the shared dependency environment.
 
 Both SDK and legacy plugins can set `meta.dependency_install_timeout` to control the
 installation timeout and the time limit for waiting for the installation lock.
@@ -2219,7 +2218,7 @@ are not rolled back.
 my-package>=1.0.0
 ```
 
-Use `--index-url URL` or `--index-url=URL` on its own line. pip / uv receives the
+Use `--index-url URL` or `--index-url=URL` on its own line. pip receives the
 index setting; package version and host-package checks still apply. Other options,
 nested `-r` files, extras, and direct URL requirements are not supported yet.
 Index settings belong only in `requirements.txt`. Each manifest dependency must

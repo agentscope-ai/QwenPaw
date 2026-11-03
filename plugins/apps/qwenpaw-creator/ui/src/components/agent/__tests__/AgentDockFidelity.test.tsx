@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import AgentDock from "@/components/agent/AgentDock";
+import AgentDock, { simplifyErrorMessage } from "@/components/agent/AgentDock";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
@@ -1160,5 +1160,44 @@ describe("AgentDock public output and interactions", () => {
       });
     }
     expect(row.textContent).toContain("随时可以继续创作");
+  });
+});
+
+describe("safe provider failure messages", () => {
+  it("explains unsupported temperature without exposing provider details", () => {
+    const message = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3; secret-token /private/path",
+    );
+    expect(message).toContain("temperature");
+    expect(message).not.toContain("secret-token");
+    expect(message).not.toContain("/private/path");
+    expect(message).not.toBe(simplifyErrorMessage("unknown provider failure"));
+  });
+
+  it("also classifies a Moonshot invalid-temperature refusal", () => {
+    // Moonshot direct calls phrase the refusal as an invalid temperature;
+    // it must map to the same safe hint as the DashScope wording.
+    const invalid = simplifyErrorMessage(
+      "Invalid temperature: this model uses a fixed sampling temperature",
+    );
+    const notSupported = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3",
+    );
+    expect(invalid).toBe(notSupported);
+    expect(invalid).not.toBe(simplifyErrorMessage("unknown provider failure"));
+  });
+
+  it("does not misread a generic invalid_request_error as a refusal", () => {
+    // Gateways wrap unrelated 400s as ``invalid_request_error``; one that
+    // merely echoes ``temperature`` must fall back to the generic hint, or a
+    // real config error would be masked as an unsupported-temperature refusal.
+    const generic = simplifyErrorMessage(
+      '{"error": {"type": "invalid_request_error", "message": "temperature must be <= 2.0"}}',
+    );
+    const refusal = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3",
+    );
+    expect(generic).not.toBe(refusal);
+    expect(generic).toBe(simplifyErrorMessage("unknown provider failure"));
   });
 });

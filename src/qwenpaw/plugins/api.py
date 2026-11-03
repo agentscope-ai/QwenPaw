@@ -9,7 +9,25 @@ import warnings
 from pathlib import Path
 from typing import Any, Callable, Collection, Dict, List, Optional, Type
 
+from ..config import get_available_channels
+
 logger = logging.getLogger(__name__)
+
+
+def channel_passes_gates(workspace: Any, key: str) -> bool:
+    """Three-gate: available, has a config section, and enabled."""
+    from ..app.channels.manager import channel_cfg_for_key, channel_enabled
+
+    available = get_available_channels()
+    if key not in available:
+        return False
+    config = getattr(workspace, "_config", None)
+    if config is None:
+        return False
+    ch_cfg = channel_cfg_for_key(config, key)
+    if ch_cfg is None:
+        return False
+    return channel_enabled(ch_cfg)
 
 
 def get_tool_config(tool_name: str) -> Optional[Dict[str, Any]]:
@@ -582,6 +600,8 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         plugin_id: str,
         config: Dict[str, Any],
         manifest: Dict[str, Any] = None,
+        *,
+        dependency_token=None,
     ):
         """Initialize plugin API.
 
@@ -595,6 +615,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         self.manifest = manifest or {}
         self._registry = None
         self._instance = None
+        self.dependency_token = dependency_token
         self._loader = None
 
     def set_registry(self, registry):
@@ -729,7 +750,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 from ..runtime.commands.control import (
                     unregister_command as unregister_handler,
                 )
-                from .workspace_projector import live_channel_managers
+                from ..app.channels.manager import live_channel_managers
 
                 unregister_handler(
                     command_name,
@@ -850,15 +871,33 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         *,
         priority: int = 60,
         extra_teardown=None,
+        can_apply=None,
+        binding_is_current=None,
     ) -> None:
         """Remember an intent, project it, and record revoke on the ledger."""
         if self._registry is None:
             return
         self._guard_register()
         projector = self._registry.projector
-        intent = projector.intend(kind, name, self.plugin_id, apply, revoke)
+        intent = projector.intend(
+            kind,
+            name,
+            self.plugin_id,
+            apply,
+            revoke,
+            can_apply=can_apply,
+            binding_is_current=binding_is_current,
+        )
+        row = (
+            self._registry.get_channel_registration(name)
+            if kind == "channel"
+            else None
+        )
+        if row is not None and row.runtime_settings is not None:
+            intent.active = False
 
         def _startup():
+            intent.active = True
             return projector.project(kind, name, self.plugin_id)
 
         def _created(workspace_info: dict):
@@ -874,7 +913,12 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             )
 
         async def _teardown():
-            await projector.revoke(kind, name, self.plugin_id)
+            await projector.revoke(
+                kind,
+                name,
+                self.plugin_id,
+                expected=intent,
+            )
             if extra_teardown is None:
                 return
             extra = extra_teardown()
@@ -892,7 +936,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             priority=priority,
             reload_safe=True,
         )
-        self._note_runtime(f"{kind}:{name}", teardown=_teardown)
+        self._note_runtime(
+            f"{kind}:{name}",
+            teardown=_teardown,
+            kind="custody" if kind == "channel" else "official",
+        )
 
     def _note_install(
         self,
@@ -1548,6 +1596,37 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 self._drop_middleware(middleware_factory, priority),
             )
 
+    def register_channel_descriptor(
+        self,
+        description,
+        *,
+        runtime_settings=None,
+        global_enabled=True,
+    ):
+        """Record an inactive static Channel with identity-bound cleanup."""
+        self._guard_register()
+        if self._registry is None:
+            raise RuntimeError("Channel registration requires a registry")
+        row = self._registry.register_channel_descriptor(
+            self.plugin_id,
+            description,
+            runtime_settings=runtime_settings,
+            global_enabled=global_enabled,
+            dependency_token=self.dependency_token,
+        )
+        if runtime_settings is not None:
+            self._project_channel(row.channel_key)
+            return row
+        self._note_runtime(
+            f"channel:{row.channel_key}",
+            lambda: self._registry.unregister_channel(
+                row.channel_key,
+                expected=row,
+            ),
+            kind="channel",
+        )
+        return row
+
     def register_channel(
         self,
         channel_class: Type,
@@ -1623,7 +1702,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 f"channel_class {channel_class!r} must have a "
                 f"'channel' class attribute as the channel key",
             )
-        self._registry.register_channel(
+        registration = self._registry.register_channel(
             plugin_id=self.plugin_id,
             channel_key=channel_key,
             channel_class=channel_class,
@@ -1633,6 +1712,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             icon=icon,
             doc_url=doc_url,
         )
+        channel_key = registration.channel_key
         logger.info(
             f"Plugin '{self.plugin_id}' registered channel "
             f"'{channel_key}'",
@@ -2201,15 +2281,43 @@ class PluginApi:  # pylint: disable=too-many-public-methods
 
     def _project_channel(self, channel_key: str) -> None:
         """Project a registered channel onto live workspaces."""
-        from .workspace_projector import channel_passes_gates
+        from ..app.channels.manager import runtime_stop_receipt
+        from .ownership import RuntimeStopReceipt
+
+        registration = self._registry.get_channel_registration(channel_key)
+
+        def can_apply(workspace):
+            return (
+                not getattr(workspace, "_defer_channel_start", False)
+                and getattr(registration, "global_enabled", True)
+                and channel_passes_gates(workspace, channel_key)
+                and getattr(workspace, "channel_manager", None) is not None
+            )
+
+        def binding_is_current(workspace, token):
+            # pylint: disable=protected-access
+            manager = getattr(workspace, "channel_manager", None)
+            return (
+                manager is not None
+                and (token.manager is None or token.manager is manager)
+                and manager._find_channel(channel_key) is token.channel
+            )
 
         def extra_teardown():
             if self._registry is not None:
-                self._registry.unregister_channel(channel_key)
+                self._registry.unregister_channel(
+                    channel_key,
+                    expected=registration,
+                )
 
         async def apply(workspace):
             self._guard_register()
-            if not channel_passes_gates(workspace, channel_key):
+            if (
+                self._registry.get_channel_registration(channel_key)
+                is not registration
+            ):
+                raise RuntimeError("stale channel registration")
+            if not can_apply(workspace):
                 return None
             manager = getattr(workspace, "channel_manager", None)
             if manager is None:
@@ -2218,16 +2326,28 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 handle = await manager.start_one(
                     channel_key,
                     getattr(workspace, "_config", None),
+                    expected_registration=registration,
                 )
             except Exception as exc:  # noqa: BLE001
                 self._projection_failed("channel", exc)
             return handle
 
-        async def revoke(workspace, _token=None):
-            manager = getattr(workspace, "channel_manager", None)
-            if manager is None:
+        async def revoke(workspace, token=None):
+            if token is None:
                 return None
-            return await manager.stop_one(channel_key)
+            manager = token.manager or getattr(
+                workspace,
+                "channel_manager",
+                None,
+            )
+            if manager is None:
+                return RuntimeStopReceipt(
+                    False,
+                    "Channel manager unavailable",
+                    exited=False,
+                )
+            receipt = await manager.stop_one(channel_key, expected=token)
+            return runtime_stop_receipt(receipt, token)
 
         self._schedule_workspace_intent(
             "channel",
@@ -2236,6 +2356,8 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             revoke,
             priority=80,
             extra_teardown=extra_teardown,
+            can_apply=can_apply,
+            binding_is_current=binding_is_current,
         )
 
     # ================================================================
