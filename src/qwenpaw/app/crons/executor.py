@@ -31,7 +31,10 @@ _TRACE_META_MAX_LENGTH = 256
 # session files) to keep. Older run chats are trimmed after each execution so
 # high-frequency jobs stay bounded on disk and in the frontend chat list.
 # Audit facts remain available via cron execution records (CRON_HISTORY_LIMIT).
-_CRON_PER_RUN_CHAT_KEEP = max(1, int(os.environ.get("QWENPAW_CRON_RUN_SESSION_KEEP", "50")))
+_CRON_PER_RUN_CHAT_KEEP = max(
+    1,
+    int(os.environ.get("QWENPAW_CRON_RUN_SESSION_KEEP", "50")),
+)
 
 
 def _safe_session_component(value: str | None, *, fallback: str) -> str:
@@ -300,9 +303,8 @@ class CronExecutor:
 
         # Determine session_id based on share_session
         share_session = job.runtime.share_session
-        per_run_session = (
-            not share_session
-            and bool(getattr(job.runtime, "per_run_session", False))
+        per_run_session = not share_session and bool(
+            getattr(job.runtime, "per_run_session", False),
         )
         if share_session:
             req["session_id"] = target_session_id or f"cron:{job.id}"
