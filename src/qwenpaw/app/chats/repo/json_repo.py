@@ -44,7 +44,7 @@ class JsonChatRepository(BaseChatRepository):
         """Get the repository file path."""
         return self._path
 
-    def _load_sync(self) -> ChatsFile:
+    def _load_sync(self, *, verify_bindings: bool = False) -> ChatsFile:
         """Load and validate chat specs as one worker-thread operation."""
         if not self._path.exists():
             return ChatsFile(version=1, chats=[])
@@ -53,11 +53,18 @@ class JsonChatRepository(BaseChatRepository):
         chats = raw.get("chats") if isinstance(raw, dict) else None
         recovered = False
         if isinstance(chats, list):
-            recovered = self._recover_catalog_bindings(chats)
+            candidates = [
+                chat
+                for chat in chats
+                if isinstance(chat, dict)
+                and (verify_bindings or not chat.get("storage_id"))
+            ]
+            if candidates:
+                recovered = self._recover_catalog_bindings(candidates)
             changed = recovered
             for chat in chats:
                 if isinstance(chat, dict) and not chat.get("storage_id"):
-                    chat["storage_id"] = str(uuid.uuid4())
+                    chat.pop("storage_id", None)
                     changed = True
         result = ChatsFile.model_validate(raw)
         storage_ids = [chat.storage_id for chat in result.chats]

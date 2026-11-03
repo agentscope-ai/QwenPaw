@@ -20,9 +20,11 @@ from .models import (
     SessionSource,
 )
 from .repo import BaseChatRepository
+from .transcript_catalog import resolve_session_database_path
 from ..channels.schema import DEFAULT_CHANNEL
 from ...providers.thinking import ThinkingPreference
 from ...utils.logging import sanitize_log_value
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +221,15 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 f"get_or_create_chat: Creating new chat for "
                 f"session_id={session_id}, source={source}",
             )
+            database = await run_sync_io(
+                resolve_session_database_path,
+                self._repo.path.parent,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
             spec = ChatSpec(
+                **({"id": database.stem} if database is not None else {}),
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
@@ -256,6 +266,15 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                         and existing.id != spec.id
                     ):
                         return existing
+            database = await run_sync_io(
+                resolve_session_database_path,
+                self._repo.path.parent,
+                session_id=spec.session_id,
+                user_id=spec.user_id,
+                channel=spec.channel,
+            )
+            if database is not None:
+                spec = spec.model_copy(update={"storage_id": database.stem})
             if spec.group_id is None:
                 spec = spec.model_copy(
                     update={"group_id": _default_group_id(spec.source)},

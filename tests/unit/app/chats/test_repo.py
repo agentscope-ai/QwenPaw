@@ -31,19 +31,28 @@ async def test_load_returns_empty_when_missing(repo: JsonChatRepository):
 
 
 @pytest.mark.asyncio
-async def test_save_and_load_round_trip(repo: JsonChatRepository):
+async def test_save_and_load_round_trip(
+    repo: JsonChatRepository,
+    monkeypatch: pytest.MonkeyPatch,
+):
     spec = ChatSpec(session_id="console:u1", user_id="u1")
     cf = ChatsFile(version=1, chats=[spec])
     await repo.save(cf)
 
+    def reject_recovery(_chats):
+        pytest.fail("Complete storage IDs must not query recovery bindings")
+
+    monkeypatch.setattr(repo, "_recover_catalog_bindings", reject_recovery)
     loaded = await repo.load()
     assert len(loaded.chats) == 1
     assert loaded.chats[0].user_id == "u1"
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("chat_id", [None, "legacy-chat"])
 async def test_load_persists_storage_id_for_existing_chat(
     repo: JsonChatRepository,
+    chat_id: str | None,
 ):
     repo.path.write_text(
         json.dumps(
@@ -51,6 +60,7 @@ async def test_load_persists_storage_id_for_existing_chat(
                 "version": 1,
                 "chats": [
                     {
+                        **({"id": chat_id} if chat_id else {}),
                         "session_id": "shared-group",
                         "user_id": "u1",
                         "channel": "feishu",
@@ -65,6 +75,13 @@ async def test_load_persists_storage_id_for_existing_chat(
     persisted = json.loads(repo.path.read_text(encoding="utf-8"))
 
     assert persisted["chats"][0]["storage_id"] == (loaded.chats[0].storage_id)
+    assert loaded.chats[0].storage_id == loaded.chats[0].id
+    if chat_id:
+        assert loaded.chats[0].id == chat_id
+    persisted["chats"][0].pop("storage_id")
+    repo.path.write_text(json.dumps(persisted), encoding="utf-8")
+    reloaded = await repo.load()
+    assert reloaded.chats[0].storage_id == loaded.chats[0].storage_id
 
 
 # ---------------------------------------------------------------------------

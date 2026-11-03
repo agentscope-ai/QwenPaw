@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from qwenpaw.app.chats.manager import ChatManager
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.models import (
     ChatGroupKind,
     ChatSpec,
@@ -151,7 +152,23 @@ async def test_count_chats(manager: ChatManager):
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_chat_creates_when_missing(manager: ChatManager):
+@pytest.mark.parametrize("database_first", [False, True])
+async def test_get_or_create_chat_creates_when_missing(
+    manager: ChatManager,
+    repo_path: Path,
+    database_first: bool,
+):
+    storage_id = None
+    if database_first:
+        catalog = TranscriptCatalog(repo_path.parent)
+        identity = dict(
+            session_id="console:new",
+            user_id="new-user",
+            channel="console",
+        )
+        catalog.write_runtime_state(**identity, state={})
+        storage_id = catalog.storage_id_for(**identity)
+        catalog.close()
     spec = await manager.get_or_create_chat(
         session_id="console:new",
         user_id="new-user",
@@ -162,6 +179,9 @@ async def test_get_or_create_chat_creates_when_missing(manager: ChatManager):
     assert spec.user_id == "new-user"
     assert spec.name == "auto-registered"
     assert spec.source == SessionSource.chat
+    assert spec.storage_id == spec.id
+    if storage_id is not None:
+        assert spec.id == storage_id
 
     # Sanity: a follow-up call returns the SAME spec (idempotent).
     again = await manager.get_or_create_chat(

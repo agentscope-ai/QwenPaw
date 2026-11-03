@@ -13,6 +13,7 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from .repo.json_repo import JsonChatRepository
+from .models import ChatSpec
 from .transcript import (
     RuntimeSnapshot,
     TranscriptCursor,
@@ -133,7 +134,13 @@ class TranscriptCatalog:
         """Rebuild missing catalog rows from chats.json and DB identity."""
         path = self._workspace_dir / "chats.json"
         try:
-            chats = JsonChatRepository(path)._load_sync().chats
+            chats = (
+                JsonChatRepository(path)
+                ._load_sync(
+                    verify_bindings=True,
+                )
+                .chats
+            )
         except (FileNotFoundError, OSError, json.JSONDecodeError):
             return
         for spec in chats:
@@ -223,10 +230,7 @@ class TranscriptCatalog:
                 and chat.get("user_id") == user_id
                 and chat.get("channel") == channel
             ):
-                value = chat.get("storage_id")
-                if not value:
-                    raise ValueError("chat storage_id is missing")
-                return str(value)
+                return ChatSpec.model_validate(chat).storage_id
         return None
 
     def _ensure_catalog_session(

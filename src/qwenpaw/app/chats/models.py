@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import PureWindowsPath
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
@@ -108,14 +109,12 @@ class ChatSpec(BaseModel):
         description="Chat UUID identifier",
     )
     storage_id: str = Field(
-        default_factory=lambda: str(uuid4()),
-        min_length=36,
-        max_length=36,
-        pattern=(
-            r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
-            r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-        ),
-        description="Immutable physical conversation storage identifier",
+        default_factory=lambda data: data["id"],
+        validate_default=True,
+        min_length=1,
+        max_length=251,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        description="Immutable storage identifier, defaulting to the chat ID",
     )
     name: str = Field(
         default="New Chat",
@@ -185,6 +184,14 @@ class ChatSpec(BaseModel):
         ge=1,
         description="Parent turn sequence used as the fork boundary",
     )
+
+    @field_validator("storage_id")
+    @classmethod
+    def validate_storage_filename(cls, value: str) -> str:
+        """Reject reserved Windows filenames on every platform."""
+        if PureWindowsPath(value).is_reserved():
+            raise ValueError("storage_id is a reserved filename")
+        return value
 
     @field_validator("name", mode="before")
     @classmethod
