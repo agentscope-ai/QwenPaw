@@ -60,7 +60,7 @@ Enabled by default; no manual adjustment needed in most cases.
 
 ### Completion Check
 
-Some large language models may output text without calling any tools, causing the Agent to stop prematurely. By default, enabling this check asks the Agent to confirm whether the task is complete after a text-only response.
+Some large language models may output text without calling any tools, causing the Agent to stop prematurely. When enabled, if the Agent only outputs text (no tool calls), the system automatically injects a reminder asking it to confirm whether the task is truly complete.
 
 | Setting                 | Default                          | Description                |
 | ----------------------- | -------------------------------- | -------------------------- |
@@ -69,8 +69,6 @@ Some large language models may output text without calling any tools, causing th
 | Max interventions       | 1                                | Max reminders per turn     |
 
 > **When should I enable this?** If you notice the Agent often stops after outputting text without actually finishing the task, turn this on.
-
-With completion checks enabled, **Use the decision model to assist self-checks** sends the current conversation, its compression summary when available, tool calls and results, completion criteria, and a short list of available tool names and descriptions to the selected decision model at most once per self-check. Inline media blocks are represented by their name or media type. If the model flags a specific issue, the agent receives it alongside its usual self-check prompt. If it has no suggestion or is unavailable, the agent receives the original prompt.
 
 ### Corresponding agent.json Configuration
 
@@ -95,7 +93,6 @@ The Console settings above map to the `running.loop` field in `agent.json`:
       },
       "rubric": {
         "enabled": false,
-        "use_decision_model": false,
         "prompt": "You did not call any tool in the last turn...",
         "max_interventions": 1
       }
