@@ -130,6 +130,16 @@ class HarnessRuntime:
         command, arguments = (
             self._parse_command(prompt) if not attachments else ("", "")
         )
+        if command and command not in {"new", "clear"}:
+            # A leading "/" is common in ordinary text, e.g. an absolute path
+            # pasted from a chat. Only treat it as a command when the provider
+            # actually declares it; otherwise keep it as prompt text.
+            provider = get_provider(backend)
+            supported = {
+                item.name for item in provider.capabilities.commands
+            }
+            if command not in supported:
+                command, arguments = "", ""
         response = AgentResponse(
             id=f"response_{uuid.uuid4().hex}",
             output=[],
@@ -170,14 +180,6 @@ class HarnessRuntime:
                 ]
                 event_stream = self._iter_events(events)
             elif command:
-                provider = get_provider(backend)
-                supported = {
-                    item.name for item in provider.capabilities.commands
-                }
-                if command not in supported:
-                    raise ValueError(
-                        f"Unsupported {provider.name} command: /{command}",
-                    )
                 events = await adapter.run_command(
                     session_id=session_id,
                     command=command,
