@@ -392,14 +392,61 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
         deduplicated payload fit — as much (newest) media as possible is
         kept.  The payload only shrinks as the cut grows, so the first
         fitting cut is the smallest.
+
+        Every occurrence contributes its bytes to exactly one interval
+        of candidate cuts: it is sent for every cut ``c`` in
+        ``[lo, index]`` (``index`` is its own position, so it is part of
+        the surviving suffix) and for nothing outside.  ``lo`` is 0,
+        except for a folded duplicate whose key appears earlier in the
+        history — that copy is re-inlined, and only then spends its
+        bytes, once every earlier copy of its source was dropped, i.e.
+        for cuts above the nearest earlier occurrence of its key.
+
+        A single reverse scan resolves those intervals: when the scan
+        reaches an occurrence, every folded copy of its key above it has
+        been seen, so the occurrence closes their re-inflation interval
+        at itself.  A difference array over the cut positions turns the
+        intervals into the payload of every candidate cut, so the scan
+        plus one forward prefix-sum pass plan the cut in O(n) where
+        re-simulating the surviving suffix per candidate cut cost O(n^2)
+        — about 2.1s for 4,000 media blocks (#8034 review).
         """
-        for dropped_before in range(len(occurrences) + 1):
-            if (
-                self._payload_keeping_suffix(occurrences, dropped_before)
-                <= self.max_total_bytes
-            ):
-                return dropped_before
-        return len(occurrences)
+        count = len(occurrences)
+        # ``deltas[cut]`` is the payload change when entering candidate
+        # cut ``cut``; its prefix sums are the payloads of the surviving
+        # suffixes.  Cuts range over ``0..count``, the empty suffix at
+        # ``count`` costs nothing.
+        deltas = [0] * (count + 1)
+        # Folded duplicates, per key, whose nearest earlier same-key
+        # occurrence the reverse scan has not reached yet.
+        pending_folds: dict[tuple[str, str, str], list[int]] = {}
+        for index in range(count - 1, -1, -1):
+            size = occurrences[index].size
+            # Default: the occurrence is sent for every cut up to and
+            # including its own position.
+            deltas[0] += size
+            deltas[index + 1] -= size
+            key = occurrences[index].key
+            if key is None:
+                continue
+            pending = pending_folds.get(key)
+            if pending:
+                # *index* is the nearest earlier occurrence of this key:
+                # every pending folded copy above it is re-inlined — and
+                # charges its bytes — only for cuts beyond *index*, so
+                # take it back off the cuts at and below *index*.
+                for copy in pending:
+                    deltas[0] -= occurrences[copy].size
+                    deltas[index + 1] += occurrences[copy].size
+                pending_folds.pop(key)
+            if occurrences[index].folded:
+                pending_folds.setdefault(key, []).append(index)
+        payload = 0
+        for cut in range(count + 1):
+            payload += deltas[cut]
+            if payload <= self.max_total_bytes:
+                return cut
+        return count
 
     def _placeholder_text(self, kind: str, size: int) -> str:
         return (

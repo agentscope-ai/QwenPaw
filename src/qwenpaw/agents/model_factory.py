@@ -58,6 +58,7 @@ from ..providers.capping_formatter import (
     CappingFormatterMixin,
     MAX_INLINE_MEDIA_BYTES,
     SEEN_MEDIA_KEYS as _FORMATTER_SEEN_MEDIA_KEYS,
+    inline_media_size as _inline_media_size,
     media_dedup_key as _anthropic_media_dedup_key,
 )
 from ..providers.typesafe_provider import (
@@ -887,8 +888,12 @@ def _format_anthropic_video_data_block(
     # Base64Source — pass data straight through (after the size cap).
     data_attr = getattr(source, "data", None)
     if data_attr is not None:
-        # base64 length -> approximate raw byte count.
-        size = len(data_attr or "") * 3 // 4
+        # Measure through the shared ``inline_media_size`` helper so the
+        # base64 padding is excluded here exactly like the capping
+        # formatters size every inline payload: a video that is exactly
+        # at the cap is not rejected for the padding characters of its
+        # encoding (#8034 review).
+        size = _inline_media_size(source) or 0
         if 0 < max_inline_media_bytes < size:
             return _video_oversize_placeholder(
                 size,
@@ -962,7 +967,21 @@ def _format_openai_video_block(
     source = video_block["source"]
     if source["type"] == "base64":
         media_type = source["media_type"]
-        size = len(source.get("data") or "") * 3 // 4
+        # Measure through the shared ``inline_media_size`` helper so the
+        # base64 padding is excluded here exactly like the capping
+        # formatters size every inline payload: a video that is exactly
+        # at the cap is not rejected for the padding characters of its
+        # encoding (#8034 review).
+        size = (
+            _inline_media_size(
+                Base64Source(
+                    type="base64",
+                    media_type=media_type,
+                    data=source.get("data") or "",
+                ),
+            )
+            or 0
+        )
         if 0 < max_inline_media_bytes < size:
             return _video_oversize_placeholder(
                 size,

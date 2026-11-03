@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import random
 
 import pytest
 
@@ -691,6 +692,46 @@ def _media_payload(part: dict) -> str:
     return ""
 
 
+def _naive_suffix_payloads(
+    occurrences: list[_MediaOccurrence],
+) -> list[int]:
+    """Payload left on the wire for every candidate cut, the O(n^2) way.
+
+    The planner's pre-O(n) reference: re-simulates the enforcing pass
+    for each candidate ``dropped_before`` — occurrences before the cut
+    never reach the wire, a folded duplicate whose source is still on
+    the wire sends nothing, and a folded copy whose every earlier
+    same-key occurrence was dropped is re-inlined.  ``result[cut]`` is
+    the payload the cut leaves, so ``result[len(occurrences)]`` is 0.
+    """
+    payloads: list[int] = []
+    for dropped_before in range(len(occurrences) + 1):
+        seen: set[tuple[str, str, str]] = set()
+        total = 0
+        for index, occurrence in enumerate(occurrences):
+            if index < dropped_before:
+                continue
+            key = occurrence.key
+            if occurrence.folded and key is not None and key in seen:
+                continue
+            if key is not None:
+                seen.add(key)
+            total += occurrence.size
+        payloads.append(total)
+    return payloads
+
+
+def _naive_plan_dropped_prefix(
+    occurrences: list[_MediaOccurrence],
+    max_total_bytes: int,
+) -> int:
+    """The original planner: the first cut whose reference payload fits."""
+    for cut, payload in enumerate(_naive_suffix_payloads(occurrences)):
+        if payload <= max_total_bytes:
+            return cut
+    return len(occurrences)
+
+
 class TestCumulativeBudget:
     """A request may not inline unbounded media (#7671 / the #7965 TODO)."""
 
@@ -824,6 +865,90 @@ class TestCumulativeBudget:
             max_total_bytes=1200,
         )
         assert formatter._plan_dropped_prefix(deduped) == 0
+
+    def test_plan_matches_the_naive_reference_on_mixed_histories(self) -> None:
+        """The reverse-scan planner must pick the same cut as the naive
+        O(n^2) planner (#8034 review).
+
+        The histories mix folded duplicates (blocked by a near copy, a
+        far copy, another folded copy, or nothing), zero-byte and
+        unkeyed occurrences.  Every budget around every candidate
+        payload is probed — including the payloads themselves, so the
+        exactly-at-the-boundary cut cannot drift either.
+        """
+        key_a = ("base64", "image/png", "A")
+        key_b = ("base64", "image/png", "B")
+        key_c = ("base64", "image/png", "C")
+        histories: list[list[_MediaOccurrence]] = [
+            # A -> B -> A(dup): dropping the two oldest re-inlines the
+            # newest A, so the surviving payload is 512 bytes, not 1024.
+            [
+                _MediaOccurrence(key=key_a, size=512, folded=False),
+                _MediaOccurrence(key=key_b, size=512, folded=False),
+                _MediaOccurrence(key=key_a, size=512, folded=True),
+            ],
+            # A -> B -> B(dup): the folded copy never re-inflates.
+            [
+                _MediaOccurrence(key=key_a, size=512, folded=False),
+                _MediaOccurrence(key=key_b, size=512, folded=False),
+                _MediaOccurrence(key=key_b, size=512, folded=True),
+            ],
+            # A -> A -> A(dup): the nearest same-key copy blocks the
+            # folded one, not the first one.
+            [
+                _MediaOccurrence(key=key_a, size=512, folded=False),
+                _MediaOccurrence(key=key_a, size=512, folded=False),
+                _MediaOccurrence(key=key_a, size=512, folded=True),
+            ],
+            # Folded copies blocked only by other folded copies.
+            [
+                _MediaOccurrence(key=key_a, size=512, folded=True),
+                _MediaOccurrence(key=key_a, size=512, folded=True),
+                _MediaOccurrence(key=key_a, size=512, folded=True),
+            ],
+            # Mixed keys with unkeyed and zero-byte occurrences: a
+            # zero-byte copy still blocks a later folded duplicate, and
+            # an unkeyed occurrence always spends its bytes.
+            [
+                _MediaOccurrence(key=None, size=512, folded=False),
+                _MediaOccurrence(key=key_a, size=512, folded=True),
+                _MediaOccurrence(key=None, size=0, folded=True),
+                _MediaOccurrence(key=key_b, size=512, folded=False),
+                _MediaOccurrence(key=key_a, size=0, folded=False),
+                _MediaOccurrence(key=key_a, size=512, folded=True),
+                _MediaOccurrence(key=None, size=512, folded=True),
+            ],
+        ]
+        # A longer deterministic mix so re-inflation cascades across
+        # several keys and candidate cuts.
+        rng = random.Random(8034)
+        histories.append(
+            [
+                _MediaOccurrence(
+                    key=rng.choice([None, key_a, key_b, key_c]),
+                    size=rng.choice((0, 256, 511, 512, 513)),
+                    folded=rng.random() < 0.4,
+                )
+                for _ in range(24)
+            ],
+        )
+        for occurrences in histories:
+            payloads = _naive_suffix_payloads(occurrences)
+            budgets = {0}
+            for payload in payloads:
+                budgets.update((payload - 1, payload, payload + 1))
+            for budget in sorted(budgets):
+                if budget < 0:
+                    # ``max_total_bytes`` is validated ``ge=0``; the
+                    # empty suffix (payload 0) fits it on both sides.
+                    continue
+                formatter = _CappingOpenAIFormatter(
+                    max_bytes=1024,
+                    max_total_bytes=budget,
+                )
+                assert formatter._plan_dropped_prefix(occurrences) == (
+                    _naive_plan_dropped_prefix(occurrences, budget)
+                ), (occurrences, budget)
 
     def test_media_over_the_per_file_cap_is_never_charged(self) -> None:
         """An oversized file is capped per-file, so it costs no budget."""
@@ -1485,6 +1610,106 @@ class TestVideoUnderThePerRequestBudget:
         )
         assert len(_duplicate_placeholders(parts)) == 1
         assert not _total_limit_placeholders(parts)
+
+
+class TestVideoAtThePerFileCap:
+    """A video exactly at the per-file cap must reach the wire.
+
+    The tool-result video helpers used to measure a base64 payload as
+    ``len(data) * 3 // 4`` — counting the ``=`` padding as payload — so a
+    512-byte video measured 513 bytes and was rejected at
+    ``max_bytes=512``.  They now size through the shared
+    ``inline_media_size`` helper, like every capping formatter (#8034
+    review).
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "formatter_cls",
+        [
+            _CappingAnthropicFormatter,
+            _CappingOpenAIFormatter,
+            _CappingOpenAIResponseFormatter,
+            _CappingDashScopeFormatter,
+        ],
+    )
+    async def test_video_exactly_at_the_cap_is_inlined(
+        self,
+        formatter_cls,
+    ) -> None:
+        """512 raw bytes at ``max_bytes=512``: padding is not payload."""
+        from qwenpaw.agents import model_factory
+
+        data = base64.b64encode(b"\0" * 512).decode("ascii")
+        # 684 base64 characters, one of them '=': the old measurement
+        # (684 * 3 // 4) reported 513 bytes for this video.
+        assert len(data) == 684
+        assert data.endswith("=")
+        msg = Msg(
+            name="user",
+            role="user",
+            content=[
+                TextBlock(text="look at this clip"),
+                DataBlock(
+                    source=Base64Source(data=data, media_type="video/mp4"),
+                    name="clip.mp4",
+                ),
+            ],
+        )
+        formatter_cls_with_wrapper = (
+            model_factory._create_file_block_support_formatter(formatter_cls)
+        )
+        formatter = formatter_cls_with_wrapper(
+            max_bytes=512,
+            max_total_bytes=4096,
+        )
+
+        parts = _wire_parts(await formatter.format([msg]))
+
+        kept = _video_parts(parts)
+        assert len(kept) == 1
+        assert _video_payload(kept[0]) == data
+        assert not _total_limit_placeholders(parts)
+
+    @pytest.mark.asyncio
+    async def test_video_just_over_the_cap_is_still_capped(self) -> None:
+        """One raw byte more than the cap is still replaced."""
+        from qwenpaw.agents import model_factory
+
+        data = base64.b64encode(b"\0" * 513).decode("ascii")
+        msg = Msg(
+            name="user",
+            role="user",
+            content=[
+                TextBlock(text="look at this clip"),
+                DataBlock(
+                    source=Base64Source(data=data, media_type="video/mp4"),
+                    name="clip.mp4",
+                ),
+            ],
+        )
+        formatter_cls_with_wrapper = (
+            model_factory._create_file_block_support_formatter(
+                _CappingOpenAIFormatter,
+            )
+        )
+        formatter = formatter_cls_with_wrapper(
+            max_bytes=512,
+            max_total_bytes=4096,
+        )
+
+        parts = _wire_parts(await formatter.format([msg]))
+
+        assert not _video_parts(parts)
+        # The per-file cap fires, not the cumulative one.
+        omitted = [
+            part
+            for part in parts
+            if "video omitted" in (part.get("text") or "")
+        ]
+        assert len(omitted) == 1
+        assert "513 bytes" in omitted[0]["text"]
+        assert "inline limit of 512 bytes" in omitted[0]["text"]
 
 
 class TestLocalPdfAttachmentsSpendTheBudget:
