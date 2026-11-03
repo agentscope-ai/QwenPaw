@@ -330,6 +330,11 @@ class CheckpointService:
         """Create a snapshot and return its complete internal result."""
         if kind not in {"auto", "snap", "pre-restore"}:
             raise ValueError(f"Unsupported checkpoint kind: {kind}")
+        await self.ensure_session_migrated(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
         async with self.maintenance_lock:
             async with self.lock:
                 result = await run_sync_io(
@@ -412,7 +417,7 @@ class CheckpointService:
         body = message.strip() if message else subject
         query = query_override
         if query is None:
-            query = latest_user_query(runtime.state)
+            query = latest_user_query(runtime.state if runtime else {})
         metadata = encode_metadata(
             query,
             channel=channel,
@@ -449,14 +454,30 @@ class CheckpointService:
                 user_id=user_id,
                 channel=channel,
             )
+            native_binding = (
+                store.read_provider_state(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )["binding"]
+                if snapshot is None
+                else None
+            )
         finally:
             if owned:
                 store.close()
-        if snapshot is None:
+        if snapshot is None and not native_binding:
             raise CheckpointError(
                 "Conversation runtime state does not exist",
             )
         return snapshot
+
+    async def ensure_session_migrated(self, **identity) -> None:
+        """Migrate a legacy conversation before checkpoint operations."""
+        session = getattr(self.workspace, "session", None)
+        migrate = getattr(session, "ensure_legacy_migrated", None)
+        if migrate is not None:
+            await migrate(**identity)
 
     def _session_database_snapshot(
         self,

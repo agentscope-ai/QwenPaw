@@ -116,6 +116,16 @@ def _write_components(
     state: dict[str, Any],
 ) -> None:
     components, context = _split_state(state)
+    if not state:
+        content_hash = _write_object(
+            connection,
+            value={},
+            codec="empty-state-v1",
+        )
+        connection.execute(
+            "INSERT INTO revision_components VALUES (?, ?, ?, ?)",
+            (session_id, revision_id, "", content_hash),
+        )
     for key in sorted(components):
         content_hash = _write_object(connection, value=components[key])
         connection.execute(
@@ -221,13 +231,13 @@ def commit_turn_revision(
     session_id: str,
     turn_id: str,
 ) -> None:
-    """Bind only the revision saved explicitly for this turn."""
+    """Bind the latest revision saved explicitly for this turn."""
     connection.execute(
         "INSERT OR IGNORE INTO turn_context_revision "
         "SELECT r.session_id, r.anchor_turn_id, r.revision_id "
-        "FROM context_revisions r JOIN current_context_revision c "
-        "ON c.session_id = r.session_id AND c.revision_id = r.revision_id "
-        "WHERE r.session_id = ? AND r.anchor_turn_id = ?",
+        "FROM context_revisions r "
+        "WHERE r.session_id = ? AND r.anchor_turn_id = ? "
+        "ORDER BY r.rowid DESC LIMIT 1",
         (session_id, turn_id),
     )
 
@@ -288,6 +298,10 @@ def read_revision_state(
     for row in rows:
         key = str(row[0])
         codec, value = _read_object(connection, str(row[1]))
+        if codec == "empty-state-v1":
+            if key != "" or value != {} or len(rows) != 1:
+                raise ValueError("empty state descriptor is invalid")
+            continue
         if key == _CONTEXT_KEY:
             if codec != "context-ref-v1" or not isinstance(value, dict):
                 raise ValueError("context descriptor is invalid")

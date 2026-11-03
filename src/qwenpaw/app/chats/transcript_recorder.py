@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Best-effort transcript recording for normalized chat envelopes."""
+"""Authoritative transcript recording for normalized chat envelopes."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from ..._session_signals import (
     TRANSCRIPT_RECORDING_READY_KEY,
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TURN_COMMIT_KEY,
 )
 from ...runtime.console_turn_state import REGENERATE_FROM
 from ...schemas import (
@@ -35,7 +36,7 @@ _TERMINAL_STATUS: dict[RunStatus, TurnStatus] = {
 
 
 class TranscriptRecorder:
-    """Persist one request turn without affecting response delivery."""
+    """Persist one request turn before acknowledging its completion."""
 
     def __init__(
         self,
@@ -63,6 +64,8 @@ class TranscriptRecorder:
             request.request_context = request_context
         request_context[TRANSCRIPT_TURN_ID_CONTEXT_KEY] = self._turn_id
         request_context[TRANSCRIPT_RECORDING_READY_KEY] = False
+        if store is not None:
+            request_context[TURN_COMMIT_KEY] = {}
         self._ordinals: dict[str, int] = {}
         self._next_ordinal = 0
         self._started = False
@@ -102,9 +105,9 @@ class TranscriptRecorder:
         for message in getattr(self._request, "input", None) or []:
             if isinstance(message, Message):
                 await self._record_message(message)
-        self._request.request_context[TRANSCRIPT_RECORDING_READY_KEY] = (
-            not self._degraded
-        )
+        self._request.request_context[
+            TRANSCRIPT_RECORDING_READY_KEY
+        ] = not self._degraded
 
     async def observe(self, value: Any) -> None:
         """Record normalized message snapshots and terminal responses."""
@@ -133,17 +136,19 @@ class TranscriptRecorder:
             return
         if not isinstance(value, AgentResponse):
             return
-        for message in value.output:
-            if not message.content:
-                continue
-            await self._record_message(
-                message,
-                finished_at=value.completed_at,
-            )
         terminal = _TERMINAL_STATUS.get(value.status)
         if terminal is not None:
+            messages = []
+            for message in value.output:
+                if not message.content:
+                    continue
+                if message.id not in self._ordinals:
+                    self._ordinals[message.id] = self._next_ordinal
+                    self._next_ordinal += 1
+                messages.append((message, self._ordinals[message.id]))
             await self.finish(
                 terminal,
+                messages=messages,
                 error=self._normalized_error(
                     getattr(value, "error", None),
                 ),
@@ -167,6 +172,7 @@ class TranscriptRecorder:
         *,
         error: dict[str, Any] | None = None,
         finished_at: str | None = None,
+        messages: list[tuple[Message, int]] | None = None,
     ) -> None:
         """Persist a terminal turn state idempotently."""
         if (
@@ -176,8 +182,9 @@ class TranscriptRecorder:
             or self._degraded
         ):
             return
+        pending = self._request.request_context.get(TURN_COMMIT_KEY, {})
         await self._write(
-            self._store.finish_turn,
+            self._store.commit_turn,
             session_id=self._session_id,
             user_id=self._user_id,
             channel=self._channel,
@@ -185,6 +192,9 @@ class TranscriptRecorder:
             status=status,
             error=error,
             finished_at=finished_at,
+            messages=messages or [],
+            runtime=pending.get("runtime"),
+            usage=pending.get("usage"),
         )
         if not self._degraded:
             self._finished = True
@@ -280,7 +290,7 @@ class TranscriptRecorder:
                 self._session_id,
                 exc_info=True,
             )
-        return None
+            raise
 
     @staticmethod
     def _resolve_turn_id(request: Any) -> str:
@@ -295,14 +305,14 @@ class TranscriptRecorder:
             client_id = metadata.get(QWENPAW_CLIENT_MESSAGE_ID_KEY)
             if client_id:
                 if regeneration_target:
-                    return f"regenerate:{client_id}"
+                    return f"regenerate:{client_id}:{uuid.uuid4().hex}"
                 return f"client:{client_id}"
         if regeneration_target:
             if isinstance(regeneration_target, dict):
                 target_id = regeneration_target.get("message_id")
             else:
                 target_id = regeneration_target
-            return f"regenerate:{target_id or uuid.uuid4().hex}"
+            return f"regenerate:{target_id or 'turn'}:{uuid.uuid4().hex}"
         return f"turn:{uuid.uuid4().hex}"
 
     @staticmethod

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 from uuid import uuid4
@@ -19,6 +20,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..task_tracker import RunUnavailableError
 from .session import DatabaseSession, LegacyConversationSnapshot
 from .provider_migration import (
     recover_codex_boundaries,
@@ -116,11 +118,17 @@ async def _read_history_page(
     *,
     before: str | None = None,
     after_message_id: str | None = None,
+    before_message_id: str | None = None,
     limit: int = 5,
     max_bytes: int = 2 * 1024 * 1024,
     max_content_blocks: int = 40,
 ) -> ConversationHistoryPage | None:
     """Read one history page without blocking the event loop."""
+    if chat.meta.get("deletion_pending"):
+        raise HTTPException(
+            409,
+            "Conversation deletion failed; retry deletion",
+        )
     store = _history_store(workspace)
     if store is None:
         return None
@@ -130,6 +138,11 @@ async def _read_history_page(
         channel=chat.channel,
         before=before,
         **({"after_message_id": after_message_id} if after_message_id else {}),
+        **(
+            {"before_message_id": before_message_id}
+            if before_message_id
+            else {}
+        ),
         limit=limit,
         max_bytes=max_bytes,
         max_content_blocks=max_content_blocks,
@@ -159,7 +172,7 @@ async def _read_history_page(
             chat.session_id,
             exc_info=True,
         )
-        return None
+        raise HTTPException(503, "Conversation history unavailable")
 
 
 async def _read_user_message_page(
@@ -170,6 +183,11 @@ async def _read_user_message_page(
     limit: int = 200,
 ):
     """Read one user-message index page without blocking the event loop."""
+    if chat.meta.get("deletion_pending"):
+        raise HTTPException(
+            409,
+            "Conversation deletion failed; retry deletion",
+        )
     store = _history_store(workspace)
     if store is None:
         return None
@@ -188,7 +206,7 @@ async def _read_user_message_page(
             chat.session_id,
             exc_info=True,
         )
-        return None
+        raise HTTPException(503, "Conversation history unavailable")
 
 
 async def _read_context_state(
@@ -281,6 +299,10 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
     store = getattr(workspace, "transcript_store", None)
     session = getattr(workspace, "session", None)
     try:
+        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+            workspace,
+            [(chat.session_id, chat.user_id, chat.channel) for chat in chats],
+        )
         if session is not None:
             for chat in chats:
                 channels = tuple(
@@ -291,7 +313,8 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
                 )
                 options = (
                     {"deleting_channels": channels}
-                    if len(channels) > 1 else {}
+                    if len(channels) > 1
+                    else {}
                 )
                 await session.delete_session_state(
                     chat.session_id,
@@ -307,16 +330,35 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
                     chat.user_id,
                     chat.channel,
                 )
-        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
-            workspace,
-            [(chat.session_id, chat.user_id, chat.channel) for chat in chats],
-        )
+
     except Exception as exc:
         logger.error("Failed to delete chat persistence", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail="Failed to delete chat persistence",
         ) from exc
+
+
+async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
+    """Block run registration and retain failed deletion for retry."""
+    try:
+        async with workspace.task_tracker.prevent_new_runs(chat_ids):
+            catalog = await mgr.list_chats(archived=None)
+            targets = [chat for chat in catalog if chat.id in chat_ids]
+            await mgr.mark_deleting(chat_ids)
+            for chat_id in chat_ids:
+                await workspace.task_tracker.request_stop(chat_id)
+            data_targets = _unshared_chat_data_targets(targets, catalog)
+            identities = [
+                (chat.session_id, chat.user_id, chat.channel)
+                for chat in data_targets
+            ]
+            async with workspace.task_tracker.stop_session_writers(identities):
+                if data_targets:
+                    await _delete_chat_data(workspace, data_targets)
+                return await mgr.delete_chats(chat_ids=chat_ids)
+    except RunUnavailableError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 def _unshared_chat_data_targets(
@@ -942,24 +984,7 @@ async def batch_delete_chats(
         True if deleted, False if failed
 
     """
-    catalog = await mgr.list_chats(archived=None)
-    chats = {chat.id: chat for chat in catalog}
-    targets = [
-        chat
-        for chat_id in chat_ids
-        if (chat := chats.get(chat_id)) is not None
-    ]
-    data_targets = _unshared_chat_data_targets(targets, catalog)
-    # Stop any live run first: a deleted chat must not leave a run behind
-    # in the tracker, or it inflates the aggregate running count forever.
-    for chat_id in chat_ids:
-        await workspace.task_tracker.request_stop(chat_id)
-    if data_targets:
-        await _delete_chat_data(
-            workspace,
-            data_targets,
-        )
-    deleted = await mgr.delete_chats(chat_ids=chat_ids)
+    deleted = await _delete_chats(workspace, mgr, chat_ids)
     return {"deleted": deleted}
 
 
@@ -1342,6 +1367,7 @@ async def get_chat_messages(
     chat_id: str,
     before: Optional[str] = Query(None),
     after_message_id: str | None = None,
+    before_message_id: str | None = None,
     limit: int = Query(5, ge=1, le=100),
     max_bytes: Annotated[
         int,
@@ -1377,6 +1403,7 @@ async def get_chat_messages(
             chat,
             before=before,
             after_message_id=after_message_id,
+            before_message_id=before_message_id,
             limit=limit,
             max_bytes=max_bytes,
         )
@@ -1500,6 +1527,7 @@ async def get_chat_user_message_text(
 async def get_chat(
     chat_id: str,
     background_tasks: BackgroundTasks,
+    full_history: bool = True,
     include_app_owned: bool = Query(
         True,
         description=(
@@ -1544,11 +1572,38 @@ async def get_chat(
     transcript_page = await _read_history_page(
         workspace,
         chat_spec,
+        limit=100 if full_history else 5,
+        max_bytes=sys.maxsize if full_history else 2 * 1024 * 1024,
+        max_content_blocks=sys.maxsize if full_history else 40,
     )
     if transcript_page is not None and (
         backend == "qwenpaw" or transcript_page.messages
     ):
         context_state = await _read_context_state(session, chat_spec)
+        if full_history:
+            messages = list(transcript_page.messages)
+            page = transcript_page
+            while page.has_more:
+                page = await _read_history_page(
+                    workspace,
+                    chat_spec,
+                    before=page.next_before,
+                    limit=100,
+                    max_bytes=sys.maxsize,
+                    max_content_blocks=sys.maxsize,
+                )
+                if page is None:
+                    raise HTTPException(
+                        503,
+                        "Conversation history unavailable",
+                    )
+                messages = list(page.messages) + messages
+            return ChatHistory(
+                messages=messages,
+                status=status,
+                history=ChatHistoryMetadata(),
+                context_state=context_state,
+            )
         return ChatHistory(
             messages=transcript_page.messages,
             status=status,
@@ -1673,14 +1728,7 @@ async def delete_chat(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
         )
-    catalog = await mgr.list_chats(archived=None)
-    data_targets = _unshared_chat_data_targets([chat], catalog)
-    # Stop any live run first: a deleted chat must not leave a run behind
-    # in the tracker, or it inflates the aggregate running count forever.
-    await workspace.task_tracker.request_stop(chat_id)
-    if data_targets:
-        await _delete_chat_data(workspace, data_targets)
-    deleted = await mgr.delete_chats(chat_ids=[chat_id])
+    deleted = await _delete_chats(workspace, mgr, [chat_id])
     if not deleted:
         raise HTTPException(
             status_code=404,

@@ -131,23 +131,31 @@ describe("live delta batching", () => {
     await stream.reader.cancel();
   });
 
-  it("cancels pending timers and upstream on abort", async () => {
-    vi.useFakeTimers();
-    const abort = new AbortController();
-    const stream = fixture(abort.signal);
-    stream.emit(delta("discard"));
-    await vi.advanceTimersByTimeAsync(10);
-    abort.abort();
-    await expect(stream.reader.read()).rejects.toMatchObject({
-      name: "AbortError",
-    });
-    await vi.advanceTimersByTimeAsync(100);
-    expect(stream.cancel).toHaveBeenCalledOnce();
-  });
+  it.each([false, true])(
+    "preserves received frames on abort with backpressure=%s",
+    async (backpressure) => {
+      vi.useFakeTimers();
+      const abort = new AbortController();
+      const stream = fixture(abort.signal);
+      if (backpressure)
+        stream.emit({ object: "response", output: [] }, delta("received"));
+      else stream.emit(delta("received"));
+      await vi.advanceTimersByTimeAsync(10);
+      abort.abort();
+      if (backpressure)
+        expect(await stream.read()).toEqual({ object: "response", output: [] });
+      expect(await stream.read()).toEqual(delta("received"));
+      await expect(stream.reader.read()).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(stream.cancel).toHaveBeenCalledOnce();
+    },
+  );
 
   it("propagates upstream errors", async () => {
     const stream = fixture();
-    stream.emit(delta("discard"));
+    stream.emit(delta("received"));
     stream.source.error(new Error("transport failed"));
     await expect(stream.reader.read()).rejects.toThrow("transport failed");
   });

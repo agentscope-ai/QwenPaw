@@ -88,6 +88,7 @@ import {
 } from "./ModelSelector/AdvisorModelsPill";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import { syncSessionsGlobal } from "../../stores/sessionListStore";
 import {
   beginLoopModeSubmission,
   fetchActiveLoopMode,
@@ -149,6 +150,7 @@ import {
   HISTORY_MESSAGE_WINDOW_CARD,
   historyMessageWindow,
   splitHistoryMessagesIntoTurnRows,
+  boundHistoryRows,
   type HistoryNavigationMode,
 } from "./historyMessageWindowStore";
 import { cancelSdkChatRequest } from "./sdkCancellation";
@@ -3100,9 +3102,10 @@ export default function ChatPage() {
 
   const forkResponse = useCallback(
     async (response: CopyableResponse) => {
+      const owner = sessionApi.getActiveOwner();
       const turnId = extractTranscriptTurnId(response);
       if (!backendChatId || !turnId) {
-        message.error(t("chat.forkUnavailable", "This turn cannot be forked"));
+        message.error(t("chat.forkUnavailable"));
         return;
       }
       if (!usesQwenPawBackend) {
@@ -3113,7 +3116,14 @@ export default function ChatPage() {
             selectedAgent,
           );
           if (!capability.can_fork) {
-            message.warning(capability.reason || t("chat.forkUnavailable"));
+            message.warning(
+              capability.reason === "Backend cannot fork"
+                ? t("chat.forkUnsupported")
+                : capability.reason ===
+                  "This turn has no completed native fork boundary"
+                ? t("chat.forkBoundaryMissing")
+                : capability.reason || t("chat.forkUnavailable"),
+            );
             return;
           }
         } catch (error) {
@@ -3122,12 +3132,9 @@ export default function ChatPage() {
         }
       }
       const confirmation = Modal.confirm({
-        title: t("chat.forkTitle", "Fork from this turn?"),
-        content: t(
-          "chat.forkDescription",
-          "A new independent conversation will contain this turn and all earlier turns.",
-        ),
-        okText: t("chat.fork", "Fork"),
+        title: t("chat.forkTitle"),
+        content: t("chat.forkDescription"),
+        okText: t("chat.fork"),
         cancelText: t("common.cancel", "Cancel"),
         onOk: async () => {
           try {
@@ -3136,20 +3143,27 @@ export default function ChatPage() {
               turnId,
               selectedAgent,
             );
+            confirmation.destroy();
+            if (!sessionApi.isActiveOwner(owner)) return;
+            sessionApi.registerForkedChat(forked, owner);
             sessionApi.preferredChatId = forked.id;
             sessionApi.lastActiveChatId = forked.id;
             setLastChatId(selectedAgent, forked.id);
-            confirmation.destroy();
             navigate(buildChatPath(forked.id));
-            message.success(t("chat.forkCreated", "Fork created"));
-            void sessionApi.getSessionList().catch((error) => {
-              console.warn("Failed to refresh chats after fork", error);
-            });
+            message.success(t("chat.forkCreated"));
+            void sessionApi
+              .getSessionList()
+              .then((sessions) => {
+                if (sessionApi.isActiveOwner(owner)) {
+                  syncSessionsGlobal(sessions);
+                }
+              })
+              .catch((error) => {
+                console.warn("Failed to refresh chats after fork", error);
+              });
           } catch (error) {
             message.error(
-              error instanceof Error
-                ? error.message
-                : t("chat.forkFailed", "Failed to fork conversation"),
+              error instanceof Error ? error.message : t("chat.forkFailed"),
             );
             throw error;
           }
@@ -3165,6 +3179,61 @@ export default function ChatPage() {
       t,
       usesQwenPawBackend,
     ],
+  );
+
+  const recoverReplayOverflow = useCallback(
+    (displayChatId: string, canonicalChatId: string, agentId: string) => {
+      replayRecoveryRef.current?.abort();
+      const controller = new AbortController();
+      replayRecoveryRef.current = controller;
+
+      void waitForChatStatusIdle(canonicalChatId, controller.signal, agentId)
+        .then(async (idle) => {
+          if (
+            !idle ||
+            controller.signal.aborted ||
+            chatIdRef.current !== displayChatId ||
+            selectedAgentRef.current !== agentId ||
+            !isOwnerRef.current
+          ) {
+            return;
+          }
+          const recovered = await sessionApi.refreshSession(
+            displayChatId,
+            controller.signal,
+          );
+          if (
+            !recovered ||
+            recovered.generating ||
+            controller.signal.aborted ||
+            chatIdRef.current !== displayChatId ||
+            selectedAgentRef.current !== agentId ||
+            !isOwnerRef.current
+          ) {
+            return;
+          }
+          chatRef.current?.messages.setSessionMessages(
+            displayChatId,
+            (
+              transformHistorySessionRef.current?.(displayChatId, recovered) ??
+              recovered
+            ).messages,
+          );
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          console.error("Failed to recover chat history:", error);
+          message.error(
+            t("chat.historyLoadFailed", "Failed to load chat history"),
+          );
+        })
+        .finally(() => {
+          if (replayRecoveryRef.current === controller) {
+            replayRecoveryRef.current = null;
+          }
+        });
+    },
+    [message, t],
   );
 
   const customFetch = useCallback(
@@ -3377,16 +3446,37 @@ export default function ChatPage() {
             null,
           );
         }
+        sessionApi.invalidateConvertedCache(
+          sessionApi.getRealIdForSession(localIdToResolve) || localIdToResolve,
+        );
         sessionApi.triggerResolve(localIdToResolve);
       }
 
       return wrapChatResponseUsageStream(
-        batchLiveChatDeltas(response, data.signal),
+        batchLiveChatDeltas(
+          wrapReplayFastForward(response, 0, () => {
+            if (fallbackLocalChatId) {
+              recoverReplayOverflow(
+                fallbackLocalChatId,
+                sessionApi.getRealIdForSession(fallbackLocalChatId) ||
+                  fallbackLocalChatId,
+                requestSnapshot.agentId,
+              );
+            }
+          }),
+          data.signal,
+        ),
         chatRef,
         usageTurn,
       );
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
+    [
+      extLists,
+      selectedAgent,
+      runningConfigApprovalLevel,
+      usesQwenPawBackend,
+      recoverReplayOverflow,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -3565,7 +3655,7 @@ export default function ChatPage() {
             }
             return;
           }
-          const turnRows =
+          const allTurnRows =
             mode === "append-newer"
               ? splitHistoryMessagesIntoTurnRows(
                   mergeHistoryMessages(
@@ -3574,13 +3664,21 @@ export default function ChatPage() {
                   ),
                 )
               : splitHistoryMessagesIntoTurnRows(messages);
+          const turnRows = boundHistoryRows(
+            allTurnRows,
+            "newest",
+            mode === "append-newer"
+              ? splitHistoryMessagesIntoTurnRows(messages).length + 1
+              : 1,
+          );
           historyTurnRowsRef.current = turnRows;
           const currentWindow = historyMessageWindow.getSnapshot();
           historyMessageWindow.setTurnRows(
             sessionId,
             turnRows,
             mode === "append-newer" && currentWindow
-              ? currentWindow.canLoadOlder
+              ? currentWindow.canLoadOlder ||
+                  turnRows.length < allTurnRows.length
               : !noMore,
           );
         })
@@ -3637,7 +3735,13 @@ export default function ChatPage() {
       historyMessageWindow.setLoading(sessionId, true);
       setHistoryLoadFailed(false);
       const load = sessionApi
-        .loadOlderHistory(sessionId, controller.signal, accumulate)
+        .loadOlderHistory(
+          sessionId,
+          controller.signal,
+          accumulate,
+          historyTurnRowsRef.current?.[0]?.find((item) => item.role === "user")
+            ?.id,
+        )
         .then(({ messages: olderMessages, noMore }) => {
           if (
             controller.signal.aborted ||
@@ -3693,7 +3797,16 @@ export default function ChatPage() {
             const prependedTurns = splitHistoryMessagesIntoTurnRows(
               mergeHistoryMessages(olderMessages, oldestTurn),
             );
-            const turnRows = [...prependedTurns, ...currentTurnRows.slice(1)];
+            const allTurnRows = splitHistoryMessagesIntoTurnRows(
+              mergeHistoryMessages(olderMessages, currentTurnRows.flat()),
+            );
+            const turnRows = boundHistoryRows(
+              allTurnRows,
+              "oldest",
+              prependedTurns.length,
+            );
+            if (turnRows.length < allTurnRows.length)
+              historyMessageWindow.setCanLoadNewer(sessionId, true);
             historyTurnRowsRef.current = turnRows;
             historyMessageWindow.setTurnRows(sessionId, turnRows, !noMore);
           }
@@ -3769,61 +3882,6 @@ export default function ChatPage() {
       messages: [createHistoryMessageWindowCard(visibleSessionId)],
     };
   };
-
-  const recoverReplayOverflow = useCallback(
-    (displayChatId: string, canonicalChatId: string, agentId: string) => {
-      replayRecoveryRef.current?.abort();
-      const controller = new AbortController();
-      replayRecoveryRef.current = controller;
-
-      void waitForChatStatusIdle(canonicalChatId, controller.signal, agentId)
-        .then(async (idle) => {
-          if (
-            !idle ||
-            controller.signal.aborted ||
-            chatIdRef.current !== displayChatId ||
-            selectedAgentRef.current !== agentId ||
-            !isOwnerRef.current
-          ) {
-            return;
-          }
-          const recovered = await sessionApi.refreshSession(
-            displayChatId,
-            controller.signal,
-          );
-          if (
-            !recovered ||
-            recovered.generating ||
-            controller.signal.aborted ||
-            chatIdRef.current !== displayChatId ||
-            selectedAgentRef.current !== agentId ||
-            !isOwnerRef.current
-          ) {
-            return;
-          }
-          chatRef.current?.messages.setSessionMessages(
-            displayChatId,
-            (
-              transformHistorySessionRef.current?.(displayChatId, recovered) ??
-              recovered
-            ).messages,
-          );
-        })
-        .catch((error) => {
-          if (controller.signal.aborted) return;
-          console.error("Failed to recover chat history:", error);
-          message.error(
-            t("chat.historyLoadFailed", "Failed to load chat history"),
-          );
-        })
-        .finally(() => {
-          if (replayRecoveryRef.current === controller) {
-            replayRecoveryRef.current = null;
-          }
-        });
-    },
-    [message, t],
-  );
 
   const handleHistoryScroll = useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
@@ -4885,7 +4943,7 @@ export default function ChatPage() {
             ? [
                 {
                   icon: (
-                    <span title={t("chat.fork", "Fork")}>
+                    <span title={t("chat.fork")}>
                       <GitFork />
                     </span>
                   ),

@@ -16,6 +16,7 @@ import { createSdkSessionAdapter } from "../sdkSessionAdapter";
 import { prefetchChatHistory } from "../chatRoutePrefetch";
 import { groupChatsByDate } from "../../../utils/chatGroups";
 import type { ExtendedSession } from "../../../stores/sessionListStore";
+import { useSessionListStore } from "../../../stores/sessionListStore";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -51,10 +52,12 @@ describe("running session discovery", () => {
     sessionApi.resetForTests();
   });
 
-  it("marks a running list entry as generating before history loads", async () => {
-    vi.spyOn(api, "listChats").mockResolvedValue([
-      { ...createdChat("running-chat"), status: "running" },
-    ]);
+  it("preserves running discovery and confirmed forks across stale lists and owners", async () => {
+    const listChats = vi
+      .spyOn(api, "listChats")
+      .mockResolvedValue([
+        { ...createdChat("running-chat"), status: "running" },
+      ]);
 
     await expect(sessionApi.getSessionList()).resolves.toEqual([
       expect.objectContaining({
@@ -63,6 +66,29 @@ describe("running session discovery", () => {
         generating: true,
       }),
     ]);
+    const owner = sessionApi.getActiveOwner();
+    const stale = deferred<ChatSpec[]>();
+    listChats.mockReturnValueOnce(stale.promise);
+    const pending = sessionApi.getSessionList();
+    const child = { ...createdChat("fork-chat"), name: "Parent (1)" };
+    sessionApi.registerForkedChat(child, owner);
+    sessionApi.registerForkedChat(child, owner);
+    expect(useSessionListStore.getState().sessions.map((s) => s.id)).toEqual([
+      "fork-chat",
+      "running-chat",
+    ]);
+    stale.resolve([]);
+    await expect(pending).resolves.toEqual([
+      expect.objectContaining({ id: "fork-chat", name: "Parent (1)" }),
+      expect.objectContaining({ id: "running-chat", generating: true }),
+    ]);
+    listChats.mockRejectedValueOnce(new Error("offline"));
+    await expect(sessionApi.getSessionList()).rejects.toThrow("offline");
+    expect(useSessionListStore.getState().sessions[0].id).toBe("fork-chat");
+    sessionApi.setActiveAgent("B");
+    const before = useSessionListStore.getState().sessions;
+    sessionApi.registerForkedChat(createdChat("late-fork"), owner);
+    expect(useSessionListStore.getState().sessions).toBe(before);
   });
 });
 
@@ -451,7 +477,7 @@ describe("durable transcript pagination", () => {
     });
   });
 
-  it("continues a fragmented turn until the navigation target is present", async () => {
+  it("publishes a navigation fragment and resumes from its cursor", async () => {
     const chatId = "44444444-4444-4444-8444-444444444444";
     const getMessages = vi
       .spyOn(api, "getChatMessages")
@@ -472,6 +498,11 @@ describe("durable transcript pagination", () => {
       "target-user",
     );
 
+    expect(getMessages).toHaveBeenCalledTimes(1);
+    expect(target.messages.map((message) => message.id)).toEqual([
+      "assistant-fragment",
+    ]);
+    const resumed = await sessionApi.loadOlderHistory(chatId);
     expect(getMessages).toHaveBeenCalledTimes(2);
     expect(getMessages).toHaveBeenNthCalledWith(2, chatId, {
       before: "fragment-cursor",
@@ -479,7 +510,7 @@ describe("durable transcript pagination", () => {
       signal: undefined,
       include_app_owned: false,
     });
-    expect(target.messages.map((message) => message.id)).toEqual([
+    expect(resumed.messages.map((message) => message.id)).toEqual([
       "target-user",
       "assistant-fragment",
     ]);
@@ -538,7 +569,7 @@ describe("durable transcript pagination", () => {
     );
   });
 
-  it("completes exactly the next forward turn without re-reading the old one", async () => {
+  it("resumes a forward turn on the next interaction without skipping fragments", async () => {
     const getMessages = vi
       .spyOn(api, "getChatMessages")
       .mockResolvedValueOnce({
@@ -558,9 +589,19 @@ describe("durable transcript pagination", () => {
       undefined,
       "append-newer",
     );
+    expect(getMessages).toHaveBeenCalledTimes(1);
+    expect(page.messages).toHaveLength(1);
+    const prefix = await sessionApi.loadHistoryAtAnchor(
+      "44444444-4444-4444-8444-444444444444",
+      "anchor-997",
+      "user-992",
+      undefined,
+      "append-newer",
+    );
     expect(getMessages).toHaveBeenCalledTimes(2);
-    expect(page.messages).toHaveLength(2);
-    expect(page.messages[0].id).toBe("user-993");
+    const combined = T.mergeHistoryMessages(prefix.messages, page.messages);
+    expect(combined).toHaveLength(2);
+    expect(combined[0].id).toBe("user-993");
     expect(getMessages.mock.calls[0][1]).toMatchObject({
       after_message_id: "user-992",
       limit: 1,
@@ -650,7 +691,7 @@ describe("durable transcript pagination", () => {
     expect(exhausted).toEqual({ messages: [], noMore: true });
   });
 
-  it("publishes a split assistant turn only after its user boundary arrives", async () => {
+  it("publishes a split assistant immediately and fetches its prefix separately", async () => {
     const chatId = "33333333-3333-4333-8333-333333333333";
     vi.spyOn(api, "getChat").mockResolvedValue({
       messages: [msg({ id: "latest", content: "latest" })],
@@ -670,14 +711,16 @@ describe("durable transcript pagination", () => {
       .mockReturnValueOnce(tail.promise);
     await sessionApi.getSession(chatId);
     const published = vi.fn();
-    const load = sessionApi.loadOlderHistory(chatId).then(published);
+    await sessionApi.loadOlderHistory(chatId).then(published);
+    expect(getMessages).toHaveBeenCalledTimes(1);
+    expect(published).toHaveBeenCalledOnce();
+    const load = sessionApi.loadOlderHistory(chatId);
     await vi.waitFor(() => expect(getMessages).toHaveBeenCalledTimes(2));
-    expect(published).not.toHaveBeenCalled();
     expect(getMessages).toHaveBeenLastCalledWith(
       chatId,
       expect.objectContaining({
         before: "middle",
-        limit: 1,
+        limit: 5,
       }),
     );
     tail.resolve({
@@ -685,16 +728,15 @@ describe("durable transcript pagination", () => {
       has_more: true,
       next_before: "previous-turn",
     });
-    await load;
-    expect(published).toHaveBeenCalledOnce();
-    expect(
-      published.mock.calls[0][0].messages.map(
-        (item: { id: string }) => item.id,
-      ),
-    ).toEqual(["older-user", expect.any(String), "latest"]);
-    expect(
-      published.mock.calls[0][0].messages[1].cards[0].data.output[0].id,
-    ).toBe("assistant-tail");
+    const resumed = await load;
+    expect(resumed.messages.map((item) => item.id)).toEqual([
+      "older-user",
+      expect.any(String),
+    ]);
+    const data = resumed.messages[1].cards?.[0].data as {
+      output: { id: string }[];
+    };
+    expect(data.output[0].id).toBe("assistant-tail");
   });
 
   it("does not commit a staged partial page when it is canceled", async () => {

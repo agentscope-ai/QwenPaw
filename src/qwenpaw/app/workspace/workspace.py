@@ -24,6 +24,9 @@ from typing import (
 )
 
 from ...config.timezone import normalize_tz
+from ..._session_signals import TURN_COMMIT_KEY
+from ...schemas import AgentResponse, RunStatus
+from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 from ...config.utils import load_config
 from ...constant import WORKING_DIR
 from ...token_usage.turn_usage import (
@@ -450,7 +453,32 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self._app_services = app_services
 
     @_sdk_observe_stream
-    async def stream_query(
+    async def stream_query(self, request: Any) -> AsyncGenerator[Any, None]:
+        """Lease the session for the entire request, including final writes."""
+        session_id = str(getattr(request, "session_id", "") or "")
+        identity = (
+            session_id,
+            str(getattr(request, "user_id", "") or session_id),
+            str(getattr(request, "channel", "") or "console"),
+        )
+
+        async def can_start():
+            manager = self.chat_manager
+            return manager is None or await manager.can_start_session(identity)
+
+        async with self.task_tracker.session_execution(
+            identity,
+            can_start,
+            owner=self,
+        ):
+            stream = self._stream_query(request)
+            try:
+                async for item in stream:
+                    yield item
+            finally:
+                await stream.aclose()
+
+    async def _stream_query(
         self,
         request: Any,
     ) -> AsyncGenerator[Any, None]:
@@ -506,7 +534,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
         ):
             identity = {
                 "session_id": str(getattr(request, "session_id", "") or ""),
-                "user_id": str(getattr(request, "user_id", "") or ""),
+                "user_id": str(
+                    getattr(request, "user_id", "") or request.session_id,
+                ),
                 "channel": str(
                     getattr(request, "channel", "") or "console",
                 ),
@@ -533,6 +563,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     sanitize_log_value(identity["session_id"]),
                     exc_info=True,
                 )
+                raise
         recorder = TranscriptRecorder(
             store=transcript_store,
             request=request,
@@ -542,7 +573,40 @@ class Workspace:  # pylint: disable=too-many-public-methods
         try:
             await recorder.start()
             async for item in stream:
-                await recorder.observe(item)
+                terminal = isinstance(item, AgentResponse) and item.status in (
+                    RunStatus.Completed,
+                    RunStatus.Cancelled,
+                    RunStatus.Failed,
+                )
+                try:
+                    if terminal:
+                        await self.finalize_turn_usage(request)
+                    await recorder.observe(item)
+                except Exception:
+                    # A failed final commit must not publish its staged state
+                    # through either the error path or channel usage cleanup.
+                    request.request_context.get(TURN_COMMIT_KEY, {}).clear()
+                    request.request_context[
+                        _TURN_USAGE_SNAPSHOT_CONTEXT_KEY
+                    ] = {
+                        "resolved": True,
+                        "usage": None,
+                        "context_usage": None,
+                    }
+                    raise
+                if terminal:
+                    pending = request.request_context.pop(TURN_COMMIT_KEY, {})
+                    checkpoint = pending.get("checkpoint")
+                    if checkpoint is not None:
+                        try:
+                            await CHECKPOINT_RUNTIME.schedule_auto_snapshot(
+                                self,
+                                **checkpoint,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Auto checkpoint scheduling failed",
+                            )
                 yield item
         except (asyncio.CancelledError, GeneratorExit, KeyboardInterrupt):
             await asyncio.shield(recorder.finish("cancelled"))
@@ -576,9 +640,15 @@ class Workspace:  # pylint: disable=too-many-public-methods
             return cached.get("usage"), cached.get("context_usage")
 
         session_id = str(getattr(request, "session_id", "") or "")
-        user_id = str(getattr(request, "user_id", "") or "")
+        user_id = str(getattr(request, "user_id", "") or session_id)
         channel = str(getattr(request, "channel", "") or "console")
         is_command = bool(request_context.get(f"conversation_command"))
+        pending = request_context.get(TURN_COMMIT_KEY)
+        runtime_state = (
+            (pending.get("runtime") or {}).get("state")
+            if pending is not None
+            else None
+        )
         turn, context_usage, _agent_state = await resolve_turn_usage(
             session_id=session_id,
             agent_id=self.agent_id,
@@ -586,6 +656,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
             user_id=user_id,
             channel=channel,
             estimate_missing_usage=not is_command,
+            **({"runtime_state": runtime_state} if runtime_state else {}),
         )
         session = self.session
         previous_usage = None
@@ -610,11 +681,22 @@ class Workspace:  # pylint: disable=too-many-public-methods
         if turn is None and context_usage is None:
             return None, None
 
+        if pending is not None:
+            pending["usage"] = {
+                "usage": (
+                    previous_usage if is_command and turn is None else turn
+                ),
+                "context_usage": context_usage,
+            }
+            return turn, context_usage
+
         session = self.session
         if session is not None:
             try:
                 await session.set_current_usage(
                     session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
                     usage=(
                         previous_usage if is_command and turn is None else turn
                     ),
@@ -626,6 +708,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     sanitize_log_value(session_id),
                     exc_info=True,
                 )
+                raise
 
         store = self.transcript_store
         transcript_turn_id = request_context.get(
@@ -653,6 +736,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     sanitize_log_value(session_id),
                     exc_info=True,
                 )
+                raise
 
         return turn, context_usage
 

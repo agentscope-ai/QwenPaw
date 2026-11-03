@@ -99,6 +99,33 @@ class ChatManager:  # pylint: disable=too-many-public-methods
 
     # ----- Read Operations -----
 
+    async def can_start_run(self, chat_id: str) -> bool:
+        """Validate a resolved chat again at run registration time."""
+        chat = await self.get_chat(chat_id)
+        return chat is not None and not chat.meta.get("deletion_pending")
+
+    async def can_start_session(self, identity: tuple[str, str, str]) -> bool:
+        """Reject direct workspace requests while cleanup remains pending."""
+        session_id, user_id, channel = identity
+        chats = await self.list_chats(
+            user_id=user_id,
+            channel=channel,
+            archived=None,
+        )
+        return not any(
+            chat.session_id == session_id and chat.meta.get("deletion_pending")
+            for chat in chats
+        )
+
+    async def mark_deleting(self, chat_ids: list[str]) -> None:
+        """Keep failed cleanup visible and retryable without new writes."""
+        async with self._lock:
+            for chat_id in chat_ids:
+                chat = await self._repo.get_chat(chat_id)
+                if chat is not None:
+                    chat.meta = {**chat.meta, "deletion_pending": True}
+                    await self._repo.upsert_chat(chat)
+
     async def list_chats(
         self,
         user_id: Optional[str] = None,
@@ -220,6 +247,15 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             Chat spec
         """
         async with self._lock:
+            if spec.session_id:
+                for existing in (await self._repo.load()).chats:
+                    if (
+                        existing.session_id == spec.session_id
+                        and existing.user_id == spec.user_id
+                        and existing.channel == spec.channel
+                        and existing.id != spec.id
+                    ):
+                        return existing
             if spec.group_id is None:
                 spec = spec.model_copy(
                     update={"group_id": _default_group_id(spec.source)},
@@ -234,11 +270,11 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                         root = by_id[root.parent_chat_id]
                     prefix = f"{root.name} ("
                     numbers = [
-                        int(chat.name[len(prefix):-1])
+                        int(chat.name[len(prefix) : -1])
                         for chat in chats
                         if chat.name.startswith(prefix)
                         and chat.name.endswith(")")
-                        and chat.name[len(prefix):-1].isdecimal()
+                        and chat.name[len(prefix) : -1].isdecimal()
                     ]
                     number = max(numbers, default=0) + 1
                     spec = spec.model_copy(

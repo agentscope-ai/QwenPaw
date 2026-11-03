@@ -669,10 +669,10 @@ class PawAppContext:
 
         self._storage = AppStorage(
             session=self._session,
-            namespace=f"pawapp:{self.app_id}",
+            namespace=f"pawapp-storage:{self.app_id}",
             workspace_provider=self._get_workspace,
-            user_id=self.user_id,
-            channel=self.channel,
+            user_id="",
+            channel="",
         )
         self._tools = ToolProxy(
             tool_coordinator=coordinator,

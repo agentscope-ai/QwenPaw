@@ -118,6 +118,8 @@ async def test_workspace_persists_and_caches_turn_usage(has_previous) -> None:
     session.get_current_usage.assert_awaited_once()
     session.set_current_usage.assert_awaited_once_with(
         session_id="session-1",
+        user_id="user-1",
+        channel="console",
         usage=expected,
         context_usage=context_usage,
     )

@@ -108,7 +108,7 @@ def create_scroll_history(db_path: Path) -> HistoryStore:
     from .scroll.history import HistoryStore
 
     _warn_db_size(db_path)
-    return HistoryStore(db_path)
+    return HistoryStore(db_path, shared_database=True)
 
 
 def build_scroll_components(

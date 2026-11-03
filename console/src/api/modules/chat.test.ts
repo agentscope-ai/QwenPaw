@@ -196,7 +196,7 @@ describe("chatApi CRUD", () => {
   it("getChat encodes chatId and sends GET", async () => {
     await chatApi.getChat("chat/1");
     expect(request).toHaveBeenCalledWith(
-      "/chats/chat%2F1",
+      "/chats/chat%2F1?full_history=false",
       expect.objectContaining({ signal: undefined }),
     );
   });
@@ -204,7 +204,7 @@ describe("chatApi CRUD", () => {
   it("getChat can exclude PawApp-owned dialogue history", async () => {
     await chatApi.getChat("chat-1", { include_app_owned: false });
     expect(request).toHaveBeenCalledWith(
-      "/chats/chat-1?include_app_owned=false",
+      "/chats/chat-1?full_history=false&include_app_owned=false",
       expect.objectContaining({ signal: undefined }),
     );
   });
@@ -218,7 +218,7 @@ describe("chatApi CRUD", () => {
     const controller = new AbortController();
     await chatApi.getChat("chat-1", { signal: controller.signal });
     expect(request).toHaveBeenCalledWith(
-      "/chats/chat-1",
+      "/chats/chat-1?full_history=false",
       expect.objectContaining({ signal: controller.signal }),
     );
   });
@@ -230,7 +230,7 @@ describe("chatApi CRUD", () => {
       include_app_owned: true,
     });
     expect(request).toHaveBeenCalledWith(
-      "/chats/chat-1?include_app_owned=true",
+      "/chats/chat-1?full_history=false&include_app_owned=true",
       expect.objectContaining({ signal: controller.signal }),
     );
   });

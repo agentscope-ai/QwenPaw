@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from ...schemas import Message
 from ...token_usage.turn_usage import TURN_USAGE_META_KEY
@@ -37,14 +37,14 @@ def _object_json(connection: sqlite3.Connection, content_hash: str) -> Any:
     return json.loads(bytes(row[0]).decode("utf-8"))
 
 
-def _events(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+def _events(connection: sqlite3.Connection) -> sqlite3.Cursor:
     return connection.execute(
         "SELECT * FROM event_log ORDER BY seq",
-    ).fetchall()
+    )
 
 
 def _session_identity(
-    rows: list[sqlite3.Row],
+    rows: Iterable[sqlite3.Row],
 ) -> tuple[str, str, str, str]:
     for row in rows:
         if row["event_type"] != "session.created":
@@ -248,33 +248,43 @@ def _project_conversation_event(
 
 def rebuild_projections(connection: sqlite3.Connection) -> None:
     """Recreate UI and runtime heads without changing immutable facts."""
-    rows = _events(connection)
-    session_id, storage_id, user_id, channel = _session_identity(rows)
+    session_id, storage_id, user_id, channel = _session_identity(
+        _events(connection),
+    )
     connection.execute("DELETE FROM transcript_blocks")
     connection.execute("DELETE FROM transcript_messages")
     connection.execute("DELETE FROM projection_turn_usage")
     connection.execute("DELETE FROM turn_context_revision")
     connection.execute("DELETE FROM transcript_turns")
     connection.execute("DELETE FROM session_runtime")
+    connection.execute("DELETE FROM current_context_revision")
     connection.execute(
         "UPDATE transcript_sessions SET next_turn_seq = 1 "
         "WHERE session_id = ?",
         (session_id,),
     )
     latest_runtime: dict[str, Any] | None = None
-    recall_rows: dict[int, dict[str, Any]] = {}
-    for row in rows:
+    connection.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS rebuild_recall("
+        "seq INTEGER PRIMARY KEY, content_hash TEXT NOT NULL)",
+    )
+    connection.execute("DELETE FROM rebuild_recall")
+    last_seq = 0
+    for row in _events(connection):
+        last_seq = int(row["seq"])
         payload = json.loads(row["payload_json"])
         event_type = str(row["event_type"])
         if event_type == "recall.entry_committed":
-            recall_rows[int(payload["source_seq"])] = _object_json(
-                connection,
-                str(payload["entry_ref"]),
+            connection.execute(
+                "INSERT OR REPLACE INTO rebuild_recall VALUES (?, ?)",
+                (int(payload["source_seq"]), str(payload["entry_ref"])),
             )
         elif event_type == "recall.entries_purged":
             purge = _object_json(connection, str(payload["purge_ref"]))
-            for seq in purge["seqs"]:
-                recall_rows.pop(int(seq), None)
+            connection.executemany(
+                "DELETE FROM rebuild_recall WHERE seq = ?",
+                ((int(seq),) for seq in purge["seqs"]),
+            )
         else:
             _, runtime = _project_conversation_event(
                 connection,
@@ -304,6 +314,10 @@ def rebuild_projections(connection: sqlite3.Connection) -> None:
         ).fetchone()
         if revision is None:
             raise ValueError("runtime revision is missing")
+        connection.execute(
+            "INSERT INTO current_context_revision VALUES (?, ?)",
+            (session_id, revision_id),
+        )
         state = read_revision_state(
             connection,
             session_id=session_id,
@@ -341,7 +355,10 @@ def rebuild_projections(connection: sqlite3.Connection) -> None:
             "created_at",
             "dedup_key",
         )
-        for seq, value in sorted(recall_rows.items()):
+        for seq, content_hash in connection.execute(
+            "SELECT seq, content_hash FROM rebuild_recall ORDER BY seq",
+        ):
+            value = _object_json(connection, content_hash)
             connection.execute(
                 "INSERT INTO conversation_history("
                 "seq, "
@@ -361,7 +378,7 @@ def rebuild_projections(connection: sqlite3.Connection) -> None:
                 "(conversation_history_fts) VALUES('rebuild')",
             )
     timestamp = datetime.now(timezone.utc).isoformat()
-    last_seq = int(rows[-1]["seq"]) if rows else 0
+    connection.execute("DROP TABLE rebuild_recall")
     connection.execute(
         "INSERT INTO projection_watermarks VALUES ('conversation', 1, ?, ?) "
         "ON CONFLICT(projector_name) DO UPDATE SET "

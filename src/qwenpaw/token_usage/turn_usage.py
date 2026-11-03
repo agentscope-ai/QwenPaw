@@ -198,17 +198,22 @@ async def resolve_turn_usage(
     user_id: str,
     channel: str,
     estimate_missing_usage: bool = True,
+    runtime_state: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, Any | None]:
     """Resolve turn/ctx from provider usage + full agent-state estimate."""
     turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
     if session is None:
         return turn, None, None
 
-    agent_state = await _load_agent_state(
-        session=session,
-        session_id=session_id,
-        user_id=user_id,
-        channel=channel,
+    agent_state = (
+        _agent_state_from_snapshot(runtime_state)
+        if runtime_state is not None
+        else await _load_agent_state(
+            session=session,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
     )
     if agent_state is None:
         return turn, None, None
@@ -295,6 +300,11 @@ async def _load_agent_state(
     except Exception:
         logger.debug("get_session_state_dict skipped", exc_info=True)
         return None
+    return _agent_state_from_snapshot(state)
+
+
+def _agent_state_from_snapshot(state: dict[str, Any]) -> Any | None:
+    """Parse the agent component of a persisted or pending snapshot."""
     if not state:
         return None
     agent_raw = state.get("agent", {})

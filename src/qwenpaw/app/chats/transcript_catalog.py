@@ -150,9 +150,22 @@ class TranscriptCatalog:
             ):
                 continue
             db_path = self._store_path(storage_id)
+            registered = self._catalog_row(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            if registered is not None:
+                if registered["storage_id"] != storage_id:
+                    raise ValueError("chat catalog identity mismatch")
+                continue
             if not db_path.is_file():
                 continue
-            store = TranscriptStore(db_path, storage_id=storage_id)
+            store = TranscriptStore(
+                db_path,
+                storage_id=storage_id,
+                create=False,
+            )
             try:
                 if not store.has_session(
                     session_id=session_id,
@@ -231,28 +244,39 @@ class TranscriptCatalog:
 
         if not create:
             return None
-        storage_id = (
-            storage_id
-            or self._chat_storage_id(
+        with self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._catalog_row(
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
             )
-            or str(uuid4())
-        )
-        target = self._store_path(storage_id)
-        if target.exists():
-            store = TranscriptStore(target, storage_id=storage_id)
-            try:
-                if not store.has_session(
+            if row is not None:
+                return row
+            storage_id = (
+                storage_id
+                or self._chat_storage_id(
                     session_id=session_id,
                     user_id=user_id,
                     channel=channel,
-                ):
-                    raise ValueError("orphan transcript identity mismatch")
-            finally:
+                )
+                or str(uuid4())
+            )
+            target = self._store_path(storage_id)
+            if target.exists():
+                store = TranscriptStore(target, storage_id=storage_id)
+                try:
+                    if not store.has_session(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                    ):
+                        raise ValueError("orphan transcript identity mismatch")
+                finally:
+                    store.close()
+            else:
+                store = TranscriptStore(target, storage_id=storage_id)
                 store.close()
-        with self._conn:
             self._conn.execute(
                 "INSERT INTO transcript_files("
                 "session_id, user_id, channel, storage_id) "
@@ -264,11 +288,11 @@ class TranscriptCatalog:
                     storage_id,
                 ),
             )
-        return self._catalog_row(
-            session_id=session_id,
-            user_id=user_id,
-            channel=channel,
-        )
+            return self._catalog_row(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
 
     @contextmanager
     def _lease(
@@ -301,6 +325,7 @@ class TranscriptCatalog:
                         TranscriptStore(
                             path,
                             storage_id=storage_id,
+                            create=False,
                         ),
                     )
                     if self._recover_orphaned_turns:
@@ -608,6 +633,7 @@ class TranscriptCatalog:
                     user_id=user_id,
                     channel=channel,
                     state={},
+                    only_if_missing=True,
                 )
                 handle.store.update_runtime_state(
                     session_id=session_id,
@@ -724,6 +750,16 @@ class TranscriptCatalog:
             channel=kwargs.get("channel"),
         )
 
+    def commit_turn(self, **kwargs: Any) -> None:
+        """Commit a terminal turn while holding its session lease."""
+        self._write_existing("commit_turn", **kwargs)
+        self._release_turn(
+            str(kwargs["session_id"]),
+            str(kwargs["turn_id"]),
+            user_id=kwargs.get("user_id"),
+            channel=kwargs.get("channel"),
+        )
+
     def read_replay_page(self, **kwargs: Any) -> list[tuple[int, str]]:
         """Read a bounded committed replay page under a session lease."""
         session_id = str(kwargs["session_id"])
@@ -758,6 +794,7 @@ class TranscriptCatalog:
         channel: str,
         before: TranscriptCursor | None = None,
         after_message_id: str | None = None,
+        before_message_id: str | None = None,
         limit: int = 20,
         max_bytes: int = 2 * 1024 * 1024,
         max_content_blocks: int = 40,
@@ -777,6 +814,7 @@ class TranscriptCatalog:
                 channel=channel,
                 before=before,
                 after_message_id=after_message_id,
+                before_message_id=before_message_id,
                 limit=limit,
                 max_bytes=max_bytes,
                 max_content_blocks=max_content_blocks,

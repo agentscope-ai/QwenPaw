@@ -44,6 +44,13 @@ _BUSY_TIMEOUT_MS = 5000
 TurnStatus = Literal["running", "completed", "failed", "cancelled"]
 _DEFAULT_PAGE_MAX_BYTES = 2 * 1024 * 1024
 _DEFAULT_PAGE_MAX_CONTENT_BLOCKS = 40
+_VISIBLE_TURN_AT_SNAPSHOT = (
+    "NOT EXISTS (SELECT 1 FROM transcript_turns replacement "
+    "JOIN event_log terminal ON terminal.turn_id = replacement.turn_id "
+    "WHERE replacement.session_id = t.session_id "
+    "AND replacement.replaces_turn_id = t.turn_id "
+    "AND terminal.event_type = 'turn.completed' AND terminal.seq <= ?) "
+)
 
 
 def _utc_now() -> str:
@@ -81,14 +88,19 @@ class TranscriptStore:
         db_path: str | Path,
         *,
         storage_id: str | None = None,
+        create: bool = True,
     ) -> None:
         self._path = Path(db_path).expanduser()
         self._storage_id = storage_id or self._path.stem
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False
+        uri = self._path.resolve().as_uri() + (
+            "?mode=rwc" if create else "?mode=rw"
+        )
         self._conn = sqlite3.connect(
-            str(self._path),
+            uri,
+            uri=True,
             check_same_thread=False,
         )
         self._conn.row_factory = sqlite3.Row
@@ -138,13 +150,16 @@ class TranscriptStore:
     @contextmanager
     def _transaction(self) -> Iterator[None]:
         with self._lock:
+            if self._conn.in_transaction:
+                yield
+                return
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 yield
+                self._conn.commit()
             except BaseException:
                 self._conn.rollback()
                 raise
-            self._conn.commit()
 
     def _write_fact_object(self, *, codec: str, value: Any) -> str:
         payload = _canonical_json(value).encode("utf-8")
@@ -243,7 +258,7 @@ class TranscriptStore:
             has_history = (
                 connection.execute(
                     "SELECT 1 FROM transcript_turns WHERE session_id = ? "
-                    "AND status != 'running' LIMIT 1",
+                    "AND status = 'completed' LIMIT 1",
                     (session_id,),
                 ).fetchone()
                 is not None
@@ -573,6 +588,7 @@ class TranscriptStore:
         migration_approximate: bool = False,
         context_generation: int | None = None,
         exact_current_usage: bool = False,
+        legacy_import: bool = False,
     ) -> tuple[int, bool]:
         """Persist one runtime snapshot and optionally start a new context."""
         state_json = _canonical_json(state)
@@ -604,6 +620,16 @@ class TranscriptStore:
                 "FROM session_runtime WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
+            if existing is not None and legacy_import:
+                revision = self._conn.execute(
+                    "SELECT r.kind FROM current_context_revision c "
+                    "JOIN context_revisions r ON r.session_id = c.session_id "
+                    "AND r.revision_id = c.revision_id "
+                    "WHERE c.session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                if revision is None or revision[0] != "migration_approximate":
+                    return int(existing["context_generation"]), False
             if existing is not None and only_if_missing:
                 if migration_anchor:
                     self._ensure_migration_anchor(
@@ -1041,6 +1067,7 @@ class TranscriptStore:
                                 target_user_id=user_id,
                                 target_channel=channel,
                                 native_context=True,
+                                restore_active=True,
                             )
                         restored._conn.backup(self._conn)
                     finally:
@@ -1119,14 +1146,16 @@ class TranscriptStore:
                         target_session_id=target_session_id,
                     ),
                     context_generation=int(runtime["context_generation"]),
-                    current_usage=json.loads(runtime["current_usage_json"])
-                    if runtime["current_usage_json"]
-                    else None,
+                    current_usage=(
+                        json.loads(runtime["current_usage_json"])
+                        if runtime["current_usage_json"]
+                        else None
+                    ),
                     exact_current_usage=True,
                 )
             from ...agents.context.scroll.history import HistoryStore
 
-            history = HistoryStore(self._path)
+            history = HistoryStore(self._path, shared_database=True)
             history.close()
             self._fork_copy_recall_events(
                 source,
@@ -1195,9 +1224,14 @@ class TranscriptStore:
         target_channel: str,
         native_context: bool = False,
         agent_only: bool = False,
+        restore_active: bool = False,
     ) -> None:
         """Copy one materialized turn as new append-only target facts."""
         source_turn_id = str(turn["turn_id"])
+        recorded_start = self._conn.execute(
+            "SELECT 1 FROM event_log WHERE idempotency_key = ?",
+            (f"turn:{source_turn_id}:started",),
+        ).fetchone()
         self.start_turn(
             session_id=target_session_id,
             user_id=target_user_id,
@@ -1206,6 +1240,24 @@ class TranscriptStore:
             replaces_turn_id=turn["replaces_turn_id"],
             created_at=str(turn["created_at"]),
         )
+        if restore_active and recorded_start:
+            with self._transaction():
+                restored_turn = self._conn.execute(
+                    "SELECT turn_seq FROM transcript_turns "
+                    "WHERE session_id = ? AND turn_id = ?",
+                    (target_session_id, source_turn_id),
+                ).fetchone()
+                self._append_fact(
+                    event_type="turn.started",
+                    payload={
+                        "created_at": str(turn["created_at"]),
+                        "replaces_turn_id": turn["replaces_turn_id"],
+                        "turn_seq": restored_turn[0],
+                    },
+                    idempotency_key=f"restore:turn:{uuid4().hex}",
+                    recorded_at=_utc_now(),
+                    turn_id=source_turn_id,
+                )
         messages = source.execute(
             "SELECT payload_json FROM event_log "
             "WHERE event_type = 'message.committed' AND turn_id = ? "
@@ -1243,6 +1295,7 @@ class TranscriptStore:
                 ordinal=int(row["ordinal"]),
                 created_at=str(row["created_at"]),
                 finished_at=row["finished_at"],
+                force_event=restore_active,
             )
 
         revision = source.execute(
@@ -1492,7 +1545,7 @@ class TranscriptStore:
 
             from ...agents.context.scroll.history import HistoryStore
 
-            history = HistoryStore(self._path)
+            history = HistoryStore(self._path, shared_database=True)
             history.close()
 
             turns = source.execute(
@@ -1574,7 +1627,7 @@ class TranscriptStore:
         """Cancel turns left running by a previous process."""
         with self._lock:
             orphans = self._conn.execute(
-                "SELECT turn_id FROM transcript_turns "
+                "SELECT session_id, turn_id FROM transcript_turns "
                 "WHERE status = 'running' ORDER BY turn_seq",
             ).fetchall()
             if not orphans:
@@ -1600,15 +1653,12 @@ class TranscriptStore:
                         recorded_at=timestamp,
                         turn_id=turn_id,
                     )
-                self._conn.execute(
-                    "INSERT OR IGNORE INTO turn_context_revision "
-                    "SELECT r.session_id, r.anchor_turn_id, r.revision_id "
-                    "FROM context_revisions r "
-                    "JOIN transcript_turns t "
-                    "ON t.session_id = r.session_id "
-                    "AND t.turn_id = r.anchor_turn_id "
-                    "WHERE t.status = 'cancelled'",
-                )
+                for orphan in orphans:
+                    commit_turn_revision(
+                        self._conn,
+                        session_id=str(orphan["session_id"]),
+                        turn_id=str(orphan["turn_id"]),
+                    )
                 return cursor.rowcount
 
     def rebuild_projections(self) -> None:
@@ -1912,6 +1962,7 @@ class TranscriptStore:
         ordinal: int,
         created_at: str | None = None,
         finished_at: str | None = None,
+        force_event: bool = False,
     ) -> None:
         """Insert or update one complete display message snapshot."""
         del user_id, channel
@@ -1980,6 +2031,22 @@ class TranscriptStore:
                     },
                 ).encode("utf-8"),
             ).hexdigest()
+            key_prefix = f"message:{message.id}:{snapshot_hash}"
+            latest = self._conn.execute(
+                "SELECT idempotency_key FROM event_log "
+                "WHERE message_id = ? AND event_type = 'message.committed' "
+                "ORDER BY seq DESC LIMIT 1",
+                (message.id,),
+            ).fetchone()
+            if (
+                not force_event
+                and latest
+                and (
+                    latest[0] == key_prefix
+                    or latest[0].startswith(key_prefix + ":")
+                )
+            ):
+                return
             self._append_fact(
                 event_type="message.committed",
                 payload={
@@ -1991,7 +2058,7 @@ class TranscriptStore:
                     "ordinal": ordinal,
                     "role": role,
                 },
-                idempotency_key=f"message:{message.id}:{snapshot_hash}",
+                idempotency_key=f"{key_prefix}:{uuid4().hex}",
                 recorded_at=timestamp,
                 turn_id=turn_id,
                 message_id=message.id,
@@ -2034,6 +2101,66 @@ class TranscriptStore:
                 result.append((int(row["ordinal"]), payload))
                 size += length
         return result
+
+    def commit_turn(
+        self,
+        *,
+        session_id: str,
+        user_id: str | None = None,
+        channel: str | None = None,
+        turn_id: str,
+        status: TurnStatus,
+        messages: list[tuple[Message, int]],
+        runtime: dict[str, Any] | None = None,
+        usage: dict[str, Any] | None = None,
+        error: dict[str, Any] | None = None,
+        finished_at: str | None = None,
+    ) -> None:
+        """Commit final projections and their facts as one transaction."""
+        del user_id, channel
+        with self._transaction():
+            session = self._session_row(session_id)
+            if session is None:
+                raise ValueError("transcript session does not exist")
+            for message, ordinal in messages:
+                self.upsert_message(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    message=message,
+                    ordinal=ordinal,
+                    finished_at=finished_at,
+                )
+            if runtime is not None:
+                self.write_runtime_state(
+                    session_id=session_id,
+                    user_id=session["user_id"],
+                    channel=session["channel"],
+                    turn_id=turn_id,
+                    current_usage=usage,
+                    **runtime,
+                )
+            elif (
+                usage is not None
+                and self._conn.execute(
+                    "SELECT 1 FROM session_runtime WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                is not None
+            ):
+                self.set_current_usage(session_id=session_id, **usage)
+            if usage is not None:
+                self.attach_turn_usage(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    **usage,
+                )
+            self.finish_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                status=status,
+                error=error,
+                finished_at=finished_at,
+            )
 
     def finish_turn(
         self,
@@ -2187,12 +2314,23 @@ class TranscriptStore:
         channel: str,
         before: TranscriptCursor | None = None,
         after_message_id: str | None = None,
+        before_message_id: str | None = None,
         limit: int = 5,
         max_bytes: int = _DEFAULT_PAGE_MAX_BYTES,
         max_content_blocks: int = _DEFAULT_PAGE_MAX_CONTENT_BLOCKS,
     ) -> TranscriptPage | None:
         """Read a turn-, block-, and byte-bounded durable history page."""
-        if before is not None and after_message_id is not None:
+        if (
+            sum(
+                value is not None
+                for value in (
+                    before,
+                    after_message_id,
+                    before_message_id,
+                )
+            )
+            > 1
+        ):
             raise ValueError("history boundaries are mutually exclusive")
         if limit < 1 or limit > 100:
             raise ValueError(
@@ -2220,6 +2358,31 @@ class TranscriptStore:
                 if before is not None and before.snapshot_turn_seq is not None
                 else max(0, int(session["next_turn_seq"]) - 1)
             )
+            snapshot_event_seq = (
+                before.snapshot_event_seq
+                if before is not None and before.snapshot_event_seq is not None
+                else int(
+                    connection.execute(
+                        "SELECT COALESCE(MAX(seq), 0) FROM event_log",
+                    ).fetchone()[0],
+                )
+            )
+            if before_message_id is not None:
+                boundary = connection.execute(
+                    "SELECT t.turn_seq FROM transcript_messages m "
+                    "JOIN transcript_turns t ON t.session_id=m.session_id "
+                    "AND t.turn_id=m.turn_id WHERE m.session_id=? "
+                    "AND m.message_id=? AND m.superseded_at IS NULL",
+                    (session_id, before_message_id),
+                ).fetchone()
+                if boundary is None:
+                    raise ValueError("history boundary message not found")
+                before = TranscriptCursor(
+                    turn_seq=int(boundary["turn_seq"]),
+                    ordinal=0,
+                    snapshot_turn_seq=snapshot_turn_seq,
+                    snapshot_event_seq=snapshot_event_seq,
+                )
             turn_sql = "SELECT t.turn_seq FROM transcript_turns t "
             after_turn_seq: int | None = None
             if after_message_id is not None:
@@ -2256,11 +2419,13 @@ class TranscriptStore:
                         next_before=None,
                         has_more=False,
                         snapshot_turn_seq=snapshot_turn_seq,
+                        snapshot_event_seq=snapshot_event_seq,
                     )
                 before = TranscriptCursor(
                     turn_seq=int(following[-1]["turn_seq"]) + 1,
                     ordinal=0,
                     snapshot_turn_seq=snapshot_turn_seq,
+                    snapshot_event_seq=snapshot_event_seq,
                 )
             turn_sql += "WHERE t.session_id = ? AND t.turn_seq <= ? "
             params: list[Any] = [session_id, snapshot_turn_seq]
@@ -2278,11 +2443,11 @@ class TranscriptStore:
                 "AND EXISTS (SELECT 1 FROM transcript_messages vm "
                 "WHERE vm.session_id = t.session_id "
                 "AND vm.turn_id = t.turn_id "
-                "AND vm.superseded_at IS NULL "
-                "AND (t.status != 'running' OR vm.role = 'user')) "
-                "ORDER BY t.turn_seq DESC LIMIT ?"
+                "AND (t.status != 'running' OR vm.role = 'user')) AND "
+                + _VISIBLE_TURN_AT_SNAPSHOT
+                + "ORDER BY t.turn_seq DESC LIMIT ?"
             )
-            params.append(limit + 1)
+            params.extend([snapshot_event_seq, limit + 1])
             candidates = connection.execute(turn_sql, params).fetchall()
             selected_turns = [
                 int(row["turn_seq"]) for row in candidates[:limit]
@@ -2293,17 +2458,20 @@ class TranscriptStore:
                     next_before=None,
                     has_more=False,
                     snapshot_turn_seq=snapshot_turn_seq,
+                    snapshot_event_seq=snapshot_event_seq,
                 )
 
             message_filter = (
                 "FROM transcript_turns t CROSS JOIN transcript_messages m "
                 "ON m.session_id = t.session_id AND m.turn_id = t.turn_id "
-                "WHERE t.session_id = ? AND m.superseded_at IS NULL "
-                "AND (t.status != 'running' OR m.role = 'user') "
+                "WHERE t.session_id = ? AND "
+                + _VISIBLE_TURN_AT_SNAPSHOT
+                + "AND (t.status != 'running' OR m.role = 'user') "
                 "AND t.turn_seq IN (SELECT value FROM json_each(?)) "
             )
             message_params: list[Any] = [
                 session_id,
+                snapshot_event_seq,
                 json.dumps(selected_turns),
             ]
             if before is not None and (
@@ -2336,6 +2504,7 @@ class TranscriptStore:
                 connection=connection,
                 before=before,
                 snapshot_turn_seq=snapshot_turn_seq,
+                snapshot_event_seq=snapshot_event_seq,
                 max_bytes=max_bytes,
                 max_content_blocks=max_content_blocks,
                 has_more=len(candidates) > limit,
@@ -2346,6 +2515,7 @@ class TranscriptStore:
                     next_before=None,
                     has_more=False,
                     snapshot_turn_seq=snapshot_turn_seq,
+                    snapshot_event_seq=snapshot_event_seq,
                 )
 
             selection.messages.reverse()
@@ -2356,6 +2526,7 @@ class TranscriptStore:
                 ),
                 has_more=selection.has_more,
                 snapshot_turn_seq=snapshot_turn_seq,
+                snapshot_event_seq=snapshot_event_seq,
             )
 
     def get_user_message_text(
@@ -2423,25 +2594,38 @@ class TranscriptStore:
                 if before is not None and before.snapshot_turn_seq is not None
                 else max(0, int(session["next_turn_seq"]) - 1)
             )
+            snapshot_event_seq = (
+                before.snapshot_event_seq
+                if before is not None and before.snapshot_event_seq is not None
+                else int(
+                    connection.execute(
+                        "SELECT COALESCE(MAX(seq), 0) FROM event_log",
+                    ).fetchone()[0],
+                )
+            )
             query = (
-                "SELECT m.message_id, m.payload_json, m.created_at, "
+                "SELECT m.message_id, m.created_at, "
                 "m.client_message_id, "
                 "m.ordinal, t.turn_seq "
                 "FROM transcript_turns AS t "
-                "JOIN transcript_message_payloads AS m "
+                "JOIN transcript_messages AS m "
                 "ON m.session_id = t.session_id "
                 "AND m.turn_id = t.turn_id "
                 "WHERE t.session_id = ? AND t.turn_seq <= ? "
-                "AND m.role = 'user' AND m.superseded_at IS NULL "
+                "AND m.role = 'user' AND " + _VISIBLE_TURN_AT_SNAPSHOT
             )
-            params: list[Any] = [session_id, snapshot_turn_seq]
+            params: list[Any] = [
+                session_id,
+                snapshot_turn_seq,
+                snapshot_event_seq,
+            ]
             total = int(
                 connection.execute(
                     "SELECT COUNT(*) FROM transcript_turns AS t "
-                    "JOIN transcript_message_payloads AS m "
+                    "JOIN transcript_messages AS m "
                     "ON m.session_id = t.session_id AND m.turn_id = t.turn_id "
                     "WHERE t.session_id = ? AND t.turn_seq <= ? "
-                    "AND m.role = 'user' AND m.superseded_at IS NULL",
+                    "AND m.role = 'user' AND " + _VISIBLE_TURN_AT_SNAPSHOT,
                     params,
                 ).fetchone()[0],
             )
@@ -2461,7 +2645,9 @@ class TranscriptStore:
             items = []
             for row in selected:
                 preview = self._user_message_preview(
-                    row["payload_json"],
+                    connection,
+                    session_id,
+                    str(row["message_id"]),
                 )
                 items.append(
                     TranscriptUserMessage(
@@ -2473,6 +2659,7 @@ class TranscriptStore:
                             turn_seq=int(row["turn_seq"]) + 1,
                             ordinal=0,
                             snapshot_turn_seq=snapshot_turn_seq,
+                            snapshot_event_seq=snapshot_event_seq,
                         ),
                     ),
                 )
@@ -2484,29 +2671,59 @@ class TranscriptStore:
                     turn_seq=int(oldest["turn_seq"]),
                     ordinal=int(oldest["ordinal"]),
                     snapshot_turn_seq=snapshot_turn_seq,
+                    snapshot_event_seq=snapshot_event_seq,
                 )
             return TranscriptUserMessagePage(
                 items=items,
                 next_before=next_before,
                 has_more=has_more,
                 snapshot_turn_seq=snapshot_turn_seq,
+                snapshot_event_seq=snapshot_event_seq,
                 total=total,
             )
 
     @staticmethod
     def _user_message_preview(
-        payload_json: str,
+        connection: sqlite3.Connection,
+        session_id: str,
+        message_id: str,
         limit: int = 160,
     ) -> str:
-        """Extract a bounded single-line preview from a user message."""
-        message = Message.model_validate_json(payload_json)
-        text = "\n".join(
-            content.text
-            for content in message.content
-            if isinstance(content, TextContent)
+        """Read text blocks incrementally without decoding attachments."""
+        blocks = connection.execute(
+            "SELECT ordinal FROM transcript_blocks WHERE session_id = ? "
+            "AND message_id = ? AND kind = 'text' ORDER BY ordinal",
+            (session_id, message_id),
         )
-        preview = " ".join(text.split())[:limit]
-        return preview
+        preview: list[str] = []
+        for (ordinal,) in blocks:
+            whitespace = bool(preview)
+            offset = 1
+            while True:
+                text = (
+                    connection.execute(
+                        "SELECT substr(json_extract(payload_json, '$.text'), "
+                        "?, 1024) FROM transcript_blocks WHERE session_id = ? "
+                        "AND message_id = ? AND ordinal = ?",
+                        (offset, session_id, message_id, ordinal),
+                    ).fetchone()[0]
+                    or ""
+                )
+                for char in text:
+                    if char.isspace():
+                        whitespace = bool(preview)
+                        continue
+                    if whitespace:
+                        preview.append(" ")
+                        whitespace = False
+                    if len(preview) < limit:
+                        preview.append(char)
+                    if len(preview) >= limit:
+                        return "".join(preview)
+                if len(text) < 1024:
+                    break
+                offset += len(text)
+        return "".join(preview)
 
     def find_turn_for_message(
         self,

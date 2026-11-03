@@ -18,6 +18,7 @@ class TranscriptCursor:
     content_before: int = 0
     text_before: int = 0
     snapshot_turn_seq: int | None = field(default=None, compare=False)
+    snapshot_event_seq: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class TranscriptPage:
     next_before: TranscriptCursor | None
     has_more: bool
     snapshot_turn_seq: int
+    snapshot_event_seq: int = 0
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,7 @@ class TranscriptUserMessagePage:
     has_more: bool
     snapshot_turn_seq: int
     total: int = 0
+    snapshot_event_seq: int = 0
 
 
 @dataclass(frozen=True)

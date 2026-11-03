@@ -29,6 +29,29 @@ export function splitHistoryMessagesIntoTurnRows(
   return rowsFromNewest.reverse();
 }
 
+/** Bound cached history while keeping complete turns and scroll anchors.
+ * Oversized turns and the incoming page plus its scroll anchor stay intact. */
+export function boundHistoryRows(
+  rows: IAgentScopeRuntimeWebUIMessage[][],
+  keep: "oldest" | "newest",
+  minimumRows = 1,
+): IAgentScopeRuntimeWebUIMessage[][] {
+  const selected: IAgentScopeRuntimeWebUIMessage[][] = [];
+  let bytes = 0;
+  const candidates = keep === "oldest" ? rows : [...rows].reverse();
+  for (const row of candidates) {
+    const size = JSON.stringify(row).length * 2;
+    if (
+      selected.length >= minimumRows &&
+      (selected.length >= 20 || bytes + size > 8 * 1024 * 1024)
+    )
+      break;
+    selected.push(row);
+    bytes += size;
+  }
+  return keep === "oldest" ? selected : selected.reverse();
+}
+
 export interface HistoryWindowSnapshot {
   sessionId: string;
   turnRows: IAgentScopeRuntimeWebUIMessage[][];

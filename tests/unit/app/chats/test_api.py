@@ -125,6 +125,7 @@ async def test_delete_chat_stops_a_live_run():
         get_chat=AsyncMock(return_value=_chat("chat-live")),
         list_chats=AsyncMock(return_value=[_chat("chat-live")]),
         delete_chats=AsyncMock(return_value=True),
+        mark_deleting=AsyncMock(),
     )
     workspace = SimpleNamespace(
         task_tracker=tracker,

@@ -718,7 +718,7 @@ describe("history message window store", () => {
     expect(onNavigateToUserMessage).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         messageId: "user-1",
-        anchor: "opaque-anchor-2",
+        anchor: "opaque-anchor-1",
       }),
       "replace",
     );

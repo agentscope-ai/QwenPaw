@@ -32,6 +32,7 @@ class TranscriptPageBuilder:
         connection: sqlite3.Connection,
         before: TranscriptCursor | None,
         snapshot_turn_seq: int,
+        snapshot_event_seq: int = 0,
         max_bytes: int,
         max_content_blocks: int,
         has_more: bool,
@@ -120,6 +121,7 @@ class TranscriptPageBuilder:
                 content_before=content_start,
                 text_before=text_start,
                 snapshot_turn_seq=snapshot_turn_seq,
+                snapshot_event_seq=snapshot_event_seq,
             )
             if content_start > 0 or text_start > 0:
                 has_more = True

@@ -45,7 +45,7 @@ from ..approvals.display import approval_display_fields
 from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
 from ..replay_snapshot import ReplayPrefix
-from ..task_tracker import REPLAY_END_SSE
+from ..task_tracker import REPLAY_END_SSE, RunUnavailableError
 from ..utils import check_upload_size
 
 logger = logging.getLogger(__name__)
@@ -552,13 +552,19 @@ async def post_console_chat(
         # ContextVarsSetupHook (from the chat meta persisted above);
         # the router no longer pre-resolves or injects them.
 
-        queue, is_new_run = await tracker.attach_or_start(
-            chat.id,
-            native_payload,
-            console_channel.stream_one,
-            owner=workspace,
-            on_finished=workspace.chat_manager.mark_chat_finished,
-        )
+        try:
+            queue, is_new_run = await tracker.attach_or_start(
+                chat.id,
+                native_payload,
+                console_channel.stream_one,
+                owner=workspace,
+                on_finished=workspace.chat_manager.mark_chat_finished,
+                can_start=lambda: workspace.chat_manager.can_start_run(
+                    chat.id,
+                ),
+            )
+        except RunUnavailableError as exc:
+            raise HTTPException(409, str(exc)) from exc
         if not is_new_run:
             await tracker.detach_subscriber(chat.id, queue)
             raise HTTPException(
@@ -584,7 +590,11 @@ async def post_console_chat(
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
         # finally (detach_subscriber) on client abort / generator teardown.
-        stream_it = tracker.stream_from_queue(queue, chat.id)
+        stream_it = tracker.stream_from_queue(
+            queue,
+            chat.id,
+            recover_overflow=True,
+        )
         try:
             try:
                 if hasattr(replay_prefix, "__aiter__"):
@@ -1106,13 +1116,19 @@ async def post_console_chat_task(
             producer_error = exc
             raise
 
-    queue, is_new_run = await tracker.attach_or_start(
-        chat.id,
-        native_payload,
-        _tracked_stream,
-        owner=workspace,
-        on_finished=workspace.chat_manager.mark_chat_finished,
-    )
+    try:
+        queue, is_new_run = await tracker.attach_or_start(
+            chat.id,
+            native_payload,
+            _tracked_stream,
+            owner=workspace,
+            on_finished=workspace.chat_manager.mark_chat_finished,
+            can_start=lambda: workspace.chat_manager.can_start_run(
+                chat.id,
+            ),
+        )
+    except RunUnavailableError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not is_new_run:
         await tracker.detach_subscriber(chat.id, queue)
         raise HTTPException(

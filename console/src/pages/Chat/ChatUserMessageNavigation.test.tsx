@@ -274,7 +274,7 @@ describe("unified navigation across history and live rendering", () => {
     ).toBe("99+");
     fireEvent.click(previous);
     await waitFor(() =>
-      expect(onNavigate).toHaveBeenCalledWith({ ...entry(98), anchor: "a-99" }),
+      expect(onNavigate).toHaveBeenCalledWith(entry(98)),
     );
     expect(state.load.mock.calls[1][1]).toBe("older");
   });
@@ -286,7 +286,7 @@ describe("unified navigation across history and live rendering", () => {
     expect(state.load).not.toHaveBeenCalled();
   });
 
-  it("loads following context without changing the navigation target", async () => {
+  it("locates the target without eagerly loading following turns", async () => {
     const entries = Array.from({ length: 5 }, (_, i) => ({
       messageId: `user-${i}`,
       preview: "input",
@@ -308,10 +308,7 @@ describe("unified navigation across history and live rendering", () => {
       name: "Previous user message",
     });
     fireEvent.click(previous);
-    expect(onNavigate).toHaveBeenCalledWith({
-      ...entries[3],
-      anchor: "cursor-4",
-    });
+    expect(onNavigate).toHaveBeenCalledWith(entries[3]);
   });
 
   it("retains the full count, adds live input, and does not refetch on assistant deltas", async () => {

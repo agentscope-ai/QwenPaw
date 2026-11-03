@@ -235,7 +235,7 @@ def test_unsupported_development_schema_is_not_modified(tmp_path):
     "outcome",
     ["completed", "cancelled", "failed", "clear"],
 )
-async def test_real_session_hook_records_context_before_terminal(
+async def test_real_session_hook_commits_context_with_terminal(
     tmp_path,
     outcome,
 ):
@@ -269,7 +269,9 @@ async def test_real_session_hook_records_context_before_terminal(
             await runtime._try_save_on_cancel(ctx)
         else:
             await SessionSaveHook().run(ctx)
-            assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY]
+            assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+        if outcome != "clear":
+            assert catalog.read_runtime_state(**IDENTITY) is None
         response = AgentResponse(
             status="completed" if outcome == "clear" else outcome,
         )

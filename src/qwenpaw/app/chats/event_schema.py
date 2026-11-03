@@ -26,6 +26,7 @@ CREATE TABLE event_log (
 
 CREATE INDEX event_log_turn ON event_log(turn_id, seq);
 CREATE INDEX event_log_message ON event_log(message_id, seq);
+CREATE INDEX event_log_type ON event_log(event_type, seq);
 
 CREATE TABLE content_objects (
     content_hash  TEXT PRIMARY KEY,
@@ -102,10 +103,10 @@ def initialize_database(connection: sqlite3.Connection) -> None:
     """Initialize only an empty database; never upgrade an old schema."""
     tables = _user_tables(connection)
     if not tables:
-        connection.executescript(SCHEMA)
-        connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
-        connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-        connection.commit()
+        with connection:
+            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
+            connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
+            connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     validate_database(connection)
 
 

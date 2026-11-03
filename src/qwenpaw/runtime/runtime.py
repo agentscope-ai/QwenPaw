@@ -23,6 +23,7 @@ from typing import Any, AsyncGenerator
 from .._session_signals import (
     TRANSCRIPT_RECORDING_READY_KEY,
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TURN_COMMIT_KEY,
 )
 from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ..exceptions import ConfigurationException
@@ -363,7 +364,7 @@ class Runtime:
                 ctx.error,
             )
             user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
+            channel = getattr(request, "channel", "") or "console"
             save = session.save_session_state
             save_kwargs = {}
             turn_id = (request_context or {}).get(
@@ -371,6 +372,7 @@ class Runtime:
             )
             if (
                 turn_id
+                and isinstance(request_context, dict)
                 and request_context.get(TRANSCRIPT_RECORDING_READY_KEY)
                 and callable(
                     getattr(type(session), "save_turn_session_state", None),
@@ -378,6 +380,10 @@ class Runtime:
             ):
                 save = session.save_turn_session_state
                 save_kwargs["turn_id"] = str(turn_id)
+                if TURN_COMMIT_KEY in request_context:
+                    save_kwargs["pending_commit"] = request_context[
+                        TURN_COMMIT_KEY
+                    ]
             await asyncio.shield(
                 save(
                     session_id=ctx.session_id,

@@ -480,7 +480,7 @@ async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
 
     request = getattr(ctx, "request", None)
     user_id = (getattr(request, "user_id", "") if request else "") or ""
-    channel = (getattr(request, "channel", "") if request else "") or ""
+    channel = (getattr(request, "channel", "") if request else "") or "console"
 
     proxy = StateProxy()
     await session.load_session_state(
@@ -534,7 +534,7 @@ async def _save_agent_state(
 
     request = getattr(ctx, "request", None)
     user_id = (getattr(request, "user_id", "") if request else "") or ""
-    channel = (getattr(request, "channel", "") if request else "") or ""
+    channel = (getattr(request, "channel", "") if request else "") or "console"
 
     proxy = StateProxy()
     proxy.data = {"state": state.model_dump(mode="json")}

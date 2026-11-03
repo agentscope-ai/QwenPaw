@@ -84,6 +84,7 @@ def _session_manifest(workspace: Path) -> tuple:
             raise RuntimeError("conversation catalog references missing DB")
     chats = workspace / "chats.json"
     chat_bytes = chats.read_bytes() if chats.exists() else None
+    chat_identities = set()
     if chat_bytes is not None:
         by_identity = {tuple(row[1:]): row[0] for row in rows}
         for chat in json.loads(chat_bytes).get("chats", []):
@@ -95,7 +96,14 @@ def _session_manifest(workspace: Path) -> tuple:
             storage_id = by_identity.get(identity)
             if storage_id is not None and chat.get("storage_id") != storage_id:
                 raise RuntimeError("chat directory and catalog disagree")
-    return paths, catalog.exists(), rows, chat_bytes
+            chat_identities.add((*identity, chat.get("storage_id")))
+    return (
+        paths,
+        catalog.exists(),
+        rows,
+        chat_bytes,
+        frozenset(chat_identities),
+    )
 
 
 def _snapshot_session_databases(
@@ -280,7 +288,11 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
                         )
                         continue
                     file_count += 1
-                if _session_manifest(ws) != manifest:
+                current_manifest = _session_manifest(ws)
+                if (
+                    current_manifest[:3] != manifest[:3]
+                    or current_manifest[4] != manifest[4]
+                ):
                     raise RuntimeError(
                         "conversation metadata changed; retry backup",
                     )

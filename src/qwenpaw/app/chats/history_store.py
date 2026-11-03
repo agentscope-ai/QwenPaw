@@ -12,8 +12,8 @@ from typing import Protocol
 from ...schemas import Message
 from .transcript import TranscriptCursor
 
-_CURSOR = struct.Struct(">QQQQQ")
-_SNAPSHOT = struct.Struct(">Q")
+_CURSOR = struct.Struct(">QQQQQQ")
+_SNAPSHOT = struct.Struct(">QQ")
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,7 @@ class ConversationHistoryStore(Protocol):
         channel: str,
         before: str | None = None,
         after_message_id: str | None = None,
+        before_message_id: str | None = None,
         limit: int = 5,
         max_bytes: int = 2 * 1024 * 1024,
         max_content_blocks: int = 40,
@@ -113,6 +114,8 @@ def _encode_cursor(value: TranscriptCursor | None) -> str | None:
     snapshot = value.snapshot_turn_seq
     if snapshot is None:
         raise ValueError("history cursor is missing its snapshot")
+    if value.snapshot_event_seq is None:
+        raise ValueError("history cursor is missing its event snapshot")
     return _encode(
         _CURSOR.pack(
             snapshot,
@@ -120,6 +123,7 @@ def _encode_cursor(value: TranscriptCursor | None) -> str | None:
             value.ordinal,
             value.content_before,
             value.text_before,
+            value.snapshot_event_seq,
         ),
     )
 
@@ -130,9 +134,14 @@ def _decode_cursor(value: str | None) -> TranscriptCursor | None:
     raw = _decode(value)
     if len(raw) != _CURSOR.size:
         raise ValueError("invalid history cursor")
-    snapshot, turn_seq, ordinal, content_before, text_before = _CURSOR.unpack(
-        raw,
-    )
+    (
+        snapshot,
+        turn_seq,
+        ordinal,
+        content_before,
+        text_before,
+        event_seq,
+    ) = _CURSOR.unpack(raw)
     # A user-message anchor points at the exclusive start of the next turn.
     # The newest visible turn therefore needs one virtual boundary immediately
     # after the snapshot watermark.
@@ -144,6 +153,7 @@ def _decode_cursor(value: str | None) -> TranscriptCursor | None:
         content_before=content_before,
         text_before=text_before,
         snapshot_turn_seq=snapshot,
+        snapshot_event_seq=event_seq,
     )
 
 
@@ -161,6 +171,7 @@ class TranscriptHistoryStore:
         channel: str,
         before: str | None = None,
         after_message_id: str | None = None,
+        before_message_id: str | None = None,
         limit: int = 5,
         max_bytes: int = 2 * 1024 * 1024,
         max_content_blocks: int = 40,
@@ -173,6 +184,7 @@ class TranscriptHistoryStore:
                 channel=channel,
                 before=cursor,
                 after_message_id=after_message_id,
+                before_message_id=before_message_id,
                 limit=limit,
                 max_bytes=max_bytes,
                 max_content_blocks=max_content_blocks,
@@ -185,7 +197,12 @@ class TranscriptHistoryStore:
             messages=page.messages,
             next_before=_encode_cursor(page.next_before),
             has_more=page.has_more,
-            snapshot=_encode(_SNAPSHOT.pack(page.snapshot_turn_seq)),
+            snapshot=_encode(
+                _SNAPSHOT.pack(
+                    page.snapshot_turn_seq,
+                    page.snapshot_event_seq,
+                ),
+            ),
         )
 
     def get_user_message_text(
@@ -241,7 +258,12 @@ class TranscriptHistoryStore:
             ],
             next_before=_encode_cursor(page.next_before),
             has_more=page.has_more,
-            snapshot=_encode(_SNAPSHOT.pack(page.snapshot_turn_seq)),
+            snapshot=_encode(
+                _SNAPSHOT.pack(
+                    page.snapshot_turn_seq,
+                    page.snapshot_event_seq,
+                ),
+            ),
             total=page.total,
         )
 

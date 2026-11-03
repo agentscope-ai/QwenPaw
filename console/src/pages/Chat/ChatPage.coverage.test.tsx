@@ -15,6 +15,7 @@ import ChatPage from "./index";
 import { LongTextPasteInput } from "./LongTextPaste";
 import { ChatRunLifecycle } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Execution/runLifecycle";
 import sessionApi from "./sessionApi";
+import { getSenderTextareaFromTarget } from "./utils";
 import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { useSessionFilesDrawer } from "@/stores/filesSurfaceStore";
@@ -249,6 +250,7 @@ vi.mock("./sessionApi", () => ({
       (owner: { agentId: string }) => owner.agentId === mockSelectedAgent(),
     ),
     registerResolvedChat: vi.fn(),
+    registerForkedChat: vi.fn(),
     getRouteResolutionVersion: vi.fn(() => 0),
     isRouteRemoved: vi.fn(() => false),
     clearRouteRemoval: vi.fn(),
@@ -280,6 +282,7 @@ vi.mock("./sessionApi", () => ({
     })),
     getSessionList: vi.fn(async () => []),
     triggerResolve: vi.fn(),
+    invalidateConvertedCache: vi.fn(),
     isSessionSwitching: false,
     isUnresolvedLocalSession: vi.fn(() => false),
     getEffectiveSessionId: vi.fn((id: string) => id),
@@ -591,6 +594,7 @@ describe("ChatPage coverage", () => {
     chatExtensions.__resetForTests();
     capturedOptions = null;
     mockCopyText.mockClear();
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(null);
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     mockRuntimeSubmit.mockReset();
@@ -1346,6 +1350,10 @@ describe("ChatPage coverage", () => {
         await confirm.mock.calls[0][0].onOk?.();
       });
       expect(destroy).toHaveBeenCalledTimes(1);
+      expect(sessionApi.registerForkedChat).toHaveBeenCalledWith(
+        { id: childId },
+        expect.objectContaining({ agentId: mockSelectedAgent() }),
+      );
       expect(screen.getByTestId("route")).toHaveTextContent(`/chat/${childId}`);
       expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
       await act(async () => rejectRefresh(new Error("sidebar unavailable")));
@@ -2577,49 +2585,74 @@ describe("ChatPage coverage", () => {
     expect(true).toBe(true);
   });
 
-  // ── composition events (IME) ───────────────────────────────────────────
-  it("IME composition events are handled", async () => {
+  it("preserves IME keys without querying input history", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    // Dispatch composition events
-    act(() => {
-      document.dispatchEvent(
-        new CompositionEvent("compositionstart", { bubbles: true }),
-      );
+    const root = await screen.findByTestId("chat-ui");
+    const sender = document.createElement("div");
+    sender.className = "sender";
+    const input = document.createElement("textarea");
+    sender.append(input);
+    root.append(sender);
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(input);
+    input.value = "正在输入";
+    input.focus();
+    vi.mocked(sessionApi.loadUserMessageIndexPage).mockClear();
+    fireEvent.compositionStart(input);
+    const key = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
     });
-    act(() => {
-      document.dispatchEvent(
-        new CompositionEvent("compositionend", { bubbles: true }),
-      );
+    await act(async () => {
+      input.dispatchEvent(key);
     });
-
-    expect(true).toBe(true);
+    expect(key.defaultPrevented).toBe(false);
+    expect(input.value).toBe("正在输入");
+    expect(sessionApi.loadUserMessageIndexPage).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
   });
 
-  // ── ArrowUp/ArrowDown history navigation ──────────────────────────────
-  it("ArrowUp/ArrowDown key events are handled without crash", async () => {
+  it("leaves unmatched history and multiline editing to the textarea", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    act(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
-      );
+    const root = await screen.findByTestId("chat-ui");
+    const sender = document.createElement("div");
+    sender.className = "sender";
+    const input = document.createElement("textarea");
+    sender.append(input);
+    root.append(sender);
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(input);
+    input.value = "draft";
+    input.focus();
+    mockGetMessages.mockReturnValue([]);
+    vi.mocked(sessionApi.loadUserMessageIndexPage).mockClear();
+    const key = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
     });
-    act(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-      );
+    await act(async () => {
+      input.dispatchEvent(key);
     });
-
-    expect(true).toBe(true);
+    expect(key.defaultPrevented).toBe(false);
+    expect(input.value).toBe("draft");
+    expect(sessionApi.loadUserMessageIndexPage).toHaveBeenCalledOnce();
+    input.value = "first\nsecond";
+    input.setSelectionRange(input.value.length, input.value.length);
+    const multiline = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      input.dispatchEvent(multiline);
+    });
+    expect(multiline.defaultPrevented).toBe(false);
+    expect(input.value).toBe("first\nsecond");
+    expect(sessionApi.loadUserMessageIndexPage).toHaveBeenCalledOnce();
   });
 
   // ── Trigger rate limit banner via responseParser ───────────────────────

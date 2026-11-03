@@ -17,6 +17,7 @@ export function batchLiveChatDeltas(
   let bytes = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
+  let abortError: unknown;
   let resume: (() => void) | undefined;
   let abort: () => void = () => undefined;
   const cleanup = () => {
@@ -84,11 +85,20 @@ export function batchLiveChatDeltas(
       };
       abort = () => {
         if (closed) return;
+        // Drain complete frames already received before backpressure paused us.
+        let boundary: RegExpExecArray | null;
+        while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
+          const frame = buffer.slice(0, boundary.index).replace(/\r\n/g, "\n");
+          buffer = buffer.slice(boundary.index + boundary[0].length);
+          handle(frame);
+        }
+        flush();
+        abortError =
+          signal?.reason ?? new DOMException("Aborted", "AbortError");
         closed = true;
         cleanup();
-        controller.error(
-          signal?.reason ?? new DOMException("Aborted", "AbortError"),
-        );
+        // Error only after queued text has reached the consumer.
+        if ((controller.desiredSize ?? 0) > 0) controller.error(abortError);
         void reader.cancel().catch(() => undefined);
       };
       signal?.addEventListener("abort", abort, { once: true });
@@ -134,7 +144,11 @@ export function batchLiveChatDeltas(
         }
       })();
     },
-    pull() {
+    pull(controller) {
+      if (abortError !== undefined) {
+        if ((controller.desiredSize ?? 0) > 0) controller.error(abortError);
+        return;
+      }
       resume?.();
       resume = undefined;
     },

@@ -126,7 +126,7 @@ export const chatApi = {
     chatId: string,
     options?: { signal?: AbortSignal; include_app_owned?: boolean },
   ) => {
-    const searchParams = new URLSearchParams();
+    const searchParams = new URLSearchParams({ full_history: "false" });
     if (options?.include_app_owned !== undefined)
       searchParams.append(
         "include_app_owned",
@@ -161,6 +161,7 @@ export const chatApi = {
     options?: {
       before?: string;
       after_message_id?: string;
+      before_message_id?: string;
       limit?: number;
       signal?: AbortSignal;
       include_app_owned?: boolean;
@@ -168,6 +169,8 @@ export const chatApi = {
   ) => {
     const searchParams = new URLSearchParams();
     if (options?.before) searchParams.append("before", options.before);
+    if (options?.before_message_id)
+      searchParams.append("before_message_id", options.before_message_id);
     if (options?.after_message_id)
       searchParams.append("after_message_id", options.after_message_id);
     if (options?.limit !== undefined)

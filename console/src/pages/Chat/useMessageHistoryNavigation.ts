@@ -56,7 +56,8 @@ export function useMessageHistoryNavigation(
         return;
       const current = state.current;
       if (!older && !current.recall) return;
-      event.preventDefault();
+      // History may require an async read. Keep native caret movement when
+      // no matching text is found; a successful recall replaces the input.
       if (current.busy) return;
       if (!current.recall) {
         current.draft = input.value;

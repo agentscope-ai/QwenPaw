@@ -258,7 +258,7 @@ async def test_records_only_materialized_message_snapshots() -> None:
 
 
 @pytest.mark.asyncio
-async def test_write_failure_degrades_without_raising() -> None:
+async def test_write_failure_propagates_and_stops_recording() -> None:
     store = Mock(spec=TranscriptStore)
     store.start_turn.side_effect = OSError("disk full")
     recorder = TranscriptRecorder(
@@ -266,7 +266,8 @@ async def test_write_failure_degrades_without_raising() -> None:
         request=_request(),
     )
 
-    await recorder.start()
+    with pytest.raises(OSError, match="disk full"):
+        await recorder.start()
     await recorder.observe(
         Message(role=Role.ASSISTANT, content=[TextContent(text="reply")]),
     )
@@ -383,8 +384,8 @@ async def test_regeneration_replaces_original_only_after_success(
     )
 
     assert request.request_context is not None
-    assert request.request_context[TRANSCRIPT_TURN_ID_CONTEXT_KEY] == (
-        "regenerate:client-new"
+    assert request.request_context[TRANSCRIPT_TURN_ID_CONTEXT_KEY].startswith(
+        "regenerate:client-new:",
     )
     assert page is not None
     assert [message.id for message in page.messages] == expected_ids

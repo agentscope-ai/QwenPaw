@@ -249,6 +249,8 @@ async def test_database_session_imports_json_once_and_resets_context(
 
     await session.set_current_usage(
         session_id="session-1",
+        user_id="u",
+        channel="console",
         usage={"total_tokens": 5},
         context_usage={
             "estimated_tokens": 3,

@@ -26,6 +26,7 @@ from ..._session_signals import (
     SESSION_SAVE_SUCCEEDED_KEY,
     TRANSCRIPT_RECORDING_READY_KEY,
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TURN_COMMIT_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ class SessionLoadHook(LifecycleHook):
         try:
             request = ctx.request
             user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
+            channel = getattr(request, "channel", "") or "console"
 
             proxy = StateProxy()
             await session.load_session_state(
@@ -109,7 +110,7 @@ class SessionSaveHook(LifecycleHook):
         try:
             request = ctx.request
             user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
+            channel = getattr(request, "channel", "") or "console"
 
             restore_cron_context(ctx)
             proxy = StateProxy()
@@ -129,6 +130,10 @@ class SessionSaveHook(LifecycleHook):
             ):
                 save = session.save_turn_session_state
                 save_kwargs["turn_id"] = str(turn_id)
+                if TURN_COMMIT_KEY in request_context:
+                    save_kwargs["pending_commit"] = request_context[
+                        TURN_COMMIT_KEY
+                    ]
             await save(
                 session_id=ctx.session_id,
                 user_id=user_id,
@@ -136,7 +141,9 @@ class SessionSaveHook(LifecycleHook):
                 agent=proxy,
                 **save_kwargs,
             )
-            ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = True
+            ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = (
+                "pending_commit" not in save_kwargs
+            )
         except Exception:
             logger.exception("session_save: failed")
             raise

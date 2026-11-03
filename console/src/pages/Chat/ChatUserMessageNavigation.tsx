@@ -161,6 +161,21 @@ export function ChatUserMessageNavigation({
   });
 
   useEffect(() => {
+    const scroll = getScroll();
+    if (
+      pending.current &&
+      scroll &&
+      currentWindow &&
+      !currentWindow.loading &&
+      currentWindow.canLoadOlder
+    ) {
+      // Publish each bounded fragment before continuing a directory seek.
+      // User interaction clears pending and cancels the in-flight request.
+      currentWindow.onFillOlder(scroll);
+    }
+  }, [currentWindow, getScroll]);
+
+  useEffect(() => {
     if (!host) return;
     const cancel = () => {
       navigationIntent.current += 1;
@@ -259,12 +274,9 @@ export function ChatUserMessageNavigation({
       })
     )
       return;
-    const targetIndex = items.findIndex(
-      (entry) => entry.messageId === item.messageId,
-    );
-    // Include following turns so the target can align below the header.
-    const pageEnd = items[Math.min(targetIndex + 2, items.length - 1)];
-    onNavigate({ ...item, anchor: pageEnd?.anchor || item.anchor });
+    // A later turn may span many pages. Locate this turn first and let
+    // viewport loading fetch its successors incrementally.
+    onNavigate(item);
   };
   const found = items.findIndex(
     (item) =>
@@ -309,13 +321,7 @@ export function ChatUserMessageNavigation({
       pending.current = entry;
       setOpen(false);
       if (locate(entry)) pending.current = undefined;
-      else
-        onNavigate({
-          ...entry,
-          anchor:
-            entries[Math.min(position + direction + 2, entries.length - 1)]
-              ?.anchor || entry.anchor,
-        });
+      else onNavigate(entry);
     }
   };
   return (

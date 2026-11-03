@@ -68,6 +68,9 @@ def test_ui_and_runtime_projections_rebuild_from_events(
                 "session_runtime": (
                     "SELECT * FROM session_runtime ORDER BY rowid"
                 ),
+                "current_context_revision": (
+                    "SELECT * FROM current_context_revision ORDER BY rowid"
+                ),
                 "projection_turn_usage": (
                     "SELECT * FROM projection_turn_usage ORDER BY rowid"
                 ),

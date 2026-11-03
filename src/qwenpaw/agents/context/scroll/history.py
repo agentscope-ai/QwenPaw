@@ -296,7 +296,12 @@ class HistoryStore:
     _integrity_probe_inflight: set[tuple[int, Path]] = set()
     _integrity_probe_checked: dict[tuple[int, Path], tuple[int, int]] = {}
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        shared_database: bool = False,
+    ) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         # Serializes the single connection across threads: ``compress`` writes
@@ -325,6 +330,8 @@ class HistoryStore:
                     cached_identity=cached_identity,
                 )
             except sqlite3.DatabaseError as exc:
+                if shared_database:
+                    raise
                 if not (
                     self._is_corruption(exc)
                     or getattr(exc, "sqlite_errorcode", None)
@@ -1020,6 +1027,7 @@ class HistoryStore:
         entries: Sequence[tuple[LogEntry, str | None]],
         agent_id: str | None = None,
         turn_by_key: dict[str, str] | None = None,
+        sequence_by_key: dict[str, int] | None = None,
     ) -> int:
         """Append a group of events in one transaction.
 
@@ -1048,7 +1056,25 @@ class HistoryStore:
                     entry,
                     dedup_key,
                 )
-                cur = self._conn.execute(sql, row)
+                if sequence_by_key is not None:
+                    source_seq = sequence_by_key[dedup_key or ""]
+                    existing = self._conn.execute(
+                        "SELECT seq FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key = ?",
+                        (session_id, dedup_key),
+                    ).fetchone()
+                    if existing is not None and existing[0] != source_seq:
+                        raise ValueError("legacy Recall sequence conflict")
+                    columns = ", ".join(("seq", *_INSERT_COLUMNS))
+                    values = ", ".join("?" for _ in range(len(row) + 1))
+                    cur = self._conn.execute(
+                        f"INSERT INTO conversation_history ({columns}) "
+                        f"VALUES ({values}) "
+                        "ON CONFLICT(session_id, dedup_key) DO NOTHING",
+                        (source_seq, *row),
+                    )
+                else:
+                    cur = self._conn.execute(sql, row)
                 if cur.rowcount == 0:
                     continue
                 inserted += 1
@@ -1115,6 +1141,7 @@ class HistoryStore:
             list[tuple[LogEntry, str | None]],
         ] = {}
         matched_turns: dict[str, str] = {}
+        source_sequences: dict[str, int] = {}
         for row in rows:
             entry = LogEntry(
                 kind=str(row["kind"]),
@@ -1131,6 +1158,7 @@ class HistoryStore:
             )
             owner = row["agent_id"] or agent_id
             stable_key = row["dedup_key"] or f"legacy:seq:{row['seq']}"
+            source_sequences[stable_key] = int(row["seq"])
             matched = (turn_by_key or {}).get(str(row["dedup_key"] or ""))
             if matched is None:
                 matched = (turn_by_key or {}).get(
@@ -1147,6 +1175,7 @@ class HistoryStore:
                 entries=entries,
                 agent_id=owner,
                 turn_by_key=matched_turns,
+                sequence_by_key=source_sequences,
             )
             for owner, entries in entries_by_agent.items()
         )

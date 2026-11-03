@@ -51,14 +51,16 @@ const HistoryMessage = memo(function HistoryMessage({
   );
 });
 
-function formatNavigationTime(createdAt: string): string {
+function formatNavigationTime(createdAt: string, locale?: string): string {
   const date = new Date(createdAt);
   if (Number.isNaN(date.getTime())) return "";
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${month}月${day}日 ${hour}:${minute}`;
+  return date.toLocaleString(locale, {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 export function HistoryNavigationDirectory({
@@ -80,7 +82,7 @@ export function HistoryNavigationDirectory({
   loading?: boolean;
   onLoadOlder?: () => unknown;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const listRef = useRef<FixedSizeList>(null);
   const scrollOffset = useRef(0);
   const previousItems = useRef(items);
@@ -119,7 +121,7 @@ export function HistoryNavigationDirectory({
         <span>{t("chat.messageNavigation.title", { count: total })}</span>
         <button
           type="button"
-          aria-label="Scroll directory to active user message"
+          aria-label={t("chat.messageNavigation.locate", "Scroll directory to active user message")}
           className={styles.navigationDirectoryLocate}
           disabled={!activeMessageId}
           onClick={(event) => {
@@ -164,9 +166,9 @@ export function HistoryNavigationDirectory({
               aria-current={active ? "true" : undefined}
               style={style}
             >
-              <span>{item.preview || "User message"}</span>
+              <span>{item.preview || t("chat.messageNavigation.userMessage", "User message")}</span>
               <time dateTime={item.createdAt}>
-                {formatNavigationTime(item.createdAt)}
+                {formatNavigationTime(item.createdAt, i18n?.resolvedLanguage ?? i18n?.language)}
               </time>
             </button>
           );
@@ -550,7 +552,7 @@ export function HistoryMessageWindowCard() {
                 <button
                   type="button"
                   className={styles.scrollToBottom}
-                  aria-label="Scroll to bottom"
+                  aria-label={t("chat.messageNavigation.bottom", "Scroll to bottom")}
                   onClick={() => {
                     if (current.onReturnToLatest) {
                       current.onReturnToLatest();

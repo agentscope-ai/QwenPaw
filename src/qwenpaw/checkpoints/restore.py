@@ -305,6 +305,24 @@ class RestoreService:
     ) -> RestoreResult:
         """Run one validated restore transaction."""
         service = self.service
+        identity = dict(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        await service.ensure_session_migrated(**identity)
+        store, owned = service._transcript_store()
+        try:
+            binding = store.read_provider_state(**identity)["binding"]
+        finally:
+            if owned:
+                store.close()
+        if binding:
+            raise CheckpointError(
+                "Native provider context cannot be rolled back by a local "
+                "checkpoint. Fork the required turn using the provider's "
+                "native fork operation instead.",
+            )
         conv_rel = self._conversation_rel(
             session_id=session_id,
             user_id=user_id,

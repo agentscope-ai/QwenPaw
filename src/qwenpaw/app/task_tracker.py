@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import weakref
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import (
@@ -46,6 +47,31 @@ _create_task = asyncio.create_task
 # the client can render the replayed part instantly (no token-by-token
 # re-animation) and switch to live streaming afterwards.
 REPLAY_END_SSE = f"data: {json.dumps({'type': 'replay_end'})}\n\n"
+
+
+class _SubscriberQueue(asyncio.Queue):
+    """Bound both event count and retained text, excluding replay prefixes."""
+
+    def __init__(self, maxsize: int) -> None:
+        super().__init__(maxsize=maxsize)
+        self._text_size = 0
+        self.run_task: asyncio.Future | None = None
+
+    def put_nowait(self, item: str | None) -> None:
+        size = len(item or "") * 4
+        if self._text_size + size > 8 * 1024 * 1024:
+            raise asyncio.QueueFull
+        super().put_nowait(item)
+        self._text_size += size
+
+    def get_nowait(self) -> str | None:
+        item = super().get_nowait()
+        self._text_size -= len(item or "") * 4
+        return item
+
+
+class RunUnavailableError(ValueError):
+    """The conversation was removed or is being deleted."""
 
 
 @dataclass
@@ -84,6 +110,9 @@ class TaskTracker:
             raise ValueError("completed replay limits are invalid")
         self._lock = asyncio.Lock()
         self._runs: dict[str, _RunState] = {}
+        self._blocked_runs: set[str] = set()
+        self._session_tasks: dict[tuple[str, str, str], dict] = {}
+        self._blocked_sessions: set[tuple[str, str, str]] = set()
         self._subscriber_queue_max = subscriber_queue_max
         self._reconnect_grace_seconds = reconnect_grace_seconds
         self._completed_run_max = completed_run_max
@@ -92,7 +121,7 @@ class TaskTracker:
 
     def _reconnect_queue(self, *, unavailable: bool = False) -> asyncio.Queue:
         """Return a terminal queue instructing the client to resync."""
-        queue: asyncio.Queue = asyncio.Queue(
+        queue: asyncio.Queue = _SubscriberQueue(
             maxsize=self._subscriber_queue_max,
         )
         queue.put_nowait(
@@ -112,11 +141,12 @@ class TaskTracker:
         marker_count = 1 if include_replay_end else 0
         if state.replay.requires_resync or (
             len(replay) + marker_count > self._subscriber_queue_max
+            or sum(map(len, replay)) * 4 > 8 * 1024 * 1024 - 1024
         ):
             return self._reconnect_queue(
                 unavailable=state.replay.recovery_unavailable,
             )
-        queue: asyncio.Queue = asyncio.Queue(
+        queue: asyncio.Queue = _SubscriberQueue(
             maxsize=self._subscriber_queue_max,
         )
         for sse in replay:
@@ -131,11 +161,12 @@ class TaskTracker:
         replay = list(state.replay.replay())
         if state.replay.requires_resync or (
             len(replay) + 2 > self._subscriber_queue_max
+            or sum(map(len, replay)) * 4 > 8 * 1024 * 1024 - 1024
         ):
             return self._reconnect_queue(
                 unavailable=state.replay.recovery_unavailable,
             )
-        queue: asyncio.Queue = asyncio.Queue(
+        queue: asyncio.Queue = _SubscriberQueue(
             maxsize=self._subscriber_queue_max,
         )
         for sse in replay:
@@ -156,10 +187,11 @@ class TaskTracker:
         """Offer one event without allowing subscribers to block the run."""
         retained: list[asyncio.Queue] = []
         for queue in state.queues:
-            if queue.full():
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
                 self._reset_slow_subscriber(queue)
                 continue
-            queue.put_nowait(event)
             retained.append(queue)
         state.queues = retained
 
@@ -209,6 +241,46 @@ class TaskTracker:
             self._reconnect_grace_seconds,
             expire,
         )
+
+    @asynccontextmanager
+    async def session_execution(self, identity, can_start, *, owner=None):
+        """Track all workspace writers, including callers outside channels."""
+        task = asyncio.current_task()
+        async with self._lock:
+            if identity in self._blocked_sessions or not await can_start():
+                raise RunUnavailableError("conversation deletion is pending")
+            self._session_tasks.setdefault(identity, {})[task] = owner
+        try:
+            yield
+        finally:
+            async with self._lock:
+                tasks = self._session_tasks.get(identity)
+                if tasks is not None:
+                    tasks.pop(task, None)
+                    if not tasks:
+                        self._session_tasks.pop(identity, None)
+
+    @asynccontextmanager
+    async def stop_session_writers(self, identities):
+        """Keep writers excluded until persisted cleanup has finished."""
+        identities = set(identities)
+        async with self._lock:
+            if identities & self._blocked_sessions:
+                raise RunUnavailableError("conversation deletion is pending")
+            self._blocked_sessions.update(identities)
+            tasks = set().union(
+                *(self._session_tasks.get(key, {}) for key in identities),
+            )
+        try:
+            for task in tasks:
+                if not task.done() and not task.cancelling():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            yield
+        finally:
+            async with self._lock:
+                self._blocked_sessions.difference_update(identities)
 
     @property
     def lock(self) -> asyncio.Lock:
@@ -288,13 +360,24 @@ class TaskTracker:
     ) -> dict[str, asyncio.Future]:
         """Return the currently active tasks without tracking later runs."""
         async with self._lock:
-            return {
+            tasks = {
                 run_key: state.task
                 for run_key, state in self._runs.items()
                 if self._is_running(state)
                 and (owner is None or state.owner is owner)
                 and (channel_id is None or state.channel_id == channel_id)
             }
+            for identity, writers in self._session_tasks.items():
+                if channel_id is not None and identity[2] != channel_id:
+                    continue
+                for task, task_owner in writers.items():
+                    if (
+                        not task.done()
+                        and task not in tasks.values()
+                        and (owner is None or task_owner is owner)
+                    ):
+                        tasks.setdefault(f"session:{id(task)}", task)
+            return tasks
 
     async def wait_tasks_done(
         self,
@@ -356,6 +439,8 @@ class TaskTracker:
     async def attach_materialized(
         self,
         run_key: str,
+        *,
+        expected_task: asyncio.Future | None = None,
     ) -> tuple[list[str] | ReplayPrefix, asyncio.Queue] | None:
         """Atomically subscribe, then materialize the fixed replay prefix.
 
@@ -365,7 +450,9 @@ class TaskTracker:
         """
         async with self._lock:
             state = self._runs.get(run_key)
-            if state is None:
+            if state is None or (
+                expected_task is not None and state.task is not expected_task
+            ):
                 return None
             if state.replay.requires_resync:
                 return [], self._reconnect_queue(
@@ -374,9 +461,10 @@ class TaskTracker:
             durable = state.replay.capture()
             materialized = state.replay.is_materialized
             replay = [] if durable else list(state.replay.replay())
-            queue: asyncio.Queue = asyncio.Queue(
+            queue: asyncio.Queue = _SubscriberQueue(
                 maxsize=self._subscriber_queue_max,
             )
+            queue.run_task = state.task
             if self._is_running(state):
                 state.queues.append(queue)
             else:
@@ -448,6 +536,20 @@ class TaskTracker:
             pass
         return True
 
+    @asynccontextmanager
+    async def prevent_new_runs(self, run_keys: list[str]):
+        """Exclude run registration while deleting conversations."""
+        keys = set(run_keys)
+        async with self._lock:
+            if keys & self._blocked_runs:
+                raise RunUnavailableError("Conversation deletion in progress")
+            self._blocked_runs.update(keys)
+        try:
+            yield
+        finally:
+            async with self._lock:
+                self._blocked_runs.difference_update(keys)
+
     async def attach_or_start(
         self,
         run_key: str,
@@ -456,12 +558,19 @@ class TaskTracker:
         owner: object | None = None,
         on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
         channel_id: str | None = None,
+        can_start: Callable[[], Awaitable[bool]] | None = None,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
         Returns ``(queue, is_new_run)``.
         """
         async with self._lock:
+            if run_key in self._blocked_runs or (
+                can_start is not None and not await can_start()
+            ):
+                raise RunUnavailableError(
+                    "Conversation was deleted or deletion needs retry",
+                )
             state = self._runs.get(run_key)
             if state is not None and self._is_running(state):
                 return (
@@ -472,7 +581,7 @@ class TaskTracker:
                     False,
                 )
 
-            my_queue: asyncio.Queue = asyncio.Queue(
+            my_queue: asyncio.Queue = _SubscriberQueue(
                 maxsize=self._subscriber_queue_max,
             )
             run = _RunState(
@@ -545,6 +654,7 @@ class TaskTracker:
             # the window is synchronous and a running loop cannot be
             # closed, so the failure is not reachable in practice.
             run.task = _create_task(_producer())
+            my_queue.run_task = run.task
             self._runs[run_key] = run
             return my_queue, True
 
@@ -554,6 +664,7 @@ class TaskTracker:
         run_key: str,
         *,
         cancel_run: bool = False,
+        recover_overflow: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Yield SSE strings from *queue* until the sentinel ``None``.
 
@@ -581,6 +692,25 @@ class TaskTracker:
                     event = await queue.get()
                     if event is _SENTINEL:
                         break
+                    if recover_overflow and event == RECONNECT_REQUIRED_SSE:
+                        attached = await self.attach_materialized(
+                            run_key,
+                            expected_task=queue.run_task,
+                        )
+                        if attached is not None:
+                            prefix, replacement = attached
+                            if prefix:
+                                await self.detach_subscriber(run_key, queue)
+                                queue = replacement
+                                if isinstance(prefix, ReplayPrefix):
+                                    async for item in prefix:
+                                        yield item
+                                else:
+                                    for item in prefix:
+                                        yield item
+                                yield REPLAY_END_SSE
+                                continue
+                            await self.detach_subscriber(run_key, replacement)
                     yield event
                 except asyncio.CancelledError:
                     if cancel_run:

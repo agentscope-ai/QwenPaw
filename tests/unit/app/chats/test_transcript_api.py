@@ -23,6 +23,7 @@ from qwenpaw.app.chats.api import (
     get_chat_user_messages,
     get_chat_user_message_text,
 )
+from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.session import (
     DatabaseSession,
@@ -119,6 +120,7 @@ async def test_get_chat_returns_at_most_five_turns(tmp_path: Path) -> None:
 
     history = await get_chat(
         chat_id="chat-1",
+        full_history=False,
         background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
@@ -135,6 +137,17 @@ async def test_get_chat_returns_at_most_five_turns(tmp_path: Path) -> None:
     ]
     assert history.history is not None
     assert history.history.has_more is True
+    complete = await get_chat(
+        chat_id="chat-1",
+        background_tasks=BackgroundTasks(),
+        include_app_owned=True,
+        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+        session=SimpleNamespace(get_session_state_dict=AsyncMock()),
+        workspace=_workspace(store),
+    )
+    assert [item.content[0].text for item in complete.messages] == [
+        f"turn {number}" for number in range(1, 7)
+    ]
     store.close()
 
 
@@ -765,11 +778,14 @@ async def test_delete_keeps_shared_session_data() -> None:
         get_chat=AsyncMock(return_value=first),
         list_chats=AsyncMock(return_value=[first, second]),
         delete_chats=AsyncMock(return_value=True),
+        mark_deleting=AsyncMock(),
     )
     workspace = SimpleNamespace(
         transcript_store=store,
         session=None,
         task_tracker=SimpleNamespace(
+            prevent_new_runs=TaskTracker().prevent_new_runs,
+            stop_session_writers=TaskTracker().stop_session_writers,
             request_stop=AsyncMock(return_value=False),
         ),
     )
@@ -794,11 +810,16 @@ async def test_delete_keeps_mapping_when_data_cleanup_fails() -> None:
         get_chat=AsyncMock(return_value=chat),
         list_chats=AsyncMock(return_value=[chat]),
         delete_chats=AsyncMock(return_value=True),
+        mark_deleting=AsyncMock(),
     )
     workspace = SimpleNamespace(
         transcript_store=store,
         session=None,
-        task_tracker=SimpleNamespace(request_stop=AsyncMock()),
+        task_tracker=SimpleNamespace(
+            request_stop=AsyncMock(),
+            prevent_new_runs=TaskTracker().prevent_new_runs,
+            stop_session_writers=TaskTracker().stop_session_writers,
+        ),
     )
     checkpoint_delete = AsyncMock(side_effect=[OSError("disk error"), None])
 
@@ -822,7 +843,7 @@ async def test_delete_keeps_mapping_when_data_cleanup_fails() -> None:
 
     assert result == {"deleted": True}
     manager.delete_chats.assert_awaited_once_with(chat_ids=[chat.id])
-    assert store.delete_session.call_count == 2
+    assert store.delete_session.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -833,9 +854,12 @@ async def test_delete_stops_running_chat() -> None:
         get_chat=AsyncMock(return_value=chat),
         list_chats=AsyncMock(return_value=[chat, shared]),
         delete_chats=AsyncMock(return_value=True),
+        mark_deleting=AsyncMock(),
     )
     workspace = SimpleNamespace(
         task_tracker=SimpleNamespace(
+            prevent_new_runs=TaskTracker().prevent_new_runs,
+            stop_session_writers=TaskTracker().stop_session_writers,
             request_stop=AsyncMock(return_value=True),
         ),
     )
@@ -859,9 +883,12 @@ async def test_batch_delete_stops_running_chat() -> None:
     manager = SimpleNamespace(
         list_chats=AsyncMock(return_value=[chat, shared]),
         delete_chats=AsyncMock(return_value=True),
+        mark_deleting=AsyncMock(),
     )
     workspace = SimpleNamespace(
         task_tracker=SimpleNamespace(
+            prevent_new_runs=TaskTracker().prevent_new_runs,
+            stop_session_writers=TaskTracker().stop_session_writers,
             request_stop=AsyncMock(return_value=True),
         ),
     )

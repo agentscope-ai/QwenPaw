@@ -1142,6 +1142,14 @@
     "acceptInvitation": "Bergabung melalui undangan"
   },
   "chat": {
+    "fork": "Buat cabang",
+    "forkTitle": "Buat cabang dari giliran ini?",
+    "forkDescription": "Percakapan mandiri yang baru akan mencakup giliran ini dan semua giliran sebelumnya.",
+    "forkCreated": "Cabang dibuat",
+    "forkFailed": "Gagal membuat cabang percakapan",
+    "forkUnavailable": "Giliran ini tidak dapat dicabangkan",
+    "forkUnsupported": "Backend agen ini tidak mendukung percabangan",
+    "forkBoundaryMissing": "Giliran ini belum memiliki batas percabangan native yang selesai dan belum dapat dicabangkan",
     "sessionLoadFailed": "Percakapan tidak dapat dimuat. Silakan buka kembali.",
     "longTextPaste": {
       "title": "Tempel teks panjang",
@@ -1165,7 +1173,10 @@
     "chatHistoryTooltip": "Riwayat chat",
     "olderHistoryLoadFailed": "Gagal memuat pesan sebelumnya",
     "messageNavigation": {
-      "title": "Navigasi ({{count}})"
+      "title": "Navigasi ({{count}})",
+      "locate": "Temukan pesan aktif di daftar",
+      "userMessage": "Pesan pengguna",
+      "bottom": "Gulir ke bawah"
     },
     "messageDisplay": {
       "stepsRunning": "Berjalan… · {{count}} langkah",

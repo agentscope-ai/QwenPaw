@@ -25,7 +25,11 @@ import { takeChatHistoryPrefetch } from "../chatRoutePrefetch";
 import { useTurnUsageStore } from "../turnUsageStore";
 import { useMessageQueueStore } from "../../../stores/messageQueueStore";
 import { syncSessionsGlobal } from "../../../stores/sessionListStore";
-import type { HistoryUserMessage } from "../historyMessageWindowStore";
+import {
+  boundHistoryRows,
+  splitHistoryMessagesIntoTurnRows,
+  type HistoryUserMessage,
+} from "../historyMessageWindowStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -41,41 +45,25 @@ const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 const HISTORY_PAGE_TURN_LIMIT = 5;
 
-/** Complete only the split oldest turn before publishing a history page. */
-async function completeHistoryPage(
-  backendId: string,
-  firstPage: ChatMessagePage,
-  signal?: AbortSignal,
-  isCurrent: () => boolean = () => true,
-) {
-  let page = firstPage;
-  let messages = convertMessages(page.messages || [], true);
-  const cursors = new Set<string>();
-  while (
-    messages.length > 0 &&
-    messages[0].role !== ROLE_USER &&
-    page.has_more &&
-    page.next_before
-  ) {
-    signal?.throwIfAborted();
-    if (!isCurrent()) throw new DOMException("Agent changed", "AbortError");
-    const cursor = page.next_before;
-    if (cursors.has(cursor)) throw new Error("History cursor did not advance");
-    cursors.add(cursor);
-    page = await api.getChatMessages(backendId, {
-      before: cursor,
-      // Do not pull additional turns while completing a split boundary.
-      limit: 1,
-      signal,
-      include_app_owned: false,
-    });
-    messages = mergeHistoryMessages(
-      convertMessages(page.messages || [], true),
-      messages,
-    );
-  }
+/** Publish one bounded server page; keep its cursor for the next interaction. */
+function readHistoryPage(page: ChatMessagePage, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  return { page, messages };
+  return { page, messages: convertMessages(page.messages || [], true) };
+}
+
+function mergeCachedHistoryPages(
+  older: IAgentScopeRuntimeWebUIMessage[],
+  newer: IAgentScopeRuntimeWebUIMessage[],
+) {
+  const messages = boundHistoryRows(
+    splitHistoryMessagesIntoTurnRows(mergeHistoryMessages(older, newer)),
+    "oldest",
+  ).flat();
+  // A single turn can exceed the viewport's soft limit. Do not let that
+  // exception grow a cached page indefinitely; its cursor remains resumable.
+  return JSON.stringify(messages).length * 2 > 8 * 1024 * 1024
+    ? older
+    : messages;
 }
 
 function hydrateTurnUsageFromMessages(
@@ -677,7 +665,9 @@ const mergeRequestMessages = (
   const olderInput = olderData?.input?.[0];
   const newerInput = newerData?.input?.[0];
   if (!olderData || !newerData || !olderInput || !newerInput) return newer;
-  const mergedInput = mergeContentFragments(olderInput, newerInput);
+  const mergedInput =
+    mergeContentFragments(olderInput, newerInput) ||
+    mergeContentFragments(newerInput, olderInput);
   if (!mergedInput) return newer;
   const cards = (
     newer.cards as Array<{ code: string; data?: RequestCardData }>
@@ -729,7 +719,10 @@ const mergeResponseMessages = (
     const previous = output.get(identity);
     output.set(
       identity,
-      (previous && mergeContentFragments(previous, message)) || message,
+      (previous &&
+        (mergeContentFragments(previous, message) ||
+          mergeContentFragments(message, previous))) ||
+        message,
     );
   }
   const sortedOutput = [...output.values()].sort((left, right) => {
@@ -801,7 +794,17 @@ export const mergeHistoryMessages = (
       merged[index] = mergeRequestMessages(merged[index], message);
     }
   }
-  return merged;
+  const position = (message: IAgentScopeRuntimeWebUIMessage) => {
+    const raw =
+      responseCardData(message)?.output?.[0] ??
+      requestCardData(message)?.input?.[0];
+    return raw ? getTranscriptPosition(raw as Message) : undefined;
+  };
+  return merged.sort((left, right) => {
+    const a = position(left);
+    const b = position(right);
+    return a && b ? a.turn_seq - b.turn_seq || a.ordinal - b.ordinal : 0;
+  });
 };
 
 const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
@@ -995,6 +998,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     {
       pages: IAgentScopeRuntimeWebUIMessage[][];
       activeIndex: number;
+      forwardFragment?: { boundary: string; before: string };
       latestBeforeAnchor?: {
         messages: IAgentScopeRuntimeWebUIMessage[];
         page: ChatHistoryMetadata | undefined;
@@ -1149,6 +1153,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     sessionId: string,
     signal?: AbortSignal,
     accumulate = false,
+    beforeMessageId?: string,
   ): Promise<{
     messages: IAgentScopeRuntimeWebUIMessage[];
     noMore: boolean;
@@ -1156,10 +1161,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const entry = this.findSession(sessionId) as ExtendedSession | undefined;
     const backendId = entry?.realId ?? sessionId;
     const window = this.historyWindows.get(backendId);
-    if (window && window.activeIndex + 1 < window.pages.length) {
+    if (
+      !beforeMessageId &&
+      window &&
+      window.activeIndex + 1 < window.pages.length
+    ) {
       const olderIndex = window.activeIndex + 1;
       if (accumulate) {
-        window.pages[window.activeIndex] = mergeHistoryMessages(
+        window.pages[window.activeIndex] = mergeCachedHistoryPages(
           window.pages[olderIndex],
           window.pages[window.activeIndex],
         );
@@ -1175,7 +1184,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       };
     }
     const page = this.historyPages.get(backendId) ?? entry?.historyPage;
-    if (!page?.has_more || !page.next_before) {
+    if (!beforeMessageId && (!page?.has_more || !page.next_before)) {
       return { messages: [], noMore: true };
     }
     const existing = this.historyPageRequests.get(backendId);
@@ -1184,16 +1193,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const owner = this.getActiveOwner();
     const request = api
       .getChatMessages(backendId, {
-        before: page.next_before,
+        ...(beforeMessageId
+          ? { before_message_id: beforeMessageId }
+          : { before: page?.next_before ?? undefined }),
         limit: HISTORY_PAGE_TURN_LIMIT,
         signal,
         include_app_owned: false,
       })
-      .then((result) =>
-        completeHistoryPage(backendId, result, signal, () =>
-          this.isActiveOwner(owner),
-        ),
-      )
+      .then((result) => readHistoryPage(result, signal))
       .then(({ page: result, messages }) => {
         if (!this.isActiveOwner(owner)) {
           throw new DOMException("Agent changed", "AbortError");
@@ -1212,16 +1219,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         };
         if (accumulate) {
           const current = historyWindow.pages[historyWindow.activeIndex] ?? [];
-          historyWindow.pages[historyWindow.activeIndex] = mergeHistoryMessages(
-            messages,
-            current,
-          );
+          historyWindow.pages[historyWindow.activeIndex] =
+            mergeCachedHistoryPages(messages, current);
         } else {
           historyWindow.pages.push(messages);
+          if (historyWindow.pages.length > 4)
+            historyWindow.pages.splice(1, historyWindow.pages.length - 4);
           historyWindow.activeIndex = historyWindow.pages.length - 1;
         }
         this.historyWindows.set(backendId, historyWindow);
-        const visibleMessages = this.renderHistoryWindow(backendId);
+        const visibleMessages = beforeMessageId
+          ? messages
+          : this.renderHistoryWindow(backendId);
         const cached = this.convertedSessionCache.get(backendId);
         if (cached) {
           cached.session.messages = visibleMessages;
@@ -1294,41 +1303,46 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     noMore: boolean;
   }> {
     const backendId = this.getHistoryBackendId(sessionId);
-    let result = await api.getChatMessages(backendId, {
-      ...(mode === "append-newer"
+    const owner = this.getActiveOwner();
+    const window = this.historyWindows.get(backendId) ?? {
+      pages: [[]],
+      activeIndex: 0,
+      forwardFragment: undefined as
+        | { boundary: string; before: string }
+        | undefined,
+    };
+    const continuation =
+      mode === "append-newer" &&
+      window.forwardFragment &&
+      window.forwardFragment.boundary === targetMessageId
+        ? window.forwardFragment.before
+        : undefined;
+    const result = await api.getChatMessages(backendId, {
+      ...(continuation
+        ? { before: continuation }
+        : mode === "append-newer"
         ? { after_message_id: targetMessageId }
         : { before: anchor }),
-      // Publish the next complete turn promptly instead of waiting for five
-      // tool-heavy turns. The viewport scheduler requests further turns.
       limit: mode === "append-newer" ? 1 : HISTORY_PAGE_TURN_LIMIT,
       signal,
       include_app_owned: false,
     });
-    let messages = convertMessages(result.messages || [], true);
+    signal?.throwIfAborted();
+    if (!this.isActiveOwner(owner))
+      throw new DOMException("Agent changed", "AbortError");
+    const { messages } = readHistoryPage(result, signal);
     if (mode === "append-newer") {
-      // The forward query selects exactly the next turn. Its own user
-      // boundary proves continuity; do not read the previous turn again.
-      const completed = await completeHistoryPage(backendId, result, signal);
-      result = completed.page;
-      messages = completed.messages;
-    }
-    while (
-      mode === "replace" &&
-      targetMessageId &&
-      !messages.some((message) => message.id === targetMessageId) &&
-      result.has_more &&
-      result.next_before
-    ) {
-      result = await api.getChatMessages(backendId, {
-        before: result.next_before,
-        limit: HISTORY_PAGE_TURN_LIMIT,
-        signal,
-        include_app_owned: false,
-      });
-      messages = mergeHistoryMessages(
-        convertMessages(result.messages || [], true),
-        messages,
-      );
+      this.historyWindows.set(backendId, window);
+      // The API returns the suffix of a split turn. Read its preceding
+      // fragments before advancing to another turn; never skip the gap.
+      window.forwardFragment =
+        messages.length > 0 &&
+        messages[0].role !== ROLE_USER &&
+        result.has_more &&
+        result.next_before &&
+        targetMessageId
+          ? { boundary: targetMessageId, before: result.next_before }
+          : undefined;
     }
     const page: ChatHistoryMetadata = {
       has_more: result.has_more,
@@ -1505,6 +1519,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       });
       syncSessionsGlobal([...this.sessionList]);
     }
+  }
+
+  /** Publish a confirmed fork before navigation or a background refresh. */
+  registerForkedChat(chat: ChatSpec, owner: SessionOwnerToken): void {
+    if (!this.isActiveOwner(owner)) return;
+    this.sessionListRequest = null;
+    this.sessionList = [
+      chatSpecToSession(chat),
+      ...this.sessionList.filter(
+        (session) =>
+          session.id !== chat.id &&
+          (session as ExtendedSession).realId !== chat.id,
+      ),
+    ];
+    this._prevReturnedList = [...this.sessionList];
+    syncSessionsGlobal(this._prevReturnedList);
   }
 
   private creationVisit = 0;
@@ -2067,9 +2097,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           archived: false,
           include_app_owned: false,
         });
-        // A result from a stale epoch must not replace the current agent's
-        // session list; hand back the current list without mutation.
-        if (!this.isActiveOwner(owner)) {
+        // Agent switches and confirmed forks invalidate older list reads.
+        // Return the current list so poll subscribers cannot roll it back.
+        if (!this.isActiveOwner(owner) || this.sessionListRequest !== entry) {
           return this._prevReturnedList ?? [...this.sessionList];
         }
         return this.applyChatsToSessionList(chats);
@@ -2194,6 +2224,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           (backendId !== displayId ? backendId : cached.realId);
         const historyWindow = this.historyWindows.get(backendId);
         if (historyWindow) {
+          const latest = historyWindow.latestBeforeAnchor;
+          if (latest) {
+            historyWindow.pages = [latest.messages];
+            historyWindow.latestBeforeAnchor = undefined;
+            if (latest.page) this.setHistoryPage(backendId, latest.page);
+          }
           historyWindow.activeIndex = 0;
           cached.messages = this.renderHistoryWindow(backendId);
         }

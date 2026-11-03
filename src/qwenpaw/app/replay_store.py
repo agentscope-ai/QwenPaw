@@ -455,6 +455,16 @@ class ReplayStore:
                     if (message.get("sequence_number") or 0)
                     > self._evicted_through
                 ]
+            previous = state.messages.get(str(event.get("msg_id") or ""))
+            content = (previous or {}).get("content") or []
+            merged_text = (
+                kind == "content"
+                and event.get("delta")
+                and event.get("type") == "text"
+                and bool(content)
+                and content[-1].get("delta")
+                and content[-1].get("type") == "text"
+            )
             state.apply(event)
             if (
                 receipt
@@ -479,13 +489,24 @@ class ReplayStore:
             )
             for message_id in touched:
                 if message_id in state.messages:
-                    if kind == "content" and event.get("delta"):
-                        # Conservative byte accounting without serializing
-                        # the growing message again for every token.
-                        self._sizes[message_id] = self._sizes.get(
-                            message_id,
-                            0,
-                        ) + len(sse.encode("utf-8"))
+                    if merged_text and message_id in self._sizes:
+                        # Count only the JSON string growth of merged text.
+                        delta_size = (
+                            len(
+                                json.dumps(
+                                    event.get("text", ""),
+                                    ensure_ascii=False,
+                                ).encode("utf-8"),
+                            )
+                            - 2
+                        )
+                        self._sizes[message_id] = (
+                            self._sizes.get(
+                                message_id,
+                                0,
+                            )
+                            + delta_size
+                        )
                         continue
                     self._sizes[message_id] = len(
                         self._encode(state.messages[message_id]).encode(

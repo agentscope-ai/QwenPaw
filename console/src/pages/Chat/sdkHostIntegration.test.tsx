@@ -284,6 +284,7 @@ vi.mock("./sessionApi", async (importOriginal) => ({
       };
     }),
     triggerResolve: vi.fn(),
+    invalidateConvertedCache: vi.fn(),
     resetWindowIdentity: vi.fn(),
     isSessionSwitching: false,
     isUnresolvedLocalSession: vi.fn(() => false),

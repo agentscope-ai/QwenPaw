@@ -6,6 +6,7 @@ Windows filenames cannot contain: \\ / : * ? " < > |
 """
 
 import asyncio
+import json
 import os
 import re
 import logging
@@ -21,6 +22,7 @@ from agentscope.message import Msg
 
 from qwenpaw.exceptions import ConfigurationException, LegacyMigrationError
 from ...schemas import Message
+from ...constant import WORKING_DIR
 from ...exceptions import AgentStateError
 from ...config.history_path import resolve_history_db_path
 from ...utils.io_utils import (
@@ -131,12 +133,20 @@ _CANONICAL_WECHAT_SAFE_PREFIX = "wechat--"
 _WEIXIN_LEGACY_ARCHIVE_DIR = ".weixin-legacy"
 
 
-def _read_session_json(path: str) -> dict:
+def _read_session_json(path: str, *, strict: bool = False) -> dict:
     """Read and parse one session snapshot in a worker thread."""
     content = Path(path).read_text(
         encoding="utf-8",
         errors="surrogatepass",
     )
+    if strict:
+        try:
+            state = json.loads(content)
+        except json.JSONDecodeError:
+            state, _ = json.JSONDecoder().raw_decode(content.lstrip())
+        if not isinstance(state, dict):
+            raise ValueError("legacy session snapshot must be an object")
+        return state
     return _safe_json_loads(content, path)
 
 
@@ -566,6 +576,9 @@ class DatabaseSession:
         user_id: str,
         channel: str,
     ) -> Path:
+        if session_id.startswith("pawapp-storage:"):
+            app_id = session_id.removeprefix("pawapp-storage:")
+            return Path(WORKING_DIR) / session_filename(f"pawapp:{app_id}")
         filename = session_filename(session_id, user_id)
         if channel:
             safe_channel = sanitize_filename(channel)
@@ -585,7 +598,11 @@ class DatabaseSession:
     ) -> LegacyConversationSnapshot | None:
         path = await self._legacy_path(session_id, user_id, channel)
         try:
-            state = await run_sync_io(_read_session_json, str(path))
+            state = await run_sync_io(
+                _read_session_json,
+                str(path),
+                strict=True,
+            )
         except FileNotFoundError:
             return None
         if not state:
@@ -696,6 +713,7 @@ class DatabaseSession:
                     turn_id=f"legacy:{turn_seq}",
                     migration_approximate=True,
                     exact_current_usage=True,
+                    legacy_import=True,
                 )
         _, inserted = await run_sync_io(
             self._catalog.write_runtime_state,
@@ -706,6 +724,7 @@ class DatabaseSession:
             current_usage=_legacy_current_usage(snapshot.state),
             only_if_missing=not restore_runtime,
             migration_anchor=True,
+            legacy_import=True,
         )
         await run_sync_io(
             self._import_legacy_provider_binding,
@@ -773,7 +792,19 @@ class DatabaseSession:
                     },
                 )
         if len(bindings) > 1:
-            raise ValueError("ambiguous legacy provider session binding")
+            config_path = self._legacy_save_dir.parent / "agent.json"
+            config = (
+                _read_session_json(str(config_path))
+                if config_path.is_file()
+                else {}
+            )
+            bindings = [
+                binding
+                for binding in bindings
+                if binding["provider"] == config.get("backend")
+            ]
+            if len(bindings) != 1:
+                raise ValueError("ambiguous legacy provider session binding")
         if bindings:
             self._catalog.record_provider_fact(
                 **identity,
@@ -829,7 +860,7 @@ class DatabaseSession:
                 )
                 if call_id:
                     turn_by_key[str(call_id)] = turn_id
-        history = HistoryStore(target)
+        history = HistoryStore(target, shared_database=True)
         try:
             history.import_legacy_database(
                 source,
@@ -1091,6 +1122,7 @@ class DatabaseSession:
         channel: str,
         turn_id: str,
         reset_context: bool = False,
+        pending_commit: dict[str, Any] | None = None,
         **state_modules_mapping: Any,
     ) -> None:
         """Save runtime and its immutable turn revision in one transaction."""
@@ -1098,6 +1130,12 @@ class DatabaseSession:
             name: module.state_dict()
             for name, module in state_modules_mapping.items()
         }
+        if pending_commit is not None:
+            pending_commit["runtime"] = {
+                "state": deepcopy(state),
+                "reset_context": reset_context,
+            }
+            return
         await run_sync_io(
             self._catalog.write_runtime_state,
             session_id=session_id,
@@ -1236,6 +1274,8 @@ class DatabaseSession:
         self,
         *,
         session_id: str,
+        user_id: str,
+        channel: str,
         usage: dict[str, Any] | None,
         context_usage: dict[str, Any] | None,
     ) -> None:
@@ -1243,6 +1283,8 @@ class DatabaseSession:
         await run_sync_io(
             self._catalog.set_current_usage,
             session_id=session_id,
+            user_id=user_id,
+            channel=channel,
             usage=usage,
             context_usage=context_usage,
         )

@@ -198,8 +198,8 @@ def initialize_database(connection: sqlite3.Connection) -> None:
         "SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1",
     ).fetchone()
     if existing is None:
-        connection.executescript(SCHEMA)
-        connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
-        connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-        connection.commit()
+        with connection:
+            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
+            connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
+            connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     validate_database(connection)

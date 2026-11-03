@@ -15,6 +15,7 @@ from ..runtime._state_utils import StateProxy
 from .._session_signals import (
     TRANSCRIPT_RECORDING_READY_KEY,
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TURN_COMMIT_KEY,
 )
 from ..schemas import AgentResponse, Message, MessageType
 from .events import HarnessHistoryItem, HarnessHistoryKind
@@ -105,6 +106,8 @@ class HarnessSessionBridge:
         if turn_id and request_context.get(TRANSCRIPT_RECORDING_READY_KEY):
             save = self._session.save_turn_session_state
             options["turn_id"] = turn_id
+            if TURN_COMMIT_KEY in request_context:
+                options["pending_commit"] = request_context[TURN_COMMIT_KEY]
         await save(
             session_id=session_id,
             user_id=user_id,

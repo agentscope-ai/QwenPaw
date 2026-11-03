@@ -601,6 +601,9 @@ class BaseChannel(ABC):
             owner=self._workspace,
             channel_id=self.channel,
             on_finished=self._workspace.chat_manager.mark_chat_finished,
+            can_start=lambda: self._workspace.chat_manager.can_start_run(
+                chat.id,
+            ),
         )
 
         if is_new:

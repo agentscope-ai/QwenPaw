@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ from ..constant import (
     TOOL_RESULT_SNAPSHOT_MIN_BYTES,
 )
 from .message_convert import _media_type_to_block_type
+from .. import schemas
 
 logger = logging.getLogger(__name__)
 
@@ -768,14 +770,19 @@ class Envelope:
         accumulated = state.get("accumulated_bytes", 0) + added_bytes
         state["accumulated_bytes"] = accumulated
         last_emitted = state.get("last_emitted_bytes", 0)
+        now = time.monotonic()
         if last_emitted:
             threshold = max(
                 TOOL_RESULT_SNAPSHOT_MIN_BYTES,
                 last_emitted * TOOL_RESULT_SNAPSHOT_GROWTH,
             )
-            if accumulated < threshold:
+            if (
+                accumulated < threshold
+                and now - state.get("last_emitted_at", now) < 1.0
+            ):
                 return False
         state["last_emitted_bytes"] = accumulated
+        state["last_emitted_at"] = now
         return True
 
     # ------------------------------------------------------------------
@@ -826,6 +833,28 @@ class Envelope:
     # ------------------------------------------------------------------
     # Heartbeat
     # ------------------------------------------------------------------
+
+    async def flush_tool_snapshots(self) -> AsyncGenerator[Any, None]:
+        """Publish dirty tool output even when no further delta arrives."""
+        now = time.monotonic()
+        for call_id, state in self._tool_calls.items():
+            if (
+                "output_text_fragments" not in state
+                or state.get("accumulated_bytes", 0)
+                == state.get("last_emitted_bytes", 0)
+                or now - state.get("last_emitted_at", now) < 1.0
+            ):
+                continue
+            content = self._build_tool_result_content(
+                call_id,
+                state,
+                schemas.ContentType,
+                schemas.FunctionCallOutput,
+            )
+            content.msg_id = state["output_message"].id
+            state["last_emitted_bytes"] = state["accumulated_bytes"]
+            state["last_emitted_at"] = now
+            yield self._tag_seq(content.in_progress())
 
     async def heartbeat(self) -> AsyncGenerator[Any, None]:
         from ..schemas import Event

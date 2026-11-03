@@ -11,6 +11,15 @@ import zh from "./zh.json";
 const locales = { en, id, ja, "pt-BR": ptBR, ru, vi, zh };
 
 const requiredPaths = [
+  "chat.fork",
+  "chat.forkTitle",
+  "chat.forkDescription",
+  "chat.forkCreated",
+  "chat.forkFailed",
+  "chat.forkUnavailable",
+  "chat.forkUnsupported",
+  "chat.forkBoundaryMissing",
+
   "common.saving",
   "harnesses.connected",
   "harnesses.disconnected",

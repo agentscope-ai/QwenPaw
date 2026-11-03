@@ -3594,6 +3594,14 @@
     "sidebarPreview": "Itens visíveis"
   },
   "chat": {
+    "fork": "Criar ramificação",
+    "forkTitle": "Criar ramificação a partir deste turno?",
+    "forkDescription": "Uma nova conversa independente incluirá este turno e todos os anteriores.",
+    "forkCreated": "Ramificação criada",
+    "forkFailed": "Falha ao criar ramificação da conversa",
+    "forkUnavailable": "Não é possível criar uma ramificação deste turno",
+    "forkUnsupported": "O backend deste agente não oferece suporte a ramificações",
+    "forkBoundaryMissing": "Este turno ainda não tem um limite de ramificação nativo concluído e não pode ser ramificado",
     "sessionLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
     "longTextPaste": {
       "title": "Colar texto longo",
@@ -3617,7 +3625,10 @@
     "chatHistoryTooltip": "Chat history",
     "olderHistoryLoadFailed": "Falha ao carregar mensagens anteriores",
     "messageNavigation": {
-      "title": "Navegação ({{count}})"
+      "title": "Navegação ({{count}})",
+      "locate": "Localizar a mensagem atual na lista",
+      "userMessage": "Mensagem do usuário",
+      "bottom": "Rolar até o final"
     },
     "messageDisplay": {
       "stepsRunning": "Em execução… · {{count}} etapas",
