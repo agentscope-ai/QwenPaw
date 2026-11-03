@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long
+import codecs
 import os
+import secrets
+import shutil
 from codecs import BOM_UTF8
 from io import FileIO
 from pathlib import Path
@@ -14,6 +17,7 @@ from .utils import (
     build_truncation_metadata,
     truncate_text_output,
     read_file_safe,
+    read_file_bytes_safe,
     DEFAULT_MAX_BYTES,
     TRUNCATION_METADATA_KEY,
 )
@@ -30,6 +34,92 @@ from ...utils.io_utils import (
 )
 
 _USER_FILE_MODE = 0o644
+
+
+def _decode_lossless(raw: bytes) -> tuple[str, str]:
+    """Decode a byte snapshot without losing information, returning the text
+    and the encoding to write it back with (#8415).
+
+    UTF-8 (BOM-aware) first; anything that is not valid UTF-8 falls back to
+    latin-1, which maps every byte to one code point, so
+    ``text.encode(encoding)`` rebuilds the exact input bytes and nothing is
+    destroyed. The old path decoded with ``errors='ignore'`` and rewrote the
+    lossy text as UTF-8, silently dropping the non-UTF-8 bytes of an
+    ISO-8859-1 file while reporting success.
+    """
+    if raw.startswith(codecs.BOM_UTF8):
+        try:
+            return raw.decode("utf-8-sig"), "utf-8-sig"
+        except UnicodeDecodeError:
+            pass
+    try:
+        return raw.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        return raw.decode("latin-1"), "latin-1"
+
+
+def _detect_newline(text: str) -> str:
+    """The file's line ending, so an edit can be written back unchanged (#8414).
+
+    ``edit_file`` matches on a ``\\n``-normalized copy — the model sees the file
+    through ``read_file``, which normalizes — but writes the result back with
+    the ending the file already uses.
+    """
+    if "\r\n" in text:
+        return "\r\n"
+    if "\r" in text:
+        return "\r"
+    return "\n"
+
+
+def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    """Atomically replace a file with raw bytes, preserving its mode.
+
+    ``edit_file`` writes the snapshot back byte for byte (#8414, #8415): a
+    text-mode write with ``newline='\\n'`` would translate every line ending
+    on Windows and re-encode non-UTF-8 files, so this writes binary through a
+    sibling temp file, the same shape as io_utils' atomic text writer.
+    """
+    target = Path(path)
+    has_target = target.exists()
+    temp_path: Path | None = None
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        for _ in range(100):
+            candidate = target.with_name(
+                f".{target.name}.{secrets.token_hex(8)}.tmp",
+            )
+            try:
+                fd = os.open(candidate, flags, 0o600)
+                temp_path = candidate
+                break
+            except FileExistsError:
+                continue
+        if temp_path is None:
+            raise OSError(
+                f"Unable to allocate an atomic temp file for {target}"
+            )
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if has_target:
+            # Keep the original permission bits: an editor must not silently
+            # change who can read the file it edits. copymode() copies the
+            # source's mode rather than re-applying a 0o777-masked value.
+            shutil.copymode(target, temp_path)
+        else:
+            os.chmod(temp_path, _USER_FILE_MODE)
+        os.replace(temp_path, target)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _path_to_file_url(path: str) -> str:
@@ -398,11 +488,7 @@ async def edit_file(
 
     async with get_path_lock(resolved_path):
         try:
-            encoding = await run_sync_io(
-                _get_encoding_for_file,
-                resolved_path,
-            )
-            content = await read_file_safe(resolved_path)
+            raw = await read_file_bytes_safe(resolved_path)
         except FileNotFoundError:
             return ToolChunk(
                 is_last=True,
@@ -443,7 +529,15 @@ async def edit_file(
                 ],
             )
 
-        if old_text not in content:
+        # Lossless round trip (#8414, #8415): match and replace on a
+        # \n-normalized copy — the model sees the file through read_file, which
+        # normalizes — then write the replacement back with the file's own
+        # line endings and encoding, so a one-line edit destroys neither.
+        content, used_encoding = _decode_lossless(raw)
+        newline = _detect_newline(content)
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+
+        if old_text not in normalized:
             return ToolChunk(
                 is_last=True,
                 state=ToolResultState.ERROR,
@@ -456,12 +550,13 @@ async def edit_file(
             )
 
         try:
-            new_content = content.replace(old_text, new_text)
-            await write_text_atomic_async(
-                resolved_path,
-                new_content,
-                encoding=encoding,
-                new_file_mode=_USER_FILE_MODE,
+            new_content = normalized.replace(old_text, new_text)
+            if newline != "\n":
+                new_content = new_content.replace("\n", newline)
+            await run_sync_io(
+                _write_bytes_atomic,
+                Path(resolved_path),
+                new_content.encode(used_encoding),
             )
         except Exception as e:
             return ToolChunk(
