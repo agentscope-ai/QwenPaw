@@ -151,6 +151,36 @@ def test_catalog_rebuilds_direct_path_and_allows_shared_session_id(
     assert (tmp_path / "transcripts" / f"{storage_id}.db").is_file()
     catalog.close()
 
+    chats_path = tmp_path / "chats.json"
+    original = chats_path.read_bytes()
+    raw = json.loads(original)
+    raw["chats"][0].pop("storage_id")
+    raw["chats"][1]["storage_id"] = "33333333-3333-4333-8333-333333333333"
+    chats_path.write_text(json.dumps(raw), encoding="utf-8")
+    damaged = chats_path.read_bytes()
+    reopened = TranscriptCatalog(tmp_path)
+    reopened.close()
+    restored = json.loads(chats_path.read_text())
+    assert restored["chats"] == json.loads(original)["chats"]
+    backups = list(tmp_path.glob("chats.json.*.recovery.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == damaged
+    reopened = TranscriptCatalog(tmp_path)
+    reopened.close()
+    assert list(tmp_path.glob("chats.json.*.recovery.bak")) == backups
+
+    conflicting = (
+        tmp_path / "transcripts" / ("33333333-3333-4333-8333-333333333333.db")
+    )
+    conflicting.write_bytes(b"preserve conflicting database")
+    chats_path.write_bytes(damaged)
+    with pytest.raises(ValueError, match="conflicting chat databases"):
+        TranscriptCatalog(tmp_path)
+    assert chats_path.read_bytes() == damaged
+    assert conflicting.read_bytes() == b"preserve conflicting database"
+    conflicting.unlink()
+    chats_path.write_bytes(original)
+
     (tmp_path / "transcript_catalog.db").unlink()
     reopened = TranscriptCatalog(tmp_path)
     try:
@@ -800,3 +830,24 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
         "message-3",
     ]
     catalog.close()
+
+    child_bytes = child_path.read_bytes()
+    damaged_chat = ChatSpec(
+        id="child-chat",
+        session_id="child",
+        user_id="user-1",
+        channel="console",
+    ).model_dump(mode="json")
+    chats_path = tmp_path / "chats.json"
+    chats_path.write_text(
+        json.dumps({"version": 1, "chats": [damaged_chat]}),
+        encoding="utf-8",
+    )
+    reopened = TranscriptCatalog(tmp_path)
+    reopened.close()
+    restored = json.loads(chats_path.read_text())["chats"][0]
+    assert restored["storage_id"] == child_storage_id
+    assert restored["parent_chat_id"] == "parent-chat"
+    assert restored["fork_turn_id"] == "turn-2"
+    assert restored["fork_turn_seq"] == 2
+    assert child_path.read_bytes() == child_bytes

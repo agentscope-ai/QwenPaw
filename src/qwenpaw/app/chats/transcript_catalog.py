@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
+from .repo.json_repo import JsonChatRepository
 from .transcript import (
     RuntimeSnapshot,
     TranscriptCursor,
@@ -95,7 +96,11 @@ class TranscriptCatalog:
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
         self._conn.execute("PRAGMA journal_mode=DELETE")
         self._create_schema()
-        self._rebuild_from_chats()
+        try:
+            self._rebuild_from_chats()
+        except BaseException:
+            self._conn.close()
+            raise
 
     def _create_schema(self) -> None:
         with self._conn:
@@ -128,12 +133,11 @@ class TranscriptCatalog:
         """Rebuild missing catalog rows from chats.json and DB identity."""
         path = self._workspace_dir / "chats.json"
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            chats = JsonChatRepository(path)._load_sync().chats
         except (FileNotFoundError, OSError, json.JSONDecodeError):
             return
-        for chat in raw.get("chats", []):
-            if not isinstance(chat, dict):
-                continue
+        for spec in chats:
+            chat = spec.model_dump(mode="json")
             storage_id = chat.get("storage_id")
             session_id = chat.get("session_id")
             user_id = chat.get("user_id")
