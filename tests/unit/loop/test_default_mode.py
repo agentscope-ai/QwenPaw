@@ -225,7 +225,7 @@ def decision_check(monkeypatch):
     )
 
 
-async def test_jev_is_opt_in_and_can_allow_a_text_response(decision_check):
+async def test_jev_is_opt_in_and_preserves_self_check(decision_check):
     ctx, resolve, evaluate = decision_check
     config = _running_config()
     mode = DefaultMode()
@@ -240,6 +240,9 @@ async def test_jev_is_opt_in_and_can_allow_a_text_response(decision_check):
     await mode.handler({**ctx, "has_tool_calls": True})
     resolve.assert_not_called()
     evaluate.return_value.content = {"continue": BinaryAnswer(0.5)}
+    result = await mode.handler(ctx)
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert result.continuation_message == config.loop.rubric.prompt
     assert (await mode.handler(ctx)).action == StopAction.TERMINATE
     evaluate.assert_awaited_once()
     request = evaluate.call_args.kwargs
@@ -249,8 +252,14 @@ async def test_jev_is_opt_in_and_can_allow_a_text_response(decision_check):
     assert result["state"] == "error" and result["output"] == "File not found"
 
 
-async def test_jev_reason_and_fallback_share_the_intervention_limit(
+@pytest.mark.parametrize(
+    "unavailable",
+    [False, True],
+    ids=["no_issue", "unavailable"],
+)
+async def test_jev_reason_lasts_one_self_check_within_the_shared_limit(
     decision_check,
+    unavailable,
 ):
     ctx, resolve, evaluate = decision_check
     config = _running_config()
@@ -274,12 +283,43 @@ async def test_jev_reason_and_fallback_share_the_intervention_limit(
         "and tool results before acting. A requested action was promised but "
         "has not been performed."
     )
-    assert _find_gate(mode, IterationGate)._state().iteration == 1
+    assert _find_gate(mode, IterationGate)._state().iteration == 0
 
-    resolve.side_effect = typesafe_provider.TypeSafeEvaluationError("No model")
+    if unavailable:
+        resolve.side_effect = typesafe_provider.TypeSafeEvaluationError(
+            "No model",
+        )
+    else:
+        evaluate.return_value.content = {"continue": BinaryAnswer(0.1)}
     result = await mode.handler(ctx)
     assert result.action == StopAction.INTERRUPT_AND_CONTINUE
     assert result.continuation_message == rubric.prompt
     assert (await mode.handler(ctx)).action == StopAction.TERMINATE
     assert resolve.call_count == 2
+    assert evaluate.await_count == (1 if unavailable else 2)
+
+
+@pytest.mark.parametrize(
+    ("probability", "confidence"),
+    [(1.2, 0.9), (0.9, 1.2), (0.9, True), (0.9, 0.5)],
+)
+async def test_jev_requires_two_confident_answers(
+    decision_check,
+    probability,
+    confidence,
+):
+    ctx, _, evaluate = decision_check
+    config = _running_config()
+    config.loop.rubric.use_decision_model = True
+    mode = DefaultMode()
+    await mode.on_turn_start(_context(config))
+    evaluate.return_value.content = {
+        "continue": BinaryAnswer(probability),
+        "reason": ChoiceAnswer("missing_result", confidence, {}),
+    }
+
+    result = await mode.handler(ctx)
+
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert result.continuation_message == config.loop.rubric.prompt
     evaluate.assert_awaited_once()

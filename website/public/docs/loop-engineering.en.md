@@ -70,7 +70,7 @@ Some large language models may output text without calling any tools, causing th
 
 > **When should I enable this?** If you notice the Agent often stops after outputting text without actually finishing the task, turn this on.
 
-With completion checks enabled, turn on **Use Jev to decide when to stop** to send the conversation, tool results, available tool schemas, and criteria to the configured decision model. On a text-only response, one request decides whether to continue and can supply a reason for the agent to verify. If the model is unavailable or the check fails, the agent uses the usual self-check.
+With completion checks enabled, **Use the decision model to assist self-checks** sends the current conversation, tool results, available tool schemas, and criteria to the selected decision model at most once per self-check. If the model flags a specific issue, the agent receives it alongside its usual self-check prompt. If it has no suggestion or is unavailable, the agent receives the original prompt.
 
 ### Corresponding agent.json Configuration
 

@@ -11,9 +11,10 @@ import {
 } from "./agentLoopHelpers";
 import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
 import { SettingsField } from "@/components/interaction/SettingsField";
-import { useId, useState } from "react";
+import { useState } from "react";
 import {
   Card,
+  Checkbox,
   Form,
   Select,
   Switch,
@@ -260,23 +261,16 @@ function DoomLoopSection() {
 
 function RubricDecisionField({ name }: { name: (string | number)[] }) {
   const { t } = useTranslation();
-  const helpId = useId();
+  const label = t("agentConfig.rubricUseDecisionModel");
   return (
-    <>
-      <SettingsField
-        name={name}
-        valuePropName="checked"
-        label={t(
-          "agentConfig.rubricUseDecisionModel",
-          "Use Jev to decide when to stop",
-        )}
-      >
-        <Switch aria-describedby={helpId} />
-      </SettingsField>
-      <p id={helpId} className={loopStyles.editorHint}>
-        {t("agentConfig.rubricUseDecisionModelHelp")}
-      </p>
-    </>
+    <SettingsField
+      name={name}
+      label={label}
+      tooltip={t("agentConfig.rubricUseDecisionModelHelp")}
+      valuePropName="checked"
+    >
+      <Checkbox aria-label={label} />
+    </SettingsField>
   );
 }
 
@@ -930,15 +924,6 @@ function GateParamsEditor({
       <>
         <RubricDecisionField name={[...base, "use_decision_model"]} />
         <SettingsField
-          name={[...base, "max_evaluations"]}
-          label={t(
-            "agentConfig.loopMode.maxEvaluations",
-            "Maximum evaluation rounds",
-          )}
-        >
-          <InputNumber min={1} max={10} style={{ width: "100%" }} />
-        </SettingsField>
-        <SettingsField
           name={[...base, "rubric"]}
           label={t(
             "agentConfig.loopMode.qualitativeRubric",
@@ -950,6 +935,15 @@ function GateParamsEditor({
           )}
         >
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
+        </SettingsField>
+        <SettingsField
+          name={[...base, "max_evaluations"]}
+          label={t(
+            "agentConfig.loopMode.maxEvaluations",
+            "Maximum evaluation rounds",
+          )}
+        >
+          <InputNumber min={1} max={10} style={{ width: "100%" }} />
         </SettingsField>
       </>
     );

@@ -197,17 +197,26 @@ class SubAgentRubric(RubricStrategy):
 
 @dataclass
 class _QualitativeRubricState:
-    """Evaluation count and current revision reason for one session."""
+    """Per-session qualitative evaluation count."""
 
     evaluations: int = 0
-    revision_reason: str | None = None
+
+
+def _is_confident(probability: object) -> bool:
+    """A hint requires a valid probability above the decision threshold."""
+    if (
+        isinstance(probability, bool)
+        or not isinstance(probability, (int, float))
+        or not 0 <= probability <= 1
+    ):
+        raise ValueError("Invalid decision model probability")
+    return probability > 0.5
 
 
 class QualitativeRubricGate(LoopGate):
     """Apply a qualitative rubric to text-only responses.
 
-    Opt in to the decision model to avoid unnecessary re-prompts.
-    Without an available decision, preserve the original bounded self-check.
+    The optional decision model can add a reason to the agent's self-check.
     Counts evaluations per request cycle, up to ``max_evaluations``.
     """
 
@@ -265,31 +274,27 @@ class QualitativeRubricGate(LoopGate):
             state.evaluations,
             self._max_evaluations,
         )
-        if self._use_decision_model and isinstance(ctx, dict):
-            result = await self._check_decision(ctx, state)
-            if result is not None:
-                return result
-        state.revision_reason = None
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             reason="qualitative rubric requested revision",
             reset_peers=True,
+            prepare_continuation=(
+                self._assisted_continuation
+                if self._use_decision_model and isinstance(ctx, dict)
+                else None
+            ),
         )
 
-    async def _check_decision(
-        self,
-        ctx: dict,
-        state: _QualitativeRubricState,
-    ) -> StopHandlerResult | None:
-        """Return None when the original self-check should handle completion."""
+    async def _revision_reason(self, ctx: dict) -> str | None:
+        """Return a supported issue for the agent to verify, if available."""
         agent = ctx.get("agent")
         config = getattr(agent, "_agent_config", None)
         candidate = ctx.get("final_msg")
         if config is None or candidate is None:
             return None
-        from ...providers.typesafe_provider import resolve_decision_model
-
         try:
+            from ...providers.typesafe_provider import resolve_decision_model
+
             async with asyncio.timeout(_DECISION_TIMEOUT_SECONDS):
                 provider, model = await run_sync_io(
                     resolve_decision_model,
@@ -306,28 +311,19 @@ class QualitativeRubricGate(LoopGate):
                     timeout=_DECISION_TIMEOUT_SECONDS,
                 )
             answer = response.content.get("continue")
-            if (
-                not isinstance(answer, BinaryAnswer)
-                or isinstance(answer.probability, bool)
-                or not isinstance(answer.probability, (int, float))
-                or not 0 <= answer.probability <= 1
+            if not isinstance(answer, BinaryAnswer) or not _is_confident(
+                answer.probability,
             ):
-                raise ValueError("Invalid continuation probability")
-            if answer.probability <= 0.5:
-                return StopHandlerResult(action=StopAction.BYPASS)
+                return None
             reason = response.content.get("reason")
-            state.revision_reason = (
-                _REASON_QUESTION.criteria.get(reason.choice)
-                if isinstance(reason, ChoiceAnswer) and reason.confidence > 0.5
-                else None
-            )
-            return StopHandlerResult(
-                action=StopAction.INTERRUPT_AND_CONTINUE,
-                reason="Decision model found unfinished work",
-            )
+            if not isinstance(reason, ChoiceAnswer) or not _is_confident(
+                reason.confidence,
+            ):
+                return None
+            return _REASON_QUESTION.criteria.get(reason.choice)
         except Exception as exc:
             logger.warning(
-                "Completion decision unavailable (%s); using self-check",
+                "Jev self-check hint unavailable (%s)",
                 type(exc).__name__,
             )
             return None
@@ -376,13 +372,17 @@ class QualitativeRubricGate(LoopGate):
         }
 
     def build_continuation(self) -> str:
-        """Return the re-prompt text."""
-        state = self._state()
-        if not state or not state.revision_reason:
+        """Return the configured self-check prompt."""
+        return self._rubric
+
+    async def _assisted_continuation(self, ctx: dict) -> str:
+        """Add a supported issue to this self-check only."""
+        reason = await self._revision_reason(ctx)
+        if not reason:
             return self._rubric
         hint = (
             "Check this possible issue against the conversation and tool "
-            f"results before acting. {state.revision_reason}"
+            f"results before acting. {reason}"
         )
         return f"{self._rubric}\n{hint}" if self._rubric else hint
 
@@ -391,7 +391,6 @@ class QualitativeRubricGate(LoopGate):
         state = self._state()
         if state is not None:
             state.evaluations = 0
-            state.revision_reason = None
 
 
 __all__ = [
