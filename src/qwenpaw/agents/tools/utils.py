@@ -1014,5 +1014,7 @@ def replace_text_preserving_newlines(
     normalized = _to_lf(original)
     if old_text not in normalized:
         return None
-    replaced = normalized.replace(old_text, new_text)
+    # Fold new_text before replace. A trailing lone CR must not join the
+    # next untouched LF and collapse into one break inside _to_lf.
+    replaced = normalized.replace(old_text, _to_lf(new_text))
     return _apply_newline_style(replaced, style)

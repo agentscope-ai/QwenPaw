@@ -458,6 +458,24 @@ class TestEditFile:
         assert lf_view == b"\n\nb"
         assert updated == b"\r\n\nb"
 
+    @pytest.mark.asyncio
+    async def test_edit_normalizes_trailing_lone_cr_in_new_text(
+        self,
+        tmp_path,
+    ):
+        """A trailing lone CR in new_text must not swallow the next LF.
+
+        Folding ``new_text`` only after ``str.replace`` lets ``\\r`` join
+        the untouched ``\\n`` and collapse to one break.
+        """
+        f = tmp_path / "lf.txt"
+        f.write_bytes(b"a\nb")
+
+        result = await edit_file(str(f), "a", "\r")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"\n\nb"
+
 
 # ---------------------------------------------------------------------------
 # append_file
