@@ -585,6 +585,117 @@ class TestEnvironmentIdentity:
         finally:
             home.chmod(0o755)
 
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX permission bits")
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root ignores directory permission bits",
+    )
+    def test_state_root_accepts_a_read_only_root_with_prepared_environments(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A read-only coordination root still works with writable env dirs.
+
+        Lease files and maintenance markers are created inside the prepared
+        per-environment subdirectories, so the coordination root itself need
+        not be writable. The selection probe must not reject this working
+        configuration just because the root directory denies W_OK.
+        """
+        import hashlib
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_read_only_root",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "home"
+        root = home / ".qwenpaw" / "dependency-environments"
+        site = tmp_path / "site"
+        site.mkdir()
+        root.mkdir(parents=True)
+        identity = hashlib.sha256(
+            os.fsencode(str(fresh.canonical(site)))
+        ).hexdigest()
+        environment = root / identity
+        environment.mkdir()
+        root.chmod(0o555)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "app-home"))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(home)),
+        )
+        try:
+            assert fresh.state_root() == root.resolve()
+            fresh.lease_environment([site])
+            assert fresh.live_readers([site])
+            fresh._close_readers()
+            with fresh.maintenance([site], "read-only-root", "token"):
+                assert fresh.marker(site).exists()
+            fresh.clear_maintenance([site], "read-only-root")
+        finally:
+            fresh._close_readers()
+            root.chmod(0o755)
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX permission bits")
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root ignores directory permission bits",
+    )
+    def test_state_root_defers_an_unusable_root_to_the_actual_operation(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Selection must not reject a root it cannot fully validate.
+
+        With a read-only root and no prepared per-environment directories,
+        selection cannot know which subdirectories a process will need. It
+        must not reject on the root W_OK bit; the failure then comes from the
+        actual filesystem operation with its original OSError type, so the
+        existing InstallLockError handling in install_lock.py still applies.
+        """
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_deferred",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "home"
+        root = home / ".qwenpaw" / "dependency-environments"
+        site = tmp_path / "site"
+        site.mkdir()
+        root.mkdir(parents=True)
+        root.chmod(0o555)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "app-home"))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(home)),
+        )
+        try:
+            assert fresh.state_root() == root.resolve()
+            with pytest.raises(PermissionError) as raised:
+                fresh.lease_environment([site])
+            assert "DEPENDENCY_STATE_ROOT_UNAVAILABLE" not in str(raised.value)
+        finally:
+            root.chmod(0o755)
+
     @pytest.mark.parametrize("alias_kind", ["symlink", "case", "distinct"])
     @pytest.mark.parametrize("owner", ["reader", "writer"])
     def test_site_aliases_share_one_cross_process_lock(

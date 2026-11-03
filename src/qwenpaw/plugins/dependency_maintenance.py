@@ -219,8 +219,16 @@ def _unusable_root_reason(root):
     otherwise the locks below it no longer exclude each other. It starts from
     the deepest path so an already prepared, writable coordination directory
     under a read-only home is still accepted.
+
+    Write permission is required only on the directory that must gain a new
+    entry. An existing coordination root needs no writes at its own level:
+    leases, readers and markers are created inside prepared per-environment
+    subdirectories below it, which are not known during selection. If those
+    subdirectories are not usable, the operation itself fails; the probe must
+    not guess that from the root's own permission bits.
     """
     probe = Path(root)
+    needs_creation = False
     while True:
         try:
             observed = probe.stat()
@@ -233,6 +241,7 @@ def _unusable_root_reason(root):
             parent = probe.parent
             if parent == probe:
                 return "no existing ancestor directory"
+            needs_creation = True
             probe = parent
             continue
         except OSError as exc:
@@ -245,7 +254,7 @@ def _unusable_root_reason(root):
             return "not a directory"
         if not _access_allowed(probe, os.X_OK):
             return "not searchable"
-        if not _access_allowed(probe, os.W_OK):
+        if needs_creation and not _access_allowed(probe, os.W_OK):
             return "not writable"
         return None
 
