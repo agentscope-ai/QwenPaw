@@ -140,7 +140,7 @@ class ModelInfo(BaseModel):
     )
     max_input_length_auto_detected: int | None = Field(
         default=None,
-        ge=1000,
+        ge=1,
         description="Context window reported by the provider API.",
     )
     template_id: str | None = None
