@@ -57,6 +57,7 @@ def prepare(work):
     if not source.exists():
         source.mkdir(parents=True)
         run("git", "init", source)
+        run("git", "-C", source, "config", "core.autocrlf", "false")
         run(
             "git",
             "-C",
