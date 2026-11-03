@@ -69,6 +69,9 @@ const {
   mockSdkMessages: {
     enabled: false,
     getMessages: vi.fn(() => [] as IAgentScopeRuntimeWebUIMessage[]),
+    getSessionMessages: vi.fn(
+      (_id: string) => [] as IAgentScopeRuntimeWebUIMessage[],
+    ),
     setSessionMessages: vi.fn(),
   },
 }));
@@ -644,6 +647,7 @@ describe("ChatPage coverage", () => {
     mockSdkInput.loading = false;
     mockSdkMessages.enabled = false;
     mockSdkMessages.getMessages.mockReturnValue([]);
+    mockSdkMessages.getSessionMessages.mockReset().mockReturnValue([]);
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     chatExtensions.__resetForTests();
@@ -710,7 +714,11 @@ describe("ChatPage coverage", () => {
     };
     mockSdkMessages.enabled = true;
     mockSdkInput.loading = true;
-    mockSdkMessages.getMessages.mockReturnValue([live]);
+    const foreign = { ...live, id: "foreign-response" };
+    mockSdkMessages.getMessages.mockReturnValue([foreign]);
+    mockSdkMessages.getSessionMessages.mockImplementation((id: string) =>
+      id === "live-history" ? [live] : [],
+    );
     vi.mocked(sessionApi.loadOlderHistory).mockResolvedValueOnce({
       messages: [{ id: "old-user", role: "user", cards: [] }] as never[],
       noMore: true,
@@ -726,7 +734,7 @@ describe("ChatPage coverage", () => {
     scroller.scrollTop = -400;
     surface.append(scroller);
     const anchor = document.createElement("div");
-    anchor.id = live.id;
+    anchor.id = foreign.id;
     surface.append(anchor);
     Object.defineProperties(surface, {
       clientHeight: { value: 500 },
@@ -738,6 +746,9 @@ describe("ChatPage coverage", () => {
         expect.any(Function),
       ),
     );
+    expect(sessionApi.syncVisibleHistory).toHaveBeenCalledWith("live-history", [
+      live,
+    ]);
     expect(mockSdkMessages.setSessionMessages).toHaveBeenCalledWith(
       "live-history",
       [expect.objectContaining({ history: true }), live],

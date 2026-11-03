@@ -1431,7 +1431,9 @@ export default function ChatPage() {
       return;
     }
     const latest = sessionApi.showLatestHistory(visibleSessionId);
-    const liveMessages = (chatRef.current?.messages.getMessages() ?? []).filter(
+    const liveMessages = (
+      chatRef.current?.messages.getSessionMessages(visibleSessionId) ?? []
+    ).filter(
       (item) =>
         !(item as { history?: boolean }).history &&
         item.id !== `qwenpaw-history-window-${visibleSessionId}`,
@@ -3597,7 +3599,7 @@ export default function ChatPage() {
       if (historyTurnRowsRef.current === null) {
         sessionApi.syncVisibleHistory(
           sessionId,
-          chatRef.current?.messages.getMessages() ?? [],
+          chatRef.current?.messages.getSessionMessages(sessionId) ?? [],
         );
       }
       historyMessageWindow.setLoading(sessionId, true);
@@ -3643,14 +3645,20 @@ export default function ChatPage() {
                 messagesApi.setSessionMessages(
                   sessionId,
                   isRunning
-                    ? [...session.messages, ...messagesApi.getMessages()]
+                    ? [
+                        ...session.messages,
+                        ...messagesApi.getSessionMessages(sessionId),
+                      ]
                     : session.messages,
                 );
                 return;
               }
               messagesApi.setSessionMessages(
                 sessionId,
-                mergeHistoryMessages(messages, messagesApi.getMessages()),
+                mergeHistoryMessages(
+                  messages,
+                  messagesApi.getSessionMessages(sessionId),
+                ),
               );
             }
             return;
@@ -3726,7 +3734,8 @@ export default function ChatPage() {
       const alreadyInHistory = historyTurnRowsRef.current !== null;
       const messagesApi = chatRef.current?.messages;
       if (!messagesApi) return;
-      const visibleHistory = messagesApi.getMessages();
+      // During a route switch, getMessages() can still belong to the old chat.
+      const visibleHistory = messagesApi.getSessionMessages(sessionId);
       if (!alreadyInHistory) {
         sessionApi.syncVisibleHistory(sessionId, visibleHistory);
       }
@@ -3788,7 +3797,7 @@ export default function ChatPage() {
               createHistoryMessageWindowCard(sessionId),
               // SSE updates must keep their response card mounted while the
               // user browses history, just as with directory navigation.
-              ...(retainLive ? messagesApi.getMessages() : []),
+              ...(retainLive ? messagesApi.getSessionMessages(sessionId) : []),
             ]);
             setHistoryViewActive(true);
           } else {

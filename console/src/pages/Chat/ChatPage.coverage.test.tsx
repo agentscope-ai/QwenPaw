@@ -48,6 +48,7 @@ const {
   mockHydrateBackgroundTasksForSession,
   mockGetLoading,
   mockGetMessages,
+  mockGetSessionMessages,
   mockSetSessionMessages,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
@@ -73,6 +74,7 @@ const {
   mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
   mockGetLoading: vi.fn(() => false),
   mockGetMessages: vi.fn(() => [] as any[]),
+  mockGetSessionMessages: vi.fn((_id: string) => [] as any[]),
   mockSetSessionMessages: vi.fn(),
 }));
 
@@ -122,7 +124,7 @@ vi.mock("@agentscope-ai/chat", () => ({
       input: { submit: mockRuntimeSubmit },
       messages: {
         removeAllMessages: mockRemoveAllMessages,
-        getSessionMessages: vi.fn(() => []),
+        getSessionMessages: mockGetSessionMessages,
         getMessages: mockGetMessages,
         setSessionMessages: mockSetSessionMessages,
       },
@@ -602,6 +604,7 @@ describe("ChatPage coverage", () => {
     mockRemoveAllMessages.mockReset();
     mockGetLoading.mockReset().mockReturnValue(false);
     mockGetMessages.mockReset().mockReturnValue([]);
+    mockGetSessionMessages.mockReset().mockReturnValue([]);
     mockSetSessionMessages.mockReset();
     mockSelectedAgent.mockReturnValue("default");
     mockFetchActiveLoopMode.mockClear();
@@ -1445,7 +1448,11 @@ describe("ChatPage coverage", () => {
       expect(historyMessageWindow.getSnapshot()).toBeNull();
       const live = { id: "live-response", role: "assistant" };
       mockGetLoading.mockReturnValue(running);
-      mockGetMessages.mockReturnValue([live]);
+      const foreign = { id: "other-session-response", role: "assistant" };
+      mockGetMessages.mockReturnValue([foreign]);
+      mockGetSessionMessages.mockImplementation((id: string) =>
+        id === "test-session" ? [live] : [],
+      );
 
       const navigation = capturedOptions.theme.rightHeader.props.children.find(
         (child: any) => typeof child?.props?.onNavigate === "function",
@@ -1465,7 +1472,12 @@ describe("ChatPage coverage", () => {
         canLoadOlder: false,
         loading: false,
       });
+      expect(sessionApi.syncVisibleHistory).toHaveBeenLastCalledWith(
+        "test-session",
+        [live],
+      );
       const mounted = mockSetSessionMessages.mock.calls.slice(-1)[0]?.[1];
+      expect(mounted).not.toContain(foreign);
       expect(mounted[0].id).toBe("qwenpaw-history-window-test-session");
       expect(mounted.includes(live)).toBe(running);
       expect(
