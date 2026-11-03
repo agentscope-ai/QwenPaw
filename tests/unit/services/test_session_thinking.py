@@ -347,22 +347,39 @@ async def test_first_message_persists_thinking_without_project_dirs(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("enabled", [False, True])
-async def test_console_decision_approval_requires_enabled_model(enabled):
-    runtime = {"decision_enabled": enabled}
+@pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize("legacy_enabled", [None, False, True])
+async def test_console_decision_approval_requires_configured_model(
+    configured,
+    legacy_enabled,
+):
+    runtime = {"decision_enabled": legacy_enabled}
     chat = SimpleNamespace(meta={"runtime_context": runtime})
     workspace = SimpleNamespace(agent_id="agent")
     body = {"meta": {"request_context": {"approval_level": "JEV"}}}
+    config = AgentProfileConfig(id="agent", name="Agent")
+    provider_manager = SimpleNamespace(
+        default_models={
+            "decision": (
+                ModelSlotConfig(provider_id="typesafe", model="jev-latest")
+                if configured
+                else None
+            ),
+        },
+    )
     with (
-        patch("qwenpaw.app.routers.console.load_agent_config") as load,
-        patch("qwenpaw.app.routers.console.decision_settings") as settings,
+        patch(
+            "qwenpaw.app.routers.console.load_agent_config",
+            return_value=config,
+        ),
+        patch(
+            "qwenpaw.services.session_thinking.ProviderManager.get_instance",
+            return_value=provider_manager,
+        ),
     ):
-        settings.return_value = {"enabled": enabled}
         await _persist_pending_project_dirs(workspace, chat, body)
-    assert load.called
-    assert settings.call_args.args == (load.return_value, enabled)
     assert body["meta"]["request_context"]["approval_level"] == (
-        "JEV" if enabled else "STRICT"
+        "JEV" if configured and legacy_enabled is not False else "STRICT"
     )
 
 

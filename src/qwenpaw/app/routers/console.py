@@ -238,11 +238,12 @@ async def _persist_pending_project_dirs(
         enabled = await run_sync_io(
             decision_settings,
             config,
-            runtime.get("decision_enabled"),
+            runtime.get("decision_enabled") is not False,
         )
         if not enabled["enabled"]:
             # A requested decision review must not become automatic execution
-            # when the model is unavailable or disabled.
+            # when unavailable. Preserve a legacy opt-out until the user
+            # explicitly selects JEV and clears it through decision-settings.
             request_context["approval_level"] = "STRICT"
 
     raw_list = request_context.pop("session_project_dirs", None)

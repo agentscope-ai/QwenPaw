@@ -6,7 +6,12 @@ import {
 import { ChatWelcome } from "./components/ChatWelcome";
 import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
 import { useAdvisorDecisionAvailability } from "./hooks/useAdvisorDecisionAvailability";
-import { loadSessionModel } from "../../features/session-settings/sessionModel";
+import {
+  loadSessionModel,
+  saveDecisionSettings,
+} from "../../features/session-settings/sessionModel";
+import type { DecisionSettings } from "@/features/thinking/types";
+import { dispatchSessionModelChanged } from "@/features/session-settings/sessionModelEvents";
 import {
   migratePendingSessionSettings,
   withPendingSessionSettings,
@@ -1271,15 +1276,15 @@ export default function ChatPage() {
   }`;
   const [decisionAvailability, setDecisionAvailability] = useState<{
     scope: string;
-    enabled: boolean | undefined;
+    settings: DecisionSettings | undefined;
   }>();
-  const decisionModelEnabled =
+  const decisionSettings =
     decisionAvailability?.scope === decisionScope
-      ? decisionAvailability.enabled
+      ? decisionAvailability.settings
       : undefined;
-  const handleDecisionEnabledChange = useCallback(
-    (enabled: boolean | undefined) => {
-      setDecisionAvailability({ scope: decisionScope, enabled });
+  const handleDecisionSettingsChange = useCallback(
+    (settings: DecisionSettings | undefined) => {
+      setDecisionAvailability({ scope: decisionScope, settings });
     },
     [decisionScope],
   );
@@ -1428,7 +1433,7 @@ export default function ChatPage() {
     agentId: selectedAgent,
     sessionId: queueSessionId,
     chatId: backendChatId,
-    onChange: handleDecisionEnabledChange,
+    onChange: handleDecisionSettingsChange,
   });
   const backendCommands = backendCapabilities?.commands ?? [];
   const approvalPresets = backendCapabilities?.approval_presets ?? [];
@@ -1475,8 +1480,6 @@ export default function ChatPage() {
   const queueRunState = useMessageQueueStore((s) => s.runStates[queueKey]);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
-  const decisionModelEnabledRef = useRef(decisionModelEnabled);
-  decisionModelEnabledRef.current = decisionModelEnabled;
   const backendControlsRef = useRef<Record<string, unknown>>({});
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
   const captureRequestContext = useCallback(
@@ -1485,11 +1488,7 @@ export default function ChatPage() {
       ...(usesQwenPawBackend
         ? {
             approval_level:
-              decisionModelEnabledRef.current === false &&
-              (sessionApprovalLevelRef.current ??
-                runningConfigApprovalLevel) === "JEV"
-                ? "AUTO"
-                : sessionApprovalLevelRef.current ?? runningConfigApprovalLevel,
+              sessionApprovalLevelRef.current ?? runningConfigApprovalLevel,
           }
         : Object.keys(backendControlsRef.current).length > 0
         ? { backend_controls: { ...backendControlsRef.current } }
@@ -2001,6 +2000,37 @@ export default function ChatPage() {
     return sdkSessionAdapter.subscribe(scheduleReadyQueue);
   }, [sdkSessionAdapter, scheduleNextSend]);
   const { message } = useAppMessage();
+  const enableDecisionModel = useCallback(async () => {
+    if (!decisionSettings?.configured) return false;
+    try {
+      const settings = await saveDecisionSettings(
+        selectedAgent,
+        { sessionId: queueSessionId, chatId: backendChatId },
+        { ...decisionSettings, enabled: true, override: true },
+      );
+      setDecisionAvailability((current) =>
+        current?.scope === decisionScope
+          ? { scope: decisionScope, settings }
+          : current,
+      );
+      dispatchSessionModelChanged({
+        agentId: selectedAgent,
+        sessionId: queueSessionId,
+        chatId: backendChatId,
+      });
+      return settings.enabled;
+    } catch (error) {
+      message.error(String(error));
+      return false;
+    }
+  }, [
+    decisionSettings,
+    selectedAgent,
+    queueSessionId,
+    backendChatId,
+    decisionScope,
+    message,
+  ]);
   const { approvals, setApprovals } = useApprovalContext();
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
@@ -3238,15 +3268,10 @@ export default function ChatPage() {
       // Every turn goes through this fetch, including the SDK's own regenerate.
       // Clear only this session: another session may still have a stopped turn.
       clearTurnStopped(entrySnapshot.sessionId);
-      const requestedApprovalLevel =
+      const approvalAtSubmission =
         typeof entrySnapshot.context.approval_level === "string"
           ? normalizeLevel(entrySnapshot.context.approval_level)
           : sessionApprovalLevelRef.current ?? runningConfigApprovalLevel;
-      const approvalAtSubmission =
-        requestedApprovalLevel === "JEV" &&
-        decisionModelEnabledRef.current === false
-          ? "AUTO"
-          : requestedApprovalLevel;
       const controlsAtSubmission = entrySnapshot.context.backend_controls ?? {
         ...backendControlsRef.current,
       };
@@ -4089,7 +4114,7 @@ export default function ChatPage() {
                   agentId={selectedAgent}
                   sessionId={queueSessionId}
                   chatId={backendChatId}
-                  onDecisionEnabledChange={handleDecisionEnabledChange}
+                  onDecisionSettingsChange={handleDecisionSettingsChange}
                 />
               )
             ) : backendCapabilities?.model_selection ? (
@@ -4130,7 +4155,8 @@ export default function ChatPage() {
               <ApprovalLevelToggle
                 sessionId={queueKey}
                 runningConfigApprovalLevel={runningConfigApprovalLevel}
-                decisionModelEnabled={decisionModelEnabled}
+                decisionSettings={decisionSettings}
+                onEnableDecisionModel={enableDecisionModel}
                 compact={isMobile || compactSender}
                 className={[
                   !isMobile && !compactSender
@@ -4510,8 +4536,9 @@ export default function ChatPage() {
     loopAvailableModes,
     advisorConversation,
     backendChatId,
-    decisionModelEnabled,
-    handleDecisionEnabledChange,
+    decisionSettings,
+    enableDecisionModel,
+    handleDecisionSettingsChange,
     selectedAgent,
     selectedAgentBackend,
     backendCapabilities,

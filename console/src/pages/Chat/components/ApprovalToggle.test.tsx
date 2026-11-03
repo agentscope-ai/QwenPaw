@@ -162,12 +162,12 @@ describe("compact approval controls", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("disables decision model mode until the session decision model is enabled", async () => {
+  it("offers decision mode when configured without requiring the former session switch", async () => {
     const user = userEvent.setup();
     const changed = vi.fn();
     const view = renderWithProviders(
       <ApprovalLevelToggle
-        decisionModelEnabled={false}
+        decisionSettings={{ configured: false, enabled: false, override: null }}
         onChange={changed}
         runningConfigApprovalLevel="AUTO"
         sessionId="decision-gate"
@@ -191,7 +191,7 @@ describe("compact approval controls", () => {
 
     view.rerender(
       <ApprovalLevelToggle
-        decisionModelEnabled
+        decisionSettings={{ configured: true, enabled: false, override: null }}
         onChange={changed}
         runningConfigApprovalLevel="AUTO"
         sessionId="decision-gate"
@@ -207,20 +207,89 @@ describe("compact approval controls", () => {
     expect(changed).toHaveBeenCalledWith("JEV");
   });
 
-  it("falls back from a saved decision mode when the model is turned off", () => {
-    const changed = vi.fn();
-    localStorage.setItem("approval_level-old-decision", "JEV");
-    renderWithProviders(
-      <ApprovalLevelToggle
-        decisionModelEnabled={false}
-        onChange={changed}
-        runningConfigApprovalLevel="AUTO"
-        sessionId="old-decision"
-      />,
-    );
-    expect(localStorage.getItem("approval_level-old-decision")).toBe("AUTO");
-    expect(changed).toHaveBeenLastCalledWith("AUTO");
-  });
+  it.each([
+    { configured: false, enabled: false, override: null },
+    { configured: true, enabled: false, override: false },
+  ])(
+    "uses manual approval for unavailable or explicitly disabled decision review (%j)",
+    (decisionSettings) => {
+      const changed = vi.fn();
+      localStorage.setItem("approval_level-old-decision", "JEV");
+      renderWithProviders(
+        <ApprovalLevelToggle
+          decisionSettings={decisionSettings}
+          onChange={changed}
+          runningConfigApprovalLevel="AUTO"
+          sessionId="old-decision"
+        />,
+      );
+      expect(localStorage.getItem("approval_level-old-decision")).toBe("JEV");
+      expect(changed).toHaveBeenLastCalledWith("STRICT");
+    },
+  );
+
+  it.each([false, true])(
+    "re-enables a legacy opt-out only after an explicit selection succeeds (%s)",
+    async (success) => {
+      const user = userEvent.setup();
+      const changed = vi.fn();
+      let finish!: (enabled: boolean) => void;
+      const enable = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const view = renderWithProviders(
+        <ApprovalLevelToggle
+          decisionSettings={{
+            configured: true,
+            enabled: false,
+            override: false,
+          }}
+          onEnableDecisionModel={enable}
+          onChange={changed}
+          runningConfigApprovalLevel="AUTO"
+          sessionId="legacy-decision"
+        />,
+      );
+      await user.click(
+        screen.getByRole("button", {
+          name: "agentConfig.toolExecutionLevelTitle",
+        }),
+      );
+      await user.click(await screen.findByText("JEV"));
+      expect(enable).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem("approval_level-legacy-decision")).toBeNull();
+      finish(success);
+      await vi.waitFor(() =>
+        expect(
+          screen.getByRole("button", {
+            name: "agentConfig.toolExecutionLevelTitle",
+          }),
+        ).toBeEnabled(),
+      );
+      if (success) {
+        view.rerender(
+          <ApprovalLevelToggle
+            decisionSettings={{
+              configured: true,
+              enabled: true,
+              override: true,
+            }}
+            onEnableDecisionModel={enable}
+            onChange={changed}
+            runningConfigApprovalLevel="AUTO"
+            sessionId="legacy-decision"
+          />,
+        );
+      }
+      expect(localStorage.getItem("approval_level-legacy-decision")).toBe(
+        success ? "JEV" : null,
+      );
+      expect(changed).toHaveBeenLastCalledWith(success ? "JEV" : null);
+    },
+  );
 
   it("preserves a saved decision mode while its setting is unknown", () => {
     const changed = vi.fn();
@@ -234,6 +303,45 @@ describe("compact approval controls", () => {
     );
     expect(localStorage.getItem("approval_level-pending-decision")).toBe("JEV");
     expect(changed).toHaveBeenLastCalledWith("JEV");
+  });
+
+  it("does not apply a pending legacy opt-in to another chat", async () => {
+    const user = userEvent.setup();
+    let finish!: (enabled: boolean) => void;
+    const enable = () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      });
+    const props = {
+      runningConfigApprovalLevel: "AUTO" as const,
+      decisionSettings: { configured: true, enabled: false, override: false },
+      onEnableDecisionModel: enable,
+    };
+    const view = renderWithProviders(
+      <ApprovalLevelToggle {...props} sessionId="old" />,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "agentConfig.toolExecutionLevelTitle",
+      }),
+    );
+    await user.click(await screen.findByText("JEV"));
+    view.rerender(<ApprovalLevelToggle {...props} sessionId="new" />);
+    finish(true);
+    await vi.waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "agentConfig.toolExecutionLevelTitle",
+        }),
+      ).toBeEnabled(),
+    );
+    expect(localStorage.getItem("approval_level-old")).toBeNull();
+    expect(localStorage.getItem("approval_level-new")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.toolExecutionLevelTitle",
+      }),
+    ).toHaveTextContent("AUTO");
   });
 
   it("uses a bottom drawer for harness approval on mobile", async () => {

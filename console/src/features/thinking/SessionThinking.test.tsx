@@ -7,10 +7,7 @@ import {
   setPendingThinking,
   clearPendingThinking,
 } from "./sessionThinkingApi";
-import {
-  resetSessionModel,
-  saveDecisionSettings,
-} from "../session-settings/sessionModel";
+import { resetSessionModel } from "../session-settings/sessionModel";
 import { dispatchSessionModelChanged } from "../session-settings/sessionModelEvents";
 import { SessionThinking } from "./SessionThinking";
 import type { ThinkingView } from "./types";
@@ -19,7 +16,6 @@ beforeEach(() => {
   vi.mocked(sessionThinkingApi.get).mockReset();
   vi.mocked(sessionThinkingApi.set).mockReset();
   vi.mocked(resetSessionModel).mockReset();
-  vi.mocked(saveDecisionSettings).mockReset();
 });
 
 const effortView: ThinkingView = {
@@ -168,7 +164,6 @@ vi.mock("../session-settings/sessionModel", async (importOriginal) => ({
     typeof import("../session-settings/sessionModel")
   >()),
   resetSessionModel: vi.fn(),
-  saveDecisionSettings: vi.fn(),
 }));
 vi.mock("../../pages/Chat/ModelSelector/ModelPickerPopover", () => ({
   ModelPickerPopover: ({
@@ -185,68 +180,25 @@ vi.mock("../../pages/Chat/ModelSelector/ModelPickerPopover", () => ({
   ),
 }));
 
-it.each([null, "decision-chat"])(
-  "preserves advanced decision settings and thinking edits (chat=%s)",
-  async (chatId) => {
-    const decision = { enabled: false, configured: true, override: null };
-    const view = { ...effortView, decision };
-    const decisionSave = deferred<typeof decision>();
-    const thinkingSave = deferred<ThinkingView>();
-    vi.mocked(sessionThinkingApi.get).mockResolvedValue(view);
-    vi.mocked(saveDecisionSettings).mockReturnValueOnce(decisionSave.promise);
-    vi.mocked(sessionThinkingApi.set).mockReturnValueOnce(thinkingSave.promise);
-    const { container } = renderWithProviders(
-      <SessionThinking
-        agentId="decision-agent"
-        sessionId="decision-session"
-        chatId={chatId}
-      />,
-    );
-    const slider = await screen.findByRole("slider");
-    await waitFor(() =>
-      expect(slider).not.toHaveAttribute("aria-disabled", "true"),
-    );
-    fireEvent.click(screen.getByText("chat.sessionSettings.advanced"));
-    const toggle = screen.getByRole("switch", {
-      name: "chat.sessionSettings.decisionEnabled",
-    });
-    fireEvent.click(toggle);
-    await waitFor(() =>
-      expect(saveDecisionSettings).toHaveBeenCalledWith(
-        "decision-agent",
-        { sessionId: "decision-session", chatId },
-        { ...decision, enabled: true, override: true },
-      ),
-    );
-    expect(toggle).toBeDisabled();
-    expect(container.querySelector('[class*="spin-blur"]')).toBeNull();
-    await act(async () => decisionSave.resolve({ ...decision, enabled: true }));
-    expect(toggle).toBeChecked();
-    expect(toggle).toBeEnabled();
-    expect(slider).not.toHaveAttribute("aria-disabled", "true");
-
-    chooseEffort("End", 35);
-    if (chatId) {
-      await waitFor(() =>
-        expect(sessionThinkingApi.set).toHaveBeenCalledTimes(1),
-      );
-      expect(toggle).toBeDisabled();
-      await act(async () =>
-        thinkingSave.resolve({
-          ...view,
-          decision: { ...decision, enabled: true },
-          value: { level: "high" },
-        }),
-      );
-    } else {
-      expect(sessionThinkingApi.set).not.toHaveBeenCalled();
-    }
-    expect(toggle).toBeChecked();
-    expect(toggle).toBeEnabled();
-    expect(slider).toHaveAttribute("aria-valuenow", "3");
-    clearPendingThinking("decision-agent", "decision-session");
-  },
-);
+it("reports decision configuration without a second decision-model switch", async () => {
+  const decision = { enabled: false, configured: true, override: null };
+  const onDecisionSettingsChange = vi.fn();
+  vi.mocked(sessionThinkingApi.get).mockResolvedValue({
+    ...effortView,
+    decision,
+  });
+  renderWithProviders(
+    <SessionThinking
+      agentId="agent"
+      sessionId="session"
+      onDecisionSettingsChange={onDecisionSettingsChange}
+    />,
+  );
+  await screen.findByRole("slider");
+  expect(onDecisionSettingsChange).toHaveBeenLastCalledWith(decision);
+  expect(screen.queryByText("chat.sessionSettings.advanced")).toBeNull();
+  expect(screen.queryByRole("switch")).toBeNull();
+});
 
 const thinkingView = {
   model: "qwen",

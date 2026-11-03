@@ -3870,7 +3870,7 @@
       "smartDesc": "Low-risk tool calls and external file access run automatically; medium- and high-risk operations require approval",
       "jev": "Decision Model Mode",
       "jevDesc": "Apply local safety rules first; the decision model assesses operations outside those rules",
-      "jevRequiresDecision": "Turn on Use decision model first",
+      "jevRequiresDecision": "Configure a decision model in Model settings first",
       "decisionModelPrivacy": "Tool name, operation, target and parameter names may be sent to the Decision Model Provider. No conversation or file contents are sent.",
       "decisionModelConnected": "Decision Model Provider API Key configured",
       "decisionModelNotConnected": "Decision Model Provider has no API Key. A previously saved decision model key may still work; configure the provider to manage it here.",
@@ -4210,10 +4210,6 @@
     "system": "System"
   },
   "chat": {
-    "sessionSettings": {
-      "advanced": "Advanced options",
-      "decisionEnabled": "Use decision model"
-    },
     "longTextPaste": {
       "title": "Paste long text",
       "asText": "Paste as text",

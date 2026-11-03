@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { sessionThinkingApi } from "@/features/thinking/sessionThinkingApi";
+import type { DecisionSettings } from "@/features/thinking/types";
 import { isSessionModelChangedFor } from "@/features/session-settings/sessionModelEvents";
 
 /** Keep the session decision setting available while the Advisor model pill
@@ -16,7 +17,7 @@ export function useAdvisorDecisionAvailability({
   agentId: string;
   sessionId: string;
   chatId?: string | null;
-  onChange: (enabled: boolean | undefined) => void;
+  onChange: (settings: DecisionSettings | undefined) => void;
 }) {
   useEffect(() => {
     if (!active) return;
@@ -29,8 +30,7 @@ export function useAdvisorDecisionAvailability({
       void sessionThinkingApi
         .get(agentId, chatId, sessionId)
         .then((view) => {
-          if (!disposed && revision === current)
-            onChange(view.decision?.enabled);
+          if (!disposed && revision === current) onChange(view.decision);
         })
         .catch(() => {
           if (!disposed && revision === current) onChange(undefined);

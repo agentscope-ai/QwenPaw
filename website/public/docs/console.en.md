@@ -90,6 +90,8 @@ asset requests reach the SPA fallback and return HTML instead of JavaScript.
 
 This is where you talk to QwenPaw. It is the default page when the Console opens.
 
+**Tool approval mode:** After configuring a decision model in Model settings, select **Decision Model Mode** from the approval menu beside the chat input. The option is unavailable without a configured model. Existing requests fall back to manual approval when the model is unavailable. Chats explicitly opted out through the former chat switch remain opted out until you select this mode again.
+
 ![Chat](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 **Choose a model:**
