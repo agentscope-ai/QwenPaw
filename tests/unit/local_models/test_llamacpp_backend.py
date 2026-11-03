@@ -48,7 +48,8 @@ class _FakeServerProcess:
 
 @pytest.mark.asyncio
 async def test_cannot_start_model_while_runtime_is_being_replaced(
-    monkeypatch, tmp_path
+    monkeypatch,
+    tmp_path,
 ):
     backend = _build_downloader(monkeypatch)
     monkeypatch.setattr(backend, "_is_download_active", lambda: True)

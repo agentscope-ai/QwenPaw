@@ -8,6 +8,7 @@ on:
       - 'src/qwenpaw/local_models/runtime-release.json'
       - 'scripts/piccolo_runtime.py'
       - 'scripts/test_piccolo_runtime.py'
+      - 'scripts/test_piccolo_install.py'
   push:
     branches: ['codex/piccolo-runtime-install']
     paths:
@@ -15,6 +16,7 @@ on:
       - 'docs/patches/piccolo-llama.cpp.patch'
       - 'src/qwenpaw/local_models/**'
       - 'scripts/*piccolo_runtime.py'
+      - 'scripts/test_piccolo_install.py'
     tags: ['llama-cpp-piccolo-v*']
   workflow_dispatch:
 
@@ -49,6 +51,9 @@ jobs:
       matrix: ${{ fromJson(needs.matrix.outputs.targets) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -60,6 +65,7 @@ jobs:
         if: runner.os == 'Windows'
         with:
           arch: ${{ matrix.arch }}
+          toolset: ${{ matrix.cuda == '12.4.1' && '14.29' || '' }}
       - name: Build pinned source and package runtime
         run: python scripts/piccolo_runtime.py build --target "${{ matrix.id }}"
       - name: Download public smoke-test models
@@ -72,6 +78,13 @@ jobs:
           for role, model in config['smoke_models'].items():
               snapshot_download(model['repo'], revision=model['revision'], local_dir=f'var/models/{role}', allow_patterns=model['files'])
           PY
+      - name: Install production installer dependencies
+        run: >-
+          python -m pip install httpx pydantic python-dotenv psutil
+          'agentscope[model-ollama,classifier-jev]==2.0.10'
+          'apscheduler>=3.11.2,<4' filelock fastapi jsonschema pyjwt
+          google-genai pillow keyring cryptography python-socks tiktoken
+          json-repair shortuuid
       - name: Check Flash, Piccolo and switching back using packaged files
         run: |
           python - <<'PY'
@@ -83,7 +96,7 @@ jobs:
           archive = Path('dist/piccolo-runtime') / f"llama-{config['release']}-bin-{target}.{extension}"
           flash = next(Path('var/models/flash').glob('*.gguf'))
           piccolo = next(Path('var/models/piccolo').glob('*.gguf'))
-          subprocess.run([sys.executable, 'scripts/test_piccolo_runtime.py', '--archive', str(archive), '--flash', str(flash), '--piccolo', str(piccolo)], check=True)
+          subprocess.run([sys.executable, 'scripts/test_piccolo_install.py', '--target', target, '--archive', str(archive), '--flash', str(flash), '--piccolo', str(piccolo)], check=True)
           PY
       - uses: actions/upload-artifact@v4
         with:

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Versioned llama.cpp bundles shared by chat and Piccolo models."""
 
 import json

@@ -512,10 +512,11 @@ class TestRecommendedModels:
         expected.update(
             {
                 model_id.replace(
-                    "agentscope-ai/", "AgentScope/"
+                    "agentscope-ai/",
+                    "AgentScope/",
                 ): DownloadSource.MODELSCOPE
                 for model_id in list(expected)
-            }
+            },
         )
         assert len(models) == len(expected)
         assert {model.id: model.source for model in models} == expected

@@ -598,7 +598,7 @@ class LlamaCppBackend:
             return result, None
 
         backup_dir = final_dir.with_name(
-            f".llamacpp-backup-{uuid.uuid4().hex}"
+            f".llamacpp-backup-{uuid.uuid4().hex}",
         )
         try:
             final_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -663,13 +663,14 @@ class LlamaCppBackend:
                         url.rsplit("/", 1)[0] + "/runtime-release.json"
                     )
                     manifest_response = client.get(
-                        manifest_url, headers=headers
+                        manifest_url,
+                        headers=headers,
                     )
                     manifest_response.raise_for_status()
                     manifest = manifest_response.json()
                     if not matches_release(manifest):
                         raise ValueError(
-                            "Runtime release is not ready for installation."
+                            "Runtime release is not ready for installation.",
                         )
                     expected = manifest["artifacts"][file_name]
                 digest = hashlib.sha256()

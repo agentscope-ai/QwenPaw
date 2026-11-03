@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Official mirrors keep source, repository identity and model role aligned."""
 
 import fnmatch
@@ -25,7 +26,11 @@ from qwenpaw.local_models.model_manager import (
     [("Piccolo-4B-Q4_K_M", "decision"), ("QwenPaw-Flash-9B-Q4_K_M", "chat")],
 )
 def test_downloaded_mirror_retains_source_and_role(
-    source, owner, name, role, tmp_path
+    source,
+    owner,
+    name,
+    role,
+    tmp_path,
 ):
     manager = ModelManager()
     manager._model_dir = tmp_path
@@ -62,14 +67,18 @@ def test_source_choice_resolves_only_official_mirrors(source, owner):
 
 
 def test_modelscope_piccolo_downloads_every_shard_without_safetensors(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     download = MagicMock(return_value=str(tmp_path))
     monkeypatch.setattr(
-        ModelManager, "_get_modelscope_snapshot_download", lambda: download
+        ModelManager,
+        "_get_modelscope_snapshot_download",
+        lambda: download,
     )
     ModelManager._download_from_modelscope(
-        "AgentScope/Piccolo-27B-BF16", tmp_path
+        "AgentScope/Piccolo-27B-BF16",
+        tmp_path,
     )
     options = download.call_args.kwargs
     assert options["model_id"] == "AgentScope/Piccolo-27B-BF16"
@@ -86,7 +95,8 @@ def test_modelscope_piccolo_downloads_every_shard_without_safetensors(
         if any(fnmatch.fnmatch(name, pattern) for pattern in patterns)
     ] == files[:3]
     ModelManager._download_from_modelscope(
-        "AgentScope/QwenPaw-Flash-9B-Q4_K_M", tmp_path
+        "AgentScope/QwenPaw-Flash-9B-Q4_K_M",
+        tmp_path,
     )
     assert "allow_file_pattern" not in download.call_args.kwargs
 
@@ -101,7 +111,7 @@ def test_modelscope_size_uses_the_same_download_filter(monkeypatch):
             {"Path": "part-2.gguf", "Size": 20},
             {"Path": "decision-inference.json", "Size": 5},
             {"Path": "model.safetensors", "Size": 999},
-        ]
+        ],
     )
     original = importlib.import_module
     monkeypatch.setattr(

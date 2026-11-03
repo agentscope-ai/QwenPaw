@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Install and upgrade the exact runtime selected by QwenPaw Local."""
 
 import hashlib
@@ -63,11 +64,16 @@ def bundle(target, release=None):
 
 @pytest.mark.parametrize("target", RELEASE["targets"], ids=lambda t: t["id"])
 @pytest.mark.parametrize(
-    "upgrade", [False, True], ids=["new-install", "upgrade"]
+    "upgrade",
+    [False, True],
+    ids=["new-install", "upgrade"],
 )
 @pytest.mark.asyncio
 async def test_install_and_upgrade_all_selected_packages(
-    target, upgrade, tmp_path, monkeypatch
+    target,
+    upgrade,
+    tmp_path,
+    monkeypatch,
 ):
     backend = backend_for(target, tmp_path / "bin")
     if upgrade:
@@ -82,8 +88,8 @@ async def test_install_and_upgrade_all_selected_packages(
             filename: {
                 "sha256": hashlib.sha256(archive).hexdigest(),
                 "size": len(archive),
-            }
-        }
+            },
+        },
     }
     client = httpx.Client
 
@@ -97,7 +103,8 @@ async def test_install_and_upgrade_all_selected_packages(
         httpx,
         "Client",
         lambda **kwargs: client(
-            transport=httpx.MockTransport(handler), **kwargs
+            transport=httpx.MockTransport(handler),
+            **kwargs,
         ),
     )
     staging = tmp_path / "staging"
@@ -124,7 +131,9 @@ async def test_install_and_upgrade_all_selected_packages(
     if upgrade:
         assert backend.executable.read_bytes() == b"old runtime"
     result, _ = backend._finalize_download_result(
-        downloaded, staging_dir=staging, final_dir=backend.target_dir
+        downloaded,
+        staging_dir=staging,
+        final_dir=backend.target_dir,
     )
     assert result.status == DownloadTaskStatus.COMPLETED
     assert backend.executable.read_bytes() == b"new runtime"
@@ -156,17 +165,20 @@ def test_failed_swap_restores_the_previous_runtime(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "failure", ["checksum", "missing-release", "wrong-target"]
+    "failure",
+    ["checksum", "missing-release", "wrong-target"],
 )
 def test_bad_download_does_not_replace_installed_files(
-    failure, tmp_path, monkeypatch
+    failure,
+    tmp_path,
+    monkeypatch,
 ):
     target = RELEASE["targets"][0]
     backend = backend_for(target, tmp_path / "bin")
     backend.target_dir.mkdir()
     backend.executable.write_bytes(b"old runtime")
     metadata, archive = bundle(
-        RELEASE["targets"][1] if failure == "wrong-target" else target
+        RELEASE["targets"][1] if failure == "wrong-target" else target,
     )
     filename = backend._build_filename(RELEASE["release"])
     manifest = metadata | {
@@ -178,8 +190,8 @@ def test_bad_download_does_not_replace_installed_files(
                     if failure == "checksum"
                     else hashlib.sha256(archive).hexdigest()
                 ),
-            }
-        }
+            },
+        },
     }
     client = httpx.Client
 
@@ -196,7 +208,8 @@ def test_bad_download_does_not_replace_installed_files(
         httpx,
         "Client",
         lambda **kwargs: client(
-            transport=httpx.MockTransport(handler), **kwargs
+            transport=httpx.MockTransport(handler),
+            **kwargs,
         ),
     )
     queue = Queue()

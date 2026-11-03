@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Exercise a packaged runtime with public Flash and Piccolo GGUFs."""
 
 import argparse
@@ -60,7 +61,9 @@ def server(executable, model, decision, gpu_layers, log):
         ]
     with log.open("w") as output:
         process = subprocess.Popen(
-            args, stdout=output, stderr=subprocess.STDOUT
+            args,
+            stdout=output,
+            stderr=subprocess.STDOUT,
         )
         try:
             deadline = time.monotonic() + 240
@@ -94,7 +97,11 @@ def verify(executable, flash, piccolo, output, gpu_layers):
         ("flash-restored", flash, False),
     ):
         with server(
-            executable, model, decision, gpu_layers, output / f"{name}.log"
+            executable,
+            model,
+            decision,
+            gpu_layers,
+            output / f"{name}.log",
         ) as port:
             models = request(port, "/v1/models")["data"]
             expected = "decisions" if decision else "text"
@@ -130,7 +137,8 @@ def verify(executable, flash, piccolo, output, gpu_layers):
                 )
                 assert abs(sum(probabilities.values()) - 1) < 1e-5
                 assert answer["choice"] == max(
-                    probabilities, key=probabilities.get
+                    probabilities,
+                    key=probabilities.get,
                 )
                 assert 0 <= result["answers"]["keep"]["noul"] <= 1
                 assert result["usage"]["output_tokens"] == 0
@@ -141,7 +149,7 @@ def verify(executable, flash, piccolo, output, gpu_layers):
                     {
                         "model": "smoke",
                         "messages": [
-                            {"role": "user", "content": "Say hello briefly."}
+                            {"role": "user", "content": "Say hello briefly."},
                         ],
                         "max_tokens": 32,
                         "temperature": 0,
@@ -162,7 +170,9 @@ def main():
     parser.add_argument("--flash", type=Path, required=True)
     parser.add_argument("--piccolo", type=Path, required=True)
     parser.add_argument(
-        "--output", type=Path, default=Path("var/runtime-smoke")
+        "--output",
+        type=Path,
+        default=Path("var/runtime-smoke"),
     )
     parser.add_argument("--gpu-layers", default="0")
     args = parser.parse_args()

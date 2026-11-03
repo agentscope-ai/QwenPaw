@@ -285,7 +285,7 @@ class ModelManager:
                             (
                                 "AgentScope/Piccolo-",
                                 "AgentScope/QwenPaw-Flash-",
-                            )
+                            ),
                         )
                         else (
                             DownloadSource.HUGGINGFACE
@@ -322,7 +322,7 @@ class ModelManager:
 
         resolved_source = (
             self._resolve_download_source()
-            if source in (None, DownloadSource.AUTO)
+            if source is None or source == DownloadSource.AUTO
             else source
         )
         repo_id = repository_for_source(model_id, resolved_source)

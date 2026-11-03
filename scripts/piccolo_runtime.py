@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Build, package and verify the runtime used by QwenPaw Local."""
 
 import argparse
@@ -51,7 +52,7 @@ def identity():
 def prepare(work):
     if digest(PATCH) != CONFIG["patch_sha256"]:
         raise ValueError(
-            "Update the runtime release identity after changing its patch."
+            "Update the runtime release identity after changing its patch.",
         )
     source = work / "llama.cpp"
     if not source.exists():
@@ -74,7 +75,7 @@ def prepare(work):
     ).strip()
     if actual != CONFIG["upstream_commit"]:
         raise ValueError(
-            "The build directory contains a different llama.cpp revision."
+            "The build directory contains a different llama.cpp revision.",
         )
     applied = (
         subprocess.run(
@@ -101,7 +102,8 @@ def install_cuda(version, directory):
     """Install NVIDIA's pinned redistributable toolkit without a driver."""
     base = "https://developer.download.nvidia.com/compute/cuda/redist/"
     with urllib.request.urlopen(
-        base + f"redistrib_{version}.json", timeout=60
+        base + f"redistrib_{version}.json",
+        timeout=60,
     ) as response:
         manifest = json.load(response)
     directory.mkdir(parents=True, exist_ok=True)
@@ -111,7 +113,6 @@ def install_cuda(version, directory):
         "cuda_nvrtc",
         "libcublas",
         "cuda_cccl",
-        "visual_studio_integration",
     ]
     components += [key for key in ("cuda_crt", "libnvvm") if key in manifest]
     for component in components:
@@ -121,7 +122,7 @@ def install_cuda(version, directory):
             urllib.request.urlretrieve(base + item["relative_path"], archive)
             if digest(archive) != item["sha256"]:
                 raise ValueError(
-                    f"NVIDIA package checksum mismatch: {component}"
+                    f"NVIDIA package checksum mismatch: {component}",
                 )
             with zipfile.ZipFile(archive) as package:
                 package.extractall(Path(temporary) / "unpacked")
@@ -179,14 +180,16 @@ def build(target, work, output, jobs):
                 "-DGGML_OPENMP=OFF",
                 f"-DCMAKE_TOOLCHAIN_FILE={source / 'cmake/arm64-windows-llvm.cmake'}",
             ]
-        else:
+        elif config["backend"] != "cuda":
             options += ["-A", "x64"]
         if config["backend"] == "cuda":
             cuda = install_cuda(config["cuda"], work / "cuda")
             options += [
                 "-DGGML_CUDA=ON",
-                "-T",
-                f"cuda={cuda}",
+                "-G",
+                "Ninja Multi-Config",
+                f"-DCUDAToolkit_ROOT={cuda}",
+                f"-DCMAKE_CUDA_COMPILER={cuda / 'bin/nvcc.exe'}",
                 "-DGGML_CUDA_CCCL_VERSION=v3.4.3",
             ]
     run("cmake", "-S", source, "-B", build_dir, *options)
@@ -224,7 +227,7 @@ def package(target, build_dir, source, output, cuda=None):
                         "ggml-",
                         "libggml",
                         "libllama",
-                    )
+                    ),
                 )
                 or path.suffix in (".dll", ".dylib", ".metal", ".metallib")
                 or ".so" in path.suffixes
@@ -234,13 +237,13 @@ def package(target, build_dir, source, output, cuda=None):
             redist = Path(os.environ["VCToolsRedistDir"]) / config["arch"]
             for component in ("CRT", "OpenMP"):
                 libraries = list(
-                    redist.glob(f"Microsoft.VC*.{component}/*.dll")
+                    redist.glob(f"Microsoft.VC*.{component}/*.dll"),
                 )
                 if not libraries and (
                     component == "CRT" or config["arch"] == "x64"
                 ):
                     raise ValueError(
-                        f"Missing Visual C++ redistributables: {component}"
+                        f"Missing Visual C++ redistributables: {component}",
                     )
                 for path in libraries:
                     shutil.copy2(path, bundle / path.name)
@@ -253,7 +256,7 @@ def package(target, build_dir, source, output, cuda=None):
                 files = list(cuda.rglob(pattern))
                 if not files:
                     raise ValueError(
-                        f"Missing CUDA runtime dependency: {pattern}"
+                        f"Missing CUDA runtime dependency: {pattern}",
                     )
                 for path in files:
                     shutil.copy2(path, bundle / path.name)
@@ -274,7 +277,7 @@ def package(target, build_dir, source, output, cuda=None):
             "target": target,
         }
         (bundle / "qwenpaw-runtime.json").write_text(
-            json.dumps(metadata, indent=2) + "\n"
+            json.dumps(metadata, indent=2) + "\n",
         )
         archive = output / archive_name(target)
         if archive.suffix == ".zip":
@@ -286,7 +289,7 @@ def package(target, build_dir, source, output, cuda=None):
                 for path in sorted(bundle.iterdir()):
                     result.add(path, arcname=path.name)
         (output / (archive.name + ".sha256")).write_text(
-            f"{digest(archive)}  {archive.name}\n"
+            f"{digest(archive)}  {archive.name}\n",
         )
         print(archive)
         return archive
@@ -313,18 +316,20 @@ def verify_public(base_url=None):
         (base_url or CONFIG["base_url"]).rstrip("/") + "/" + CONFIG["release"]
     )
     with urllib.request.urlopen(
-        base + "/runtime-release.json", timeout=30
+        base + "/runtime-release.json",
+        timeout=30,
     ) as response:
         manifest = json.load(response)
     if any(manifest.get(key) != value for key, value in identity().items()):
         raise ValueError(
-            "Published runtime does not match this source revision"
+            "Published runtime does not match this source revision",
         )
     for target in CONFIG["targets"]:
         name = archive_name(target["id"])
         expected = manifest["artifacts"][name]
         with urllib.request.urlopen(
-            base + "/" + name + ".sha256", timeout=30
+            base + "/" + name + ".sha256",
+            timeout=30,
         ) as response:
             if response.read().decode().split()[0] != expected["sha256"]:
                 raise ValueError(f"Published checksum mismatch: {name}")
@@ -362,11 +367,13 @@ def publish(directory):
                 != checksum
             ):
                 raise ValueError(
-                    f"Release object already exists with different bytes: {name}"
+                    f"Release object already exists with different bytes: {name}",
                 )
         else:
             bucket.put_object_from_file(
-                key, str(path), headers={"x-oss-meta-sha256": checksum}
+                key,
+                str(path),
+                headers={"x-oss-meta-sha256": checksum},
             )
     verify_public()
 
@@ -378,16 +385,23 @@ def main():
         choices=("matrix", "build", "manifest", "verify-public", "publish"),
     )
     parser.add_argument(
-        "--target", choices=[item["id"] for item in CONFIG["targets"]]
+        "--target",
+        choices=[item["id"] for item in CONFIG["targets"]],
     )
     parser.add_argument(
-        "--work-dir", type=Path, default=Path("var/piccolo-runtime-build")
+        "--work-dir",
+        type=Path,
+        default=Path("var/piccolo-runtime-build"),
     )
     parser.add_argument(
-        "--output", type=Path, default=Path("dist/piccolo-runtime")
+        "--output",
+        type=Path,
+        default=Path("dist/piccolo-runtime"),
     )
     parser.add_argument(
-        "--jobs", type=int, default=max(1, min(6, os.cpu_count() or 1))
+        "--jobs",
+        type=int,
+        default=max(1, min(6, os.cpu_count() or 1)),
     )
     parser.add_argument("--base-url")
     args = parser.parse_args()
