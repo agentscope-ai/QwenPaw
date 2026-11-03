@@ -53,7 +53,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.matrix.outputs.targets) }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: ${{ matrix.backend == 'cuda' && 240 || 90 }}
     defaults:
       run:
         shell: bash
