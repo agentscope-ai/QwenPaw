@@ -537,6 +537,10 @@ class PluginLifecycle:
         **kwargs,
     ):
         """Check execution eligibility before destructive lifecycle changes."""
+        await self._loader._prepare_registration_dependencies(
+            binding,
+            allow_install and kwargs.get("owns_dependency_env", True),
+        )
         async with self._loader._dependency_registration(
             binding,
             attach=False,

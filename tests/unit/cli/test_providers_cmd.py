@@ -1210,3 +1210,117 @@ class TestSimpleDelegatingCmds:
         res = CliRunner().invoke(pcmd.models_group, ["set-llm"])
         assert res.exit_code == 0
         assert called == [True]
+
+
+def test_plugin_provider_explicit_target_normalizes_id(monkeypatch):
+    from contextlib import contextmanager
+
+    from qwenpaw.cli import http, plugin_resources
+    from qwenpaw.config import utils
+
+    calls = []
+    manager = SimpleNamespace(plugin_providers={"example": {}})
+    monkeypatch.setattr(utils, "is_qwenpaw_running", lambda: False)
+    monkeypatch.setattr(
+        http,
+        "resolve_base_url",
+        lambda *args: "http://remote:8123",
+    )
+
+    @contextmanager
+    def client(url):
+        assert url == "http://remote:8123"
+
+        def put(path, json):
+            calls.append((path, json))
+            return SimpleNamespace(raise_for_status=lambda: None)
+
+        yield SimpleNamespace(put=put)
+
+    monkeypatch.setattr(http, "client", client)
+
+    @click.command()
+    @click.option("--host", default="127.0.0.1")
+    def command(host):
+        assert plugin_resources.update_provider_config(
+            manager,
+            "EXAMPLE",
+            {"api_key": "probe-key"},
+        )
+
+    result = CliRunner().invoke(command, ["--host", "remote"])
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert calls == [("models/example/config", {"api_key": "probe-key"})]
+
+
+def test_unavailable_plugin_provider_connection_change_invalidates_snapshot(
+    tmp_path,
+    monkeypatch,
+):
+    import json
+
+    from qwenpaw.cli import plugin_resources
+    from qwenpaw.config import utils
+    from qwenpaw.security import secret_store
+
+    monkeypatch.setattr(utils, "is_qwenpaw_running", lambda: False)
+    # Exercise persistence without reading the user's encryption key store.
+    monkeypatch.setattr(
+        secret_store,
+        "decrypt_dict_fields",
+        lambda data, fields: dict(data),
+    )
+
+    def encrypt(data, fields):
+        return {
+            key: (
+                "probe-encrypted:" + value
+                if key in fields and isinstance(value, str)
+                else value
+            )
+            for key, value in data.items()
+        }
+
+    monkeypatch.setattr(secret_store, "encrypt_dict_fields", encrypt)
+    path = tmp_path / "example.json"
+    snapshot = ProviderInfo(
+        id="example",
+        name="Example",
+        base_url="https://old.invalid",
+        api_key="old-key",
+        models_last_synced_at="2026-01-01T00:00:00Z",
+        models_last_sync_error="old error",
+        models_syncing=True,
+        models=[
+            {
+                "id": "curated",
+                "name": "Curated",
+                "availability_status": "available",
+                "billing": "free",
+                "is_free": True,
+            },
+        ],
+        discovered_models=[{"id": "old-only", "name": "Old only"}],
+    )
+    raw = {
+        **snapshot.model_dump(mode="json"),
+        "preserved_plugin_field": {"value": 17},
+    }
+    path.write_text(json.dumps(raw))
+    manager = SimpleNamespace(plugin_providers={})
+    assert plugin_resources.update_provider_config(
+        manager,
+        "EXAMPLE",
+        {"base_url": "https://new.invalid", "api_key": "new-key"},
+        saved=(snapshot, path),
+    )
+    actual = json.loads(path.read_text())
+    assert actual["base_url"] == "https://new.invalid"
+    assert actual["api_key"] == "probe-encrypted:new-key"
+    assert actual["discovered_models"] == []
+    assert actual["models_last_synced_at"] is None
+    assert actual["models_last_sync_error"] is None
+    assert actual["models_syncing"] is False
+    assert actual["models"][0]["availability_status"] == "unverified"
+    assert actual["models"][0]["billing"] == "unknown"
+    assert actual["preserved_plugin_field"] == {"value": 17}

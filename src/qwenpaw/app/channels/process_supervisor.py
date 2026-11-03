@@ -27,7 +27,6 @@ from ...channel_protocol.shared import (
     SharedChannelDescriptor,
     validate_shared_hello,
     validate_channel_contract,
-    _read_requirements,
 )
 
 
@@ -250,11 +249,8 @@ class ChannelProcess(PluginProcess):
         if not path.resolve().is_relative_to(Path(spec.code_root).resolve()):
             raise ChannelProcessError("DESCRIPTOR_OUTSIDE_CODE_ROOT")
         descriptor = SharedChannelDescriptor.load(spec.descriptor_path)
-        requirements_path = path.parent / descriptor.requirements_file
         root = Path(spec.code_root).resolve()
-        if not requirements_path.resolve().is_relative_to(root):
-            raise self.error_type("DEPENDENCY_PATH_INVALID")
-        requirements = _read_requirements(requirements_path)
+        requirements = descriptor.read_requirements(root, path)
         if (
             descriptor.to_mapping() != spec.descriptor.to_mapping()
             or descriptor.channel_key != spec.channel_key
@@ -299,9 +295,11 @@ class ChannelProcess(PluginProcess):
             str(path) for path in spec.dependency_paths
         ]
         descriptor = spec.descriptor
-        packet["requirements_path"] = str(
-            (Path(spec.descriptor_path).parent / descriptor.requirements_file),
-        )
+        if descriptor.requirements_file is not None:
+            packet["requirements_path"] = str(
+                Path(spec.descriptor_path).parent
+                / descriptor.requirements_file,
+            )
         packet["config"] = dict(spec.config)
         packet["private_env"] = spec.private_env
         if self._mode == "manage":

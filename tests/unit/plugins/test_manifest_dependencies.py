@@ -535,6 +535,21 @@ async def main():
             usage.observe_host(token, snapshot)
             usage.withdraw(token)
             shutil.rmtree(candidate)
+        descriptor_path = source / 'channel.json'
+        if descriptor_path.exists():
+            import qwenpaw, sysconfig
+            from qwenpaw.__version__ import __version__
+            from qwenpaw.plugins.channel_adapter import ChannelRuntimeSettings
+            descriptor = json.loads(descriptor_path.read_text())
+            site = Path(sysconfig.get_path('purelib'))
+            host._loader.registry.configure_channel_runtime(ChannelRuntimeSettings(
+                python_executable=sys.executable,
+                support_root=Path(qwenpaw.__file__).resolve().parents[1],
+                qwenpaw_version=__version__,
+                selected_channels=frozenset({descriptor['channel_key']}),
+                dependency_paths=(site,),
+                dependency_install_target=site,
+            ))
         if sys.argv[5] == 'repair':
             try:
                 await host.load(source)
@@ -547,6 +562,9 @@ async def main():
             assert result.status == 'active'
         else:
             assert (await host.install(source)).ok
+        if descriptor_path.exists():
+            repaired = await host._loader.repair_dependencies('extension-contract')
+            assert repaired.status == 'active', repaired.diagnostics
         for name in expected:
             assert importlib.metadata.version(name) == '1.0'
             assert importlib.import_module(name.replace('-', '_')).ANSWER == 'installed from manifest'
@@ -651,6 +669,113 @@ def test_install_includes_every_declared_dependency(
 ):
     source = package(tmp_path, dependencies, requirements, sdk=sdk)
     install_case(tmp_path, source, expected)
+
+
+def test_channel_install_resolves_only_declared_host_capability_groups(
+    tmp_path,
+):
+    """Install named CLI/extension prerequisites without touching unused SDKs."""
+    source = package(tmp_path)
+    path = source / "plugin.json"
+    manifest = json.loads(path.read_text())
+    manifest["sdk"] = {
+        "version": "1.1.0",
+        "capabilities": ["cli", "extensions", "dependencies"],
+    }
+    manifest["optional_dependencies"] = {
+        "client": ["b01-probe-cli==1.0"],
+        "check": ["b01-probe-doctor==1.0"],
+        "driver": ["qwenpaw-unavailable-driver-sdk==1.0"],
+    }
+    manifest["cli"] = [
+        {"id": "send", "path": ["example-send"], "requires": ["client"]},
+    ]
+    manifest["extensions"] = [
+        {"point": "qwenpaw.doctor", "id": "sdk", "requires": ["check"]},
+    ]
+    from tests.channel_support.process import ROOT
+
+    manifest["type"] = "channel"
+    manifest["entry"]["descriptor"] = "channel.json"
+    descriptor = json.loads(
+        (ROOT / "plugins/channel/feishu/channel.json").read_text(),
+    )
+    descriptor.pop("requirements_file")
+    descriptor.update(
+        schema_version=3,
+        requires=[],
+        channel_key="extension-contract",
+        entrypoint={
+            "scope": "runner",
+            "module": "sample",
+            "qualname": "Driver",
+        },
+    )
+    (source / "channel.json").write_text(json.dumps(descriptor))
+    (source / "sample.py").write_text(
+        (ROOT / "tests/channel_support/sample_channel.py").read_text(),
+    )
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    install_case(tmp_path, source, {"b01-probe-cli", "b01-probe-doctor"})
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    ["pkg[extra]", "pkg\nother", "--index-url=x"],
+)
+def test_optional_dependency_syntax_is_checked_without_loading_code(
+    declaration,
+):
+    from qwenpaw.plugins.architecture import PluginManifest
+
+    with pytest.raises(ValueError):
+        PluginManifest.model_validate(
+            {
+                "id": "example",
+                "version": "1",
+                "entry": {"backend": "main.py"},
+                "sdk": {
+                    "version": "1.1.0",
+                    "capabilities": ["cli", "dependencies"],
+                },
+                "optional_dependencies": {"transport": [declaration]},
+                "cli": [
+                    {
+                        "id": "status",
+                        "path": ["status"],
+                        "requires": ["transport"],
+                    },
+                ],
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "declarations",
+    [
+        ["qwenpaw.doctor"],
+        [
+            {"point": "qwenpaw.doctor", "id": "config"},
+            {"point": "qwenpaw.doctor", "id": "config"},
+        ],
+    ],
+)
+def test_extensions_require_named_unique_contributions(declarations):
+    from qwenpaw.plugins.architecture import PluginManifest
+
+    with pytest.raises(ValueError):
+        PluginManifest.model_validate(
+            {
+                "id": "example",
+                "version": "1",
+                "entry": {"backend": "main.py"},
+                "sdk": {
+                    "version": "1.1.0",
+                    "capabilities": ["extensions"],
+                },
+                "extensions": declarations,
+            },
+        )
 
 
 async def test_satisfied_and_marker_excluded_manifest_does_not_install(

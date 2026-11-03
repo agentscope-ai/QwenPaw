@@ -49,7 +49,7 @@ class ParsedRequirements:
 
 @dataclass
 class GateDecision:
-    """Result of evaluating a plugin's requirements.txt."""
+    """Result of dependency admission in a plugin execution environment."""
 
     allow_install: bool
     already_satisfied: bool
@@ -115,17 +115,17 @@ def manifest_requirements(manifest: dict) -> list[str]:
             requirement = Requirement(declaration)
             if requirement.url:
                 raise ValueError("Direct URLs are unsupported")
+            result.append(str(requirement))
         except ValueError as exc:
             raise ValueError(
                 "plugin.json dependencies contains unsupported requirement "
                 f"syntax: {declaration!r}",
             ) from exc
-        result.append(str(requirement))
     return result
 
 
 @contextmanager
-def combined_requirements(source: Path) -> Iterator[Path]:
+def combined_requirements(source: Path, additional=()) -> Iterator[Path]:
     """Merge declarations without modifying a potentially read-only source."""
     requirements = source / "requirements.txt"
     manifest = source / "plugin.json"
@@ -136,6 +136,7 @@ def combined_requirements(source: Path) -> Iterator[Path]:
         if manifest.is_file()
         else []
     )
+    dependencies.extend(additional)
     if not dependencies:
         yield requirements
         return

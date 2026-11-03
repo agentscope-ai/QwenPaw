@@ -29,6 +29,9 @@ SDK_CAPABILITIES = frozenset(
         "apps",
         "channels",
         "harnesses",
+        "cli",
+        "extensions",
+        "dependencies",
     },
 )
 

@@ -145,6 +145,23 @@ def _catalog_files():
         installed[plugin_id] = (
             plugins_dir / plugin_id / "plugin.json"
         ).is_file()
+    from ...plugins.discovery import discover_plugins
+    from ...plugins.channel_adapter import describe_channel
+    from ..._version_compat import check_plugin_version_compat
+
+    for manifest, source in discover_plugins([plugins_dir]).plugins:
+        if (
+            not manifest.entry.descriptor
+            or not check_plugin_version_compat(manifest)[0]
+        ):
+            continue
+        try:
+            descriptions[manifest.id] = describe_channel(source, manifest)
+            installed[manifest.id] = True
+        except (OSError, ValueError, KeyError):
+            # Malformed metadata cannot define a form. Saved settings remain
+            # available through the key/value fallback below.
+            continue
     return descriptions, installed, load_config().plugins
 
 
@@ -231,6 +248,43 @@ def _assemble_channel_catalog(saved_keys, descriptions, installed, settings):
                 ),
                 defaults=channel_config_defaults(descriptor.config_schema),
             )
+    for plugin_id, description in descriptions.items():
+        if isinstance(description, str) or not installed[plugin_id]:
+            continue
+        descriptor = description.descriptor
+        enabled = is_plugin_enabled(settings.get(plugin_id))
+        registered = registry.get_channel_catalog_entry(descriptor.channel_key)
+        if registered is not None and registered.plugin_id != plugin_id:
+            continue
+        base = result.setdefault(
+            descriptor.channel_key,
+            {"form_kind": "schema"},
+        )
+        if base.get("owner", plugin_id) != plugin_id:
+            # Match registration ownership: a later candidate cannot replace
+            # the first channel's settings schema.
+            continue
+        base.update(
+            owner=plugin_id,
+            plugin_id=plugin_id,
+            label=descriptor.label["en"],
+            description=description.description,
+            process_mode=descriptor.process_mode,
+            config_schema=descriptor.config_schema,
+            config_fields=config_fields(
+                descriptor.config_schema,
+                descriptor.config_fields,
+            ),
+            defaults=channel_config_defaults(descriptor.config_schema),
+            global_enabled=enabled,
+            availability=(
+                "disabled"
+                if not enabled
+                else "missing_runtime"
+                if registry.channel_runtime is None
+                else "validation_pending"
+            ),
+        )
     for key, row in registry.get_channel_catalog().items():
         base = result.setdefault(
             key,

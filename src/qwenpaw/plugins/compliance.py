@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
+from .architecture import PluginManifest
+from .sdk_version import SDK_VERSION, validate_sdk
+
 PUBLIC_API = MappingProxyType(
     {
         "qwenpaw.plugins": (
@@ -50,6 +53,9 @@ PUBLIC_API = MappingProxyType(
             "CommandContext",
             "CommandResult",
         ),
+        "qwenpaw.plugins.cli": ("CliSpec", "CliContext"),
+        "qwenpaw.plugins.doctor": ("DOCTOR", "DoctorSpec", "DoctorContext"),
+        "qwenpaw.plugins.extensions": ("ExtensionPoint",),
         "qwenpaw.plugins.hooks": (
             "HookPhase",
             "HookSpec",
@@ -193,11 +199,25 @@ class APIExport:
     stability: str = "stable"
 
 
+# TODO: Maintainers must review and approve every new API since version below
+# together with SDK_VERSION before release; 1.1.0 is the proposed version.
+_API_SINCE = {
+    ("qwenpaw.plugins.cli", "CliSpec"): "1.1.0",
+    ("qwenpaw.plugins.cli", "CliContext"): "1.1.0",
+    ("qwenpaw.plugins.doctor", "DOCTOR"): "1.1.0",
+    ("qwenpaw.plugins.doctor", "DoctorSpec"): "1.1.0",
+    ("qwenpaw.plugins.doctor", "DoctorContext"): "1.1.0",
+    ("qwenpaw.plugins.extensions", "ExtensionPoint"): "1.1.0",
+}
+
 API_EXPORTS = tuple(
     APIExport(
         module,
         symbol,
-        since="1.1.0" if module == "qwenpaw.plugins.harnesses" else "1.0.0",
+        since=_API_SINCE.get(
+            (module, symbol),
+            "1.1.0" if module == "qwenpaw.plugins.harnesses" else "1.0.0",
+        ),
         stability="compatibility" if module == "qwenpaw.pawapp" else "stable",
     )
     for module, symbols in PUBLIC_API.items()
@@ -284,20 +304,14 @@ def check_plugin(directory: str | Path) -> CheckReport:
     compatibility = "invalid"
     try:
         manifest = json.loads((directory / "plugin.json").read_text())
-        if (
-            not isinstance(manifest, dict)
-            or not manifest.get("id")
-            or not manifest.get("version")
-        ):
-            raise ValueError("Manifest requires id and version")
-        from .sdk_version import validate_sdk
         from .dependency_gate import manifest_requirements
 
-        validate_sdk(manifest.get("sdk"), manifest["id"])
+        parsed_manifest = PluginManifest.from_dict(manifest)
+        validate_sdk(parsed_manifest.sdk, parsed_manifest.id)
         manifest_requirements(manifest)
         compatibility = (
             "compatible"
-            if manifest.get("sdk") is not None
+            if parsed_manifest.sdk is not None
             else "legacy-not-sdk"
         )
         if compatibility == "legacy-not-sdk":
@@ -305,9 +319,7 @@ def check_plugin(directory: str | Path) -> CheckReport:
                 "Manifest does not opt in to the SDK; legacy behavior was "
                 "not migrated or disabled",
             )
-        entry = (manifest.get("entry") or {}).get("backend") or manifest.get(
-            "entry_point",
-        )
+        entry = parsed_manifest.entry.backend
         if entry and not (directory / entry).is_file():
             raise ValueError("Declared backend entry does not exist")
     except (
@@ -395,6 +407,38 @@ def check_plugin(directory: str | Path) -> CheckReport:
                 return qualified(node.value) + "." + node.attr
             return ""
 
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+
+        def host_context_member(node):
+            if (
+                not isinstance(node.value, ast.Name)
+                or node.value.id not in contexts
+            ):
+                return False
+            scope = node
+            while scope in parents:
+                scope = parents[scope]
+                if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    arguments = scope.args.posonlyargs + scope.args.args
+                    for index, argument in enumerate(arguments):
+                        if argument.arg != node.value.id:
+                            continue
+                        click_parameter = index == 0 and any(
+                            qualified(decorator)
+                            in {"click.pass_context", "click.pass_obj"}
+                            for decorator in scope.decorator_list
+                        )
+                        return not (
+                            click_parameter
+                            or qualified(argument.annotation)
+                            == "click.Context"
+                        )
+            return True
+
         contexts = {"ctx", "context", "call", "api"}
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -452,11 +496,7 @@ def check_plugin(directory: str | Path) -> CheckReport:
                         "private-symbol",
                         f"Not a public SDK symbol: {name}",
                     )
-                if (
-                    node.attr.startswith("_")
-                    and isinstance(node.value, ast.Name)
-                    and node.value.id in contexts
-                ):
+                if node.attr.startswith("_") and host_context_member(node):
                     reject(
                         node,
                         "private-context",
@@ -471,11 +511,7 @@ def check_plugin(directory: str | Path) -> CheckReport:
                         f"Private SDK member: {name}",
                     )
                 if isinstance(node.ctx, ast.Store) and (
-                    name.startswith("qwenpaw.")
-                    or (
-                        isinstance(node.value, ast.Name)
-                        and node.value.id in contexts
-                    )
+                    name.startswith("qwenpaw.") or host_context_member(node)
                 ):
                     reject(
                         node,
@@ -556,8 +592,6 @@ def check_plugin(directory: str | Path) -> CheckReport:
                                 "Private context member: "
                                 f"{node.args[1].value}",
                             )
-    from .sdk_version import SDK_VERSION
-
     return CheckReport(
         tuple(findings),
         tuple(sorted(dependencies)),

@@ -344,6 +344,9 @@ async def _prepare_component(
     packet["mode"] = mode
     packet["_reuse_ambiguous"] = mode == "audit"
     diagnostics.mark("dependency_read")
+    resolve_requirements = getattr(runtime, "requirements", None)
+    if resolve_requirements is not None:
+        packet["_requirements"] = resolve_requirements(boot, packet)
     snapshot = observe_dependencies(packet)
     diagnostics.mark("dependency_admission", versions=dict(snapshot.versions))
     accepted = await peer.call(
