@@ -94,7 +94,15 @@ This is where you talk to QwenPaw. It is the default page when the Console opens
 
 **Choose a model:**
 Use the control at the **top-right** of the chat page to pick the model for the
-current agent.
+current conversation. This selection is saved with the conversation and leaves
+the agent default unchanged. Clear the conversation override in the selector to
+inherit the agent default again.
+
+Normal replies, manual `/compact`, `/history` context limits, and automatic
+chat-title generation follow this selection. Reasoning preferences are stored
+separately for each provider/model in the conversation. Image/video capability
+checks and on-demand probes follow the model executing the turn, including a
+configured fallback model when one is used.
 
 **Send a message:**
 Type in the input box at the bottom, then press **Enter** or click the send
@@ -306,12 +314,26 @@ Edit files that define QwenPaw's persona and behavior — `SOUL.md`, `AGENTS.md`
 If `MEMORY.md` exists, click the **▶** arrow to expand date-based entries. Click a
 date to view or edit that day's memory.
 
-**Download workspace:**
-Click **Download** to export the entire workspace as a `.zip` to your machine.
+**Browse memory tags:**
+With ReMe Light, select **Tags** beside Workspace, Profile, Daily and Knowledge
+Base to see tags and their file counts. Select a tag to browse matching files,
+or click a tag in a memory file's preview to open the same list. Results are
+paginated, and opening a result reuses the existing file editor.
+Tag browsing searches the existing memory index, which automatically indexes
+the configured daily and digest directories. A preview tag can find related
+indexed memories even when the current workspace file is outside those
+directories; that file will not appear unless it has been indexed. Other
+memory backends do not expose the Tags tab or clickable preview tags.
 
-**Upload/restore workspace:**
-Click **Upload** → choose a `.zip` (max 100 MB). Existing workspace files will be
-replaced. Useful for migration and backup restore.
+**Workspace backup and restore:**
+Use **Settings → Backup** to create, export, import, and restore backups.
+See [Backup & Restore](./backup).
+
+The legacy `GET /api/workspace/download` and `POST /api/workspace/upload`
+endpoints, including their `/api/agents/{agentId}/workspace/...` variants,
+have been removed. API clients must migrate to the `/api/backups` APIs.
+Legacy workspace ZIPs are not compatible with the backup format; extract
+individual files locally and upload them through Files if needed.
 
 ---
 

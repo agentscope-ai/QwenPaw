@@ -375,6 +375,24 @@
     "backToApp": "Quay lại ứng dụng",
     "searchPlaceholder": "Tìm kiếm cài đặt",
     "noResults": "Không có cài đặt phù hợp",
+    "searchSelectTask": "Chọn tác vụ để chỉnh sửa hoặc tạo tác vụ mới để tìm cài đặt này.",
+    "searchSelectChannel": "Chọn một kênh để tìm cài đặt này.",
+    "searchSelectObject": "Chọn một mục và mở cài đặt của mục đó. Một số trường phụ thuộc vào chế độ đã chọn.",
+    "searchChooseLoop": "Chọn chế độ Loop phù hợp. Một số tham số xuất hiện sau khi bật tùy chọn liên quan.",
+    "searchConditionalSetting": "Chọn chế độ phù hợp hoặc bật tùy chọn liên quan để cấu hình cài đặt này.",
+    "mcpJsonConfig": "Cấu hình JSON nâng cao",
+    "searchToolAvailability": "Khả năng sử dụng công cụ phụ thuộc vào tác tử, các plugin đã cài đặt và chế độ hiện tại.",
+    "searchNativeContextOnly": "Chỉ khả dụng cho các hồ sơ sử dụng chiến lược ngữ cảnh Native cũ.",
+    "searchScrollContextOnly": "Khả dụng cho chiến lược ngữ cảnh Scroll.",
+    "searchReMeOnly": "Khả dụng khi chọn backend bộ nhớ ReMe Light.",
+    "searchBuiltinSkillLanguage": "Chọn một kỹ năng tích hợp có nhiều phiên bản ngôn ngữ, rồi mở thông tin chi tiết.",
+    "searchBuiltinSkillUpdate": "Chọn một kỹ năng tích hợp để cấu hình cập nhật tự động.",
+    "searchBackupSecrets": "Mở biểu mẫu tạo hoặc khôi phục bản sao lưu và chọn phạm vi phù hợp để cấu hình khóa bí mật.",
+    "searchWhisperProvider": "Chọn Whisper API làm nhà cung cấp phiên âm để cấu hình nhà cung cấp API tương ứng.",
+    "searchAgentTaskOnly": "Cài đặt này chỉ khả dụng cho các tác vụ của tác tử.",
+    "searchEnableFallback": "Bật mô hình dự phòng để cấu hình danh sách mô hình dự phòng.",
+    "searchUnsupportedChannel": "Kênh này không hỗ trợ các cài đặt kiểm soát truy cập này.",
+    "searchUnsupportedBackend": "Định tuyến mô hình khả dụng cho tác tử QwenPaw.",
     "groups": {
       "application": "Cài đặt ứng dụng",
       "agentConfiguration": "Cấu hình tác tử",
@@ -1355,6 +1373,8 @@
     "from": "Từ:",
     "requestedBy": "Bởi",
     "markRead": "Đánh dấu đã đọc",
+    "unreadOnly": "Chỉ hiện chưa đọc",
+    "emptyUnread": "Không có tin nhắn chưa đọc phù hợp với bộ lọc hiện tại",
     "markAllRead": "Đánh dấu tất cả đã đọc",
     "markAllReadNoUnread": "Không có tin nhắn chưa đọc",
     "markAllReadSuccess": "Đã đánh dấu {{count}} tin nhắn đã đọc",
@@ -2237,6 +2257,9 @@
     "currentAgentLlmCallsTooltip": "Số lượt trợ lý có metadata sử dụng đã ghi nhận của agent hiện tại (không phải số lời gọi API thô; phiên cũ có thể hiển thị 0)"
   },
   "modelSelector": {
+    "subagentModel": "Mô hình tác tử phụ",
+    "chooseFallback": "Mô hình dự phòng",
+    "enableFallback": "Dùng mô hình dự phòng khi thất bại",
     "noFallback": "Không sử dụng",
     "placeholder": "Chọn mô hình",
     "searchPlaceholder": "Tìm kiếm mô hình...",
@@ -3044,6 +3067,7 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "primaryModel": "Mô hình chính",
     "connect": "Xác thực OAuth",
     "settings": "Cài đặt",
     "disableBtn": "Vô hiệu hóa",
@@ -3272,6 +3296,10 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
+    "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
+    "runtime": {
+      "missing_code": "Chưa cài đặt plugin"
+    },
     "title": "Kênh",
     "description": "Quản lý và cấu hình các kênh nhắn tin",
     "loading": "Đang tải kênh...",

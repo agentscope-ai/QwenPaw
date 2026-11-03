@@ -113,8 +113,7 @@ async def test_plugin_resource_finishes_before_workspace_stop(
         api.register_shutdown_hook("test", hook)
     instance.record_runtime("connection", close_resource, kind="custody")
     # Seed a loaded record without importing a real plugin.
-    # pylint: disable-next=protected-access
-    loader._loaded_plugins["test"] = PluginRecord(
+    record = PluginRecord(
         manifest=PluginManifest(
             id="test",
             name="Test",
@@ -125,6 +124,7 @@ async def test_plugin_resource_finishes_before_workspace_stop(
         enabled=True,
         status="active",
     )
+    monkeypatch.setattr(loader, "_loaded_plugins", {"test": record})
 
     async def stop_workspaces():
         order.append("workspaces")

@@ -283,7 +283,10 @@ export default function GeneralSettings() {
         </div>
       </div>
       <div className={styles.themeFields}>
-        <label className={`${styles.themeField} ${styles.themePresetField}`}>
+        <label
+          data-settings-target="settingsCenter.themePalette"
+          className={`${styles.themeField} ${styles.themePresetField}`}
+        >
           <span>{t("settingsCenter.themePalette", "Theme palette")}</span>
           <Select
             aria-label={t("settingsCenter.themePalette", "Theme palette")}
@@ -297,7 +300,10 @@ export default function GeneralSettings() {
             onChange={selectThemePreset}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.accentColor"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.accentColor", "Accent color")}</span>
           <ColorPicker
             getPopupContainer={(trigger) => trigger.parentElement!}
@@ -306,7 +312,10 @@ export default function GeneralSettings() {
             onChange={(_, hex) => updateDraftTheme({ accent: hex })}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.accentHover"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.accentHover", "Accent hover")}</span>
           <ColorPicker
             getPopupContainer={(trigger) => trigger.parentElement!}
@@ -317,7 +326,10 @@ export default function GeneralSettings() {
             onChange={(_, hex) => updateDraftTheme({ accent_hover: hex })}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.accentBackground"
+          className={styles.themeField}
+        >
           <span>
             {t("settingsCenter.accentBackground", "Accent background")}
           </span>
@@ -333,7 +345,10 @@ export default function GeneralSettings() {
             }
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.cornerRadius"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.cornerRadius", "Corner radius")}</span>
           <NumberStepper
             aria-label={t("settingsCenter.cornerRadius", "Corner radius")}
@@ -351,7 +366,10 @@ export default function GeneralSettings() {
             style={{ width: "100%" }}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.darkAccentColor"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.darkAccentColor", "Dark accent")}</span>
           <ColorPicker
             getPopupContainer={(trigger) => trigger.parentElement!}
@@ -362,7 +380,10 @@ export default function GeneralSettings() {
             onChange={(_, hex) => updateDarkTheme({ accent: hex })}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.darkSurface"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.darkSurface", "Dark surface")}</span>
           <Input
             value={
@@ -540,6 +561,7 @@ export default function GeneralSettings() {
                   ))}
                 </span>
                 <motion.button
+                  data-settings-open="theme"
                   className={styles.customButton}
                   style={{ borderRadius: 24 }}
                   whileTap={reduced ? undefined : { scale: 0.96 }}

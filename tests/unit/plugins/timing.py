@@ -6,20 +6,8 @@ negative checks (work must still be blocked) separate from this budget.
 """
 
 import threading
-import time
 
 WAIT_TIMEOUT = 15.0
-
-
-def wait_for_thread_progress(predicate):
-    """Wait in a worker for observable progress without assuming disk speed."""
-    deadline = time.monotonic() + WAIT_TIMEOUT
-    while not predicate():
-        if time.monotonic() >= deadline:
-            raise AssertionError(
-                "Event loop made no progress during worker I/O",
-            )
-        time.sleep(0.005)
 
 
 def assert_loop_progress(loop):

@@ -273,7 +273,7 @@ async def test_channel_project_respects_three_gates(fresh_registry):
     )
     with (
         patch(
-            "qwenpaw.plugins.workspace_projector.get_available_channels",
+            "qwenpaw.plugins.api.get_available_channels",
             return_value=("fake-heart",),
         ),
         patch(
@@ -344,7 +344,7 @@ async def test_failed_channel_stop_is_not_quiescent(fresh_registry):
     )
     with (
         patch(
-            "qwenpaw.plugins.workspace_projector.get_available_channels",
+            "qwenpaw.plugins.api.get_available_channels",
             return_value=("stuck-ch",),
         ),
         patch(
@@ -377,6 +377,7 @@ class _BootChannel(BaseChannel):
     uses_manager_queue = False
 
     def __init__(self, ignore_cancel):
+        super().__init__(_noop_process)
         self.entered, self.release = asyncio.Event(), asyncio.Event()
         self.ignore_cancel = ignore_cancel
         self.alive = False
@@ -415,13 +416,14 @@ async def test_unload_drains_boot_channel_start(
         live_workspaces=lambda: [workspace],
     )
     monkeypatch.setattr(
-        "qwenpaw.plugins.workspace_projector.get_available_channels",
+        "qwenpaw.plugins.api.get_available_channels",
         lambda: ("boot-race",),
     )
-    monkeypatch.setattr(
-        "qwenpaw.app.channels.manager._CHANNEL_START_STOP_TIMEOUT",
-        0.01,
-    )
+    if ignore_cancel:
+        monkeypatch.setattr(
+            "qwenpaw.app.channels.manager._CHANNEL_START_STOP_TIMEOUT",
+            0.01,
+        )
     api = PluginApi("boot-plugin", {}, {"id": "boot-plugin"})
     api.set_registry(fresh_registry)
     instance = PluginInstance("boot-plugin")
@@ -482,7 +484,7 @@ async def test_unload_drains_channel_replacement(
         live_workspaces=lambda: [workspace],
     )
     monkeypatch.setattr(
-        "qwenpaw.plugins.workspace_projector.get_available_channels",
+        "qwenpaw.plugins.api.get_available_channels",
         lambda: ("boot-race",),
     )
     monkeypatch.setattr(
@@ -493,7 +495,11 @@ async def test_unload_drains_channel_replacement(
         "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: workspace._config,
     )
-    monkeypatch.setattr(old, "clone", lambda _config: new)
+    monkeypatch.setattr(
+        _BootChannel,
+        "from_config",
+        classmethod(lambda _cls, **_kwargs: new),
+    )
     api = PluginApi("replace-plugin", {}, {"id": "replace-plugin"})
     api.set_registry(fresh_registry)
     instance = PluginInstance("replace-plugin")
@@ -614,6 +620,7 @@ async def channel_plugin(tmp_path, monkeypatch, fresh_registry):
         uses_manager_queue = False
 
         def __init__(self):
+            super().__init__(_noop_process)
             self.alive = False
             self.starts = 0
             self.stops = 0
@@ -645,7 +652,7 @@ async def channel_plugin(tmp_path, monkeypatch, fresh_registry):
         raising=False,
     )
     for module in (
-        "qwenpaw.plugins.workspace_projector",
+        "qwenpaw.plugins.api",
         "qwenpaw.app.channels.manager",
     ):
         monkeypatch.setattr(

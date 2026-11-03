@@ -116,7 +116,9 @@ RUN python3 /tmp/stage_python_runtime.py \
   && rm /tmp/stage_python_runtime.py
 ENV PATH="/app/venv/bin:$PATH"
 
-COPY pyproject.toml setup.py README.md ./
+COPY pyproject.toml setup.py MANIFEST.in README.md ./
+COPY scripts/pack ./scripts/pack
+COPY plugins/channel ./plugins/channel
 COPY src ./src
 COPY plugins/hub ./plugins/hub
 COPY packages/qwenpawmail-mcp/src/qwenpawmail_mcp ./packages/qwenpawmail-mcp/src/qwenpawmail_mcp
@@ -140,9 +142,12 @@ RUN python -c 'import re, subprocess, sys; \
 # half-removed pkg_resources (module present, declare_namespace gone), which
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
-RUN uv pip install --python /app/venv/bin/python \
-    --no-cache-dir . "setuptools<82" \
-  && rm -rf ./build
+RUN uv pip install --python /app/venv/bin/python --no-cache-dir "setuptools<82" wheel -r scripts/pack/channel-contract-requirements.txt \
+    && python scripts/pack/validate_channel_contracts.py \
+    && python -c 'import setuptools.build_meta as b; b.build_wheel("/tmp/qwenpaw-wheel")' \
+    && set -- /tmp/qwenpaw-wheel/*.whl \
+    && uv pip install --python /app/venv/bin/python --no-cache-dir "$1[channels]" \
+    && rm -rf ./build /tmp/qwenpaw-wheel
 
 
 # QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.

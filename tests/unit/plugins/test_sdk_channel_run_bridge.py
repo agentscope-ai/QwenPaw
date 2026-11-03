@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from qwenpaw.plugins import PluginBusyError
+from qwenpaw.plugins import PluginBusyError, activity
 from qwenpaw.plugins.testing import PluginTestHost
 from .test_sdk_channel_routing_contract import (
     CHANNEL,
@@ -359,16 +359,12 @@ async def test_channel_stop_closes_actual_overflow_stream_before_owner_exit(
     tmp_path,
     monkeypatch,
     boundary,
-    request,
 ):
     # Keep this ownership/cleanup scenario and its assertions together.
     # pylint: disable=too-many-statements
     from qwenpaw.agents import react_agent
     from .sdk_author_fixture import make_plugin
     from .test_sdk_channel_routing_contract import SOURCE
-
-    if boundary == "blocked-close":
-        request.getfixturevalue("short_interrupt_timeout")
 
     streams = []
     closing, release, closed = (
@@ -468,11 +464,13 @@ async def test_channel_stop_closes_actual_overflow_stream_before_owner_exit(
             assert len(streams) == 1
             assert streams[0].ag_frame is not None
             if boundary == "blocked-close":
-                with pytest.raises(PluginBusyError):
-                    await host.reload(
-                        "extension-contract",
-                        interrupt_tasks=True,
-                    )
+                with monkeypatch.context() as patch:
+                    patch.setattr(activity, "INTERRUPT_TIMEOUT_SECONDS", 0.2)
+                    with pytest.raises(PluginBusyError):
+                        await host.reload(
+                            "extension-contract",
+                            interrupt_tasks=True,
+                        )
                 assert closing.is_set() and not closed.is_set()
                 assert (
                     host.resource_snapshot("extension-contract")[

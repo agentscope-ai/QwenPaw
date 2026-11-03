@@ -238,3 +238,67 @@ def test_build_model_reuses_preloaded_agent_config(monkeypatch):
         "model_slot_override": "provider:model",
         "agent_config": config,
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("location", ["direct", "context"])
+async def test_request_model_is_resolved_before_validation_and_build(
+    monkeypatch,
+    location,
+):
+    """A request override works even when no agent/global default exists."""
+    from unittest.mock import AsyncMock
+    from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+
+    config = AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        thinking_level="high",
+    )
+    selected = ModelSlotConfig(provider_id="request", model="selected")
+    monkeypatch.setattr(config_module, "load_agent_config", lambda _: config)
+    monkeypatch.setattr(
+        "qwenpaw.services.session_thinking.ProviderManager.get_instance",
+        lambda: SimpleNamespace(
+            active_model=None,
+            get_active_model=lambda: None,
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.skill_system.ensure_skills_initialized",
+        lambda *_: None,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.skill_system.resolve_effective_skills",
+        lambda *_: [],
+    )
+    builder = AgentBuilder.__new__(AgentBuilder)
+    monkeypatch.setattr(builder, "_init_governor", lambda *_: None)
+    monkeypatch.setattr(
+        builder,
+        "_collect_context_recall_tools",
+        lambda *_: [],
+    )
+    monkeypatch.setattr(
+        builder,
+        "_collect_driver_tools_and_prompts",
+        AsyncMock(return_value=([], [])),
+    )
+    request = SimpleNamespace(request_context={})
+    if location == "direct":
+        request.model_slot_override = selected
+    else:
+        request.request_context["model_slot_override"] = selected
+    ctx = SimpleNamespace(agent_id="agent", request=request, extras={})
+
+    def build_model(cfg, model_slot_override=None):
+        assert cfg.active_model == selected
+        assert cfg.thinking_level == "inherit"
+        assert model_slot_override == selected
+        raise RuntimeError("selected model reached factory")
+
+    monkeypatch.setattr(builder, "build_model", build_model)
+    with pytest.raises(RuntimeError, match="selected model reached factory"):
+        await builder.build(ctx)
+    assert config.active_model is None
+    assert config.thinking_level == "high"

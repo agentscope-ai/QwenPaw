@@ -29,6 +29,7 @@ from .model_info import release_date
 from ..utils.io_utils import run_sync_io
 from .model_catalog import catalog_documents
 from .multimodal_prober import evaluate_video_probe_answer
+from .thinking import model_default_thinking
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
 
@@ -520,6 +521,32 @@ class OpenAIProvider(Provider):
             f"Model '{model_id}' is not a chat model; verified "
             "provider connectivity instead of a chat probe",
         )
+
+    def _apply_thinking_config(self, model_id: str, effective: dict) -> None:
+        """Serialize configured model defaults before request overrides."""
+        info = self.resolve_model_info(model_id)
+        if all(
+            value is None
+            for value in (
+                info.thinking_enabled,
+                info.thinking_budget,
+                info.reasoning_effort,
+            )
+        ):
+            return
+        preference = model_default_thinking(
+            effective,
+            self.thinking_control(model_id),
+            default_enabled=info.thinking_enabled,
+            default_effort=info.reasoning_effort,
+            default_budget=info.thinking_budget,
+        )
+        override = self.get_agent_thinking_kwargs(
+            model_id,
+            preference.level,
+            preference.budget_tokens,
+        )
+        self._replace_thinking_kwargs(effective, override)
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential._openai import OpenAICredential

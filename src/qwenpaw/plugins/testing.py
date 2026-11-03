@@ -10,11 +10,15 @@ independent hosts in separate processes, just as independent QwenPaw instances.
 
 from __future__ import annotations
 
+# Host bridges intentionally use private runtime seams. Local result imports
+# also bind the contract types re-exported by this author-facing module.
+# pylint: disable=protected-access,redefined-outer-name
+
+import inspect
 import os
 import sys
-import inspect
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import AsyncGenerator, Sequence, Mapping, Any
 from .sdk import PluginContext
@@ -40,7 +44,6 @@ from .results import (
     ReloadResult,
     ConfigUpdateResult,
 )
-
 from .errors import SDKError
 from .tools import ToolResult, ToolEvent
 from ._testing_http import TestHttpResponse, TestConnection
@@ -132,9 +135,8 @@ class TestModel:
             await stream.aclose()
 
 
-# One author-facing host intentionally covers all SDK contribution types.
-# pylint: disable-next=too-many-public-methods
-class PluginTestHost:
+# The integration facade exposes one operation for each supported SDK service.
+class PluginTestHost:  # pylint: disable=too-many-public-methods
     def __init__(
         self,
         root: Path,
@@ -247,10 +249,8 @@ class PluginTestHost:
         await self.close()
 
     async def close(self) -> None:
-        """
-        Retry cleanup after a failed close; ownership stays until it succeeds.
-        """
-        from .lifecycle import UnloadMode
+        """Retry cleanup after a failed close; ownership stays until it succeeds."""
+        from .lifecycle import QuiescenceError, UnloadMode
 
         if _ACTIVE_HOST is not self:
             return
@@ -259,7 +259,13 @@ class PluginTestHost:
             await connection.close()
         for workspace_id, workspace in tuple(self._workspaces.items()):
             if workspace.channel_manager is not None:
-                await workspace.channel_manager.stop_all()
+                try:
+                    await workspace.channel_manager.stop_all()
+                except QuiescenceError as exc:
+                    raise SDKError(
+                        f"Workspace {workspace_id!r} channel cleanup has not "
+                        "stopped; retry close()",
+                    ) from exc
             # Native channel producers still persist their completion after
             # leaving the SDK invocation. Keep this host's environment until
             # that workspace-owned tail finishes; do not cancel its I/O.
@@ -626,9 +632,11 @@ class PluginTestHost:
             from_host(message) for message in context.input_msgs
         )
         return HookResult(
-            "reply"
-            if result.action.value == "short_circuit"
-            else result.action.value,
+            (
+                "reply"
+                if result.action.value == "short_circuit"
+                else result.action.value
+            ),
             from_host(result.payload) if result.payload is not None else None,
             final_messages if final_messages != initial_messages else None,
             tuple(
@@ -664,7 +672,7 @@ class PluginTestHost:
         from ..app.channels.manager import ChannelManager
         from ..config.config import load_agent_config, save_agent_config
         from ..utils.io_utils import run_sync_io
-        from .workspace_projector import channel_passes_gates
+        from .api import channel_passes_gates
 
         workspace = await self._workspace(workspace_id)
 
@@ -806,9 +814,7 @@ class PluginTestHost:
         *,
         workspace_id="test",
     ):
-        """
-        Persist declared tool settings through the normal agent.json writer.
-        """
+        """Persist declared tool settings through the normal agent.json writer."""
         from ..config.config import (
             load_agent_config,
             save_agent_config,
@@ -1380,9 +1386,8 @@ class PluginTestHost:
         decision = await tool.check_permissions(arguments)
         if decision.behavior is not PermissionBehavior.ALLOW:
             raise SDKError(f"Tool invocation denied: {decision.message}")
-        # Dynamic FunctionTool.__call__ is installed by __new__.
-        # pylint: disable-next=not-callable
-        normalized = await tool(**arguments)
+        # __new__ returns a dynamic FunctionTool subclass with __call__ installed.
+        normalized = await tool(**arguments)  # pylint: disable=not-callable
         try:
             while True:
                 workspace_token = current_workspace_dir.set(workspace)
