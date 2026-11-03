@@ -1681,7 +1681,7 @@
     "fieldWebSocketHost": "Хост WebSocket",
     "fieldWebSocketPort": "Порт WebSocket",
     "matrixUserHelp": "Полный MXID (например, @bot:matrix.org) или локальное имя (bot).",
-    "matrixEncryptionHelp": "После включения подтвердите устройство в Matrix (например, Element) и установите пакет: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "После включения подтвердите устройство в Matrix (например, Element).",
     "matrixDeviceHelp": "Постоянное имя устройства Matrix. По умолчанию: qwenpaw-worker.",
     "messageTypeHelp": "markdown: обычные сообщения; card: интерактивная карточка ИИ.",
     "scheduledMessageTypeHelp": "Тип сообщений задач по расписанию, независимо от формата чата.",

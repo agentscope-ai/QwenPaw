@@ -2149,7 +2149,7 @@
     "fieldWebSocketHost": "WebSocket 主机",
     "fieldWebSocketPort": "WebSocket 端口",
     "matrixUserHelp": "可填写完整 MXID（如 @bot:matrix.org）或本地名称（如 bot）。",
-    "matrixEncryptionHelp": "启用后需在 Matrix 客户端（如 Element）验证设备，并安装 matrix-nio[e2e]：pip install matrix-nio[e2e]。",
+    "matrixEncryptionHelp": "启用后需在 Matrix 客户端（如 Element）验证设备。",
     "matrixDeviceHelp": "Matrix 客户端的固定设备名称，留空时使用 qwenpaw-worker。",
     "messageTypeHelp": "markdown：普通消息；card：AI 交互卡片。",
     "scheduledMessageTypeHelp": "定时任务发送的消息类型，与聊天消息类型独立。",

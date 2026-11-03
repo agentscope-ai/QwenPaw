@@ -1915,7 +1915,7 @@
     "fieldWebSocketHost": "Servidor WebSocket",
     "fieldWebSocketPort": "Porta WebSocket",
     "matrixUserHelp": "Aceita MXID completo (ex.: @bot:matrix.org) ou nome local (bot).",
-    "matrixEncryptionHelp": "Após ativar, verifique o dispositivo no Matrix (ex.: Element) e instale: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "Após ativar, verifique o dispositivo no Matrix (ex.: Element).",
     "matrixDeviceHelp": "Nome fixo do dispositivo Matrix. Padrão: qwenpaw-worker.",
     "messageTypeHelp": "markdown: mensagens comuns; card: cartão interativo de IA.",
     "scheduledMessageTypeHelp": "Tipo de mensagem agendada, independente do formato do chat.",
