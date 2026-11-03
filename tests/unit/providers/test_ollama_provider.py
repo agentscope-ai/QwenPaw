@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import Any
 
 from agentscope.model import OpenAIChatModel
 import pytest
@@ -531,7 +532,7 @@ async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
         ModelInfo(id="qwen3:8b", name="qwen3:8b"),
     ]
 
-    payloads = {
+    payloads: dict[str, dict[str, Any]] = {
         "gpt-oss:120b": {
             "remote_host": "https://ollama.com",
             "remote_model": "gpt-oss:120b",
