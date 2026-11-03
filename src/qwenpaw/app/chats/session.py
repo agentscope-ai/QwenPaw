@@ -860,7 +860,7 @@ class DatabaseSession:
                 )
                 if call_id:
                     turn_by_key[str(call_id)] = turn_id
-        history = HistoryStore(target, shared_database=True)
+        history = HistoryStore(target)
         try:
             history.import_legacy_database(
                 source,

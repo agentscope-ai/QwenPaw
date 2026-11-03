@@ -2052,6 +2052,9 @@
     "emptyValue": "String vazia"
   },
   "modelSelector": {
+    "subagentModel": "Modelo do subagente",
+    "chooseFallback": "Modelo de reserva",
+    "enableFallback": "Usar modelo de reserva em caso de falha",
     "noFallback": "Não usar",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
@@ -2149,6 +2152,7 @@
     "retry": "Tentar novamente"
   },
   "models": {
+    "primaryModel": "Modelo principal",
     "disableBtn": "Desativar",
     "discoveryOriginApi": "Detectado via API",
     "discoveryOriginCatalog": "Catálogo oficial",
@@ -3501,6 +3505,24 @@
     "backToApp": "Voltar ao aplicativo",
     "searchPlaceholder": "Pesquisar configurações",
     "noResults": "Nenhuma configuração correspondente",
+    "searchSelectTask": "Selecione uma tarefa para editar ou crie uma nova para localizar esta configuração.",
+    "searchSelectChannel": "Selecione um canal para localizar esta configuração.",
+    "searchSelectObject": "Selecione um item e abra suas configurações. Alguns campos dependem do modo selecionado.",
+    "searchChooseLoop": "Selecione o modo Loop correspondente. Alguns parâmetros aparecem após a ativação da opção relacionada.",
+    "searchConditionalSetting": "Selecione o modo aplicável ou ative a opção relacionada para definir esta configuração.",
+    "mcpJsonConfig": "Configuração JSON avançada",
+    "searchToolAvailability": "A disponibilidade das ferramentas depende do agente, dos plugins instalados e do modo atual.",
+    "searchNativeContextOnly": "Disponível apenas para perfis que usam a estratégia de contexto Native legada.",
+    "searchScrollContextOnly": "Disponível para a estratégia de contexto Scroll.",
+    "searchReMeOnly": "Disponível quando o backend de memória ReMe Light está selecionado.",
+    "searchBuiltinSkillLanguage": "Selecione uma skill integrada com versões em vários idiomas e abra seus detalhes.",
+    "searchBuiltinSkillUpdate": "Selecione uma skill integrada para configurar suas atualizações automáticas.",
+    "searchBackupSecrets": "Abra o formulário de criação ou restauração de backup e selecione o escopo correspondente para configurar os segredos.",
+    "searchWhisperProvider": "Selecione Whisper API como provedor de transcrição para configurar seu provedor de API.",
+    "searchAgentTaskOnly": "Esta configuração está disponível apenas para tarefas de agente.",
+    "searchEnableFallback": "Ative os modelos de fallback para configurar a lista de fallback.",
+    "searchUnsupportedChannel": "Este canal não oferece suporte a estas configurações de controle de acesso.",
+    "searchUnsupportedBackend": "O roteamento de modelos está disponível para agentes QwenPaw.",
     "groups": {
       "application": "Configurações do aplicativo",
       "agentConfiguration": "Configuração do agente",

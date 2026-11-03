@@ -13,6 +13,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.agent_context import scoped_session_id
 from qwenpaw.modes.mission import MissionMode
@@ -160,6 +161,7 @@ def _workspace(tmp_path: Path):
     return SimpleNamespace(
         workspace_dir=root,
         agent_id="agent-1",
+        config=AgentProfileConfig(id="agent-1", name="Test"),
         session=DatabaseSession(
             catalog=TranscriptCatalog(root),
             legacy_save_dir=str(root / "sessions"),

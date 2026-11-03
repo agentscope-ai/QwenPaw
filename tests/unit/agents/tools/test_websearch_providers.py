@@ -37,7 +37,7 @@ def _agent_config_with_provider(provider: str | None):
     )
 
 
-def test_get_search_provider_defaults_to_tavily(
+def test_get_search_provider_defaults_to_anysearch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -48,7 +48,7 @@ def test_get_search_provider_defaults_to_tavily(
         "qwenpaw.agents.tools.websearch.factory.load_agent_config",
         lambda agent_id: _agent_config_with_provider(None),
     )
-    assert isinstance(get_search_provider(), TavilyProvider)
+    assert isinstance(get_search_provider(), AnySearchProvider)
 
 
 def test_get_search_provider_selects_anysearch(

@@ -280,17 +280,17 @@ def test_workspace_backup_rejects_concurrent_conversation_changes(
         json.dumps({"chats": [{**identity, "storage_id": storage_id}]}),
         encoding="utf-8",
     )
-    original = create_helpers._backup_session_database
+    original = create_helpers.stage_workspace_files
 
-    def change_during_snapshot(source, target, **kwargs):
+    def change_during_snapshot(entries, staging, stop_event):
         if change == "delete":
-            source.unlink()
-        if change == "identity" and source == path:
-            with sqlite3.connect(source) as connection:
+            path.unlink()
+        if change == "identity":
+            with sqlite3.connect(path) as connection:
                 connection.execute(
                     "UPDATE transcript_sessions SET user_id = 'wrong'",
                 )
-        original(source, target, **kwargs)
+        result = original(entries, staging, stop_event)
         if change == "create":
             created = TranscriptStore(path.with_name("new.db"))
             created.close()
@@ -302,10 +302,11 @@ def test_workspace_backup_rejects_concurrent_conversation_changes(
                 '{"chats": []}',
                 encoding="utf-8",
             )
+        return result
 
     monkeypatch.setattr(
         create_helpers,
-        "_backup_session_database",
+        "stage_workspace_files",
         change_during_snapshot,
     )
     with zipfile.ZipFile(io.BytesIO(), "w") as archive:

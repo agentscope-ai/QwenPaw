@@ -91,10 +91,6 @@ mimetypes.add_type("image/svg+xml", ".svg")
 load_envs_into_environ()
 
 
-async def _sync_scroll_history_on_startup() -> None:
-    """Keep startup free of eager JSON-to-history migration work."""
-
-
 async def _shutdown_plugins(app: FastAPI) -> None:
     """Tear down plugin runtime resources before other services stop."""
     plugin_loader = getattr(app.state, "plugin_loader", None)
@@ -310,8 +306,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             "Recovered %d interrupted PawPort import transaction(s)",
             len(recovered_transactions),
         )
-
-    await _sync_scroll_history_on_startup()
 
     # Provider initialization scans and may migrate persisted configuration.
     provider_manager = await asyncio.to_thread(ProviderManager.get_instance)

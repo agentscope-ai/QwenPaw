@@ -21,41 +21,19 @@ from .._utils.history_sqlite import (
     archive_history_db_filename,
     configured_history_db_path,
     history_agent_config_bytes,
-    history_sidecar_paths,
 )
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
+from ...agents.context.scroll.history import (
+    backup_history_database,
+    validate_history_database,
+)
+from .sqlite_snapshot import stage_workspace_files
 
 logger = logging.getLogger(__name__)
 
 
 class BackupCancelled(Exception):
     """Raised when cooperative cancellation stops archive creation."""
-
-
-def _backup_session_database(
-    source: Path,
-    target: Path,
-    *,
-    check_cancelled: Any,
-) -> None:
-    """Create and verify a transactionally consistent SQLite snapshot."""
-    source_connection = sqlite3.connect(
-        source.resolve().as_uri() + "?mode=ro",
-        uri=True,
-    )
-    target_connection = sqlite3.connect(str(target))
-    try:
-        source_connection.backup(
-            target_connection,
-            pages=128,
-            progress=lambda _status, _remaining, _total: check_cancelled(),
-        )
-        result = target_connection.execute("PRAGMA quick_check").fetchone()
-        if result is None or result[0] != "ok":
-            raise sqlite3.DatabaseError("conversation backup check failed")
-    finally:
-        target_connection.close()
-        source_connection.close()
 
 
 def _session_manifest(workspace: Path) -> tuple:
@@ -106,35 +84,21 @@ def _session_manifest(workspace: Path) -> tuple:
     )
 
 
-def _snapshot_session_databases(
-    zf: zipfile.ZipFile,
-    *,
+def _validate_session_snapshots(
     workspace: Path,
-    agent_id: str,
-    snapshot_dir: str,
-    check_cancelled: Any,
+    snapshots: dict[str, str],
     manifest: tuple,
-) -> tuple[set[Path], set[Path], int]:
-    """Add consistent session DB snapshots and return paths to skip."""
+) -> None:
+    """Verify staged conversation identities against the captured manifest."""
     databases = sorted(manifest[0])
     catalog = workspace / "transcript_catalog.db"
     if manifest[1]:
         databases.append(catalog)
-    paths = {database.resolve() for database in databases}
-    sidecars = {
-        sidecar.resolve()
-        for database in databases
-        for sidecar in history_sidecar_paths(database)
-    }
-    for index, database in enumerate(databases):
-        relative = database.relative_to(workspace)
-        snapshot = Path(snapshot_dir) / f"session-{index}-{database.name}"
-        _backup_session_database(
-            database,
-            snapshot,
-            check_cancelled=check_cancelled,
-        )
-        connection = sqlite3.connect(str(snapshot))
+    for database in databases:
+        snapshot = snapshots.get(str(database))
+        if snapshot is None:
+            raise RuntimeError("conversation database snapshot missing")
+        connection = sqlite3.connect(snapshot)
         try:
             if database == catalog:
                 rows = tuple(
@@ -159,11 +123,6 @@ def _snapshot_session_databases(
                         raise RuntimeError("conversation DB identity mismatch")
         finally:
             connection.close()
-        zf.write(
-            snapshot,
-            f"{PREFIX_WORKSPACES}{agent_id}/{relative.as_posix()}",
-        )
-    return paths, sidecars, len(databases)
 
 
 def add_agent_workspaces(  # pylint: disable=too-many-branches
@@ -204,89 +163,76 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
             manifest = _session_manifest(ws)
             file_count = 0
             skipped = 0
-            history_db = configured_history_db_path(ws)
-            sidecars = history_sidecar_paths(history_db)
-            history_filename = archive_history_db_filename(ws, history_db)
             with tempfile.TemporaryDirectory(
                 prefix=f"qwenpaw-history-{aid}-",
             ) as snapshot_dir:
-                history_snapshot = Path(snapshot_dir) / "history.db"
-                if history_db.is_file():
-                    from ...agents.context.scroll.history import (
-                        backup_history_database,
-                    )
-
+                staging = Path(snapshot_dir)
+                entries = [
+                    entry for entry in sorted(ws.rglob("*")) if entry.is_file()
+                ]
+                staged = stage_workspace_files(entries, staging, stop_event)
+                if staged is None:
+                    return False
+                snapshots, sidecars = staged
+                config_path = Path(
+                    snapshots.get(str(ws / "agent.json"), staging / "absent"),
+                )
+                history_db = configured_history_db_path(
+                    ws,
+                    config_path=config_path,
+                )
+                history_filename = archive_history_db_filename(ws, history_db)
+                if history_db.is_relative_to(ws):
+                    history_snapshot = snapshots.get(str(history_db))
+                    if history_snapshot is not None:
+                        validate_history_database(
+                            history_snapshot,
+                            check_integrity=False,
+                        )
+                elif history_db.is_file():
+                    external_snapshot = staging / "history.db"
                     backup_history_database(
                         history_db,
-                        history_snapshot,
+                        external_snapshot,
                         check_cancelled=check_cancelled,
                     )
                     zf.write(
-                        history_snapshot,
+                        external_snapshot,
                         f"{PREFIX_WORKSPACES}{aid}/{history_filename}",
                     )
                     file_count += 1
-                (
-                    session_paths,
-                    session_sidecars,
-                    snapshot_count,
-                ) = _snapshot_session_databases(
-                    zf,
-                    workspace=ws,
-                    agent_id=aid,
-                    snapshot_dir=snapshot_dir,
-                    check_cancelled=check_cancelled,
-                    manifest=manifest,
-                )
-                file_count += snapshot_count
+                _validate_session_snapshots(ws, snapshots, manifest)
                 if manifest[3] is not None:
                     zf.writestr(
                         f"{PREFIX_WORKSPACES}{aid}/chats.json",
                         manifest[3],
                     )
                     file_count += 1
-                for entry in sorted(ws.rglob("*")):
+                for entry in entries:
                     if stop_event and stop_event.is_set():
                         return False
-                    resolved_entry = entry.resolve()
-                    if (
-                        not entry.is_file()
-                        or resolved_entry in sidecars
-                        or resolved_entry == history_db
-                        or resolved_entry in session_paths
-                        or resolved_entry == ws / "chats.json"
-                        or resolved_entry in session_sidecars
-                    ):
+                    if str(entry) in sidecars or entry == ws / "chats.json":
                         continue
-                    relative = entry.relative_to(ws)
-                    if relative.parent == Path(
-                        "transcripts",
-                    ) and entry.name.endswith((".db", "-wal", "-shm")):
-                        raise RuntimeError("conversation DB set changed")
-                    rel = relative.as_posix()
-                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
-                    try:
-                        if rel == "agent.json":
-                            zf.writestr(
-                                arcname,
-                                history_agent_config_bytes(
-                                    ws,
-                                    history_filename,
-                                ),
-                            )
-                        else:
-                            zf.write(entry, arcname)
-                    except (PermissionError, OSError) as exc:
-                        # A file that can't be added (e.g. an open Chromium
-                        # cache file the backend has locked) must not abort
-                        # the whole backup; skip it and continue (#4916).
+                    source = snapshots.get(str(entry))
+                    if source is None:
                         skipped += 1
                         logger.warning(
-                            "Skipping %s (could not be added to backup): %s",
+                            "Skipping inaccessible backup file: %s",
                             entry,
-                            exc,
                         )
                         continue
+                    rel = entry.relative_to(ws).as_posix()
+                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                    if rel == "agent.json":
+                        zf.writestr(
+                            arcname,
+                            history_agent_config_bytes(
+                                Path(source).read_bytes(),
+                                history_filename,
+                            ),
+                        )
+                    else:
+                        zf.write(source, arcname)
                     file_count += 1
                 current_manifest = _session_manifest(ws)
                 if (

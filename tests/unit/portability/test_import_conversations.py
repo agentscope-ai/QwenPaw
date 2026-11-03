@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.app.chats.session import DatabaseSession
@@ -26,6 +28,9 @@ def _workspace(tmp_path: Path) -> SimpleNamespace:
     root = tmp_path / "workspace"
     root.mkdir()
     return SimpleNamespace(
+        workspace_dir=root,
+        agent_id="test",
+        config=AgentProfileConfig(id="test", name="Test"),
         session=DatabaseSession(
             catalog=TranscriptCatalog(root),
             legacy_save_dir=str(root / "sessions"),
@@ -81,8 +86,12 @@ async def test_import_preserves_archive_state_without_overwriting_existing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     source: str,
+    request,
 ) -> None:
     workspace = _workspace(tmp_path)
+    workspace.workspace_dir = tmp_path / "workspace"
+    workspace.agent_id = "test"
+    workspace.config = AgentProfileConfig(id="test", name="Test")
     sessions = [
         _session("active"),
         _session("archived").model_copy(update={"archived": True}),
@@ -124,6 +133,15 @@ async def test_import_preserves_archive_state_without_overwriting_existing(
     )
     assert await workspace.chat_manager.list_chats(archived=None) == existing
     assert created_states == [False, True]
+    for chat in chats:
+        path = (
+            workspace.workspace_dir / "transcripts" / (chat.storage_id + ".db")
+        )
+        history = HistoryStore(path)
+        try:
+            assert history.count(chat.session_id) == 1
+        finally:
+            history.close()
 
 
 @pytest.mark.asyncio
@@ -233,7 +251,7 @@ async def test_imported_turns_fork_with_matching_context(tmp_path):
                     text=f"answer {index}",
                     item_id=f"answer-{index}",
                 ),
-            ]
+            ],
         )
     source = SourceSession(source_id="five", history=history)
     result = await _import(workspace, _inventory([source]), [source])

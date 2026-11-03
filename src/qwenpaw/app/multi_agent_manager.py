@@ -823,6 +823,24 @@ class MultiAgentManager:
                 f"{sanitize_log_value(stop_err)}.",
             )
 
+    def schedule_reload(self, agent_id: str) -> None:
+        """Let an in-request restart return before reload drains its writer."""
+        self.assert_agent_available(agent_id)
+
+        async def reload_in_background():
+            try:
+                if not await self.reload_agent(agent_id):
+                    logger.warning(
+                        "Scheduled reload did not commit: %s",
+                        agent_id,
+                    )
+            except Exception:
+                logger.exception("Scheduled reload failed: %s", agent_id)
+
+        task = asyncio.create_task(reload_in_background())
+        self._operations.add(task)
+        task.add_done_callback(self._operations.discard)
+
     async def reload_agent(self, agent_id: str) -> bool:
         """Track replacements while serializing each agent's ownership."""
         self.assert_agent_available(agent_id)
@@ -1055,7 +1073,6 @@ class MultiAgentManager:
         await run_async_to_completion(
             self._graceful_stop_old_instance(old_instance, agent_id),
         )
-
         return True
 
     # pylint: enable=too-many-branches,too-many-statements
@@ -1346,8 +1363,8 @@ class MultiAgentManager:
         Only agents with enabled=True will be started.
         Disabled agents are skipped to save resources.
 
-        The default and built-in QA agents form the concurrent core phase.
-        Remaining custom agents start only after that phase and are bounded
+        Default alone gates core readiness. QA and remaining agents start
+        after default and are bounded
         by ``QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY``.
 
         Returns:
@@ -1407,15 +1424,15 @@ class MultiAgentManager:
                 return (agent_id, False)
 
         core_agent_ids = [
-            agent_id
-            for agent_id in ("default", BUILTIN_QA_AGENT_ID)
-            if agent_id in enabled_agents
+            agent_id for agent_id in ("default",) if agent_id in enabled_agents
         ]
         custom_agent_ids = [
             agent_id
             for agent_id in agent_ids
             if agent_id not in core_agent_ids
         ]
+
+        custom_agent_ids.sort(key=lambda aid: aid != BUILTIN_QA_AGENT_ID)
 
         core_results = await asyncio.gather(
             *(start_single_agent(agent_id) for agent_id in core_agent_ids),

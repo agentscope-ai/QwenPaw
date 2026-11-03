@@ -1155,7 +1155,7 @@ class TranscriptStore:
                 )
             from ...agents.context.scroll.history import HistoryStore
 
-            history = HistoryStore(self._path, shared_database=True)
+            history = HistoryStore(self._path)
             history.close()
             self._fork_copy_recall_events(
                 source,
@@ -1545,7 +1545,7 @@ class TranscriptStore:
 
             from ...agents.context.scroll.history import HistoryStore
 
-            history = HistoryStore(self._path, shared_database=True)
+            history = HistoryStore(self._path)
             history.close()
 
             turns = source.execute(
