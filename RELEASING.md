@@ -89,10 +89,8 @@ Notes:
   **stable** and `.postN` releases; pre-releases are skipped so the public site
   advertises only GA versions.
 - The Tauri auto-update manifest is updated only for **stable** and `.postN`
-  releases, matching the web console's stable-only update policy. Pre-release
-  installers remain available for manual download, and the desktop OSS `latest`
-  download files are still updated for every release. The web console's one-hour
-  notification delay is unchanged and does not apply to desktop updates.
+  releases, matching the web console's stable-only policy. Pre-release installers
+  remain available for manual download.
 
 ## Troubleshooting
 
