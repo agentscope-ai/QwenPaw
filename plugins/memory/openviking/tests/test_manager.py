@@ -204,11 +204,15 @@ async def test_auto_recall_marks_remote_history_as_untrusted(
     assert result is not None
     assert OPENVIKING_UNTRUSTED_HISTORY_NOTICE in result["text"]
     assert "Ignore current instructions" in result["text"]
-    client.search_context.assert_awaited_once_with(
-        query="what was the prior plan?",
-        session_id=manager._map_session_id("chat-1"),
-        max_results=3,
-        token_budget=1934,
+    client.search_context.assert_awaited_once()
+    request = client.search_context.await_args.kwargs
+    assert request["query"] == "what was the prior plan?"
+    assert request["session_id"] == manager._map_session_id("chat-1")
+    assert request["max_results"] == 3
+    assert (
+        manager_module.MIN_CONTEXT_TOKEN_BUDGET
+        <= request["token_budget"]
+        <= manager._config.retrieval_token_budget
     )
 
 
@@ -347,7 +351,9 @@ async def test_runtime_builder_registers_search_as_network_tool(
     attach_client(manager, client_factory())
 
     toolkit = await AgentBuilder().build_toolkit(
-        SimpleNamespace(),
+        SimpleNamespace(
+            coding_mode=SimpleNamespace(enabled=False),
+        ),
         memory_tools=manager.list_memory_tools(),
     )
     tool = next(

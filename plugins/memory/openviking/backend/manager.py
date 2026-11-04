@@ -602,23 +602,12 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         max_context_bytes: int,
         estimate_divisor: float,
     ) -> int:
-        """Reserve synthetic message metadata inside the configured budget."""
+        """Reserve bytes for the host's HintBlock recall wrapper."""
         message = self._build_auto_memory_search_msg(
             query=query,
             max_results=max_results,
             text="",
             estimate_divisor=estimate_divisor,
         )
-        overhead = 0
-        for block in message.content:
-            overhead += len(str(getattr(block, "text", "")).encode("utf-8"))
-            overhead += len(
-                str(getattr(block, "thinking", "")).encode("utf-8"),
-            )
-            overhead += len(
-                (
-                    str(getattr(block, "name", ""))
-                    + str(getattr(block, "input", ""))
-                ).encode("utf-8"),
-            )
+        overhead = len(message.content[0].hint.encode("utf-8"))
         return max(0, max_context_bytes - overhead)

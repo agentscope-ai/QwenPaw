@@ -63,16 +63,8 @@ def test_clip_utf8_preserves_untruncated_text():
 
 
 def _message_bytes(message):
-    """Measure the actual synthetic content, including tool-result output."""
-    return sum(
-        len(str(getattr(block, attr, "")).encode("utf-8"))
-        for block in message.content
-        for attr in ("text", "thinking", "name", "input")
-    ) + sum(
-        len(output.text.encode("utf-8"))
-        for block in message.content
-        for output in getattr(block, "output", [])
-    )
+    """Measure the actual HintBlock content sent to the model."""
+    return sum(len(block.hint.encode("utf-8")) for block in message.content)
 
 
 def _recall_overhead(manager, *, query="hi", max_results=3):
