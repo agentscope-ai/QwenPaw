@@ -216,12 +216,12 @@ def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
         resolve_ollama_context_window(
             show_payload={"model_info": {"qwen3.context_length": 65536}},
         )
-        == 4096
+        is None
     )
-    assert resolve_ollama_context_window(show_payload={}) == 4096
+    assert resolve_ollama_context_window(show_payload={}) is None
     # Failed probe is not an empty successful show.
     assert resolve_ollama_context_window(show_payload=None) is None
-    # Malformed parameters are not an omitted num_ctx, so no 4096.
+    # Malformed parameters are not an omitted num_ctx.
     assert (
         resolve_ollama_context_window(
             show_payload={"parameters": {"num_ctx": 8192}},
@@ -235,17 +235,13 @@ def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
         )
         == 8192
     )
-    assert (
-        resolve_ollama_context_window(
-            show_payload={},
-            use_conservative_fallback=False,
-        )
-        is None
-    )
 
 
-def test_resolve_cloud_show_without_num_ctx_skips_4096() -> None:
-    """Cloud models keep the default window when show omits num_ctx."""
+def test_resolve_show_without_num_ctx_leaves_context_unset() -> None:
+    """Cloud and local shows without num_ctx stay unset.
+
+    Inventing 4096 is unsafe when OLLAMA_CONTEXT_LENGTH may be below 4096.
+    """
     remote = {
         "remote_host": "https://ollama.com",
         "remote_model": "gpt-oss:120b",
@@ -264,43 +260,21 @@ def test_resolve_cloud_show_without_num_ctx_skips_4096() -> None:
         )
         is None
     )
-    # Blank markers are not the cloud flag. A local show still uses 4k.
+    # Blank remote markers are not a window.
     assert (
         resolve_ollama_context_window(
             show_payload={"remote_host": "  ", "remote_model": ""},
         )
-        == 4096
-    )
-    # Name suffix is only a hint when the payload omitted remote fields.
-    assert (
-        resolve_ollama_context_window(
-            show_payload={},
-            model_id="kimi-k3:cloud",
-        )
         is None
     )
+    # A local show that omitted num_ctx stays unset too.
     assert (
         resolve_ollama_context_window(
             show_payload={"parameters": "temperature 0.7\n"},
-            model_id="gpt-oss:120b-cloud",
         )
         is None
     )
-    assert (
-        resolve_ollama_context_window(
-            show_payload={},
-            model_id="foo-cloud:latest",
-        )
-        is None
-    )
-    assert (
-        resolve_ollama_context_window(
-            show_payload={},
-            model_id="cloud-qwen:latest",
-        )
-        == 4096
-    )
-    # Explicit num_ctx and a loaded window still win for cloud models.
+    # Explicit num_ctx and a loaded window still win.
     assert (
         resolve_ollama_context_window(
             show_payload={
@@ -498,15 +472,18 @@ async def test_fetch_models_ignores_gguf_context_length(monkeypatch) -> None:
     )
 
     models = await provider.fetch_models()
-    # No served window and no num_ctx → conservative 4k, not 128k.
-    assert models[0].max_input_length_auto_detected == 4096
+    # No served window and no num_ctx → leave auto-detected unset.
+    assert models[0].max_input_length_auto_detected is None
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_first_use_conservative_fallback(
+async def test_fetch_models_unknown_server_override_does_not_invent_4096(
     monkeypatch,
 ) -> None:
-    """Unloaded model without num_ctx uses 4k instead of the 128k default."""
+    """Unloaded local model without num_ctx must not invent 4096.
+
+    Inventing 4096 is unsafe when OLLAMA_CONTEXT_LENGTH may be below 4096.
+    """
     provider = _make_provider()
 
     async def fake_super_fetch(self, timeout: float = 5):
@@ -541,14 +518,14 @@ async def test_fetch_models_first_use_conservative_fallback(
     )
 
     models = await provider.fetch_models()
-    assert models[0].max_input_length_auto_detected == 4096
+    assert models[0].max_input_length_auto_detected is None
 
 
 @pytest.mark.asyncio
 async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
     monkeypatch,
 ) -> None:
-    """Unloaded cloud models must not pick up the local 4k fallback."""
+    """Shows without num_ctx stay unset for cloud and local models."""
     provider = _make_provider()
     listed = [
         ModelInfo(id="gpt-oss:120b", name="gpt-oss:120b"),
@@ -602,8 +579,8 @@ async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
     assert by_id["kimi-k3:cloud"].max_input_length_auto_detected is None
     # Explicit num_ctx still wins on a cloud model.
     assert by_id["gemma4:cloud"].max_input_length_auto_detected == 16384
-    # Local unloaded model without num_ctx keeps the 4k estimate.
-    assert by_id["qwen3:8b"].max_input_length_auto_detected == 4096
+    # Local unloaded model without num_ctx stays unset.
+    assert by_id["qwen3:8b"].max_input_length_auto_detected is None
 
 
 @pytest.mark.asyncio
