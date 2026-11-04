@@ -17,20 +17,14 @@ from plugins.memory.openviking.backend.client import (
     OpenVikingServiceError,
 )
 from plugins.memory.openviking.backend.config import OpenVikingMemoryConfig
-from plugins.memory.openviking.tests.test_manager import (
-    _attach,
-    _client,
-    _manager,
-    _user,
-)
 
 
 @pytest.mark.asyncio
 async def test_unconfigured_start_performs_no_identity_or_network_io(
-    tmp_path,
     monkeypatch,
+    manager_factory,
 ):
-    manager = _manager(tmp_path)
+    manager = manager_factory()
     installation_id = Mock(side_effect=AssertionError("Unexpected file I/O"))
     constructor = Mock(side_effect=AssertionError("Unexpected HTTP client"))
     monkeypatch.setattr(
@@ -56,14 +50,15 @@ async def test_unconfigured_start_performs_no_identity_or_network_io(
 
 @pytest.mark.asyncio
 async def test_invalid_startup_credentials_close_and_disable_backend(
-    tmp_path,
     monkeypatch,
+    manager_factory,
+    client_factory,
+    user_message,
 ):
-    manager = _manager(
-        tmp_path,
+    manager = manager_factory(
         config=OpenVikingMemoryConfig(api_key="test-key"),
     )
-    client = _client()
+    client = client_factory()
     client.resolve_identity.side_effect = OpenVikingConfigurationError(
         "Invalid credentials",
     )
@@ -82,7 +77,7 @@ async def test_invalid_startup_credentials_close_and_disable_backend(
         assert await manager.get_auto_memory_search_options() is None
         assert (
             await manager.auto_memory_search(
-                _user("tea"),
+                user_message("tea"),
                 session_id="chat",
             )
             is None
@@ -96,15 +91,16 @@ async def test_invalid_startup_credentials_close_and_disable_backend(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["recall", "persist"])
 async def test_startup_outage_recovers_on_later_use(
-    tmp_path,
     monkeypatch,
     operation,
+    manager_factory,
+    client_factory,
+    user_message,
 ):
-    manager = _manager(
-        tmp_path,
+    manager = manager_factory(
         config=OpenVikingMemoryConfig(api_key="test-key"),
     )
-    client = _client()
+    client = client_factory()
     identity = OpenVikingIdentity("account", "user")
     client.resolve_identity.side_effect = [
         OpenVikingServiceError("Temporarily offline"),
@@ -122,7 +118,7 @@ async def test_startup_outage_recovers_on_later_use(
         client.close.assert_not_awaited()
         if operation == "recall":
             result = await manager.auto_memory_search(
-                _user("drink preference"),
+                user_message("drink preference"),
                 session_id="chat",
             )
             assert result is not None
@@ -130,7 +126,7 @@ async def test_startup_outage_recovers_on_later_use(
             request = client.search_context.await_args.kwargs
             assert request["session_id"] == manager._map_session_id("chat")
         else:
-            message = _user("I prefer tea.")
+            message = user_message("I prefer tea.")
             await manager.auto_memory([message], session_id="chat")
             client.add_messages.assert_awaited_once()
             session_id, payload = client.add_messages.await_args.args
@@ -145,12 +141,15 @@ async def test_startup_outage_recovers_on_later_use(
 
 
 @pytest.mark.asyncio
-async def test_installation_file_io_runs_off_event_loop(tmp_path, monkeypatch):
-    manager = _manager(
-        tmp_path,
+async def test_installation_file_io_runs_off_event_loop(
+    monkeypatch,
+    manager_factory,
+    client_factory,
+):
+    manager = manager_factory(
         config=OpenVikingMemoryConfig(api_key="test-key"),
     )
-    client = _client()
+    client = client_factory()
     original = manager_module.get_or_create_installation_id
     threads = []
     loop_thread = threading.get_ident()
@@ -178,12 +177,17 @@ async def test_installation_file_io_runs_off_event_loop(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_close_failure_is_reported_with_redacted_key(tmp_path, caplog):
+async def test_close_failure_is_reported_with_redacted_key(
+    caplog,
+    manager_factory,
+    client_factory,
+    attach_client,
+):
     key = "close-secret-key"
-    manager = _manager(tmp_path)
-    client = _client(api_key=key)
+    manager = manager_factory()
+    client = client_factory(api_key=key)
     client.close.side_effect = RuntimeError(f"Closing failed with {key}")
-    _attach(manager, client)
+    attach_client(manager, client)
 
     try:
         assert await manager.close() is False
@@ -199,13 +203,13 @@ async def test_close_failure_is_reported_with_redacted_key(tmp_path, caplog):
 async def test_restart_with_custom_workspace_preserves_host_session_identity(
     tmp_path,
     monkeypatch,
+    manager_factory,
+    client_factory,
 ):
-    first = _manager(
-        tmp_path,
+    first = manager_factory(
         config=OpenVikingMemoryConfig(api_key="test-key"),
     )
-    second = _manager(
-        tmp_path,
+    second = manager_factory(
         config=OpenVikingMemoryConfig(api_key="test-key"),
     )
     second.context = replace(
@@ -215,7 +219,7 @@ async def test_restart_with_custom_workspace_preserves_host_session_identity(
     monkeypatch.setattr(
         manager_module,
         "OpenVikingClient",
-        Mock(side_effect=[_client(), _client()]),
+        Mock(side_effect=[client_factory(), client_factory()]),
     )
 
     try:
@@ -242,9 +246,12 @@ async def test_restart_with_custom_workspace_preserves_host_session_identity(
     "dimension",
     ["account", "user", "installation", "agent", "chat"],
 )
-def test_session_mapping_separates_identity_dimensions(tmp_path, dimension):
-    first = _manager(tmp_path)
-    second = _manager(tmp_path)
+def test_session_mapping_separates_identity_dimensions(
+    dimension,
+    manager_factory,
+):
+    first = manager_factory()
+    second = manager_factory()
     for manager in (first, second):
         manager._identity = OpenVikingIdentity("account", "user")
         manager._installation_id = "a" * 32
@@ -266,19 +273,23 @@ def test_session_mapping_separates_identity_dimensions(tmp_path, dimension):
 
 
 @pytest.mark.asyncio
-async def test_disabled_auto_recall_preserves_explicit_search(tmp_path):
-    manager = _manager(
-        tmp_path,
+async def test_disabled_auto_recall_preserves_explicit_search(
+    manager_factory,
+    client_factory,
+    attach_client,
+    user_message,
+):
+    manager = manager_factory(
         config=OpenVikingMemoryConfig(
             auto_memory_search_config={"enabled": False},
         ),
     )
-    client = _client()
-    _attach(manager, client)
+    client = client_factory()
+    attach_client(manager, client)
     try:
         assert (
             await manager.auto_memory_search(
-                _user("tea"),
+                user_message("tea"),
                 session_id="chat",
             )
             is None

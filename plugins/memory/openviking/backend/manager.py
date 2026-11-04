@@ -307,19 +307,21 @@ class OpenVikingMemoryManager(BaseMemoryManager):
             )
 
         sanitized = self._messages_without_auto_memory_search(messages)
-        candidates = [
-            message
-            for message in sanitized
-            if message.role in {"user", "assistant"}
-            and message.id not in self._persisted_msg_ids
-        ]
         await self._ensure_identity()
         remote_session_id = self._map_session_id(session_id)
         await self._ensure_session(remote_session_id)
         pending = self._pending_commit_msg_ids.get(remote_session_id, set())
+        every_turn = (
+            self._config is not None
+            and self._config.commit_policy == "every_turn"
+        )
         # A commit retry must not append known-successful messages again.
         new_messages = [
-            message for message in candidates if message.id not in pending
+            message
+            for message in sanitized
+            if message.role in {"user", "assistant"}
+            and message.id not in self._persisted_msg_ids
+            and message.id not in pending
         ]
         payload = self._serialize_completed_turn(new_messages)
         if payload:
@@ -330,13 +332,13 @@ class OpenVikingMemoryManager(BaseMemoryManager):
                 for item in payload
                 for message_id in item["source_message_ids"]
             ]
-            if self._config and self._config.commit_policy == "every_turn":
+            if every_turn:
                 pending.update(new_ids)
                 self._pending_commit_msg_ids[remote_session_id] = pending
             else:
                 self._remember_persisted_message_ids(new_ids)
 
-        if self._config and self._config.commit_policy == "every_turn":
+        if every_turn:
             if pending:
                 await client.commit(remote_session_id)
                 self._remember_persisted_message_ids(sorted(pending))
@@ -424,12 +426,13 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         body_budget = MAX_MEMORY_SEARCH_OUTPUT_BYTES - len(
             prefix.encode("utf-8"),
         )
-        if body_budget < len(TRUNCATION_MARKER.encode("utf-8")):
+        body = self._clip_utf8("\n\n".join(parts), body_budget)
+        # Retain a useful-body check if the fixed output limit is reduced.
+        if not body:
             return self._tool_chunk(
                 "OpenViking search output budget is too small.",
                 ok=False,
             )
-        body = self._clip_utf8("\n\n".join(parts), body_budget)
         return self._tool_chunk(prefix + body)
 
     async def _search_context_for_session(
@@ -486,15 +489,7 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         ).strip()
         # Remote and local token estimates can differ. Bound only the body
         # and never inject a notice or truncation marker without recall.
-        encoded = text.encode("utf-8")
-        if len(encoded) > body_budget:
-            content_budget = max(
-                0,
-                body_budget - len(TRUNCATION_MARKER.encode("utf-8")),
-            )
-            body = encoded[:content_budget].decode("utf-8", errors="ignore")
-            body = body.strip()
-            text = body + TRUNCATION_MARKER if body else ""
+        text = self._clip_utf8(text, body_budget)
         if not text:
             return None
         return prefix + text
@@ -568,15 +563,18 @@ class OpenVikingMemoryManager(BaseMemoryManager):
 
     @staticmethod
     def _clip_utf8(text: str, max_bytes: int) -> str:
+        """Clip text without returning a truncation marker on its own."""
+        if max_bytes <= 0:
+            return ""
         encoded = text.encode("utf-8")
         if len(encoded) <= max_bytes:
             return text
         suffix = TRUNCATION_MARKER.encode("utf-8")
         body_limit = max(0, max_bytes - len(suffix))
-        body = encoded[:body_limit].decode("utf-8", errors="ignore")
+        body = encoded[:body_limit].decode("utf-8", errors="ignore").strip()
         if body:
             return body + TRUNCATION_MARKER
-        return suffix[:max_bytes].decode("utf-8", errors="ignore")
+        return ""
 
     @staticmethod
     def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:

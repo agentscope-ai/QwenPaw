@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 """OpenViking memory plugin entry point."""
 
-try:
-    # The plugin loader executes this file from the plugin root.
-    from backend import OpenVikingMemoryConfig, OpenVikingMemoryManager
-except ModuleNotFoundError:  # pragma: no cover - package-import test path
-    from .backend import OpenVikingMemoryConfig, OpenVikingMemoryManager
 from qwenpaw.plugins.api import PluginApi
+
+from .backend import OpenVikingMemoryConfig, OpenVikingMemoryManager
 
 
 class OpenVikingMemoryPlugin:
