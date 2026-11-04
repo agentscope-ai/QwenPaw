@@ -30,8 +30,14 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from contextvars import copy_context
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+from ..utils.shell_resources import (
+    ShellOutputBuffer,
+    watch_shell_process,
+)
 
 from ._cleanup_logging import cleanup_errors, cleanup_logging
 
@@ -1024,7 +1030,7 @@ def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any = None) -> bytes:
     """
     if kernel32 is None:
         kernel32 = _get_kernel32()
-    chunks: List[bytes] = []
+    buffer = ShellOutputBuffer()
     buf_size = 8192
     buf = (ctypes.c_ubyte * buf_size)()
     bytes_read = ctypes.wintypes.DWORD(0)
@@ -1039,13 +1045,13 @@ def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any = None) -> bytes:
         )
         if not ok:
             if bytes_read.value > 0:
-                chunks.append(bytes(buf[: bytes_read.value]))
+                buffer.append(bytes(buf[: bytes_read.value]))
             break
         if bytes_read.value == 0:
             break
-        chunks.append(bytes(buf[: bytes_read.value]))
+        buffer.append(bytes(buf[: bytes_read.value]))
 
-    return b"".join(chunks)
+    return buffer.value()
 
 
 def _create_job_object() -> Optional[ctypes.wintypes.HANDLE]:
@@ -1692,8 +1698,18 @@ def _wait_and_read_process(
     timeout_ms = timeout_seconds * 1000
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        f_stdout = pool.submit(_read_pipe, stdout_handle, kernel32)
-        f_stderr = pool.submit(_read_pipe, stderr_handle, kernel32)
+        f_stdout = pool.submit(
+            copy_context().run,
+            _read_pipe,
+            stdout_handle,
+            kernel32,
+        )
+        f_stderr = pool.submit(
+            copy_context().run,
+            _read_pipe,
+            stderr_handle,
+            kernel32,
+        )
 
         wait_result = kernel32.WaitForSingleObject(process_handle, timeout_ms)
         timed_out = wait_result == _WC.WAIT_TIMEOUT
@@ -2335,7 +2351,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 env["no_proxy"] = ""
 
             assert self._h_token is not None
-            _, h_proc, h_stdout, h_stderr, h_job = await asyncio.to_thread(
+            pid, h_proc, h_stdout, h_stderr, h_job = await asyncio.to_thread(
                 _create_process_as_user,
                 self._h_token,
                 cmd,
@@ -2344,6 +2360,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 self._config.shell_executable,
             )
             self._process_handle = h_proc
+            watch_shell_process(pid)
             self._job_handle = h_job
 
             assert h_stdout is not None and h_stderr is not None

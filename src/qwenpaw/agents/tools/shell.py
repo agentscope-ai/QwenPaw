@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass, replace
+from functools import wraps
 from pathlib import Path
 from typing import Any, BinaryIO, Optional
 
@@ -31,6 +32,11 @@ from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
+from ...utils.shell_resources import (
+    SHELL_GUARD,
+    ShellGuard,
+    watch_shell_process,
+)
 from ...utils.shell_normalization import (
     normalize_posix_line_continuations,
     shell_execution_path,
@@ -49,6 +55,40 @@ _WINDOWS_PROCESS_KILL_REAP_SECS = 5.0
 _SHELL_MAX_DISK_BYTES: int = int(
     os.environ.get("QWENPAW_SHELL_MAX_OUTPUT_BYTES", 10 * 1024 * 1024),
 )
+
+
+def _with_shell_guard(function):
+    """Apply opt-in resource protection without changing the tool schema."""
+
+    @wraps(function)
+    async def guarded(*args, **kwargs):
+        try:
+            guard = ShellGuard.from_environment(_SHELL_MAX_DISK_BYTES)
+        except ValueError as error:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[TextBlock(type="text", text=str(error))],
+            )
+        if guard is None:
+            return await function(*args, **kwargs)
+        token = SHELL_GUARD.set(guard)
+        try:
+            result = await function(*args, **kwargs)
+        finally:
+            SHELL_GUARD.reset(token)
+            await asyncio.to_thread(guard.close)
+        if guard.failure:
+            result.state = ToolResultState.ERROR
+            result.content.append(
+                TextBlock(
+                    type="text",
+                    text=f"[resource protection] {guard.failure}",
+                ),
+            )
+        return result
+
+    return guarded
 
 
 # ─── Windows Job Object helpers ──────────────────────────────────────────
@@ -761,6 +801,16 @@ def _execute_subprocess_sync(
             creationflags=_windows_shell_creationflags(),
         )
 
+        watch_shell_process(
+            proc.pid,
+            lambda: _check_output_disk_size(
+                stdout_path,
+                stderr_path,
+                stdout_reader,
+                stderr_reader,
+            ),
+        )
+
         # Assign to a Job Object for reliable tree kill (Windows only).
         # Degradation: if this fails, taskkill is still used as fallback.
         if sys.platform == "win32":
@@ -1246,6 +1296,16 @@ async def _execute_posix_host(
             start_new_session=True,
         )
 
+        watch_shell_process(
+            proc.pid,
+            lambda: _check_output_disk_size(
+                outputs.stdout_path,
+                outputs.stderr_path,
+                None,
+                None,
+            ),
+        )
+
         # The child inherited its own descriptors.  Close the parent copies
         # before waiting, then reopen the paths for reading after the shell
         # exits.  Background descendants may keep their descriptors open, but
@@ -1339,6 +1399,7 @@ async def _execute_posix_host(
     ui_description="Execute shell commands",
     ui_icon="💻",
 )
+@_with_shell_guard
 async def execute_shell_command(
     command: str,
     timeout: float = 60.0,

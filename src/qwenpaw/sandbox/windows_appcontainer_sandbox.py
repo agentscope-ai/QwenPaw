@@ -22,8 +22,11 @@ import logging
 import os
 import subprocess
 import time
+from contextvars import copy_context
 from pathlib import Path
 from typing import IO, Any, Dict, List, Optional, Sequence, Tuple
+
+from ..utils.shell_resources import watch_shell_process
 
 from .config import ExecutionResult, SandboxConfig
 from .windows_unelevated_sandbox import (
@@ -775,8 +778,8 @@ async def _wait_and_read_process(
 
     timed_out, stdout_data, stderr_data = await asyncio.gather(
         loop.run_in_executor(None, _wait_process),
-        loop.run_in_executor(None, _drain_stdout),
-        loop.run_in_executor(None, _drain_stderr),
+        loop.run_in_executor(None, copy_context().run, _drain_stdout),
+        loop.run_in_executor(None, copy_context().run, _drain_stderr),
     )
 
     exit_code = ctypes.wintypes.DWORD(0)
@@ -1027,6 +1030,7 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
             )
             self._process_handle = proc_handle
             self._process_id = pid
+            watch_shell_process(pid)
 
             (
                 exit_code,

@@ -2418,6 +2418,7 @@
       "internal": "Managed internally by QwenPaw."
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "Shell process-tree memory protection: 0 disables it, auto uses half of available memory (up to 4096 MiB), or enter a positive MiB limit. Explicit limits are also capped at half of available memory. Changes apply to the next shell invocation; running commands keep their initial limit. Polling protection is not a hard OS memory limit.",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Maximum wait for the first meaningful stream content; zero disables the watchdog.",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Maximum wait between meaningful stream chunks; zero disables the watchdog."
     },
