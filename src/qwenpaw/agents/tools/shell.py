@@ -36,6 +36,7 @@ from ...utils.shell_resources import (
     SHELL_GUARD,
     ShellGuard,
     watch_shell_process,
+    watch_shell_process_async,
 )
 from ...utils.shell_normalization import (
     normalize_posix_line_continuations,
@@ -63,27 +64,44 @@ def _with_shell_guard(function):
     @wraps(function)
     async def guarded(*args, **kwargs):
         try:
-            guard = ShellGuard.from_environment(_SHELL_MAX_DISK_BYTES)
+            guard = await ShellGuard.from_environment(
+                _SHELL_MAX_DISK_BYTES,
+            )
         except ValueError as error:
             return ToolChunk(
                 is_last=True,
                 state=ToolResultState.ERROR,
                 content=[TextBlock(type="text", text=str(error))],
             )
+        except RuntimeError as error:
+            result = await function(*args, **kwargs)
+            result.content.append(
+                TextBlock(type="text", text=f"[resource protection] {error}"),
+            )
+            return result
         if guard is None:
             return await function(*args, **kwargs)
         token = SHELL_GUARD.set(guard)
+        completed = False
         try:
             result = await function(*args, **kwargs)
+            completed = True
         finally:
             SHELL_GUARD.reset(token)
-            await asyncio.to_thread(guard.close)
+            await asyncio.to_thread(guard.close, not completed)
         if guard.failure:
             result.state = ToolResultState.ERROR
             result.content.append(
                 TextBlock(
                     type="text",
                     text=f"[resource protection] {guard.failure}",
+                ),
+            )
+        if guard.warning:
+            result.content.append(
+                TextBlock(
+                    type="text",
+                    text=f"[resource protection] {guard.warning}",
                 ),
             )
         return result
@@ -757,6 +775,7 @@ def _execute_subprocess_sync(
     stderr_reader = None
     proc: subprocess.Popen | None = None
     job_handle = None
+    guard = None
 
     try:
         if shell_executable and _is_powershell(shell_executable):
@@ -801,7 +820,7 @@ def _execute_subprocess_sync(
             creationflags=_windows_shell_creationflags(),
         )
 
-        watch_shell_process(
+        guard = watch_shell_process(
             proc.pid,
             lambda: _check_output_disk_size(
                 stdout_path,
@@ -952,6 +971,8 @@ def _execute_subprocess_sync(
                 pass
         return -1, "", str(e)
     finally:
+        if guard is not None:
+            guard.close()
         _close_job_handle_win32(job_handle)
         for f in (
             stdout_file,
@@ -1153,18 +1174,24 @@ async def _execute_in_sandbox(
         if changed:
             ctx.deadline_changed_event.set()
 
+    guard = SHELL_GUARD.get()
     try:
         async with create_sandbox(effective_config) as sandbox:
             # Setup finished: compensate setup elapsed on borrowed deadlines,
             # then arm kill_deadline for the command timeout only.
             _restore_setup_deadlines()
-            return await cancellable_wait(
+            result = await cancellable_wait(
                 sandbox.execute(cmd, cwd=cwd),
                 fallback_secs=timeout,
                 as_kill_deadline=True,
             )
+            if result.timed_out and guard is not None:
+                await asyncio.to_thread(guard.close, True)
+            return result
     except BaseException:
         _restore_setup_deadlines()
+        if guard is not None:
+            await asyncio.to_thread(guard.close, True)
         raise
 
 
@@ -1236,6 +1263,9 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
 
 async def _cleanup_proc(proc: asyncio.subprocess.Process) -> None:
     """Kill a timed-out or cancelled POSIX subprocess group."""
+    guard = SHELL_GUARD.get()
+    if guard is not None:
+        await asyncio.to_thread(guard.close, True)
     try:
         pgid = os.getpgid(proc.pid)
         os.killpg(pgid, signal.SIGTERM)
@@ -1296,7 +1326,7 @@ async def _execute_posix_host(
             start_new_session=True,
         )
 
-        watch_shell_process(
+        await watch_shell_process_async(
             proc.pid,
             lambda: _check_output_disk_size(
                 outputs.stdout_path,

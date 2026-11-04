@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from ..utils.shell_resources import (
     ShellOutputBuffer,
-    watch_shell_process,
+    watch_shell_process_async,
 )
 
 from ._cleanup_logging import cleanup_errors, cleanup_logging
@@ -2360,7 +2360,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 self._config.shell_executable,
             )
             self._process_handle = h_proc
-            watch_shell_process(pid)
+            await watch_shell_process_async(pid)
             self._job_handle = h_job
 
             assert h_stdout is not None and h_stderr is not None

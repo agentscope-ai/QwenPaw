@@ -129,7 +129,7 @@ def test_managed_runtime_does_not_migrate_shared_envs(tmp_path, monkeypatch):
     assert not target.exists()
 
 
-def test_shell_limit_catalog_hot_update_and_reset(
+async def test_shell_limit_catalog_hot_update_and_reset(
     isolated_store,
     monkeypatch,
 ):
@@ -143,11 +143,11 @@ def test_shell_limit_catalog_hot_update_and_reset(
         spec = next(item for item in catalog if item["key"] == key)
         assert spec["editable"] and spec["mutability"] == "hot_runtime"
         assert spec["effective_value"] == "0"
-        assert ShellGuard.from_environment(10485760) is None
+        assert await ShellGuard.from_environment(10485760) is None
 
         assert client.patch("/envs", json={key: "64"}).status_code == 200
         assert store.load_envs()[key] == "64"
-        initial = ShellGuard.from_environment(10485760)
+        initial = await ShellGuard.from_environment(10485760)
         assert initial is not None
         initial_limit = initial.memory_limit
         for invalid in ("-1", "1.5", "NaN", ""):
@@ -156,12 +156,12 @@ def test_shell_limit_catalog_hot_update_and_reset(
             assert store.load_envs()[key] == "64"
 
         assert client.patch("/envs", json={key: "0"}).status_code == 200
-        assert ShellGuard.from_environment(10485760) is None
+        assert await ShellGuard.from_environment(10485760) is None
         assert initial.memory_limit == initial_limit
         assert client.patch("/envs", json={key: "auto"}).status_code == 200
-        automatic = ShellGuard.from_environment(10485760)
+        automatic = await ShellGuard.from_environment(10485760)
         assert automatic is not None
         assert 0 < automatic.memory_limit <= 4096 * 1024 * 1024
         assert client.post(f"/envs/{key}/reset").status_code == 200
         assert key not in store.load_envs()
-        assert ShellGuard.from_environment(10485760) is None
+        assert await ShellGuard.from_environment(10485760) is None

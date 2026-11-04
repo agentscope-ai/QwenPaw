@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..utils.shell_resources import watch_shell_process
+from ..utils.shell_resources import watch_shell_process_async
 
 from .config import ExecutionResult, SandboxConfig
 from .windows_unelevated_sandbox import (
@@ -2422,7 +2422,7 @@ class WindowsElevatedSandbox(WindowsSandboxBase):
             )
             self._process_handle = proc_handle
             self._process_id = pid
-            watch_shell_process(pid)
+            await watch_shell_process_async(pid)
             self._job_handle = job_handle
 
             assert stdout_handle is not None and stderr_handle is not None

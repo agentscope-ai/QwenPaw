@@ -9,6 +9,8 @@ from typing import Callable, Optional
 
 import psutil
 
+from .io_utils import run_sync_io
+
 SHELL_GUARD: ContextVar[Optional["ShellGuard"]] = ContextVar(
     "shell_guard",
     default=None,
@@ -32,6 +34,7 @@ class ShellGuard:
         self.memory_limit = memory_limit
         self.output_limit = output_limit
         self.failure = ""
+        self.warning = ""
         self._output_bytes = 0
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -41,18 +44,35 @@ class ShellGuard:
         self._output_size: Optional[Callable[[], int]] = None
 
     @classmethod
-    def from_environment(cls, output_limit: int) -> Optional["ShellGuard"]:
+    async def from_environment(
+        cls,
+        output_limit: int,
+    ) -> Optional["ShellGuard"]:
         """Leave the default path free of memory probes and threads."""
         requested = parse_shell_memory_limit(
             os.environ.get("QWENPAW_SHELL_MEMORY_LIMIT_MB", "0"),
         )
         if requested == 0:
             return None
-        if requested is None:
-            requested = 4096
+        return await asyncio.to_thread(
+            cls._prepare,
+            4096 if requested is None else requested,
+            output_limit,
+        )
+
+    @classmethod
+    def _prepare(cls, requested: int, output_limit: int) -> "ShellGuard":
+        """Resolve the initial memory ceiling off the event loop."""
+        try:
+            available = psutil.virtual_memory().available
+        except (psutil.Error, OSError) as error:
+            raise RuntimeError(
+                "Shell memory monitoring unavailable; "
+                f"continuing without memory protection: {error}",
+            ) from error
         limit = min(
             requested * 1024 * 1024,
-            psutil.virtual_memory().available // 2,
+            available // 2,
         )
         if limit <= 0:
             raise ValueError("No available memory for shell execution")
@@ -64,6 +84,12 @@ class ShellGuard:
             self._root = psutil.Process(pid)
             self._processes.add(self._root)
         except psutil.NoSuchProcess:
+            return
+        except (psutil.AccessDenied, OSError) as error:
+            self.warning = (
+                "Shell memory monitoring unavailable; "
+                f"continuing without memory protection: {error}"
+            )
             return
         self._output_size = output_size
         self._thread = threading.Thread(
@@ -100,46 +126,51 @@ class ShellGuard:
 
     def _monitor(self):
         while not self._stop.is_set():
-            try:
-                # Retain identities to follow observed, reparented children.
-                if self._root is not None and self._root.is_running():
-                    self._processes.update(
-                        self._root.children(recursive=True),
-                    )
-                rss = 0
-                for process in tuple(self._processes):
-                    try:
-                        if process.is_running():
-                            rss += process.memory_info().rss
-                        else:
-                            self._processes.discard(process)
-                    except psutil.NoSuchProcess:
-                        self._processes.discard(process)
-                if rss > self.memory_limit:
-                    self.fail(
-                        "Shell memory limit exceeded "
-                        f"(RSS {rss} bytes > {self.memory_limit} bytes)",
-                    )
-                if self._output_size:
-                    if self._output_size() > self.output_limit:
-                        self.fail(
-                            "Shell output limit exceeded "
-                            f"({self.output_limit} bytes)",
+            if not self.warning:
+                try:
+                    # Follow observed children even after reparenting.
+                    if self._root is not None and self._root.is_running():
+                        self._processes.update(
+                            self._root.children(recursive=True),
                         )
-            except psutil.NoSuchProcess:
-                pass
-            except (psutil.AccessDenied, OSError) as error:
-                self.fail(f"Shell resource monitoring failed: {error}")
+                    rss = 0
+                    for process in tuple(self._processes):
+                        try:
+                            if process.is_running():
+                                rss += process.memory_info().rss
+                            else:
+                                self._processes.discard(process)
+                        except psutil.NoSuchProcess:
+                            self._processes.discard(process)
+                    if rss > self.memory_limit:
+                        self.fail(
+                            "Shell memory limit exceeded "
+                            f"(RSS {rss} bytes > {self.memory_limit} bytes)",
+                        )
+                except psutil.NoSuchProcess:
+                    pass
+                except (psutil.AccessDenied, OSError) as error:
+                    self.warning = (
+                        "Shell memory monitoring unavailable; "
+                        f"continuing without memory protection: {error}"
+                    )
+            if self._output_size:
+                if self._output_size() > self.output_limit:
+                    self.fail(
+                        "Shell output limit exceeded "
+                        f"({self.output_limit} bytes)",
+                    )
             if self.failure:
                 self._kill()
             self._stop.wait(0.25)
 
-    def close(self):
-        """Stop monitoring before releasing this invocation's processes."""
+    def close(self, terminate: bool = False):
+        """Stop observing; kill only on a violation or an aborted call."""
         self._stop.set()
         if self._thread:
             self._thread.join()
-            self._kill()
+            if self.failure or terminate:
+                self._kill()
 
 
 def watch_shell_process(
@@ -150,6 +181,17 @@ def watch_shell_process(
     guard = SHELL_GUARD.get()
     if guard is not None:
         guard.watch(pid, output_size)
+    return guard
+
+
+async def watch_shell_process_async(
+    pid: int,
+    output_size: Optional[Callable[[], int]] = None,
+):
+    """Finish worker registration before propagating cancellation."""
+    if SHELL_GUARD.get() is not None:
+        return await run_sync_io(watch_shell_process, pid, output_size)
+    return None
 
 
 class ShellOutputBuffer:
@@ -178,7 +220,7 @@ async def communicate_shell_process(process):
     """Drain sandbox pipes with bounded capture when protection is enabled."""
     if SHELL_GUARD.get() is None:
         return await process.communicate()
-    watch_shell_process(process.pid)
+    await watch_shell_process_async(process.pid)
 
     async def read(stream):
         buffer = ShellOutputBuffer()

@@ -26,7 +26,7 @@ from contextvars import copy_context
 from pathlib import Path
 from typing import IO, Any, Dict, List, Optional, Sequence, Tuple
 
-from ..utils.shell_resources import watch_shell_process
+from ..utils.shell_resources import watch_shell_process_async
 
 from .config import ExecutionResult, SandboxConfig
 from .windows_unelevated_sandbox import (
@@ -1030,7 +1030,7 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
             )
             self._process_handle = proc_handle
             self._process_id = pid
-            watch_shell_process(pid)
+            await watch_shell_process_async(pid)
 
             (
                 exit_code,
