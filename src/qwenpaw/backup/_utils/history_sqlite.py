@@ -18,11 +18,10 @@ SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
 
 
 def history_agent_config_bytes(
-    workspace: Path,
+    content: bytes,
     archive_filename: str,
 ) -> bytes:
     """Normalize the archive config without rewriting the live workspace."""
-    content = (workspace / f"agent.json").read_bytes()
     try:
         data = json.loads(content)
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -38,7 +37,11 @@ def history_agent_config_bytes(
     return content
 
 
-def configured_history_db_path(workspace: Path) -> Path:
+def configured_history_db_path(
+    workspace: Path,
+    *,
+    config_path: Path | None = None,
+) -> Path:
     """Return the configured history path without side effects.
 
     Backup code must not call the normal agent-config loader because that
@@ -47,7 +50,9 @@ def configured_history_db_path(workspace: Path) -> Path:
     """
     filename = DEFAULT_HISTORY_DB_FILENAME
     workspace = workspace.expanduser().resolve()
-    agent_json = workspace / "agent.json"
+    agent_json = (
+        config_path if config_path is not None else workspace / "agent.json"
+    )
     if agent_json.is_file():
         try:
             data = json.loads(agent_json.read_text(encoding="utf-8"))
@@ -67,14 +72,6 @@ def configured_history_db_path(workspace: Path) -> Path:
             )
 
     return resolve_history_db_path(workspace, filename)
-
-
-def history_sidecar_paths(db_path: Path) -> set[Path]:
-    """Return live SQLite sidecars that must never be archived directly."""
-    return {
-        Path(str(db_path) + suffix).resolve()
-        for suffix in SQLITE_SIDECAR_SUFFIXES
-    }
 
 
 def archive_history_db_filename(workspace: Path, db_path: Path) -> str:

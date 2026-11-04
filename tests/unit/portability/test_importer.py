@@ -159,6 +159,7 @@ def _workspace(tmp_path: Path):
     return SimpleNamespace(
         workspace_dir=root,
         agent_id="agent-1",
+        history_store=None,
         session=SafeJSONSession(str(root / "sessions")),
         chat_manager=ChatManager(
             repo=JsonChatRepository(root / "chats.json"),

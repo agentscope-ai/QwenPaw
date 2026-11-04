@@ -87,6 +87,37 @@ class UsageSnapshot:
     uses: tuple[DependencyUse, ...]
 
 
+def _merge_host_distributions(old, fresh):
+    """Keep the first identity and all modules proved for that identity."""
+    merged = {**fresh, **old}
+    for name in old.keys() & fresh.keys():
+        before, after = old[name], fresh[name]
+        if all(
+            before.get(key) == after.get(key)
+            for key in ("version", "metadata_path")
+        ):
+            modules = set(before.get("loaded_modules", ()))
+            modules.update(after.get("loaded_modules", ()))
+            if modules:
+                merged[name] = {
+                    **before,
+                    "loaded_modules": tuple(sorted(modules)),
+                }
+    return merged
+
+
+@dataclass(frozen=True)
+class _HostObservationProgress:
+    """Detached unfinished sources and their contemporaneous proof."""
+
+    code_root: str
+    paths: tuple[str, ...]
+    roots: tuple[str, ...]
+    sources: tuple[tuple[str, str, tuple[str, ...]], ...]
+    snapshot: DependencySnapshot
+    provenance: tuple
+
+
 class DependencyUsageRegistry:
     """Store only evidence; query exact leases for current runtime custody."""
 
@@ -98,6 +129,10 @@ class DependencyUsageRegistry:
             tuple[DeclarationToken, DependencyUse],
         ] = {}
         self._host: dict[DeclarationToken, DependencyUse] = {}
+        self._host_progress: dict[
+            DeclarationToken,
+            _HostObservationProgress,
+        ] = {}
         self._leases: tuple[RuntimeLease, ...] = ()
         self._revision = 0
 
@@ -251,10 +286,26 @@ class DependencyUsageRegistry:
         self.refine(token, snapshot)
         self._revision += 1
 
+    def host_observer(self, token, *, plugin_id):
+        """Retain exact-token history custody across async withdrawal."""
+        declaration = self._declarations.get(token)
+        if declaration is None or declaration.plugin_id != plugin_id:
+            return None
+
+        def publish(snapshot):
+            self._observe_host(token, snapshot, declaration)
+
+        return publish
+
     def observe_host(self, token, snapshot: DependencySnapshot | None) -> None:
         """Adapters supply imports only, never an installed host inventory."""
+        declaration = self._declarations.get(token) or self._host[token]
+        self._observe_host(token, snapshot, declaration)
+
+    def _observe_host(self, token, snapshot, declaration):
         observed = snapshot is not None
-        declaration = self._declarations[token]
+        if not observed:
+            self._host_progress.pop(token, None)
         previous = self._host.get(token)
         if (
             previous is not None
@@ -278,7 +329,10 @@ class DependencyUsageRegistry:
                     and snapshot.dependency_sites is not None
                     else None
                 ),
-                distributions={**snapshot.distributions, **old.distributions},
+                distributions=_merge_host_distributions(
+                    old.distributions,
+                    snapshot.distributions,
+                ),
             )
         elif previous is not None and snapshot is None:
             snapshot = previous.snapshot
@@ -299,6 +353,44 @@ class DependencyUsageRegistry:
             ),
         )
         self._revision += 1
+
+    def pending_host_observations(self):
+        return tuple(self._host_progress.items())
+
+    def defer_host_observation(self, token, progress):
+        # A true unknown cannot become recoverable through a later inventory.
+        previous = self._host.get(token)
+        if token in self._host_progress:
+            # Never replace an unresolved obligation with another batch.
+            self.observe_host(token, None)
+        elif previous is not None and previous.environment is not None:
+            self._host_progress[token] = progress
+            self._revision += 1
+
+    def replace_host_observation(self, token, progress, replacement):
+        """Keep an unfinished batch when cancellation settles its worker."""
+        if self._host_progress.get(token) is not progress:
+            return False
+        self._host_progress[token] = replacement
+        self._revision += 1
+        return True
+
+    def finish_host_observation(
+        self,
+        token,
+        progress,
+        snapshot,
+        *,
+        replacement=None,
+    ):
+        """Publish only the exact unfinished observation still owned here."""
+        if self._host_progress.get(token) is not progress:
+            return False
+        del self._host_progress[token]
+        self.observe_host(token, snapshot)
+        if replacement is not None:
+            self._host_progress[token] = replacement
+        return True
 
     def capture_admissions(self, leases):
         """Retain exact token identity across custody snapshot pruning."""
@@ -357,7 +449,12 @@ class DependencyUsageRegistry:
             use
             for token, use in self._declarations.items()
             if use.pending or token is admission_token
-        ] + list(self._host.values())
+        ] + [
+            replace(use, environment=None)
+            if token in self._host_progress
+            else use
+            for token, use in self._host.items()
+        ]
         for lease in leases:
             bound = self._bindings.get(lease)
             uses.append(

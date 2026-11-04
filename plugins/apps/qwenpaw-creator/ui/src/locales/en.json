@@ -249,6 +249,7 @@
     "testConnection": "Test Connection",
     "connectionTestSuccess": "Connection test successful",
     "connectionTestFailed": "Connection test failed",
+    "connectionTestCredentialOnly": "Credential accepted, but only a read-only probe ran: capability not verified.",
     "connectionTestError": "Error occurred while testing connection",
     "multimodalTesting": "Multimodal testing...",
     "multimodalTestPassed": "Multimodal test passed, VLM enabled",
