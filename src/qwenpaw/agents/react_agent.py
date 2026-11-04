@@ -1024,7 +1024,7 @@ class QwenPawAgent(Agent):
         tool_choice: Any,
         retry: Callable[..., Awaitable[Any]] | None = None,
     ) -> Any:
-        """Reduce rejected input and retry once through AgentScope."""
+        """Perform one recovery step within the caller's shared budget."""
         body_overflow = is_request_body_too_large(exc)
         if body_overflow and self._last_wire_request_had_media():
             omitted = mark_media_omitted_after_overflow(self.state.context)
@@ -1049,7 +1049,7 @@ class QwenPawAgent(Agent):
         before = len(getattr(self.state, "context", []) or [])
         logger.warning(
             "Model input exceeded a size limit; attempting "
-            "one context recovery.",
+            "a context recovery step.",
         )
         input_changed = await context_manager.recover_from_context_overflow(
             self,

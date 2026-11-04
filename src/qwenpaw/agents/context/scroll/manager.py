@@ -174,10 +174,9 @@ class ScrollContextManager:
         }
         # Warn once per overflow episode, not once per reasoning step.
         self._overflow_warned = False
-        # Transient correction after an authoritative provider rejection.
-        # (local estimate before recovery, conservative recovery baseline).
-        self._token_estimate_anchor: tuple[int, int] | None = None
-        self._token_estimate_model = None
+        # Provider-confirmed correction, checkpointed for the same model key.
+        self._token_estimate_margin = 0
+        self._token_estimate_model_key = None
         self._token_estimate_context_size = None
 
     @staticmethod
@@ -411,14 +410,9 @@ class ScrollContextManager:
         # A rejected request cannot be trusted to be below the trigger.
         # Keep the discrepancy so reclaimed tokens are subtracted from this
         # conservative baseline, and subsequent growth retains the margin.
-        previous_margin = (
-            self._token_estimate_anchor[1] - self._token_estimate_anchor[0]
-            if self._token_estimate_anchor is not None
-            else 0
-        )
         baseline = max(before, math.ceil(target))
-        self._token_estimate_anchor = (before - previous_margin, baseline)
         margin = baseline - before
+        self._token_estimate_margin += margin
         if margin:
             logger.warning(
                 "scroll: provider rejected locally underestimated input; "
@@ -626,7 +620,9 @@ class ScrollContextManager:
                             f"tool_call_id={tcid!r})"
                         )
                 result = await agent.try_decision_compact(
-                    tokens=tokens,
+                    # Candidate counts are raw estimates. Compare like with
+                    # like so the safety margin cannot hide negative savings.
+                    tokens=tokens - self._token_estimate_margin,
                     source_refs=refs,
                 )
                 tokens = (
@@ -1573,24 +1569,23 @@ class ScrollContextManager:
         )
 
     async def _count_input_tokens(self, agent: Any, kwargs: dict) -> int:
+        # Wrapped production models expose provider_id:model_name. Models
+        # without a stable key keep only an instance-local correction.
+        model_key = getattr(agent.model, "model_key", None) or agent.model
         if (
-            self._token_estimate_model is not agent.model
+            self._token_estimate_model_key != model_key
             or self._token_estimate_context_size != agent.model.context_size
         ):
-            self._token_estimate_anchor = None
-            self._token_estimate_model = agent.model
+            self._token_estimate_margin = 0
+            self._token_estimate_model_key = model_key
             self._token_estimate_context_size = agent.model.context_size
         tokens = await as_internals.count_model_input_tokens(agent, kwargs)
         return self._adjust_token_estimate(tokens)
 
     def _adjust_token_estimate(self, current_estimate: int) -> int:
-        if self._token_estimate_anchor is None:
-            return current_estimate
-        before, baseline = self._token_estimate_anchor
-        # Measure net savings over the complete request, including replacement
-        # summaries/pointers. Negative savings account for subsequent growth.
-        reclaimed = before - current_estimate
-        return max(current_estimate, baseline - reclaimed)
+        # Equivalent to max(current, baseline - (before - current)); the
+        # nonnegative margin preserves net savings and subsequent growth.
+        return current_estimate + self._token_estimate_margin
 
     @staticmethod
     def _block_type(block: Any) -> str | None:
@@ -2280,6 +2275,15 @@ class ScrollContextManager:
         durable instead of re-appending it.
         """
         return {
+            "token_estimate": (
+                {
+                    "margin": self._token_estimate_margin,
+                    "model_key": self._token_estimate_model_key,
+                    "context_size": self._token_estimate_context_size,
+                }
+                if isinstance(self._token_estimate_model_key, str)
+                else None
+            ),
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
             "seen_tool_result_ids": sorted(self._seen_tool_result_ids),
@@ -2314,6 +2318,21 @@ class ScrollContextManager:
         freshly-constructed empty default."""
         if not isinstance(data, dict):
             return
+        self._token_estimate_margin = 0
+        self._token_estimate_model_key = None
+        self._token_estimate_context_size = None
+        estimate = data.get("token_estimate")
+        if (
+            isinstance(estimate, dict)
+            and isinstance(estimate.get("margin"), int)
+            and estimate["margin"] >= 0
+            and isinstance(estimate.get("model_key"), str)
+            and isinstance(estimate.get("context_size"), int)
+            and estimate["context_size"] > 0
+        ):
+            self._token_estimate_margin = estimate["margin"]
+            self._token_estimate_model_key = estimate["model_key"]
+            self._token_estimate_context_size = estimate["context_size"]
         self._persisted_ids = set(data.get("persisted_ids", ()))
         self._persisted_tcids = set(data.get("persisted_tcids", ()))
         self._seen_tool_result_ids = set(

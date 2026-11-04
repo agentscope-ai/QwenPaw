@@ -480,6 +480,76 @@ async def test_cancellation_during_host_count_rolls_back(model):
 
 
 @pytest.mark.asyncio
+async def test_scroll_margin_cannot_hide_candidate_token_growth(
+    model,
+    tmp_path,
+):
+    agent = make_agent()
+    agent.model.model_key = "provider:model"
+    agent.model.context_size = 10000
+    agent.context_config.reserve_ratio = 0.1
+    original = agent.state.context
+    snapshot = [m.model_dump(mode="json") for m in original]
+    original_chars = len(json.dumps(await agent._prepare_model_input()))
+    candidate_counts = []
+
+    async def count(**kwargs):
+        if agent.state.context is original:
+            return 1881
+        # A shorter preview can still tokenize to more tokens, including
+        # the recovery reference and placeholder added to the request.
+        assert len(json.dumps(kwargs)) < original_chars
+        candidate_counts.append(1932)
+        return 1932
+
+    agent.model.count_tokens = count
+    history = HistoryStore(tmp_path / "history.db")
+    manager = ScrollContextManager(
+        history=history,
+        session_id="session",
+        agent_id="agent",
+    )
+    manager.load_state(
+        {
+            "token_estimate": {
+                "margin": 6219,
+                "model_key": "provider:model",
+                "context_size": 10000,
+            },
+        },
+    )
+    results = []
+    compact_candidate = agent.try_decision_compact
+
+    async def compact_with_result(**kwargs):
+        result = await compact_candidate(**kwargs)
+        results.append(result)
+        return result
+
+    agent.try_decision_compact = compact_with_result
+    manager._batch_fold_completed_tool_results = AsyncMock(
+        side_effect=RuntimeError("Continue normal folding"),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="Continue normal folding"):
+            await manager.compress(agent)
+        assert candidate_counts == [1932]
+        assert results == [
+            DecisionCompactionResult(changed=False, tokens_after=1881),
+        ]
+        assert agent.state.context is original
+        assert [m.model_dump(mode="json") for m in original] == snapshot
+        folding_args = (
+            manager._batch_fold_completed_tool_results.await_args.kwargs
+        )
+        assert folding_args["tokens"] == 8100
+    finally:
+        if getattr(agent, "_decision_compactor", None) is not None:
+            await agent._decision_compactor.close()
+        history.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("fits_budget", [False, True])
 async def test_scroll_compacts_before_existing_folding(
     model,
