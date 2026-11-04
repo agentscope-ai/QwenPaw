@@ -124,6 +124,23 @@ impl EventTracker {
         self.displayed.retain(|id, _| self.known.contains(id));
         fresh
     }
+
+    fn record_delivery(
+        &mut self,
+        event: &NotificationEvent,
+        result: &Result<(), notification_delivery::DeliveryError>,
+    ) {
+        match result {
+            Ok(()) => {
+                self.displayed
+                    .insert(event.id.clone(), event.category.clone());
+            }
+            Err(error) if error.is_retryable() => {
+                self.known.remove(&event.id);
+            }
+            Err(_) => {}
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -634,19 +651,17 @@ async fn notify_events(
             )
             .await
         } else {
-            Err("Notification delivery was superseded".into())
+            Err(notification_delivery::DeliveryError::Transient(
+                "Notification delivery was superseded".into(),
+            ))
         };
+        tracker.record_delivery(event, &result);
         if let Err(error) = result {
             log::warn!("Could not deliver system notification: {error}");
-            tracker.known.remove(&event.id);
             let directory = directory.to_path_buf();
             let _ =
                 tauri::async_runtime::spawn_blocking(move || release_claim(&directory, &claim_id))
                     .await;
-        } else {
-            tracker
-                .displayed
-                .insert(event.id.clone(), event.category.clone());
         }
     }
 }
@@ -675,6 +690,53 @@ mod tests {
         assert_eq!(tracker.fresh(&[event("old"), event("new")]).len(), 1);
         assert!(tracker.fresh(&[event("old"), event("new")]).is_empty());
         assert!(tracker.fresh(&[]).is_empty());
+    }
+
+    #[test]
+    fn permission_denied_event_is_not_retried_or_marked_displayed() {
+        let mut tracker = EventTracker::default();
+        assert!(tracker.fresh(&[]).is_empty());
+        let snapshot = [event("denied")];
+        assert_eq!(tracker.fresh(&snapshot).len(), 1);
+        tracker.record_delivery(
+            &snapshot[0],
+            &Err(notification_delivery::DeliveryError::PermissionNotGranted),
+        );
+
+        for _ in 0..120 {
+            assert!(tracker.fresh(&snapshot).is_empty());
+        }
+        assert!(tracker.displayed.is_empty());
+
+        let snapshot = [event("denied"), event("after-permission-restored")];
+        let fresh = tracker.fresh(&snapshot);
+        assert_eq!(fresh.len(), 1);
+        assert_eq!(fresh[0].id, "after-permission-restored");
+        tracker.record_delivery(fresh[0], &Ok(()));
+        assert!(tracker.fresh(&snapshot).is_empty());
+        assert_eq!(tracker.displayed.len(), 1);
+        assert!(tracker.displayed.contains_key("after-permission-restored"));
+    }
+
+    #[test]
+    fn transient_event_delivery_is_retried_until_it_succeeds() {
+        let mut tracker = EventTracker::default();
+        assert!(tracker.fresh(&[]).is_empty());
+        let snapshot = [event("retry")];
+
+        for _ in 0..3 {
+            assert_eq!(tracker.fresh(&snapshot).len(), 1);
+            tracker.record_delivery(
+                &snapshot[0],
+                &Err("Notification IPC timed out".to_owned().into()),
+            );
+            assert!(tracker.displayed.is_empty());
+        }
+
+        assert_eq!(tracker.fresh(&snapshot).len(), 1);
+        tracker.record_delivery(&snapshot[0], &Ok(()));
+        assert!(tracker.fresh(&snapshot).is_empty());
+        assert_eq!(tracker.displayed.get("retry").unwrap(), "cron");
     }
 
     #[test]

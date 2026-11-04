@@ -1,6 +1,6 @@
 //! Platform notification authorization and delivery acknowledgement.
 
-use std::{collections::HashMap, sync::Mutex, time::Duration};
+use std::{collections::HashMap, fmt, sync::Mutex, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -220,6 +220,37 @@ pub(crate) enum Permission {
     Managed,
 }
 
+#[derive(Debug)]
+pub(crate) enum DeliveryError {
+    #[cfg(any(target_os = "macos", test))]
+    PermissionNotGranted,
+    Transient(String),
+}
+
+impl DeliveryError {
+    pub(crate) fn is_retryable(&self) -> bool {
+        matches!(self, Self::Transient(_))
+    }
+}
+
+impl fmt::Display for DeliveryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            #[cfg(any(target_os = "macos", test))]
+            Self::PermissionNotGranted => {
+                formatter.write_str("Notification permission has not been granted for QwenPaw")
+            }
+            Self::Transient(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl From<String> for DeliveryError {
+    fn from(message: String) -> Self {
+        Self::Transient(message)
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn permission_from_status(status: mac_usernotifications::AuthorizationStatus) -> Permission {
     use mac_usernotifications::AuthorizationStatus as Status;
@@ -274,11 +305,11 @@ pub(crate) async fn send(
     body: &str,
     lifetime: Duration,
     click_target: Option<NotificationTarget>,
-) -> Result<(), String> {
+) -> Result<(), DeliveryError> {
     #[cfg(target_os = "macos")]
     {
         if permission().await? != Permission::Granted {
-            return Err("Notification permission has not been granted for QwenPaw".into());
+            return Err(DeliveryError::PermissionNotGranted);
         }
         let handle = mac_usernotifications::Notification::new()
             .id(identifier)
