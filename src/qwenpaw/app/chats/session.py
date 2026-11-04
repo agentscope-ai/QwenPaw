@@ -12,6 +12,7 @@ import re
 import logging
 import shutil
 import sqlite3
+from contextlib import closing
 from copy import deepcopy
 
 from dataclasses import dataclass
@@ -1023,7 +1024,7 @@ class DatabaseSession:
         if target is None:
             return False
         uri = f"{target.resolve().as_uri()}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as connection:
+        with closing(sqlite3.connect(uri, uri=True)) as connection:
             row = connection.execute(
                 "SELECT 1 FROM event_log WHERE idempotency_key = ?",
                 (f"migration:completed:{session_id}",),

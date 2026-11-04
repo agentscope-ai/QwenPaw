@@ -1127,3 +1127,51 @@ async def test_interrupted_compressed_migration_resumes(
         }
     finally:
         catalog.close()
+
+
+@pytest.mark.parametrize("query_error", [False, True])
+def test_migration_probe_closes_read_connections(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    query_error: bool,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    identity = dict(session_id="session", user_id="", channel="")
+    connections: list[sqlite3.Connection] = []
+    connect = sqlite3.connect
+
+    class ReadConnection(sqlite3.Connection):
+        def execute(self, statement, *args, **kwargs):
+            if query_error and statement.startswith("SELECT 1 FROM event_log"):
+                raise sqlite3.OperationalError("migration read failed")
+            return super().execute(statement, *args, **kwargs)
+
+    def track_connect(*args, **kwargs):
+        kwargs["factory"] = ReadConnection
+        connection = connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    try:
+        catalog.write_runtime_state(**identity, state={})
+        monkeypatch.setattr(sqlite3, "connect", track_connect)
+        if query_error:
+            with pytest.raises(
+                sqlite3.OperationalError,
+                match="migration read failed",
+            ):
+                session._migration_complete(**identity)
+        else:
+            assert not session._migration_complete(**identity)
+        assert len(connections) == 2
+        for connection in connections:
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                connection.execute("SELECT 1")
+    finally:
+        for connection in connections:
+            connection.close()
+        catalog.close()
