@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import io
 import json
@@ -23,7 +24,7 @@ from typing import Any, TypeVar
 import frontmatter
 import yaml
 
-from ...exceptions import SkillsError
+from ...exceptions import SkillImportCancelled, SkillsError
 from ...security.skill_scanner import scan_skill_directory
 from ..utils.file_handling import (
     read_text_file_with_encoding_fallback,
@@ -394,23 +395,73 @@ _IGNORED_SKILL_ARTIFACTS = {
 }
 
 
+# Cancel checker (callable returning bool), propagated by contextvar so
+# nested operations each carry their own checker without interference. It
+# lives beside the copy it guards because this module is the leaf: both the
+# hub installer and the pool download can share one mechanism from here.
+_cancel_checker_ctx: contextvars.ContextVar[
+    Callable[[], bool] | None
+] = contextvars.ContextVar("skills_cancel_checker", default=None)
+
+
+def ensure_not_cancelled() -> None:
+    """Raise ``SkillImportCancelled`` if the armed checker says cancelled.
+
+    Unarmed is the default, and then this does nothing, so every caller that
+    does not opt in behaves exactly as it did before. A checker that itself
+    fails is ignored: a broken cancellation channel must not fail a copy that
+    is otherwise fine.
+    """
+    checker = _cancel_checker_ctx.get()
+    if checker is None:
+        return
+    try:
+        cancelled = bool(checker())
+    except Exception:
+        return
+    if cancelled:
+        raise SkillImportCancelled("Skill import cancelled by user")
+
+
+@contextmanager
+def with_cancel_checker(checker: Callable[[], bool] | None):
+    """Arm *checker* for the duration of the ``with`` block."""
+    token = _cancel_checker_ctx.set(checker)
+    try:
+        yield
+    finally:
+        _cancel_checker_ctx.reset(token)
+
+
 def copy_skill_dir(source: Path, target: Path) -> None:
     """Replace *target* with a copy of *source*.
 
     We intentionally filter only well-known OS/cache artifacts so skill
     content behaves consistently on macOS, Windows, Linux, and Docker.
     User-authored dotfiles are preserved.
+
+    Cancellation is checked between whole files, so it never leaves a
+    half-written file behind: the copy fails exactly like any other mid-copy
+    error, and the caller's existing rollback owns the cleanup.
     """
+    ensure_not_cancelled()
+
     if target.exists():
         shutil.rmtree(target)
 
     def _ignore(_dir: str, names: list[str]) -> set[str]:
         return {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
 
+    def _checked_copy2(src: str, dst: str) -> None:
+        """Per-file hook: ``copytree`` calls this once per regular file."""
+        ensure_not_cancelled()
+        shutil.copy2(src, dst)
+
     shutil.copytree(
         source,
         target,
         ignore=_ignore,
+        copy_function=_checked_copy2,
     )
 
 
@@ -841,6 +892,9 @@ def _create_files_from_tree(base_dir: Path, tree: dict[str, Any]) -> None:
         if isinstance(value, dict):
             path.mkdir(parents=True, exist_ok=True)
             _create_files_from_tree(path, value)
+        elif isinstance(value, bytes):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(value)
         elif value is None or isinstance(value, str):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(value or "", encoding="utf-8")

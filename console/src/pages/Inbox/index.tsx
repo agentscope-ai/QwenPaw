@@ -163,6 +163,7 @@ export default function InboxPage() {
     markSeen: markMailAclSeen,
   } = useMailPendingCount();
   const [markAllReading, setMarkAllReading] = useState(false);
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<
     string | undefined
   >(undefined);
@@ -185,7 +186,7 @@ export default function InboxPage() {
     deleteMessage,
     deleteMessages,
     refreshPushMessages,
-  } = useInboxData();
+  } = useInboxData(unreadOnly);
   const agentDisplayNameById = useMemo(
     () =>
       new Map(agents.map((agent) => [agent.id, getAgentDisplayName(agent, t)])),
@@ -193,6 +194,9 @@ export default function InboxPage() {
   );
   const filteredPushMessages = useMemo(() => {
     return pushMessages.filter((message) => {
+      if (unreadOnly && message.read) {
+        return false;
+      }
       if (
         selectedAgentFilter &&
         (message.metadata?.agentId || DEFAULT_AGENT_ID) !== selectedAgentFilter
@@ -207,7 +211,7 @@ export default function InboxPage() {
       }
       return true;
     });
-  }, [pushMessages, selectedAgentFilter, selectedSourceTypeFilter]);
+  }, [pushMessages, selectedAgentFilter, selectedSourceTypeFilter, unreadOnly]);
   const pushMessageAgentOptions = useMemo(() => {
     const ids = new Set<string>(
       filteredPushMessages.map(
@@ -336,13 +340,17 @@ export default function InboxPage() {
   }, [messagesPage, totalMessagePages]);
 
   useEffect(() => {
-    const validIdSet = new Set(pushMessages.map((item) => item.id));
+    const validIdSet = new Set(
+      pushMessages
+        .filter((item) => !unreadOnly || !item.read)
+        .map((item) => item.id),
+    );
     setSelectedMessageIds((prev) => prev.filter((id) => validIdSet.has(id)));
-  }, [pushMessages]);
+  }, [pushMessages, unreadOnly]);
 
   useEffect(() => {
     setMessagesPage(1);
-  }, [selectedAgentFilter, selectedSourceTypeFilter]);
+  }, [selectedAgentFilter, selectedSourceTypeFilter, unreadOnly]);
 
   const handleViewMessage = (messageId: string) => {
     const found = pushMessages.find((item) => item.id === messageId);
@@ -440,6 +448,16 @@ export default function InboxPage() {
                 style={{ width: 160 }}
                 placeholder={t("inbox.filterBySourceType")}
               />
+              <Checkbox
+                checked={unreadOnly}
+                className={styles.unreadFilter}
+                onChange={(event) => {
+                  setUnreadOnly(event.target.checked);
+                  setSelectedMessageIds([]);
+                }}
+              >
+                {t("inbox.unreadOnly")}
+              </Checkbox>
             </div>
             <div className={styles.messagesSelectionTools}>
               {batchMode ? (
@@ -546,7 +564,11 @@ export default function InboxPage() {
               </div>
             </div>
           ) : (
-            <Empty description={t("inbox.emptyPush")} />
+            <Empty
+              description={t(
+                unreadOnly ? "inbox.emptyUnread" : "inbox.emptyPush",
+              )}
+            />
           )}
         </div>
       ),

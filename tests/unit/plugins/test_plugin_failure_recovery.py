@@ -33,6 +33,8 @@ from qwenpaw.plugins.updates import (
 from qwenpaw.plugins.registry import PluginRegistry
 from qwenpaw.plugins.workspace_projector import WorkspaceProjector
 
+from .timing import WAIT_TIMEOUT
+
 
 @pytest.fixture
 def registry(tmp_path, monkeypatch):
@@ -78,7 +80,7 @@ async def test_cancelled_tool_config_write_revokes_published_tool(
 
     def write_config(*args, **kwargs):
         entered.set()
-        if not release.wait(timeout=5):
+        if not release.wait(timeout=WAIT_TIMEOUT * 2):
             raise TimeoutError("test did not release config writer")
 
     monkeypatch.setattr("qwenpaw.plugins.api._write_tool_config", write_config)
@@ -105,7 +107,7 @@ async def test_cancelled_tool_config_write_revokes_published_tool(
     await loader.load_plugin(manifest, root, activate=False)
     activation = asyncio.create_task(loader.lifecycle.activate(plugin_id))
     try:
-        assert await asyncio.to_thread(entered.wait, 2)
+        assert await asyncio.to_thread(entered.wait, WAIT_TIMEOUT)
         assert tool_registry.get(tool_name) is not None
         assert hasattr(tools, tool_name)
         assert tool_name in tools.__all__
@@ -191,7 +193,7 @@ async def test_boot_activation_finishes_before_unload(
     activation = asyncio.create_task(loader.activate_all_loaded())
     unload = None
     try:
-        await asyncio.wait_for(state["entered"].wait(), timeout=2)
+        await asyncio.wait_for(state["entered"].wait(), timeout=WAIT_TIMEOUT)
         unload = asyncio.create_task(loader.unload_plugin(manifest.id))
         done, _ = await asyncio.wait({unload}, timeout=0.05)
         assert not done
@@ -744,7 +746,7 @@ async def test_channel_failed_projection_can_retry_cleanup(
         lambda *a, **k: ch,
     )
     monkeypatch.setattr(
-        "qwenpaw.plugins.workspace_projector.channel_passes_gates",
+        "qwenpaw.plugins.api.channel_passes_gates",
         lambda *_: True,
     )
     loader = PluginLoader([])
@@ -939,20 +941,35 @@ async def test_workspace_stop_continues_after_failed_plugin_revoke(
     final,
     preserve_reused,
 ):
+    from qwenpaw.app.task_tracker import TaskTracker
     from qwenpaw.app.workspace.workspace import Workspace
     from qwenpaw.plugins.lifecycle import QuiescenceError
 
     old = Workspace.__new__(Workspace)
     old.agent_id = "retiring"
     old._started = old._start_attempted = True
-    old._service_manager = SimpleNamespace(stop_all=AsyncMock())
+    old._task_tracker = TaskTracker()
+    old._service_manager = SimpleNamespace(stop_all=AsyncMock(), services={})
     harness = SimpleNamespace(stop=AsyncMock())
     old._harness_runtime = harness
-    registry.projector = SimpleNamespace(
-        revoke_workspace=AsyncMock(
-            side_effect=[QuiescenceError("plugin still alive"), None],
-        ),
+    registry.projector = WorkspaceProjector(lambda: [])
+    registry.projector.track_workspace(old)
+    token, revokes = object(), []
+
+    async def revoke(workspace, binding):
+        assert workspace is old and binding is token
+        revokes.append(binding)
+        if len(revokes) == 1:
+            raise QuiescenceError("plugin still alive")
+
+    registry.projector.intend(
+        "worker",
+        "retiring-worker",
+        "recovery",
+        lambda _ws: token,
+        revoke,
     )
+    await registry.projector.project_workspace(old)
 
     with pytest.raises(QuiescenceError, match="plugin still alive"):
         await old.stop(final=final, preserve_reused=preserve_reused)
@@ -964,10 +981,13 @@ async def test_workspace_stop_continues_after_failed_plugin_revoke(
     harness.stop.assert_awaited_once()
     assert old._started and old._start_attempted
     assert old._harness_runtime is None
+    assert old in registry.projector.workspaces()
 
     await old.stop(final=final, preserve_reused=preserve_reused)
     assert not old._started and not old._start_attempted
     harness.stop.assert_awaited_once()
+    assert old not in registry.projector.workspaces()
+    assert revokes == [token, token]
 
 
 @pytest.mark.asyncio
@@ -979,22 +999,26 @@ async def test_workspace_stop_retains_failed_harness_for_retry(registry):
     old._started = old._start_attempted = True
     old._service_manager = SimpleNamespace(
         stop_all=AsyncMock(side_effect=[RuntimeError("service busy"), None]),
+        services={},
     )
     harness = SimpleNamespace(
         stop=AsyncMock(side_effect=[RuntimeError("harness busy"), None]),
     )
     old._harness_runtime = harness
-    registry.projector = SimpleNamespace(revoke_workspace=AsyncMock())
+    registry.projector = WorkspaceProjector(lambda: [])
+    registry.projector.track_workspace(old)
     with pytest.raises(RuntimeError) as raised:
         await old.stop(final=False)
     assert "service busy" in str(raised.value)
     assert "harness busy" in str(raised.value)
     assert old._harness_runtime is harness
     assert old._started and old._start_attempted
+    assert old in registry.projector.workspaces()
     await old.stop(final=False)
     assert old._harness_runtime is None
     assert not old._started and not old._start_attempted
     assert harness.stop.await_count == 2
+    assert old not in registry.projector.workspaces()
 
 
 @pytest.mark.asyncio
@@ -1114,7 +1138,7 @@ async def test_stubborn_hosted_task_returns_failure_and_keeps_retry_handle(
         loader.lifecycle.unload("stubborn-task", mode),
     )
     try:
-        done, _ = await asyncio.wait({operation}, timeout=0.3)
+        done, _ = await asyncio.wait({operation}, timeout=WAIT_TIMEOUT)
         assert operation in done, "unload waited beyond its task stop budget"
         report = operation.result()
         assert not report.clean
@@ -1130,7 +1154,7 @@ async def test_stubborn_hosted_task_returns_failure_and_keeps_retry_handle(
         retry = asyncio.create_task(
             loader.lifecycle.unload("stubborn-task", mode),
         )
-        done, _ = await asyncio.wait({retry}, timeout=0.3)
+        done, _ = await asyncio.wait({retry}, timeout=WAIT_TIMEOUT)
         assert retry in done, "the same-plugin lifecycle lock was not released"
         assert not retry.result().quiescent
     finally:
@@ -1228,14 +1252,19 @@ async def test_connection_timeout_preserves_owned_files_and_retry_handle(
     closer = inst._runtime[-1].teardown
     try:
         if close_method == "sync_close":
-            monkeypatch.setattr(custody, "CONNECTION_STOP_SECONDS", 1)
+            # The explicit cancellation must arrive before the close deadline.
+            monkeypatch.setattr(
+                custody,
+                "CONNECTION_STOP_SECONDS",
+                WAIT_TIMEOUT * 2,
+            )
             operation = asyncio.create_task(
                 loader.lifecycle.unload(inst.plugin_id, UnloadMode.UNINSTALL),
             )
             operations.append(operation)
-            await asyncio.wait_for(started.wait(), timeout=0.3)
+            await asyncio.wait_for(started.wait(), timeout=WAIT_TIMEOUT)
             operation.cancel()
-            done, _ = await asyncio.wait({operation}, timeout=0.3)
+            done, _ = await asyncio.wait({operation}, timeout=WAIT_TIMEOUT)
             assert operation in done, "cancellation waited for sync close"
             with pytest.raises(asyncio.CancelledError):
                 operation.result()
@@ -1246,7 +1275,7 @@ async def test_connection_timeout_preserves_owned_files_and_retry_handle(
                 loader.lifecycle.unload(inst.plugin_id, UnloadMode.UNINSTALL),
             )
             operations.append(operation)
-            done, _ = await asyncio.wait({operation}, timeout=0.3)
+            done, _ = await asyncio.wait({operation}, timeout=WAIT_TIMEOUT)
             assert operation in done, "connection cleanup exceeded its budget"
             report = operation.result()
             assert not report.clean
@@ -1263,7 +1292,7 @@ async def test_connection_timeout_preserves_owned_files_and_retry_handle(
             if close_method == "sync_close":
                 assert not closer.task.cancelling()
         if close_method != "sync_close":
-            await asyncio.wait_for(cancelled.wait(), timeout=0.3)
+            await asyncio.wait_for(cancelled.wait(), timeout=WAIT_TIMEOUT)
     finally:
         finish.set()
         thread_finish.set()
@@ -1350,9 +1379,9 @@ async def test_stop_request_cancellation_does_not_wait_for_stubborn_task():
     await started.wait()
     stopper = asyncio.create_task(stop_task(hosted, "stubborn"))
     try:
-        await asyncio.wait_for(cancellation_seen.wait(), timeout=1)
+        await asyncio.wait_for(cancellation_seen.wait(), timeout=WAIT_TIMEOUT)
         stopper.cancel()
-        done, _ = await asyncio.wait({stopper}, timeout=0.3)
+        done, _ = await asyncio.wait({stopper}, timeout=WAIT_TIMEOUT)
         assert stopper in done
         with pytest.raises(asyncio.CancelledError):
             stopper.result()

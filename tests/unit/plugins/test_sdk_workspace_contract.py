@@ -7,6 +7,8 @@ import pytest
 
 from .sdk_author_fixture import make_plugin
 
+from .timing import WAIT_TIMEOUT
+
 SOURCE = """
 import asyncio
 from pathlib import Path
@@ -287,11 +289,12 @@ async def test_explicit_background_delegation_and_started_task_survive_request(
                 user_id="alice",
             )
         ).status == 200
-        for _ in range(200):
-            value = ctx.storage.read_json("delegated.json", None)
-            if value is not None:
-                break
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(WAIT_TIMEOUT):
+            while True:
+                value = ctx.storage.read_json("delegated.json", None)
+                if value is not None:
+                    break
+                await asyncio.sleep(0.01)
         assert value == {
             "app": "workspace-probe",
             "workspace": "two",
@@ -316,13 +319,14 @@ async def test_explicit_background_delegation_and_started_task_survive_request(
                 await host.request("GET", path, user_id="bob")
             ).status == 403
             (tmp_path / "release").touch()
-            for _ in range(200):
-                status = (
-                    await host.request("GET", path, user_id="alice")
-                ).json()["status"]
-                if status != "running":
-                    break
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    status = (
+                        await host.request("GET", path, user_id="alice")
+                    ).json()["status"]
+                    if status != "running":
+                        break
+                    await asyncio.sleep(0.01)
             assert status == "completed"
         finally:
             (tmp_path / "release").touch()
@@ -341,7 +345,7 @@ async def test_request_cancellation_finishes_delegated_resources(tmp_path):
             ),
         )
         try:
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while not ctx.storage.read_json("child-entered.json", False):
                     await asyncio.sleep(0.01)
             pending.cancel()
@@ -353,7 +357,7 @@ async def test_request_cancellation_finishes_delegated_resources(tmp_path):
                 "StaleContextError",
                 "StaleContextError",
             ]
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(WAIT_TIMEOUT):
                 while (
                     ctx.storage.read_json("cancel-delegated.json", None)
                     is None

@@ -22,6 +22,7 @@ import json
 import logging
 import sqlite3
 import time
+import weakref
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -60,7 +61,6 @@ _PRE_TRIM_MIN_CHARS = 200
 _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
-_SUMMARY_UPDATE_TIMEOUT_SECONDS = 60.0
 _OVERFLOW_FORCE_TRIGGER_RATIO = 1e-6
 _SummaryRecords = tuple[
     list[tuple[int, str]],
@@ -96,10 +96,21 @@ class ScrollContextManager:
         compact_tool_result_max_bytes: int | None = None,
         tool_results_dir: str | None = None,
         recall_loop_guard: Any = None,
+        owns_history: bool = True,
+        summary_timeout_seconds: float = 300.0,
     ) -> None:
         self._history = history
+        self._owns_history = owns_history
+        self._closed = False
+        self._history_release = None
+        if not owns_history:
+            history.acquire()
+            # Explicit close is the normal path. Also release when a cancelled
+            # or failed agent build discards a manager before attaching it.
+            self._history_release = weakref.finalize(self, history.release)
         self._session_id = session_id
         self._agent_id = agent_id
+        self._summary_timeout_seconds = summary_timeout_seconds
         # Kept for constructor compatibility with older integrations. Scroll
         # no longer folds live tool results at a fixed byte threshold; it
         # reclaims them only while the rebuilt context remains under pressure.
@@ -336,7 +347,7 @@ class ScrollContextManager:
         # Teardown race: a stop/cancel can close the store while a final
         # ``on_save`` is still in flight. The connection was retired on
         # purpose, so skip the write quietly instead of degrading durability.
-        if self._history.closed:
+        if self._closed or self._history.closed:
             return True
         try:
             self._persist_new(agent)
@@ -1394,7 +1405,7 @@ class ScrollContextManager:
     ) -> None:
         """Update the summary within one end-to-end timeout."""
         try:
-            async with asyncio.timeout(_SUMMARY_UPDATE_TIMEOUT_SECONDS):
+            async with asyncio.timeout(self._summary_timeout_seconds):
                 await self._update_continuation_summary_inner(
                     agent,
                     middle,
@@ -1405,7 +1416,7 @@ class ScrollContextManager:
             logger.warning(
                 "scroll: continuation summary update timed out after "
                 "%g seconds; preserving the previous valid summary",
-                _SUMMARY_UPDATE_TIMEOUT_SECONDS,
+                self._summary_timeout_seconds,
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
 
@@ -1461,7 +1472,7 @@ class ScrollContextManager:
         repair_issues: tuple[str, ...] = ()
         updated: ContinuationSummary | None = None
         failure: Exception | None = None
-        deadline = time.monotonic() + _SUMMARY_UPDATE_TIMEOUT_SECONDS
+        deadline = time.monotonic() + self._summary_timeout_seconds
         for attempt in range(2):
             summary_mode: SummaryMode = (
                 "update" if previous is not None else "initial"
@@ -1494,7 +1505,7 @@ class ScrollContextManager:
             except asyncio.TimeoutError:
                 failure = TimeoutError(
                     "continuation summary generation timed out after "
-                    f"{_SUMMARY_UPDATE_TIMEOUT_SECONDS:g} seconds",
+                    f"{self._summary_timeout_seconds:g} seconds",
                 )
                 # The timeout is a provider/connection failure, not a quality
                 # issue that a repair prompt can fix. Preserve a still-valid
@@ -2310,4 +2321,9 @@ class ScrollContextManager:
         ).isoformat()
 
     def close(self) -> None:
-        self._history.close()
+        """Retire this request; only standalone managers close the database."""
+        self._closed = True
+        if self._history_release is not None:
+            self._history_release()
+        elif self._owns_history:
+            self._history.close()

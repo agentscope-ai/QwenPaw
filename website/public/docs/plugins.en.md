@@ -2173,12 +2173,27 @@ the check or dependency resolution. Prefer maintaining each dependency in one
 place to avoid duplicate declarations. These are Python package dependencies,
 not other plugin IDs or runtime service dependencies.
 
-Explicit installation, updates, and repairs check and install missing dependencies.
-Boot only checks dependencies; it does not install them. Missing dependencies fail
-that plugin's load. Call `POST /api/plugins/{plugin_id}/repair-dependencies` to repair
-them; disabled plugins stay disabled. Versions that conflict with protected host
-packages are refused; resolve the environment conflict first. Administrator-managed
-local runtimes require the administrator to install dependencies.
+SDK and legacy plugins share the framework's dependency checks, installation, and
+post-install verification; the `sdk` declaration does not select a separate installer.
+Satisfied requirements and inapplicable environment markers need no network access.
+Boot only checks dependencies; missing dependencies fail that plugin's load. Only
+explicit installation, updates, and repairs may install dependencies. Call
+`POST /api/plugins/{plugin_id}/repair-dependencies` to repair them; disabled plugins
+stay disabled. Administrator-managed local runtimes require the administrator to
+install dependencies.
+
+Directly declared requirements that conflict with protected host packages are refused;
+restart the backend and prepare the dependency environment first. SDK plugins report
+this as `SDKRestartRequiredError`. After acquiring the installation lock, the framework
+rechecks whether requirements are satisfied, then uses the shared pip / uv flow
+if dependencies are still missing. Desktop
+builds use the bundled Python interpreter and shared plugin dependency directory.
+The plugin loads only after its requirements pass post-install verification.
+
+The framework does not audit the entire environment for duplicate package versions,
+pin all installed versions, or preview the complete installation plan. It does not
+guarantee that replacements caused by transitive dependencies will be blocked, and
+does not provide atomic rollback of the shared dependency environment.
 
 #### Using Custom PyPI Index
 

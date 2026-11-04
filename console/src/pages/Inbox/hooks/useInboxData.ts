@@ -220,7 +220,7 @@ const mapEventToPushMessage = (
   };
 };
 
-export const useInboxData = () => {
+export const useInboxData = (unreadOnly = false) => {
   const { t } = useTranslation();
   const agents = useAgentStore((state) => state.agents);
   const agentsById = useMemo(
@@ -264,66 +264,70 @@ export const useInboxData = () => {
   pushMessagesRef.current = pushMessages;
   const [harvests] = useState<HarvestInstance[]>(MOCK_HARVESTS);
 
-  const loadPushMessages = useCallback((force = false): Promise<void> => {
-    if (!force && pushMessagesRequestRef.current) {
-      return pushMessagesRequestRef.current;
-    }
-    const requestId = ++pushMessagesRequestIdRef.current;
-    const isLatestRequest = () =>
-      pushMessagesRequestIdRef.current === requestId;
-    setPushMessagesLoading(true);
-    const request = (async () => {
-      try {
-        const res = await api.getInboxEvents({
-          limit: INBOX_EVENT_QUERY_LIMIT,
-          source_types: [...PUSH_MESSAGE_SOURCES],
-        });
-        const events = [...(res?.events || [])].filter(
-          (event) =>
-            isPushMessageEvent(event) &&
-            // Pending-approval mail events are handled in the mail access
-            // control drawer; keep them out of the push message list.
-            (event.payload as Record<string, unknown> | undefined)
-              ?.acl_status !== "pending",
-        );
-        events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-        const nextItems: PushMessage[] = events.map((event) =>
-          mapEventToPushMessage(
-            event,
-            resolveAgentNameRef.current,
-            tRef.current,
-          ),
-        );
-        if (!isLatestRequest()) return;
-        setPushMessages(nextItems);
-        setSummary((prev) => ({
-          ...prev,
-          pushMessages: {
-            total: res?.total ?? nextItems.length,
-            unread:
-              res?.unread_count ?? nextItems.filter((m) => !m.read).length,
-          },
-        }));
-        setPushMessagesError(null);
-      } catch (error) {
-        if (!isLatestRequest()) return;
-        console.error("Failed to fetch push inbox data", error);
-        setPushMessagesError(
-          error instanceof Error
-            ? error
-            : new Error("Failed to fetch push inbox data"),
-        );
-      } finally {
-        if (isLatestRequest()) setPushMessagesLoading(false);
+  const loadPushMessages = useCallback(
+    (force = false): Promise<void> => {
+      if (!force && pushMessagesRequestRef.current) {
+        return pushMessagesRequestRef.current;
       }
-    })();
-    pushMessagesRequestRef.current = request;
-    return request.finally(() => {
-      if (pushMessagesRequestRef.current === request) {
-        pushMessagesRequestRef.current = null;
-      }
-    });
-  }, []);
+      const requestId = ++pushMessagesRequestIdRef.current;
+      const isLatestRequest = () =>
+        pushMessagesRequestIdRef.current === requestId;
+      setPushMessagesLoading(true);
+      const request = (async () => {
+        try {
+          const res = await api.getInboxEvents({
+            limit: INBOX_EVENT_QUERY_LIMIT,
+            source_types: [...PUSH_MESSAGE_SOURCES],
+            unread_only: unreadOnly,
+          });
+          const events = [...(res?.events || [])].filter(
+            (event) =>
+              isPushMessageEvent(event) &&
+              // Pending-approval mail events are handled in the mail access
+              // control drawer; keep them out of the push message list.
+              (event.payload as Record<string, unknown> | undefined)
+                ?.acl_status !== "pending",
+          );
+          events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+          const nextItems: PushMessage[] = events.map((event) =>
+            mapEventToPushMessage(
+              event,
+              resolveAgentNameRef.current,
+              tRef.current,
+            ),
+          );
+          if (!isLatestRequest()) return;
+          setPushMessages(nextItems);
+          setSummary((prev) => ({
+            ...prev,
+            pushMessages: {
+              total: res?.total ?? nextItems.length,
+              unread:
+                res?.unread_count ?? nextItems.filter((m) => !m.read).length,
+            },
+          }));
+          setPushMessagesError(null);
+        } catch (error) {
+          if (!isLatestRequest()) return;
+          console.error("Failed to fetch push inbox data", error);
+          setPushMessagesError(
+            error instanceof Error
+              ? error
+              : new Error("Failed to fetch push inbox data"),
+          );
+        } finally {
+          if (isLatestRequest()) setPushMessagesLoading(false);
+        }
+      })();
+      pushMessagesRequestRef.current = request;
+      return request.finally(() => {
+        if (pushMessagesRequestRef.current === request) {
+          pushMessagesRequestRef.current = null;
+        }
+      });
+    },
+    [unreadOnly],
+  );
 
   const refreshPushMessages = useCallback(
     () => loadPushMessages(true),
@@ -331,7 +335,9 @@ export const useInboxData = () => {
   );
 
   useEffect(() => {
-    void loadPushMessages();
+    setPushMessages([]);
+    setPushMessagesError(null);
+    void loadPushMessages(true);
 
     let timer: number | null = null;
 
@@ -366,6 +372,8 @@ export const useInboxData = () => {
     return () => {
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      pushMessagesRequestIdRef.current += 1;
+      pushMessagesRequestRef.current = null;
     };
   }, [loadPushMessages]);
 

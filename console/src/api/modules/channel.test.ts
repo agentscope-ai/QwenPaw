@@ -54,6 +54,23 @@ describe("channelApi", () => {
     }
   });
 
+  it("keeps the cancellation signal with the explicit owner of plugin catalogue reads", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    const controller = new AbortController();
+    const scope = { agentId: "agent-a", signal: controller.signal };
+    await channelApi.listChannels(scope);
+    await channelApi.listChannelTypes(scope);
+    await channelApi.listChannelSchemas(scope);
+
+    expect(request).toHaveBeenCalledTimes(3);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(options).toEqual({
+        headers: { "X-Agent-Id": "agent-a" },
+        signal: controller.signal,
+      });
+    }
+  });
+
   it("updateChannels returns the persisted ChannelConfig", async () => {
     const cfg = { dingtalk: { enabled: false } } as unknown;
     vi.mocked(request).mockResolvedValue(cfg);
@@ -75,6 +92,25 @@ describe("channelApi", () => {
     vi.mocked(request).mockResolvedValue(single);
     const r = await channelApi.updateChannelConfig("dingtalk", single as never);
     expect(r).toBe(single);
+  });
+
+  it("binds a validated QR save to its captured agent and authorization session", async () => {
+    vi.mocked(request).mockResolvedValue({ enabled: true });
+    const body = { enabled: true, bot_token: "captured-token" };
+    await channelApi.updateChannelConfig(
+      "telegram",
+      body as never,
+      "agent-a",
+      "auth-a",
+    );
+    expect(request).toHaveBeenCalledWith(expect.stringContaining("/telegram"), {
+      method: "PUT",
+      body: JSON.stringify(body),
+      headers: {
+        "X-Agent-Id": "agent-a",
+        "X-Channel-Auth-Session": "auth-a",
+      },
+    });
   });
 
   it("checkChannelConflict posts the proposed channel config", async () => {

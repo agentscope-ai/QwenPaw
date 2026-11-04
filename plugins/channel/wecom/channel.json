@@ -1,0 +1,204 @@
+{
+  "schema_version": 2,
+  "channel_key": "wecom",
+  "label": {
+    "en": "WeCom",
+    "zh": "企业微信"
+  },
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {
+    "scope": "runner",
+    "module": "qwenpaw_channel_wecom.driver",
+    "qualname": "WeComDriver"
+  },
+  "requirements_file": "requirements.txt",
+  "config_schema": {
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "bot_prefix": {
+        "default": "",
+        "title": "Bot Prefix",
+        "type": "string"
+      },
+      "show_tool_calls": {
+        "default": true,
+        "title": "Show Tool Calls",
+        "type": "boolean"
+      },
+      "show_tool_results": {
+        "default": true,
+        "title": "Show Tool Results",
+        "type": "boolean"
+      },
+      "tool_call_max_length": {
+        "default": 200,
+        "minimum": 0,
+        "title": "Tool Call Max Length",
+        "type": "integer"
+      },
+      "tool_result_max_length": {
+        "default": 500,
+        "minimum": 0,
+        "title": "Tool Result Max Length",
+        "type": "integer"
+      },
+      "show_thinking": {
+        "default": true,
+        "title": "Show Thinking",
+        "type": "boolean"
+      },
+      "dm_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Dm Policy",
+        "type": "string"
+      },
+      "group_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Group Policy",
+        "type": "string"
+      },
+      "allow_from": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Allow From",
+        "type": "array",
+        "default": []
+      },
+      "deny_message": {
+        "default": "",
+        "title": "Deny Message",
+        "type": "string"
+      },
+      "require_mention": {
+        "default": false,
+        "title": "Require Mention",
+        "type": "boolean"
+      },
+      "no_text_debounce": {
+        "default": true,
+        "title": "No Text Debounce",
+        "type": "boolean"
+      },
+      "access_control_dm": {
+        "default": false,
+        "title": "Access Control Dm",
+        "type": "boolean"
+      },
+      "access_control_group": {
+        "default": false,
+        "title": "Access Control Group",
+        "type": "boolean"
+      },
+      "dm_disabled": {
+        "default": false,
+        "title": "Dm Disabled",
+        "type": "boolean"
+      },
+      "group_disabled": {
+        "default": false,
+        "title": "Group Disabled",
+        "type": "boolean"
+      },
+      "bot_id": {
+        "title": "Bot Id",
+        "default": "",
+        "type": "string"
+      },
+      "secret": {
+        "title": "Secret",
+        "default": "",
+        "type": "string"
+      },
+      "ws_url": {
+        "title": "Ws Url",
+        "default": "",
+        "type": "string"
+      },
+      "media_dir": {
+        "title": "Media Dir",
+        "default": null,
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "welcome_text": {
+        "title": "Welcome Text",
+        "default": "",
+        "type": "string"
+      },
+      "share_session_in_group": {
+        "title": "Share Session In Group",
+        "default": true,
+        "type": "boolean"
+      },
+      "max_reconnect_attempts": {
+        "title": "Max Reconnect Attempts",
+        "default": -1,
+        "type": "integer"
+      },
+      "streaming_enabled": {
+        "title": "Streaming Enabled",
+        "default": false,
+        "type": "boolean"
+      }
+    },
+    "title": "WecomConfig",
+    "type": "object"
+  },
+  "config_fields": [
+    "enabled",
+    "bot_prefix",
+    "show_tool_calls",
+    "show_tool_results",
+    "tool_call_max_length",
+    "tool_result_max_length",
+    "show_thinking",
+    "dm_policy",
+    "group_policy",
+    "allow_from",
+    "deny_message",
+    "require_mention",
+    "no_text_debounce",
+    "access_control_dm",
+    "access_control_group",
+    "dm_disabled",
+    "group_disabled",
+    "bot_id",
+    "secret",
+    "ws_url",
+    "media_dir",
+    "welcome_text",
+    "share_session_in_group",
+    "max_reconnect_attempts",
+    "streaming_enabled"
+  ],
+  "capabilities": [
+    "approval_card",
+    "channel.generic.v1",
+    "channel.management.qrcode.v1",
+    "media",
+    "response.prepare",
+    "send.approval_resolution.v1",
+    "send.content_source.v1",
+    "streaming"
+  ]
+}
