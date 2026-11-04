@@ -228,9 +228,9 @@ def validate_env_value(key: str, value: str) -> None:
     spec = ENV_VAR_SPECS_BY_KEY.get(key)
     if spec is None:
         return
+    if spec.validator is not None:
+        spec.validator(value)
     try:
-        if spec.validator is not None:
-            spec.validator(value)
         if spec.value_type == "float":
             parsed = float(value)
             if parsed < 0 or not math.isfinite(parsed):

@@ -153,6 +153,9 @@ async def test_shell_limit_catalog_hot_update_and_reset(
         for invalid in ("-1", "1.5", "NaN", ""):
             response = client.patch("/envs", json={key: invalid})
             assert response.status_code == 400
+            assert response.json()["detail"] == (
+                "Use 0, auto, or a positive integer for the memory limit"
+            )
             assert store.load_envs()[key] == "64"
 
         assert client.patch("/envs", json={key: "0"}).status_code == 200
