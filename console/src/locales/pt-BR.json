@@ -2040,6 +2040,7 @@
       "internal": "Gerenciado internamente pelo QwenPaw."
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "Proteção de memória da árvore de processos do shell: 0 desativa a proteção, auto usa metade da memória disponível (até 4096 MiB), ou informe um limite inteiro positivo em MiB. Os limites definidos também ficam restritos à metade da memória disponível. As alterações valem a partir da próxima chamada do shell; comandos em execução mantêm o limite inicial. A proteção por verificações periódicas não é um limite rígido de memória imposto pelo sistema operacional.",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Espera máxima pelo primeiro conteúdo relevante do stream; zero desativa o monitoramento.",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Espera máxima entre partes relevantes do stream; zero desativa o monitoramento."
     },
