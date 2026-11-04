@@ -84,22 +84,27 @@ def _coerce_range_ints(value: Any) -> list[int] | None:
     return result
 
 
-def _migrate_legacy_thinking_budget_range(owner: dict[str, Any]) -> bool:
+def _migrate_legacy_thinking_budget_range(
+    owner: dict[str, Any],
+    *,
+    provider_level: bool = False,
+) -> bool:
     """Normalize a persisted ``thinking_budget_range`` in place.
 
     Snapshots written before write-path validation could persist ranges
     that ``ModelInfo`` now rejects (a single bound, an unordered pair, or
     a max below 1); validating such a snapshot on load would fail and
     make the provider disappear. A single bound ``[v]`` is read as the
-    cap it most plausibly meant and becomes ``[0, v]``; any other invalid
-    shape is dropped to ``None`` (unset) rather than guessed at. Returns
-    True when the value changed.
+    cap it most plausibly meant and becomes ``[0, v]``. Any other invalid
+    shape is dropped rather than guessed at: a model-level override
+    becomes ``None`` (unset), while a provider-level value is removed
+    entirely, because ``ProviderInfo.thinking_budget_range`` is a
+    non-optional ``List[int]`` and only removal lets its default apply.
+    Returns True when the value changed.
     """
     if "thinking_budget_range" not in owner:
         return False
     value = owner["thinking_budget_range"]
-    if value is None:
-        return False
     numbers = _coerce_range_ints(value)
     if (
         numbers is not None
@@ -108,16 +113,23 @@ def _migrate_legacy_thinking_budget_range(owner: dict[str, Any]) -> bool:
         and numbers[1] >= 1
     ):
         return False
-    migrated: list[int] | None = None
     if numbers is not None and len(numbers) == 1 and numbers[0] >= 1:
-        migrated = [0, numbers[0]]
+        owner["thinking_budget_range"] = [0, numbers[0]]
+        outcome = "using [0, %d]" % numbers[0]
+    elif provider_level:
+        owner.pop("thinking_budget_range")
+        outcome = "restoring the provider default"
+    elif value is None:
+        return False
+    else:
+        owner["thinking_budget_range"] = None
+        outcome = "dropping the override"
     logger.warning(
-        "Migrating legacy thinking_budget_range %r to %r in a persisted "
-        "provider config.",
+        "Migrating legacy thinking_budget_range %r in a persisted "
+        "provider config: %s.",
         value,
-        migrated,
+        outcome,
     )
-    owner["thinking_budget_range"] = migrated
     return True
 
 
@@ -129,7 +141,10 @@ def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
     the current version can still carry a range persisted before
     write-path validation existed.
     """
-    changed = _migrate_legacy_thinking_budget_range(data)
+    changed = _migrate_legacy_thinking_budget_range(
+        data,
+        provider_level=True,
+    )
     for collection_name in (
         "models",
         "extra_models",

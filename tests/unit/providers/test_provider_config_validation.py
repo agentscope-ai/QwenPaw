@@ -14,11 +14,14 @@ after a restart the provider failed to load and silently disappeared.
 ``Provider.thinking_control`` unpacks exactly two elements.
 """
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.provider_model_state import migrate_provider_snapshot
 
 
@@ -149,3 +152,42 @@ def test_persisted_provider_level_range_is_migrated_on_load():
     data["thinking_budget_range"] = [8000]
     assert migrate_provider_snapshot(data) is True
     assert data["thinking_budget_range"] == [0, 8000]
+
+
+def test_persisted_provider_level_unusable_range_is_removed():
+    # ProviderInfo.thinking_budget_range is a non-optional List[int], so
+    # an unusable provider-level value cannot fall back to None; the key
+    # is removed so the field default applies instead.
+    data = make_persisted_snapshot()
+    data["thinking_budget_range"] = [9000, 100]
+    assert migrate_provider_snapshot(data) is True
+    assert "thinking_budget_range" not in data
+
+
+def load_snapshot_with_provider_range(range_value):
+    """Write a snapshot carrying *range_value* and load it for real."""
+    data = make_persisted_snapshot()
+    data["is_custom"] = True
+    data["thinking_budget_range"] = range_value
+    manager = ProviderManager()
+    path = manager.custom_path / "test-provider.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return manager.load_provider("test-provider")
+
+
+@pytest.mark.parametrize(
+    "bad_range",
+    [[9000, 100], [0, 0], [-5, -1], [1, 2, 3], "garbage"],
+)
+def test_load_provider_survives_unusable_provider_level_range(bad_range):
+    loaded = load_snapshot_with_provider_range(bad_range)
+    assert loaded is not None
+    # The key was removed during load, so the field default applies.
+    assert loaded.thinking_budget_range == [1, 81920]
+
+
+def test_load_provider_migrates_single_bound_provider_level_range():
+    loaded = load_snapshot_with_provider_range([8000])
+    assert loaded is not None
+    assert loaded.thinking_budget_range == [0, 8000]
