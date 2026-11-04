@@ -4,11 +4,13 @@
 from collections.abc import AsyncIterator, Iterator, Mapping
 import asyncio
 from contextlib import closing
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import gzip
 import json
 from pathlib import Path
+import socket
 import sqlite3
 import threading
 import time
@@ -1115,6 +1117,156 @@ def test_proxy_rejects_non_loopback_runtime_record(tmp_path: Path) -> None:
     assert response.status_code == 503
     assert "loopback-only" in response.json()["detail"]
     assert calls == 1
+
+
+class _ContainerEndpointProvisioner(_FakeProvisioner):
+    """Allow the container reach address without opening every host."""
+
+    def managed_endpoint_allowed(self, host: str) -> bool:
+        return host in {"127.0.0.1", "localhost", "host.docker.internal"}
+
+
+def test_proxy_uses_container_runtime_endpoint(tmp_path: Path) -> None:
+    seen: list[str] = []
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, stream=_ProxyStream())
+
+    transport = httpx.MockTransport(proxy_handler)
+    provisioner = _ContainerEndpointProvisioner()
+    with _client(
+        tmp_path,
+        transport,
+        runtime_provisioner=provisioner,
+    ) as client:
+        token = _register(client, "owner")
+        headers = _headers(token)
+        assert client.get("/api/probe", headers=headers).status_code == 200
+        service = client.app.state.runtime_service
+        record = service.registry.list()[0]
+        service.registry.save(
+            replace(record, host="host.docker.internal"),
+        )
+
+        allowed = client.get("/api/probe", headers=headers)
+        record = service.registry.list()[0]
+        service.registry.save(replace(record, host="203.0.113.9"))
+        rejected = client.get("/api/probe", headers=headers)
+
+    assert allowed.status_code == 200
+    assert any("host.docker.internal" in url for url in seen)
+    assert rejected.status_code == 503
+    assert "loopback-only" in rejected.json()["detail"]
+
+
+def test_proxy_endpoint_check_runs_outside_event_loop(
+    tmp_path: Path,
+) -> None:
+    """A non-loopback allow check can call Docker and must leave the loop."""
+
+    class _OffLoopProvisioner(_ContainerEndpointProvisioner):
+        def __init__(self) -> None:
+            super().__init__()
+            self.checks: list[tuple[str, bool]] = []
+
+        def managed_endpoint_allowed(self, host: str) -> bool:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                on_loop = False
+            else:
+                on_loop = True
+            self.checks.append((host, on_loop))
+            return super().managed_endpoint_allowed(host)
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, stream=_ProxyStream())
+
+    transport = httpx.MockTransport(proxy_handler)
+    provisioner = _OffLoopProvisioner()
+    with _client(
+        tmp_path,
+        transport,
+        runtime_provisioner=provisioner,
+    ) as client:
+        token = _register(client, "owner")
+        headers = _headers(token)
+        assert client.get("/api/probe", headers=headers).status_code == 200
+        service = client.app.state.runtime_service
+        record = service.registry.list()[0]
+        service.registry.save(
+            replace(record, host="host.docker.internal"),
+        )
+
+        response = client.get("/api/probe", headers=headers)
+
+    assert response.status_code == 200
+    assert ("host.docker.internal", False) in provisioner.checks
+
+
+def _closed_tcp_port() -> int:
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = int(sock.getsockname()[1])
+    sock.close()
+    return port
+
+
+def test_runtime_clients_ignore_env_proxy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runtime HTTP calls must not follow HTTP_PROXY."""
+    proxy = f"http://127.0.0.1:{_closed_tcp_port()}"
+    for name in (
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ):
+        monkeypatch.setenv(name, proxy)
+    monkeypatch.setenv("NO_PROXY", "")
+    monkeypatch.setenv("no_proxy", "")
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            assert self.headers.get("X-QwenPaw-Runtime-Token")
+            body = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args: object) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = int(server.server_address[1])
+    try:
+        with _client(tmp_path, runtime_port=port) as client:
+            token = _register(client, "owner")
+            probed = client.get("/api/probe", headers=_headers(token))
+            assert probed.status_code == 200
+            assert probed.text == "ok"
+            runtime_id = client.app.state.runtime_service.registry.list()[
+                0
+            ].runtime_id
+            callback = client.get(
+                "/api/hub/oauth/callback/"
+                f"{runtime_id}/providers/openrouter",
+                params={"code": "c", "state": "s"},
+            )
+            assert callback.status_code == 200
+            assert callback.text == "ok"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_proxy_rejects_declared_request_body_over_limit(
