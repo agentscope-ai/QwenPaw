@@ -1378,3 +1378,129 @@ def test_iter_grep_lines_capped_gbk_keeps_character_prefix(
     got = list(fs._iter_grep_lines(path, FakeCancel()))
 
     assert got == ["姓名: 张"]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected", "expect_fallback"),
+    [
+        pytest.param(
+            "hello 张三\n".encode("utf-8"),
+            ("utf-8-sig", False),
+            False,
+            id="utf8",
+        ),
+        pytest.param(
+            b"\xef\xbb\xbf" + "hello 张三\n".encode("utf-8"),
+            ("utf-8-sig", False),
+            False,
+            id="utf8-bom",
+        ),
+        pytest.param(b"", ("utf-8-sig", False), False, id="empty"),
+        pytest.param(
+            "A张".encode("gbk"),
+            ("gbk", False),
+            True,
+            id="short-gbk",
+        ),
+        pytest.param(
+            bytes.fromhex("99748c48"),
+            ("gbk", False),
+            True,
+            id="gbk-letter-trails",
+        ),
+        pytest.param(
+            "Café".encode("cp1252"),
+            ("cp1252", False),
+            True,
+            id="cafe",
+        ),
+        pytest.param(
+            "Cafés".encode("cp1252"),
+            ("cp1252", False),
+            True,
+            id="cafes",
+        ),
+        pytest.param(
+            "name=锘".encode("gbk"),
+            ("gbk", False),
+            True,
+            id="longer-gbk",
+        ),
+        pytest.param(
+            "姓名: 张三\n".encode("utf-8") + b"\xff",
+            ("utf-8-sig", True),
+            True,
+            id="mostly-utf8-dirty",
+        ),
+        pytest.param(
+            b"\xef\xbb\xbfhello\xff",
+            ("utf-8-sig", True),
+            True,
+            id="bom-dirty",
+        ),
+        pytest.param(
+            b"hello\x81world",
+            ("utf-8-sig", True),
+            True,
+            id="dirty-lead",
+        ),
+    ],
+)
+def test_select_grep_decoding_skips_gbk_heuristic_for_utf8(
+    temp_dir,
+    monkeypatch,
+    payload,
+    expected,
+    expect_fallback,
+):
+    """Strict UTF-8 must not run GBK trails, legacy probes, or lossy stats.
+
+    A non-UTF-8 file still feeds ``_feed_gbk_pair_trails`` and keeps the
+    same encoding choice (GBK letter trails, CP1252 accents, lossy UTF-8).
+    """
+    import qwenpaw.agents.tools.file_search as fs
+
+    path = temp_dir / "sample.txt"
+    path.write_bytes(payload)
+    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 1)
+    trail_calls = 0
+    lossy_calls = 0
+    probed: list[str] = []
+    real_trails = fs._feed_gbk_pair_trails
+    real_stats = fs._lossy_text_stats
+    real_probe = fs._GrepStrictProbe
+
+    class _RecordingProbe(real_probe):
+        """Record which encodings were constructed."""
+
+        def __init__(self, encoding: str) -> None:
+            probed.append(encoding)
+            super().__init__(encoding)
+
+    def _trails(*args, **kwargs):
+        nonlocal trail_calls
+        trail_calls += 1
+        return real_trails(*args, **kwargs)
+
+    def _stats(text: str):
+        nonlocal lossy_calls
+        lossy_calls += 1
+        return real_stats(text)
+
+    monkeypatch.setattr(fs, "_GrepStrictProbe", _RecordingProbe)
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.file_search._feed_gbk_pair_trails",
+        _trails,
+    )
+    monkeypatch.setattr(fs, "_lossy_text_stats", _stats)
+
+    assert fs._select_grep_decoding(path, FakeCancel(), None) == expected
+    if expect_fallback:
+        assert trail_calls >= 1
+        assert lossy_calls >= 1
+        assert "gbk" in probed
+        assert "cp1252" in probed
+        return
+    assert trail_calls == 0
+    assert lossy_calls == 0
+    assert probed == ["utf-8-sig", "utf-8"]

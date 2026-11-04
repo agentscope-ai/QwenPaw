@@ -559,22 +559,53 @@ class _GrepStrictProbe:
             self.ok = False
 
 
-def _select_grep_decoding(
+def _stream_strict_utf8_probes(
     path: Path,
     cancel: threading.Event,
     max_bytes: int | None,
-) -> tuple[str, bool]:
-    """Return ``(encoding, lossy)`` from one streaming pass.
+) -> tuple[dict[str, _GrepStrictProbe], bytes]:
+    """Feed only strict UTF-8 probes and keep a BOM prefix.
 
-    ``max_bytes is None`` reads the whole file. A cap uses that prefix
-    and finalizes decoders only at real EOF, matching
-    ``decode_text_bytes_with_encoding_fallback`` on the same bytes.
-    Strict UTF-8, the lossy ratio, GBK pair kinds, and the legacy probes
-    share this pass so a non-UTF-8 file is not opened once per encoding.
+    Reads in ``_GREP_READ_CHUNK`` pieces and stops once every probe has
+    failed. The prefix is the leading bytes (at most the UTF-8 BOM) for
+    a later fallback decision. This pass does not run GBK pair trails,
+    GBK/CP1252 probes, or the lossy UTF-8 ratio.
     """
     probes = {
         encoding: _GrepStrictProbe(encoding)
-        for encoding in (*_GREP_UTF8_ENCODINGS, "gbk", "cp1252")
+        for encoding in _GREP_UTF8_ENCODINGS
+    }
+    prefix = b""
+    with open(path, "rb") as raw:
+        reader = _GrepChunkReader()
+        for chunk in reader.iter_chunks(raw, cancel, max_bytes):
+            if len(prefix) < len(_UTF8_BOM):
+                prefix += chunk[: len(_UTF8_BOM) - len(prefix)]
+            for probe in probes.values():
+                probe.feed(chunk, final=False)
+            if not any(probe.ok for probe in probes.values()):
+                return probes, prefix
+        if reader.hit_eof:
+            for probe in probes.values():
+                probe.feed(b"", final=True)
+    return probes, prefix
+
+
+def _select_grep_fallback_decoding(
+    path: Path,
+    cancel: threading.Event,
+    max_bytes: int | None,
+    *,
+    bom: bool,
+) -> tuple[str, bool]:
+    """Pick a legacy or lossy encoding after strict UTF-8 failed.
+
+    Second streaming pass over the same cap. Chunks stay bounded and
+    *cancel* is checked between them, so an unlimited file is not loaded
+    into one buffer. ``bom`` is the prefix flag from the UTF-8 pass.
+    """
+    probes = {
+        encoding: _GrepStrictProbe(encoding) for encoding in ("gbk", "cp1252")
     }
     lossy = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
     bad = 0
@@ -584,13 +615,10 @@ def _select_grep_decoding(
     letters = 0
     unpaired = 0
     pending_lead: int | None = None
-    prefix = b""
 
     with open(path, "rb") as raw:
         reader = _GrepChunkReader()
         for chunk in reader.iter_chunks(raw, cancel, max_bytes):
-            if len(prefix) < len(_UTF8_BOM):
-                prefix += chunk[: len(_UTF8_BOM) - len(prefix)]
             other, letters, unpaired, pending_lead = _feed_gbk_pair_trails(
                 chunk,
                 other,
@@ -614,13 +642,9 @@ def _select_grep_decoding(
             good += piece_good
             saw_non_ascii = saw_non_ascii or piece_saw
 
-    for encoding in _GREP_UTF8_ENCODINGS:
-        if probes[encoding].ok:
-            return encoding, False
-
     choice = _choose_fallback_decoding(
         _FallbackSignals(
-            bom=prefix.startswith(_UTF8_BOM),
+            bom=bom,
             bad=bad,
             good=good,
             saw_non_ascii=saw_non_ascii,
@@ -634,6 +658,33 @@ def _select_grep_decoding(
     if choice is None:
         return "latin-1", False
     return choice
+
+
+def _select_grep_decoding(
+    path: Path,
+    cancel: threading.Event,
+    max_bytes: int | None,
+) -> tuple[str, bool]:
+    """Return ``(encoding, lossy)`` for a streaming grep read.
+
+    ``max_bytes is None`` reads the whole file. A cap uses that prefix
+    and finalizes decoders only at real EOF, matching
+    ``decode_text_bytes_with_encoding_fallback`` on the same bytes.
+
+    Valid UTF-8 returns after one strict pass. GBK pair trails, the
+    GBK/CP1252 probes, and the lossy ratio run in a second pass, and
+    only when every strict UTF-8 probe has failed.
+    """
+    probes, prefix = _stream_strict_utf8_probes(path, cancel, max_bytes)
+    for encoding in _GREP_UTF8_ENCODINGS:
+        if probes[encoding].ok:
+            return encoding, False
+    return _select_grep_fallback_decoding(
+        path,
+        cancel,
+        max_bytes,
+        bom=prefix.startswith(_UTF8_BOM),
+    )
 
 
 def _iter_decoded_grep_lines_lossy(
@@ -712,8 +763,9 @@ def _iter_grep_lines(
     Omitted *max_bytes* uses ``_MAX_FILE_SIZE`` (directory scans). ``None``
     streams an explicit file with no byte cap. A cap reads that prefix
     once, decodes it with the shared helpers, and splits the text. An
-    unlimited file is read twice: once to pick the encoding, then once
-    to yield lines, without holding the whole file.
+    unlimited UTF-8 file is streamed twice (choose, then yield). A
+    non-UTF-8 file uses one more pass for the legacy fallback. None of
+    these passes holds the whole file.
     """
     limit: int | None
     if max_bytes is _GREP_MAX_BYTES_DEFAULT:
