@@ -59,16 +59,21 @@ class AppStorage:
             key=key,
             value=None,
             create_if_not_exist=False,
+            delete=True,
         )
 
     async def keys(self) -> List[str]:
-        """List all keys in this app's namespace."""
+        """List all keys in this app's namespace.
+
+        Hides ``_``-prefixed runtime bookkeeping (e.g. the session
+        layer's ``_context_generation``) so apps see only their own KV.
+        """
         try:
             state = await self._session.get_session_state_dict(
                 session_id=self._namespace,
                 allow_not_exist=True,
             )
-            return list(state)
+            return [key for key in state if not key.startswith("_")]
         except Exception:
             return []
 
