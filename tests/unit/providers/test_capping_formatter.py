@@ -1838,12 +1838,12 @@ def _forbid_pdf_read(monkeypatch, path: str) -> None:
     monkeypatch.setattr(builtins, "open", _guarded_open)
 
 
-def _forbid_sync_download(monkeypatch) -> None:
+def _forbid_sync_download(monkeypatch, what: str = "PDF") -> None:
     """Make a synchronous HTTP download fail loudly."""
 
     def _boom(*args, **kwargs):
         raise AssertionError(
-            "the formatter must not download the PDF synchronously",
+            f"the formatter must not download the {what} synchronously",
         )
 
     monkeypatch.setattr("requests.get", _boom)
@@ -2002,6 +2002,158 @@ async def test_unprepared_remote_pdf_is_not_downloaded_during_format(
                                 media_type="application/pdf",
                             ),
                             name="doc.pdf",
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+
+    assert not _media_parts(parts)
+    assert any(
+        "remote media preparation was bypassed" in (part.get("text") or "")
+        for part in parts
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unprepared remote audio
+#
+# The OpenAI chat formatter downloads a remote audio URL with a
+# synchronous ``requests.get`` inside ``format()``: the Chat
+# Completions API has no URL form for audio, so the bytes have to be
+# inlined as base64.  An audio source that bypassed the asynchronous
+# preparation must therefore be refused, exactly like an unprepared PDF.
+# ---------------------------------------------------------------------------
+
+_REMOTE_AUDIO_URL = "https://cdn.example.com/clip.mp3"
+
+
+@pytest.mark.parametrize(
+    "formatter_cls,text_type",
+    [
+        (_CappingOpenAIFormatter, "text"),
+        (_CappingOpenAIResponseFormatter, "input_text"),
+    ],
+)
+def test_unprepared_remote_audio_is_not_downloaded(
+    monkeypatch,
+    formatter_cls,
+    text_type,
+) -> None:
+    """A remote audio source that skipped preparation is not downloaded.
+
+    The base OpenAI formatters download a remote audio URL with a
+    synchronous ``requests.get`` inside ``format()``: that blocks the
+    event loop and bypasses both inline-media budgets.
+    """
+    _forbid_sync_download(monkeypatch, "audio")
+
+    out = formatter_cls()._format_audio_source(
+        URLSource(url=_REMOTE_AUDIO_URL, media_type="audio/mpeg"),
+    )
+
+    assert out["type"] == text_type
+    assert "remote media preparation was bypassed" in out["text"]
+    assert "input_audio" not in out
+
+
+@pytest.mark.parametrize(
+    "formatter_cls",
+    [
+        _CappingOpenAIFormatter,
+        _CappingOpenAIResponseFormatter,
+    ],
+)
+def test_prepared_audio_is_still_inlined(formatter_cls) -> None:
+    """The guard only rejects unprepared sources: prepared audio inlines.
+
+    A prepared audio source is a ``Base64Source``: the asynchronous
+    preparation stage already downloaded it off the event loop, so it
+    carries its payload in memory and must still reach the wire.
+    """
+    source = _base64_source(_EACH_IMAGE_BYTES, "audio/mpeg")
+
+    out = formatter_cls()._format_audio_source(source)
+
+    assert out["type"] == "input_audio"
+    assert out["input_audio"]["data"] == source.data
+    assert out["input_audio"]["format"] == "mp3"
+
+
+def test_unprepared_local_audio_stays_a_local_placeholder(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A local audio source keeps the local placeholder wording.
+
+    The local guard runs first: a local file is rejected as bypassed
+    *local* media preparation, not as bypassed remote preparation.
+    """
+    path = tmp_path / "clip.mp3"
+    path.write_bytes(b"0" * 128)
+    _forbid_sync_download(monkeypatch, "audio")
+
+    out = _CappingOpenAIFormatter()._format_audio_source(
+        URLSource(url=path.as_uri(), media_type="audio/mpeg"),
+    )
+
+    assert out["type"] == "text"
+    assert "local media preparation was bypassed" in out["text"]
+    assert "remote" not in out["text"]
+
+
+def test_remote_image_is_still_passed_through() -> None:
+    """The remote guard covers audio only, not images.
+
+    The OpenAI chat formatter hands a remote *image* URL to the API
+    unchanged — no download, no inline payload — so a remote image
+    must keep reaching the wire.
+    """
+    url = "https://cdn.example.com/pic.png"
+
+    out = _CappingOpenAIFormatter()._format_image_source(
+        URLSource(url=url, media_type="image/png"),
+    )
+
+    assert out["type"] == "image_url"
+    assert out["image_url"]["url"] == url
+
+
+def test_remote_audio_is_still_passed_through_by_dashscope() -> None:
+    """The remote guard covers the OpenAI formatters only.
+
+    DashScope accepts an audio URL directly in its ``data`` field, so
+    its base formatter performs no download and the remote URL must
+    keep reaching the wire.
+    """
+    out = _CappingDashScopeFormatter()._format_audio_source(
+        URLSource(url=_REMOTE_AUDIO_URL, media_type="audio/mpeg"),
+    )
+
+    assert out["type"] == "input_audio"
+    assert out["input_audio"]["data"] == _REMOTE_AUDIO_URL
+
+
+@pytest.mark.asyncio
+async def test_unprepared_remote_audio_is_not_downloaded_during_format(
+    monkeypatch,
+) -> None:
+    """Formatting a request with an unprepared audio source is inert."""
+    _forbid_sync_download(monkeypatch, "audio")
+
+    parts = _wire_parts(
+        await _CappingOpenAIFormatter().format(
+            [
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[
+                        DataBlock(
+                            source=URLSource(
+                                url=_REMOTE_AUDIO_URL,
+                                media_type="audio/mpeg",
+                            ),
                         ),
                     ],
                 ),

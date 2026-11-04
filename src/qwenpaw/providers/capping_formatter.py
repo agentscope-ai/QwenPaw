@@ -604,6 +604,38 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
             return None
         return self._placeholder_unprepared(kind)
 
+    def _unprepared_remote_placeholder(
+        self,
+        source: Any,
+        kind: str,
+    ) -> dict[str, Any] | None:
+        """Reject a remote URL that bypassed asynchronous preparation.
+
+        Some base formatters download a remote URL while formatting: the
+        OpenAI chat formatter downloads remote *audio* (the Chat
+        Completions API has no URL form for audio, unlike images, which
+        it passes through unchanged) and inlines it as base64.  The
+        download is a synchronous ``requests.get`` inside the async
+        ``format()`` call, so it blocks the event loop — and the bytes
+        it fetches escape both inline-media budgets, which only measure
+        the sources the formatter can size itself.
+
+        A prepared source reaches the formatter as a ``Base64Source``:
+        the asynchronous preparation stage downloaded it off the event
+        loop and replaced the source in place.  A remote ``URLSource``
+        therefore means the preparation stage did not run for this
+        block, and the base formatter must not be allowed to download it
+        synchronously.  Substitute a placeholder.
+        """
+        if not isinstance(source, URLSource):
+            # A ``Base64Source`` carries its payload in memory: it was
+            # prepared asynchronously and needs no I/O here.
+            return None
+        if local_media_path(str(source.url or "")) is not None:
+            # A local file is rejected by ``_unprepared_local_placeholder``.
+            return None
+        return self._placeholder_unprepared_remote(kind)
+
     def _unprepared_file_placeholder(
         self,
         source: Any,
@@ -713,12 +745,28 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
+        """Cap audio media and refuse unprepared sources.
+
+        The base formatter downloads a remote audio URL with a
+        synchronous ``requests.get`` inside ``format()`` — the Chat
+        Completions API has no URL form for audio, so it must be
+        inlined as base64.  An audio source that bypassed the
+        asynchronous preparation is therefore *not* handed to the base
+        formatter: it would block the event loop and escape both
+        inline-media budgets.
+        """
         capped = self._cap_media(source, "audio")
         if capped is not None:
             return capped
         unprepared = self._unprepared_local_placeholder(source, "audio")
         if unprepared is not None:
             return unprepared
+        unprepared_remote = self._unprepared_remote_placeholder(
+            source,
+            "audio",
+        )
+        if unprepared_remote is not None:
+            return unprepared_remote
         return super()._format_audio_source(source)
 
 
@@ -930,6 +978,28 @@ class _CappingOpenAIResponseFormatter(
         if unprepared is not None:
             return unprepared
         return super()._format_image_source(source)
+
+    def _format_audio_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
+        """Refuse an unprepared audio source.
+
+        The Responses API does not support audio input, so the base
+        formatter skips audio blocks before this hook runs.  The guard is
+        here so the inherited base hook — which downloads a remote audio
+        URL synchronously — can never run, whichever path reaches it.
+        """
+        unprepared = self._unprepared_local_placeholder(source, "audio")
+        if unprepared is not None:
+            return unprepared
+        unprepared_remote = self._unprepared_remote_placeholder(
+            source,
+            "audio",
+        )
+        if unprepared_remote is not None:
+            return unprepared_remote
+        return super()._format_audio_source(source)
 
     def _format_file_source(
         self,
