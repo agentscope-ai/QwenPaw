@@ -3292,6 +3292,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         source_path: Path,
         *,
         force: bool = False,
+        installation_source: str = "",
     ) -> PluginRecord:
         """Install offline without registering or starting resources."""
         from ..utils.io_utils import run_sync_io
@@ -3343,11 +3344,38 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 manifest,
                 replace_files=force,
                 enabled=False,
+                installation_source=installation_source,
             )
             from .settings import clear_channel_tombstone
 
             await asyncio.to_thread(clear_channel_tombstone, manifest.id)
             return record
+
+    @staticmethod
+    async def _write_installation_origin(
+        record: PluginRecord,
+        installation_source: str,
+    ) -> None:
+        from ..installation_origin import (
+            origin_from_platform_url,
+            write_plugin_origin,
+        )
+        from ..utils.io_utils import run_sync_io
+
+        manifest = record.manifest
+        origin = origin_from_platform_url(
+            installation_source,
+            "app"
+            if manifest.plugin_type == "app" or manifest.meta.get("pawapp")
+            else "plugin",
+            manifest.version,
+        )
+        await run_sync_io(
+            write_plugin_origin,
+            record.source_path.parent,
+            manifest.id,
+            origin,
+        )
 
     async def load_plugin_from_path(
         self,
@@ -3363,6 +3391,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         after_load: Optional[Any] = None,
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
+        installation_source: str = "",
     ) -> PluginRecord:
         """Copy plugin files, install deps, and load plugin at runtime.
 
@@ -3448,6 +3477,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 from .settings import clear_channel_tombstone
 
                 await asyncio.to_thread(clear_channel_tombstone, plugin_id)
+                await self._write_installation_origin(
+                    record,
+                    installation_source,
+                )
                 return record
             record = None
             from ..config import load_config
@@ -3465,6 +3498,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     manifest,
                     incoming,
                     install_dir,
+                    installation_source=installation_source,
                     replace_files=force,
                     pawport_owner=pawport_owner,
                     recover_incomplete=recover_incomplete,
@@ -3519,6 +3553,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         replace_files: bool = False,
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
+        installation_source: str = "",
         enabled: bool = True,
         wheels=(),
         _bundled_seed=False,
@@ -3765,6 +3800,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 )
                 if cleanup_errors:
                     raise RuntimeError("; ".join(cleanup_errors))
+            await self._write_installation_origin(record, installation_source)
             return record
         except BaseException:
             if files_committed:
@@ -4334,6 +4370,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 logger.info(
                     f"Deleted plugin files at {source_path}",
                 )
+            from ..installation_origin import write_plugin_origin
+            from ..utils.io_utils import run_sync_io
+
+            await run_sync_io(
+                write_plugin_origin,
+                source_path.parent,
+                plugin_id,
+                None,
+            )
 
         if mode is not UnloadMode.SHUTDOWN:
             self.lifecycle.drop_instance(plugin_id)
@@ -4729,6 +4774,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     source_path,
                     purpose="uninstall plugin directory",
                 )
+            from ..installation_origin import write_plugin_origin
+
+            await run_sync_io(
+                write_plugin_origin,
+                source_path.parent,
+                plugin_id,
+                None,
+            )
         self.lifecycle.drop_instance(plugin_id)
         if cloudpaw_cleanup is not None and report.clean:
             from .legacy_cloudpaw import finish_uninstall
