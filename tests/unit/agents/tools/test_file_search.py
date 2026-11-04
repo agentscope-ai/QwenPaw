@@ -928,31 +928,64 @@ def test_walk_and_grep_single_file_over_max_size_streams_prefix(
     temp_dir,
     monkeypatch,
 ):
-    """Oversize single-file grep streams the leading bytes and reports truncation."""
-    target = temp_dir / "big.txt"
-    target.write_bytes(b"needle-in-large-file\n" + b"x" * 128)
+    """An explicit file past 2 MiB is searched in full, not size-capped."""
     import qwenpaw.agents.tools.file_search as fs
 
-    monkeypatch.setattr(fs, "_MAX_FILE_SIZE", 32)
-    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 8)
-    opened: list[Path] = []
-    real_open = open
+    target = temp_dir / "big.txt"
+    # Short ASCII lines keep the match line small. The needle sits past
+    # the directory cap, so a capped reader cannot see it. Repeating a
+    # 4 KiB line avoids one giant bytes object.
+    line = b"a" * 4095 + b"\n"
+    count = (fs._MAX_FILE_SIZE // len(line)) + 1
+    with open(target, "wb") as handle:
+        for _ in range(count):
+            handle.write(line)
+        handle.write(b"needle-past-cap\n")
+    assert target.stat().st_size > fs._MAX_FILE_SIZE
 
-    def tracking_open(file, mode="r", *args, **kwargs):
-        opened.append(Path(file))
-        return real_open(file, mode, *args, **kwargs)
-
-    monkeypatch.setattr("builtins.open", tracking_open)
-    matches, status = _walk_and_grep(
-        target,
-        re.compile(r"needle"),
+    regex = re.compile(r"needle-past-cap")
+    dir_matches, dir_status = _walk_and_grep(
+        temp_dir,
+        regex,
         0,
         FakeCancel(),
         None,
     )
-    assert status.startswith("truncated: file size limit")
-    assert any("needle-in-large-file" in line for line in matches)
-    assert opened  # must open and stream, not silent-skip
+    assert dir_status == "ok"
+    assert dir_matches == []
+
+    read_sizes: list[int] = []
+    real_open = open
+
+    def tracking_open(file, mode="r", *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        if Path(file) == target and "b" in mode:
+            original = handle.read
+
+            def tracked(size=-1, /):
+                read_sizes.append(size)
+                if (
+                    not isinstance(size, int)
+                    or size <= 0
+                    or size > fs._GREP_READ_CHUNK
+                ):
+                    raise AssertionError(f"unbounded read size {size}")
+                return original(size)
+
+            handle.read = tracked
+        return handle
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+    matches, status = _walk_and_grep(
+        target,
+        regex,
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert any("needle-past-cap" in line for line in matches)
+    assert sum(read_sizes) > fs._MAX_FILE_SIZE
 
 
 def test_walk_and_grep_mostly_utf8_dirty_byte_keeps_chinese(
@@ -1037,6 +1070,25 @@ def test_walk_and_grep_longer_cp1252_finds_accent(temp_dir):
     assert any("Cafés" in line for line in matches)
 
 
+def test_walk_and_grep_gbk_letter_trails_prefer_gbk(temp_dir):
+    """Letter-trail GBK with no unpaired ASCII is searchable as GBK."""
+    target = temp_dir / "pairs.txt"
+    target.write_bytes(bytes.fromhex("99748c48"))
+    regex = re.compile("\u6a9b")
+    for root in (target, temp_dir):
+        matches, status = _walk_and_grep(
+            root,
+            regex,
+            0,
+            FakeCancel(),
+            None,
+        )
+        assert status == "ok", root
+        assert matches
+        assert any("\u6a9b" in line and "\u5b52" in line for line in matches)
+        assert all("\u2122" not in line for line in matches)
+
+
 def test_walk_and_grep_bom_and_dirty_byte_strips_bom(temp_dir):
     """A BOM plus one invalid byte stays searchable without U+FEFF."""
     target = temp_dir / "bom.txt"
@@ -1090,17 +1142,18 @@ def test_walk_and_grep_streams_bounded_reads_and_keeps_gbk(
             original = handle.read
 
             def tracked(size=-1, /):
-                read_sizes.append(size)
-                if not isinstance(size, int) or size < 0 or size > 16:
+                if not isinstance(size, int) or size <= 0 or size > 16:
                     raise AssertionError(f"unbounded read size {size}")
-                return original(size)
+                data = original(size)
+                read_sizes.append(len(data))
+                return data
 
             handle.read = tracked
         return handle
 
     monkeypatch.setattr("builtins.open", tracking_open)
     matches, status = _walk_and_grep(
-        target,
+        temp_dir,
         re.compile("张三"),
         0,
         FakeCancel(),
@@ -1111,8 +1164,56 @@ def test_walk_and_grep_streams_bounded_reads_and_keeps_gbk(
     assert all("张三" in line for line in matches)
     assert read_sizes
     assert all(0 < size <= 16 for size in read_sizes)
-    assert sum(read_sizes) >= len(payload)
-    assert max(read_sizes) <= 16
+    # Directory scans decode the capped prefix from one read.
+    assert sum(read_sizes) == len(payload)
+
+
+def test_walk_and_grep_directory_reads_each_file_once(temp_dir, monkeypatch):
+    """A directory scan must not re-read a file to pick its encoding."""
+    import qwenpaw.agents.tools.file_search as fs
+
+    utf8 = temp_dir / "utf8.txt"
+    gbk = temp_dir / "gbk.txt"
+    utf8_payload = b"needle-utf8\nsecond\n"
+    gbk_payload = "姓名: 张三\n".encode("gbk")
+    utf8.write_bytes(utf8_payload)
+    gbk.write_bytes(gbk_payload)
+    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 5)
+    reads: dict[Path, list[int]] = {utf8: [], gbk: []}
+    opens: dict[Path, int] = {utf8: 0, gbk: 0}
+    real_open = open
+
+    def tracking_open(file, mode="r", *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        path = Path(file)
+        if path in reads and "b" in mode:
+            opens[path] += 1
+            original = handle.read
+
+            def tracked(size=-1, /):
+                if not isinstance(size, int) or size <= 0 or size > 5:
+                    raise AssertionError(f"unbounded read size {size}")
+                data = original(size)
+                reads[path].append(len(data))
+                return data
+
+            handle.read = tracked
+        return handle
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+    matches, status = _walk_and_grep(
+        temp_dir,
+        re.compile("needle|张三"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert any("needle-utf8" in line for line in matches)
+    assert any("张三" in line for line in matches)
+    assert opens == {utf8: 1, gbk: 1}
+    assert sum(reads[utf8]) == len(utf8_payload)
+    assert sum(reads[gbk]) == len(gbk_payload)
 
 
 def test_walk_and_grep_cancel_during_single_file_read(temp_dir, monkeypatch):
@@ -1154,6 +1255,48 @@ def test_walk_and_grep_cancel_during_single_file_read(temp_dir, monkeypatch):
     assert sum(read_sizes) < len(payload)
 
 
+def test_walk_and_grep_cancel_during_directory_snapshot(
+    temp_dir,
+    monkeypatch,
+):
+    """Cancel stops a capped directory read before the rest is loaded."""
+    target = temp_dir / "wide.txt"
+    payload = b"needle\n" * 80
+    target.write_bytes(payload)
+    import qwenpaw.agents.tools.file_search as fs
+
+    monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 8)
+    cancel = threading.Event()
+    read_sizes: list[int] = []
+    real_open = open
+
+    def tracking_open(file, mode="r", *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        if Path(file) == target:
+            original = handle.read
+
+            def tracked(size=-1, /):
+                read_sizes.append(size)
+                data = original(size)
+                cancel.set()
+                return data
+
+            handle.read = tracked
+        return handle
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+    _matches, status = _walk_and_grep(
+        temp_dir,
+        re.compile(r"needle"),
+        0,
+        cancel,
+        None,
+    )
+    assert status == "timeout"
+    assert read_sizes
+    assert sum(read_sizes) < len(payload)
+
+
 def test_iter_grep_lines_matches_normalized_newlines(temp_dir, monkeypatch):
     """Chunked decoding matches a full decode split only on ``\\n``."""
     import qwenpaw.agents.tools.file_search as fs
@@ -1172,6 +1315,7 @@ def test_iter_grep_lines_matches_normalized_newlines(temp_dir, monkeypatch):
         "name=锘".encode("gbk"),
         "Cafés".encode("cp1252"),
         "Cafés au lait".encode("cp1252"),
+        bytes.fromhex("99748c48"),
         b"\xef\xbb\xbfhello\xff",
         "你好世界\n".encode("utf-8") + b"\xff",
         "姓名: 张三\n".encode("utf-8") + b"\xff",
@@ -1184,11 +1328,14 @@ def test_iter_grep_lines_matches_normalized_newlines(temp_dir, monkeypatch):
     for index, data in enumerate(samples):
         path = temp_dir / f"sample-{index}.txt"
         path.write_bytes(data)
-        got = list(fs._iter_grep_lines(path, FakeCancel()))
         expected = list(
             io.StringIO(decode_text_bytes_with_encoding_fallback(data)),
         )
+        got = list(fs._iter_grep_lines(path, FakeCancel()))
         assert got == expected, data
+        # Explicit single-file searches stream with no byte cap.
+        got_full = list(fs._iter_grep_lines(path, FakeCancel(), None))
+        assert got_full == expected, data
 
 
 @pytest.mark.parametrize("data", [b"\xef", b"\xef\xbb"])
@@ -1206,12 +1353,14 @@ def test_iter_grep_lines_incomplete_bom_matches_shared_helper(
     monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 1)
     path = temp_dir / "bom.txt"
     path.write_bytes(data)
-    got = list(fs._iter_grep_lines(path, FakeCancel()))
     expected = list(
         io.StringIO(decode_text_bytes_with_encoding_fallback(data)),
     )
     assert expected
+    got = list(fs._iter_grep_lines(path, FakeCancel()))
     assert got == expected
+    got_full = list(fs._iter_grep_lines(path, FakeCancel(), None))
+    assert got_full == expected
 
 
 def test_iter_grep_lines_capped_gbk_keeps_character_prefix(

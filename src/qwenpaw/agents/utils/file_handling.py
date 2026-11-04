@@ -123,17 +123,26 @@ def _decode_mostly_utf8_lossy(data: bytes) -> str | None:
     return _normalize_newlines(raw)
 
 
+def _is_ascii_letter_byte(value: int) -> bool:
+    """True for a single A-Z / a-z byte."""
+    return (0x41 <= value <= 0x5A) or (0x61 <= value <= 0x7A)
+
+
 def _feed_gbk_pair_trails(
     data: bytes,
     other: int,
     letters: int,
+    unpaired_ascii: int,
     pending_lead: int | None,
-) -> tuple[int, int, int | None]:
-    """Count GBK pairs, carrying a lead byte split across chunks.
+) -> tuple[int, int, int, int | None]:
+    """Count GBK pairs and unpaired ASCII letters across chunks.
 
     A pair is a lead in 0x81-0xFE and a trail in 0x40-0x7E or 0x80-0xFE.
     Letter trails (A-Z / a-z) are separate: CP1252 ``Cafés`` is valid GBK
-    only because ``é`` consumes the next ASCII letter.
+    only because ``é`` consumes the next ASCII letter. ASCII letters that
+    are not consumed as a trail stay unpaired. Pure GBK whose trails
+    happen to be letters (``\\x99\\x74\\x8c\\x48``) has zero unpaired
+    letters, so GBK wins. ``Cafés`` still has unpaired ``C``, ``a``, ``f``.
     """
     if pending_lead is not None:
         data = bytes((pending_lead,)) + data
@@ -143,26 +152,34 @@ def _feed_gbk_pair_trails(
     while index < size:
         lead = data[index]
         if lead < 0x81 or lead > 0xFE:
+            if _is_ascii_letter_byte(lead):
+                unpaired_ascii += 1
             index += 1
             continue
         if index + 1 >= size:
-            return other, letters, lead
+            return other, letters, unpaired_ascii, lead
         trail = data[index + 1]
         if not (0x40 <= trail <= 0x7E or 0x80 <= trail <= 0xFE):
             index += 1
             continue
-        if (0x41 <= trail <= 0x5A) or (0x61 <= trail <= 0x7A):
+        if _is_ascii_letter_byte(trail):
             letters += 1
         else:
             other += 1
         index += 2
-    return other, letters, None
+    return other, letters, unpaired_ascii, None
 
 
-def _gbk_pair_trail_kinds(data: bytes) -> tuple[int, int]:
-    """Return ``(other_trails, letter_trails)`` for a whole buffer."""
-    other, letters, _pending = _feed_gbk_pair_trails(data, 0, 0, None)
-    return other, letters
+def _gbk_pair_trail_kinds(data: bytes) -> tuple[int, int, int]:
+    """Return other trails, letter trails, and unpaired ASCII letters."""
+    other, letters, unpaired, _pending = _feed_gbk_pair_trails(
+        data,
+        0,
+        0,
+        0,
+        None,
+    )
+    return other, letters, unpaired
 
 
 class _FallbackSignals(NamedTuple):
@@ -174,6 +191,7 @@ class _FallbackSignals(NamedTuple):
     saw_non_ascii: bool
     other_trails: int
     letter_trails: int
+    unpaired_ascii_letters: int
     gbk_ok: bool
     cp1252_ok: bool
 
@@ -185,17 +203,24 @@ def _choose_fallback_decoding(
 
     ``None`` means Latin-1. Lossy UTF-8 wins when a real non-ASCII
     character or a BOM survived a sparse replacement. Otherwise a strict
-    legacy decode wins. CP1252 beats GBK when every GBK pair ate an ASCII
-    letter. That letter-only GBK decode is ignored when CP1252 rejected
-    the bytes and the lossy ratio still looks like UTF-8, so one dirty
-    lead (``hello\\x81world``) does not become a CJK character.
+    legacy decode wins. CP1252 beats GBK only when every GBK pair ate an
+    ASCII letter and at least one ASCII letter was left unpaired
+    (``Cafés``). Pure GBK whose trails happen to be letters
+    (``\\x99\\x74\\x8c\\x48``) has no unpaired letter, so GBK wins.
+    That letter-only GBK decode is ignored when CP1252 rejected the bytes
+    and the lossy ratio still looks like UTF-8, so one dirty lead
+    (``hello\\x81world``) does not become a CJK character.
     """
     ratio_ok = _lossy_ratio_ok(
         signals.bad,
         signals.good,
         bom=signals.bom,
     )
-    suspicious = signals.letter_trails > 0 and signals.other_trails == 0
+    suspicious = (
+        signals.letter_trails > 0
+        and signals.other_trails == 0
+        and signals.unpaired_ascii_letters > 0
+    )
     if ratio_ok and (signals.bom or signals.saw_non_ascii):
         return ("utf-8-sig", True)
     if signals.cp1252_ok and suspicious:
@@ -218,7 +243,7 @@ def _signals_for_bytes(
     """Build fallback signals from one complete byte string."""
     raw = data.decode("utf-8-sig", errors="replace")
     bad, good, saw_non_ascii = _lossy_text_stats(raw)
-    other, letters = _gbk_pair_trail_kinds(data)
+    other, letters, unpaired = _gbk_pair_trail_kinds(data)
     return _FallbackSignals(
         bom=data.startswith(_UTF8_BOM),
         bad=bad,
@@ -226,6 +251,7 @@ def _signals_for_bytes(
         saw_non_ascii=saw_non_ascii,
         other_trails=other,
         letter_trails=letters,
+        unpaired_ascii_letters=unpaired,
         gbk_ok=gbk_ok,
         cp1252_ok=cp1252_ok,
     )
@@ -296,7 +322,9 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     when a sparse replacement still leaves a real non-ASCII character,
     or when a leading BOM is present. Otherwise GBK/CP936 is tried,
     except CP1252 wins when every GBK pair would consume an ASCII
-    letter (``Cafés``). Latin-1 covers any remaining byte sequence.
+    letter and another ASCII letter is left unpaired (``Cafés``).
+    Pure GBK whose trails happen to be letters stays GBK. Latin-1
+    covers any remaining byte sequence.
 
     Args:
         file_path: Path to the file to read (Path object or string)

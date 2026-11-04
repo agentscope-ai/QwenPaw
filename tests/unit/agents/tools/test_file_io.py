@@ -32,6 +32,7 @@ from qwenpaw.agents.tools.file_io import (
 )
 from qwenpaw.agents.tools.utils import (
     TRUNCATION_METADATA_KEY,
+    _read_file_safe_sync,
     read_file_safe,
 )
 from qwenpaw.agents.utils.file_handling import (
@@ -266,6 +267,18 @@ class TestReadFile:
 
         assert await read_file_safe(str(path)) == "Cafés"
 
+    async def test_safe_read_gbk_letter_trails_without_unpaired_ascii(
+        self,
+        tmp_path,
+    ):
+        """GBK pairs whose trails are ASCII letters stay GBK, not CP1252."""
+        raw = bytes.fromhex("99748c48")
+        path = tmp_path / "pairs.txt"
+        path.write_bytes(raw)
+
+        assert await read_file_safe(str(path)) == "\u6a9b\u5b52"
+        assert _read_file_safe_sync(str(path), 64) == "\u6a9b\u5b52"
+
     @pytest.mark.asyncio
     async def test_safe_read_bom_and_dirty_byte_strips_bom(self, tmp_path):
         """A BOM plus one invalid byte is lossy UTF-8 without U+FEFF."""
@@ -387,6 +400,12 @@ def test_decode_longer_legacy_strings(raw, expected):
     """Longer GBK/CP1252 must fall through a sparse lossy UTF-8 decode."""
     assert _decode_mostly_utf8_lossy(raw) is None
     assert decode_text_bytes_with_encoding_fallback(raw) == expected
+
+
+def test_decode_gbk_letter_trails_without_unpaired_ascii():
+    """Pure GBK with letter trails must not be decoded as CP1252."""
+    raw = bytes.fromhex("99748c48")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "\u6a9b\u5b52"
 
 
 def test_lossy_utf8_strips_bom_before_dirty_byte():
@@ -531,6 +550,19 @@ class TestEditFile:
         written = f.read_text(encoding="utf-8")
         assert written == "Cafes"
         assert "\ufffd" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_letter_trails_not_saved_as_cp1252(self, tmp_path):
+        """Editing GBK letter-trail pairs must not persist CP1252 mojibake."""
+        f = tmp_path / "pairs.txt"
+        f.write_bytes(bytes.fromhex("99748c48"))
+
+        result = await edit_file(str(f), "\u6a9b", "A")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="utf-8")
+        assert written == "A\u5b52"
+        assert "\u2122" not in written
 
     @pytest.mark.asyncio
     async def test_edit_bom_and_dirty_byte_does_not_double_bom(self, tmp_path):

@@ -22,6 +22,7 @@ from agentscope.message import ToolResultState
 from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
+from .utils import _decode_capped_text_snapshot
 from ..utils.file_handling import (
     _FallbackSignals,
     _UTF8_BOM,
@@ -109,11 +110,14 @@ _SKIP_DIRS = frozenset(
 )
 
 _MAX_MATCHES = 200
+# Directory scans skip files above this size. An explicit file is not capped.
 _MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
-# Bounded reads so a single file is never pulled into memory in one shot.
+# Reads stay in chunks so a large explicit file is never loaded at once.
 _GREP_READ_CHUNK = 64 * 1024
 # Strict UTF-8 is probed before the shared fallback choice.
 _GREP_UTF8_ENCODINGS = ("utf-8-sig", "utf-8")
+# Omitted ``max_bytes`` means the directory cap. ``None`` means no cap.
+_GREP_MAX_BYTES_DEFAULT = object()
 _MAX_CONTEXT_LINES = 5
 _MAX_OUTPUT_CHARS = 50_000  # ~50 KB
 _MAX_FILES_SCANNED = 10_000
@@ -403,17 +407,57 @@ class _GrepCancelled(Exception):
 
 
 def _file_exceeds_grep_limit(path: Path) -> bool:
-    """Return True when *path* is larger than the grep byte budget.
+    """Return True when *path* is larger than the directory grep cap.
 
-    Directory walks skip these via ``_is_text_file``. Explicit single-file
-    searches still stream the leading ``_MAX_FILE_SIZE`` bytes and report
-    a truncated status instead of silently returning no matches.
-    Unreadable paths are treated as oversize.
+    Directory walks skip these files. An explicit single-file search
+    streams the whole file and does not treat this as truncation.
+    Unreadable paths are treated as oversize so a directory walk skips
+    them instead of failing the search.
     """
     try:
         return path.stat().st_size > _MAX_FILE_SIZE
     except OSError:
         return True
+
+
+class _GrepChunkReader:
+    """Chunked binary read with a byte cap and cancellation.
+
+    ``hit_eof`` is set once iteration finishes. A cap that lands before
+    EOF leaves it false; the extra probe byte is not yielded.
+    """
+
+    def __init__(self) -> None:
+        self.hit_eof = False
+
+    def iter_chunks(
+        self,
+        raw: BinaryIO,
+        cancel: threading.Event,
+        max_bytes: int | None,
+    ) -> Iterator[bytes]:
+        """Yield pieces of at most ``_GREP_READ_CHUNK`` bytes."""
+        read_total = 0
+        while max_bytes is None or read_total < max_bytes:
+            if cancel.is_set():
+                raise _GrepCancelled()
+            if max_bytes is None:
+                want = _GREP_READ_CHUNK
+            else:
+                want = min(_GREP_READ_CHUNK, max_bytes - read_total)
+            chunk = raw.read(want)
+            if not chunk:
+                self.hit_eof = True
+                return
+            read_total += len(chunk)
+            yield chunk
+            if len(chunk) < want:
+                self.hit_eof = True
+                return
+        if cancel.is_set():
+            raise _GrepCancelled()
+        if not raw.read(1):
+            self.hit_eof = True
 
 
 def _split_normalized_text(pending: str, text: str) -> tuple[list[str], str]:
@@ -438,55 +482,37 @@ def _iter_decoded_grep_lines(
     raw: BinaryIO,
     encoding: str,
     cancel: threading.Event,
+    max_bytes: int | None,
 ) -> Iterator[str]:
     """Yield lines from *raw* without holding the file as one string.
 
-    Reads at most ``_MAX_FILE_SIZE`` bytes, in ``_GREP_READ_CHUNK`` pieces,
-    and checks *cancel* between pieces. A short read is EOF for a regular
-    file. When the cap is hit with bytes still left, the trailing incomplete
-    character is dropped instead of failing the encoding. At real EOF, bytes
-    still buffered (an incomplete UTF-8 BOM does not raise on its own)
-    reject this encoding.
+    ``max_bytes`` is the cap; ``None`` reads until EOF. Pieces are at most
+    ``_GREP_READ_CHUNK`` and *cancel* is checked between them. When the
+    cap is hit with bytes still left, the trailing incomplete character
+    is dropped instead of failing the encoding. At real EOF, bytes still
+    buffered (an incomplete UTF-8 BOM does not raise on its own) reject
+    this encoding.
     """
     decoder = io.IncrementalNewlineDecoder(
         codecs.getincrementaldecoder(encoding)(),
         translate=True,
     )
     pending = ""
-    read_total = 0
-    hit_eof = False
-    while read_total < _MAX_FILE_SIZE:
-        if cancel.is_set():
-            raise _GrepCancelled()
-        want = min(_GREP_READ_CHUNK, _MAX_FILE_SIZE - read_total)
-        chunk = raw.read(want)
-        if not chunk:
-            hit_eof = True
-            break
-        read_total += len(chunk)
+    reader = _GrepChunkReader()
+    for chunk in reader.iter_chunks(raw, cancel, max_bytes):
         lines, pending = _split_normalized_text(
             pending,
             decoder.decode(chunk, final=False),
         )
         yield from lines
-        if len(chunk) < want:
-            hit_eof = True
-            break
-    else:
-        if cancel.is_set():
-            raise _GrepCancelled()
-        # Size landed on the cap. One extra byte distinguishes EOF from a
-        # file that is larger than the cap (that byte is not decoded).
-        if not raw.read(1):
-            hit_eof = True
 
     lines, pending = _split_normalized_text(
         pending,
-        decoder.decode(b"", final=hit_eof),
+        decoder.decode(b"", final=reader.hit_eof),
     )
     yield from lines
     buffered, flag = decoder.getstate()
-    if hit_eof:
+    if reader.hit_eof:
         # utf-8-sig keeps an incomplete BOM and does not raise on final.
         # A non-empty byte buffer is not the pending-CR flag (bit 0, which
         # does not occupy the buffer). Reject the encoding so the ladder
@@ -509,122 +535,100 @@ def _iter_decoded_grep_lines(
         yield pending
 
 
-def _grep_strict_encoding_ok(
-    path: Path,
-    encoding: str,
-    cancel: threading.Event,
-) -> bool:
-    """True when *encoding* accepts the capped byte stream."""
-    with open(path, "rb") as raw:
-        try:
-            for _line in _iter_decoded_grep_lines(raw, encoding, cancel):
-                pass
-        except UnicodeDecodeError:
-            return False
-    return True
+class _GrepStrictProbe:
+    """Incremental strict decode that rejects a leftover byte buffer.
 
-
-def _scan_grep_fallback_stats(
-    path: Path,
-    cancel: threading.Event,
-) -> tuple[bool, int, int, bool, int, int]:
-    """Stream the capped prefix and return fallback signal counts.
-
-    The window matches ``_iter_decoded_grep_lines``: at most
-    ``_MAX_FILE_SIZE`` bytes, finalized only at real EOF. Counts stay
-    comparable to ``decode_text_bytes_with_encoding_fallback`` on that
-    same prefix.
+    ``utf-8-sig`` keeps an incomplete BOM without raising. A non-empty
+    buffer after ``final=True`` is still a failed strict decode.
     """
-    bad = 0
-    good = 0
-    saw_non_ascii = False
-    other = 0
-    letters = 0
-    pending_lead: int | None = None
-    prefix = b""
-    decoder = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
-    hit_eof = False
-    with open(path, "rb") as raw:
-        read_total = 0
-        while read_total < _MAX_FILE_SIZE:
-            if cancel.is_set():
-                raise _GrepCancelled()
-            want = min(_GREP_READ_CHUNK, _MAX_FILE_SIZE - read_total)
-            chunk = raw.read(want)
-            if not chunk:
-                hit_eof = True
-                break
-            read_total += len(chunk)
-            if len(prefix) < len(_UTF8_BOM):
-                prefix += chunk[: len(_UTF8_BOM) - len(prefix)]
-            other, letters, pending_lead = _feed_gbk_pair_trails(
-                chunk,
-                other,
-                letters,
-                pending_lead,
-            )
-            text = decoder.decode(chunk, final=False)
-            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
-            bad += piece_bad
-            good += piece_good
-            saw_non_ascii = saw_non_ascii or piece_saw
-            if len(chunk) < want:
-                hit_eof = True
-                break
-        else:
-            if cancel.is_set():
-                raise _GrepCancelled()
-            if not raw.read(1):
-                hit_eof = True
-        if hit_eof:
-            text = decoder.decode(b"", final=True)
-            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
-            bad += piece_bad
-            good += piece_good
-            saw_non_ascii = saw_non_ascii or piece_saw
-    return (
-        prefix.startswith(_UTF8_BOM),
-        bad,
-        good,
-        saw_non_ascii,
-        other,
-        letters,
-    )
+
+    def __init__(self, encoding: str) -> None:
+        self.decoder = codecs.getincrementaldecoder(encoding)()
+        self.ok = True
+
+    def feed(self, chunk: bytes, *, final: bool) -> None:
+        """Feed one chunk. Further input is ignored after a failure."""
+        if not self.ok:
+            return
+        try:
+            self.decoder.decode(chunk, final=final)
+        except UnicodeDecodeError:
+            self.ok = False
+            return
+        if final and self.decoder.getstate()[0]:
+            self.ok = False
 
 
 def _select_grep_decoding(
     path: Path,
     cancel: threading.Event,
+    max_bytes: int | None,
 ) -> tuple[str, bool]:
-    """Return ``(encoding, lossy)`` using the shared fallback choice."""
+    """Return ``(encoding, lossy)`` from one streaming pass.
+
+    ``max_bytes is None`` reads the whole file. A cap uses that prefix
+    and finalizes decoders only at real EOF, matching
+    ``decode_text_bytes_with_encoding_fallback`` on the same bytes.
+    Strict UTF-8, the lossy ratio, GBK pair kinds, and the legacy probes
+    share this pass so a non-UTF-8 file is not opened once per encoding.
+    """
+    probes = {
+        encoding: _GrepStrictProbe(encoding)
+        for encoding in (*_GREP_UTF8_ENCODINGS, "gbk", "cp1252")
+    }
+    lossy = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
+    bad = 0
+    good = 0
+    saw_non_ascii = False
+    other = 0
+    letters = 0
+    unpaired = 0
+    pending_lead: int | None = None
+    prefix = b""
+
     with open(path, "rb") as raw:
-        for encoding in _GREP_UTF8_ENCODINGS:
-            if cancel.is_set():
-                raise _GrepCancelled()
-            raw.seek(0)
-            try:
-                for _line in _iter_decoded_grep_lines(raw, encoding, cancel):
-                    pass
-            except UnicodeDecodeError:
-                continue
+        reader = _GrepChunkReader()
+        for chunk in reader.iter_chunks(raw, cancel, max_bytes):
+            if len(prefix) < len(_UTF8_BOM):
+                prefix += chunk[: len(_UTF8_BOM) - len(prefix)]
+            other, letters, unpaired, pending_lead = _feed_gbk_pair_trails(
+                chunk,
+                other,
+                letters,
+                unpaired,
+                pending_lead,
+            )
+            for probe in probes.values():
+                probe.feed(chunk, final=False)
+            text = lossy.decode(chunk, final=False)
+            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
+            bad += piece_bad
+            good += piece_good
+            saw_non_ascii = saw_non_ascii or piece_saw
+        if reader.hit_eof:
+            for probe in probes.values():
+                probe.feed(b"", final=True)
+            text = lossy.decode(b"", final=True)
+            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
+            bad += piece_bad
+            good += piece_good
+            saw_non_ascii = saw_non_ascii or piece_saw
+
+    for encoding in _GREP_UTF8_ENCODINGS:
+        if probes[encoding].ok:
             return encoding, False
 
-    bom, bad, good, saw, other, letters = _scan_grep_fallback_stats(
-        path,
-        cancel,
-    )
-    gbk_ok = _grep_strict_encoding_ok(path, "gbk", cancel)
-    cp_ok = _grep_strict_encoding_ok(path, "cp1252", cancel)
     choice = _choose_fallback_decoding(
         _FallbackSignals(
-            bom=bom,
+            bom=prefix.startswith(_UTF8_BOM),
             bad=bad,
             good=good,
-            saw_non_ascii=saw,
+            saw_non_ascii=saw_non_ascii,
             other_trails=other,
             letter_trails=letters,
-            gbk_ok=gbk_ok,
-            cp1252_ok=cp_ok,
+            unpaired_ascii_letters=unpaired,
+            gbk_ok=probes["gbk"].ok,
+            cp1252_ok=probes["cp1252"].ok,
         ),
     )
     if choice is None:
@@ -635,50 +639,65 @@ def _select_grep_decoding(
 def _iter_decoded_grep_lines_lossy(
     raw: BinaryIO,
     cancel: threading.Event,
+    max_bytes: int | None,
 ) -> Iterator[str]:
-    """Yield lines with UTF-8-SIG ``errors='replace'`` under the size cap.
+    """Yield lines with UTF-8-SIG ``errors='replace'``.
 
-    ``utf-8-sig`` drops a leading BOM so a dirty byte after it cannot
-    leave U+FEFF in the match text.
+    ``max_bytes`` is the cap; ``None`` reads until EOF. ``utf-8-sig``
+    drops a leading BOM so a dirty byte after it cannot leave U+FEFF
+    in the match text.
     """
     decoder = io.IncrementalNewlineDecoder(
         codecs.getincrementaldecoder("utf-8-sig")(errors="replace"),
         translate=True,
     )
     pending = ""
-    read_total = 0
-    hit_eof = False
-    while read_total < _MAX_FILE_SIZE:
-        if cancel.is_set():
-            raise _GrepCancelled()
-        want = min(_GREP_READ_CHUNK, _MAX_FILE_SIZE - read_total)
-        chunk = raw.read(want)
-        if not chunk:
-            hit_eof = True
-            break
-        read_total += len(chunk)
+    reader = _GrepChunkReader()
+    for chunk in reader.iter_chunks(raw, cancel, max_bytes):
         lines, pending = _split_normalized_text(
             pending,
             decoder.decode(chunk, final=False),
         )
         yield from lines
-        if len(chunk) < want:
-            hit_eof = True
-            break
-    else:
-        if cancel.is_set():
-            raise _GrepCancelled()
-        if not raw.read(1):
-            hit_eof = True
 
     lines, pending = _split_normalized_text(
         pending,
-        decoder.decode(b"", final=hit_eof),
+        decoder.decode(b"", final=reader.hit_eof),
     )
     yield from lines
     _buffered, flag = decoder.getstate()
-    if (not hit_eof) and (flag & 1):
+    if (not reader.hit_eof) and (flag & 1):
         pending += "\n"
+    if pending:
+        yield pending
+
+
+def _read_capped_grep_snapshot(
+    path: Path,
+    cancel: threading.Event,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Read at most *max_bytes*, returning ``(data, hit_eof)``.
+
+    *cancel* is checked between chunks. The extra probe byte that
+    distinguishes EOF from a longer file is not part of *data*.
+    """
+    chunks: list[bytes] = []
+    with open(path, "rb") as raw:
+        reader = _GrepChunkReader()
+        chunks.extend(reader.iter_chunks(raw, cancel, max_bytes))
+        hit_eof = reader.hit_eof
+    return b"".join(chunks), hit_eof
+
+
+def _iter_snapshot_lines(text: str) -> Iterator[str]:
+    """Yield ``\\n``-terminated lines from already-normalized text.
+
+    Matches ``_split_normalized_text`` and ``io.StringIO``: only ``\\n``
+    breaks a line, and a final partial line has no extra newline.
+    """
+    lines, pending = _split_normalized_text("", text)
+    yield from lines
     if pending:
         yield pending
 
@@ -686,16 +705,35 @@ def _iter_decoded_grep_lines_lossy(
 def _iter_grep_lines(
     path: Path,
     cancel: threading.Event,
+    max_bytes: object = _GREP_MAX_BYTES_DEFAULT,
 ) -> Iterator[str]:
     """Yield text lines using the shared utf-8 → gbk/cp1252 choice.
 
-    The file is scanned in bounded chunks to pick an encoding, then scanned
-    again to yield lines. Neither pass builds a second copy of the file.
-    Lossy UTF-8 is used only when a real non-ASCII character or a BOM
-    survived; longer GBK/CP1252 text falls through to a strict decode.
+    Omitted *max_bytes* uses ``_MAX_FILE_SIZE`` (directory scans). ``None``
+    streams an explicit file with no byte cap. A cap reads that prefix
+    once, decodes it with the shared helpers, and splits the text. An
+    unlimited file is read twice: once to pick the encoding, then once
+    to yield lines, without holding the whole file.
     """
-    chosen, lossy_utf8 = _select_grep_decoding(path, cancel)
+    limit: int | None
+    if max_bytes is _GREP_MAX_BYTES_DEFAULT:
+        limit = _MAX_FILE_SIZE
+    elif max_bytes is None or isinstance(max_bytes, int):
+        limit = max_bytes
+    else:
+        raise TypeError("max_bytes must be an int or None")
 
+    if limit is not None:
+        snapshot, hit_eof = _read_capped_grep_snapshot(path, cancel, limit)
+        text = _decode_capped_text_snapshot(
+            snapshot,
+            file_name=path,
+            truncated=not hit_eof,
+        )
+        yield from _iter_snapshot_lines(text)
+        return
+
+    chosen, lossy_utf8 = _select_grep_decoding(path, cancel, None)
     if lossy_utf8:
         logger.debug(
             "File %s read with lossy UTF-8 (mostly valid)",
@@ -710,9 +748,9 @@ def _iter_grep_lines(
 
     with open(path, "rb") as raw:
         if lossy_utf8:
-            yield from _iter_decoded_grep_lines_lossy(raw, cancel)
+            yield from _iter_decoded_grep_lines_lossy(raw, cancel, None)
         else:
-            yield from _iter_decoded_grep_lines(raw, chosen, cancel)
+            yield from _iter_decoded_grep_lines(raw, chosen, cancel, None)
 
 
 def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-locals,too-many-statements
@@ -786,15 +824,13 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         hit_indices: list[int] = []
 
         try:
-            # Directory walks skip files above 2 MB via _is_text_file.
-            # Explicit single-file searches still stream the leading bytes so
-            # a hit near the start is not silently missed; the streamer
-            # already stops at _MAX_FILE_SIZE and we mark truncated below.
-            oversize = _file_exceeds_grep_limit(file_path)
-            if oversize and not single_file:
+            # Directory walks skip files above 2 MB. An explicit file is
+            # streamed in full so a match past that cap is not missed.
+            if not single_file and _file_exceeds_grep_limit(file_path):
                 continue
             line_no = 0
-            for line in _iter_grep_lines(file_path, cancel):
+            max_bytes = None if single_file else _MAX_FILE_SIZE
+            for line in _iter_grep_lines(file_path, cancel, max_bytes):
                 if line_no % 1000 == 0 and cancel.is_set():
                     status = "timeout"
                     break
@@ -886,13 +922,6 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
                     )
                     break
-
-            if status == "ok" and single_file and oversize:
-                if _MAX_FILE_SIZE >= 1024 * 1024:
-                    limit_label = f"{_MAX_FILE_SIZE // (1024 * 1024)}MB"
-                else:
-                    limit_label = f"{_MAX_FILE_SIZE}B"
-                status = f"truncated: file size limit ({limit_label})"
 
         except _GrepCancelled:
             status = "timeout"
