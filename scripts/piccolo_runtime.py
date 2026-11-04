@@ -410,7 +410,10 @@ def publish(directory):
             bucket.put_object_from_file(
                 key,
                 str(path),
-                headers={"x-oss-meta-sha256": checksum},
+                headers={
+                    "x-oss-meta-sha256": checksum,
+                    "x-oss-object-acl": "public-read",
+                },
             )
     verify_public()
 
