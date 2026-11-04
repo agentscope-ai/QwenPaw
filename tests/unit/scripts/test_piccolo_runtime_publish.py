@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Validate runtime publication before exposing its release manifest."""
 
 import functools
