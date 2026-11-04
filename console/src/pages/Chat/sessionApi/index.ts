@@ -1001,7 +1001,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     owner: SessionOwnerToken,
   ) {
     if (this.forkTurnRequests.has(backendId)) return;
-    const pending = new Set(messages.map((item) => item.id));
+    const pending = new Set(messages.map((item) => item.id as string));
     const request = (async () => {
       const turns = new Map<string, string>();
       let before: string | undefined;
@@ -1015,9 +1015,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         });
         if (!this.isActiveOwner(owner)) return new Map<string, string>();
         for (const item of page.messages) {
+          const id = item.id as string;
           const position = getTranscriptPosition(item);
-          if (position && pending.delete(item.id))
-            turns.set(item.id, position.turn_id);
+          if (position && pending.delete(id)) turns.set(id, position.turn_id);
         }
         before = page.has_more ? page.next_before ?? undefined : undefined;
       } while (pending.size && before);
