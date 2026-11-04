@@ -14,6 +14,7 @@ use crate::backend;
 use serde::{Deserialize, Serialize};
 
 const SHOW_MENU_ID: &str = "show";
+const APPROVALS_MENU_ID: &str = "approvals";
 const QUIT_MENU_ID: &str = "quit";
 
 /// How long Rust waits for the frontend to acknowledge a close request before
@@ -29,6 +30,7 @@ pub(crate) const CLOSE_REQUESTED_EVENT: &str = "qwenpaw-close-requested";
 #[derive(Clone)]
 struct TrayMenuItems {
     show: MenuItem<tauri::Wry>,
+    approvals: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
     stop_blocked: String,
 }
@@ -36,8 +38,9 @@ struct TrayMenuItems {
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum CloseAction {
+    // Older versions saved the "Run in background" choice as "quit".
+    #[serde(alias = "quit")]
     MinimizeToTray,
-    Quit,
     StopService,
 }
 
@@ -66,8 +69,9 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         .lock()
         .expect("tray state poisoned") = preference;
     let show = MenuItem::with_id(app, SHOW_MENU_ID, "Show Window", true, None::<&str>)?;
+    let approvals = MenuItem::with_id(app, APPROVALS_MENU_ID, "View pending approvals", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit App", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &approvals, &quit])?;
 
     {
         let tray_state = app.state::<TrayState>();
@@ -77,6 +81,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
             .map_err(|_| "failed to lock tray menu state")?;
         *menu_items = Some(TrayMenuItems {
             show: show.clone(),
+            approvals: approvals.clone(),
             quit: quit.clone(),
             stop_blocked:
                 "QwenPaw is still in use in other windows or apps. Close them before quitting completely."
@@ -89,6 +94,10 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         .tooltip("QwenPaw Desktop")
         .on_menu_event(|app, event| match event.id().as_ref() {
             SHOW_MENU_ID => show_main_window(app),
+            APPROVALS_MENU_ID => {
+                show_main_window(app);
+                let _ = app.emit("qwenpaw:open-approvals", ());
+            }
             QUIT_MENU_ID => request_quit(app),
             _ => {}
         })
@@ -144,10 +153,6 @@ fn request_exit(app: &tauri::AppHandle, honor_preference: bool) {
         if app.state::<TrayState>().close_seq.load(Ordering::SeqCst) != seq || is_quitting(&app) {
             return;
         }
-        if matches!(others, Ok(count) if count > 0) {
-            exit_app(&app, 0);
-            return;
-        }
         // If the runtime is unavailable, keep both choices accessible.
         let action = if honor_preference {
             *app.state::<TrayState>()
@@ -157,9 +162,14 @@ fn request_exit(app: &tauri::AppHandle, honor_preference: bool) {
         } else {
             None
         };
+        if matches!(others, Ok(count) if count > 0)
+            && !matches!(action, Some(CloseAction::MinimizeToTray))
+        {
+            exit_app(&app, 0);
+            return;
+        }
         match action {
             Some(CloseAction::MinimizeToTray) => hide_main_window(&app),
-            Some(CloseAction::Quit) => exit_app(&app, 0),
             Some(CloseAction::StopService) => {
                 if stop_service(app.clone()).await.is_ok() {
                     exit_app(&app, 0);
@@ -238,6 +248,7 @@ pub(crate) fn set_tray_labels(
     show_window: String,
     quit: String,
     stop_blocked: String,
+    view_approvals: Option<String>,
 ) -> Result<(), String> {
     let menu_items = {
         let tray_state = app.state::<TrayState>();
@@ -249,6 +260,9 @@ pub(crate) fn set_tray_labels(
     };
 
     if let Some(items) = menu_items {
+        if let Some(label) = view_approvals {
+            items.approvals.set_text(label).map_err(|err| err.to_string())?;
+        }
         if let Some(stored) = app
             .state::<TrayState>()
             .menu_items
@@ -269,6 +283,8 @@ pub(crate) fn set_tray_labels(
 }
 
 pub(crate) fn show_main_window(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -359,4 +375,28 @@ pub(crate) fn exit_app(app: &tauri::AppHandle, code: i32) {
             .store(true, Ordering::SeqCst);
         app.exit(code);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CloseAction;
+
+    #[test]
+    fn legacy_background_choice_keeps_the_desktop_shell() {
+        let action: CloseAction = serde_json::from_str(r#""quit""#).unwrap();
+        assert!(matches!(action, CloseAction::MinimizeToTray));
+        assert_eq!(serde_json::to_string(&action).unwrap(), r#""minimize-to-tray""#);
+    }
+
+    #[test]
+    fn saved_tray_and_stop_service_choices_keep_their_meaning() {
+        assert!(matches!(
+            serde_json::from_str::<CloseAction>(r#""minimize-to-tray""#).unwrap(),
+            CloseAction::MinimizeToTray
+        ));
+        assert!(matches!(
+            serde_json::from_str::<CloseAction>(r#""stop-service""#).unwrap(),
+            CloseAction::StopService
+        ));
+    }
 }

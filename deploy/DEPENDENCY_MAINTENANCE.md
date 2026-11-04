@@ -55,3 +55,23 @@ For other Supervisor deployments, use their actual configuration path and
 program name in the same stop/worker/start sequence. Other service managers
 must likewise keep the backend stopped until maintenance or recovery safely
 completes. Use the original service manager to start it afterward.
+
+## Coordination state directory
+
+Reader leases, admission gates and maintenance markers live under one
+coordination root: `<startup home>/.qwenpaw/dependency-environments`, where
+the startup home is the account's passwd home, or `$HOME` when the passwd
+record has none.
+
+Managed hosts (NAS application sandboxes, read-only containers) can advertise
+a startup home the service account may not write. Startup then fails with
+`DEPENDENCY_STATE_ROOT_UNAVAILABLE` instead of aborting later inside the lock
+helper. Relocate the root to writable storage with an absolute override:
+
+```sh
+export QWENPAW_DEPENDENCY_STATE_DIR=/absolute/writable/qwenpaw-state
+```
+
+Every process that shares a dependency environment must resolve the same root
+for its locks to exclude each other, so set it for the whole deployment
+rather than for a single shell.

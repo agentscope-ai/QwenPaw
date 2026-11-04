@@ -305,6 +305,215 @@ class TestEditFile:
         await edit_file(str(f), "aaa", "ccc")
         assert f.read_text(encoding="utf-8-sig") == "ccc bbb ccc"
 
+    @pytest.mark.asyncio
+    async def test_edit_preserves_crlf_line_endings(self, tmp_path):
+        """edit_file must not rewrite a CRLF file as LF (full-file diffs)."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b'def hi():\r\n    return "old"\r\n')
+
+        result = await edit_file(str(f), "old", "new")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b'def hi():\r\n    return "new"\r\n'
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_lf_line_endings(self, tmp_path):
+        """LF files stay LF after a successful edit."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b'def hi():\n    return "old"\n')
+
+        result = await edit_file(str(f), "old", "new")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b'def hi():\n    return "new"\n'
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_mixed_line_endings(self, tmp_path):
+        """One CRLF must not rewrite the other lines of an LF file."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\n")
+
+        result = await edit_file(str(f), "beta", "BETA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\ngamma\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_maps_match_across_mixed_newline(self, tmp_path):
+        """A match that covers CRLF keeps the surrounding endings."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\n")
+
+        result = await edit_file(str(f), "beta\ngamma", "BETA\nGAMMA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\nGAMMA\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_reuses_each_original_break_in_order(self, tmp_path):
+        """Same break count keeps each matched ending in position.
+
+        Replacing ``a\\n b\\n c`` must not copy the leading CRLF onto the
+        following LF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\nB\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nd"
+
+    @pytest.mark.asyncio
+    async def test_edit_reuses_endings_on_every_match(self, tmp_path):
+        """Each match reuses its own endings in one streaming pass."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nda\nb\nc\n")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\nB\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nda\nB\nc\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_folds_new_text_before_reusing_endings(
+        self,
+        tmp_path,
+    ):
+        """CRLF typed in new_text does not override original endings."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\r\nB\r\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nd"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_extra_breaks_from_the_span(self, tmp_path):
+        """Added breaks follow the span when the break count changes."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "b\nc", "B\nC\nX")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nC\nX\r\nd"
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_each_distinct_line_ending(self, tmp_path):
+        """LF, CRLF, and lone CR on different lines all stay put."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\rdelta\n")
+
+        result = await edit_file(str(f), "beta", "BETA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\ngamma\rdelta\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_new_breaks_on_pure_crlf(self, tmp_path):
+        """Breaks introduced in new_text follow a pure CRLF file."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b"keep\r\nold\r\n")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\r\nnew\r\nline\r\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_new_breaks_on_pure_lf(self, tmp_path):
+        """Breaks introduced in new_text stay LF in a pure LF file."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b"keep\nold\n")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\nnew\nline\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_cr_line_endings(self, tmp_path):
+        """Lone CR files stay CR, including breaks new_text introduces."""
+        f = tmp_path / "legacy.txt"
+        f.write_bytes(b"keep\rold\r")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\rnew\rline\r"
+
+    @pytest.mark.asyncio
+    async def test_edit_keeps_break_between_lone_cr_and_lf(self, tmp_path):
+        """Deleting text between a lone CR and an LF keeps both breaks."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"\ra\nb")
+
+        result = await edit_file(str(f), "a", "")
+
+        assert "Successfully replaced" in result.content[0].text
+        updated = f.read_bytes()
+        lf_view = updated.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        assert lf_view == b"\n\nb"
+        assert updated == b"\r\n\nb"
+
+    @pytest.mark.asyncio
+    async def test_edit_keeps_positional_lone_cr_then_lf(self, tmp_path):
+        """Reusing a lone CR and the next LF must stay two breaks.
+
+        Positional endings used to join ``\\r`` directly to ``\\n`` and
+        collapse ``\\ra\\n`` edited as ``\\na\\n`` -> ``\\n\\n`` into one
+        CRLF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"\ra\n")
+
+        result = await edit_file(str(f), "\na\n", "\n\n")
+
+        assert "Successfully replaced" in result.content[0].text
+        updated = f.read_bytes()
+        lf_view = updated.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        assert lf_view == b"\n\n"
+        assert updated == b"\r\n\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_repeated_matches_from_one_line_ending(
+        self,
+        tmp_path,
+    ):
+        """Matches on one line share that line's ending.
+
+        Each ``a`` has no break, and ``new_text`` adds one, so every
+        replacement takes the CRLF that ends the run. A later match past
+        that CRLF takes the following LF, not the cached CRLF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"aaa\r\nx\na")
+
+        result = await edit_file(str(f), "a", "b\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"b\r\ncb\r\ncb\r\nc\r\nx\nb\nc"
+
+    @pytest.mark.asyncio
+    async def test_edit_normalizes_trailing_lone_cr_in_new_text(
+        self,
+        tmp_path,
+    ):
+        """A trailing lone CR in new_text must not swallow the next LF.
+
+        Folding ``new_text`` only after ``str.replace`` lets ``\\r`` join
+        the untouched ``\\n`` and collapse to one break.
+        """
+        f = tmp_path / "lf.txt"
+        f.write_bytes(b"a\nb")
+
+        result = await edit_file(str(f), "a", "\r")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"\n\nb"
+
 
 # ---------------------------------------------------------------------------
 # append_file
