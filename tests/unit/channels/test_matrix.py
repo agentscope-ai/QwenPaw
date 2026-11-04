@@ -230,6 +230,32 @@ async def test_password_precedes_token_and_server_identity_is_persisted(
 
 
 @pytest.mark.asyncio
+async def test_legacy_identity_mismatch_does_not_block_valid_token(
+    platform_factory,
+):
+    platform = platform_factory()
+    legacy = Path(platform.config["legacy_state_dir"])
+    legacy.mkdir(parents=True)
+    old_auth = {
+        "access_token": "old-test-token",
+        "user_id": "@old-bot:example.com",
+        "device_id": "OLD-DEVICE",
+    }
+    (legacy / "matrix_auth_state.json").write_text(json.dumps(old_auth))
+    (legacy / "matrix_sync_token").write_text("old-batch")
+    await platform.start()
+    assert platform.observed_states == ["connected"]
+    assert platform._state.owner["user_id"] == BOT
+    assert (
+        json.loads(
+            (legacy / "matrix_auth_state.json").read_text(),
+        )
+        == old_auth
+    )
+    assert (legacy / "matrix_sync_token").read_text() == "old-batch"
+
+
+@pytest.mark.asyncio
 async def test_token_whoami_and_catchup_suppress_only_old_events_then_resume(
     hs,
     platform_factory,

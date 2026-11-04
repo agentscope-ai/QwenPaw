@@ -930,6 +930,7 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 - Matrix supports multimodal messages (text, images, videos, audio, and files). Attachments are received via `mxc://` media URLs and uploaded to the homeserver, then sent as native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - Only rooms the bot has already joined are monitored. Invite the bot to a room before sending messages.
 - For self-hosted homeservers, set `homeserver` to your server's base URL (e.g. `https://matrix.example.com`).
+- Legacy global Matrix state is copied automatically when its user and device match the authenticated identity, leaving the original files unchanged. A mismatch starts with independent workspace state instead. A device can run in only one Agent at a time, but stopping its Channel releases the lock; use different `device_id` values for independent devices.
 - Group rooms share one session by default to preserve the previous behavior. Set `share_session_in_group` to `false` to give each member an independent conversation context. Direct messages keep their existing room-based session identity.
 
 ---
