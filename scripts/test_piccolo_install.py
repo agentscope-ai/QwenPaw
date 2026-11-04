@@ -72,7 +72,9 @@ def install_and_verify(args, workspace):
                 backend.executable.write_bytes(b"old runtime")
                 assert asyncio.run(backend.has_update(CONFIG["release"]))
             backend.download(
-                base_url=f"http://127.0.0.1:{httpd.server_port}",
+                base_url=(
+                    args.base_url or f"http://127.0.0.1:{httpd.server_port}"
+                ),
                 tag=CONFIG["release"],
             )
             deadline = time.monotonic() + 180
@@ -125,6 +127,10 @@ def main():
         default=Path("var/runtime-smoke"),
     )
     parser.add_argument("--gpu-layers", default="0")
+    parser.add_argument(
+        "--base-url",
+        help="Test the installer against this published runtime base URL.",
+    )
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as temporary:
         install_and_verify(args, Path(temporary))

@@ -30,6 +30,10 @@ Windows builds run in a Visual Studio developer shell; ARM64 also requires LLVM.
 
 The **Piccolo runtime** workflow builds and tests every platform. A `llama-cpp-<release>` tag (for example, `llama-cpp-piccolo-v1`) publishes the bundles to QwenPaw's download service using the existing OSS credentials. Publish from the reviewed commit before merging the installer update. The PR check **Runtime available for installer** verifies that every package is available at the configured URL.
 
+To publish already-tested bundles from the existing release environment, run `python scripts/piccolo_runtime.py publish --output dist/piccolo-runtime`. It uses `OSS_ENDPOINT`, `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, and optional `OSS_SESSION_TOKEN` for STS credentials. Alternatively, pass `--oss-config /path/to/ossutilconfig` to use an existing ossutil credentials file. The publishing identity needs `oss:GetObject` and `oss:PutObject` on `acs:oss:*:*:qwenpaw-download/files/models/llama_cpp/piccolo-v1/*`.
+
+After publication, `python scripts/piccolo_runtime.py verify-public --download-dir var/published-runtimes` downloads and hashes all eight public archives. The installer smoke script also accepts `--base-url https://download.qwenpaw.agentscope.io/files/models/llama_cpp` to test clean installation and upgrade against the official download service.
+
 The installer verifies the archive checksum and release identity before replacing the runtime, and restores the previous installation if the replacement fails. Model files are kept separately.
 
 ## Inference contract

@@ -3,6 +3,7 @@
 """Build, package and verify the runtime used by QwenPaw Local."""
 
 import argparse
+import configparser
 import hashlib
 import json
 import os
@@ -338,9 +339,13 @@ def make_manifest(directory):
         path = directory / archive_name(target["id"])
         if not path.is_file():
             raise ValueError(f"Missing runtime build: {path.name}")
+        checksum = digest(path)
+        sidecar = path.with_name(path.name + ".sha256")
+        if sidecar.read_text().split()[0] != checksum:
+            raise ValueError(f"Local checksum mismatch: {path.name}")
         artifacts[path.name] = {
             "size": path.stat().st_size,
-            "sha256": digest(path),
+            "sha256": checksum,
         }
     manifest = identity() | {"artifacts": artifacts}
     path = directory / "runtime-release.json"
@@ -348,7 +353,7 @@ def make_manifest(directory):
     return manifest
 
 
-def verify_public(base_url=None):
+def verify_public(base_url=None, download_dir=None):
     base = (
         (base_url or CONFIG["base_url"]).rstrip("/") + "/" + CONFIG["release"]
     )
@@ -374,22 +379,62 @@ def verify_public(base_url=None):
         with urllib.request.urlopen(request, timeout=30) as response:
             if int(response.headers["Content-Length"]) != expected["size"]:
                 raise ValueError(f"Published size mismatch: {name}")
+        if download_dir is not None:
+            download_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=download_dir) as temporary:
+                downloaded = Path(temporary) / name
+                with (
+                    urllib.request.urlopen(
+                        base + "/" + name,
+                        timeout=60,
+                    ) as response,
+                    downloaded.open("wb") as output,
+                ):
+                    shutil.copyfileobj(response, output)
+                if (
+                    downloaded.stat().st_size != expected["size"]
+                    or digest(downloaded) != expected["sha256"]
+                ):
+                    raise ValueError(f"Published checksum mismatch: {name}")
+                downloaded.replace(download_dir / name)
+            print(f"Verified public download: {name}", flush=True)
     print("All runtime packages are available for this installer version.")
 
 
-def publish(directory):
-    """Publish immutable bundles, then the manifest that makes them installable."""
+def release_bucket(config_path=None):
+    """Use the release environment or an explicitly selected ossutil config."""
     import oss2  # Only the release job needs the OSS SDK.
 
-    manifest = make_manifest(directory)
-    bucket = oss2.Bucket(
-        oss2.Auth(
-            os.environ["OSS_ACCESS_KEY_ID"],
-            os.environ["OSS_ACCESS_KEY_SECRET"],
-        ),
-        os.environ["OSS_ENDPOINT"],
+    if config_path is not None:
+        config = configparser.ConfigParser(interpolation=None)
+        with config_path.open() as stream:
+            config.read_file(stream)
+        credentials = config["Credentials"]
+        access_id = credentials["accessKeyID"]
+        access_secret = credentials["accessKeySecret"]
+        token = credentials.get("stsToken")
+        endpoint = credentials["endpoint"]
+    else:
+        access_id = os.environ["OSS_ACCESS_KEY_ID"]
+        access_secret = os.environ["OSS_ACCESS_KEY_SECRET"]
+        token = os.environ.get("OSS_SESSION_TOKEN")
+        endpoint = os.environ["OSS_ENDPOINT"]
+    auth = (
+        oss2.StsAuth(access_id, access_secret, token)
+        if token
+        else oss2.Auth(access_id, access_secret)
+    )
+    return oss2.Bucket(
+        auth,
+        endpoint if "://" in endpoint else "https://" + endpoint,
         os.environ.get("OSS_BUCKET", "qwenpaw-download"),
     )
+
+
+def publish(directory, config_path=None):
+    """Publish immutable bundles, then the manifest that makes them installable."""
+    manifest = make_manifest(directory)
+    bucket = release_bucket(config_path)
     prefix = f"files/models/llama_cpp/{CONFIG['release']}/"
     names = list(manifest["artifacts"])
     names += [name + ".sha256" for name in names]
@@ -399,14 +444,19 @@ def publish(directory):
         checksum = digest(path)
         key = prefix + name
         if bucket.object_exists(key):
+            metadata = bucket.head_object(key)
             if (
-                bucket.head_object(key).headers.get("x-oss-meta-sha256")
-                != checksum
+                metadata.headers.get("x-oss-meta-sha256") != checksum
+                or metadata.content_length != path.stat().st_size
             ):
                 raise ValueError(
                     f"Release object already exists with different bytes: {name}",
                 )
         else:
+            print(
+                f"Uploading {name} ({path.stat().st_size} bytes)",
+                flush=True,
+            )
             bucket.put_object_from_file(
                 key,
                 str(path),
@@ -444,6 +494,12 @@ def main():
         default=max(1, min(6, os.cpu_count() or 1)),
     )
     parser.add_argument("--base-url")
+    parser.add_argument("--download-dir", type=Path)
+    parser.add_argument(
+        "--oss-config",
+        type=Path,
+        help="Use this ossutil credentials file instead of release env vars.",
+    )
     args = parser.parse_args()
     if args.command == "matrix":
         targets = (
@@ -462,9 +518,9 @@ def main():
     elif args.command == "manifest":
         make_manifest(args.output)
     elif args.command == "verify-public":
-        verify_public(args.base_url)
+        verify_public(args.base_url, args.download_dir)
     elif args.command == "publish":
-        publish(args.output)
+        publish(args.output, args.oss_config)
 
 
 if __name__ == "__main__":
