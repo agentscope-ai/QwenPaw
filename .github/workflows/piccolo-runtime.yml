@@ -72,6 +72,11 @@ jobs:
           toolset: ${{ matrix.cuda == '12.4.1' && '14.29' || '' }}
       - name: Build pinned source and package runtime
         run: python scripts/piccolo_runtime.py build --target "${{ matrix.id }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piccolo-runtime-bundle-${{ matrix.id }}
+          path: dist/piccolo-runtime/
+          if-no-files-found: error
       - name: Download public smoke-test models
         run: |
           python - <<'PY'
@@ -108,11 +113,6 @@ jobs:
           piccolo = next(Path('var/models/piccolo').glob('*.gguf'))
           subprocess.run([sys.executable, 'scripts/test_piccolo_install.py', '--target', target, '--archive', str(archive), '--flash', str(flash), '--piccolo', str(piccolo)], check=True)
           PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: piccolo-runtime-bundle-${{ matrix.id }}
-          path: dist/piccolo-runtime/
-          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:

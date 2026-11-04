@@ -64,7 +64,7 @@ def server(executable, model, decision, gpu_layers, log):
         environment = os.environ.copy()
         if os.name == "nt":
             # Test bundled DLLs without tools installed on the build runner.
-            windows = Path(environment["SystemRoot"])
+            windows = Path(os.environ["SystemRoot"])
             environment["PATH"] = os.pathsep.join(
                 (str(windows / "System32"), str(windows)),
             )
