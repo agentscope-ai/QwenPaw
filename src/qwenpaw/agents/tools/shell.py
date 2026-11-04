@@ -74,11 +74,8 @@ def _with_shell_guard(function):
                 content=[TextBlock(type="text", text=str(error))],
             )
         except RuntimeError as error:
-            result = await function(*args, **kwargs)
-            result.content.append(
-                TextBlock(type="text", text=f"[resource protection] {error}"),
-            )
-            return result
+            _logger.warning("%s", error)
+            return await function(*args, **kwargs)
         if guard is None:
             return await function(*args, **kwargs)
         token = SHELL_GUARD.set(guard)
@@ -89,19 +86,14 @@ def _with_shell_guard(function):
         finally:
             SHELL_GUARD.reset(token)
             await asyncio.to_thread(guard.close, not completed)
+            if guard.warning:
+                _logger.warning("%s", guard.warning)
         if guard.failure:
             result.state = ToolResultState.ERROR
             result.content.append(
                 TextBlock(
                     type="text",
                     text=f"[resource protection] {guard.failure}",
-                ),
-            )
-        if guard.warning:
-            result.content.append(
-                TextBlock(
-                    type="text",
-                    text=f"[resource protection] {guard.warning}",
                 ),
             )
         return result

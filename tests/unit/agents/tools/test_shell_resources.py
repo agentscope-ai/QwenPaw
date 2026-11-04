@@ -9,6 +9,7 @@ import asyncio
 import ctypes
 import ctypes.wintypes
 import io
+import logging
 import os
 import shlex
 import subprocess
@@ -202,8 +203,11 @@ async def test_background_process_lifecycle(
                 child.wait(timeout=3)
 
 
-async def test_unavailable_monitoring_runs_without_protection(monkeypatch):
-    """A restricted host still executes commands and reports degradation."""
+async def test_unavailable_monitoring_runs_without_protection(
+    monkeypatch,
+    caplog,
+):
+    """A restricted host logs degradation without altering tool output."""
     monkeypatch.setenv("QWENPAW_SHELL_MEMORY_LIMIT_MB", "512")
     with (
         patch.object(
@@ -222,8 +226,10 @@ async def test_unavailable_monitoring_runs_without_protection(monkeypatch):
     ):
         result = await execute_shell_command("echo executed")
     assert result.state == ToolResultState.SUCCESS
-    assert result.content[0].text == "executed"
-    assert "continuing without memory protection" in result.content[1].text
+    assert [block.text for block in result.content] == ["executed"]
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "continuing without memory protection" in warnings[0].getMessage()
     assert posix.await_count + windows.await_count == 1
     assert SHELL_GUARD.get() is None
 
@@ -231,6 +237,7 @@ async def test_unavailable_monitoring_runs_without_protection(monkeypatch):
 async def test_monitoring_permission_loss_keeps_command_running(
     monkeypatch,
     tmp_path,
+    caplog,
 ):
     """Losing access after startup must not kill a healthy command."""
     monkeypatch.setenv("QWENPAW_SHELL_MEMORY_LIMIT_MB", "512")
@@ -258,8 +265,10 @@ async def test_monitoring_permission_loss_keeps_command_running(
     ):
         result = await execute_shell_command(command, cwd=tmp_path)
     assert result.state == ToolResultState.SUCCESS
-    assert result.content[0].text == "continued"
-    assert "continuing without memory protection" in result.content[1].text
+    assert [block.text for block in result.content] == ["continued"]
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "continuing without memory protection" in warnings[0].getMessage()
 
 
 async def test_guard_initialization_and_registration_run_off_loop(monkeypatch):
