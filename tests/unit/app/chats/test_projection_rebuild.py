@@ -3,6 +3,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 
 import pytest
 from pathlib import Path
@@ -56,7 +57,7 @@ def test_ui_and_runtime_projections_rebuild_from_events(
         )
         before = store.get_page(**_IDENTITY)
         assert before is not None
-        with sqlite3.connect(store.path) as connection:
+        with closing(sqlite3.connect(store.path)) as connection, connection:
             event_seq = connection.execute(
                 "SELECT MAX(seq) FROM event_log",
             ).fetchone()[0]
@@ -91,7 +92,7 @@ def test_ui_and_runtime_projections_rebuild_from_events(
         assert after == before
         assert runtime is not None
         assert runtime.state == state
-        with sqlite3.connect(store.path) as connection:
+        with closing(sqlite3.connect(store.path)) as connection, connection:
             raw_after = {
                 table: connection.execute(query).fetchall()
                 for table, query in projection_queries.items()
@@ -141,7 +142,7 @@ def test_recall_projection_rebuilds_inside_the_session_db(
         finally:
             history.close()
 
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             event_seq = connection.execute(
                 "SELECT MAX(seq) FROM event_log",
             ).fetchone()[0]

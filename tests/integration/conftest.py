@@ -328,10 +328,11 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     variables into the subprocess — e.g. pointing channel endpoints at local
     mock IM servers (``QQ_TOKEN_URL``/``QQ_API_BASE``).
     """
-    tmp_path = tmp_path_factory.mktemp("app_server")
+    short_paths = getattr(request, "param", None) == "short"
+    tmp_path = tmp_path_factory.mktemp("app" if short_paths else "app_server")
     host = "127.0.0.1"
 
-    working_dir = tmp_path / "working"
+    working_dir = tmp_path / ("w" if short_paths else "working")
     secret_dir = tmp_path / "working.secret"
     backups_dir = tmp_path / "working.backups"
     working_dir.mkdir(parents=True, exist_ok=True)

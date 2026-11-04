@@ -108,12 +108,12 @@ class TranscriptCatalog:
             str(self._path),
             check_same_thread=False,
         )
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys=ON")
-        self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
-        self._conn.execute("PRAGMA journal_mode=DELETE")
-        self._create_schema()
         try:
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+            self._conn.execute("PRAGMA journal_mode=DELETE")
+            self._create_schema()
             self._rebuild_from_chats()
         except BaseException:
             self._conn.close()

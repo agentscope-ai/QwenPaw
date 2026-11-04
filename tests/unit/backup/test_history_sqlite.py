@@ -8,6 +8,7 @@ import io
 import json
 import sqlite3
 import zipfile
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -286,7 +287,7 @@ def test_workspace_backup_rejects_concurrent_conversation_changes(
         if change == "delete":
             path.unlink()
         if change == "identity":
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute(
                     "UPDATE transcript_sessions SET user_id = 'wrong'",
                 )
@@ -295,7 +296,8 @@ def test_workspace_backup_rejects_concurrent_conversation_changes(
             created = TranscriptStore(path.with_name("new.db"))
             created.close()
         elif change == "catalog":
-            with sqlite3.connect(workspace / "transcript_catalog.db") as db:
+            catalog_path = workspace / "transcript_catalog.db"
+            with closing(sqlite3.connect(catalog_path)) as db, db:
                 db.execute("DELETE FROM transcript_files")
         elif change == "chats":
             (workspace / "chats.json").write_text(

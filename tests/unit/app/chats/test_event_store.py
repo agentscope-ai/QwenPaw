@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,7 @@ def test_event_store_initializes_only_the_fresh_schema(tmp_path: Path) -> None:
     store = ConversationEventStore(path)
     store.close()
 
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         assert connection.execute("PRAGMA application_id").fetchone()[0] == (
             APPLICATION_ID
         )
@@ -31,7 +32,7 @@ def test_event_store_initializes_only_the_fresh_schema(tmp_path: Path) -> None:
         )
 
     old = tmp_path / "old.db"
-    with sqlite3.connect(old) as connection:
+    with closing(sqlite3.connect(old)) as connection, connection:
         connection.execute("CREATE TABLE session_runtime(state_json TEXT)")
     with pytest.raises(ValueError, match="unsupported"):
         ConversationEventStore(old)

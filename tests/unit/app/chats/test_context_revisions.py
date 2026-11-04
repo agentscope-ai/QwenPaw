@@ -3,6 +3,7 @@
 
 import asyncio
 import sqlite3
+from contextlib import closing
 from types import SimpleNamespace
 from typing import Any
 
@@ -122,7 +123,7 @@ def test_context_prefixes_and_same_turn_revisions_are_append_only(tmp_path):
             turn_id="one",
             status="completed",
         )
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             assert (
                 connection.execute(
                     "SELECT COUNT(*) FROM context_revisions",
@@ -164,7 +165,7 @@ def test_runtime_revision_kinds_describe_the_actual_change(tmp_path):
             usage={"total_tokens": 1},
             context_usage={"estimated_tokens": 1},
         )
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             usage_revision = connection.execute(
                 "SELECT revision_id FROM context_revisions "
                 "WHERE kind = 'usage_update'",
@@ -185,7 +186,7 @@ def test_runtime_revision_kinds_describe_the_actual_change(tmp_path):
             context_generation=0,
             current_usage=None,
         )
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             kinds = connection.execute(
                 "SELECT kind FROM context_revisions ORDER BY rowid",
             ).fetchall()
@@ -198,7 +199,7 @@ def test_runtime_revision_kinds_describe_the_actual_change(tmp_path):
         ]
         # Later resets and restores must not change the usage-only snapshot.
         store.rebuild_projections()
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             assert read_revision_state(
                 connection,
                 session_id="session",
@@ -213,12 +214,12 @@ def test_runtime_revision_kinds_describe_the_actual_change(tmp_path):
 
 def test_unsupported_development_schema_is_not_modified(tmp_path):
     path = tmp_path / "session.db"
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("CREATE TABLE old_layout (value TEXT)")
         connection.execute("INSERT INTO old_layout VALUES ('preserve')")
     with pytest.raises(ValueError, match="unsupported conversation"):
         TranscriptStore(path)
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         assert connection.execute("SELECT * FROM old_layout").fetchone() == (
             "preserve",
         )

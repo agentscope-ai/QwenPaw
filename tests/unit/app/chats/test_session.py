@@ -17,6 +17,7 @@ import asyncio
 import json
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -126,7 +127,7 @@ async def test_json_migration_imports_recall_once(
                 + ".db"
             )
         )
-        with sqlite3.connect(db_path) as connection:
+        with closing(sqlite3.connect(db_path)) as connection, connection:
             rows = connection.execute(
                 "SELECT seq, turn_id FROM event_log "
                 "WHERE event_type = 'recall.entry_committed' "
@@ -689,7 +690,7 @@ async def test_get_current_usage_does_not_decode_runtime_state(
     )
     assert row is not None
     database_path = catalog._store_path(str(row["storage_id"]))
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         connection.execute(
             "UPDATE session_runtime SET state_json = ? "
             "WHERE session_id = ?",

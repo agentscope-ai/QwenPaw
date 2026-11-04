@@ -19,6 +19,7 @@ API endpoints:
   - POST /api/console/chat/task
   - GET  /api/console/chat/task/{task_id}
 """
+
 from __future__ import annotations
 
 import json
@@ -401,6 +402,7 @@ def test_history_of_unknown_chat_returns_404(app_server):
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.parametrize("app_server", ["short"], indirect=True)
 def test_checkpoint_restore_preserves_history_and_fork(app_server, mock_llm):
     """Restore actual completed turns, then continue and fork twice."""
     srv, mock_url = mock_llm

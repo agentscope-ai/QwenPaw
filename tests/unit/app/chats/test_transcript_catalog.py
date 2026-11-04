@@ -7,6 +7,7 @@ import concurrent.futures
 import json
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,41 @@ def _finish(catalog: TranscriptCatalog, session_id: str) -> None:
         turn_id=f"turn-{session_id}",
         status="completed",
     )
+
+
+@pytest.mark.parametrize("invalid_database", ["schema", "corrupt"])
+def test_catalog_initialization_failure_closes_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_database: str,
+) -> None:
+    path = tmp_path / "transcript_catalog.db"
+    if invalid_database == "schema":
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("CREATE TABLE transcript_files (value TEXT)")
+    else:
+        path.write_bytes(b"not a SQLite database")
+    connect = sqlite3.connect
+    connections: list[sqlite3.Connection] = []
+
+    def track_connect(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", track_connect)
+    expected = (
+        ValueError if invalid_database == "schema" else sqlite3.DatabaseError
+    )
+    try:
+        with pytest.raises(expected):
+            TranscriptCatalog(tmp_path)
+        assert len(connections) == 1
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connections[0].execute("SELECT 1")
+    finally:
+        for connection in connections:
+            connection.close()
 
 
 def test_routes_sessions_to_storage_id_databases(tmp_path: Path) -> None:
@@ -587,7 +623,7 @@ def test_clone_session_copies_completed_history_and_agent_runtime(
     finally:
         child.close()
     child_path = tmp_path / "transcripts" / (child_id + ".db")
-    with sqlite3.connect(child_path) as connection:
+    with closing(sqlite3.connect(child_path)) as connection, connection:
         assert connection.execute(
             "SELECT session_id, content FROM conversation_history",
         ).fetchall() == [("child", "recall before clone")]
@@ -918,7 +954,7 @@ def test_native_migration_partial_matches_remain_rebuildable(tmp_path):
         assert set(state["boundaries"]) == {"one", "two"}
         storage = catalog.storage_id_for(**identity)
         path = tmp_path / "transcripts" / (storage + ".db")
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             assert (
                 connection.execute(
                     "SELECT count(*) FROM event_log "
