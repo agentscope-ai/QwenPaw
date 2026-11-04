@@ -352,7 +352,9 @@ class ServiceManager:
         """
         instance = self.services.get(descriptor.name)
         if instance is None:
-            return True
+            # An optional service may have been disabled in the old config
+            # (e.g. native -> Scroll). There is no instance to transfer.
+            return False
         if (
             descriptor.reuse_compatibility is not None
             and not descriptor.reuse_compatibility(self.workspace, instance)

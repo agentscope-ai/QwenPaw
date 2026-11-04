@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 
 from agentscope.message import (
@@ -32,12 +33,67 @@ from services.file_agent_runtime.model_client import (
     records_to_agentscope_messages,
 )
 from services.file_agent_runtime import model_client
+from services.file_agent_runtime import model_context
 from services.file_agent_runtime.model_context import (
     ModelContextBudgetError,
+    _inline_media_relief,
+    compact_conversation_history,
     prepare_model_messages,
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_inline_media_is_charged_as_vision_tokens_not_base64_text():
+    """A media-bearing contract message must fit the serialized budget.
+
+    Regression guard: ``size()`` used to count the whole messages JSON as
+    text, so one 2MB image inlined as a ~2.7MB Base64 data URL exceeded the
+    384KB budget by itself. Media-bearing user messages are contract content
+    that compaction may not drop, so the request was refused locally and never
+    reached the provider — the understanding record just came back empty.
+    """
+    encoded = base64.b64encode(b"\x00" * (2 * 1024 * 1024)).decode()
+    data_url = f"data:image/jpeg;base64,{encoded}"
+    messages = [
+        {"role": "system", "content": "项目创作契约"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "理解这张图"},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        },
+    ]
+
+    result = prepare_model_messages(messages, [])
+
+    # Inline media is charged, never dropped or rewritten.
+    assert result[1]["content"][1]["image_url"]["url"] == data_url
+    assert result[0]["content"] == "项目创作契约"
+
+
+def test_oversized_inline_media_is_still_refused():
+    """The vision-token charge has a floor, so media is never free."""
+    # 1MB decoded → charge = 1MB / 128 = 8KB, exactly the per-media floor.
+    encoded = base64.b64encode(b"\x00" * (1024 * 1024)).decode()
+    data_url = f"data:image/jpeg;base64,{encoded}"
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        },
+    ]
+
+    # Three floors are ~24KB of charged media. Under a 16KB budget nothing
+    # fits and there is no droppable tool group, so the guard fails closed
+    # instead of letting an oversized request reach the provider.
+    with pytest.raises(ModelContextBudgetError):
+        prepare_model_messages(messages, [], max_bytes=16 * 1024)
 
 
 def test_long_production_compacts_automatic_history_but_keeps_human_input():
@@ -115,6 +171,74 @@ def test_long_production_compacts_automatic_history_but_keeps_human_input():
             ],
             [],
         )
+
+
+def test_inline_media_relief_is_additive_across_elided_slots():
+    """Compaction carries relief incrementally, which needs additivity.
+
+    ``compact_conversation_history`` no longer re-walks every message to
+    recompute relief on each pass; it subtracts the item it just elided.
+    That is only exact because relief sums over list items and an elided
+    slot is worth zero, so the invariant itself is what this guards.
+    """
+    encoded = base64.b64encode(b"\x00" * (512 * 1024)).decode()
+    media = {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+    }
+    first = {"role": "user", "content": [media]}
+    second = {"role": "user", "content": [media, media]}
+    plain = {"role": "user", "content": "plain text"}
+    history = [first, second, plain]
+
+    whole = _inline_media_relief(history)
+    assert whole == sum(_inline_media_relief(item) for item in history)
+    assert _inline_media_relief(None) == 0
+
+    elided = [first, None, plain]
+    assert _inline_media_relief(elided) == whole - _inline_media_relief(
+        second,
+    )
+
+
+def test_media_bearing_automatic_history_is_elided_under_budget():
+    """Droppable reviews that carry inline media must actually leave.
+
+    Pins the budget accounting where relief changes mid-loop. If the
+    carried total were left un-decremented, ``json_bytes`` would shrink
+    while relief stayed huge, the check would go negative, and
+    compaction would stop after the first message — handing the provider
+    a request still over budget instead of reaching it.
+    """
+    encoded = base64.b64encode(b"\x00" * (512 * 1024)).decode()
+    media = {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+    }
+    history = [
+        {
+            "role": "user",
+            "source": "initial_goal",
+            "content": [{"type": "text", "text": "保留全部六集与对白"}],
+        },
+    ]
+    for index in range(6):
+        history.append(
+            {
+                "role": "user",
+                "source": "run_review_feedback",
+                "content": [
+                    {"type": "text", "text": f"review-{index}"},
+                    media,
+                ],
+            },
+        )
+
+    result = compact_conversation_history(history, max_bytes=4096)
+
+    assert result[0]["source"] == "context_compaction"
+    assert result[0]["elidedMessageCount"] == 6
+    assert [item.get("source") for item in result[1:]] == ["initial_goal"]
 
 
 @pytest.mark.parametrize(
@@ -1104,3 +1228,39 @@ def test_model_retry_recovery_reports_real_cause_and_backoff(
         (reason, attempt, delay) for attempt, delay in enumerate(delays, 1)
     ]
     assert sleeps == [delay for delay in delays if delay]
+
+
+def test_inline_media_relief_does_not_walk_plain_strings(monkeypatch):
+    """A string cannot lead to a data URL, so it must not cost a call.
+
+    The estimate runs over the whole history on every turn, and the walk used
+    to descend into every string it passed — including the megabytes of a
+    serialized script — to return zero each time.
+    """
+
+    original = model_context._inline_media_relief
+    visited: list = []
+
+    def counting(node):
+        visited.append(node)
+        return original(node)
+
+    monkeypatch.setattr(model_context, "_inline_media_relief", counting)
+    history = [
+        {"role": "user", "content": "beat sheet " * 4000},
+        {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "notes " * 4000}],
+        },
+    ]
+
+    assert counting(history) == 0
+    assert [node for node in visited if isinstance(node, str)] == []
+
+    # What the walk is for still works: a data URL under a ``url`` key.
+    encoded = base64.b64encode(b"\x00" * (256 * 1024)).decode()
+    media = {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+    }
+    assert original([{"role": "user", "content": [media]}]) > 0

@@ -1,4 +1,5 @@
 import { request } from "../request";
+import type { SystemNotificationEvent } from "../../notifications/notificationEvents";
 
 export interface PushMessage {
   id: string;
@@ -61,7 +62,11 @@ export interface PendingApproval {
 
 export const consoleApi = {
   getPushMessages: (sessionId?: string) =>
-    request<{ messages: PushMessage[]; pending_approvals: PendingApproval[] }>(
+    request<{
+      messages: PushMessage[];
+      pending_approvals: PendingApproval[];
+      notification_events?: SystemNotificationEvent[];
+    }>(
       sessionId
         ? `/console/push-messages?session_id=${sessionId}`
         : "/console/push-messages",
@@ -75,6 +80,7 @@ export const consoleApi = {
     status?: string;
     agent_id?: string;
     unread_only?: boolean;
+    event_id?: string;
   }) => {
     const query = new URLSearchParams();
     if (params?.limit !== undefined) query.set("limit", String(params.limit));
@@ -86,6 +92,7 @@ export const consoleApi = {
     }
     if (params?.status) query.set("status", params.status);
     if (params?.agent_id) query.set("agent_id", params.agent_id);
+    if (params?.event_id) query.set("event_id", params.event_id);
     if (params?.unread_only !== undefined) {
       query.set("unread_only", String(params.unread_only));
     }

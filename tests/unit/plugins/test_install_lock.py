@@ -318,13 +318,13 @@ class TestEnvironmentIdentity:
             ):
                 fresh.state_root()
             return
-        expected = (
-            override
-            if selection == "explicit"
-            else (passwd_home if selection == "passwd" else home)
-            / ".qwenpaw"
-            / "dependency-environments"
-        )
+        # The ``.qwenpaw`` suffix belongs to the home branches only: an
+        # explicit ``QWENPAW_DEPENDENCY_STATE_DIR`` names the coordination
+        # root itself and is used verbatim, without a suffix appended.
+        expected = override
+        if selection != "explicit":
+            selected_home = passwd_home if selection == "passwd" else home
+            expected = selected_home / ".qwenpaw" / "dependency-environments"
         try:
             assert fresh.state_root() == expected.resolve()
             monkeypatch.setenv("HOME", str(tmp_path / "changed-home"))
@@ -344,6 +344,357 @@ class TestEnvironmentIdentity:
             assert fresh._readers_dir(site).is_relative_to(expected.resolve())
         finally:
             fresh._close_readers()
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    def test_state_root_is_shared_by_processes_with_different_homes(
+        self,
+        tmp_path,
+    ):
+        """Processes sharing an environment must not split on ``HOME``.
+
+        ``LocalProvisioner.runtime_environment()`` points ``HOME`` at each
+        runtime's working directory, so a host process and a hub runtime
+        process on one account see different ``HOME`` values. If selection
+        ever preferred ``HOME``, they would coordinate under two roots and
+        the gates, markers and leases below them would stop excluding each
+        other. The property is asserted across two real interpreters, not
+        inside one patched module.
+        """
+        import subprocess
+        import sys
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        passwd_home = tmp_path / "passwd-home"
+        passwd_home.mkdir()
+        script = (
+            "import importlib.util, pwd, sys\n"
+            "from types import SimpleNamespace\n"
+            "spec = importlib.util.spec_from_file_location("
+            "'child_dependency_maintenance', sys.argv[1])\n"
+            "fresh = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(fresh)\n"
+            "pwd.getpwuid = lambda _uid: SimpleNamespace(pw_dir=sys.argv[2])\n"
+            "sys.stdout.write(str(fresh.state_root()) + '\\n')\n"
+        )
+
+        def selected(home):
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if key != maintenance._STATE_ENV
+            }
+            environment["HOME"] = str(home)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-c",
+                    script,
+                    maintenance.__file__,
+                    str(passwd_home),
+                ],
+                capture_output=True,
+                check=True,
+                env=environment,
+                text=True,
+                timeout=120,
+            )
+            return completed.stdout.strip()
+
+        expected = (
+            passwd_home / ".qwenpaw" / "dependency-environments"
+        ).resolve()
+        first = selected(tmp_path / "host-home")
+        second = selected(tmp_path / "runtime-home")
+        assert Path(first) == expected
+        assert Path(second) == expected
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    def test_state_root_reports_an_unusable_passwd_home(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A passwd home that cannot host the root fails during selection.
+
+        Managed hosts advertise one the account may not write, and sometimes
+        one that is not a directory at all (issue #8515). Leaving that to the
+        first ``mkdir`` aborts startup inside the lock helper with a bare
+        ``PermissionError`` and nothing for the operator to act on.
+        """
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_unusable",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "app-home"
+        home.mkdir()
+        blocker = tmp_path / "not-a-directory"
+        blocker.write_text("blocks every path underneath", encoding="utf-8")
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(blocker / "passwd-home")),
+        )
+        with pytest.raises(RuntimeError) as raised:
+            fresh.state_root()
+        message = str(raised.value)
+        assert "DEPENDENCY_STATE_ROOT_UNAVAILABLE" in message
+        assert fresh._STATE_ENV in message
+        assert "not a directory" in message
+        # The explicit override stays authoritative and is never probed.
+        monkeypatch.setenv(fresh._STATE_ENV, str(tmp_path / "state"))
+        assert fresh.state_root() == (tmp_path / "state").resolve()
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    def test_state_root_reports_a_dangling_coordination_directory(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A dangling link at the coordination directory is reported too.
+
+        canonical() refuses dangling links and re-raises FileNotFoundError,
+        which would otherwise abort the import without the context added
+        during selection.
+        """
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_dangling",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "app-home"
+        coordination = home / ".qwenpaw"
+        coordination.mkdir(parents=True)
+        (coordination / "dependency-environments").symlink_to(
+            tmp_path / "nowhere",
+        )
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(home)),
+        )
+        with pytest.raises(RuntimeError) as raised:
+            fresh.state_root()
+        message = str(raised.value)
+        assert "DEPENDENCY_STATE_ROOT_UNAVAILABLE" in message
+        assert "dangling" in message
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root ignores directory permission bits",
+    )
+    def test_state_root_reports_a_read_only_home(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A home the account may not write is reported, not discovered later."""
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_read_only",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        read_only = tmp_path / "read-only-home"
+        read_only.mkdir()
+        read_only.chmod(0o500)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "app-home"))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(read_only)),
+        )
+        try:
+            with pytest.raises(RuntimeError) as raised:
+                fresh.state_root()
+            message = str(raised.value)
+            assert "DEPENDENCY_STATE_ROOT_UNAVAILABLE" in message
+            assert "not writable" in message
+        finally:
+            read_only.chmod(0o755)
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX passwd home selection")
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root ignores directory permission bits",
+    )
+    def test_state_root_accepts_a_prepared_root_under_a_read_only_home(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A prepared, writable coordination directory still works.
+
+        Read-only images commonly mount writable storage at
+        ``~/.qwenpaw/dependency-environments`` while the home itself stays
+        read-only. Selection must not reject what it can already use.
+        """
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_prepared",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "read-only-home"
+        prepared = home / ".qwenpaw" / "dependency-environments"
+        prepared.mkdir(parents=True)
+        home.chmod(0o500)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "app-home"))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(home)),
+        )
+        try:
+            assert fresh.state_root() == prepared.resolve()
+        finally:
+            home.chmod(0o755)
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX permission bits")
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root ignores directory permission bits",
+    )
+    def test_state_root_accepts_a_read_only_root_with_prepared_environments(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A read-only coordination root still works with writable env dirs.
+
+        Lease files and maintenance markers are created inside the prepared
+        per-environment subdirectories, so the coordination root itself need
+        not be writable. The selection probe must not reject this working
+        configuration just because the root directory denies W_OK.
+        """
+        import hashlib
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_read_only_root",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "home"
+        root = home / ".qwenpaw" / "dependency-environments"
+        site = tmp_path / "site"
+        site.mkdir()
+        root.mkdir(parents=True)
+        identity = hashlib.sha256(
+            os.fsencode(str(fresh.canonical(site))),
+        ).hexdigest()
+        environment = root / identity
+        environment.mkdir()
+        root.chmod(0o555)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "app-home"))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(home)),
+        )
+        try:
+            assert fresh.state_root() == root.resolve()
+            fresh.lease_environment([site])
+            assert fresh.live_readers([site])
+            fresh._close_readers()
+            with fresh.maintenance([site], "read-only-root", "token"):
+                assert fresh.marker(site).exists()
+            fresh.clear_maintenance([site], "read-only-root")
+        finally:
+            fresh._close_readers()
+            root.chmod(0o755)
+
+    @pytest.mark.skipif(_WINDOWS, reason="POSIX permission bits")
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root ignores directory permission bits",
+    )
+    def test_state_root_defers_an_unusable_root_to_the_actual_operation(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Selection must not reject a root it cannot fully validate.
+
+        With a read-only root and no prepared per-environment directories,
+        selection cannot know which subdirectories a process will need. It
+        must not reject on the root W_OK bit; the failure then comes from the
+        actual filesystem operation with its original OSError type, so the
+        existing InstallLockError handling in install_lock.py still applies.
+        """
+        import importlib.util
+        import pwd
+        from types import SimpleNamespace
+
+        from qwenpaw.plugins import dependency_maintenance as maintenance
+
+        spec = importlib.util.spec_from_file_location(
+            "fresh_dependency_maintenance_deferred",
+            maintenance.__file__,
+        )
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        home = tmp_path / "home"
+        root = home / ".qwenpaw" / "dependency-environments"
+        site = tmp_path / "site"
+        site.mkdir()
+        root.mkdir(parents=True)
+        root.chmod(0o555)
+        monkeypatch.delenv(fresh._STATE_ENV, raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "app-home"))
+        monkeypatch.setattr(
+            pwd,
+            "getpwuid",
+            lambda _uid: SimpleNamespace(pw_dir=str(home)),
+        )
+        try:
+            assert fresh.state_root() == root.resolve()
+            with pytest.raises(PermissionError) as raised:
+                fresh.lease_environment([site])
+            assert "DEPENDENCY_STATE_ROOT_UNAVAILABLE" not in str(raised.value)
+        finally:
+            root.chmod(0o755)
 
     @pytest.mark.parametrize("alias_kind", ["symlink", "case", "distinct"])
     @pytest.mark.parametrize("owner", ["reader", "writer"])
@@ -656,7 +1007,8 @@ spec = importlib.util.spec_from_file_location('maintenance', sys.argv[1])
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 m.lease_environment([Path(sys.argv[2])], parent_pid=int(sys.argv[3]) or None)
-print('READY', flush=True)
+sys.stdout.buffer.write(b'READY\\n')
+sys.stdout.buffer.flush()
 sys.stdin.readline()
 m._close_readers()
 """
@@ -728,9 +1080,19 @@ m._close_readers()
                     await peer.communicate()
 
     pending = asyncio.create_task(observe())
+    ready_wait = asyncio.create_task(ready.wait())
     shared_paths = set()
     try:
-        await asyncio.wait_for(ready.wait(), WAIT_TIMEOUT)
+        done, _ = await asyncio.wait_for(
+            asyncio.wait(
+                {pending, ready_wait},
+                return_when=asyncio.FIRST_COMPLETED,
+            ),
+            WAIT_TIMEOUT,
+        )
+        if pending in done:
+            await pending
+        assert ready.is_set()
         if isinstance(exit_case, int):
             unlink = Path.unlink
 
@@ -751,6 +1113,8 @@ m._close_readers()
             release.set()
             await asyncio.wait_for(pending, WAIT_TIMEOUT)
     finally:
+        ready_wait.cancel()
+        await asyncio.gather(ready_wait, return_exceptions=True)
         release.set()
         if not pending.done():
             await asyncio.wait_for(pending, WAIT_TIMEOUT)
@@ -762,3 +1126,87 @@ m._close_readers()
     for root in sites:
         assert not list(maintenance._readers_dir(root).glob("*.lease"))
         assert str(root.resolve()) not in maintenance._READERS
+
+
+@_POSIX_FLOCK
+def test_scoped_reader_custody_across_process_exit(tmp_path, monkeypatch):
+    """Scoped readers exclude host maintenance until normal or abrupt exit."""
+    import subprocess
+    import sys
+
+    from qwenpaw.plugins import dependency_maintenance as maintenance
+
+    site = tmp_path / "site"
+    site.mkdir()
+    state = tmp_path / "state"
+    monkeypatch.setattr(maintenance, "_STATE_ROOT", state)
+    monkeypatch.setattr(maintenance, "_READER_SCOPE", "")
+    monkeypatch.setenv("QWENPAW_DEPENDENCY_STATE_DIR", str(state))
+    scope = "a" * 64
+    directory = maintenance.prepare_reader_scope([site], scope)[0]
+    script = """
+import os
+import sys
+from pathlib import Path
+import importlib.util
+spec = importlib.util.spec_from_file_location("maintenance", sys.argv[2])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+site = Path(sys.argv[1])
+scope = m.reader_scope()
+os.environ['QWENPAW_DEPENDENCY_READER_SCOPE'] = 'b' * 64
+assert m.reader_scope() == scope
+with m.file_lock(m._gate(site)):
+    with m.observation_readers([site]):
+        assert any(row['pid'] == os.getpid() for row in m.live_readers([site]))
+m.lease_environment([site])
+print('held', flush=True)
+sys.stdin.readline()
+"""
+    env = dict(os.environ, QWENPAW_DEPENDENCY_READER_SCOPE=scope)
+    for crash in (False, True):
+        with subprocess.Popen(
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                script,
+                str(site),
+                maintenance.__file__,
+            ],
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as peer:
+            try:
+                assert peer.stdout.readline().strip() == "held"
+                assert [
+                    row["pid"] for row in maintenance.live_readers([site])
+                ] == [peer.pid]
+                assert list(directory.glob("*.lease"))
+                with pytest.raises(RuntimeError, match="BUSY"):
+                    with maintenance.maintenance([site], "test", "token"):
+                        pytest.fail("scoped reader admitted maintenance")
+            finally:
+                if crash:
+                    peer.kill()
+                _, stderr = peer.communicate("release\n", timeout=5)
+            assert peer.returncode == (-9 if crash else 0), stderr
+        if not crash:
+            assert not list(directory.glob("*.lease"))
+        assert not maintenance.live_readers([site])
+        assert not list(directory.glob("*.lease"))
+        with maintenance.maintenance([site], "test", "token"):
+            pass
+        maintenance.clear_maintenance([site], "test")
+
+    # A malformed namespace entry must fail promptly rather than block on FIFO.
+    invalid = directory / "invalid.lease"
+    os.mkfifo(invalid)
+    try:
+        with pytest.raises(RuntimeError, match="LEASE_INVALID"):
+            maintenance.live_readers([site])
+    finally:
+        invalid.unlink()

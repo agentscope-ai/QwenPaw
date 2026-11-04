@@ -464,6 +464,20 @@ export default function FilesDrawer({
                     root={target.root}
                     projectDirOverride={projectDirOverride}
                     workspaceBacked={target.source === "workspace"}
+                    onOpenFile={
+                      target.source === "workspace" && !target.artifactUrl
+                        ? (path) =>
+                            dispatch({
+                              type: "OPEN_PREVIEW",
+                              target: {
+                                source: "workspace",
+                                path,
+                                root: target.root,
+                              },
+                              trigger: state.trigger,
+                            })
+                        : undefined
+                    }
                     onMemoryTagClick={
                       memoryTagsSupported &&
                       !target.artifactUrl &&

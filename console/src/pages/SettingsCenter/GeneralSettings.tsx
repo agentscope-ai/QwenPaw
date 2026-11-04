@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router-dom";
 
 import { LANGUAGE_LIST } from "@/constants/languageList";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
@@ -78,6 +79,7 @@ import { RunningGlow } from "@/components/interaction/RunningGlow";
 import { Cascade } from "@/components/interaction/Cascade";
 import { SharedModal } from "@/components/interaction/SharedModal";
 import BottomSheet from "@/components/interaction/BottomSheet";
+import NotificationSettings from "@/notifications/NotificationSettings";
 
 const styles = { ...baseStyles, ...polish };
 
@@ -115,6 +117,13 @@ function ThemePresetLabel({ preset }: { preset: ThemePreset }) {
 
 export default function GeneralSettings() {
   const { t, i18n } = useTranslation();
+  const location = useLocation();
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get("section") === "notifications")
+      document
+        .getElementById("notifications")
+        ?.scrollIntoView?.({ block: "start" });
+  }, [location.search]);
   const {
     themeMode,
     setThemeMode,
@@ -274,7 +283,10 @@ export default function GeneralSettings() {
         </div>
       </div>
       <div className={styles.themeFields}>
-        <label className={`${styles.themeField} ${styles.themePresetField}`}>
+        <label
+          data-settings-target="settingsCenter.themePalette"
+          className={`${styles.themeField} ${styles.themePresetField}`}
+        >
           <span>{t("settingsCenter.themePalette", "Theme palette")}</span>
           <Select
             aria-label={t("settingsCenter.themePalette", "Theme palette")}
@@ -288,7 +300,10 @@ export default function GeneralSettings() {
             onChange={selectThemePreset}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.accentColor"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.accentColor", "Accent color")}</span>
           <ColorPicker
             getPopupContainer={(trigger) => trigger.parentElement!}
@@ -297,7 +312,10 @@ export default function GeneralSettings() {
             onChange={(_, hex) => updateDraftTheme({ accent: hex })}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.accentHover"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.accentHover", "Accent hover")}</span>
           <ColorPicker
             getPopupContainer={(trigger) => trigger.parentElement!}
@@ -308,7 +326,10 @@ export default function GeneralSettings() {
             onChange={(_, hex) => updateDraftTheme({ accent_hover: hex })}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.accentBackground"
+          className={styles.themeField}
+        >
           <span>
             {t("settingsCenter.accentBackground", "Accent background")}
           </span>
@@ -324,7 +345,10 @@ export default function GeneralSettings() {
             }
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.cornerRadius"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.cornerRadius", "Corner radius")}</span>
           <NumberStepper
             aria-label={t("settingsCenter.cornerRadius", "Corner radius")}
@@ -342,7 +366,10 @@ export default function GeneralSettings() {
             style={{ width: "100%" }}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.darkAccentColor"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.darkAccentColor", "Dark accent")}</span>
           <ColorPicker
             getPopupContainer={(trigger) => trigger.parentElement!}
@@ -353,7 +380,10 @@ export default function GeneralSettings() {
             onChange={(_, hex) => updateDarkTheme({ accent: hex })}
           />
         </label>
-        <label className={styles.themeField}>
+        <label
+          data-settings-target="settingsCenter.darkSurface"
+          className={styles.themeField}
+        >
           <span>{t("settingsCenter.darkSurface", "Dark surface")}</span>
           <Input
             value={
@@ -531,6 +561,7 @@ export default function GeneralSettings() {
                   ))}
                 </span>
                 <motion.button
+                  data-settings-open="theme"
                   className={styles.customButton}
                   style={{ borderRadius: 24 }}
                   whileTap={reduced ? undefined : { scale: 0.96 }}
@@ -547,6 +578,8 @@ export default function GeneralSettings() {
             </div>
           </Cascade>
         </section>
+
+        <NotificationSettings />
 
         <section className={styles.settingsSection} data-setting-block>
           <NavigationSettings />
@@ -736,10 +769,6 @@ export default function GeneralSettings() {
                       },
                       {
                         value: "minimize-to-tray",
-                        label: t("desktop.closeWindow.minimizeToTray"),
-                      },
-                      {
-                        value: "quit",
                         label: t("desktop.closeWindow.keepRunning"),
                       },
                       {

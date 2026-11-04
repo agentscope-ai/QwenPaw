@@ -1,14 +1,46 @@
 // @vitest-environment jsdom
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import type { PendingApproval } from "../api/modules/console";
 import { ApprovalProvider } from "../contexts/ApprovalContext";
+import type { ApprovalNotificationTarget } from "../notifications/approvalNavigation";
 import { useOsNotify } from "./osNotifyStore";
+import { useOsRoute } from "./osRouteStore";
+import { useOsWindows } from "./osWindowStore";
 import DesktopPollingServices from "./DesktopPollingServices";
 
 const mocks = vi.hoisted(() => ({
   getInboxEvents: vi.fn(),
   getPushMessages: vi.fn(),
+  native: false,
+  subscribeDesktop: vi.fn(),
+  listeners: new Map<
+    string,
+    (event: { payload?: ApprovalNotificationTarget }) => void
+  >(),
+}));
+
+vi.mock("../tauri/backendRuntime", () => ({
+  isDesktopApp: () => mocks.native,
+}));
+
+vi.mock("../tauri/consoleNotifications", () => ({
+  subscribeDesktopConsolePush: mocks.subscribeDesktop,
+  configureDesktopApprovalNotifications: vi.fn(async () => undefined),
+  configureDesktopSystemNotifications: vi.fn(async () => undefined),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(
+    async (
+      name: string,
+      handler: (event: { payload?: ApprovalNotificationTarget }) => void,
+    ) => {
+      mocks.listeners.set(name, handler);
+      return () => mocks.listeners.delete(name);
+    },
+  ),
 }));
 
 vi.mock("../api", () => ({
@@ -58,6 +90,10 @@ describe("DesktopPollingServices", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     setVisibility("visible");
+    mocks.native = false;
+    vi.mocked(invoke).mockReset().mockResolvedValue(null);
+    mocks.listeners.clear();
+    mocks.subscribeDesktop.mockReset().mockResolvedValue(() => undefined);
     mocks.getPushMessages.mockReset();
     mocks.getInboxEvents.mockReset();
     mocks.getPushMessages.mockResolvedValue({
@@ -76,6 +112,13 @@ describe("DesktopPollingServices", () => {
       centerOpen: false,
       seeded: false,
       knownIds: new Set<string>(),
+    });
+    useOsRoute.setState({ targets: {} });
+    useOsWindows.setState({
+      windows: {},
+      order: [],
+      activeId: null,
+      saved: {},
     });
   });
 
@@ -124,4 +167,71 @@ describe("DesktopPollingServices", () => {
     expect(mocks.getInboxEvents).toHaveBeenCalledTimes(inboxCalls);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("restores the chat app and preserves the native notification target", async () => {
+    mocks.native = true;
+    const view = render(
+      <ApprovalProvider>
+        <DesktopPollingServices />
+      </ApprovalProvider>,
+    );
+    await advance(0);
+    useOsWindows.getState().open("core.chat");
+    useOsWindows.getState().minimize("core.chat");
+
+    const target = {
+      requestId: "approval/1",
+      rootSessionId: "session-1",
+      agentId: "agent-1",
+    };
+    vi.mocked(invoke).mockResolvedValueOnce({ kind: "approval", target });
+    await act(async () => {
+      mocks.listeners.get("qwenpaw:open-approval")?.({ payload: target });
+    });
+    expect(invoke).toHaveBeenLastCalledWith("take_notification_target", {
+      kind: "approval",
+    });
+    expect(useOsRoute.getState().targets["core.chat"]).toEqual({
+      path: "/chat/session-1?approval=approval%2F1&agent=agent-1",
+      nonce: 1,
+    });
+    expect(useOsWindows.getState().activeId).toBe("core.chat");
+    expect(useOsWindows.getState().windows["core.chat"].minimized).toBe(false);
+
+    vi.mocked(invoke).mockResolvedValueOnce({ kind: "approval", target });
+    await act(async () => {
+      mocks.listeners.get("qwenpaw:open-approval")?.({ payload: target });
+    });
+    expect(useOsRoute.getState().targets["core.chat"].nonce).toBe(2);
+    view.unmount();
+    expect(mocks.listeners.size).toBe(0);
+  });
+
+  it.each([
+    ["qwenpaw:open-approvals", undefined],
+    ["qwenpaw:open-approval", { requestId: "approval-1" }],
+  ])(
+    "opens Inbox approvals for %s without a source chat",
+    async (name, target) => {
+      mocks.native = true;
+      const view = render(
+        <ApprovalProvider>
+          <DesktopPollingServices />
+        </ApprovalProvider>,
+      );
+      await advance(0);
+
+      if (target) {
+        vi.mocked(invoke).mockResolvedValueOnce({ kind: "approval", target });
+      }
+      await act(async () => {
+        mocks.listeners.get(name)?.({ payload: target });
+      });
+      expect(useOsRoute.getState().targets["core.inbox"]?.path).toBe(
+        "/inbox?tab=approvals",
+      );
+      expect(useOsWindows.getState().activeId).toBe("core.inbox");
+      view.unmount();
+    },
+  );
 });

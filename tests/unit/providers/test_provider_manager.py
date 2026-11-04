@@ -1225,9 +1225,11 @@ def test_load_provider_migrates_v210_builtin_snapshot(
     assert default_model.parameters.max_tokens is None
     assert default_model.parameters.temperature == 0.1
     assert default_model.parameters.top_p == 0.9
-    assert configured_model.parameters.max_tokens == 4096
+    assert configured_model.parameters.max_tokens is None
+    assert configured_model._extra_generate_kwargs["max_tokens"] == 4096
     assert configured_model.parameters.temperature == 0.2
-    assert explicit_model.parameters.max_tokens == 2048
+    assert explicit_model.parameters.max_tokens is None
+    assert explicit_model._extra_generate_kwargs["max_tokens"] == 2048
     assert explicit_model.parameters.temperature == 0.3
     assert migrated.custom_headers == {"X-Legacy": "kept"}
 
@@ -1273,7 +1275,8 @@ def test_load_provider_migrates_v210_custom_snapshot(
     )
 
     assert default_model.parameters.max_tokens is None
-    assert configured_model.parameters.max_tokens == 4096
+    assert configured_model.parameters.max_tokens is None
+    assert configured_model._extra_generate_kwargs["max_tokens"] == 4096
     assert configured_model.parameters.temperature == 0.4
     assert configured_model.parameters.top_p == 0.8
     assert migrated.custom_headers == {"X-Custom-Legacy": "kept"}
@@ -1309,7 +1312,8 @@ def test_prepare_plugin_registration_migrates_v210_snapshot(
     provider = registration["class"](**registration["info"].model_dump())
 
     model = provider.get_chat_model_instance("plugin-configured")
-    assert model.parameters.max_tokens == 4096
+    assert model.parameters.max_tokens is None
+    assert model._extra_generate_kwargs["max_tokens"] == 4096
     assert model.parameters.temperature == 0.5
     assert model.parameters.top_p == 0.7
     assert provider.custom_headers == {"X-Plugin-Legacy": "kept"}

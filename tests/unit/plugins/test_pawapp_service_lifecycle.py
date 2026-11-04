@@ -227,20 +227,29 @@ async def test_cancelled_startup_stops_sidecar(
         fresh_registry,
         declaration,
     )
-    loading = asyncio.create_task(loader.load_plugin(manifest, root))
-    await asyncio.wait_for(started.wait(), timeout=10)
+    record = await loader.lifecycle.load(manifest, root, activate=False)
+    assert record.status == "registered"
+    assert not loader.lifecycle.get_instance(manifest.id).activated
     service = sys.modules["plugin_service_fixture"].service
-    process = service._process  # pylint: disable=protected-access
+    assert not service.is_ready
+    activating = asyncio.create_task(loader.lifecycle.activate(manifest.id))
     try:
-        loading.cancel()
+        await asyncio.wait_for(started.wait(), timeout=10)
+        process = service._process  # pylint: disable=protected-access
+        activating.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(loading, timeout=10)
+            await asyncio.wait_for(activating, timeout=10)
         assert process.returncode is not None
         assert not service.is_ready
         report = await loader.lifecycle.unload(manifest.id, UnloadMode.UNLOAD)
         assert report.clean and report.quiescent
     finally:
-        await service.stop()
+        activating.cancel()
+        await asyncio.gather(activating, return_exceptions=True)
+        if sys.exc_info()[0] is None:
+            await service.stop()
+        else:
+            await asyncio.gather(service.stop(), return_exceptions=True)
 
 
 @pytest.mark.asyncio

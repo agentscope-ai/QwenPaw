@@ -721,6 +721,28 @@ class ChannelBackend:
                 finally:
                     usage.withdraw(token)
 
+    async def admit_existing(
+        self,
+        description,
+        *,
+        usage,
+        token,
+        snapshot=None,
+    ):
+        from .dependency_gate import admit_shared_dependencies
+
+        prepared = await self.prepare_dependency_targets(description)
+        return await admit_shared_dependencies(
+            lambda: self.audit_dependencies(description),
+            plugin_id=description.manifest.id,
+            requirements_file=None,
+            usage_registry=usage,
+            admission_token=token,
+            snapshot=snapshot,
+            targets=prepared.targets,
+            validate=prepared.validate,
+        )
+
     async def audit_dependencies(self, description):
         """Fence configured roots; the child still verifies actual sites."""
         from .install_lock import environment_observation

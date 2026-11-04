@@ -134,6 +134,8 @@ async def run(
     packet: dict[str, Any],
     output: Any,
     runtime: Any,
+    *,
+    input_handle: Any,
 ) -> None:
     from .errors import ProtocolValidationError
     from .framing import FramedTransport
@@ -148,7 +150,7 @@ async def run(
     transport = await boot._open_protocol_transport(
         FramedTransport,
         output,
-        input_handle=sys.stdin.buffer,
+        input_handle=input_handle,
         payloads=payloads,
     )
     peer = runtime.peer(transport)
@@ -369,13 +371,20 @@ def main(
     protected_namespaces: tuple[str, ...] = (),
 ) -> int:
     output = None
+    protocol_input = None
+    input_transferred = False
     try:
         _sibling("process_tree").watch_parent(int(sys.argv[1]))
         boot = _sibling("bootstrap")
         boot._require_isolated_python()
         output = boot._capture_protocol_output()
         boot._redirect_ordinary_output()
-        raw = sys.stdin.buffer.readline(1024 * 1024 + 1)
+        protocol_input = (
+            boot._capture_protocol_input()
+            if os.name == "nt"
+            else sys.stdin.buffer
+        )
+        raw = protocol_input.readline(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024 or not raw.endswith(b"\n"):
             return 70
         packet = json.loads(raw)
@@ -389,6 +398,7 @@ def main(
             return 70
 
         async def enter() -> None:
+            nonlocal input_transferred
             # Windows builds the trusted loop's self-pipe with socketpair.
             # Install the guard after that, but before candidate paths enter.
             if mode in {"audit", "probe"}:
@@ -405,7 +415,14 @@ def main(
             runtime = (
                 Runtime() if runtime_factory is None else runtime_factory()
             )
-            await run_component(boot, packet, output, runtime)
+            input_transferred = True
+            await run_component(
+                boot,
+                packet,
+                output,
+                runtime,
+                input_handle=protocol_input,
+            )
 
         asyncio.run(enter())
         return 0
@@ -421,6 +438,11 @@ def main(
         sys.stderr.flush()
         return 70
     finally:
+        # A Windows reader may hold the buffer lock in a blocking read.
+        # Once transferred, it closes its stream or process exit reclaims it.
+        if os.name == "nt" and protocol_input is not None:
+            if not input_transferred:
+                protocol_input.close()
         if output is not None:
             output.close()
 
