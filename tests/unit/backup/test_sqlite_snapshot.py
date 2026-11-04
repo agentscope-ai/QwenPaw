@@ -37,6 +37,7 @@ def test_live_wal_snapshot_restores_committed_data(tmp_path):
                 archive,
                 [("agent", SimpleNamespace(workspace_dir=ws))],
             )
+        with zipfile.ZipFile(tmp_path / "backup.zip", "r") as archive:
             assert archive.namelist() == [
                 f"{PREFIX_WORKSPACES}agent/{filename}",
             ]

@@ -492,13 +492,11 @@ class MatrixPlatform:
         )
 
     def _preflight_e2ee_dependencies(self) -> None:
-        if not self.encryption:
-            return
-        if ENCRYPTION_ENABLED:
+        if not self.encryption or ENCRYPTION_ENABLED:
             return
         logger.error(
-            "matrix-nio has no E2EE backend; encryption=False. Install the optional "
-            "matrix-nio[e2e] extra and platform libolm to enable encryption.",
+            "MatrixChannel: E2EE backend unavailable; encryption=False. "
+            "Reinstall the Matrix channel dependencies to enable encryption.",
         )
         self.encryption = False
 

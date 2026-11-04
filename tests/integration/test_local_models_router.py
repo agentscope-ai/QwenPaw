@@ -45,13 +45,17 @@ def test_local_models_download_invalid(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_local_models_list_pagination(app_server) -> None:
-    """Test local models list pagination."""
+def test_local_models_list_preserves_decision_roles(app_server) -> None:
+    """The catalog is unpaginated and must preserve decision model roles."""
     response = app_server.api_request("GET", "/api/local-models/models")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) <= 5
+    assert len({model["id"] for model in data}) == len(data)
+    for model in data:
+        if model["id"].startswith("agentscope-ai/Piccolo-"):
+            assert model["model_type"] == "decision"
+            assert model["source"] == "huggingface"
 
 
 @pytest.mark.integration

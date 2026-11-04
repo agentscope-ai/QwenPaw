@@ -1915,7 +1915,7 @@
     "fieldWebSocketHost": "Servidor WebSocket",
     "fieldWebSocketPort": "Porta WebSocket",
     "matrixUserHelp": "Aceita MXID completo (ex.: @bot:matrix.org) ou nome local (bot).",
-    "matrixEncryptionHelp": "Após ativar, verifique o dispositivo no Matrix (ex.: Element) e instale: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "Após ativar, verifique o dispositivo no Matrix (ex.: Element).",
     "matrixDeviceHelp": "Nome fixo do dispositivo Matrix. Padrão: qwenpaw-worker.",
     "messageTypeHelp": "markdown: mensagens comuns; card: cartão interativo de IA.",
     "scheduledMessageTypeHelp": "Tipo de mensagem agendada, independente do formato do chat.",
@@ -2938,6 +2938,8 @@
     "rubricPrompt": "Critérios de Conclusão em Linguagem Natural",
     "rubricPromptTooltip": "O prompt injetado para pedir ao agente que avalie a conclusão da tarefa",
     "rubricDesc": "Aplica critérios de conclusão em linguagem natural a respostas de texto sem chamadas de ferramentas e pede ao agente para continuar se ainda houver trabalho.",
+    "rubricUseDecisionModel": "Usar o modelo de decisão para auxiliar na autoverificação",
+    "rubricUseDecisionModelHelp": "A conversa e os resultados das ferramentas são enviados ao modelo de decisão selecionado. Ele pode indicar algo que o agente deixou de fazer. Se não houver sugestão ou o modelo estiver indisponível, o agente faz a autoverificação habitual.",
     "rubricPromptPlaceholder": "Você não chamou nenhuma ferramenta. Se a tarefa está completa, confirme. Caso contrário, continue com chamadas de ferramentas.",
     "rubricMaxInterventions": "Máximo de Rodadas de Avaliação",
     "rubricMaxInterventionsTooltip": "Máximo de verificações de conclusão para respostas de texto sem chamadas de ferramentas em um turno.",
@@ -4789,6 +4791,27 @@
     "marketSortDownloads": "Most downloaded",
     "marketSortUpdated": "Recently updated",
     "marketSortFavorites": "Most favorited"
+  },
+  "approvalNotifications": {
+    "settingTitle": "Notificações de aprovação na área de trabalho",
+    "openApprovals": "Ver aprovações pendentes",
+    "description": "Receba uma notificação do sistema quando chegar uma aprovação enquanto o QwenPaw estiver em segundo plano.",
+    "title": "QwenPaw · Aprovação necessária",
+    "body": "{{tool}} está aguardando sua aprovação. Abra o QwenPaw para revisar.",
+    "failed": "Não foi possível enviar uma notificação. Verifique as configurações de notificação.",
+    "permission": {
+      "default": "Permissão necessária ao ativar",
+      "granted": "Permissão do navegador concedida",
+      "denied": "Bloqueado — permita notificações nas configurações do site no navegador",
+      "native": "Gerenciado pelas configurações de notificação do sistema",
+      "checking": "Verificando permissão de notificação",
+      "unavailable": "Não foi possível verificar a permissão de notificação do sistema. Reabra o aplicativo.",
+      "nativeDefault": "Permissão do sistema necessária ao ativar",
+      "nativeGranted": "Permissão de notificação do sistema concedida",
+      "nativeDenied": "Bloqueado — permita o QwenPaw nas configurações de notificação do sistema",
+      "unsupported": "Este navegador não oferece suporte a notificações da área de trabalho",
+      "insecure": "Abra via HTTPS ou localhost para ativar as notificações"
+    }
   },
   "inbox": {
     "title": "Colheita diária de IA",

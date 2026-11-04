@@ -3,6 +3,7 @@
 import asyncio
 import json
 from nio import AsyncClient
+from nio.crypto import ENCRYPTION_ENABLED
 from pathlib import Path
 import pytest
 from qwenpaw.channel_protocol.models import SendParams
@@ -11,12 +12,29 @@ from tests.channel_support.driver import bind, module
 
 from aiohttp import web
 import pytest_asyncio
+import tomllib
 
-MatrixPlatform = module("matrix", "platform").MatrixPlatform
+matrix_module = module("matrix", "platform")
+MatrixPlatform = matrix_module.MatrixPlatform
 
 BOT = "@bot:example.com"
 ROOM = "!test_room:example.com"
 SENDER = "@user:example.com"
+
+
+def test_matrix_requirements_match_channels_extra():
+    project_root = Path(__file__).resolve().parents[3]
+    with (project_root / "pyproject.toml").open("rb") as stream:
+        project = tomllib.load(stream)
+    declared = set(project["project"]["optional-dependencies"]["channels"])
+    requirements = {
+        line.strip()
+        for line in (project_root / "plugins/channel/matrix/requirements.txt")
+        .read_text()
+        .splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    assert requirements <= declared
 
 
 def text_event(body, event_id, sender=SENDER):
@@ -119,6 +137,16 @@ class LocalMatrixAPI:
                     SENDER: {"display_name": "User"},
                 },
             }, 200
+        elif path.endswith("/keys/upload"):
+            value, status = {
+                "one_time_key_counts": {
+                    "signed_curve25519": len(
+                        body.get("one_time_keys", {}),
+                    ),
+                },
+            }, 200
+        elif path.endswith("/keys/query"):
+            value, status = {"device_keys": {}, "failures": {}}, 200
         elif "/send/" in path:
             value, status = ({"event_id": "$sent-" + str(len(self.sent))}, 200)
         elif "/download/" in path:
@@ -253,6 +281,35 @@ async def test_legacy_identity_mismatch_does_not_block_valid_token(
         == old_auth
     )
     assert (legacy / "matrix_sync_token").read_text() == "old-batch"
+
+
+@pytest.mark.asyncio
+async def test_missing_e2ee_dependency_keeps_plaintext_fallback(
+    platform_factory,
+    monkeypatch,
+):
+    monkeypatch.setattr(matrix_module, "ENCRYPTION_ENABLED", False)
+    platform = platform_factory(encryption=True)
+    await platform.start()
+    assert platform.encryption is False
+    assert platform.observed_states == ["connected"]
+
+
+@pytest.mark.skipif(
+    not ENCRYPTION_ENABLED,
+    reason="nio E2EE backend required",
+)
+@pytest.mark.asyncio
+async def test_default_e2ee_dependency_initializes_crypto_store(
+    hs,
+    platform_factory,
+):
+    platform = platform_factory(encryption=True)
+    await platform.start()
+    assert platform._client.olm is not None
+    assert platform._client.olm.account.shared
+    assert len(hs.calls("/keys/upload")) == 1
+    assert any(platform._state.crypto_dir.glob("*.db"))
 
 
 @pytest.mark.asyncio
