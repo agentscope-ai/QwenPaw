@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import tempfile
 import time
@@ -1424,14 +1425,36 @@ def scan_skill_dir_or_raise(skill_dir: Path, skill_name: str) -> None:
 
 
 @contextmanager
-def staged_skill_dir(skill_name: str) -> Iterator[Path]:
+def staged_skill_dir(
+    skill_name: str,
+    *,
+    root_dir: Path | None = None,
+) -> Iterator[Path]:
     """Create a temporary skill directory used for staged writes.
 
     The temp root uses a fixed prefix and the stage directory is resolved via
     ``safe_skill_dir``, so a caller-supplied ``skill_name`` can never escape
     the temp root (path-injection hardening).
+
+    ``root_dir`` places the staging directory inside the filesystem tree that
+    will receive the copy. AppContainer runtimes must stage inside their
+    writable workspace: the process temp directory is a Low-integrity mount
+    whose child objects do not inherit the AppContainer SID ACE, so creating
+    the staged skill there fails with ``WinError 5``.
     """
-    temp_root = Path(tempfile.mkdtemp(prefix=_SKILL_STAGE_PREFIX))
+    if root_dir is None:
+        temp_root = Path(tempfile.mkdtemp(prefix=_SKILL_STAGE_PREFIX))
+    else:
+        root_dir.mkdir(parents=True, exist_ok=True)
+        while True:
+            temp_root = root_dir / (
+                f"{_SKILL_STAGE_PREFIX}{secrets.token_hex(8)}"
+            )
+            try:
+                temp_root.mkdir()
+            except FileExistsError:  # pragma: no cover - 128-bit collision
+                continue
+            break
     try:
         yield safe_skill_dir(temp_root, skill_name)
     finally:
