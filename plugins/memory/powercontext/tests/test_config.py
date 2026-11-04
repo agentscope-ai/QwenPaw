@@ -11,7 +11,89 @@ def test_defaults():
     config = PowerContextMemoryConfig()
     assert config.scope_id == ""
     assert config.auto_memory_search_config.enabled is True
+    assert config.auto_memory_search_config.mode == "prepare"
     assert config.auto_memory_search_config.max_context_bytes == 12000
+    assert config.context_assembly.model_dump() == {
+        "format": "markdown",
+        "sections": [
+            {"family": "profile", "limit": 1},
+            {"family": "topic-memory", "limit": 2},
+            {"family": "memory", "limit": 3},
+            {"family": "experience", "limit": 2},
+        ],
+        "show": [],
+    }
+
+
+def test_legacy_memory_mode_is_explicit():
+    config = PowerContextMemoryConfig(
+        auto_memory_search_config={"mode": "memory", "max_results": 7},
+    )
+    assert config.auto_memory_search_config.mode == "memory"
+    assert config.auto_memory_search_config.max_results == 7
+
+
+@pytest.mark.parametrize("mode", ["auto", "fallback", "", None])
+def test_rejects_unknown_recall_mode(mode):
+    with pytest.raises(ValidationError):
+        PowerContextMemoryConfig(auto_memory_search_config={"mode": mode})
+
+
+@pytest.mark.parametrize(
+    "sections",
+    [
+        [],
+        [{"family": "experience", "limit": 1}],
+        [
+            {"family": "memory", "limit": 8},
+            {"family": "profile", "limit": 8},
+            {"family": "experience", "limit": 2},
+            {"family": "topic-memory", "limit": 8},
+        ],
+    ],
+)
+def test_context_assembly_preserves_section_order_and_server_budget(sections):
+    config = PowerContextMemoryConfig(
+        context_assembly={
+            "sections": sections,
+            "show": ["confidence", "recall_rank"],
+        },
+    )
+    assert config.context_assembly.model_dump() == {
+        "format": "markdown",
+        "sections": sections,
+        "show": ["confidence", "recall_rank"],
+    }
+
+
+@pytest.mark.parametrize(
+    "assembly",
+    [
+        {"format": "json"},
+        {"unknown": True},
+        {"sections": [{"family": "skill", "limit": 1}]},
+        {"sections": [{"family": "atomic-memory", "limit": 1}]},
+        {"sections": [{"family": "memory"}]},
+        {"sections": [{"family": "memory", "limit": 0}]},
+        {"sections": [{"family": "memory", "limit": 9}]},
+        {"sections": [{"family": "experience", "limit": 3}]},
+        {"sections": [{"family": "memory", "limit": True}]},
+        {"sections": [{"family": "memory", "limit": "2"}]},
+        {"sections": [{"family": "memory", "limit": 2.0}]},
+        {"sections": [{"family": "profile", "limit": 1, "unknown": True}]},
+        {
+            "sections": [
+                {"family": "memory", "limit": 1},
+                {"family": "memory", "limit": 2},
+            ],
+        },
+        {"show": ["confidence", "confidence"]},
+        {"show": ["score"]},
+    ],
+)
+def test_rejects_invalid_context_assembly(assembly):
+    with pytest.raises(ValidationError):
+        PowerContextMemoryConfig(context_assembly=assembly)
 
 
 def test_removed_fallback_backend_is_ignored():

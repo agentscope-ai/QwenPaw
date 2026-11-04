@@ -26,6 +26,46 @@ class PowerContextMemoryPlugin:
                         "policy_name": "PowerContextMemoryRemember",
                         "tool_type": "network",
                     },
+                    "prepare_context": {
+                        "policy_name": "PowerContextPrepareContext",
+                        "tool_type": "network",
+                        "target_param": "query",
+                    },
+                    "artifact_schema": {
+                        "policy_name": "PowerContextArtifactSchema",
+                        "tool_type": "network",
+                        "target_param": "family",
+                    },
+                    "artifact_search": {
+                        "policy_name": "PowerContextArtifactSearch",
+                        "tool_type": "network",
+                        "target_param": "query",
+                    },
+                    "artifact_list": {
+                        "policy_name": "PowerContextArtifactList",
+                        "tool_type": "network",
+                        "target_param": "family",
+                    },
+                    "artifact_get": {
+                        "policy_name": "PowerContextArtifactGet",
+                        "tool_type": "network",
+                        "target_param": "artifact_id",
+                    },
+                    "artifact_history": {
+                        "policy_name": "PowerContextArtifactHistory",
+                        "tool_type": "network",
+                        "target_param": "artifact_id",
+                    },
+                    "artifact_create": {
+                        "policy_name": "PowerContextArtifactCreate",
+                        "tool_type": "network",
+                        "target_param": "family",
+                    },
+                    "artifact_replace": {
+                        "policy_name": "PowerContextArtifactReplace",
+                        "tool_type": "network",
+                        "target_param": "artifact_id",
+                    },
                 },
             },
         )

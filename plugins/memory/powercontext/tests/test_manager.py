@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 
+import asyncio
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -11,6 +13,7 @@ from agentscope.message import Msg, TextBlock
 from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
+from plugins.memory.powercontext.backend.client import PowerContextMemoryClient
 from plugins.memory.powercontext.backend.config import PowerContextMemoryConfig
 from plugins.memory.powercontext.backend.manager import (
     PowerContextMemoryManager,
@@ -24,6 +27,22 @@ from qwenpaw.governance import PolicyGuardedTool
 from qwenpaw.governance.policy import GovernanceAction, GovernancePolicy
 from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
 from qwenpaw.runtime.builder import AgentBuilder
+
+
+@pytest.fixture(autouse=True)
+def registered_scopes(monkeypatch):
+    """Existing-scope fixture; HTTP contracts are tested in test_client."""
+
+    async def resolve_existing(client, *, create_default=False):
+        del create_default
+        return client.config.scope_id
+
+    monkeypatch.setattr(
+        PowerContextMemoryClient,
+        "resolve_scope",
+        resolve_existing,
+        raising=False,
+    )
 
 
 def _manager(
@@ -190,11 +209,12 @@ async def test_installation_identity_io_runs_off_event_loop(
 
 
 @pytest.mark.asyncio
-async def test_auto_search_injects_powercontext_result(tmp_path):
+async def test_legacy_auto_search_injects_powercontext_result(tmp_path):
     manager = _manager(tmp_path, "agent-1")
     manager._client = object()
     manager._config = PowerContextMemoryConfig(
         auto_memory_search_config={
+            "mode": "memory",
             "enabled": True,
             "max_results": 2,
         },
@@ -239,7 +259,9 @@ async def test_auto_search_labels_recall_as_untrusted_history(tmp_path):
             ],
         ),
     )
-    manager._config = PowerContextMemoryConfig()
+    manager._config = PowerContextMemoryConfig(
+        auto_memory_search_config={"mode": "memory"},
+    )
 
     result = await manager.auto_memory_search([user("prior work")])
 
@@ -414,7 +436,9 @@ async def test_default_scope_isolates_same_agent_across_installations(
 async def test_auto_search_skips_backend_error(tmp_path):
     manager = _manager(tmp_path, "agent-1")
     manager._client = object()
-    manager._config = PowerContextMemoryConfig()
+    manager._config = PowerContextMemoryConfig(
+        auto_memory_search_config={"mode": "memory"},
+    )
     manager._search_memories = AsyncMock(
         return_value=ToolChunk(
             is_last=True,
@@ -617,6 +641,7 @@ async def test_auto_search_bounds_total_multibyte_context(tmp_path):
     manager = _manager(tmp_path, "agent-1")
     manager._config = PowerContextMemoryConfig(
         auto_memory_search_config={
+            "mode": "memory",
             "enabled": True,
             "max_results": 50,
             "max_context_bytes": 1024,
@@ -793,3 +818,432 @@ async def test_memory_remember_reports_backend_failure(tmp_path):
     result = await manager.memory_remember("fact", "important")
     assert result.state == ToolResultState.ERROR
     assert "offline" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_start_binds_server_assigned_scope_before_using_memory(
+    tmp_path,
+    monkeypatch,
+):
+    manager = _manager(
+        tmp_path,
+        config=PowerContextMemoryConfig(base_url="http://pc"),
+    )
+    client = SimpleNamespace(
+        resolve_scope=AsyncMock(return_value="scp_registered"),
+        close=AsyncMock(),
+        remember=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "plugins.memory.powercontext.backend.manager.PowerContextMemoryClient",
+        lambda config: client,
+    )
+    await manager.start()
+    assert manager._scope_id() == "scp_registered"
+    client.resolve_scope.assert_awaited_once_with(create_default=True)
+    result = await manager.memory_remember("fact", "saved fact")
+    assert result.state == ToolResultState.SUCCESS
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_scope_never_requests_creation(tmp_path, monkeypatch):
+    config = PowerContextMemoryConfig(
+        base_url="http://pc",
+        scope_id="scp_shared",
+    )
+    manager = _manager(tmp_path, config=config)
+    client = SimpleNamespace(
+        resolve_scope=AsyncMock(return_value="scp_shared"),
+        close=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "plugins.memory.powercontext.backend.manager.PowerContextMemoryClient",
+        lambda config: client,
+    )
+    await manager.start()
+    client.resolve_scope.assert_awaited_once_with(create_default=False)
+    assert manager._scope_id() == "scp_shared"
+    await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_failed_scope_binding_closes_client_and_disables_backend(
+    tmp_path,
+    monkeypatch,
+    caplog,
+    cancelled,
+):
+    token = "scope-test-secret"
+    manager = _manager(
+        tmp_path,
+        config=PowerContextMemoryConfig(base_url="http://pc", token=token),
+    )
+    error = asyncio.CancelledError() if cancelled else RuntimeError(token)
+    client = SimpleNamespace(
+        resolve_scope=AsyncMock(side_effect=error),
+        close=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "plugins.memory.powercontext.backend.manager.PowerContextMemoryClient",
+        lambda config: client,
+    )
+    if cancelled:
+        with pytest.raises(asyncio.CancelledError):
+            await manager.start()
+    else:
+        await manager.start()
+    assert not manager.list_memory_tools()
+    assert manager.get_auto_memory_interval() == 0
+    assert manager._resolved_scope_id == ""
+    client.close.assert_awaited_once()
+    assert token not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_atomic_memory_citation_keeps_artifact_and_zero_state_version(
+    tmp_path,
+):
+    manager = _manager(tmp_path)
+    manager._resolved_scope_id = "scp_registered"
+    manager._config = PowerContextMemoryConfig(
+        auto_memory_search_config={"mode": "memory"},
+    )
+    manager._client = SimpleNamespace(
+        search=AsyncMock(
+            return_value=[
+                {
+                    "text": "Use the current contract.",
+                    "score": 0.016,
+                    "matched_by": ["text"],
+                    "citation": {
+                        "artifact": {
+                            "family": "atomic-memory",
+                            "artifact_id": "am-123",
+                            "revision": 2,
+                        },
+                        "state_version": 0,
+                    },
+                },
+            ],
+        ),
+    )
+    result = await manager.memory_search("contract")
+    assert result.state == ToolResultState.SUCCESS
+    text = result.content[0].text
+    for expected in (
+        "family: atomic-memory",
+        "artifact_id: am-123",
+        "revision: 2",
+        "state_version: 0",
+        "scope: scp_registered",
+    ):
+        assert expected in text
+    assert "entry_id:" not in text
+    assert "entry_version_id:" not in text
+    assert "citation: unavailable" not in text
+    injected = await manager.auto_memory_search([user("contract")])
+    assert injected is not None
+    assert "artifact_id: am-123" in injected["text"]
+
+
+@pytest.mark.asyncio
+async def test_prepare_default_preserves_content_and_complete_query(tmp_path):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig()
+    prepared = " \nServer trust notice\n\n## 项目上下文\nkeep this exactly\n "
+    manager._client = SimpleNamespace(
+        prepare_context=AsyncMock(
+            return_value={"status": "ready", "content": prepared},
+        ),
+        search=AsyncMock(),
+    )
+    query = "请结合此前的完整项目目标和约束回答。" * 8
+    incoming = user(query)
+
+    result = await manager.auto_memory_search(
+        [user("older question"), incoming, user("  ")],
+    )
+
+    assert result is not None
+    assert result["query"] == query
+    assert result["text"].encode("utf-8") == prepared.encode("utf-8")
+    output = result["msg"][-1].content[-1].output[0].text
+    assert output.encode("utf-8") == prepared.encode("utf-8")
+    manager._client.prepare_context.assert_awaited_once_with(
+        query=query,
+        max_bytes=manager._auto_search_result_budget(
+            query=query,
+            max_results=3,
+            max_context_bytes=12000,
+        ),
+        assembly=manager._config.context_assembly.model_dump(),
+    )
+    manager._client.search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_prepare_bounds_query_at_server_character_limit(tmp_path):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig(
+        auto_memory_search_config={"max_context_bytes": 32768},
+    )
+    manager._client = SimpleNamespace(
+        prepare_context=AsyncMock(
+            return_value={"status": "ready", "content": "context"},
+        ),
+    )
+
+    result = await manager.auto_memory_search(user("a" * 9000))
+
+    assert result["query"] == "a" * 8192
+    assert manager._client.prepare_context.await_args.kwargs["query"] == (
+        "a" * 8192
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_replaces_old_synthetic_context_and_never_rewrites_it(
+    tmp_path,
+):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig()
+    manager._client = SimpleNamespace(
+        prepare_context=AsyncMock(
+            return_value={"status": "ready", "content": "fresh context"},
+        ),
+        remember=AsyncMock(),
+    )
+    previous = manager._build_auto_memory_search_msg(
+        query="old query",
+        max_results=3,
+        text="old context",
+    )
+    incoming = user("current task")
+
+    result = await manager.auto_memory_search([previous, incoming])
+
+    assert len(result["msg"]) == 2
+    assert result["msg"][0] is incoming
+    await manager.auto_memory(result["msg"])
+    saved = manager._client.remember.await_args.kwargs
+    assert saved["kind"] == "task_state"
+    assert "current task" in saved["text"]
+    assert "old context" not in saved["text"]
+    assert "fresh context" not in saved["text"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prepared",
+    [
+        {"status": "empty", "content": ""},
+        {"status": "ready", "content": " \n "},
+    ],
+)
+async def test_prepare_empty_content_is_not_injected(tmp_path, prepared):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig()
+    manager._client = SimpleNamespace(
+        prepare_context=AsyncMock(return_value=prepared),
+        search=AsyncMock(),
+    )
+
+    assert await manager.auto_memory_search(user("task")) is None
+    manager._client.prepare_context.assert_awaited_once()
+    manager._client.search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_prepare_failure_is_safe_and_does_not_fallback(
+    tmp_path,
+    caplog,
+):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig()
+    token = "private-context-token"
+    manager._client = SimpleNamespace(
+        config=SimpleNamespace(token=token),
+        prepare_context=AsyncMock(side_effect=RuntimeError(token)),
+        search=AsyncMock(),
+    )
+
+    assert await manager.auto_memory_search(user("task")) is None
+    manager._client.prepare_context.assert_awaited_once()
+    manager._client.search.assert_not_awaited()
+    assert token not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_prepare_skips_when_wrapper_leaves_less_than_server_minimum(
+    tmp_path,
+):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig(
+        auto_memory_search_config={"max_context_bytes": 1024},
+    )
+    manager._client = SimpleNamespace(prepare_context=AsyncMock())
+
+    assert await manager.auto_memory_search(user("你" * 300)) is None
+    manager._client.prepare_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_prepare_accounts_for_entire_multibyte_message_budget(tmp_path):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig(
+        auto_memory_search_config={"max_context_bytes": 1024},
+    )
+
+    async def prepare_context(**kwargs):
+        limit = kwargs["max_bytes"]
+        assert limit >= 512
+        return {
+            "status": "ready",
+            "content": "你" * (limit // 3) + " " * (limit % 3),
+        }
+
+    manager._client = SimpleNamespace(
+        prepare_context=AsyncMock(side_effect=prepare_context),
+    )
+    result = await manager.auto_memory_search(user("项目约束"))
+    assert result is not None
+    message = result["msg"][-1]
+    total = sum(
+        len(str(getattr(block, "text", "")).encode("utf-8"))
+        + len(str(getattr(block, "thinking", "")).encode("utf-8"))
+        + len(
+            (
+                str(getattr(block, "name", ""))
+                + str(getattr(block, "input", ""))
+            ).encode("utf-8"),
+        )
+        + sum(
+            len(str(getattr(output, "text", "")).encode("utf-8"))
+            for output in getattr(block, "output", [])
+        )
+        for block in message.content
+    )
+    assert total <= 1024
+    assert len(result["text"].encode("utf-8")) == (
+        manager._client.prepare_context.await_args.kwargs["max_bytes"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_wrapper_describes_actual_request_and_ignores_hit_limit(
+    tmp_path,
+):
+    prepared = " \n## Project context\nexact content\n "
+    snapshots = []
+    requests = []
+    for limit in (1, 50):
+        manager = _manager(tmp_path)
+        manager._config = PowerContextMemoryConfig(
+            auto_memory_search_config={"max_results": limit},
+        )
+        manager._client = SimpleNamespace(
+            prepare_context=AsyncMock(
+                return_value={"status": "ready", "content": prepared},
+            ),
+        )
+
+        result = await manager.auto_memory_search(user("context query"))
+
+        message = result["msg"][-1]
+        call, response = message.content[-2:]
+        request = manager._client.prepare_context.await_args.kwargs
+        assert call.name == "prepare_context"
+        assert response.name == "prepare_context"
+        assert json.loads(call.input) == {
+            "query": request["query"],
+            "max_bytes": request["max_bytes"],
+        }
+        assert response.output[0].text == prepared
+        assert manager.message_without_auto_memory_search(message) is None
+        tokens = sum(
+            manager._estimate_message_text_tokens(
+                value,
+                manager.context.token_estimate_divisor,
+            )
+            for value in (
+                getattr(message.content[0], "text", ""),
+                getattr(message.content[1], "thinking", ""),
+                call.name + call.input,
+                response.name + prepared,
+            )
+        )
+        assert message.usage.input_tokens == tokens
+        assert message.metadata["auto_memory_search_usage"] == {
+            "estimated": True,
+            "input_tokens": tokens,
+            "output_tokens": 0,
+            "estimate_divisor": manager.context.token_estimate_divisor,
+        }
+        snapshots.append(
+            (
+                message.name,
+                message.content[0].text,
+                message.content[1].thinking,
+                call.input,
+                response.output[0].text,
+            ),
+        )
+        requests.append(request)
+    assert requests[0] == requests[1]
+    assert snapshots[0] == snapshots[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prepared", "expected"),
+    [
+        (
+            {"status": "ready", "content": " \n原始上下文\n "},
+            " \n原始上下文\n ",
+        ),
+        ({"status": "empty", "content": ""}, ""),
+    ],
+)
+async def test_explicit_prepare_uses_bound_assembly(
+    tmp_path,
+    prepared,
+    expected,
+):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig()
+    manager._client = SimpleNamespace(
+        prepare_context=AsyncMock(return_value=prepared),
+    )
+    tools = {tool.__name__: tool for tool in manager.list_memory_tools()}
+    assert "prepare_context" in tools
+
+    result = await tools["prepare_context"]("project question")
+
+    assert result.state == ToolResultState.SUCCESS
+    assert result.content[0].text == expected
+    manager._client.prepare_context.assert_awaited_once_with(
+        query="project question",
+        max_bytes=8000,
+        assembly=manager._config.context_assembly.model_dump(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_prepare_failure_returns_safe_error(tmp_path, caplog):
+    manager = _manager(tmp_path)
+    manager._config = PowerContextMemoryConfig()
+    token = "private-preparation-token"
+    manager._client = SimpleNamespace(
+        config=SimpleNamespace(token=token),
+        prepare_context=AsyncMock(side_effect=RuntimeError(token)),
+    )
+    tools = {tool.__name__: tool for tool in manager.list_memory_tools()}
+    assert "prepare_context" in tools
+
+    result = await tools["prepare_context"]("question", max_bytes=2048)
+
+    assert result.state == ToolResultState.ERROR
+    assert token not in result.content[0].text
+    assert token not in caplog.text

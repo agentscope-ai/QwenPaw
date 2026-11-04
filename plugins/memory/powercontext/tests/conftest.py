@@ -2,6 +2,10 @@
 """Install the governance declarations normally owned by plugin startup."""
 
 import logging
+import runpy
+import sys
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -15,29 +19,20 @@ def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(scope="session", autouse=True)
 def register_plugin_contract():
     """Exercise tests with the governance metadata installed by the plugin."""
-    from qwenpaw.governance.tool_registry import (
-        DEFAULT_REGISTRY,
-        register_tool_governance,
+    from plugins.memory.powercontext import backend
+    from qwenpaw.memory import memory_registry
+    from qwenpaw.plugins.api import (
+        PluginApi,
+        release_tool_ownership_for_plugin,
     )
-    from qwenpaw.plugins.api import release_tool_ownership_for_plugin
 
     plugin_id = "memory-powercontext"
-    register_tool_governance(
-        DEFAULT_REGISTRY,
-        python_name="powercontext_memory_search",
-        policy_name="PowerContextMemorySearch",
-        tool_type="network",
-        target_param="query",
-        owner=plugin_id,
-    )
-    register_tool_governance(
-        DEFAULT_REGISTRY,
-        python_name="powercontext_memory_remember",
-        policy_name="PowerContextMemoryRemember",
-        tool_type="network",
-        owner=plugin_id,
-    )
+    plugin_path = Path(__file__).parents[1] / "plugin.py"
+    with patch.dict(sys.modules, {"backend": backend}):
+        plugin = runpy.run_path(str(plugin_path))["plugin"]
+    plugin.register(PluginApi(plugin_id, config={}))
     try:
         yield
     finally:
+        memory_registry.unregister_owner(plugin_id)
         release_tool_ownership_for_plugin(plugin_id)
