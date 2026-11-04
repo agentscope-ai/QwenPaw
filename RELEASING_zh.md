@@ -74,9 +74,9 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
   （所以用 `-beta.N` 写法）；`stable` 与 `.postN` 会更新 Docker 的 `latest` 标签。
 - **官网**（GitHub Pages，`qwenpaw.agentscope.io`）只在**正式版**与 `.postN` 部署；
   预发布跳过，保证官网只展示 GA 版本。
-- ⚠️ 桌面 OSS 的 `latest` 文件与 Tauri 自动更新清单目前对**每个**版本（含 beta）
-  都会更新（与之前 `desktop-release.yml` 行为一致，本次未改）。让桌面
-  `latest`/自动更新只在正式版更新，可作为后续改进。
+- Tauri 自动更新清单只在**正式版**与 `.postN` 发布时更新，与浏览器控制台仅提示
+  稳定版的策略一致。预发布安装包仍可手动下载，桌面 OSS 的 `latest` 下载文件仍随
+  每次发布更新。浏览器控制台的一小时提示延迟保持不变，桌面更新不增加该延迟。
 
 ## 故障处理
 
