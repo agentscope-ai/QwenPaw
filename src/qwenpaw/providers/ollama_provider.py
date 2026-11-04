@@ -20,14 +20,6 @@ from qwenpaw.utils.io_utils import run_sync_io
 
 # Accept any positive context; ModelInfo allows ge=1 on auto_detected.
 _MIN_CONTEXT_TOKENS = 1
-# Conservative estimate used only after a successful /api/show that omitted
-# num_ctx for a local model that is not loaded. This is not a value Ollama
-# reports. 4096 is Ollama's smallest documented default (<24 GiB VRAM);
-# under-estimating is safer than the 128k placeholder. A failed probe must
-# not apply this number. Cloud models are excluded: Ollama serves them at
-# their maximum context by default, so inventing 4096 compacts too early.
-# Ref: https://docs.ollama.com/context-length
-_CONSERVATIVE_CONTEXT_TOKENS = 4096
 # Bound concurrent /api/show probes when many models are installed.
 _SHOW_PROBE_CONCURRENCY = 8
 
@@ -51,51 +43,10 @@ def parse_ollama_num_ctx(parameters: Any) -> int | None:
     return value if value >= _MIN_CONTEXT_TOKENS else None
 
 
-def _nonempty_text(value: Any) -> bool:
-    """True when *value* is a string that contains non-whitespace text."""
-    return isinstance(value, str) and bool(value.strip())
-
-
-def _model_id_suggests_cloud(model_id: str | None) -> bool:
-    """Secondary hint: the id ends with ``:cloud`` or ``-cloud``.
-
-    ``remote_host`` / ``remote_model`` on ``/api/show`` are authoritative.
-    This covers names such as ``kimi-k3:cloud`` and ``gpt-oss:120b-cloud``
-    when those fields were omitted, including a ``-cloud`` model name
-    paired with another tag (``foo-cloud:latest``).
-    """
-    name = (model_id or "").strip().lower()
-    if not name:
-        return False
-    if name.endswith(":cloud") or name.endswith("-cloud"):
-        return True
-    base = name.split(":", 1)[0]
-    return base.endswith("-cloud")
-
-
-def _is_ollama_cloud_model(
-    show_payload: dict[str, Any] | None,
-    model_id: str | None = None,
-) -> bool:
-    """Return whether Ollama is serving this model from the cloud.
-
-    A non-empty ``remote_host`` or ``remote_model`` is Ollama's marker.
-    The model-id suffix is only a hint when the payload lacks both.
-    """
-    if isinstance(show_payload, dict) and (
-        _nonempty_text(show_payload.get("remote_host"))
-        or _nonempty_text(show_payload.get("remote_model"))
-    ):
-        return True
-    return _model_id_suggests_cloud(model_id)
-
-
 def resolve_ollama_context_window(
     *,
     show_payload: dict[str, Any] | None = None,
     served_context: int | None = None,
-    use_conservative_fallback: bool = True,
-    model_id: str | None = None,
 ) -> int | None:
     """Pick the active Ollama context window for compaction.
 
@@ -103,24 +54,19 @@ def resolve_ollama_context_window(
 
     1. ``/api/ps`` ``context_length`` when the model is currently loaded —
        this reflects ``OLLAMA_CONTEXT_LENGTH`` and the load-time window;
-    2. explicit Modelfile ``num_ctx`` from a successful ``/api/show``;
-    3. ``_CONSERVATIVE_CONTEXT_TOKENS`` (4k) only when ``show_payload`` is
-       a dict that omitted ``num_ctx``, *use_conservative_fallback* is
-       true, and the model is local. That 4k figure is a conservative
-       estimate, not a value Ollama reported.
+    2. explicit Modelfile ``num_ctx`` from a successful ``/api/show``.
 
-    Cloud/remote models do not use step 3. Ollama serves them at their
-    maximum context by default, so a missing ``num_ctx`` stays unset.
-    Detection prefers non-empty ``remote_host`` / ``remote_model`` and
-    otherwise a ``:cloud`` or ``-cloud`` model id (*model_id*).
+    If neither is available, return ``None`` and leave auto-detected
+    unset. Do not invent a fallback: the server-level context is unknown
+    until the model is loaded, and ``OLLAMA_CONTEXT_LENGTH`` may be below
+    any guessed constant.
 
     ``show_payload is None`` means the probe failed (timeout, 401/403, or
     an invalid body). That is not an empty successful show: this returns
     ``None`` so the caller leaves the model unchanged.
 
     A non-string ``parameters`` value is malformed, not an omitted
-    ``num_ctx``. This also returns ``None`` and does not apply the
-    conservative estimate.
+    ``num_ctx``. This also returns ``None``.
 
     GGUF ``*.context_length`` is the model's maximum supported context, not
     the window Ollama is serving. It is not used.
@@ -130,21 +76,13 @@ def resolve_ollama_context_window(
         and served_context >= _MIN_CONTEXT_TOKENS
     ):
         return served_context
-    # Do not coerce None to {} — a failed probe must not invent 4096.
+    # Do not coerce None to {} — a failed probe must stay unset.
     if not isinstance(show_payload, dict):
         return None
     parameters = show_payload.get("parameters")
     if parameters is not None and not isinstance(parameters, str):
         return None
-    explicit = parse_ollama_num_ctx(parameters)
-    if explicit is not None:
-        return explicit
-    if use_conservative_fallback and not _is_ollama_cloud_model(
-        show_payload,
-        model_id,
-    ):
-        return _CONSERVATIVE_CONTEXT_TOKENS
-    return None
+    return parse_ollama_num_ctx(parameters)
 
 
 def _ollama_model_aliases(model_id: str) -> set[str]:
@@ -287,10 +225,9 @@ class OllamaProvider(OpenAIProvider):
         metadata, so without this step every Ollama model stays at the
         128k placeholder and compaction never aligns with ``num_ctx``.
 
-        A failed ``/api/show`` leaves that model unchanged. The 4k
-        estimate applies only after a successful show that omitted
-        ``num_ctx`` on a local model. Cloud models stay unchanged when
-        ``num_ctx`` is absent: Ollama serves them at their maximum.
+        A failed ``/api/show``, or a successful show that omitted
+        ``num_ctx``, leaves that model unchanged. The server-level context
+        is unknown until ``/api/ps`` reports a loaded window.
 
         ``timeout`` bounds each native HTTP call and the ``/api/show``
         fan-out. Loaded ``/api/ps`` windows are applied before that
@@ -494,11 +431,6 @@ class OllamaProvider(OpenAIProvider):
         detected = resolve_ollama_context_window(
             show_payload=show_payload,
             served_context=None,
-            # None is a failed probe. 4096 applies only when show returned
-            # a payload that simply omitted num_ctx on a local model.
-            # Cloud models leave the value unset in that case.
-            use_conservative_fallback=show_payload is not None,
-            model_id=model.id,
         )
         if detected is None:
             return model
