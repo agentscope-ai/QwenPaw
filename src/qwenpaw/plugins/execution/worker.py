@@ -29,15 +29,34 @@ def _sibling(name: str) -> Any:
     return module
 
 
+def _custody():
+    spec = importlib.util.spec_from_file_location(
+        "_qwenpaw_dependency_maintenance",
+        Path(__file__).resolve().parents[1] / "dependency_maintenance.py",
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("BOOTSTRAP_UNAVAILABLE")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _configure(
     boot: Any,
     packet: dict[str, Any],
     protected_namespaces: tuple[str, ...],
 ) -> None:
+    managed = packet.get("managed_imports", False)
+    if not isinstance(managed, bool) or managed and not sys.flags.no_site:
+        raise RuntimeError("DEPENDENCY_ENVIRONMENT_POLICY_INVALID")
     root = boot._absolute_existing_directory(packet["code_root"], "code_root")
     support = Path(__file__).resolve().parents[3]
     if support != Path(packet["support_root"]).resolve(strict=True):
         raise RuntimeError("BOOTSTRAP_UNAVAILABLE")
+    custody = _custody() if managed else None
+    if managed:
+        custody.restore_managed_interpreter_prefix()
     # Keep trusted execution support ahead of any plugin-provided namespace.
     for namespace in (
         "qwenpaw/plugins/execution",
@@ -89,26 +108,20 @@ def _configure(
                 if Path(item).resolve() in standard_paths
             ]
             + dependencies
-            + inherited,
+            + ([] if managed else inherited),
         ),
     )
-    lease_spec = importlib.util.spec_from_file_location(
-        "_qwenpaw_dependency_maintenance",
-        Path(__file__).resolve().parents[1] / "dependency_maintenance.py",
-    )
-    if lease_spec is None or lease_spec.loader is None:
-        raise RuntimeError("BOOTSTRAP_UNAVAILABLE")
-    custody = importlib.util.module_from_spec(lease_spec)
-    sys.modules[lease_spec.name] = custody
-    lease_spec.loader.exec_module(custody)
+    custody = custody or _custody()
     custody.state_root()
     # Reuse this context if trusted support imports the module later.
     sys.modules["qwenpaw.plugins.dependency_maintenance"] = custody
     custody.lease_environment(
-        (*dependencies, *custody.host_sites()),
-        parent_pid=int(sys.argv[1])
-        if packet.get("mode") in {"audit", "probe"}
-        else None,
+        (*dependencies, *(() if managed else custody.host_sites())),
+        parent_pid=(
+            int(sys.argv[1])
+            if packet.get("mode") in {"audit", "probe"}
+            else None
+        ),
         timeout=packet["startup_timeout"],
     )
     package = types.ModuleType("qwenpaw")

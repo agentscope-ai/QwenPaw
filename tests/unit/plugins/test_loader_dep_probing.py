@@ -21,6 +21,136 @@ import pytest
 from qwenpaw.plugins.loader import PluginLoader
 from qwenpaw.plugins.execution.dependencies import canonical_environment_path
 
+
+def test_default_startup_selection_does_not_probe_or_prepare(
+    monkeypatch,
+):
+    from qwenpaw.plugins import dependency_context
+
+    monkeypatch.delenv("QWENPAW_DEPENDENCY_ENVIRONMENT", raising=False)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("unconfigured startup performed dependency I/O")
+
+    monkeypatch.setattr(Path, "read_text", unexpected)
+    monkeypatch.setattr(Path, "mkdir", unexpected)
+    monkeypatch.setattr(subprocess, "run", unexpected)
+    with dependency_context.prepare_startup_environment() as environment:
+        assert environment is None
+        assert dependency_context.selected_dependency_environment() is None
+    assert dependency_context.selected_dependency_environment() is None
+
+
+@pytest.mark.parametrize("preloaded_legacy", [False, True])
+def test_managed_startup_fixes_one_context_and_preserves_provider_checks(
+    tmp_path,
+    monkeypatch,
+    preloaded_legacy,
+):
+    import json
+    from types import ModuleType
+
+    from qwenpaw.plugins import dependency_context as environments
+    from qwenpaw.plugins.channel_bootstrap import (
+        resolve_default_channel_runtime,
+    )
+    from qwenpaw.plugins.execution.dependencies import (
+        read_dependency_inventory,
+    )
+    from qwenpaw.plugins.execution.errors import ProtocolValidationError
+
+    base, legacy = tmp_path / "base", tmp_path / "legacy"
+    base.mkdir()
+    legacy.mkdir()
+    policy = {
+        "base_id": "sha256:" + "a" * 64,
+        "base_sites": [str(base)],
+        "overlay_root": str(tmp_path / "overlays"),
+        "generation": "prepared-generation",
+        "legacy_sites": [str(legacy)],
+    }
+    active = tmp_path / "active.json"
+    active.write_text(json.dumps(policy))
+    context = environments.context_for_policy(policy)
+    context.install_target.mkdir(parents=True)
+    (context.install_target.parent / "prepared.json").write_text(
+        json.dumps(
+            {
+                "policy_sha256": environments._digest(policy),
+                "dependency_context": context.to_mapping(),
+                "active_policy_path": str(active.resolve()),
+            },
+        ),
+    )
+    metadata = base / "sample_sdk-1.0.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text("Name: sample-sdk\nVersion: 1.0\n")
+    (metadata / "RECORD").write_text(f"{metadata.name}/METADATA,,\n")
+    monkeypatch.setattr(environments, "_SELECTED_ENVIRONMENT", None)
+    monkeypatch.setattr(environments, "_SELECTED_POLICY", None)
+    monkeypatch.chdir(legacy)
+    monkeypatch.setattr(sys, "path", ["", str(legacy), *sys.path])
+    monkeypatch.setenv("QWENPAW_DEPENDENCY_ENVIRONMENT", str(active))
+    if preloaded_legacy:
+        module = ModuleType("legacy_startup_probe")
+        module.__file__ = str(legacy / "legacy_startup_probe.py")
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+        before = list(sys.path)
+        with pytest.raises(RuntimeError, match="DIRTY_PROCESS"):
+            with environments.prepare_startup_environment():
+                pytest.fail("preloaded legacy module was accepted")
+        assert sys.path == before
+        assert sys.modules[module.__name__] is module
+        assert environments.selected_dependency_environment() is None
+        return
+
+    with environments.prepare_startup_environment() as selected:
+        assert selected == context
+        assert selected.immutable_roots == (base.resolve(),)
+        assert str(legacy) not in sys.path
+        assert "" not in sys.path
+        base_index = sys.path.index(str(base.resolve()))
+        assert sys.path[base_index : base_index + 2] == list(
+            map(str, context.dependency_paths),
+        )
+        stdlib = (
+            Path(sys.base_prefix)
+            / "lib"
+            / (f"python{sys.version_info.major}.{sys.version_info.minor}")
+        )
+        if str(stdlib) in sys.path:
+            assert sys.path.index(str(stdlib)) < base_index
+        assert sys.path.index(str(selected.support_root)) < base_index
+        loader = PluginLoader.__new__(PluginLoader)
+        assert loader._dependency_environment() is selected
+        assert loader._dependency_environment(SimpleNamespace()) is selected
+        runtime = resolve_default_channel_runtime(provision=False)
+        assert runtime.dependency_paths == selected.dependency_paths
+        assert runtime.dependency_install_target == selected.install_target
+        assert selected.immutable_providers()["sample-sdk"]["version"] == "1.0"
+        assert not list(selected.install_target.iterdir())
+    active.write_text("invalid after startup")
+    monkeypatch.setenv(
+        "QWENPAW_DEPENDENCY_ENVIRONMENT",
+        str(tmp_path / "other"),
+    )
+    with environments.prepare_startup_environment() as repeated:
+        assert repeated is selected
+    duplicate = selected.install_target / metadata.name
+    duplicate.mkdir()
+    (duplicate / "METADATA").write_text("Name: sample-sdk\nVersion: 1.0\n")
+    (duplicate / "RECORD").write_text(f"{duplicate.name}/METADATA,,\n")
+    with pytest.raises(
+        ProtocolValidationError,
+        match="DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+    ):
+        read_dependency_inventory(
+            tmp_path / "plugin",
+            selected.dependency_paths,
+            ("sample-sdk==1.0",),
+        )
+
+
 # ---------------------------------------------------------------------------
 # _is_requirement_satisfied
 # ---------------------------------------------------------------------------
@@ -820,9 +950,11 @@ async def test_existing_dependency_read_admission_keeps_safety_boundaries(
             )
             stamp = changed.stat()
             changed.write_text(
-                "Name: sample\nVersion: 0.5\n"
-                if case == "fresh_metadata"
-                else "sample.py,,not-a-size\n",
+                (
+                    "Name: sample\nVersion: 0.5\n"
+                    if case == "fresh_metadata"
+                    else "sample.py,,not-a-size\n"
+                ),
             )
             os.utime(changed, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
             fresh_token = usage.declare(declaration)
@@ -1135,9 +1267,11 @@ def test_host_delta_skips_own_source_inventory(tmp_path, monkeypatch):
     monkeypatch.setattr(
         backend,
         "Path",
-        lambda path: WindowsOrigin(path)
-        if str(path).replace("\\", "/") in {"C:/sdk.py", "C:/SDK.py"}
-        else Path(path),
+        lambda path: (
+            WindowsOrigin(path)
+            if str(path).replace("\\", "/") in {"C:/sdk.py", "C:/SDK.py"}
+            else Path(path)
+        ),
     )
     _, imported = backend._observe_host_delta(
         source,

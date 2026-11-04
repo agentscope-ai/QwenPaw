@@ -62,6 +62,7 @@ class Worker:
             "pid": os.getpid(),
             "identity": self.context.identity.to_mapping(),
             "isolated": sys.flags.isolated,
+            "no_site": sys.flags.no_site,
             "executable": sys.executable,
             "sdk": sdk,
             "source": __file__,

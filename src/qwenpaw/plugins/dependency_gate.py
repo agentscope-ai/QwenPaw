@@ -60,6 +60,7 @@ class ParsedRequirements:
 
     requirements: list[Requirement] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
+    index_urls: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -107,6 +108,7 @@ def parse_requirements_file(requirements_file: Path) -> ParsedRequirements:
             elif len(args) == 1 and args[0].startswith("--index-url="):
                 value = args[0].partition("=")[2]
             if value and not value.startswith("-"):
+                parsed.index_urls.append(value)
                 continue
             parsed.unsupported.append(line)
             continue
@@ -1097,7 +1099,29 @@ async def prepare_shared_dependencies(
         keys,
         target,
     )
-    async with _shared_observation(observation_roots, timeout=lock_timeout):
+    from contextlib import nullcontext
+    from .dependency_context import (
+        dependency_policy_operation,
+        selected_dependency_environment,
+        selected_dependency_policy,
+    )
+    from .install_lock import async_lock
+
+    policy = selected_dependency_policy() if wheels else None
+    guard = (
+        async_lock(
+            dependency_policy_operation(
+                policy,
+                selected_dependency_environment(),
+            ),
+        )
+        if policy is not None
+        else nullcontext()
+    )
+    async with (
+        guard,
+        _shared_observation(observation_roots, timeout=lock_timeout),
+    ):
         snapshot = await audit()
         if expected_snapshot is not None and snapshot != expected_snapshot:
             raise SharedDependencyError(

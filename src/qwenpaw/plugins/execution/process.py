@@ -495,7 +495,19 @@ class PluginProcess:
         ]
         packet["config"] = dict(spec.config)
         packet["private_env"] = getattr(spec, "private_env", {})
+        if self._managed_imports(spec):
+            packet["managed_imports"] = True
         return self._encode_packet(packet)
+
+    @staticmethod
+    def _managed_imports(spec):
+        from ..dependency_context import selected_dependency_environment
+
+        context = selected_dependency_environment()
+        return (
+            context is not None
+            and tuple(spec.dependency_paths) == context.dependency_paths
+        )
 
     def _encode_packet(self, packet: Mapping[str, Any]) -> bytes:
         if self._mode not in {"run", "manage", "audit", "probe"}:
@@ -620,6 +632,7 @@ class PluginProcess:
                 spec.python_executable,
                 "-I",
                 "-B",
+                *(["-S"] if self._managed_imports(spec) else []),
                 str(worker),
                 str(os.getpid()),
                 stdin=asyncio.subprocess.PIPE,

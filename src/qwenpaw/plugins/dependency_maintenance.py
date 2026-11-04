@@ -37,6 +37,22 @@ def current_capability():
     return capability_context.get() or os.environ.get(_CAPABILITY_ENV, "")
 
 
+def restore_managed_interpreter_prefix():
+    """Python <=3.13 leaves venv prefix unset under -S; retain its real scope."""
+    if not sys.flags.no_site:
+        raise RuntimeError("DEPENDENCY_ENVIRONMENT_CLEAN_PROCESS_REQUIRED")
+    executable = Path(sys.executable).absolute()
+    candidates = (executable.parent, executable.parent.parent)
+    for candidate in candidates:
+        marker = candidate / "pyvenv.cfg"
+        if marker.is_file():
+            if marker.is_symlink():
+                raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
+            prefix = canonical(candidate)
+            sys.prefix = sys.exec_prefix = str(prefix)
+            return
+
+
 def _enumerated_path(path):
     """Recover filesystem spelling, without creating or caching directories.
 
@@ -507,9 +523,11 @@ def live_readers(sites, ignore_pid=None):
             try:
                 descriptor = os.open(
                     path,
-                    (os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-                    if os.name != "nt"
-                    else os.O_RDWR,
+                    (
+                        (os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                        if os.name != "nt"
+                        else os.O_RDWR
+                    ),
                 )
             except FileNotFoundError:
                 continue

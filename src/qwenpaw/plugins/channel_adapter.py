@@ -441,7 +441,11 @@ class ChannelBackend:
 
     def dependency_environment(self, description, _snapshot):
         from .dependency_context import DependencyEnvironmentContext
+        from .dependency_context import selected_dependency_environment
 
+        selected = selected_dependency_environment()
+        if selected is not None:
+            return selected
         settings = self.runtime_for(description)
         if settings is None:
             self.require_selection(description.manifest)

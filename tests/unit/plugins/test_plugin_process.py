@@ -566,7 +566,12 @@ async def test_payload_quota_waits_for_confirmed_discard(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("layout", "supplied_snapshot"),
-    [("source", False), ("frozen", False), ("frozen", True)],
+    [
+        ("source", False),
+        ("frozen", False),
+        ("frozen", True),
+        ("managed", False),
+    ],
 )
 async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
     tmp_path,
@@ -604,6 +609,25 @@ async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
             dirs_exist_ok=True,
         )
         site = runtime.dependency_install_target
+    elif layout == "managed":
+        import packaging
+        from qwenpaw.plugins import dependency_context as environments
+
+        site = dependency_site(tmp_path / "base")
+        runtime_base = Path(packaging.__file__).parent.parent
+        target = tmp_path / "plugin_runtime/current"
+        target.mkdir(parents=True)
+        context = DependencyEnvironmentContext(
+            sys.executable,
+            ROOT / "src",
+            (site, runtime_base, target),
+            target,
+            (site, runtime_base),
+            immutable_identity="a" * 64,
+        )
+        monkeypatch.setattr(environments, "_SELECTED_ENVIRONMENT", context)
+        runtime = resolve_default_channel_runtime(provision=False)
+        expected_support = ROOT / "src"
     else:
         site = dependency_site(tmp_path / "dependencies")
         runtime = resolve_default_channel_runtime()
@@ -674,6 +698,10 @@ async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
         validate=lambda: None,
     )
     assert str(canonical_environment_path(site)) in admitted.dependency_sites
+    if layout == "managed":
+        assert canonical_environment_path(admitted.prefix) == (
+            canonical_environment_path(sys.prefix)
+        )
     if layout == "frozen":
         assert expected_support in runtime.dependency_paths
         assert (
@@ -706,6 +734,9 @@ async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
         with maintenance.maintenance([site], "test", "token"):
             pytest.fail("active worker allowed maintenance")
     assert probe["sdk"] == "offline-sdk" and probe["isolated"] == 1
+    assert probe["no_site"] == (1 if layout == "managed" else 0)
+    if layout == "managed":
+        assert not list(runtime.dependency_install_target.iterdir())
     assert (
         Path(probe["executable"]).resolve()
         == Path(runtime.python_executable).resolve()
@@ -730,6 +761,10 @@ async def test_runtime_roots_interpreter_and_dependency_visible_in_worker(
         ("bundle", False),
         ("bundle-alias", False),
         ("sibling-target-alias", False),
+        ("managed-current", True),
+        ("managed-base", False),
+        ("managed-previous", False),
+        ("managed-previous-alias", False),
     ],
 )
 def test_dependency_site_permission_follows_real_target(
@@ -762,7 +797,19 @@ def test_dependency_site_permission_follows_real_target(
         site.symlink_to(native, target_is_directory=True)
     target = site.parent / "other" if layout.startswith("sibling") else site
     immutable = (site,) if layout.startswith(("immutable", "bundle")) else ()
-    if layout.endswith("-alias"):
+    if layout.startswith("managed-"):
+        immutable = (native,)
+        target = overlay
+        if layout == "managed-current":
+            site = overlay
+        elif layout.startswith("managed-previous"):
+            site = managed / "previous"
+            site.mkdir()
+            if layout.endswith("-alias"):
+                alias = managed / "previous-link"
+                alias.symlink_to(site, target_is_directory=True)
+                site = alias
+    if layout.endswith("-alias") and not layout.startswith("managed-"):
         root = prefix if layout.startswith("conda") else site.parent
         alias = root.with_name(root.name.upper())
         if not alias.exists() or not alias.samefile(root):
@@ -854,6 +901,371 @@ def _inventory(root):
         )
         for path in root.rglob("*")
     }
+
+
+@pytest.fixture
+def managed_environment_files(tmp_path):
+    """Use the real installed host base and a small immutable SDK fixture."""
+    import json
+    import packaging
+    from .sdk_author_fixture import make_plugin
+
+    runtime_base = Path(packaging.__file__).parent.parent
+    base = dependency_site(tmp_path / "base")
+    (base / "sample_shared_sdk.py").write_text("VALUE = 'base-sdk'\n")
+    info = base / "sample_shared_sdk-1.0.dist-info"
+    (info / "RECORD").write_text(
+        f"sample_shared_sdk.py,,\n{info.name}/METADATA,,\n{info.name}/RECORD,,\n",
+    )
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    source = make_plugin(
+        plugins,
+        """
+class Plugin:
+    def register(self, plugin):
+        pass
+    async def probe(self):
+        import sample_shared_sdk
+        return sample_shared_sdk.VALUE
+plugin = Plugin()
+""",
+        [],
+    )
+    (source / "requirements.txt").write_text("sample-shared-sdk==1.0\n")
+    legacy = dependency_site(tmp_path / "legacy")
+    duplicate = legacy / "sample_shared_sdk-0.5.dist-info"
+    duplicate.mkdir()
+    (duplicate / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: sample-shared-sdk\nVersion: 0.5\n",
+    )
+    extra = tmp_path / "outside-application.txt"
+    extra.write_text("")
+    policy = tmp_path / "candidate.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "base_id": "sha256:" + "a" * 64,
+                "base_sites": [str(base), str(runtime_base)],
+                "overlay_root": str(tmp_path / "plugin_runtime"),
+                "legacy_sites": [str(legacy)],
+            },
+        ),
+    )
+    return SimpleNamespace(
+        base=base,
+        legacy=legacy,
+        policy=policy,
+        plugins=plugins,
+        source=source,
+        extra=extra,
+        active=tmp_path / "active.json",
+    )
+
+
+def test_managed_environment_prepare_activate_preserves_old_tree_and_restarts(
+    tmp_path,
+    managed_environment_files,
+):
+    import json
+    from qwenpaw.plugins.dependency_environment import (
+        activate_environment,
+        prepare_environment,
+    )
+
+    files = managed_environment_files
+    old = _inventory(files.legacy)
+    report = prepare_environment(
+        files.policy,
+        active_policy_path=files.active,
+        extra_requirements=files.extra,
+        plugin_dirs=[files.plugins],
+    )
+    assert not files.active.exists()
+    assert _inventory(files.legacy) == old
+    prepared = json.loads(report.read_text())
+    with pytest.raises(
+        RuntimeError,
+        match="DEPENDENCY_ENVIRONMENT_SHUTDOWN_REQUIRED",
+    ):
+        activate_environment(report, active_policy_path=files.active)
+    target = Path(prepared["dependency_context"]["install_target"])
+    assert target.is_dir() and not list(target.iterdir())
+    unexpected = target / "changed.py"
+    unexpected.write_text("changed before activation")
+    with pytest.raises(RuntimeError, match="PLAN_STALE"):
+        activate_environment(
+            report,
+            active_policy_path=files.active,
+            consumer_shutdown_confirmed=True,
+        )
+    assert not files.active.exists()
+    assert _inventory(files.legacy) == old
+    unexpected.unlink()
+    activate_environment(
+        report,
+        active_policy_path=files.active,
+        consumer_shutdown_confirmed=True,
+    )
+    assert json.loads(files.active.read_text()) == prepared["policy"]
+    assert _inventory(files.legacy) == old
+    from importlib.metadata import version
+
+    index = tmp_path / "wheel-index"
+    for name, release, payload in (
+        (
+            "sample-shared-sdk",
+            "1.0",
+            {"sample_shared_sdk.py": b"VALUE='base-sdk'\n"},
+        ),
+        ("certifi", version("certifi"), {"certifi/__init__.py": b""}),
+        ("migration-added", "1.0", {"migration_added.py": b"VALUE='added'\n"}),
+    ):
+        directory = index / name
+        wheel = _local_dependency_wheel(directory, name, release, payload)
+        (directory / "index.html").write_text(
+            f'<a href="{wheel.name}">{wheel.name}</a>',
+        )
+    (files.source / "requirements.txt").write_text(
+        f"--index-url {index.as_uri()}\n"
+        "sample-shared-sdk==1.0\nmigration-added==1.0\n",
+    )
+    restarted = tmp_path / "restarted"
+    restarted.mkdir()
+    (restarted / "config.json").write_text(
+        json.dumps({"tools": {"builtin_tools": {}}}),
+    )
+    code = """
+import asyncio, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from qwenpaw.plugins.loader import PluginLoader
+from qwenpaw.plugins.lifecycle import UnloadMode
+async def main():
+    loader = await PluginLoader.create([Path(sys.argv[3]).parent])
+    try:
+        _, manifest = loader.read_source_manifest(Path(sys.argv[3]))
+        result = await loader.load_plugin(
+            manifest, Path(sys.argv[3]), config={'enabled': True},
+            allow_install=sys.argv[4] == '1',
+        )
+        assert result.status != 'failed', result.diagnostics
+        assert await result.instance.probe() == 'base-sdk'
+        import migration_added
+        assert migration_added.VALUE == 'added'
+    finally:
+        reports = await loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+        assert all(row.clean and row.quiescent for row in reports)
+    print('ordinary-call-ok')
+asyncio.run(main())
+"""
+    for iteration in range(2):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-B",
+                "-S",
+                "-c",
+                code,
+                str(ROOT / "src"),
+                str(tmp_path / "restarted"),
+                str(files.source),
+                "1" if iteration == 0 else "0",
+            ],
+            env={
+                **os.environ,
+                "QWENPAW_DEPENDENCY_ENVIRONMENT": str(files.active),
+                "QWENPAW_WORKING_DIR": str(restarted),
+                "QWENPAW_SECRET_DIR": str(restarted / "secrets"),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "ordinary-call-ok" in result.stdout
+    assert (target / "migration_added-1.0.dist-info/RECORD").is_file()
+    assert _inventory(files.legacy) == old
+
+
+def test_managed_environment_failed_publication_recovers_only_owned_markers(
+    managed_environment_files,
+    monkeypatch,
+):
+    import json
+    from qwenpaw.plugins import dependency_transaction as transaction
+    from qwenpaw.plugins.dependency_environment import (
+        activate_environment,
+        prepare_environment,
+        recover_environment,
+    )
+
+    files = managed_environment_files
+    old = _inventory(files.legacy)
+    report = prepare_environment(
+        files.policy,
+        active_policy_path=files.active,
+        extra_requirements=files.extra,
+        plugin_dirs=[files.plugins],
+    )
+    prepared = json.loads(report.read_text())
+    target = Path(prepared["dependency_context"]["install_target"])
+    atomic = transaction.atomic_json
+
+    def fail_publication(path, value):
+        if path == files.active:
+            raise RuntimeError("injected publication failure")
+        return atomic(path, value)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(transaction, "atomic_json", fail_publication)
+        with pytest.raises(RuntimeError, match="injected publication failure"):
+            activate_environment(
+                report,
+                active_policy_path=files.active,
+                consumer_shutdown_confirmed=True,
+            )
+    assert not files.active.exists()
+    assert _inventory(files.legacy) == old
+    assert maintenance.marker(target).exists()
+    repair = maintenance.repair_marker(target)
+    repair.write_text("independent repair required")
+    with pytest.raises(RuntimeError, match="RECOVERY_REQUIRED"):
+        recover_environment(active_policy_path=files.active)
+    assert repair.read_text() == "independent repair required"
+    assert maintenance.marker(target).exists()
+    repair.unlink()  # Remove only this test's independent fault injection.
+    recover_environment(active_policy_path=files.active)
+    assert not maintenance.marker(target).exists()
+    assert not files.active.exists()
+    assert _inventory(files.legacy) == old
+    activate_environment(
+        report,
+        active_policy_path=files.active,
+        consumer_shutdown_confirmed=True,
+    )
+    assert json.loads(files.active.read_text()) == prepared["policy"]
+
+
+@pytest.mark.parametrize("fault", ["stale", "foreign_marker", "repair"])
+def test_managed_offline_preflight_failure_releases_only_verified_barrier(
+    tmp_path,
+    monkeypatch,
+    fault,
+):
+    import json
+    from qwenpaw.plugins import dependency_context as contexts
+    from qwenpaw.plugins import dependency_transaction as transaction
+    from qwenpaw.plugins import dependency_worker as worker
+
+    base = tmp_path / "base"
+    base.mkdir()
+    active = tmp_path / "active.json"
+    policy = {
+        "base_id": "immutable-base",
+        "base_sites": [str(base)],
+        "overlay_root": str(tmp_path / "overlay"),
+        "legacy_sites": [],
+        "generation": "verified-generation",
+    }
+    active.write_text(json.dumps(policy))
+    context = contexts.context_for_policy(policy)
+    site = context.install_target
+    site.mkdir(parents=True)
+    (site / "provider.py").write_text("VALUE = 'unchanged'\n")
+    before = _inventory(site)
+    directory = tmp_path / "operations/reviewed"
+    directory.mkdir(parents=True)
+    restarted = tmp_path / "restarted"
+    restart_code = (
+        "import importlib.util;from pathlib import Path;"
+        f"spec=importlib.util.spec_from_file_location('custody',"
+        f"{str(Path(maintenance.__file__).resolve())!r});"
+        "custody=importlib.util.module_from_spec(spec);"
+        "spec.loader.exec_module(custody);"
+        f"custody.check_admission(Path({str(site)!r}));"
+        f"Path({str(restarted)!r}).write_text('admitted')"
+    )
+    operation = {
+        "id": directory.name,
+        "approved": True,
+        "capability": "a" * 64,
+        "dependency_context": context.to_mapping(),
+        "dependency_policy": {
+            "path": str(active.resolve()),
+            "sha256": contexts._digest(policy),
+        },
+        "payload": {"sites": [str(site)]},
+        "restart": {
+            "command": [sys.executable, "-I", "-B", "-S", "-c", restart_code],
+            "cwd": str(tmp_path),
+        },
+    }
+    marker = maintenance.marker(site)
+    repair = maintenance.repair_marker(site)
+    # A matching operation id alone cannot authorize clearing another token.
+    foreign = {"id": operation["id"], "token_hash": "b" * 64}
+
+    def stale_preflight(_directory, _operation, *, preflight=False):
+        assert preflight and maintenance.authorized(site)
+        assert not (directory / "journal.json").exists()
+        assert _inventory(site) == before
+        if fault == "foreign_marker":
+            marker.write_text(json.dumps(foreign))
+        elif fault == "repair":
+            repair.write_text("independent repair required")
+        raise RuntimeError("DEPENDENCY_PLAN_STALE: injected preflight refusal")
+
+    # Observe actual restarts; keep the real subprocess and admission behavior.
+    original_popen, launches = subprocess.Popen, []
+
+    def observed_restart(*args, **kwargs):
+        process = original_popen(*args, **kwargs)
+        launches.append(process)
+        return process
+
+    monkeypatch.setenv("QWENPAW_DEPENDENCY_MAINTENANCE", "")
+    monkeypatch.setattr(worker, "_continue", stale_preflight)
+    monkeypatch.setattr(subprocess, "Popen", observed_restart)
+    try:
+        with contexts.dependency_policy_operation(
+            operation["dependency_policy"],
+            context,
+        ):
+            result = worker._run(
+                directory,
+                maintenance,
+                transaction,
+                operation,
+            )
+    finally:
+        for process in launches:
+            process.wait()
+    assert result == 1
+    assert not (directory / "journal.json").exists()
+    assert _inventory(site) == before
+    monkeypatch.setenv("QWENPAW_DEPENDENCY_MAINTENANCE", "")
+    if fault == "stale":
+        assert operation["error"]["code"] == "DEPENDENCY_PLAN_STALE"
+        assert operation["retryable"] is True
+        assert not marker.exists() and not repair.exists()
+        maintenance.check_admission(site)
+        assert len(launches) == 1 and launches[0].returncode == 0
+        assert restarted.read_text() == "admitted"
+    else:
+        assert operation["error"]["code"] == "DEPENDENCY_REPAIR_REQUIRED"
+        assert operation["retryable"] is False
+        assert not launches and not restarted.exists()
+        if fault == "foreign_marker":
+            assert marker.read_text() == json.dumps(foreign)
+        else:
+            assert repair.read_text() == "independent repair required"
+        with pytest.raises(RuntimeError, match="DEPENDENCY_.*REQUIRED"):
+            maintenance.check_admission(site)
+    # Remove only fixture control files after verifying their preservation.
+    marker.unlink(missing_ok=True)
+    repair.unlink(missing_ok=True)
 
 
 @pytest.mark.parametrize("placement", ["batch", "target", "sibling"])
@@ -1167,6 +1579,50 @@ def test_policy_change_blocks_verify_and_publish(tmp_path, dependency_files):
             write(files.directory, operation)
         assert _inventory(tmp_path) == before
         assert not maintenance.repair_marker(files.site).exists()
+
+
+def test_dependency_policy_is_signed_without_rewriting_legacy_plans(tmp_path):
+    import hashlib
+    import hmac
+    import json
+
+    from qwenpaw.plugins.dependency_transaction import (
+        _PLAN_FIELDS,
+        authenticate_plan,
+    )
+
+    directory = tmp_path / "operations/reviewed"
+    directory.mkdir(parents=True)
+    operation = {field: None for field in _PLAN_FIELDS}
+    operation.pop("dependency_policy", None)
+    operation["id"] = directory.name
+    key = b"historical-plan-key"
+    (directory.parent / ".key").write_bytes(key)
+    operation["signature"] = hmac.new(
+        key,
+        json.dumps(operation, sort_keys=True).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    authenticate_plan(directory, operation)
+
+    operation["dependency_policy"] = {
+        "path": str(tmp_path / "active.json"),
+        "sha256": "a" * 64,
+    }
+    authenticate_plan(directory, operation, seal=True)
+    sealed = dict(operation)
+    for changed in (
+        {"path": str(tmp_path / "other.json"), "sha256": "a" * 64},
+        {"path": str(tmp_path / "active.json"), "sha256": "b" * 64},
+        None,
+    ):
+        operation = dict(sealed)
+        if changed is None:
+            operation.pop("dependency_policy")
+        else:
+            operation["dependency_policy"] = changed
+        with pytest.raises(RuntimeError, match="DEPENDENCY_PLAN_STALE"):
+            authenticate_plan(directory, operation)
 
 
 @pytest.mark.parametrize("scripts", ["bin", "Scripts"])

@@ -429,8 +429,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
     def _dependency_environment(self, snapshot=None):
         """Select host installation policy independently of plugin kind."""
         from .dependency_context import DependencyEnvironmentContext
+        from .dependency_context import selected_dependency_environment
         from .execution.environment import shared_dependency_paths
 
+        selected = selected_dependency_environment()
+        if selected is not None:
+            return selected
         if _is_frozen():
             from .channel_bootstrap import resolve_default_channel_runtime
 
@@ -1074,13 +1078,43 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             from .dependency_usage import DependencyDeclaration
 
             def inspect_requirements():
+                parsed = parse_requirements_file(requirements_file)
+                selected_audit_root = audit_root
+                audit_requirements = requirements_file.resolve()
+                if (
+                    context.immutable_roots
+                    and context.runtime_identity is None
+                ):
+                    selected_audit_root = Path(
+                        cleanup.enter_context(
+                            tempfile.TemporaryDirectory(
+                                prefix="qwenpaw-managed-audit-",
+                            ),
+                        ),
+                    )
+                    audit_requirements = (
+                        selected_audit_root / "requirements.txt"
+                    )
+                    # Installer directives stay in the original resolver input;
+                    # the existing worker protocol carries only requirements.
+                    audit_requirements.write_text(
+                        "\n".join(str(item) for item in parsed.requirements)
+                        + "\n",
+                        encoding="utf-8",
+                    )
                 return (
-                    _hash_code_root(audit_root),
-                    requirements_file.resolve(),
-                    parse_requirements_file(requirements_file),
+                    selected_audit_root,
+                    _hash_code_root(selected_audit_root),
+                    audit_requirements,
+                    parsed,
                 )
 
-            revision, requirements_path, requirements = await run_sync_io(
+            (
+                audit_root,
+                revision,
+                requirements_path,
+                requirements,
+            ) = await run_sync_io(
                 inspect_requirements,
             )
             spec = PluginLaunchSpec(
@@ -1204,7 +1238,9 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     requirements_file,
                     source_path=root,
                     wheel_tags=wheel_tags,
-                    dependency_context=context if frozen else None,
+                    dependency_context=(
+                        context if context.immutable_roots else None
+                    ),
                 )
             if frozen:
                 await self._publish_dependency_site(
@@ -1344,14 +1380,27 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     encoding="utf-8",
                 )
 
-            if not await run_sync_io(
-                require_pip,
-                spec.python_executable,
-                isolated=True,
-            ):
+            managed = (
+                dependency_context is not None
+                and dependency_context.runtime_identity is None
+                and bool(dependency_context.immutable_roots)
+            )
+            pip_present = (
+                await run_sync_io(dependency_context.require_pip)
+                if managed
+                else await run_sync_io(
+                    require_pip,
+                    spec.python_executable,
+                    isolated=True,
+                )
+            )
+            if not pip_present:
                 if _is_frozen() or (
                     dependency_context is not None
-                    and dependency_context.runtime_identity is not None
+                    and (
+                        dependency_context.runtime_identity is not None
+                        or managed
+                    )
                 ):
                     logger.info(
                         "Dependency installer unavailable: plugin=%s "
@@ -1404,6 +1453,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 "-r",
                 str(resolver),
             ]
+            if managed:
+                command = dependency_context.pip_command(*command[5:])
             result = await run(command)
             if result.returncode:
                 unpinned = command.copy()

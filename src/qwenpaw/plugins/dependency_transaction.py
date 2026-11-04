@@ -41,11 +41,22 @@ _PLAN_FIELDS = (
     "continuation_command",
     "host_bundle_identity",
     "dependency_state_dir",
+    "dependency_policy",
 )
 
 
 def authenticate_plan(directory, operation, *, seal=False):
     """Bind the reviewed plan to the server's private operation namespace."""
+    context = operation.get("dependency_context") or {}
+    if (
+        context.get("immutable_roots")
+        and context.get("runtime_identity") is None
+    ):
+        policy = operation.get("dependency_policy")
+        if not isinstance(policy, dict) or set(policy) != {"path", "sha256"}:
+            raise RuntimeError(
+                "DEPENDENCY_PLAN_STALE: missing dependency policy.",
+            )
     key_path = directory.parent / ".key"
     if seal and not key_path.exists():
         try:
@@ -75,6 +86,7 @@ def authenticate_plan(directory, operation, *, seal=False):
                 "continuation_command",
                 "host_bundle_identity",
                 "dependency_state_dir",
+                "dependency_policy",
             }
         },
         sort_keys=True,
@@ -270,12 +282,14 @@ def dependency_site_is_mutable(site, prefix, managed_root, context=None):
     site, prefix = canonical(site), canonical(prefix)
     if _immutable_path(site, context):
         return False
+    target = (context or {}).get("install_target")
+    if (context or {}).get("immutable_roots") and target is not None:
+        return site.parts == canonical(target).parts
     if contains_environment_path(prefix, site):
         return (
             not (prefix / "conda-meta").exists()
             and (prefix / "pyvenv.cfg").is_file()
         )
-    target = (context or {}).get("install_target")
     return contains_environment_path(managed_root, site) or (
         target is not None and site.parts == canonical(target).parts
     )
@@ -293,6 +307,11 @@ def _distribution_file_in_scope(path, site, prefix, context=None):
     path, site, prefix = map(canonical, (path, site, prefix))
     if _immutable_path(path, context):
         return False
+    if (context or {}).get("immutable_roots") and (context or {}).get(
+        "install_target",
+    ) is not None:
+        if site.parts != canonical(context["install_target"]).parts:
+            return False
     return contains_environment_path(site, path) or (
         contains_environment_path(prefix, site)
         and (prefix / "pyvenv.cfg").is_file()
@@ -1075,6 +1094,19 @@ def _reconcile_pending_commit(directory, operation):
 
 
 async def apply_operation(manager, operation_id):
+    from .dependency_context import dependency_policy_operation
+    from .install_lock import async_lock
+    from ..utils.io_utils import run_sync_io
+
+    operation = await run_sync_io(manager._read, operation_id)
+    binding = operation.get("dependency_policy")
+    if binding is None:
+        return await _apply_operation(manager, operation_id)
+    async with async_lock(dependency_policy_operation(binding)):
+        return await _apply_operation(manager, operation_id)
+
+
+async def _apply_operation(manager, operation_id):
     """Stop exact consumers, replace bytes, verify, and resume installation."""
     import asyncio
     from .dependency_maintenance import maintenance_barrier, capability_context

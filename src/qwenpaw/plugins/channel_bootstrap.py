@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-from functools import lru_cache
 import json
 import os
 import platform
@@ -14,6 +13,7 @@ import sys
 from packaging.tags import parse_tag
 
 from .channel_adapter import ChannelRuntimeSettings
+from .dependency_context import dependency_metadata_identity
 
 
 def _resource_path(root, value):
@@ -184,42 +184,6 @@ def default_channel_preset():
     return preset
 
 
-@lru_cache(maxsize=8)
-def _bundle_dependency_fingerprint(identity, metadata):
-    """Cache metadata reads by file stat; paths never enter the digest."""
-    contents = [
-        (label, hashlib.sha256(path.read_bytes()).hexdigest())
-        for label, path, *_stat in metadata
-    ]
-    return hashlib.sha256(
-        json.dumps([identity, contents], separators=(",", ":")).encode(),
-    ).hexdigest()
-
-
-def dependency_metadata_identity(sites, identity):
-    """Fingerprint immutable metadata with stable site-relative labels."""
-    metadata = []
-    for index, site in enumerate(sites):
-        for distribution in sorted(site.glob("*.dist-info")):
-            for name in ("METADATA", "RECORD", "WHEEL"):
-                path = distribution / name
-                if not path.is_file():
-                    continue
-                if not path.resolve().is_relative_to(site):
-                    raise ValueError("CHANNEL_RUNTIME_MANIFEST_INVALID")
-                stat = path.stat()
-                metadata.append(
-                    (
-                        f"{index}/{path.relative_to(site).as_posix()}",
-                        path,
-                        stat.st_mtime_ns,
-                        stat.st_ctime_ns,
-                        stat.st_size,
-                    ),
-                )
-    return _bundle_dependency_fingerprint(identity, tuple(metadata))
-
-
 def plugin_runtime_site(runtime_root: Path, runtime=None) -> Path:
     """Share an ABI site, isolated by bundled wheel identity on desktop."""
     if runtime is None and getattr(sys, "frozen", False):
@@ -273,7 +237,15 @@ def resolve_default_channel_runtime(*, provision=True):
     )
 
     runtime = None
-    if getattr(sys, "frozen", False):
+    from .dependency_context import selected_dependency_environment
+
+    managed = selected_dependency_environment()
+    if managed is not None:
+        executable = Path(managed.python_executable)
+        support = managed.support_root
+        sites = managed.dependency_paths
+        identity = None
+    elif getattr(sys, "frozen", False):
         runtime = runtime_manifest()
         executable, support, sites, identity, _preset = runtime
     else:
@@ -297,9 +269,13 @@ def resolve_default_channel_runtime(*, provision=True):
         else {}
     )
     send_timeouts = (data or {}).get("channel_send_timeouts", {})
-    target = plugin_runtime_site(
-        config_path.parent / "plugin_runtime",
-        runtime,
+    target = (
+        managed.install_target
+        if managed is not None
+        else plugin_runtime_site(
+            config_path.parent / "plugin_runtime",
+            runtime,
+        )
     )
     from .dependency_maintenance import canonical, contains_environment_path
 
@@ -307,12 +283,16 @@ def resolve_default_channel_runtime(*, provision=True):
         if target.is_symlink():
             raise ValueError("CHANNEL_RUNTIME_TARGET_INVALID")
         resolved = canonical(target)
-        if any(contains_environment_path(site, resolved) for site in sites):
+        if any(
+            contains_environment_path(site, resolved)
+            for site in sites
+            if managed is None or site != managed.install_target
+        ):
             raise ValueError("CHANNEL_RUNTIME_TARGET_INVALID")
         return resolved
 
     selected = validate_target()
-    if provision:
+    if provision and managed is None:
         target.mkdir(parents=True, exist_ok=True)
         selected = validate_target()
         with plugin_install_lock(environment_install_lock_path(selected)):

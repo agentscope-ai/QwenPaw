@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for persisted environment overrides."""
+
 # pylint: disable=protected-access,redefined-outer-name
 
 from __future__ import annotations
@@ -85,6 +86,7 @@ def test_missing_store_stays_sparse(isolated_store) -> None:
         "QWENPAW_HUB_MODEL_TOKEN",
         "HOME",
         "QWENPAW_DEPENDENCY_STATE_DIR",
+        "QWENPAW_DEPENDENCY_ENVIRONMENT",
     ],
 )
 def test_managed_runtime_rejects_persisted_control_overrides(
@@ -99,7 +101,10 @@ def test_managed_runtime_rejects_persisted_control_overrides(
     before = store.os.environ.get(key)
     store.load_envs_into_environ()
     assert store.os.environ.get(key) == before
-    if key == "QWENPAW_DEPENDENCY_STATE_DIR":
+    if key in {
+        "QWENPAW_DEPENDENCY_STATE_DIR",
+        "QWENPAW_DEPENDENCY_ENVIRONMENT",
+    }:
         monkeypatch.delenv("QWENPAW_RUNTIME_ID")
         with pytest.raises(ValueError, match="managed"):
             store.update_env_vars({key: "changed"})

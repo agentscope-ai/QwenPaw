@@ -566,6 +566,8 @@ class DependencyUpgradeManager:
         consumers,
         requirements_path,
         context=None,
+        *,
+        host_requirements=(),
     ):
         from packaging.requirements import Requirement
 
@@ -627,6 +629,7 @@ class DependencyUpgradeManager:
         # Resolve host dependencies without acquiring a new QwenPaw wheel.
         resolver.write_text(
             "".join(str(value) + "\n" for value in requirements)
+            + "".join(value + "\n" for value in host_requirements)
             + "".join(
                 value + "\n"
                 for consumer in consumers
@@ -686,6 +689,12 @@ class DependencyUpgradeManager:
             "-r",
             str(requirements_path),
         ]
+        if (
+            context is not None
+            and context.immutable_roots
+            and context.runtime_identity is None
+        ):
+            command = context.pip_command(*command[5:])
         return fingerprint, command
 
     @classmethod
@@ -883,7 +892,16 @@ class DependencyUpgradeManager:
                 binding.description.requirements_path,
                 context,
             )
-            if not await run_sync_io(require_pip, command[0], isolated=True):
+            managed = (
+                bool(context.immutable_roots)
+                and context.runtime_identity is None
+            )
+            pip_present = (
+                await run_sync_io(context.require_pip)
+                if managed
+                else await run_sync_io(require_pip, command[0], isolated=True)
+            )
+            if not pip_present:
                 _refuse(
                     "DEPENDENCY_INSTALLER_UNAVAILABLE",
                     "pip is missing from the selected dependency environment.",
@@ -984,6 +1002,10 @@ class DependencyUpgradeManager:
                 "dependency_context": context.to_mapping(),
                 "approved": False,
             }
+            from .dependency_context import selected_dependency_policy
+
+            if policy := selected_dependency_policy():
+                operation["dependency_policy"] = policy
             await run_sync_io(self._seal_operation, directory, operation)
             return self._public(operation)
         except BaseException as exc:
@@ -1018,6 +1040,8 @@ def retain_maintenance_assets(directory, operation, runtime):
         "dependency_worker.py",
         "dependency_transaction.py",
         "dependency_maintenance.py",
+        "dependency_context.py",
+        "execution/process_tree.py",
     )
     assets = next(
         (
@@ -1038,6 +1062,7 @@ def retain_maintenance_assets(directory, operation, runtime):
     worker = directory / "worker"
     worker.mkdir(exist_ok=True)
     for name in names:
+        (worker / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(assets / name, worker / name)
     executable = (
         context["python_executable"]
@@ -1276,3 +1301,129 @@ async def continue_operation(directory, *, preflight=False):
             raise RuntimeError(
                 "DEPENDENCY_REPAIR_REQUIRED: continuation child cleanup failed.",
             )
+
+
+async def prepare_environment_dependencies(
+    context,
+    requirements,
+    directory,
+    *,
+    index_urls=(),
+):
+    """Prepare a fresh candidate with the existing resolver and wheel writer."""
+    import subprocess
+    import shlex
+    from .dependency_gate import GateDecision, _publish_additions
+    from .execution import PluginLaunchSpec, PluginProcess
+    from .execution.bootstrap import _hash_code_root
+    from .install_lock import environment_observation
+
+    audit_root = directory / "audit"
+    audit_root.mkdir()
+    requirements_file = audit_root / "candidate-requirements.txt"
+    requirements_file.write_text(
+        "\n".join(requirements) + "\n",
+        encoding="utf-8",
+    )
+    spec = PluginLaunchSpec(
+        python_executable=context.python_executable,
+        support_root=context.support_root,
+        code_root=audit_root,
+        source_revision=_hash_code_root(audit_root),
+        plugin_id="dependency-environment",
+        instance_id="candidate-audit",
+        generation=1,
+        entrypoint="_dependency_audit:Driver",
+        config={},
+        requirements_path=requirements_file,
+        dependency_paths=context.dependency_paths,
+        startup_timeout=30,
+    )
+    process = PluginProcess()
+
+    async def audit():
+        return (await process.audit(spec)).snapshot
+
+    async def evaluate(snapshot):
+        DependencyUpgradeManager._compatible(
+            requirements,
+            snapshot.distributions,
+            snapshot.marker_environment,
+        )
+        return GateDecision(
+            False,
+            True,
+            reason="candidate requirements satisfied",
+        )
+
+    snapshot = await audit()
+    try:
+        await evaluate(snapshot)
+        return snapshot
+    except SharedDependencyError:
+        pass
+    # qwenpaw itself is supplied by the immutable base. Resolve its actual
+    # metadata requirements without asking pip to download a new host wheel.
+    from packaging.requirements import Requirement
+
+    resolution_requirements = [
+        value
+        for value in requirements
+        if canonicalize_name(Requirement(value).name) != "qwenpaw"
+    ]
+    resolution_file = directory / "plugin-resolution.txt"
+    resolution_file.write_text(
+        "".join("--index-url " + shlex.quote(url) + "\n" for url in index_urls)
+        + "\n".join(resolution_requirements)
+        + "\n",
+        encoding="utf-8",
+    )
+    _, command = await run_sync_io(
+        DependencyUpgradeManager._prepare_resolution,
+        directory,
+        snapshot,
+        resolution_requirements,
+        (),
+        resolution_file,
+        context,
+        host_requirements=snapshot.distributions["qwenpaw"]["requires_dist"],
+    )
+    # The existing resolver command carries the context's clean pip startup.
+    await run_sync_io(context.require_pip)
+    result = await run_sync_io(
+        subprocess.run,
+        command,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        timeout=300,
+    )
+    if result.returncode:
+        raise RuntimeError(
+            "DEPENDENCY_PLAN_UNVERIFIED: candidate dependency resolution failed.",
+        )
+    additions = tuple(
+        WheelAddition(path, hashlib.sha256(path.read_bytes()).hexdigest())
+        for path in sorted((directory / "wheels").glob("*.whl"))
+        if str(parse_wheel_filename(path.name)[0])
+        not in snapshot.distributions
+    )
+    async with environment_observation(context.dependency_paths):
+        fresh = await audit()
+        if fresh != snapshot:
+            raise RuntimeError(
+                "DEPENDENCY_PLAN_STALE: candidate changed during resolution.",
+            )
+        files, proposed = await run_sync_io(
+            validate_additions,
+            additions,
+            snapshot,
+            context.install_target,
+        )
+        await evaluate(proposed)
+        return await _publish_additions(
+            audit,
+            evaluate,
+            context.install_target,
+            files,
+        )

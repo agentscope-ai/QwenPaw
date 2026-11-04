@@ -8,7 +8,18 @@ import time
 from .plugins import dependency_maintenance as _environment_custody
 
 _environment_custody.state_root()
-_environment_custody.lease_environment(_environment_custody.host_sites())
+if os.environ.get("QWENPAW_DEPENDENCY_ENVIRONMENT"):
+    from .plugins.dependency_context import prepare_startup_environment
+
+    with prepare_startup_environment() as _dependency_environment:
+        _environment_custody.lease_environment(
+            (
+                *_dependency_environment.dependency_paths,
+                *_environment_custody.host_sites(),
+            ),
+        )
+else:
+    _environment_custody.lease_environment(_environment_custody.host_sites())
 
 # These imports must follow environment custody acquisition.
 from . import _compat as _compat_bootstrap  # noqa: E402

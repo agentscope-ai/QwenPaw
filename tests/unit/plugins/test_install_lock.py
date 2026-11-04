@@ -74,6 +74,123 @@ def _lock_primitive_name() -> str:
     return "locking" if os.name == "nt" else "flock"
 
 
+@pytest.mark.asyncio
+async def test_dependency_policy_lock_survives_atomic_generation_change(
+    tmp_path,
+    monkeypatch,
+):
+    import asyncio
+    from contextlib import ExitStack
+    import json
+    import sys
+
+    from qwenpaw.plugins import dependency_context as contexts
+    from qwenpaw.plugins import dependency_maintenance as maintenance
+
+    base = tmp_path / "base"
+    base.mkdir()
+    active = tmp_path / "active.json"
+    policy = {
+        "base_id": "immutable-base",
+        "base_sites": [str(base)],
+        "overlay_root": str(tmp_path / "overlay"),
+        "legacy_sites": [],
+        "generation": "generation-a",
+    }
+    active.write_text(json.dumps(policy))
+    selected = contexts.context_for_policy(policy)
+    selected.install_target.mkdir(parents=True)
+    (selected.install_target.parent / "prepared.json").write_text(
+        json.dumps(
+            {
+                "policy_sha256": contexts._digest(policy),
+                "dependency_context": selected.to_mapping(),
+                "active_policy_path": str(active.resolve()),
+            },
+        ),
+    )
+    monkeypatch.setattr(contexts, "_SELECTED_ENVIRONMENT", None)
+    monkeypatch.setattr(contexts, "_SELECTED_POLICY", None)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setenv("QWENPAW_DEPENDENCY_ENVIRONMENT", str(active))
+    alias = tmp_path / "alias"
+    alias.symlink_to(tmp_path, target_is_directory=True)
+    source = str(Path(lock_mod.__file__).resolve().parents[2])
+    script = (
+        f"import sys\nsys.path.insert(0, {source!r})\n"
+        + """
+import json
+from pathlib import Path
+from qwenpaw.plugins import dependency_maintenance as maintenance
+from qwenpaw.plugins.dependency_context import dependency_policy_lock
+original = maintenance._try_lock
+observed = False
+def barrier(fd):
+    global observed
+    acquired = original(fd)
+    if not acquired and not observed:
+        observed = True
+        print('blocked', flush=True)
+        sys.stdin.readline()
+    return acquired
+maintenance._try_lock = barrier
+with dependency_policy_lock(sys.argv[1]) as path:
+    print(json.loads(Path(path).read_text())['generation'], flush=True)
+    try:
+        with maintenance.maintenance([sys.argv[2]], 'switch', 'capability'):
+            raise AssertionError('startup reader was ignored')
+    except RuntimeError as error:
+        print(str(error).split(':')[0], flush=True)
+"""
+    )
+    peer = None
+    readers = ExitStack()
+    try:
+        with contexts.prepare_startup_environment() as context:
+            peer = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-I",
+                "-c",
+                script,
+                str(alias / active.name),
+                str(context.install_target),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "QWENPAW_DEPENDENCY_ENVIRONMENT": ""},
+            )
+            assert (
+                await asyncio.wait_for(peer.stdout.readline(), 5)
+                == b"blocked\n"
+            )
+            # Acquire real reader custody before startup releases the policy.
+            readers.enter_context(
+                maintenance.observation_readers([context.install_target]),
+            )
+            replacement = tmp_path / "replacement.json"
+            replacement.write_text(
+                json.dumps({**policy, "generation": "generation-b"}),
+            )
+            os.replace(replacement, active)
+            assert peer.returncode is None
+            peer.stdin.write(b"continue\n")
+            await peer.stdin.drain()
+        assert (
+            await asyncio.wait_for(peer.stdout.readline(), 5)
+            == b"generation-b\n"
+        )
+        assert (
+            await asyncio.wait_for(peer.stdout.readline(), 5)
+            == b"DEPENDENCY_ENVIRONMENT_BUSY\n"
+        )
+        assert await asyncio.wait_for(peer.wait(), 5) == 0
+    finally:
+        if peer is not None and peer.returncode is None:
+            peer.kill()
+            await peer.wait()
+        readers.close()
+
+
 class TestAcquireRelease:
     def test_acquire_reraises_unexpected_os_error(self, monkeypatch, tmp_path):
         """EACCES/EAGAIN mean 'busy'; anything else must propagate."""

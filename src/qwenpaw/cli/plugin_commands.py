@@ -413,6 +413,102 @@ def plugin():
     """Plugin management commands."""
 
 
+@plugin.group("dependency-environment")
+def dependency_environment():
+    """Prepare or switch an explicitly managed dependency generation offline."""
+
+
+@dependency_environment.command("prepare")
+@click.argument("policy", type=click.Path(path_type=Path, exists=True))
+@click.option(
+    "--active-policy",
+    required=True,
+    type=click.Path(path_type=Path),
+)
+@click.option("--requirements", type=click.Path(path_type=Path, exists=True))
+@click.option(
+    "--plugin-dir",
+    multiple=True,
+    type=click.Path(path_type=Path, exists=True),
+)
+def dependency_environment_prepare(
+    policy,
+    active_policy,
+    requirements,
+    plugin_dir,
+):
+    from ..plugins.dependency_environment import prepare_environment
+
+    try:
+        click.echo(
+            prepare_environment(
+                policy.absolute(),
+                active_policy_path=active_policy.absolute(),
+                extra_requirements=requirements,
+                plugin_dirs=plugin_dir or None,
+            ),
+        )
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _environment_offline_command(action, active_policy, report=None):
+    import shlex
+    import sys
+    from ..plugins import dependency_environment as coordinator
+
+    command = [
+        sys.executable,
+        "-I",
+        "-B",
+        "-S",
+        str(Path(coordinator.__file__).resolve()),
+        action,
+    ]
+    if report is not None:
+        command.append(str(report.absolute()))
+    command.extend(["--active-policy", str(active_policy.absolute())])
+    if action in {"activate", "restore-previous"}:
+        command.append("--consumers-stopped")
+    click.echo(
+        "Stop this host and all consumers through their service manager; then run:",
+    )
+    click.echo(shlex.join(command))
+
+
+@dependency_environment.command("activate")
+@click.argument("report", type=click.Path(path_type=Path, exists=True))
+@click.option(
+    "--active-policy",
+    required=True,
+    type=click.Path(path_type=Path),
+)
+def dependency_environment_activate(report, active_policy):
+    # This imported CLI already owns host reader leases. It must exit rather
+    # than wait for a maintenance child that its own leases would obstruct.
+    _environment_offline_command("activate", active_policy, report)
+
+
+@dependency_environment.command("recover")
+@click.option(
+    "--active-policy",
+    required=True,
+    type=click.Path(path_type=Path),
+)
+def dependency_environment_recover(active_policy):
+    _environment_offline_command("recover", active_policy)
+
+
+@dependency_environment.command("restore-previous")
+@click.option(
+    "--active-policy",
+    required=True,
+    type=click.Path(path_type=Path),
+)
+def dependency_environment_restore_previous(active_policy):
+    _environment_offline_command("restore-previous", active_policy)
+
+
 @plugin.group()
 def preset():
     """Choose dormant bundled channel sources for this working directory."""
