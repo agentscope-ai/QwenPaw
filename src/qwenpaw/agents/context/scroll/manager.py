@@ -20,6 +20,7 @@ import asyncio
 import inspect
 import json
 import logging
+import math
 import sqlite3
 import time
 import weakref
@@ -173,6 +174,11 @@ class ScrollContextManager:
         }
         # Warn once per overflow episode, not once per reasoning step.
         self._overflow_warned = False
+        # Transient correction after an authoritative provider rejection.
+        # (local estimate before recovery, conservative recovery baseline).
+        self._token_estimate_anchor: tuple[int, int] | None = None
+        self._token_estimate_model = None
+        self._token_estimate_context_size = None
 
     @staticmethod
     def should_compress(tokens: float, trigger: float) -> bool:
@@ -401,6 +407,26 @@ class ScrollContextManager:
 
         self._apply_folded_thinking_filter(agent)
         before = await self._live_tokens(agent)
+        target = base_config.trigger_ratio * agent.model.context_size
+        # A rejected request cannot be trusted to be below the trigger.
+        # Keep the discrepancy so reclaimed tokens are subtracted from this
+        # conservative baseline, and subsequent growth retains the margin.
+        previous_margin = (
+            self._token_estimate_anchor[1] - self._token_estimate_anchor[0]
+            if self._token_estimate_anchor is not None
+            else 0
+        )
+        baseline = max(before, math.ceil(target))
+        self._token_estimate_anchor = (before - previous_margin, baseline)
+        margin = baseline - before
+        if margin:
+            logger.warning(
+                "scroll: provider rejected locally underestimated input; "
+                "raising recovery baseline from %d to %d tokens",
+                before,
+                before + margin,
+            )
+        before = baseline
         await self.compress(agent, forced_config)
         # A provider rejection is authoritative even when local visual-token
         # estimates are below the hard limit. Reuse result folding, without
@@ -431,7 +457,6 @@ class ScrollContextManager:
         if not changed:
             return False
         after = await self._live_tokens(agent)
-        target = base_config.trigger_ratio * agent.model.context_size
         # Eviction counts do not prove that the provider request shrank.
         # Require restored headroom before retrying a rejected request.
         if after >= before or after > target:
@@ -526,7 +551,7 @@ class ScrollContextManager:
             mark("persist")
             kwargs = await as_internals.prepare_model_input(agent)
             mark("prepare_input")
-            tokens = await as_internals.count_model_input_tokens(agent, kwargs)
+            tokens = await self._count_input_tokens(agent, kwargs)
             mark("count_tokens")
             if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
@@ -544,7 +569,7 @@ class ScrollContextManager:
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
-        tokens = await as_internals.count_model_input_tokens(agent, kwargs)
+        tokens = await self._count_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
@@ -604,15 +629,15 @@ class ScrollContextManager:
                     tokens=tokens,
                     source_refs=refs,
                 )
-                if result.changed and result.tokens_after <= trigger:
-                    self._overflow_warned = False
-                    log_timings("decision_compaction_below_trigger")
-                    return
                 tokens = (
-                    result.tokens_after
+                    self._adjust_token_estimate(result.tokens_after)
                     if result.changed
                     else await self._live_tokens(agent)
                 )
+                if result.changed and tokens <= trigger:
+                    self._overflow_warned = False
+                    log_timings("decision_compaction_below_trigger")
+                    return
             pre_folded, tokens = await self._batch_fold_completed_tool_results(
                 agent,
                 tokens=tokens,
@@ -1541,11 +1566,31 @@ class ScrollContextManager:
         self._summary_update_failed = False
 
     async def _live_tokens(self, agent: Any) -> int:
-        """Token count of the live context as the model would receive it."""
-        return await as_internals.count_model_input_tokens(
+        """Estimate live input tokens, retaining provider-rejection margin."""
+        return await self._count_input_tokens(
             agent,
             await as_internals.prepare_model_input(agent),
         )
+
+    async def _count_input_tokens(self, agent: Any, kwargs: dict) -> int:
+        if (
+            self._token_estimate_model is not agent.model
+            or self._token_estimate_context_size != agent.model.context_size
+        ):
+            self._token_estimate_anchor = None
+            self._token_estimate_model = agent.model
+            self._token_estimate_context_size = agent.model.context_size
+        tokens = await as_internals.count_model_input_tokens(agent, kwargs)
+        return self._adjust_token_estimate(tokens)
+
+    def _adjust_token_estimate(self, current_estimate: int) -> int:
+        if self._token_estimate_anchor is None:
+            return current_estimate
+        before, baseline = self._token_estimate_anchor
+        # Measure net savings over the complete request, including replacement
+        # summaries/pointers. Negative savings account for subsequent growth.
+        reclaimed = before - current_estimate
+        return max(current_estimate, baseline - reclaimed)
 
     @staticmethod
     def _block_type(block: Any) -> str | None:

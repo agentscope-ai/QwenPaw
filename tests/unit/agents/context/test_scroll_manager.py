@@ -1649,6 +1649,33 @@ async def test_overflow_recovery_forces_compaction_and_reports_change(
     assert agent.context_config.trigger_ratio == pytest.approx(0.8)
 
 
+@pytest.mark.parametrize(
+    ("before", "remaining", "grown"),
+    [(600, 400, 850), (900, 200, 650)],
+)
+async def test_overflow_recovery_preserves_conservative_token_baseline(
+    store: HistoryStore,
+    before: int,
+    remaining: int,
+    grown: int,
+):
+    mgr = make_manager(store)
+    agent = FakeAgent([user("current")], tokens=[before, 200, 200, 650])
+    agent.context_config = _CopyableScrollConfig()
+
+    async def fake_compress(actual_agent, context_config):
+        mgr.last_compress["folded"] = 1
+
+    mgr.compress = AsyncMock(side_effect=fake_compress)
+    assert await mgr.recover_from_context_overflow(agent)
+    # Use the larger of the current estimate and trigger minus net savings;
+    # retain any correction for later growth, but reset it on a model change.
+    assert await mgr._live_tokens(agent) == remaining
+    assert await mgr._live_tokens(agent) == grown
+    agent.model.context_size = 2000
+    assert await mgr._live_tokens(agent) == 650
+
+
 async def test_fold_not_triggered_between_reserve_and_trigger(
     store: HistoryStore,
 ):
